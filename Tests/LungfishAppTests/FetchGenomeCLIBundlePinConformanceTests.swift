@@ -45,31 +45,8 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         defer { TestTempDirectory.cleanup(root) }
         let served = root.appendingPathComponent("served", isDirectory: true)
         let output = root.appendingPathComponent("out", isDirectory: true)
-        try FileManager.default.createDirectory(at: served, withIntermediateDirectories: true)
-
-        let folder = NCBIDownloadPinFixtures.assemblyFTPPath + "/" + NCBIDownloadPinFixtures.assemblyDirectory
-        let routes: [String: LoopbackHTTPResponse] = [
-            folder + "_genomic.fna.gz": try await gzipped(NCBIDownloadPinFixtures.assemblyFASTA, as: "genomic.fna", in: served),
-            folder + "_genomic.gff.gz": try await gzipped(NCBIDownloadPinFixtures.assemblyGFF3, as: "genomic.gff", in: served),
-            "/entrez/eutils/esearch.fcgi": .text(NCBIDownloadPinFixtures.assemblyESearchJSON),
-        ]
-        let summaryHolder = SummaryHolder()
-        let server = try LoopbackHTTPStandIn.start { request in
-            switch request.path {
-            case "/entrez/eutils/esummary.fcgi":
-                return .text(summaryHolder.json)
-            case "/entrez/eutils/efetch.fcgi":
-                switch request.queryItems.first(where: { $0.name == "rettype" })?.value {
-                case "fasta": return .text(NCBIDownloadPinFixtures.genBankFASTA)
-                case "gff3": return .text(NCBIDownloadPinFixtures.genBankGFF3)
-                default: return .notFound
-                }
-            default:
-                return routes[request.path] ?? .notFound
-            }
-        }
+        let server = try await NCBIGenomeStandIn.start(servingIn: served)
         defer { server.stop() }
-        summaryHolder.json = try NCBIDownloadPinFixtures.assemblyESummaryJSON(ftpBase: server.baseURL.absoluteString)
 
         let saved = ProcessEnvironmentOverride(
             set: [NCBIServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString],
@@ -81,10 +58,11 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         let bundles = try FileManager.default.contentsOfDirectory(atPath: output.path).sorted()
         XCTAssertEqual(bundles.count, 1, "\(bundles)", file: file, line: line)
         let bundle = output.appendingPathComponent(try XCTUnwrap(bundles.first))
-        // Today's nucleotide record names the leaf's scratch folders in the system temporary folder
-        // (`.lungfish-temp-<UUID>` and NativeBundleBuilder's `.<name>.building-<UUID>`), which the
-        // run deletes, so the temporary folder and every UUID are masked here. The move onto the
-        // download builders drops that false fact.
+        // Since lane A44 M2 the leaf builds through the download builders, so the assembly bundle
+        // is named `<organism> - <assembly name>` and carries the record of what was fetched, and
+        // the nucleotide bundle is the GenBank download's, with its record. No record names a
+        // scratch folder now. The temporary folder and UUIDs stay masked for the builders' own
+        // scratch names.
         var snapshot = try await DownloadedBundleSnapshot.text(
             of: bundle,
             replacing: [(server.baseURL.absoluteString, "<STAND-IN>")]
@@ -98,25 +76,6 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         XCTAssertEqual(snapshot, try DownloadBundlePins.expected(pin), file: file, line: line)
     }
 
-    /// The gzip bytes NCBI's FTP folder serves for `text`, as the genome pins make them.
-    private func gzipped(_ text: String, as name: String, in directory: URL) async throws -> LoopbackHTTPResponse {
-        let plain = directory.appendingPathComponent(name)
-        try Data(text.utf8).write(to: plain)
-        let result = try await NativeToolRunner.shared.bgzipCompress(inputPath: plain, keepOriginal: false)
-        XCTAssertTrue(result.isSuccess, result.combinedOutput)
-        let compressed = try Data(contentsOf: plain.appendingPathExtension("gz"))
-        return LoopbackHTTPResponse(contentType: "application/x-gzip", body: compressed)
-    }
-}
-
-/// The esummary answer, which names the stand-in's own port and so is set once it started.
-private final class SummaryHolder: Sendable {
-    private let value = Mutex("")
-
-    var json: String {
-        get { value.withLock { $0 } }
-        set { value.withLock { $0 = newValue } }
-    }
 }
 
 /// Sets and clears process environment variables for one in-process CLI run and puts back what

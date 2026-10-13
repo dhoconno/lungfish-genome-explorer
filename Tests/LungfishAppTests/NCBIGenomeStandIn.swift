@@ -1,0 +1,76 @@
+// NCBIGenomeStandIn.swift - The loopback NCBI that lungfish-cli fetch genome reads in tests
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import Synchronization
+import XCTest
+@testable import LungfishWorkflow
+import LungfishTestSupport
+
+/// The loopback stand-in for NCBI that `fetch genome` reads in the CLI pins, the genome parity
+/// class and the event transcripts (Phase 2.10 lane A44, panel decision G5). It answers the
+/// assembly's ESearch, ESummary, FTP files and assembly report, and the GenBank record's EFetch
+/// answers, from `NCBIDownloadPinFixtures`. An ESearch for any other term finds nothing, and an
+/// EFetch for any other id is not found, so a test can make an accession fail. It holds no secret,
+/// and a run reaches it only through `NCBIServiceEndpoints.standInOriginVariable`, which makes the
+/// service send no key.
+enum NCBIGenomeStandIn {
+    static let assemblyAccession = "GCF_000000001.1"
+    static let unknownAccession = "GCF_000000009.9"
+
+    /// Starts the stand-in. `served` is a scratch folder for the gzip files it serves.
+    static func start(servingIn served: URL) async throws -> LoopbackHTTPStandIn {
+        try FileManager.default.createDirectory(at: served, withIntermediateDirectories: true)
+        let folder = NCBIDownloadPinFixtures.assemblyFTPPath + "/" + NCBIDownloadPinFixtures.assemblyDirectory
+        let routes: [String: LoopbackHTTPResponse] = [
+            folder + "_genomic.fna.gz": try await gzipped(NCBIDownloadPinFixtures.assemblyFASTA, as: "genomic.fna", in: served),
+            folder + "_genomic.gff.gz": try await gzipped(NCBIDownloadPinFixtures.assemblyGFF3, as: "genomic.gff", in: served),
+            folder + "_assembly_report.txt": .text(NCBIDownloadPinFixtures.assemblyReport),
+        ]
+        let summary = StandInText()
+        let server = try LoopbackHTTPStandIn.start { request in
+            func value(_ name: String) -> String? { request.queryItems.first { $0.name == name }?.value }
+            switch request.path {
+            case "/entrez/eutils/esearch.fcgi":
+                return .text(value("term")?.contains(assemblyAccession) == true
+                    ? NCBIDownloadPinFixtures.assemblyESearchJSON
+                    : #"{"esearchresult":{"count":"0","retmax":"0","retstart":"0","idlist":[]}}"#)
+            case "/entrez/eutils/esummary.fcgi":
+                return .text(summary.value)
+            case "/entrez/eutils/efetch.fcgi":
+                guard value("id") == NCBIDownloadPinFixtures.genBankAccession else { return .notFound }
+                switch value("rettype") {
+                case "gb": return .text(NCBIDownloadPinFixtures.genBankRecord)
+                case "fasta": return .text(NCBIDownloadPinFixtures.genBankFASTA)
+                case "gff3": return .text(NCBIDownloadPinFixtures.genBankGFF3)
+                default: return .notFound
+                }
+            default:
+                return routes[request.path] ?? .notFound
+            }
+        }
+        summary.value = try NCBIDownloadPinFixtures.assemblyESummaryJSON(ftpBase: server.baseURL.absoluteString)
+        return server
+    }
+
+    /// The gzip bytes NCBI's FTP folder serves for `text`, as the genome pins make them.
+    static func gzipped(_ text: String, as name: String, in directory: URL) async throws -> LoopbackHTTPResponse {
+        let plain = directory.appendingPathComponent(name)
+        try Data(text.utf8).write(to: plain)
+        let result = try await NativeToolRunner.shared.bgzipCompress(inputPath: plain, keepOriginal: false)
+        XCTAssertTrue(result.isSuccess, result.combinedOutput)
+        let compressed = try Data(contentsOf: plain.appendingPathExtension("gz"))
+        return LoopbackHTTPResponse(contentType: "application/x-gzip", body: compressed)
+    }
+}
+
+/// The esummary answer, which names the stand-in's own port and so is set once it started.
+private final class StandInText: Sendable {
+    private let text = Mutex("")
+
+    var value: String {
+        get { text.withLock { $0 } }
+        set { text.withLock { $0 = newValue } }
+    }
+}

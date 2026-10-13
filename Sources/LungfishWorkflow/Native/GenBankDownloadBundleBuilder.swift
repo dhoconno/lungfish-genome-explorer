@@ -302,10 +302,9 @@ public final class GenBankDownloadBundleBuilder: Sendable {
         return bundleURL
     }
 
-    static func fetchProvenanceStep(
-        accession: String, format: String, output: URL, runClock: ProvenanceRunClock, completedAt: Date? = nil
-    ) throws -> ProvenanceStep {
-        let completedAt = completedAt ?? runClock.now
+    /// The NCBI EFetch URL of `accession`'s record as `format`, the URL a bundle's record names
+    /// whatever host served the run.
+    public static func recordURL(accession: String, format: String = "gb") -> URL {
         var components = URLComponents(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi")!
         components.queryItems = [
             URLQueryItem(name: "db", value: "nuccore"),
@@ -313,7 +312,14 @@ public final class GenBankDownloadBundleBuilder: Sendable {
             URLQueryItem(name: "rettype", value: format),
             URLQueryItem(name: "retmode", value: "text")
         ]
-        let remoteURL = components.url!.absoluteString
+        return components.url!
+    }
+
+    static func fetchProvenanceStep(
+        accession: String, format: String, output: URL, runClock: ProvenanceRunClock, completedAt: Date? = nil
+    ) throws -> ProvenanceStep {
+        let completedAt = completedAt ?? runClock.now
+        let remoteURL = recordURL(accession: accession, format: format).absoluteString
         let payload = try ProvenanceFileDescriptor.file(url: output, role: .output)
         return ProvenanceStep(
             toolName: "NCBI EFetch (URLSession)", toolVersion: WorkflowRun.currentAppVersion,

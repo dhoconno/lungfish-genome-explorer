@@ -94,7 +94,7 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         )
         XCTAssertFalse(item.cliCommand?.contains("--accession") ?? true)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: GenomeSubcommand.self)
-        XCTAssertEqual(command.accession, "GCF_003047895.1")
+        XCTAssertEqual(command.accessions, ["GCF_003047895.1"])
         XCTAssertEqual(command.outputDir, "/tmp/lane 1a2g/Project.lungfish/Downloads")
         XCTAssertNil(command.name)
         XCTAssertFalse(command.fastaOnly)

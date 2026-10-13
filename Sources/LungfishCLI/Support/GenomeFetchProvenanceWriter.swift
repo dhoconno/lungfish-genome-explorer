@@ -29,10 +29,23 @@ struct GenomeFetchProvenanceWriter {
         let apiKeySource: APIKeySource
         let outputFormat: OutputFormat
         let quiet: Bool
-        let fastaSourceURL: URL
-        let downloadedFastaURL: URL
-        let gffSourceURL: URL?
-        let downloadedGFFURL: URL?
+        /// Every file the run fetched for the bundle, each with the digest and size it arrived
+        /// with, since the builder keeps no download (BIO B-3).
+        let fetchedSources: [GenomeDownloadBundleBuilder.FetchedSource]
+        let runClock: ProvenanceRunClock
+    }
+
+    /// `fetch genome --into-bundle`. The record goes in the target's `genome/` folder, beside the
+    /// target's own root record, and names the genome and annotation files the merge put in.
+    struct MergeRequest {
+        let targetBundleURL: URL
+        let accession: String
+        let assemblyAccession: String
+        let organism: String
+        let apiKeySource: APIKeySource
+        let outputFormat: OutputFormat
+        let quiet: Bool
+        let fetchedSources: [GenomeDownloadBundleBuilder.FetchedSource]
         let runClock: ProvenanceRunClock
     }
 
@@ -76,12 +89,7 @@ struct GenomeFetchProvenanceWriter {
                 outputFormat: request.outputFormat,
                 quiet: request.quiet
             ),
-            inputs: inputRecords(
-                fastaSourceURL: request.fastaSourceURL,
-                downloadedFastaURL: request.downloadedFastaURL,
-                gffSourceURL: request.gffSourceURL,
-                downloadedGFFURL: request.downloadedGFFURL
-            ),
+            inputs: fetchedSourceRecords(request.fetchedSources),
             outputs: bundleOutputRecords(
                 bundleURL: request.bundleURL
             ),
@@ -90,6 +98,65 @@ struct GenomeFetchProvenanceWriter {
             stderr: nil,
             status: .completed,
             outputDirectory: request.bundleURL
+        )
+    }
+
+    @discardableResult
+    func writeMerge(_ request: MergeRequest) async throws -> ProvenanceEnvelope {
+        let target = request.targetBundleURL
+        var parameters = baseParameters(
+            accession: request.accession,
+            assemblyAccession: request.assemblyAccession,
+            organism: request.organism,
+            outputDirectory: target.deletingLastPathComponent(),
+            bundleName: nil,
+            fastaOnly: false,
+            noBundle: false,
+            apiKeySource: request.apiKeySource,
+            annotationDownloaded: request.fetchedSources.contains { $0.kind == .gff3 },
+            outputFormat: request.outputFormat,
+            quiet: request.quiet
+        )
+        parameters["intoBundle"] = .file(target)
+        var defaults = provenanceDefaults()
+        defaults["intoBundle"] = .null
+        let recordFolder = target.appendingPathComponent("genome", isDirectory: true)
+        let merged = ["genome", "annotations"].flatMap { folder -> [URL] in
+            let url = target.appendingPathComponent(folder, isDirectory: true)
+            guard let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey]) else {
+                return []
+            }
+            return files.compactMap { $0 as? URL }.filter {
+                (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+                    && !$0.lastPathComponent.hasSuffix(".lungfish-provenance.json")
+            }.sorted { $0.path < $1.path }
+        }
+        return try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fetch genome",
+            parameters: parameters,
+            defaults: defaults,
+            resolved: parameters,
+            toolName: "lungfish fetch genome",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: provenanceCommand(
+                accession: request.accession,
+                outputDirectory: target.deletingLastPathComponent(),
+                bundleName: nil,
+                fastaOnly: false,
+                noBundle: false,
+                apiKeySource: request.apiKeySource,
+                outputFormat: request.outputFormat,
+                quiet: request.quiet,
+                intoBundle: target
+            ),
+            inputs: fetchedSourceRecords(request.fetchedSources),
+            outputs: merged.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },
+            exitCode: 0,
+            wallTime: request.runClock.elapsed,
+            stderr: nil,
+            status: .completed,
+            outputDirectory: recordFolder,
+            writeFileSidecars: false
         )
     }
 
@@ -138,7 +205,7 @@ struct GenomeFetchProvenanceWriter {
             fastaOnly: request.fastaOnly,
             noBundle: request.noBundle,
             apiKeySource: request.apiKeySource,
-            annotationDownloaded: request.gffSourceURL != nil && request.downloadedGFFURL != nil,
+            annotationDownloaded: request.fetchedSources.contains { $0.kind == .gff3 },
             outputFormat: request.outputFormat,
             quiet: request.quiet
         ).merging(["outputBundle": .file(request.bundleURL)]) { _, new in new }
@@ -218,12 +285,15 @@ struct GenomeFetchProvenanceWriter {
         noBundle: Bool,
         apiKeySource: APIKeySource,
         outputFormat: OutputFormat,
-        quiet: Bool
+        quiet: Bool,
+        intoBundle: URL? = nil
     ) -> [String] {
-        var command = [
-            CLICommandIdentity.executableName, "fetch", "genome", accession,
-            "--output-dir", outputDirectory.path
-        ]
+        var command = [CLICommandIdentity.executableName, "fetch", "genome", accession]
+        if let intoBundle {
+            command += ["--into-bundle", intoBundle.path]
+        } else {
+            command += ["--output-dir", outputDirectory.path]
+        }
         if let bundleName {
             command += ["--name", bundleName]
         }
@@ -271,6 +341,21 @@ struct GenomeFetchProvenanceWriter {
             )
         }
         return records
+    }
+
+    /// Each fetched file under its source URL, with the digest and size it arrived with.
+    private func fetchedSourceRecords(_ sources: [GenomeDownloadBundleBuilder.FetchedSource]) -> [FileRecord] {
+        sources.map { source in
+            let format: FileFormat
+            let role: FileRole
+            switch source.kind {
+            case .fasta: (format, role) = (.fasta, .reference)
+            case .gff3: (format, role) = (.gff3, .input)
+            case .genBank: (format, role) = (.genBank, .reference)
+            case .assemblyReport: (format, role) = (.text, .input)
+            }
+            return FileRecord(path: source.url.absoluteString, sha256: source.sha256, sizeBytes: source.sizeBytes, format: format, role: role)
+        }
     }
 
     private func bundleOutputRecords(bundleURL: URL) -> [FileRecord] {

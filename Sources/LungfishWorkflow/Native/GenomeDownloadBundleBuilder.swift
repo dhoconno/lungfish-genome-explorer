@@ -77,10 +77,64 @@ public final class GenomeDownloadBundleBuilder: Sendable {
         outputDirectory: URL,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
+        try await downloadAndBuildRecordingSources(
+            assembly: assembly, outputDirectory: outputDirectory, progressHandler: progressHandler
+        ).bundleURL
+    }
+
+    /// One file the pipeline fetched, described as it arrived, before the pipeline decompressed,
+    /// moved or deleted it. A record written once the bundle is in its final place names each one
+    /// with its source URL, digest and size (BIO B-3), since the pipeline keeps no download.
+    public struct FetchedSource: Sendable, Equatable {
+        public enum Kind: String, Sendable {
+            case fasta
+            case gff3
+            case genBank = "genbank"
+            case assemblyReport = "assembly-report"
+        }
+
+        public let kind: Kind
+        /// Where the file came from. The files of a Datasets archive name the archive's URL.
+        public let url: URL
+        public let sha256: String?
+        public let sizeBytes: UInt64?
+
+        public init(kind: Kind, url: URL, sha256: String?, sizeBytes: UInt64?) {
+            self.kind = kind
+            self.url = url
+            self.sha256 = sha256
+            self.sizeBytes = sizeBytes
+        }
+
+        /// The source `url` fetched into `file`, with the digest and size of `file` as it is now.
+        public static func describing(_ kind: Kind, from url: URL, file: URL) -> FetchedSource {
+            let record = ProvenanceRecorder.fileRecord(url: file)
+            return FetchedSource(kind: kind, url: url, sha256: record.sha256, sizeBytes: record.sizeBytes)
+        }
+    }
+
+    /// The bundle the pipeline built and every file it fetched for it, in the order fetched.
+    public struct BuildResult: Sendable {
+        public let bundleURL: URL
+        public let sources: [FetchedSource]
+    }
+
+    /// The pipeline of ``downloadAndBuild(assembly:outputDirectory:progressHandler:)``, which also
+    /// returns the files it fetched. `bundleName` replaces the `<organism> - <assembly name>` name of
+    /// the bundle folder and its manifest. The pipeline stops with `CancellationError` at the check
+    /// between two stages after its task is cancelled, and leaves what it built in `outputDirectory`
+    /// for the caller to remove.
+    public func downloadAndBuildRecordingSources(
+        assembly: NCBIAssemblySummary,
+        outputDirectory: URL,
+        bundleName requestedName: String? = nil,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> BuildResult {
         let fileManager = FileManager.default
         let accession = assembly.assemblyAccession ?? assembly.uid
         let organismName = assembly.organism ?? assembly.speciesName ?? "Unknown"
         let assemblyName = assembly.assemblyName ?? accession
+        var sources: [FetchedSource] = []
 
         logger.info("downloadAndBuild: Starting pipeline for \(accession, privacy: .public) (\(organismName, privacy: .public))")
 
@@ -141,7 +195,9 @@ public final class GenomeDownloadBundleBuilder: Sendable {
                 progressHandler?(overallProgress, "Downloading FASTA: \(downloadedStr) / \(totalStr)")
             }
             logger.info("downloadAndBuild: FASTA download complete")
+            sources.append(.describing(.fasta, from: fastaFileInfo.url, file: fastaDestination))
             fastaIsGzipped = fastaDestination.pathExtension.lowercased() == "gz"
+            try Task.checkCancellation()
 
             if let gffInfo = gffFileInfo {
                 progressHandler?(0.45, "Downloading GFF3 annotations...")
@@ -168,6 +224,7 @@ public final class GenomeDownloadBundleBuilder: Sendable {
                         progressHandler?(overallProgress, "Downloading GFF3: \(downloadedStr) / \(totalStr)")
                     }
                     gffDestination = gffDest
+                    sources.append(.describing(.gff3, from: gffInfo.url, file: gffDest))
                     logger.info("downloadAndBuild: GFF3 download complete")
                 } catch {
                     logger.warning("downloadAndBuild: GFF3 download failed (non-fatal): \(error.localizedDescription)")
@@ -196,15 +253,25 @@ public final class GenomeDownloadBundleBuilder: Sendable {
 
             fastaDestination = result.fastaURL
             gffDestination = result.gffURL
+            // The archive is unpacked and gone, so each file names the archive's URL.
+            let origin = NCBIServiceEndpoints(environment: ProcessInfo.processInfo.environment).datasetsOrigin
+            if let archiveURL = URL(string: "\(origin)/datasets/v2/genome/accession/\(accession)/download") {
+                sources.append(.describing(.fasta, from: archiveURL, file: result.fastaURL))
+                if let gffURL = result.gffURL {
+                    sources.append(.describing(.gff3, from: archiveURL, file: gffURL))
+                }
+            }
             // Datasets API returns uncompressed FASTA
             fastaIsGzipped = fastaDestination.pathExtension.lowercased() == "gz"
             logger.info("downloadAndBuild: Datasets API download complete (gzipped=\(fastaIsGzipped))")
         }
 
         // Step 5: Build bundle structure
+        try Task.checkCancellation()
         progressHandler?(0.55, "Creating bundle...")
 
-        let bundleName = BundleBuildHelpers.sanitizedFilename("\(organismName) - \(assemblyName)")
+        let displayName = requestedName ?? "\(organismName) - \(assemblyName)"
+        let bundleName = BundleBuildHelpers.sanitizedFilename(displayName)
         let bundleURL = BundleBuildHelpers.makeUniqueBundleURL(baseName: bundleName, in: outputDirectory)
         let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
@@ -255,6 +322,7 @@ public final class GenomeDownloadBundleBuilder: Sendable {
             throw BundleBuildError.indexingFailed("samtools faidx failed: \(faiResult.combinedOutput)")
         }
 
+        try Task.checkCancellation()
         let faiURL = compressedFASTA.appendingPathExtension("fai")
         let gziURL = compressedFASTA.appendingPathExtension("gzi")
         var chromosomes = try BundleBuildHelpers.parseFai(at: faiURL)
@@ -270,6 +338,7 @@ public final class GenomeDownloadBundleBuilder: Sendable {
             let reportDest = tempDir.appendingPathComponent(reportInfo.filename)
             do {
                 _ = try await ncbiService.downloadGenomeFile(reportInfo, to: reportDest) { _, _ in }
+                sources.append(.describing(.assemblyReport, from: reportInfo.url, file: reportDest))
                 if let entries = try? BundleBuildHelpers.parseAssemblyReport(at: reportDest) {
                     chromosomes = BundleBuildHelpers.augmentChromosomesWithAssemblyReport(
                         chromosomes, report: entries
@@ -335,6 +404,7 @@ public final class GenomeDownloadBundleBuilder: Sendable {
         }
 
         // Step 9: Write manifest
+        try Task.checkCancellation()
         progressHandler?(0.93, "Writing bundle manifest...")
 
         let sourceInfo = SourceInfo(
@@ -375,7 +445,7 @@ public final class GenomeDownloadBundleBuilder: Sendable {
         }
 
         let manifest = BundleManifest(
-            name: "\(organismName) - \(assemblyName)",
+            name: displayName,
             identifier: bundleIdentifier,
             description: "\(organismName) genome assembly \(assemblyName)",
             source: sourceInfo,
@@ -395,6 +465,6 @@ public final class GenomeDownloadBundleBuilder: Sendable {
 
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         logger.info("downloadAndBuild: Pipeline complete. Bundle at \(bundleURL.path, privacy: .public)")
-        return bundleURL
+        return BuildResult(bundleURL: bundleURL, sources: sources)
     }
 }

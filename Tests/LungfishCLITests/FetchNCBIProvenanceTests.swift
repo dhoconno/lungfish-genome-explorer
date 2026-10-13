@@ -60,10 +60,10 @@ final class FetchNCBIProvenanceTests: XCTestCase {
                 apiKeySource: .explicit,
                 outputFormat: .json,
                 quiet: true,
-                fastaSourceURL: fastaSourceURL,
-                downloadedFastaURL: downloadedFastaURL,
-                gffSourceURL: gffSourceURL,
-                downloadedGFFURL: downloadedGFFURL,
+                fetchedSources: [
+                    .describing(.fasta, from: fastaSourceURL, file: downloadedFastaURL),
+                    .describing(.gff3, from: gffSourceURL, file: downloadedGFFURL),
+                ],
                 runClock: ProvenanceRunClock()
             )
         )
