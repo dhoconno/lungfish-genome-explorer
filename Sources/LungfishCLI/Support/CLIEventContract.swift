@@ -30,7 +30,7 @@
 // the leaf sources at program commit 7c44460fc.
 
 /// What a leaf command writes for a machine reader (plan decision S18).
-public enum CLIEventContract: Sendable, Equatable {
+package enum CLIEventContract: Sendable, Equatable {
     /// Emits `CLIEvent` lines. `flag` is the switch that turns them on
     /// (`--format json`, or `--json-events` for `assemble`, or
     /// ``CLIEventContractTable/alwaysOn`` for a leaf that prints them on every run),
@@ -44,15 +44,15 @@ public enum CLIEventContract: Sendable, Equatable {
     /// Human text only, with the reason.
     case text(reason: String)
 
-    public enum Channel: String, Sendable { case standardOutput, standardError }
+    package enum Channel: String, Sendable { case standardOutput, standardError }
 }
 
 /// The contract of every leaf command of `lungfish-cli`.
-public enum CLIEventContractTable {
+package enum CLIEventContractTable {
     /// One entry per leaf command, keyed by its path without the root,
     /// for example "msa annotate add". `help` is the subcommand that ArgumentParser
     /// adds to the root, which `--experimental-dump-help` lists as a leaf.
-    public static let entries: [String: CLIEventContract] = {
+    package static let entries: [String: CLIEventContract] = {
         var all: [String: CLIEventContract] = [:]
         for group in [events, results, legacy, text] {
             for (path, contract) in group {
@@ -68,7 +68,7 @@ public enum CLIEventContractTable {
     private static let jsonEvents = "--json-events"
     /// The two ONT FASTQ commands print events on every run, with no switch, because the FASTQ
     /// operation family runs them without `--format json` and reads standard error until 2.8.
-    static let alwaysOn = "no switch, every run"
+    package static let alwaysOn = "no switch, every run"
     private static let ignoresFormat = "lists --format json and ignores it, 2.10 to 2.12"
     private static let humanTextOnly = "text output only, lists no machine switch"
     private static let exportFormat = "its --format names an export file format, not machine output"
