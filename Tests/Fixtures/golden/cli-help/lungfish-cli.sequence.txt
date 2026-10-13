@@ -7,8 +7,12 @@ OPTIONS:
   -h, --help              Show help information.
 
 SUBCOMMANDS:
+  add-annotation          Add one annotation to the manual annotation track of
+                          a reference bundle.
   annotate-orfs           Find open reading frames and add them as a new
                           annotation track
+  attach-track            Attach a GFF3, GTF or BED file to a reference bundle
+                          as an annotation track.
   delete-annotations      Delete annotation rows from a reference bundle
                           annotation track
   delete-annotation-track Delete an annotation track from a reference bundle

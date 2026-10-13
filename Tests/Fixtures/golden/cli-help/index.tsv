@@ -8,7 +8,9 @@ lungfish-cli analyze composition	shown	0	lungfish-cli.analyze.composition.txt
 lungfish-cli analyze validate	shown	0	lungfish-cli.analyze.validate.txt
 lungfish-cli translate	shown	0	lungfish-cli.translate.txt
 lungfish-cli sequence	shown	0	lungfish-cli.sequence.txt
+lungfish-cli sequence add-annotation	shown	0	lungfish-cli.sequence.add-annotation.txt
 lungfish-cli sequence annotate-orfs	shown	0	lungfish-cli.sequence.annotate-orfs.txt
+lungfish-cli sequence attach-track	shown	0	lungfish-cli.sequence.attach-track.txt
 lungfish-cli sequence delete-annotations	shown	0	lungfish-cli.sequence.delete-annotations.txt
 lungfish-cli sequence delete-annotation-track	shown	0	lungfish-cli.sequence.delete-annotation-track.txt
 lungfish-cli sequence update-annotation	shown	0	lungfish-cli.sequence.update-annotation.txt
