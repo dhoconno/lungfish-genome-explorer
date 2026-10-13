@@ -555,17 +555,21 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
     }
 
     func testEveryDialogLeafWithEventsSpeaksOnStandardErrorWhereTheRunnerReads() {
-        let channels = Set(Self.leafChannels.values.compactMap { leafChannel -> CLIEventContract.Channel? in
-            guard case let .events(_, channel) = leafChannel else { return nil }
+        let channels = Set(Self.leafChannels.keys.compactMap { leaf -> CLIEventContract.Channel? in
+            guard case let .events(_, channel)? = CLIEventContractTable.entries[leaf] else { return nil }
             return channel
         })
-        XCTAssertEqual(channels, [.standardError])
+        XCTAssertEqual(
+            channels, [.standardError],
+            "LungfishCLIProcessRunner reads events on standard error only until it reads the row's channel"
+        )
     }
 
     func testTheDialogTurnsOnTheEventsOfEachLeafWhoseRowNamesASwitch() throws {
         var switched: [String] = []
         for (leaf, request) in try leafRequests() {
-            guard case let .events(flag, _)? = Self.leafChannels[leaf], flag != Self.everyRun else { continue }
+            guard case let .events(flag, _)? = CLIEventContractTable.entries[leaf],
+                  flag != CLIEventContractTable.alwaysOn else { continue }
             let argv = try dispatcherArgv(for: request)
             let flagWords = flag.split(separator: " ").map(String.init)
             let holdsFlag = argv.indices.contains { start in
@@ -574,6 +578,6 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
             XCTAssertTrue(holdsFlag, "\(leaf) launches with \(flag), argv \(argv)")
             switched.append(leaf)
         }
-        XCTAssertEqual(switched, ["assemble"])
+        XCTAssertEqual(switched, ["assemble"], "each dialog leaf whose row names a switch launches with it")
     }
 }
