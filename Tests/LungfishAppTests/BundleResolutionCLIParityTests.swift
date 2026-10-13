@@ -10,9 +10,10 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
-/// For every bundle shape, the CLI command the Operations panel records reads
-/// the same files, paired the same way, as the app's own launch of that tool
-/// (R3, lane 1n). The app side runs its production resolvers.
+/// For every bundle shape, the `kraken2 classify` command the Workflow builder
+/// makes for the wizard's config reads the same files, paired the same way, as
+/// that config resolved and planned directly (R3, lane 1n). The direct side is
+/// `AppDelegate.resolveInputFiles`, `ResolvedSequenceInputs` and `ClassifierLaunchReference`.
 @MainActor
 final class BundleResolutionCLIParityTests: XCTestCase {
 
@@ -28,9 +29,9 @@ final class BundleResolutionCLIParityTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    /// The app's classification launch resolves each sample's inputs with
-    /// `AppDelegate.resolveInputFiles` and pairs them by the wizard's read
-    /// plan; `lungfish-cli conda classify` must hand kraken2 the same files.
+    /// `AppDelegate.resolveInputFiles`, which no launch calls since Phase 2.9
+    /// (E14), resolves each sample's inputs, and the wizard's read plan pairs
+    /// them. `lungfish-cli conda classify` must hand kraken2 the same files.
     func testCondaClassifyHandsKraken2TheFilesTheAppsClassificationLaunchDoes() async throws {
         for (shape, bundle) in shapes.all {
             let appTemp = root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true)
