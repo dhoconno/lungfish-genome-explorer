@@ -1,0 +1,395 @@
+bundle Lungfish_stand-in_organism_(stand-ins).lungfishref
+file .lungfish-provenance.json provenance, the bundle record
+file annotations/gcf_000000001.1_standinasm1_genomic.gff.db sqlite
+file annotations/gcf_000000001.1_standinasm1_genomic.gff.db.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/annotations/gcf_000000001.1_standinasm1_genomic.gff.db sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/annotations/gcf_000000001.1_standinasm1_genomic.gff.db sha256=build-dependent
+file genome/sequence.fa.gz gzip content-sha256=673685f1f67b60fdd7bac703a4ee4d15c8426f397d6cec063af98c9ae901612b
+file genome/sequence.fa.gz.fai fasta-index
+  fai SI_000001.1 130 72 60 61
+  fai SI_000002.1 70 276 60 61
+file genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.fai sha256=3e36f6847eb12f907d43684689b9379746264d67d0c973bd5d15968641e6c37e
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.fai sha256=3e36f6847eb12f907d43684689b9379746264d67d0c973bd5d15968641e6c37e
+file genome/sequence.fa.gz.gzi bgzf-index
+file genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+file genome/sequence.fa.gz.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz sha256=build-dependent
+file manifest.json manifest
+file manifest.json.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/manifest.json sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/manifest.json sha256=build-dependent
+file provenance/annotations/gcf_000000001.1_standinasm1_genomic.gff.db.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/annotations/gcf_000000001.1_standinasm1_genomic.gff.db sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/annotations/gcf_000000001.1_standinasm1_genomic.gff.db sha256=build-dependent
+file provenance/bundle.lungfish-provenance.json provenance, the bundle record
+file provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.fai sha256=3e36f6847eb12f907d43684689b9379746264d67d0c973bd5d15968641e6c37e
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.fai sha256=3e36f6847eb12f907d43684689b9379746264d67d0c973bd5d15968641e6c37e
+file provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+file provenance/genome/sequence.fa.gz.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz sha256=build-dependent
+file provenance/manifest.json.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+  provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+    in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+    out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/manifest.json sha256=build-dependent
+  provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/manifest.json sha256=build-dependent
+manifest {
+manifest   "alignments" : [
+manifest
+manifest   ],
+manifest   "annotations" : [
+manifest     {
+manifest       "annotation_type" : "custom",
+manifest       "database_path" : "annotations/gcf_000000001.1_standinasm1_genomic.gff.db",
+manifest       "feature_count" : 9,
+manifest       "id" : "gcf_000000001.1_standinasm1_genomic.gff",
+manifest       "name" : "genes",
+manifest       "path" : "annotations/gcf_000000001.1_standinasm1_genomic.gff.db"
+manifest     }
+manifest   ],
+manifest   "browser_summary" : {
+manifest     "aggregate" : {
+manifest       "alignmentTrackCount" : 0,
+manifest       "annotationTrackCount" : 1,
+manifest       "variantTrackCount" : 0
+manifest     },
+manifest     "schemaVersion" : 1,
+manifest     "sequences" : [
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "displayDescription" : "Lungfish stand-in organism chromosome 1, complete sequence",
+manifest         "isMitochondrial" : false,
+manifest         "isPrimary" : true,
+manifest         "length" : 130,
+manifest         "name" : "SI_000001.1"
+manifest       },
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "displayDescription" : "Lungfish stand-in organism mitochondrion, complete genome",
+manifest         "isMitochondrial" : false,
+manifest         "isPrimary" : true,
+manifest         "length" : 70,
+manifest         "name" : "SI_000002.1"
+manifest       }
+manifest     ]
+manifest   },
+manifest   "format_version" : "1.0",
+manifest   "genome" : {
+manifest     "chromosomes" : [
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "fasta_description" : "Lungfish stand-in organism chromosome 1, complete sequence",
+manifest         "is_mitochondrial" : false,
+manifest         "is_primary" : true,
+manifest         "length" : 130,
+manifest         "line_bases" : 60,
+manifest         "line_width" : 61,
+manifest         "name" : "SI_000001.1",
+manifest         "offset" : 72
+manifest       },
+manifest       {
+manifest         "aliases" : [
+manifest
+manifest         ],
+manifest         "fasta_description" : "Lungfish stand-in organism mitochondrion, complete genome",
+manifest         "is_mitochondrial" : false,
+manifest         "is_primary" : true,
+manifest         "length" : 70,
+manifest         "line_bases" : 60,
+manifest         "line_width" : 61,
+manifest         "name" : "SI_000002.1",
+manifest         "offset" : 276
+manifest       }
+manifest     ],
+manifest     "gzip_index_path" : "genome/sequence.fa.gz.gzi",
+manifest     "index_path" : "genome/sequence.fa.gz.fai",
+manifest     "path" : "genome/sequence.fa.gz",
+manifest     "total_length" : 200
+manifest   },
+manifest   "identifier" : "com.ncbi.gcf_000000001-1",
+manifest   "name" : "Lungfish stand-in organism (stand-ins)",
+manifest   "source" : {
+manifest     "assembly" : "GCF_000000001.1",
+manifest     "assembly_accession" : "GCF_000000001.1",
+manifest     "database" : "NCBI",
+manifest     "organism" : "Lungfish stand-in organism (stand-ins)",
+manifest     "source_url" : "https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000000001.1/",
+manifest     "taxonomy_id" : 9999999
+manifest   },
+manifest   "tracks" : [
+manifest
+manifest   ],
+manifest   "variants" : [
+manifest
+manifest   ],
+manifest   "warnings" : [
+manifest
+manifest   ]
+manifest }
+annotations annotations/gcf_000000001.1_standinasm1_genomic.gff.db total=9
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000001.1 0 130 + region 1 blocks=-/-/- gene=- attributes=Dbxref=taxon:9999999;ID=SI_000001.1:1..130;Name=1;chromosome=1;gbkey=Src;genome=chromosome
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000001.1 10 100 + gene LGE1 blocks=-/-/- gene=LGE1 attributes=Dbxref=GeneID:1;ID=gene-LGE1;Name=LGE1;description=stand-in gene 1;gbkey=Gene;gene=LGE1;gene_biotype=protein_coding
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000001.1 10 100 + mRNA SI_100001.1 blocks=2/30,40/0,50 gene=LGE1 attributes=ID=rna-SI_100001.1;Name=SI_100001.1;Parent=gene-LGE1;gbkey=mRNA;gene=LGE1;product=stand-in protein 1;transcript_id=SI_100001.1
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000001.1 10 40 + exon LGE1 blocks=-/-/- gene=LGE1 attributes=ID=exon-SI_100001.1-1;Parent=rna-SI_100001.1;gbkey=mRNA;gene=LGE1;transcript_id=SI_100001.1
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000001.1 13 97 + CDS SI_200001.1 blocks=2/27,37/0,47 gene=LGE1 attributes=ID=cds-SI_200001.1;Name=SI_200001.1;Parent=rna-SI_100001.1;gbkey=CDS;gene=LGE1;lungfish_gff_phase=0;product=stand-in protein 1;protein_id=SI_200001.1
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000001.1 60 100 + exon LGE1 blocks=-/-/- gene=LGE1 attributes=ID=exon-SI_100001.1-2;Parent=rna-SI_100001.1;gbkey=mRNA;gene=LGE1;transcript_id=SI_100001.1
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000002.1 4 60 - CDS SI_200002.1 blocks=-/-/- gene=MT1 attributes=ID=cds-SI_200002.1;Name=SI_200002.1;Parent=gene-MT1;gbkey=CDS;gene=MT1;lungfish_gff_phase=0;product=stand-in mitochondrial protein;protein_id=SI_200002.1
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000002.1 4 60 - gene MT1 blocks=-/-/- gene=MT1 attributes=ID=gene-MT1;Name=MT1;gbkey=Gene;gene=MT1;gene_biotype=protein_coding
+annotation annotations/gcf_000000001.1_standinasm1_genomic.gff.db SI_000002.1 49 70 + sequence_feature id-SI_000002.1:50..90 blocks=-/-/- gene=- attributes=ID=id-SI_000002.1:50..90;Note=runs past the end;gbkey=misc_feature
+provenance workflow lungfish fetch genome exit 0
+provenance stderr
+provenance option accession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+provenance option annotationDownloaded explicit=true default=false resolved=true
+provenance option apiKeyProvided explicit=false default=false resolved=false
+provenance option apiKeySource explicit="none" default="none" resolved="none"
+provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
+provenance option bundleName explicit=null default=null resolved=null
+provenance option fastaOnly explicit=false default=false resolved=false
+provenance option noBundle explicit=false default=false resolved=false
+provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
+provenance option outputBundle explicit=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref default=null resolved=file:<OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref
+provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+provenance option outputFasta explicit=- default=null resolved=null
+provenance option outputFormat explicit="text" default="text" resolved="text"
+provenance option outputGFF explicit=- default=null resolved=null
+provenance option quiet explicit=true default=false resolved=true
+provenance step 0 lungfish fetch genome exit 0
+  argv host
+  in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz sha256=build-dependent
+  in <STAND-IN>/genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz sha256=build-dependent
+  out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/annotations/gcf_000000001.1_standinasm1_genomic.gff.db sha256=build-dependent
+  out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.fai sha256=3e36f6847eb12f907d43684689b9379746264d67d0c973bd5d15968641e6c37e
+  out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+  out <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/manifest.json sha256=build-dependent
+provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/annotations/gcf_000000001.1_standinasm1_genomic.gff.db sha256=build-dependent
+provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz sha256=build-dependent
+provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.fai sha256=3e36f6847eb12f907d43684689b9379746264d67d0c973bd5d15968641e6c37e
+provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+provenance output <OUT>/Lungfish_stand-in_organism_(stand-ins).lungfishref/manifest.json sha256=build-dependent
+request GET /entrez/eutils/esearch.fcgi?db=assembly&term=GCF_000000001.1&retmax=1&retstart=0&retmode=json&usehistory=n
+request GET /entrez/eutils/esummary.fcgi?db=assembly&id=9900001&retmode=json
+request HEAD /genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz
+request GET /genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.fna.gz
+request GET /genomes/all/GCF/000/000/001/GCF_000000001.1_StandInAsm1/GCF_000000001.1_StandInAsm1_genomic.gff.gz

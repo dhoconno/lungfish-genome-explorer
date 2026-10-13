@@ -84,7 +84,28 @@ enum NCBIDownloadPinFixtures {
 
     /// An ESummary `db=assembly` document whose FTP path points at `ftpBase`.
     static func assemblySummary(ftpBase: String) throws -> NCBIAssemblySummary {
-        let document: [String: Any] = [
+        let data = try JSONSerialization.data(withJSONObject: assemblyDocument(ftpBase: ftpBase))
+        return try JSONDecoder().decode(NCBIAssemblySummary.self, from: data)
+    }
+
+    /// The ESummary `db=assembly&retmode=json` answer that holds the document above.
+    static func assemblyESummaryJSON(ftpBase: String) throws -> String {
+        let answer: [String: Any] = ["result": ["uids": ["9900001"], "9900001": assemblyDocument(ftpBase: ftpBase)]]
+        return String(decoding: try JSONSerialization.data(withJSONObject: answer, options: [.sortedKeys]), as: UTF8.self)
+    }
+
+    /// The ESearch `db=assembly&retmode=json` answer that finds the assembly above.
+    static let assemblyESearchJSON = #"{"esearchresult":{"count":"1","retmax":"1","retstart":"0","idlist":["9900001"]}}"#
+
+    /// The EFetch `rettype=fasta` answer for the GenBank record above, read from its ORIGIN.
+    static var genBankFASTA: String {
+        let origin = genBankRecord.components(separatedBy: "ORIGIN\n").last?.components(separatedBy: "//").first ?? ""
+        let bases = origin.filter(\.isLetter).uppercased()
+        return ">\(genBankAccession) Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence\n\(bases)\n"
+    }
+
+    private static func assemblyDocument(ftpBase: String) -> [String: Any] {
+        [
             "uid": "9900001",
             "assemblyaccession": "GCF_000000001.1",
             "assemblyname": "StandInAsm1",
@@ -107,8 +128,6 @@ enum NCBIDownloadPinFixtures {
             "releasetype": "Major",
             "submitterorganization": "Lungfish Contributors",
         ]
-        let data = try JSONSerialization.data(withJSONObject: document)
-        return try JSONDecoder().decode(NCBIAssemblySummary.self, from: data)
     }
 
     /// The `_genomic.fna` the FTP folder holds, before gzip. Chromosome 1 has soft-masked bases.
