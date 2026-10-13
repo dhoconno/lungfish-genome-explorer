@@ -62,6 +62,46 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
         XCTAssertEqual(record.steps.last?.toolName, "lungfish build-db kraken2", "The run's own step comes last")
     }
 
+    /// The run level of the record, `files`, `outputs` and `output`, read from the envelope after the cleanup removed
+    /// `classification.kraken` (Phase 2.10 lane B34, row 268). `assertEveryNamedFileIsKeptOrRemoved` of the classifier
+    /// tests walks the steps only. Every file the run level names is there, or the removal step names it, so the record
+    /// never advertises a file that is gone without saying why.
+    func testKraken2CleanupRunLevelNamesNoGoneFileWithoutARemovalStep() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalRunLevel")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
+        let result = root.appendingPathComponent("kraken2", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: result)
+        let sample = result.appendingPathComponent("SRR35517702", isDirectory: true)
+        let raw = sample.appendingPathComponent("classification.kraken")
+        try Data("C\tread-1\t12345\t150\t12345:150\nU\tread-2\t0\t150\t0:150\n".utf8).write(to: raw)
+
+        try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
+
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result))
+        let removal = try XCTUnwrap(record.steps.first { $0.toolName == ClassificationPipeline.kraken2OutputRemovalToolName })
+        // A removed file cannot be resolved, so its folder is, and /var/folders and /private/var/folders are one place.
+        func resolved(_ path: String) -> String {
+            let url = URL(fileURLWithPath: path)
+            return url.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(url.lastPathComponent).path
+        }
+        let removed = Set(removal.inputs.map { resolved($0.path) })
+        XCTAssertTrue(removed.contains(resolved(raw.path)), "the cleanup removed the per-read output and says so")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: raw.path))
+        let runLevel = record.files + record.outputs + [record.output].compactMap { $0 }
+        XCTAssertFalse(runLevel.isEmpty)
+        for named in runLevel where !removed.contains(resolved(named.path)) {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: named.path), "the run level names \(named.path), which is gone with no removal step"
+            )
+        }
+        XCTAssertFalse(
+            record.outputs.contains { removed.contains(resolved($0.path)) }, "an output the run removed is not an output of the record"
+        )
+    }
+
     func testKraken2CleanupThatCompactsNothingRecordsNoRemoval() async throws {
         let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalNone")
         defer { TestTempDirectory.cleanup(root) }
