@@ -6,10 +6,10 @@
 // and the Kraken2 and EsViritu launches through the CLI route's. None
 // declares a lock, so no real OperationCenter refuses them, and a reporter
 // that refuses every begin proves each launch closure sits behind the
-// `.started` case. The command a single Kraken2 or EsViritu sample records is
-// the argv of the Workflow builder (`ClassificationCLIInvocationBuilder`,
-// `EsVirituCLIInvocationBuilder`), which the real CLI parser reads back with
-// the run's values, and a Kraken2 batch records one such command per sample.
+// `.started` case. The CLI route's argv starts from the Workflow builders'
+// (`ClassificationCLIInvocationBuilder`, `EsVirituCLIInvocationBuilder`), so
+// the real CLI parser must read the run's values back from the builder's argv
+// for one sample, and for each sample of a Kraken2 batch.
 // A single-sample TaxTriage row records a command that parses the same way.
 // The multi-sample TaxTriage row has no command that reproduces the run, so
 // it records nil, and its test pins the gap with `assertCLIParityGap`. When a
