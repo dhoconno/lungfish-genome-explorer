@@ -103,10 +103,12 @@ final class TaxTriageRunSIGTERMReplayTests: XCTestCase {
         }
     }
 
-    /// Runs only in the child process that the test above starts.
+    /// Runs only in the child process that the test above starts. In every other run it returns
+    /// at once instead of skipping, because the replay gate runs with `--require-tools`, which
+    /// reads any skip as a missing tool and fails the run.
     func testTaxTriageRunChild() async throws {
         guard let path = ProcessInfo.processInfo.environment[Self.childFolderVariable] else {
-            throw XCTSkip("Runs only as the child of testASIGTERMCancelsTheRunAndTheCommandExits125")
+            return
         }
         let folder = URL(fileURLWithPath: path, isDirectory: true)
         let engine = try TaxTriageStandInEngine(
