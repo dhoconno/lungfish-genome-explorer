@@ -2,39 +2,44 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import ArgumentParser
 import Darwin
 import Foundation
 import LungfishCore
 import LungfishTestSupport
-@testable import LungfishCLI
-@testable import LungfishWorkflow
+import LungfishWorkflow
 import XCTest
+@testable import LungfishCLI
 
 /// Phase 2.2 lane 3A (finding R7). The window's Cancel sends SIGTERM to
 /// `lungfish-cli workflow run`. Only `import fastq` turned SIGTERM into a
 /// cancel, so a cancelled workflow run ended the CLI at once and left
 /// Nextflow's JVM running. `workflow run` now cancels its task on SIGTERM, and
 /// the engine runner stops the engine's process tree.
+///
+/// Phase 2.10 lane S30 runs the check on `CLISIGTERMHarness`, so the signal
+/// reaches the built `lungfish-cli` and not this test process. The CLI finds
+/// the stand-in engine as the managed Nextflow of a conda root of its own, with
+/// a home and a storage root of its own, so the run touches nothing real.
 final class WorkflowRunSIGTERMTests: XCTestCase {
     private var root: URL!
-    private var priorRunner: LocalWorkflowProcessRunning!
 
     override func setUpWithError() throws {
         root = try TestTempDirectory.make(prefix: "workflow-run-sigterm")
-        priorRunner = RunSubcommand.localWorkflowProcessRunner
     }
 
     override func tearDownWithError() throws {
-        RunSubcommand.localWorkflowProcessRunner = priorRunner
         TestTempDirectory.cleanup(root)
     }
 
-    /// A stand-in for the Nextflow launcher. It records its pid, starts a
-    /// background child that stands in for the JVM, as `nextflow` starting
-    /// `java` would, and waits.
-    private func installNextflowLikeEngine() throws -> URL {
-        let script = root.appendingPathComponent("fake-nextflow.sh")
+    /// A stand-in for the managed Nextflow launcher, where the CLI looks for it
+    /// under `condaRoot`. It records its pid, starts a background child that
+    /// stands in for the JVM, as `nextflow` starting `java` would, and waits.
+    private func installNextflowLikeEngine(in condaRoot: URL) throws {
+        let script = condaRoot.appendingPathComponent("envs/nextflow/bin/nextflow")
+        try FileManager.default.createDirectory(
+            at: script.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try """
         #!/bin/sh
         echo $$ > "$ENGINE_PID_FILE"
@@ -42,83 +47,97 @@ final class WorkflowRunSIGTERMTests: XCTestCase {
         wait
         """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        return script
-    }
-
-    private func readPID(_ url: URL) -> Int32? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    private func waitForPID(_ url: URL) async throws -> Int32 {
-        var pid: Int32?
-        await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
-            pid = readPID(url)
-            return pid != nil
-        }
-        return try XCTUnwrap(pid, "no pid in \(url.lastPathComponent)")
     }
 
     func testSIGTERMCancelsALocalWorkflowRunAndStopsTheEngineTree() async throws {
-        let script = try installNextflowLikeEngine()
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        try installNextflowLikeEngine(in: condaRoot)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let enginePIDFile = root.appendingPathComponent("engine.pid")
         let javaPIDFile = root.appendingPathComponent("java.pid")
-        let launch = WorkflowEngineLaunch(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            argumentPrefix: [script.path],
-            environment: [
-                "PATH": "/usr/bin:/bin",
-                "ENGINE_PID_FILE": enginePIDFile.path,
-                "JAVA_PID_FILE": javaPIDFile.path,
-            ]
-        )
-        RunSubcommand.localWorkflowProcessRunner = ProcessLocalWorkflowProcessRunner(
-            homeDirectory: root,
-            resolveLaunch: { _, _ in launch }
-        )
 
         let workflow = root.appendingPathComponent("main.nf")
         try "// invented fixture; never executed".write(to: workflow, atomically: true, encoding: .utf8)
         let results = root.appendingPathComponent("results", isDirectory: true)
         let bundle = root.appendingPathComponent("attempt.lungfishrun", isDirectory: true)
-        let command = try RunSubcommand.parse([
-            workflow.path,
-            "--results-dir", results.path,
-            "--expected-output", results.appendingPathComponent("result.txt").path,
-            "--bundle-path", bundle.path,
-            "--quiet",
-        ])
 
-        let run = Task<(any Error)?, Never> {
-            do {
-                try await command.run()
-                return nil
-            } catch {
-                return error
-            }
-        }
-        // The engine is running, so the command is listening for SIGTERM.
-        let enginePID = try await waitForPID(enginePIDFile)
-        let javaPID = try await waitForPID(javaPIDFile)
-        XCTAssertTrue(ProcessTreeTerminator.processExists(pid: enginePID))
-        XCTAssertTrue(ProcessTreeTerminator.processExists(pid: javaPID))
-        defer {
-            for pid in [enginePID, javaPID] where ProcessTreeTerminator.processExists(pid: pid) {
-                kill(pid, SIGKILL)
-            }
+        let cli = try CLISIGTERMHarness.launchCLI(
+            [
+                "workflow", "run", workflow.path,
+                "--results-dir", results.path,
+                "--expected-output", results.appendingPathComponent("result.txt").path,
+                "--bundle-path", bundle.path,
+                "--quiet",
+            ],
+            environment: [
+                "LUNGFISH_CONDA_ROOT": condaRoot.path,
+                "LUNGFISH_STORAGE_ROOT": root.appendingPathComponent("storage", isDirectory: true).path,
+                "LUNGFISH_CONDA_SHARED_PKGS": "0",
+                "CFFIXED_USER_HOME": home.path,
+                "ENGINE_PID_FILE": enginePIDFile.path,
+                "JAVA_PID_FILE": javaPIDFile.path,
+            ],
+            workingDirectory: root,
+            testClass: Self.self
+        )
+        defer { cli.stop() }
+
+        // The engine and its JVM child run, so the command is listening for SIGTERM.
+        guard let enginePID = await CLISIGTERMHarness.waitForProcessID(in: enginePIDFile),
+              let javaPID = await CLISIGTERMHarness.waitForProcessID(in: javaPIDFile) else {
+            let stop = await CLISIGTERMHarness.cancel(cli)
+            return XCTFail("The CLI never started the engine and its JVM child.\(stop.diagnostics)")
         }
 
-        // Sent to this test process. Without the handler it would end it.
-        kill(getpid(), SIGTERM)
-
-        let error = await run.value
-        let exit = try XCTUnwrap(error as? ExitCode, "\(String(describing: error))")
-        XCTAssertEqual(exit.rawValue, CLIExitCode.cancelled.rawValue)
-        let stopped = await waitUntil(timeout: .seconds(30)) {
-            !ProcessTreeTerminator.processExists(pid: enginePID) && !ProcessTreeTerminator.processExists(pid: javaPID)
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(cli) {
+            try LocalWorkflowRunBundleStore.read(from: bundle).executionStatus.rawValue
         }
-        XCTAssertTrue(stopped, "the engine and its JVM child are stopped")
-        let manifest = try LocalWorkflowRunBundleStore.read(from: bundle)
-        XCTAssertEqual(manifest.executionStatus, .cancelled, "the run bundle records the cancel")
+        XCTAssertTrue(
+            stop.tree.contains(enginePID) && stop.tree.contains(javaPID),
+            "the engine and its JVM child belong to the CLI's tree \(stop.tree)"
+        )
+        XCTAssertTrue(stop.standardError.contains("Workflow cancelled"), stop.diagnostics)
+        XCTAssertEqual(CLISIGTERMHarness.cancelledExitStatus, CLIExitCode.cancelled.rawValue)
+    }
+
+    /// The harness's own check. Before lane 3A, `workflow run` ended on the
+    /// first SIGTERM and left Nextflow's JVM running. A stand-in that does the
+    /// same fails each of the three checks, and the harness kills the child it
+    /// finds left.
+    @MainActor
+    func testTheHarnessFailsACommandThatEndsOnSIGTERMAndLeavesItsChild() async throws {
+        let childPIDFile = root.appendingPathComponent("child.pid")
+        let script = root.appendingPathComponent("ends-on-sigterm.sh")
+        try """
+        #!/bin/sh
+        /bin/sh -c 'echo $$ > "$CHILD_PID_FILE"; exec /bin/sleep 300' &
+        wait
+        """.write(to: script, atomically: true, encoding: .utf8)
+        let run = try CLISIGTERMHarness.launch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [script.path],
+            environment: ["PATH": "/usr/bin:/bin", "CHILD_PID_FILE": childPIDFile.path]
+        )
+        defer { run.stop() }
+        guard let childPID = await CLISIGTERMHarness.waitForProcessID(in: childPIDFile) else {
+            return XCTFail("The stand-in never started its child")
+        }
+
+        // The child would sleep for 300 s, so a shorter wait for the tree finds it all the same.
+        let stop = await CLISIGTERMHarness.cancel(run, timeout: .seconds(5))
+        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), stop.diagnostics)
+        XCTAssertTrue(stop.left.contains(childPID), "the child outlives the command, \(stop.left) out of \(stop.tree)")
+        XCTExpectFailure("a command that ends by the signal does not exit 125") {
+            CLISIGTERMHarness.assertCancelledExit(stop)
+        }
+        XCTExpectFailure("a command that ends by the signal writes no cancelled record") {
+            CLISIGTERMHarness.assertRecordCancelled { "running" }
+        }
+        XCTExpectFailure("the child outlives the command") {
+            CLISIGTERMHarness.assertNoProcessLeft(stop)
+        }
+        let killed = await waitUntil(timeout: .seconds(5)) { !ProcessTreeTerminator.processExists(pid: childPID) }
+        XCTAssertTrue(killed, "the harness kills a process it finds left")
     }
 }

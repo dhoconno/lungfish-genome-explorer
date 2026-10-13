@@ -5,6 +5,7 @@
 import XCTest
 import Darwin
 import Foundation
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishCLI
 
@@ -13,8 +14,9 @@ import LungfishTestSupport
 /// or a timeout tool still stops it.
 ///
 /// The check needs a process that may die, so the test runs this test bundle
-/// again in a child xctest process. It lives in ImportFastqE2ETests, which the
-/// gate runs serially in the integration tier with the other process suites.
+/// again in a child xctest process, which `CLISIGTERMHarness` starts, signals
+/// and waits for (Phase 2.10 lane S30). It lives in ImportFastqE2ETests, which
+/// the gate runs serially in the integration tier with the other process suites.
 extension ImportFastqE2ETests {
 
     private static let childFolderVariable = "LUNGFISH_SIGTERM_ESCALATION_CHILD"
@@ -28,39 +30,32 @@ extension ImportFastqE2ETests {
         let folder = try TestTempDirectory.make(prefix: "sigterm-escalation")
         defer { TestTempDirectory.cleanup(folder) }
 
-        let child = Process()
-        child.executableURL = URL(fileURLWithPath: xctest)
-        child.arguments = ["-XCTest", "LungfishCLITests.ImportFastqE2ETests/testSIGTERMEscalationChild", bundle]
-        // An IDE run hands this process the variables of its test session.
-        // The child is a plain xctest run, so it must not join that session.
-        var environment = ProcessInfo.processInfo.environment.filter { key, value in
-            !(key.hasPrefix("XCTest") || key.hasPrefix("XCInject")
-                || (key == "DYLD_INSERT_LIBRARIES" && value.contains("XCTest")))
-        }
-        environment[Self.childFolderVariable] = folder.path
-        child.environment = environment
-        child.standardOutput = FileHandle.nullDevice
-        child.standardError = FileHandle.nullDevice
-        try child.run()
-        defer { if child.isRunning { kill(child.processIdentifier, SIGKILL) } }
+        // An IDE run hands this process the variables of its test session, which
+        // the harness leaves out, so the child is a plain xctest run.
+        let child = try CLISIGTERMHarness.launch(
+            executableURL: URL(fileURLWithPath: xctest),
+            arguments: ["-XCTest", "LungfishCLITests.ImportFastqE2ETests/testSIGTERMEscalationChild", bundle],
+            environment: CLISIGTERMHarness.childEnvironment(overriding: [Self.childFolderVariable: folder.path])
+        )
+        defer { child.stop() }
 
-        let ready = folder.appendingPathComponent("ready").path
-        let cancelled = folder.appendingPathComponent("cancelled").path
-        let listening = await waitUntil(timeout: .seconds(60)) { FileManager.default.fileExists(atPath: ready) }
+        // Loading this test bundle in the child can take longer than a process wait.
+        let ready = folder.appendingPathComponent("ready")
+        let listening = await CLISIGTERMHarness.waitForFile(ready, timeout: .seconds(60))
         XCTAssertTrue(listening, "the child turns SIGTERM into a cancel")
         guard listening else { return }
 
-        kill(child.processIdentifier, SIGTERM)
-        let sawCancel = await waitUntil(timeout: .seconds(30)) { FileManager.default.fileExists(atPath: cancelled) }
+        child.sendSIGTERM()
+        let sawCancel = await CLISIGTERMHarness.waitForFile(folder.appendingPathComponent("cancelled"))
         XCTAssertTrue(sawCancel, "the first SIGTERM cancels")
         XCTAssertTrue(child.isRunning, "the first SIGTERM does not end the process")
 
-        kill(child.processIdentifier, SIGTERM)
-        let ended = await waitUntil(timeout: .seconds(30)) { !child.isRunning }
-        XCTAssertTrue(ended, "the second SIGTERM ends the process")
-        guard ended else { return }
-        XCTAssertEqual(child.terminationReason, .uncaughtSignal)
-        XCTAssertEqual(child.terminationStatus, SIGTERM)
+        let stop = await CLISIGTERMHarness.cancel(child)
+        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), "the second SIGTERM ends the process.\(stop.diagnostics)")
+        if let elapsed = stop.elapsed {
+            XCTAssertLessThanOrEqual(elapsed, CLISIGTERMHarness.operationGrace, "the second SIGTERM ends the process at once")
+        }
+        CLISIGTERMHarness.assertNoProcessLeft(stop)
     }
 
     /// Runs only in the child process that the test above starts.
