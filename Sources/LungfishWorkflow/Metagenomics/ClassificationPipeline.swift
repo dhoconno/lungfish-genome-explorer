@@ -928,12 +928,12 @@ public actor ClassificationPipeline {
 
         progress?(0.95, "Compacting Kraken2 output...")
 
-        let retainedOutputURL = await compactKrakenOutputIfPossible(
-            rawURL: effectiveConfig.outputURL,
-            provenanceRecorder: provenanceRecorder,
-            runID: runID,
-            dependsOn: kraken2StepID.map { [$0] } ?? []
-        ) ?? effectiveConfig.outputURL
+        let compaction = await compactKrakenOutputIfPossible(
+            rawURL: effectiveConfig.outputURL, provenanceRecorder: provenanceRecorder, runID: runID, dependsOn: kraken2StepID.map { [$0] } ?? []
+        )
+        let retainedOutputURL = compaction?.url ?? effectiveConfig.outputURL
+        // The sidecar names the gzip copy and the index, so it waits for the steps that made them.
+        resultDependencyIDs += compaction?.stepIDs ?? []
 
         let totalRuntime = runClock.elapsed
 

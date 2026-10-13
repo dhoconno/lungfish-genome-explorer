@@ -14,18 +14,28 @@ extension ClassificationPipeline {
     /// copy and index exist, here and in `build-db kraken2`.
     public static let kraken2OutputRemovalToolName = "Lungfish Kraken2 Output Removal"
 
+    /// What a compaction leaves: the gzip copy that holds the per-read output now, and the index step and gzip
+    /// step that read the original. A step that names the copy or the index waits for both (row 271 of Phase 2.8).
+    struct KrakenOutputCompaction {
+        let url: URL
+        /// The index step then the gzip step.
+        let stepIDs: [UUID]
+    }
+
     func compactKrakenOutputIfPossible(
         rawURL: URL,
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
         dependsOn: [UUID]
-    ) async -> URL? {
+    ) async -> KrakenOutputCompaction? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: rawURL.path) else { return nil }
 
         let compressedURL = rawURL.appendingPathExtension("gz")
         let indexURL = KrakenIndexDatabase.indexURL(for: compressedURL)
         let indexClock = ProvenanceRunClock()
+        var indexStepID: UUID?
+        var gzipStepID: UUID?
 
         do {
             try? fm.removeItem(at: indexURL)
@@ -37,7 +47,7 @@ extension ClassificationPipeline {
             let indexCompletedAt = indexClock.now
             // Hashed once for the index, gzip and removal steps that name it.
             let rawRecord = ProvenanceRecorder.fileRecord(url: rawURL, format: .text, role: .input)
-            _ = await provenanceRecorder.recordStep(
+            indexStepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "lungfish-kraken2-index",
                 toolVersion: WorkflowRun.currentAppVersion,
@@ -63,7 +73,7 @@ extension ClassificationPipeline {
             let gzipClock = ProvenanceRunClock()
             try gzipCopy(source: rawURL, destination: compressedURL)
             let gzipCompletedAt = gzipClock.now
-            let gzipStepID = await provenanceRecorder.recordStep(
+            gzipStepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "gzip",
                 toolVersion: "system",
@@ -81,15 +91,17 @@ extension ClassificationPipeline {
 
             try fm.removeItem(at: rawURL)
             // The kraken2, index and gzip steps keep naming the per-read output, so its
-            // removal is a step of the record too (P1 of Phase 2.8).
+            // removal is a step of the record too (P1 of Phase 2.8). The index and gzip
+            // steps both read it, so the removal waits for both.
+            let readerStepIDs = [indexStepID, gzipStepID].compactMap { $0 }
             await RecordedRemovalStep.record(
                 in: provenanceRecorder, runID: runID, toolName: Self.kraken2OutputRemovalToolName,
-                api: "FileManager.removeItem(at:)", removing: [rawRecord], dependsOn: [gzipStepID].compactMap { $0 }
+                api: "FileManager.removeItem(at:)", removing: [rawRecord], dependsOn: readerStepIDs
             )
             logger.info(
                 "Compacted Kraken2 output to \(compressedURL.lastPathComponent, privacy: .public) and \(indexURL.lastPathComponent, privacy: .public)"
             )
-            return compressedURL
+            return KrakenOutputCompaction(url: compressedURL, stepIDs: readerStepIDs)
         } catch {
             logger.warning("Failed to compact Kraken2 output; retaining raw output: \(error.localizedDescription, privacy: .public)")
             try? fm.removeItem(at: compressedURL)
