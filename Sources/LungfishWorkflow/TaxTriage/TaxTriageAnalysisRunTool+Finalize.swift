@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 extension TaxTriageAnalysisRunTool {
     /// The words of the bar while the finalize builds the viewer index, as the app's TaxTriage row has them.
@@ -27,6 +28,10 @@ extension TaxTriageAnalysisRunTool {
     /// command has always left it, with no index and no cleanup, as a Kraken2 result outside a
     /// project does. An index that cannot be built leaves a warning and the result, since the viewer
     /// builds the index when the result opens.
+    ///
+    /// Each completed sample of a result in its project's `Analyses/` folder then records the run in
+    /// its source bundle's analysis history (``sourceRecords(for:context:)``, X4), which the executor
+    /// writes after the root record.
     package func finalize(
         _ units: [AnalysisUnitReport<TaxTriageUnitResult>],
         context: AnalysisRunFinalizeContext
@@ -54,7 +59,65 @@ extension TaxTriageAnalysisRunTool {
                 "The viewer index could not be built: \(error.localizedDescription). The viewer builds it when the result opens."
             )
         }
+        finalization.sourceRecords = Self.sourceRecords(for: units, context: context)
         context.progress(1, Self.databaseStageMessage)
         return finalization
+    }
+
+    // MARK: - Source bundles (X4)
+
+    /// The name of the run in a source bundle's analysis history, the one the app's TaxTriage run writes.
+    static let sourceRecordDisplayName = "TaxTriage Classification"
+
+    /// X4, as Kraken2's finalize records a result in a project. Each completed sample of a result that
+    /// sits in its project's `Analyses/` folder, every `--project` result among them, gets one entry in
+    /// its source bundle's `analyses-manifest.json`, which names the result folder, so the bundle keeps
+    /// its link to the result (BIO 6). A failed sample records nothing, where the app's in-process route
+    /// records every sample of the request. A sample whose reads belong to no bundle records nothing,
+    /// and a result outside the project's `Analyses/` folder, whose entry would name a folder the
+    /// project does not list, records nothing.
+    ///
+    /// The entry carries the sample's settings as the app's does (``TaxTriageConfig/summaryParameters()``)
+    /// and the summary of the sample's own result without the runtime it measured, which the sample's
+    /// record holds, so a replay of the command writes the same entry (2.7 T2, QA 5).
+    static func sourceRecords(
+        for units: [AnalysisUnitReport<TaxTriageUnitResult>],
+        context: AnalysisRunFinalizeContext
+    ) -> [any AnalysisSourceRecord] {
+        guard let projectURL = context.projectURL,
+              AnalysisManifestStore.analysisDirectoryPath(for: context.rootDirectory, projectURL: projectURL) != nil else {
+            return []
+        }
+        return units.compactMap(\.outcome.result).flatMap { unitResult -> [any AnalysisSourceRecord] in
+            let result = unitResult.result
+            return result.config.samples.compactMap { sample -> (any AnalysisSourceRecord)? in
+                guard let bundle = sourceBundle(of: sample) else { return nil }
+                return AnalysisManifestSourceRecord(
+                    bundleURL: bundle,
+                    displayName: sourceRecordDisplayName,
+                    parameters: result.config.summaryParameters(),
+                    summary: manifestSummary(of: result)
+                )
+            }
+        }
+    }
+
+    /// The bundle a sample's reads come from, as the app's route finds it. A sample the unit planned
+    /// from a bundle names the bundle it chose, a virtual one included, whose reads the unit
+    /// materialized into the result. Any other sample names the bundle that holds its files.
+    static func sourceBundle(of sample: TaxTriageSample) -> URL? {
+        if let chosen = sample.readSetPlan?.inputURL,
+           let bundle = MappingResultLayoutService.findSourceBundle(for: [chosen]) {
+            return bundle
+        }
+        return MappingResultLayoutService.findSourceBundle(for: sample.allFiles)
+    }
+
+    /// The summary of a sample's result as the app's route words it, without its `Runtime:` line.
+    static func manifestSummary(of result: TaxTriageResult) -> String {
+        result.summary
+            .components(separatedBy: "\n")
+            .filter { !$0.hasPrefix("Runtime: ") }
+            .joined(separator: "\n")
     }
 }

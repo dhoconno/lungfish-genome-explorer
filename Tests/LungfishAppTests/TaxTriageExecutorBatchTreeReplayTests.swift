@@ -7,7 +7,9 @@
 // cases pin that tree for a project batch of two bundles, one of them a negative control by its bundle's
 // `metadata.csv`, and follow it as B30 adds each fact.
 //
-// - Source records (X4). Today no bundle records the run in its `analyses-manifest.json`.
+// - Source records (X4). Since B30 M1 each completed sample's bundle records the run once in its
+//   `analyses-manifest.json`, as a Kraken2 result in a project does, a failed sample's bundle records nothing,
+//   and a result outside the project records nothing. At the base no bundle recorded the run.
 // - The aggregate result (X3). Today the batch root holds no `taxtriage-result.json`, each sample keeps its own.
 // - The control mark (T4). Today the control's sample is not marked, `isNegativeControl` is false in its result.
 // - X7. A `build-db taxtriage --force` rebuild runs the legacy cleanup, which deletes the `top/` the executor kept
@@ -42,7 +44,7 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
 
     // MARK: - The tree
 
-    func testAProjectBatchWithAControlLeavesNoSourceRecordNoAggregateAndNoMark() async throws {
+    func testAProjectBatchRecordsEachSampleInItsBundleWithNoAggregateAndNoMark() async throws {
         let engine = try makeEngine()
         let project = try makeProject()
         let control = bundle(Self.controlSample, in: project)
@@ -51,12 +53,9 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
 
         let batch = try await runBatch(project: project, engine: engine)
 
-        // X4. No bundle records the run.
+        // X4. Each completed sample's bundle records the run once, naming the batch folder.
         for sample in Self.samples {
-            XCTAssertFalse(
-                FileManager.default.fileExists(atPath: bundle(sample, in: project).appendingPathComponent(AnalysisManifest.filename).path),
-                "\(sample)'s bundle holds no analyses-manifest.json"
-            )
+            try assertRecordsTheRun(bundle(sample, in: project), project: project, batch: batch, sample: sample)
         }
         // X3. The batch root holds no aggregate result, each sample keeps its own.
         XCTAssertFalse(FileManager.default.fileExists(atPath: batch.appendingPathComponent("taxtriage-result.json").path))
@@ -66,6 +65,57 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
             XCTAssertEqual(result.config.samples.map(\.sampleId), [sample], "\(sample)'s result names its one sample")
             XCTAssertEqual(result.config.samples.map(\.isNegativeControl), [false], "\(sample) carries no control mark")
         }
+    }
+
+    func testAFailedSampleRecordsNothingInItsBundle() async throws {
+        let engine = try makeEngine(.failsSamples([Self.controlSample]))
+        let project = try makeProject()
+
+        let batch = try await runBatch(project: project, engine: engine)
+
+        let patient = try XCTUnwrap(Self.samples.first { $0 != Self.controlSample })
+        try assertRecordsTheRun(bundle(patient, in: project), project: project, batch: batch, sample: patient)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: bundle(Self.controlSample, in: project).appendingPathComponent(AnalysisManifest.filename).path
+            ),
+            "X4: the failed sample's bundle records nothing, where the app's route records every sample"
+        )
+    }
+
+    func testABatchOutsideTheProjectRecordsNothingInTheBundles() async throws {
+        let engine = try makeEngine()
+        let project = try makeProject()
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let imports = project.appendingPathComponent("Imports", isDirectory: true)
+
+        let (code, lines) = try await run(["--input", imports.path, "--output", output.path, "--batch"], engine: engine)
+
+        XCTAssertEqual(code, 0, lines.joined(separator: "\n"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.appendingPathComponent("\(Self.controlSample)/taxtriage-result.json").path))
+        for sample in Self.samples {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: bundle(sample, in: project).appendingPathComponent(AnalysisManifest.filename).path),
+                "a result outside the project's Analyses folder is no entry of \(sample)'s bundle"
+            )
+        }
+    }
+
+    /// `bundle`'s analysis history holds one entry, the run in `batch` with `sample`'s settings and the summary of
+    /// its result without the runtime it measured, as the app's route words it.
+    private func assertRecordsTheRun(_ bundle: URL, project: URL, batch: URL, sample: String) throws {
+        let entries = AnalysisManifestStore.load(bundleURL: bundle, projectURL: project).analyses
+        XCTAssertEqual(entries.count, 1, "\(sample)'s bundle records the run once")
+        let entry = try XCTUnwrap(entries.first, sample)
+        let result = try TaxTriageResult.load(from: batch.appendingPathComponent(sample, isDirectory: true))
+        XCTAssertEqual(entry.tool, "taxtriage", sample)
+        XCTAssertEqual(entry.analysisDirectoryName, batch.lastPathComponent, "\(sample)'s entry names the batch folder")
+        XCTAssertEqual(entry.displayName, "TaxTriage Classification", "the app's route's name for the run")
+        XCTAssertEqual(entry.status, .completed, sample)
+        XCTAssertEqual(entry.parameters, result.config.summaryParameters(), "\(sample)'s entry names its settings")
+        XCTAssertTrue(entry.summary.hasPrefix("TaxTriage pipeline completed"), entry.summary)
+        XCTAssertTrue(entry.summary.contains("Samples: 1"), entry.summary)
+        XCTAssertFalse(entry.summary.contains("Runtime:"), "no measured runtime, so a replay writes the same entry: \(entry.summary)")
     }
 
     // MARK: - X7
@@ -101,9 +151,9 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
 
     // MARK: - Running
 
-    private func makeEngine() throws -> TaxTriageStandInEngine {
+    private func makeEngine(_ behaviour: TaxTriageStandInEngine.Behaviour = .completes) throws -> TaxTriageStandInEngine {
         let engine = try TaxTriageStandInEngine(
-            root: root.appendingPathComponent("engine", isDirectory: true), maximumWait: .seconds(60)
+            root: root.appendingPathComponent("engine", isDirectory: true), behaviour: behaviour, maximumWait: .seconds(60)
         )
         addTeardownBlock { await engine.stopLeftoverProcesses() }
         return engine
