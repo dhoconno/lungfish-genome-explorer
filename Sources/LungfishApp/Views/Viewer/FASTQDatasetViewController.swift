@@ -18,47 +18,20 @@ struct FASTQReadPreviewRecord {
     let meanQuality: Double
 }
 
-/// Parses raw FASTQ text (4 lines per record) into preview records.
+/// Turns the first records of a FASTQ file into preview rows, numbered from 1 in file order.
 /// Free function to avoid @MainActor isolation from the enclosing class.
-private func parseFASTQReadPreviewRecords(from fastqText: String) -> [FASTQReadPreviewRecord] {
-    let lines = fastqText.split(separator: "\n", omittingEmptySubsequences: false)
-    var records: [FASTQReadPreviewRecord] = []
-    records.reserveCapacity(1_000)
-
-    var i = 0
-    var recordIndex = 1
-    while i + 3 < lines.count {
-        let headerLine = lines[i]
-        let sequenceLine = lines[i + 1]
-        // lines[i + 2] is the "+" separator
-        let qualityLine = lines[i + 3]
-
-        // Parse read ID from header (strip leading @, take first whitespace-delimited token)
-        let header = headerLine.hasPrefix("@") ? String(headerLine.dropFirst()) : String(headerLine)
-        let readID = String(header.split(separator: " ", maxSplits: 1).first ?? Substring(header))
-
-        let sequence = String(sequenceLine)
-        let length = sequence.count
-
-        // Per-read Mean Q uses the same error-probability definition as the
-        // dataset Mean Q card and seqkit, not an arithmetic Phred average.
-        let meanQ = qualityLine.isEmpty
-            ? 0
-            : QualityScore.errorProbabilityMeanQuality(ofASCII: qualityLine, encoding: .phred33)
-
-        records.append(FASTQReadPreviewRecord(
-            index: recordIndex,
-            readID: readID,
-            sequence: sequence,
-            length: length,
-            meanQuality: meanQ
-        ))
-
-        recordIndex += 1
-        i += 4
+private func makeFASTQReadPreviewRecords(from fastqRecords: [FASTQRecord]) -> [FASTQReadPreviewRecord] {
+    fastqRecords.enumerated().map { offset, record in
+        FASTQReadPreviewRecord(
+            index: offset + 1,
+            readID: record.identifier,
+            sequence: record.sequence,
+            length: record.length,
+            // Per-read Mean Q uses the same error-probability definition as the
+            // dataset Mean Q card and seqkit, not an arithmetic Phred average.
+            meanQuality: record.quality.isEmpty ? 0 : record.quality.errorProbabilityMeanQuality
+        )
     }
-
-    return records
 }
 
 @MainActor
@@ -1244,67 +1217,33 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // `nonisolated` because the enclosing class is `@MainActor`: without it
     // these inherit main-actor isolation, so the detached task that calls them
-    // hops straight back to the main thread and the seqkit run, its temp
-    // directory creation and the FASTQ read all block the UI. On a machine
-    // whose disk is busy that freezes the window while a sample is selected.
-    // None of the three touch view state, so leaving the actor is safe.
+    // hops straight back to the main thread and the FASTQ read blocks the UI.
+    // On a machine whose disk is busy that freezes the window while a sample
+    // is selected. None of the helpers touch view state, so leaving the actor
+    // is safe.
     nonisolated static func buildFASTAPreview(from url: URL, readLimit: Int) async throws -> String {
-        if let streamedFASTA = await buildFASTAPreviewWithSeqkit(from: url, readLimit: readLimit) {
-            return streamedFASTA
-        }
-
-        let reader = FASTQReader(validateSequence: false)
-        var records: [FASTQRecord] = []
-        records.reserveCapacity(readLimit)
-        for try await record in reader.records(from: url) {
-            records.append(record)
-            if records.count >= readLimit { break }
-        }
+        let records = try await firstRecords(from: url, limit: readLimit)
         return formatFASTA(records: records)
     }
 
-    private nonisolated static func buildFASTAPreviewWithSeqkit(from url: URL, readLimit: Int) async -> String? {
-        let fm = FileManager.default
-        let tempDir: URL
-        do {
-            tempDir = try ProjectTempDirectory.createFromContext(
-                prefix: "fasta-preview-", contextURL: url)
-        } catch {
-            return nil
+    /// Reads the first `limit` records of a FASTQ file, plain or gzip, and stops
+    /// there, so a preview of a large file never reads past them. Both previews
+    /// use it and neither writes a file. Quality is fixed at Phred+33, as the
+    /// read preview has always computed Mean Q, instead of guessed from the
+    /// first record.
+    nonisolated static func firstRecords(from url: URL, limit: Int) async throws -> [FASTQRecord] {
+        let wanted = max(1, limit)
+        let reader = FASTQReader(encoding: .phred33, validateSequence: false)
+        var records: [FASTQRecord] = []
+        records.reserveCapacity(min(wanted, 1_024))
+        for try await record in reader.records(from: url) {
+            records.append(record)
+            if records.count >= wanted { break }
         }
-        let sampledFASTQ = tempDir.appendingPathComponent("sample.fastq")
-        let outputFASTA = tempDir.appendingPathComponent("sample.fasta")
-
-        defer { try? fm.removeItem(at: tempDir) }
-
-        do {
-            let runner = NativeToolRunner.shared
-            let headResult = try await runner.run(
-                .seqkit,
-                arguments: ["head", "-n", String(max(1, readLimit)), url.path],
-                timeout: 120
-            )
-            guard headResult.isSuccess, !headResult.stdout.isEmpty else {
-                return nil
-            }
-
-            try headResult.stdout.write(to: sampledFASTQ, atomically: true, encoding: .utf8)
-
-            let fastaResult = try await runner.run(
-                .seqkit,
-                arguments: ["fq2fa", "-w", "0", sampledFASTQ.path, "-o", outputFASTA.path],
-                timeout: 120
-            )
-            guard fastaResult.isSuccess else {
-                return nil
-            }
-
-            let fasta = try String(contentsOf: outputFASTA, encoding: .utf8)
-            guard !fasta.isEmpty else { return "No FASTQ reads available for preview." }
-            return fasta.hasSuffix("\n") ? fasta : fasta + "\n"
-        } catch {
-            return nil
-        }
+        // A cancelled read ends the stream early without an error. Say so
+        // rather than return a short list that looks like the whole preview.
+        try Task.checkCancellation()
+        return records
     }
 
     private nonisolated static func formatFASTA(records: [FASTQRecord]) -> String {
@@ -1435,14 +1374,16 @@ public final class FASTQDatasetViewController: NSViewController {
         let sourceURL = url.standardizedFileURL
         readPreviewTask = Task.detached(priority: .utility) { [weak self] in
             do {
-                let runner = NativeToolRunner.shared
-                let result = try await runner.run(
-                    .seqkit,
-                    arguments: ["head", "-n", "1000", sourceURL.path],
-                    timeout: 120
-                )
+                // A file the reader cannot parse yields no reads, as the failed
+                // seqkit run did, so it ends in the same message as an empty file.
+                let fastqRecords: [FASTQRecord]
+                do {
+                    fastqRecords = try await Self.firstRecords(from: sourceURL, limit: 1_000)
+                } catch is FASTQError {
+                    fastqRecords = []
+                }
 
-                guard result.isSuccess, !result.stdout.isEmpty else {
+                guard !fastqRecords.isEmpty else {
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
                             guard let self else { return }
@@ -1457,7 +1398,7 @@ public final class FASTQDatasetViewController: NSViewController {
                     return
                 }
 
-                let records = parseFASTQReadPreviewRecords(from: result.stdout)
+                let records = makeFASTQReadPreviewRecords(from: fastqRecords)
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {

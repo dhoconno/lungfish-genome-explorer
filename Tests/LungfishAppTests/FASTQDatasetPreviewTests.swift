@@ -11,6 +11,7 @@
 
 import XCTest
 import AppKit
+import CryptoKit
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishWorkflow
@@ -147,6 +148,28 @@ enum FASTQDatasetPreviewFixture {
             throw NSError(domain: "FASTQDatasetPreviewFixture.gzip", code: Int(process.terminationStatus))
         }
         try compressed.write(to: destination)
+    }
+
+    /// Every path under `directory`, hidden ones too, with its kind, modification time, size and SHA-256.
+    static func snapshot(of directory: URL) throws -> [String] {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+        guard let walker = FileManager.default.enumerator(
+            at: directory, includingPropertiesForKeys: keys, options: []
+        ) else { return [] }
+        let base = directory.resolvingSymlinksInPath().path
+        var lines: [String] = []
+        for case let url as URL in walker {
+            let values = try url.resourceValues(forKeys: Set(keys))
+            let relative = String(url.resolvingSymlinksInPath().path.dropFirst(base.count))
+            let modified = values.contentModificationDate?.timeIntervalSince1970 ?? 0
+            if values.isDirectory == true {
+                lines.append("\(relative)|dir|\(modified)")
+            } else {
+                let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+                lines.append("\(relative)|file|\(modified)|\(values.fileSize ?? -1)|\(digest)")
+            }
+        }
+        return lines.sorted()
     }
 
     // MARK: - Assertions
@@ -312,5 +335,188 @@ final class FASTQDatasetPreviewSeqkitConformanceTests: XCTestCase {
             XCTAssertFalse(controller.readPreviewLoaded, url.lastPathComponent)
             XCTAssertEqual(controller.readPreviewPlaceholder.stringValue, Fixture.extractFailureText)
         }
+    }
+}
+
+// MARK: - The previews need no tool and write no file
+
+/// Runs in the unit tier. The same answers as the pin, from the Swift FASTQ reader, plus the properties the
+/// move to the reader adds. A preview writes nothing, stops at its limit and ends when it is cancelled.
+@MainActor
+final class FASTQDatasetPreviewTests: XCTestCase {
+    private typealias Fixture = FASTQDatasetPreviewFixture
+    private var root: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        root = try TestTempDirectory.make(prefix: "fastq-dataset-preview")
+    }
+
+    override func tearDown() async throws {
+        if let root { TestTempDirectory.cleanup(root) }
+        try await super.tearDown()
+    }
+
+    func testPreviewsWriteNothingToTheProject() async throws {
+        let dataset = try Fixture.makeDataset(in: root)
+        let before = try Fixture.snapshot(of: dataset.project)
+        XCTAssertEqual(before.count, 3, "the bundle and the two FASTQ files: \(before)")
+        for url in [dataset.plain, dataset.gzip] {
+            _ = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 1_000)
+            let controller = try await Fixture.readPreview(of: url)
+            XCTAssertTrue(controller.readPreviewLoaded, url.lastPathComponent)
+        }
+        XCTAssertEqual(try Fixture.snapshot(of: dataset.project), before)
+    }
+
+    // MARK: The pin's answers without the tool
+
+    func testFASTAPreviewIsTheLiteralForPlainAndGzip() async throws {
+        let dataset = try Fixture.makeDataset(in: root)
+        for url in [dataset.plain, dataset.gzip] {
+            let fasta = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 1_000)
+            XCTAssertEqual(fasta, Fixture.pairedFASTA, url.lastPathComponent)
+            let cut = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 3)
+            XCTAssertEqual(cut, Fixture.pairedFASTAFirstThree, "a limit of 3 on \(url.lastPathComponent)")
+        }
+    }
+
+    func testReadPreviewRowsAreTheLiteralsForPlainAndGzip() async throws {
+        let dataset = try Fixture.makeDataset(in: root)
+        for url in [dataset.plain, dataset.gzip] {
+            let controller = try await Fixture.readPreview(of: url)
+            XCTAssertTrue(controller.readPreviewLoaded, url.lastPathComponent)
+            XCTAssertTrue(controller.readPreviewPlaceholder.isHidden, url.lastPathComponent)
+            Fixture.assertRows(controller.readPreviewRecords)
+        }
+    }
+
+    func testMeanQualityIsPhred33EvenForAFileThatLooksLikePhred64() async throws {
+        // The row has always read its quality line as Phred+33, so 'h' is Q71 and not the Q40 a guess from
+        // the first record would give.
+        let dataset = try Fixture.makeDataset(in: root, fastq: "@old_illumina\nACGTACGT\n+\nhhhhhhhh\n")
+        let controller = try await Fixture.readPreview(of: dataset.plain)
+        XCTAssertEqual(controller.readPreviewRecords.first?.meanQuality ?? 0, 71.0, accuracy: 1e-9)
+    }
+
+    func testReadPreviewLoadsOffTheCallersThread() async throws {
+        let dataset = try Fixture.makeDataset(in: root)
+        let controller = FASTQDatasetViewController()
+        _ = controller.view
+        controller.configure(statistics: .empty, records: [], fastqURL: dataset.plain)
+        controller.loadReadPreview()
+        // The rows can only arrive through a hop back to the main actor, which this call has not yielded to.
+        XCTAssertFalse(controller.readPreviewLoaded)
+        XCTAssertTrue(controller.readPreviewRecords.isEmpty)
+    }
+
+    // MARK: The limit, the cancel and the failure texts
+
+    func testBothPreviewsStopAtTheFirstThousandReads() async throws {
+        let dataset = try Fixture.makeDataset(in: root, fastq: Fixture.numberedFASTQ(count: 1_200))
+        for url in [dataset.plain, dataset.gzip] {
+            let controller = try await Fixture.readPreview(of: url)
+            let rows = controller.readPreviewRecords
+            XCTAssertEqual(rows.count, 1_000, url.lastPathComponent)
+            XCTAssertEqual(rows.first?.readID, "limit_0001")
+            XCTAssertEqual(rows.last?.readID, "limit_1000")
+            XCTAssertEqual(rows.last?.index, 1_000)
+            let fasta = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 1_000)
+            XCTAssertEqual(fasta.split(separator: "\n").count, 2_000, url.lastPathComponent)
+            XCTAssertTrue(fasta.hasPrefix(">limit_0001\nACGTACGT\n>limit_0002\n"))
+            XCTAssertTrue(fasta.hasSuffix(">limit_1000\nACGTACGT\n"))
+        }
+    }
+
+    func testPreviewsStopAtTheLimitWithoutReadingFurther() async throws {
+        // 1,000 good reads and then a line no FASTQ parser accepts. Parsing one record past the limit would fail.
+        let fastq = Fixture.numberedFASTQ(count: 1_000) + "this is not FASTQ\n"
+        let dataset = try Fixture.makeDataset(in: root, fastq: fastq)
+        for url in [dataset.plain, dataset.gzip] {
+            let fasta = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 1_000)
+            XCTAssertEqual(fasta.split(separator: "\n").count, 2_000, url.lastPathComponent)
+            let controller = try await Fixture.readPreview(of: url)
+            XCTAssertEqual(controller.readPreviewRecords.count, 1_000, url.lastPathComponent)
+        }
+    }
+
+    func testStoppingAtTheLimitLeavesNoGzipChildBehind() async throws {
+        // About 10 MB once decompressed, far more than the 64 KB a pipe holds, so a child that is not stopped
+        // would sit blocked on its output for good.
+        let dataset = try Fixture.makeDataset(in: root, fastq: Fixture.numberedFASTQ(count: 300_000))
+        let records = try await FASTQDatasetViewController.firstRecords(from: dataset.gzip, limit: 1_000)
+        XCTAssertEqual(records.count, 1_000)
+        let deadline = Date().addingTimeInterval(30)
+        var children = try gzipChildren()
+        while !children.isEmpty && Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            children = try gzipChildren()
+        }
+        XCTAssertTrue(children.isEmpty, "gzip children still running after the preview: \(children)")
+    }
+
+    /// Process IDs of the `gzip` children of this test process.
+    private func gzipChildren() throws -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-P", String(ProcessInfo.processInfo.processIdentifier), "-x", "gzip"]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
+    }
+
+    func testAReadThatIsCancelledEndsWithCancellationInsteadOfAShortList() async throws {
+        let dataset = try Fixture.makeDataset(in: root)
+        let url = dataset.plain
+        let task = Task.detached { () -> Int in
+            while !Task.isCancelled { await Task.yield() }
+            return try await FASTQDatasetViewController.firstRecords(from: url, limit: 1_000).count
+        }
+        task.cancel()
+        do {
+            let count = try await task.value
+            XCTFail("A cancelled read returned \(count) records")
+        } catch is CancellationError {
+            // Expected. A short list would have shown a failure text for a read that was only superseded.
+        }
+    }
+
+    func testAnEmptyFileShowsTheNoReadsTexts() async throws {
+        let dataset = try Fixture.makeDataset(in: root, fastq: "")
+        for url in [dataset.plain, dataset.gzip] {
+            let fasta = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 1_000)
+            XCTAssertEqual(fasta, Fixture.emptyFASTAText, url.lastPathComponent)
+            let controller = try await Fixture.readPreview(of: url)
+            XCTAssertFalse(controller.readPreviewLoaded, url.lastPathComponent)
+            XCTAssertFalse(controller.readPreviewPlaceholder.isHidden, url.lastPathComponent)
+            XCTAssertEqual(controller.readPreviewPlaceholder.stringValue, Fixture.extractFailureText)
+        }
+    }
+
+    func testAFileThatIsNotFASTQShowsTheFailureTexts() async throws {
+        let dataset = try Fixture.makeDataset(in: root, fastq: "this is not a FASTQ file\nat all\n")
+        for url in [dataset.plain, dataset.gzip] {
+            do {
+                let fasta = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 1_000)
+                XCTFail("The FASTA preview of \(url.lastPathComponent) should throw, it returned \(fasta)")
+            } catch {
+                XCTAssertTrue(error is FASTQError, "\(url.lastPathComponent): \(error)")
+            }
+            let controller = try await Fixture.readPreview(of: url)
+            XCTAssertFalse(controller.readPreviewLoaded, url.lastPathComponent)
+            XCTAssertEqual(controller.readPreviewPlaceholder.stringValue, Fixture.extractFailureText)
+        }
+    }
+
+    func testAMissingFileShowsTheLoadFailureText() async throws {
+        let missing = root.appendingPathComponent("gone.fastq")
+        let controller = try await Fixture.readPreview(of: missing)
+        XCTAssertFalse(controller.readPreviewLoaded)
+        XCTAssertTrue(
+            controller.readPreviewPlaceholder.stringValue.hasPrefix("Failed to load read preview: "),
+            controller.readPreviewPlaceholder.stringValue)
     }
 }
