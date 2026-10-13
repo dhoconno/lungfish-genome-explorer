@@ -7,9 +7,9 @@ import LungfishCore
 
 /// Shared helpers used by ``GenomeDownloadBundleBuilder``, ``GenBankDownloadBundleBuilder`` and the
 /// sequence extraction pipeline during `.lungfishref` bundle creation.
-public enum BundleBuildHelpers {
+package enum BundleBuildHelpers {
 
-    public static func sanitizedFilename(_ raw: String) -> String {
+    package static func sanitizedFilename(_ raw: String) -> String {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
@@ -17,7 +17,7 @@ public enum BundleBuildHelpers {
             .replacingOccurrences(of: " ", with: "_")
     }
 
-    public static func makeUniqueBundleURL(baseName: String, in directory: URL) -> URL {
+    package static func makeUniqueBundleURL(baseName: String, in directory: URL) -> URL {
         var candidate = directory.appendingPathComponent("\(baseName).lungfishref", isDirectory: true)
         var counter = 1
         while FileManager.default.fileExists(atPath: candidate.path) {
@@ -27,7 +27,7 @@ public enum BundleBuildHelpers {
         return candidate
     }
 
-    public static func parseFai(at url: URL) throws -> [ChromosomeInfo] {
+    package static func parseFai(at url: URL) throws -> [ChromosomeInfo] {
         let content = try String(contentsOf: url, encoding: .utf8)
         let lines = content.split(whereSeparator: \.isNewline)
 
@@ -183,7 +183,7 @@ public enum BundleBuildHelpers {
     /// Validates that required tools (bgzip, samtools) are available.
     ///
     /// - Throws: `BundleBuildError.missingTools` if essential tools are missing.
-    public static func validateTools(using toolRunner: NativeToolRunner) async throws {
+    package static func validateTools(using toolRunner: NativeToolRunner) async throws {
         let (valid, missing) = await toolRunner.validateToolsInstallation()
         if !valid {
             let essential = missing.filter { $0 == .bgzip || $0 == .samtools }
