@@ -5,7 +5,6 @@
 import XCTest
 import LungfishKit
 import LungfishKitTestSupport
-import LungfishTestSupport
 
 @MainActor
 final class OperationCenterLockingTests: XCTestCase {
@@ -242,34 +241,6 @@ final class OperationCenterLockingTests: XCTestCase {
         XCTAssertFalse(transportLaunched, "The pre-checked caller must not launch its transport while the bundle is locked.")
     }
 
-    func testAnnotationImportCallSitesPassTargetBundleURLForLocking() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        let sidebarSource = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift"
-            ),
-            encoding: .utf8
-        )
-        // The Import Center attach sits in an AppDelegate extension file, so
-        // the pin reads them all and follows the attach to any of them.
-        let importCenterSource = combinedAppDelegateSource()
-
-        XCTAssertTrue(
-            Self.operationStartBlock(titled: "Annotation Import", in: sidebarSource)
-                .contains("targetBundleURL: bundleURL"),
-            "Sidebar/drop annotation imports must acquire a bundle mutation lock."
-        )
-        XCTAssertTrue(
-            Self.operationStartBlock(titled: "Annotation Import", in: importCenterSource)
-                .contains("targetBundleURL: bundleURL"),
-            "Import Center annotation imports must acquire a bundle mutation lock."
-        )
-    }
-
     func testWorkerTerminalCallsAcknowledgeCancellationAndSuppressDelivery() throws {
         let completions: [@MainActor (OperationCenter, UUID, URL) -> Bool] = [
             { center, id, _ in center.complete(id: id, detail: "Done") },
@@ -454,19 +425,5 @@ final class OperationCenterLockingTests: XCTestCase {
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-    }
-
-    private static func operationStartBlock(titled title: String, in source: String) -> String {
-        guard let titleRange = source.range(of: #"title: "\#(title)""#) else {
-            return ""
-        }
-        // Annotation import call sites use `begin(...)`, whose refusal the
-        // caller must switch on.
-        guard let startRange = source[..<titleRange.lowerBound]
-                .range(of: "OperationCenter.shared.begin(", options: .backwards),
-              let endRange = source[titleRange.upperBound...].range(of: "\n        )") else {
-            return ""
-        }
-        return String(source[startRange.lowerBound..<endRange.upperBound])
     }
 }

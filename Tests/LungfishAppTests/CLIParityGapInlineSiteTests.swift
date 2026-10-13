@@ -2,31 +2,18 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Three begin sites call `OperationCenter.begin` inline, with the literal nil
-// as their command and no reporter a test can inject (docs/contracts/
-// CLI-EQUIVALENCE.md, "Gaps until they close"). Driving them would need a
-// modal sheet, a project on disk or a keychain lookup, so these pins record
+// One begin site calls `OperationCenter.begin` inline, with the literal nil
+// as its command and no reporter a test can inject (docs/contracts/
+// CLI-EQUIVALENCE.md, "Gaps until they close"). Driving it would need a
+// modal sheet, a project on disk or a keychain lookup, so this pin records
 // the value the site passes. The lane that closes a gap gives its site a
 // begin helper that takes a reporter, and replaces the pin here with a parse
-// test and a replay test.
+// test and a replay test. The two annotation attach sites took theirs in
+// 2.10 A42, and AppDelegateAnnotationTrackImportOperationTests pins their row.
 
 import XCTest
 
 final class CLIParityGapInlineSiteTests: XCTestCase {
-    /// The Import Center annotation track attach,
-    /// `AppDelegate.performSingleAnnotationTrackImport`, records nil.
-    func testImportCenterAnnotationAttachRecordsNoCommand() {
-        let recorded: String? = nil
-        assertCLIParityGap(recorded, id: "annotation-attach-import-center")
-    }
-
-    /// The sidebar drop annotation track attach in
-    /// Views/MainWindow/MainSplitViewController+FASTQImport.swift records nil.
-    func testSidebarDropAnnotationAttachRecordsNoCommand() {
-        let recorded: String? = nil
-        assertCLIParityGap(recorded, id: "annotation-attach-sidebar-drop")
-    }
-
     /// The AI Haplotyping row in
     /// Services/GenotypeAIHaplotypingExecutionService.swift records nil and
     /// logs its command preview after it resolves the provider.

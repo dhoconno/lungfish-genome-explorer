@@ -138,46 +138,36 @@ extension MainSplitViewController {
             }
             let bundleURL = importConfiguration.bundleURL
 
-            let startResult = OperationCenter.shared.begin(
-                title: "Annotation Import",
-                detail: "Importing \(url.lastPathComponent)...",
-                operationType: .bundleBuild,
-                targetBundleURL: bundleURL,
-                cliCommand: nil, // cli-parity-gap: annotation-attach-sidebar-drop. No command attaches a track.
+            let startResult = await AppDelegate.beginAnnotationTrackImportOperation(
+                annotationURL: url,
+                bundleURL: bundleURL,
                 routeContext: operationRouteContext
-            )
-            guard case .started(let opID) = startResult else {
-                // The bundle is locked by another operation. The visible
-                // "Bundle is busy" row is already inserted; do not import.
-                postSidebarFileDropCompleted(
-                    requestID: requestID,
-                    sourceURL: url,
-                    success: false,
-                    error: "Bundle is busy"
-                )
-                return
-            }
-
-            do {
-                let result = try await ReferenceBundleAnnotationImportService()
-                    .attachAnnotationTrack(
-                        sourceURL: url,
-                        bundleURL: bundleURL,
-                        trackID: importConfiguration.trackID,
-                        trackName: importConfiguration.trackName
-                    )
-                guard OperationCenter.shared.complete(
-                    id: opID,
-                    detail: "Imported \(result.featureCount) annotations"
-                ) else { return }
-                sidebarController.requestReloadFromFilesystem()
-                if viewerController?.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
-                    try? viewerController?.displayBundle(at: bundleURL)
+            ) { opID in
+                do {
+                    let result = try await ReferenceBundleAnnotationImportService()
+                        .attachAnnotationTrack(
+                            sourceURL: url,
+                            bundleURL: bundleURL,
+                            trackID: importConfiguration.trackID,
+                            trackName: importConfiguration.trackName
+                        )
+                    guard OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Imported \(result.featureCount) annotations"
+                    ) else { return }
+                    sidebarController.requestReloadFromFilesystem()
+                    if viewerController?.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                        try? viewerController?.displayBundle(at: bundleURL)
+                    }
+                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
+                } catch {
+                    _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: error.localizedDescription)
                 }
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
-            } catch {
-                _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: error.localizedDescription)
+            }
+            if case .refused = startResult {
+                // The visible "Bundle is busy" row is already inserted. Nothing was imported.
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Bundle is busy")
             }
             return
         }

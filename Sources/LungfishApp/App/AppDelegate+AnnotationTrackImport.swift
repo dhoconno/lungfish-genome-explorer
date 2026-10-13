@@ -112,41 +112,68 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Annotation import"
         ) else { return }
-        let startResult = OperationCenter.shared.begin(
+        // A refused row is the visible "Bundle is busy" row, and nothing is imported.
+        await Self.beginAnnotationTrackImportOperation(
+            annotationURL: annotationURL,
+            bundleURL: bundleURL,
+            routeContext: routeContext
+        ) { opID in
+            do {
+                let result = try await ReferenceBundleAnnotationImportService()
+                    .attachAnnotationTrack(
+                        sourceURL: annotationURL,
+                        bundleURL: bundleURL,
+                        trackID: trackID,
+                        trackName: trackName
+                    )
+                guard OperationCenter.shared.complete(
+                    id: opID,
+                    detail: "Imported \(result.featureCount) annotations"
+                ) else { return }
+                let targetController = targetMainWindowController(routeContext: routeContext)
+                refreshSidebarAndSelectImportedURL(bundleURL, in: targetController)
+                if let viewerController = targetController?.mainSplitViewController?.viewerController,
+                   viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                    try viewerController.displayBundle(at: bundleURL)
+                }
+            } catch {
+                guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Registers the row that attaches one annotation file to a reference
+    /// bundle as a track, for the Import Center and for a file dropped on the
+    /// sidebar, and, only when it starts, awaits `launch` with the operation
+    /// ID. The row locks `bundleURL`, the bundle the attach writes. On a
+    /// refusal the caller shows its own outcome, and nothing is launched.
+    ///
+    /// cli-parity-gap: annotation-attach-import-center, for the Import Center.
+    /// cli-parity-gap: annotation-attach-sidebar-drop, for the sidebar drop.
+    /// No lungfish-cli command attaches a track to an existing bundle. The
+    /// closest is `bundle create --annotation`, which takes annotation files
+    /// only when it builds a new bundle. Both rows record no command until
+    /// `sequence attach-track` exists.
+    @discardableResult
+    static func beginAnnotationTrackImportOperation(
+        annotationURL: URL,
+        bundleURL: URL,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) async -> Void
+    ) async -> OperationStartResult {
+        let result = reporter.begin(
             title: "Annotation Import",
             detail: "Importing \(annotationURL.lastPathComponent)...",
             operationType: .bundleBuild,
             targetBundleURL: bundleURL,
-            cliCommand: nil, // cli-parity-gap: annotation-attach-import-center. No command attaches a track.
+            cliCommand: nil,
             routeContext: routeContext
         )
-        guard case .started(let opID) = startResult else {
-            // The bundle is locked by another operation. The visible
-            // "Bundle is busy" row is already inserted; do not import.
-            return
+        if case .started(let operationID) = result {
+            await launch(operationID)
         }
-
-        do {
-            let result = try await ReferenceBundleAnnotationImportService()
-                .attachAnnotationTrack(
-                    sourceURL: annotationURL,
-                    bundleURL: bundleURL,
-                    trackID: trackID,
-                    trackName: trackName
-                )
-            guard OperationCenter.shared.complete(
-                id: opID,
-                detail: "Imported \(result.featureCount) annotations"
-            ) else { return }
-            let targetController = targetMainWindowController(routeContext: routeContext)
-            refreshSidebarAndSelectImportedURL(bundleURL, in: targetController)
-            if let viewerController = targetController?.mainSplitViewController?.viewerController,
-               viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
-                try viewerController.displayBundle(at: bundleURL)
-            }
-        } catch {
-            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-            showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
-        }
+        return result
     }
 }
