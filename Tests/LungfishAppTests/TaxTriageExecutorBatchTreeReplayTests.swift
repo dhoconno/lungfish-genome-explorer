@@ -12,7 +12,9 @@
 //   A plain `--output` result records nothing, outside the project or in its `Analyses/` folder (B30 ruling Q2).
 //   The entry's summary is the app's, its measured runtime included (B30 ruling Q1, vote V-B30).
 //   At the base no bundle recorded the run.
-// - The aggregate result (X3). Today the batch root holds no `taxtriage-result.json`, each sample keeps its own.
+// - The aggregate result (X3, T5). Since B30 M3 every batch root holds `taxtriage-result.json` from its samples'
+//   results in request order, a failed sample as the plan gave it and named as a failure, and the root record names
+//   it with its digest. Each bundle's entry then carries its summary. At the base the root held none.
 // - The control mark (T4). Since B30 M2 the control's result marks its sample, `isNegativeControl` true, from its
 //   bundle's role, and `--negative-control` marks the sample it names, whose record names it as an explicit option.
 //   At the base no sample was marked.
@@ -48,7 +50,7 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
 
     // MARK: - The tree
 
-    func testAProjectBatchRecordsEachSampleInItsBundleWithNoAggregateAndMarksTheControl() async throws {
+    func testAProjectBatchWritesTheAggregateRecordsEachSampleAndMarksTheControl() async throws {
         let engine = try makeEngine()
         let project = try makeProject()
         let control = bundle(Self.controlSample, in: project)
@@ -61,8 +63,17 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
         for sample in Self.samples {
             try assertRecordsTheRun(bundle(sample, in: project), project: project, batch: batch, sample: sample)
         }
-        // X3. The batch root holds no aggregate result, each sample keeps its own.
-        XCTAssertFalse(FileManager.default.fileExists(atPath: batch.appendingPathComponent("taxtriage-result.json").path))
+        // X3, flipped by B30 M3. The batch root holds the aggregate result of its samples' results, in request
+        // order, which the root record names with its digest (T5).
+        let results = try Self.samples.map { try TaxTriageResult.load(from: batch.appendingPathComponent($0, isDirectory: true)) }
+        let aggregate = try TaxTriageResult.load(from: batch)
+        XCTAssertEqual(aggregate.config.samples, results.flatMap(\.config.samples), "each sample as its own result holds it")
+        XCTAssertEqual(aggregate.config.samples.map(\.isNegativeControl), [true, false], "T4, the batch overview's control column reads these marks")
+        XCTAssertEqual(aggregate.reportFiles, results.flatMap(\.reportFiles))
+        XCTAssertEqual(aggregate.runtime, results.map(\.runtime).reduce(0, +), accuracy: 1e-9)
+        XCTAssertEqual(aggregate.sampleFailures, [])
+        XCTAssertEqual(Self.resolved(aggregate.outputDirectory), Self.resolved(batch))
+        try assertTheRootRecordNamesTheAggregate(in: batch)
         // T4, flipped by B30 M2. The control's result keeps the mark its bundle's role gives it, for the viewer.
         for sample in Self.samples {
             let result = try TaxTriageResult.load(from: batch.appendingPathComponent(sample, isDirectory: true))
@@ -108,6 +119,24 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
             ),
             "X4: the failed sample's bundle records nothing, where the app's route records every sample"
         )
+        // X3 and X4. The aggregate holds every sample in request order and names the one that failed, so the
+        // batch reads Completed with Warnings and says so in the completed sample's bundle (BIO 4). The failed
+        // sample is the one the plan gave its launch, its bundle with its role's mark, since its launch handed
+        // back no result. The completed one is as its result holds it.
+        let aggregate = try TaxTriageResult.load(from: batch)
+        let completed = try TaxTriageResult.load(from: batch.appendingPathComponent(patient, isDirectory: true))
+        XCTAssertEqual(aggregate.config.samples.map(\.sampleId), Self.samples, "every sample of the batch, as the app's result holds them")
+        XCTAssertEqual(aggregate.config.samples.last, completed.config.samples.first)
+        let failedSample = try XCTUnwrap(aggregate.config.samples.first)
+        XCTAssertEqual(Self.resolved(failedSample.fastq1), Self.resolved(bundle(Self.controlSample, in: project)), "the input the plan named")
+        XCTAssertTrue(failedSample.isNegativeControl, "the failed control keeps the mark its bundle's role gives it (T4)")
+        XCTAssertEqual(aggregate.sampleFailures.map(\.sampleID), [Self.controlSample])
+        let failure = try XCTUnwrap(aggregate.sampleFailures.first)
+        XCTAssertEqual(Self.resolved(failure.outputDirectory), Self.resolved(batch.appendingPathComponent(Self.controlSample, isDirectory: true)))
+        XCTAssertTrue(failure.errorDescription.hasPrefix("TaxTriage pipeline failed"), failure.errorDescription)
+        XCTAssertTrue(aggregate.summary.hasPrefix("TaxTriage pipeline completed with warnings\nRuntime: "), aggregate.summary)
+        XCTAssertTrue(aggregate.summary.contains("\nSamples: 2\nReports: 1\n") && aggregate.summary.contains("\nFailed samples: 1\n"), aggregate.summary)
+        try assertTheRootRecordNamesTheAggregate(in: batch)
     }
 
     func testABatchOutsideTheProjectRecordsNothingInTheBundles() async throws {
@@ -126,6 +155,9 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
                 "a result outside the project's Analyses folder is no entry of \(sample)'s bundle"
             )
         }
+        // T5. Every batch root gets the aggregate, an --output batch's too.
+        XCTAssertEqual(try TaxTriageResult.load(from: output).config.samples.map(\.sampleId), Self.samples)
+        try assertTheRootRecordNamesTheAggregate(in: output)
     }
 
     func testAnOutputBatchInTheAnalysesFolderRecordsNothingInTheBundles() async throws {
@@ -147,7 +179,8 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
     }
 
     /// `bundle`'s analysis history holds one entry, the run in `batch` with `sample`'s settings and the summary of
-    /// its result as the app's route words it, runtime included (B30 ruling Q1, vote V-B30).
+    /// the batch's aggregate result as the app's route words it, runtime included (B30 ruling Q1, vote V-B30), so
+    /// a batch that lost a sample says so in each bundle (BIO ruling Q1 note, B30 M3).
     private func assertRecordsTheRun(_ bundle: URL, project: URL, batch: URL, sample: String) throws {
         let entries = AnalysisManifestStore.load(bundleURL: bundle, projectURL: project).analyses
         XCTAssertEqual(entries.count, 1, "\(sample)'s bundle records the run once")
@@ -158,8 +191,24 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
         XCTAssertEqual(entry.displayName, "TaxTriage Classification", "the app's route's name for the run")
         XCTAssertEqual(entry.status, .completed, sample)
         XCTAssertEqual(entry.parameters, result.config.summaryParameters(), "\(sample)'s entry names its settings")
-        XCTAssertEqual(entry.summary, result.summary, "the app's summary, runtime included")
-        XCTAssertTrue(entry.summary.hasPrefix("TaxTriage pipeline completed successfully\nRuntime: "), entry.summary)
+        XCTAssertEqual(entry.summary, try TaxTriageResult.load(from: batch).summary, "the batch's summary, runtime included")
+        XCTAssertTrue(entry.summary.hasPrefix("TaxTriage pipeline completed "), entry.summary)
+        XCTAssertTrue(entry.summary.contains("\nRuntime: "), entry.summary)
+    }
+
+    /// The root record of `batch` names its aggregate result as an output, with the digest of the file it holds.
+    private func assertTheRootRecordNamesTheAggregate(in batch: URL) throws {
+        let aggregate = batch.appendingPathComponent("taxtriage-result.json")
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch), "no root record in \(batch.path)")
+        let named = record.outputs.filter { Self.resolved(URL(fileURLWithPath: $0.path)) == Self.resolved(aggregate) }
+        XCTAssertEqual(named.count, 1, "the root record names the aggregate once: \(record.outputs.map(\.path))")
+        XCTAssertEqual(named.first?.checksumSHA256, try ProvenanceFileDescriptor.file(url: aggregate).checksumSHA256, "with its digest")
+        XCTAssertEqual(named.first?.format, .json)
+        XCTAssertEqual(record.output.map { URL(fileURLWithPath: $0.path).lastPathComponent }, "taxtriage.sqlite", "the viewer index stays the run's output")
+    }
+
+    private static func resolved(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     // MARK: - X7

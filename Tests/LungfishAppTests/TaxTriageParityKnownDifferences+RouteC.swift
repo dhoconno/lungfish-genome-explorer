@@ -53,19 +53,13 @@ extension TaxTriageParityKnownDifferences {
         pairAC([.x4: 1], "source manifest: only in A: *",
                "X4. The GUI records the run in the analyses-manifest.json of every sample of the request, the failed one too (completeTaxTriageRun). Since B30 M1 the command records each completed sample only, as Kraken2 does",
                closedBy: guiRoute),
-        // B30 ruling Q1 and vote V-B30. Both entries hold the app's summary with its runtime, whose number the
-        // source-manifest compare masks (TaxTriageParityComparison.sourceManifestPolicy), so one-sample cases agree.
-        pairAC([.x3: 2, .x4: 1], "source manifest: differs: *",
-               "The GUI's entry holds the serial batch's summary, its counts and for X4 its warning state and failed sample, where the command's holds each sample's own",
-               closedBy: "B30 M3, whose batch root's entries carry the summary of its aggregate result"),
-        pairAC([.x3: 1, .x4: 1], "analysis: only in A: taxtriage-result.json",
-               "The GUI's serial batch writes an aggregate result at its batch root. The executor's batch root keeps each sample's result in the sample's folder and writes none at the root",
+        // B30 M3 (T5). Both batch roots hold the aggregate result and each entry its summary, whose runtime the
+        // source-manifest compare masks (B30 ruling Q1, vote V-B30), so the source manifests of X3 and X4 agree.
+        pairAC([.x4: 1], "analysis: differs: taxtriage-result.json",
+               "X4. The aggregate lists the failed sample as its launch was asked to run it. The GUI's names the files its wizard resolved from the bundle, the executor's the bundle the plan named, because a failed launch hands back no resolved sample (B30 M3)",
                closedBy: guiRoute),
         pairAC([.x6: 1], "analysis: differs: .lungfish-run-in-progress.json",
                "Both cancelled runs keep their run record with the outcome. The GUI's names the --output command its row records, side C's the --project command it ran",
-               closedBy: guiRoute),
-        pairAC([.x4: 1], "terminal: A and C end differently",
-               "Side C's batch completes with the sample that completed and exits 0 with the failed sample as a warning (warnOnFailedUnits), but its batch root holds no aggregate result to read the warning from, so its end reads Completed where the row reads Completed with Warnings",
                closedBy: guiRoute),
         pairAC([.x6: 3], "project: only in C: .tmp/taxtriage-run-<UUID>/*",
                "As on side B. Side C's cancelled taxtriage run --project leaves its launch scratch in the project's .tmp/ for the abandoned-scratch sweep (N7, A2 review fix 1), where the GUI's in-process route removes it after its own cancelled record (T13)",
@@ -120,22 +114,12 @@ extension TaxTriageParityKnownDifferences {
         recordC([.x3: 17, .x4: 17], "legacyRunParameters.*", "As explicitOptions"),
         recordC([.x3: 3, .x4: 3], "files[<project>/Imports/*|input]",
                 "The serial batch record lists each sample's input files. The executor's root record of a batch leaves them to the samples' records"),
-        recordC([.x3: 1, .x4: 1], "files[*taxtriage-result.json|output]", "The serial batch record lists its aggregate result, which the executor's batch root never writes"),
-        recordC([.x3: 1, .x4: 1], "outputs[*taxtriage-result.json|output]", "As files"),
-        recordC([.x3: 1, .x4: 1], "output.sha256", "As output.path, the aggregate result against taxtriage.sqlite"),
-        recordC([.x3: 1, .x4: 1], "output.size", "As output.sha256"),
     ]
 
     // MARK: Fixed facts of sides C and C'
 
     private static let routeCFacts: [TaxTriageParityKnownDifference] =
-        factC([.x3: 1], "the analysis folder holds its result",
-              "The executor's batch root keeps each sample's taxtriage-result.json in the sample's folder and writes no aggregate result at the root, which the viewer and the row of the GUI route read today",
-              closedBy: guiRoute)
-        + factC([.x4: 1], "the run ends Completed with Warnings, not exit 0",
-                "Side C exits 0 with the failed sample as a warning, and its batch root holds no aggregate result for the end to read the warning from (TaxTriageParityComparison.outcome)",
-                closedBy: guiRoute)
-        + factC([.x7: 1], "record * names *taxtriage.sqlite with another digest",
+        factC([.x7: 1], "record * names *taxtriage.sqlite with another digest",
                 "X7's --force rebuild runs build-db taxtriage, which replaces taxtriage.sqlite after the executor's root record named its digest",
                 closedBy: buildDbForce)
         + factC([.x7: 2], "record * names *top/*.top_report.tsv that does not exist",

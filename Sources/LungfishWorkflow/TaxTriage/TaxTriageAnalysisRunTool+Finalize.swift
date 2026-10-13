@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 extension TaxTriageAnalysisRunTool {
@@ -19,6 +20,9 @@ extension TaxTriageAnalysisRunTool {
     /// the root record. A batch root's samples each keep their own record, so the root names each
     /// completed sample's outputs with the digest and size that record took, and hashes nothing again
     /// (S2). Those the cleanup then removes drop out of the run level, which names only kept files.
+    /// A batch root also gets the aggregate `taxtriage-result.json` the app's serial batch writes
+    /// (``publishAggregateResult(of:planned:root:)``, T5, X3), which the root record names with its
+    /// digest after the viewer index, so `taxtriage.sqlite` stays the run's output at every layout.
     ///
     /// A result in a project or a batch root then gets its viewer index in process, `taxtriage.sqlite`
     /// through the index builder the executor was given. The build's steps and the recorded removal
@@ -30,18 +34,23 @@ extension TaxTriageAnalysisRunTool {
     /// builds the index when the result opens.
     ///
     /// Each completed sample of a `--project` result then records the run in its source bundle's
-    /// analysis history (``sourceRecords(for:context:destinationIsProject:)``, X4), which the executor
-    /// writes after the root record.
+    /// analysis history (``sourceRecords(for:context:destinationIsProject:batchSummary:)``, X4), which
+    /// the executor writes after the root record.
     package func finalize(
         _ units: [AnalysisUnitReport<TaxTriageUnitResult>],
         context: AnalysisRunFinalizeContext
     ) async throws -> AnalysisRunFinalization {
         var finalization = AnalysisRunFinalization()
+        var aggregate: TaxTriageResult?
         if context.layout == .batchRoot {
             finalization.recordedFiles = units
                 .filter { $0.outcome.result != nil }
                 .compactMap { ProvenanceRecorder.loadEnvelope(from: $0.directory)?.outputs }
                 .flatMap { $0 }
+            // A failed sample keeps its place with the sample the plan gave its launch, read again here
+            // because a failed launch hands back no result.
+            let planned = units.contains { !$0.outcome.completed } ? try? plannedSamples() : nil
+            aggregate = try Self.publishAggregateResult(of: units, planned: planned, root: context.rootDirectory)
         }
         guard context.layout != .singleFolder else { return finalization }
 
@@ -59,10 +68,14 @@ extension TaxTriageAnalysisRunTool {
                 "The viewer index could not be built: \(error.localizedDescription). The viewer builds it when the result opens."
             )
         }
+        if aggregate != nil {
+            finalization.outputs.append(AnalysisRunOutput(url: Self.resultURL(in: context.rootDirectory), format: .json))
+        }
         finalization.sourceRecords = Self.sourceRecords(
             for: units,
             context: context,
-            destinationIsProject: request.destinationIsProject
+            destinationIsProject: request.destinationIsProject,
+            batchSummary: aggregate?.summary
         )
         context.progress(1, Self.databaseStageMessage)
         return finalization
@@ -83,12 +96,15 @@ extension TaxTriageAnalysisRunTool {
     /// project's `Analyses/` folder, whose entry would name a folder the project does not list.
     ///
     /// The entry carries the sample's settings as the app's does (``TaxTriageConfig/summaryParameters()``)
-    /// and the summary of the sample's result as the app writes it, `TaxTriageResult.summary` with the
-    /// runtime it measured (B30 ruling Q1, vote V-B30). The TaxTriage parity masks only that number.
+    /// and a summary as the app writes it, `TaxTriageResult.summary` with the runtime it measured (B30
+    /// ruling Q1, vote V-B30), which the TaxTriage parity masks. A batch root's entries carry
+    /// `batchSummary`, its aggregate result's, as the app's carry its serial batch's, so a batch that
+    /// lost a sample says so in each bundle (BIO ruling Q1 note). Any other entry carries its sample's.
     static func sourceRecords(
         for units: [AnalysisUnitReport<TaxTriageUnitResult>],
         context: AnalysisRunFinalizeContext,
-        destinationIsProject: Bool
+        destinationIsProject: Bool,
+        batchSummary: String? = nil
     ) -> [any AnalysisSourceRecord] {
         guard destinationIsProject,
               let projectURL = context.projectURL,
@@ -103,7 +119,7 @@ extension TaxTriageAnalysisRunTool {
                     bundleURL: bundle,
                     displayName: sourceRecordDisplayName,
                     parameters: result.config.summaryParameters(),
-                    summary: result.summary
+                    summary: batchSummary ?? result.summary
                 )
             }
         }
@@ -118,5 +134,87 @@ extension TaxTriageAnalysisRunTool {
             return bundle
         }
         return MappingResultLayoutService.findSourceBundle(for: sample.allFiles)
+    }
+
+    // MARK: - The aggregate result (X3)
+
+    /// The name of a TaxTriage result, a sample's own and the aggregate at a batch root.
+    static let resultFilename = "taxtriage-result.json"
+
+    static func resultURL(in folder: URL) -> URL {
+        folder.appendingPathComponent(resultFilename)
+    }
+
+    /// T5. Publishes the aggregate result of a batch root as `taxtriage-result.json` through
+    /// `DurableReplace`, so the name holds a whole file at every step on every volume (SWIFT), and returns
+    /// it, or nil when no sample completed. The finalize runs before the root record, which names it. The
+    /// bytes are those `TaxTriageResult.save()` writes.
+    static func publishAggregateResult(
+        of units: [AnalysisUnitReport<TaxTriageUnitResult>],
+        planned: [TaxTriageSample]?,
+        root: URL
+    ) throws -> TaxTriageResult? {
+        guard let aggregate = aggregateResult(of: units, planned: planned, root: root) else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try DurableReplace.replace(try encoder.encode(aggregate), named: resultFilename, in: root)
+        return aggregate
+    }
+
+    /// The aggregate result of a batch root, in the shape of the app's serial batch result
+    /// (`TaxTriageSerialBatchRunner`), which the viewer, the row and the batch overview's control column
+    /// read (T4). It holds no fact the samples' results lack (T5, BIO), in request order. Its settings are
+    /// the first completed sample's, which every launch shared but the platform, with the batch root as its
+    /// folder. Each completed sample keeps the sample its result holds, platform and control mark included.
+    /// Each failed sample keeps its place with the sample `planned` gave its launch, when `planned` still
+    /// names it at the unit's index, and is a sample failure with its folder and the reason its launch
+    /// failed, which its own record keeps, so the batch reads Completed with Warnings (BIO 4). The files,
+    /// the ignored task failures and the source bundles are the completed samples', with no launch's log or
+    /// trace, and the runtime is the sum of their runtimes, where the app's batch times itself. Nil when no
+    /// sample completed.
+    static func aggregateResult(
+        of units: [AnalysisUnitReport<TaxTriageUnitResult>],
+        planned: [TaxTriageSample]?,
+        root: URL
+    ) -> TaxTriageResult? {
+        let results = units.compactMap { $0.outcome.result?.result }
+        guard let first = results.first else { return nil }
+        let folder = URL(fileURLWithPath: root.path, isDirectory: true)
+        var failures: [TaxTriageSampleFailure] = []
+        var config = first.config
+        config.outputDirectory = folder
+        config.samples = units.flatMap { unit -> [TaxTriageSample] in
+            if let result = unit.outcome.result?.result {
+                return result.config.samples
+            }
+            if case .failed(let reason) = unit.outcome {
+                failures.append(TaxTriageSampleFailure(sampleID: unit.label, outputDirectory: unit.directory, errorDescription: reason))
+            }
+            guard let planned, planned.indices.contains(unit.index), planned[unit.index].sampleId == unit.label else { return [] }
+            return [planned[unit.index]]
+        }
+        let bundles = uniqued(results.flatMap { $0.sourceBundleURLs ?? [] })
+        config.sourceBundleURLs = bundles.isEmpty ? nil : bundles
+        let files = TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(results.flatMap(\.allOutputFiles), outputDirectory: folder)
+        return TaxTriageResult(
+            config: config,
+            runtime: results.map(\.runtime).reduce(0, +),
+            exitCode: 0,
+            outputDirectory: folder,
+            reportFiles: uniqued(results.flatMap(\.reportFiles)),
+            metricsFiles: uniqued(results.flatMap(\.metricsFiles)),
+            kronaFiles: uniqued(results.flatMap(\.kronaFiles)),
+            allOutputFiles: uniqued(files + [resultURL(in: folder)]),
+            sourceBundleURLs: config.sourceBundleURLs,
+            ignoredFailures: results.flatMap(\.ignoredFailures),
+            sampleFailures: failures
+        )
+    }
+
+    /// `urls` in their order, each path once.
+    private static func uniqued(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
 }

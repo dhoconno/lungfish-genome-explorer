@@ -5,8 +5,9 @@
 // Phase 2.10 lane B30 M1 (parity X4, panel R1). The executor's finalize gives each completed sample of a `--project`
 // result one `analyses-manifest.json` entry in its source bundle, as Kraken2's finalize records a result in a project,
 // so the GUI's own manifest writer can go when its route moves onto the command (U30). A plain `--output` result
-// records nothing, in the project's `Analyses/` folder too (B30 ruling Q2). These cases read
-// `TaxTriageAnalysisRunTool.sourceRecords(for:context:destinationIsProject:)` alone, with no run.
+// records nothing, in the project's `Analyses/` folder too (B30 ruling Q2). Each entry carries the app's summary,
+// runtime included (B30 ruling Q1), a batch root's that of its aggregate result (B30 M3). These cases read
+// `TaxTriageAnalysisRunTool.sourceRecords(for:context:destinationIsProject:batchSummary:)` alone, with no run.
 // `TaxTriageExecutorBatchTreeReplayTests` runs the command on the stand-in engine.
 
 import Foundation
@@ -129,6 +130,32 @@ final class TaxTriageSourceRecordTests: XCTestCase {
             "TaxTriage pipeline completed successfully\nRuntime: 12.3s\nSamples: 1\nReports: 1\nMetrics: 0\nTotal output files: 0",
             "the words of the entry, whose first two lines the Inspector's Analyses section shows"
         )
+    }
+
+    func testABatchRootsEntriesCarryTheSummaryOfItsAggregate() throws {
+        let batch = try analysisFolder("taxtriage-batch-2026-10-13T10-00-00")
+        let units = [
+            try report(0, sample: "A", reads: bundleReads("A"), completed: true),
+            try report(1, sample: "B", reads: bundleReads("B"), completed: false),
+            try report(2, sample: "C", reads: bundleReads("C"), completed: true),
+        ]
+        let aggregate = try XCTUnwrap(TaxTriageAnalysisRunTool.aggregateResult(of: units, planned: nil, root: batch))
+
+        let records = TaxTriageAnalysisRunTool.sourceRecords(
+            for: units,
+            context: context(root: batch, layout: .batchRoot),
+            destinationIsProject: true,
+            batchSummary: aggregate.summary
+        )
+
+        let entries = records.compactMap { $0 as? AnalysisManifestSourceRecord }
+        XCTAssertEqual(entries.map { $0.bundleURL.lastPathComponent }, ["A.lungfishfastq", "C.lungfishfastq"])
+        XCTAssertEqual(entries.map(\.summary), [aggregate.summary, aggregate.summary], "the batch's words, as the app's entries carry")
+        XCTAssertTrue(
+            aggregate.summary.hasPrefix("TaxTriage pipeline completed with warnings\nRuntime: 24.7s\nSamples: 2\nReports: 2\n"),
+            "a batch that lost a sample says so in each bundle: \(aggregate.summary)"
+        )
+        XCTAssertTrue(aggregate.summary.contains("\nFailed samples: 1\n"), aggregate.summary)
     }
 
     // MARK: - Helpers
