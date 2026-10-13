@@ -496,7 +496,7 @@ extension AppDelegate {
 
                 if let bundleURL = selectionContext.bundleURL {
                     await self.persistManualReferenceAnnotation(
-                        annotation,
+                        annotation, chromosome: selectionContext.chromosome,
                         bundleURL: bundleURL,
                         viewerController: viewerController,
                         routeContext: routeContext
@@ -514,7 +514,7 @@ extension AppDelegate {
     }
 
     private func persistManualReferenceAnnotation(
-        _ annotation: SequenceAnnotation,
+        _ annotation: SequenceAnnotation, chromosome: String,
         bundleURL: URL,
         viewerController: ViewerViewController,
         routeContext explicitRouteContext: OperationRouteContext?
@@ -527,13 +527,13 @@ extension AppDelegate {
             presentingWindow: targetMainWindowController(routeContext: routeContext)?.window ?? viewerController.view.window
         ) else { return }
         await Self.beginManualReferenceAnnotationOperation(
-            annotationName: annotation.name,
+            annotation: annotation, chromosome: chromosome, bundleURL: bundleURL,
             routeContext: routeContext
-        ) { opID in
+        ) { opID, invocationArgv in
             do {
                 let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
                     annotation,
-                    toBundleAt: bundleURL
+                    toBundleAt: bundleURL, invocationArgv: invocationArgv
                 )
                 guard OperationCenter.shared.complete(
                     id: opID,

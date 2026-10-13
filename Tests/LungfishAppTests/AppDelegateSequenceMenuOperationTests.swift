@@ -6,13 +6,14 @@
 // Find ORFs locks the bundle and runs `lungfish-cli sequence annotate-orfs`,
 // so a held bundle lock must refuse its row and launch nothing, and its
 // recorded command must parse with the run's values. Adding a manual
-// annotation declares no bundle lock today and has no lungfish-cli
-// equivalent. Its tests pin both facts, so a lock or a command added later
-// fails here and prompts a deliberate test change.
+// annotation locks the bundle too and records `lungfish-cli sequence
+// add-annotation`, whose Workflow function it runs in process (2.10 A42 M3,
+// decision C3). AnnotationEditRouteParityTests replays that command.
 
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
+import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
 
@@ -107,57 +108,72 @@ final class AppDelegateSequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(command.globalOptions.quiet)
     }
 
-    // MARK: - Add a manual annotation, a lock-free site and a CLI parity gap
+    // MARK: - Add a manual annotation, run in process and recorded as sequence add-annotation
 
-    func testManualAnnotationRefusedBeginLaunchesNothing() async throws {
-        // The site declares no bundle lock, so no real center refuses it. A
-        // reporter that refuses every begin still proves the branch.
-        let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
+    /// A minus-strand feature whose name starts with a hyphen, the two values the parser would
+    /// read as options if the command did not join them to theirs.
+    private func manualAnnotation() -> SequenceAnnotation {
+        SequenceAnnotation(
+            type: .primer,
+            name: "-35 box",
+            chromosome: "chr 1",
+            intervals: [AnnotationInterval(start: 120, end: 146)],
+            strand: .reverse
+        )
+    }
+
+    func testManualAnnotationRefusedByAHeldBundleLockWritesNothing() async throws {
+        let center = try centerHoldingBundleLock()
         var launched = false
 
         let result = await AppDelegate.beginManualReferenceAnnotationOperation(
-            annotationName: "Primer site",
+            annotation: manualAnnotation(),
+            chromosome: "chr 1",
+            bundleURL: bundleURL,
             routeContext: nil,
-            reporter: reporter
-        ) { _ in launched = true }
+            reporter: center
+        ) { _, _ in launched = true }
 
         guard case .refused(let refusal) = result else {
-            return XCTFail("a refused begin must not start the annotation write")
+            return XCTFail("a held bundle lock must refuse the Add Annotation row")
         }
         XCTAssertFalse(launched, "a refused row must write nothing to the bundle")
-        XCTAssertEqual(refusal.blockingOperationTitle, "Importing BAM")
-        XCTAssertEqual(reporter.items.map(\.state), [.refused])
+        XCTAssertEqual(refusal.blockingOperationTitle, "Delete Annotation Track")
     }
 
-    func testManualAnnotationRecordsNoLockAndNoCommandAsAParityGap() async throws {
+    func testManualAnnotationLocksTheBundleAndRecordsTheAddCommandItsWriteRecords() async throws {
         let reporter = RecordingOperationReporter()
         let routeContext = OperationRouteContext(
             projectURL: URL(fileURLWithPath: "/tmp/lane 1a2/Project.lungfish"),
             windowStateScopeID: UUID()
         )
-        var launchedID: UUID?
+        var launched: (id: UUID, argv: [String])?
 
         await AppDelegate.beginManualReferenceAnnotationOperation(
-            annotationName: "Primer site",
+            annotation: manualAnnotation(),
+            chromosome: "chr 1",
+            bundleURL: bundleURL,
             routeContext: routeContext,
             reporter: reporter
-        ) { launchedID = $0 }
+        ) { launched = ($0, $1) }
 
         let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
+        XCTAssertEqual(launched?.id, item.id)
         XCTAssertEqual(item.title, "Add Annotation")
-        XCTAssertEqual(item.initialDetail, "Adding Primer site...")
+        XCTAssertEqual(item.initialDetail, "Adding -35 box...")
         XCTAssertEqual(item.operationType, .bundleBuild)
-        // The write changes the bundle and declares no lock, as it did before
-        // the migration. A lock added later fails these two assertions.
-        XCTAssertNil(item.targetBundleURL)
+        XCTAssertEqual(item.targetBundleURL, bundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. No lungfish-cli command adds an annotation to a
-        // bundle. The closest is `sequence update-annotation`, which edits an
-        // existing row. When an add command exists, record it and replace
-        // this pin with a parse test.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "annotation-add")
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: SequenceCommand.AddAnnotation.self)
+        XCTAssertEqual(command.bundle, bundleURL.path)
+        XCTAssertEqual(command.chromosome, "chr 1")
+        XCTAssertEqual(command.start, 120)
+        XCTAssertEqual(command.end, 146)
+        XCTAssertEqual(command.name, "-35 box")
+        XCTAssertEqual(command.type, "primer")
+        XCTAssertEqual(command.strand, "-")
+        // The write's record names the same command the row shows.
+        XCTAssertEqual(launched?.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: item.cliCommand)))
     }
 }

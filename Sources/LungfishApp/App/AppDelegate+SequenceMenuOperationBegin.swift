@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishKit
+import LungfishWorkflow
 
 /// The begin helpers for the Sequence menu's annotation launches (finding R4).
 /// They live here, not beside their launch sites, so the baselined
@@ -13,36 +15,50 @@ import LungfishKit
 /// and its command without touching `OperationCenter.shared`.
 extension AppDelegate {
     /// Registers the manual annotation row and, only when it starts, awaits
-    /// `launch` with the operation ID. The launch is `async` because the
-    /// caller awaits the bundle write inside it. The row locks no bundle and
-    /// records no command.
+    /// `launch` with the operation ID and the argv the write records. The
+    /// launch is `async` because the caller awaits the bundle write inside it.
     ///
-    /// The write adds an annotation to a reference bundle without declaring a
-    /// bundle lock. That is how the site behaved before this migration, and
-    /// the helper keeps it. Adding a lock target is a separate decision (Rule 3
-    /// in docs/contracts/ADDING-AN-OPERATION.md).
-    ///
-    /// cli-parity-gap: annotation-add. No lungfish-cli command adds an
-    /// annotation to a bundle. The closest is `sequence update-annotation`, which edits an
-    /// existing row. The row keeps recording no command until an add command
-    /// exists.
+    /// The edit's only inputs are the bundle and the values the sheet holds,
+    /// so it runs in process the Workflow function `lungfish-cli sequence
+    /// add-annotation` runs, `ReferenceBundleManualAnnotationService.addAnnotation`
+    /// (2.10 decision C3). The row records that command, built by
+    /// `ReferenceBundleManualAnnotationService.annotationAddArguments` from the
+    /// annotation's region, name, type and strand, `chromosome` and the
+    /// bundle, and `launch` gets the same argv for the write's record. The row
+    /// locks the bundle, so the write ends inside the bundle lock.
     @discardableResult
     static func beginManualReferenceAnnotationOperation(
-        annotationName: String,
+        annotation: SequenceAnnotation,
+        chromosome: String,
+        bundleURL: URL,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
-        launch: (UUID) async -> Void
+        launch: (UUID, [String]) async -> Void
     ) async -> OperationStartResult {
+        let region = annotation.boundingRegion
+        let arguments = ReferenceBundleManualAnnotationService.annotationAddArguments(
+            chromosome: chromosome,
+            start: region.start,
+            end: region.end,
+            name: annotation.name,
+            type: annotation.type.rawValue,
+            strand: annotation.strand.rawValue,
+            bundleURL: bundleURL.standardizedFileURL
+        )
         let result = reporter.begin(
             title: "Add Annotation",
-            detail: "Adding \(annotationName)...",
+            detail: "Adding \(annotation.name)...",
             operationType: .bundleBuild,
-            cliCommand: nil,
+            targetBundleURL: bundleURL,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "sequence add-annotation",
+                args: Array(arguments.dropFirst(2))
+            ),
             routeContext: routeContext
         )
         switch result {
         case .started(let operationID):
-            await launch(operationID)
+            await launch(operationID, [CLICommandIdentity.executableName] + arguments)
         case .refused:
             break // The panel already shows the refused row. Nothing was launched.
         }
