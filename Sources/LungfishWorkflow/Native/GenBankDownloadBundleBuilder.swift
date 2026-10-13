@@ -7,14 +7,15 @@ import LungfishCore
 import LungfishIO
 import os.log
 
-private let genBankDownloadLogger = Logger(subsystem: LogSubsystem.app, category: "GenBankBundleDownload")
+private let genBankDownloadLogger = Logger(subsystem: LogSubsystem.workflow, category: "GenBankBundleDownload")
 
 // MARK: - GenBankDownloadBundleBuilder
 
 /// Downloads an NCBI GenBank record and builds a `.lungfishref` bundle from it with bgzip and
 /// samtools faidx, and writes the download's provenance record into the bundle. It is not bound
-/// to the main actor, so it can run while the NCBI browser sheet is open.
-public final class GenBankDownloadBundleBuilder: @unchecked Sendable {
+/// to the main actor, so it can run while the NCBI browser sheet is open. It holds only the two
+/// actors it calls, so it is `Sendable` without an unchecked conformance.
+public final class GenBankDownloadBundleBuilder: Sendable {
 
     private let ncbiService: NCBIService
     private let toolRunner: NativeToolRunner

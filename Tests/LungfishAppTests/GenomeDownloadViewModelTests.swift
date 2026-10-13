@@ -30,18 +30,14 @@ final class GenomeDownloadViewModelTests: XCTestCase {
     }
 
     func testInitializationWithCustomToolRunner() {
-        let toolRunner = NativeToolRunner.shared
-        let viewModel = GenomeDownloadViewModel(toolRunner: toolRunner)
+        let builder = GenomeDownloadBundleBuilder(toolRunner: NativeToolRunner.shared)
+        let viewModel = GenomeDownloadViewModel(builder: builder)
         XCTAssertNotNil(viewModel)
     }
 
     func testInitializationWithAllCustomDependencies() {
-        let ncbiService = NCBIService()
-        let toolRunner = NativeToolRunner.shared
-        let viewModel = GenomeDownloadViewModel(
-            ncbiService: ncbiService,
-            toolRunner: toolRunner
-        )
+        let builder = GenomeDownloadBundleBuilder(ncbiService: NCBIService(), toolRunner: NativeToolRunner.shared)
+        let viewModel = GenomeDownloadViewModel(builder: builder)
         XCTAssertNotNil(viewModel)
     }
 

@@ -7,16 +7,19 @@ import LungfishCore
 import LungfishWorkflow
 
 /// Builds NCBI GenBank nucleotide downloads into `.lungfishref` bundles for the database browser
-/// and the variant-only reference download. ``GenBankDownloadBundleBuilder`` builds each bundle.
+/// and the variant-only reference download. LungfishWorkflow's ``GenBankDownloadBundleBuilder``
+/// builds each bundle and runs its tools, so this type names no tool runner.
 public final class GenBankBundleDownloadViewModel: Sendable {
 
     private let builder: GenBankDownloadBundleBuilder
 
-    public init(
-        ncbiService: NCBIService = NCBIService(),
-        toolRunner: NativeToolRunner = .shared
-    ) {
-        self.builder = GenBankDownloadBundleBuilder(ncbiService: ncbiService, toolRunner: toolRunner)
+    /// Downloads through `ncbiService`, which carries the browser's NCBI key when it has one.
+    public init(ncbiService: NCBIService = NCBIService()) {
+        self.builder = GenBankDownloadBundleBuilder(ncbiService: ncbiService)
+    }
+
+    public init(builder: GenBankDownloadBundleBuilder) {
+        self.builder = builder
     }
 
     /// Throws `BundleBuildError.missingTools` when bgzip or samtools is missing.

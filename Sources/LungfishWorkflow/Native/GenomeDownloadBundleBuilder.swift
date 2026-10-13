@@ -10,7 +10,7 @@ import LungfishIO
 import os.log
 
 /// Logger for genome download operations.
-private let logger = Logger(subsystem: LogSubsystem.app, category: "GenomeDownload")
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "GenomeDownload")
 
 // MARK: - GenomeDownloadBundleBuilder
 
@@ -18,7 +18,8 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "GenomeDownlo
 ///
 /// It is not bound to the main actor, so it can run from `Task.detached` contexts without
 /// cooperative executor scheduling issues. It runs every tool through `NativeToolRunner`, as
-/// ``GenBankDownloadBundleBuilder`` does, and reports progress through a `@Sendable` callback.
+/// ``GenBankDownloadBundleBuilder`` does, and reports progress through a `@Sendable` callback. It
+/// holds only the two actors it calls, so it is `Sendable` without an unchecked conformance.
 ///
 /// ## Usage
 /// ```swift
@@ -30,7 +31,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "GenomeDownlo
 ///     print("\(Int(progress * 100))%: \(message)")
 /// }
 /// ```
-public final class GenomeDownloadBundleBuilder: @unchecked Sendable {
+public final class GenomeDownloadBundleBuilder: Sendable {
 
     private let ncbiService: NCBIService
     private let toolRunner: NativeToolRunner

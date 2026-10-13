@@ -11,16 +11,19 @@ import LungfishWorkflow
 // MARK: - GenomeDownloadViewModel
 
 /// Downloads NCBI genome assemblies into `.lungfishref` bundles for the database browser and the
-/// variant-only reference download. ``GenomeDownloadBundleBuilder`` builds each bundle.
+/// variant-only reference download. LungfishWorkflow's ``GenomeDownloadBundleBuilder`` builds
+/// each bundle and runs its tools, so this type names no tool runner.
 public final class GenomeDownloadViewModel: Sendable {
 
     private let builder: GenomeDownloadBundleBuilder
 
-    public init(
-        ncbiService: NCBIService = NCBIService(),
-        toolRunner: NativeToolRunner = .shared
-    ) {
-        self.builder = GenomeDownloadBundleBuilder(ncbiService: ncbiService, toolRunner: toolRunner)
+    /// Downloads through `ncbiService`, which carries the browser's NCBI key when it has one.
+    public init(ncbiService: NCBIService = NCBIService()) {
+        self.builder = GenomeDownloadBundleBuilder(ncbiService: ncbiService)
+    }
+
+    public init(builder: GenomeDownloadBundleBuilder) {
+        self.builder = builder
     }
 
     /// Validates that required native tools are available.

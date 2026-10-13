@@ -71,12 +71,8 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
     }
 
     func testInitializationWithCustomDependencies() {
-        let ncbiService = NCBIService()
-        let toolRunner = NativeToolRunner.shared
-        let viewModel = GenBankBundleDownloadViewModel(
-            ncbiService: ncbiService,
-            toolRunner: toolRunner
-        )
+        let builder = GenBankDownloadBundleBuilder(ncbiService: NCBIService(), toolRunner: NativeToolRunner.shared)
+        let viewModel = GenBankBundleDownloadViewModel(builder: builder)
         XCTAssertNotNil(viewModel)
     }
 
