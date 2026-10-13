@@ -54,7 +54,7 @@ extension TaxTriageParityKnownDifferences {
         // B30 M3 (T5). Both batch roots hold the aggregate result and each entry its summary, whose runtime the
         // source-manifest compare masks (B30 ruling Q1, vote V-B30), so the source manifests of X3 and X4 agree.
         pairAC([.x4: 1], "analysis: differs: taxtriage-result.json",
-               "X4. The aggregate lists the failed sample as its launch was asked to run it. The GUI's names the files its wizard resolved from the bundle, the executor's the bundle the plan named, because a failed launch hands back no resolved sample (B30 M3)",
+               "X4. The aggregate lists the failed sample as its launch was asked to run it. The GUI's sample names the file its wizard resolved in the bundle, with its read layout. The executor's names the bundle the plan named, with no read layout, because a failed launch hands back no resolved sample (B30 M3)",
                closedBy: guiRoute),
         pairAC([.x6: 1], "analysis: differs: .lungfish-run-in-progress.json",
                "Both cancelled runs keep their run record with the outcome. The GUI's names the --output command its row records, side C's the --project command it ran",
