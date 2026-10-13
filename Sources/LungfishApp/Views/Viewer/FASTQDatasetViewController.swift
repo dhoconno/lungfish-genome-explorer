@@ -1247,9 +1247,14 @@ public final class FASTQDatasetViewController: NSViewController {
         let wanted = max(1, limit)
         var records: [FASTQRecord] = []
         records.reserveCapacity(min(wanted, 1_024))
-        for try await record in stream {
-            records.append(record)
-            if records.count >= wanted { break }
+        do {
+            for try await record in stream {
+                records.append(record)
+                if records.count >= wanted { break }
+            }
+        } catch {
+            try Task.checkCancellation()
+            throw error
         }
         try Task.checkCancellation()
         return records
