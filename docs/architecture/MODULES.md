@@ -27,7 +27,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 798 | 238377 | 1419 | LungfishCore, LungfishIO |
-| LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 4 | 399 | 2 | LungfishKit, LungfishTestSupport |
+| LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 8 | 1315 | 12 | LungfishKit, LungfishTestSupport |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 56 | 12025 | 55 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
@@ -35,7 +35,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 708 | 191850 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 710 | 192149 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20058 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 7 | 6070 | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -3333,7 +3333,7 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishKitTestSupport
-- Swift files. 4, lines 399
+- Swift files. 8, lines 1315
 - Depends on. LungfishKit, LungfishTestSupport
 - External products. none
 - Used by. none
@@ -3342,6 +3342,16 @@ None.
 ### Public types
 
 - `RecordingOperationReporter` class, `Tests/Support/LungfishKitTestSupport/RecordingOperationReporter.swift:23`
+- `RouteParityDeclaredDifference` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness+Declared.swift:51`
+- `RouteParityDifference` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness+Declared.swift:36`
+- `RouteParityEnd` enum, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift:68`
+- `RouteParityHarness` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift:139`
+- `RouteParityResult` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift:132`
+- `RouteParityRuns` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift:121`
+- `RouteParityScope` enum, `Tests/Support/LungfishKitTestSupport/RouteParityHarness+Declared.swift:15`
+- `RouteParitySide` enum, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift:44`
+- `RouteParitySideOutcome` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift:89`
+- `RouteParitySideRun` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift:104`
 - `ScopeOwningWindowController` class, `Tests/Support/LungfishKitTestSupport/ScopeOwningWindowController.swift:14`
 
 ## LungfishTestSupport
