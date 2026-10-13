@@ -5,6 +5,7 @@
 import Foundation
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishKit
 
 /// Phase 2.2 lane 5B (finding R7). Five runners built their own spec and
@@ -37,6 +38,12 @@ final class CLIProcessLauncherTests: XCTestCase {
         )
         XCTAssertEqual(spec.terminationGracePeriod, .seconds(5))
         XCTAssertEqual(spec.drainGracePeriod, .milliseconds(500))
+    }
+
+    /// Phase 2.10 lane S30. LungfishTestSupport cannot import LungfishKit, so the SIGTERM
+    /// harness repeats the grace a route gives, and the two must agree.
+    func testTheSIGTERMHarnessChecksTheGraceTheLauncherGives() {
+        XCTAssertEqual(CLISIGTERMHarness.operationGrace, CLIProcessLauncher.operationGrace)
     }
 
     func testCapturedOutputKeepsStdout() {
