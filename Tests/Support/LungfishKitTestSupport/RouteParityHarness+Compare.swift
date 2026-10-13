@@ -11,8 +11,9 @@
 // A file that differs is then explained, so a declared difference names one value or one line
 // and never a whole file (panel G5). A JSON file gives one difference for each value path whose
 // value differs or that one side lacks, and any other text file one difference for each line that
-// one side holds more often than the other, both read under the same masks with UUIDs numbered
-// within the file. A binary, compressed or SQLite file, a file whose name the comparison masked to
+// one side holds more often than the other, with one more, `line order`, when the lines both sides
+// hold come in another order. Both are read under the same masks with UUIDs numbered within the
+// file. A binary, compressed or SQLite file, a file whose name the comparison masked to
 // more than one file, a file that differs only in order or in the numbering of UUIDs across the
 // tree, or a file with more than `explainedLimit` such differences, stays one difference.
 //
@@ -144,11 +145,18 @@ extension RouteParityHarness {
                 ))
             }
         } else {
-            let lines = Self.unmatchedLines(Self.comparedLines(maskedA, name: name), Self.comparedLines(maskedB, name: name))
+            let linesA = Self.comparedLines(maskedA, name: name)
+            let linesB = Self.comparedLines(maskedB, name: name)
+            let lines = Self.unmatchedLines(linesA, linesB)
             for (side, sideLines) in [(reference.side, lines.onlyA), (candidate.side, lines.onlyB)] {
                 found += sideLines.map { line in
                     RouteParityDifference(id: "differs: \(label): only in \(side): \(Self.maskedID(String(line.prefix(200))))")
                 }
+            }
+            // The lines both sides hold, each in its side's order. A reorder beside an explained line
+            // is one more difference, so it cannot hide under a declared line.
+            if !found.isEmpty, Self.sharedLines(linesA, over: linesB) != Self.sharedLines(linesB, over: linesA) {
+                found.append(RouteParityDifference(id: "differs: \(label): line order"))
             }
         }
         guard !found.isEmpty else { return nil }
@@ -248,6 +256,16 @@ extension RouteParityHarness {
             }
         }
         return (surplus(linesA, over: counts(linesB)), surplus(linesB, over: counts(linesA)))
+    }
+
+    /// The lines of `lines` that `other` holds as often, in the order `lines` holds them.
+    static func sharedLines(_ lines: [String], over other: [String]) -> [String] {
+        let counts = other.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        var seen: [String: Int] = [:]
+        return lines.filter { line in
+            seen[line, default: 0] += 1
+            return seen[line, default: 0] <= counts[line, default: 0]
+        }
     }
 
     private static func shown(_ value: String?) -> String {

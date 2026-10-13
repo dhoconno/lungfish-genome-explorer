@@ -63,4 +63,14 @@ final class RouteParityHarnessTests: XCTestCase {
         )
         XCTAssertTrue(any.matches(RouteParityDifference(id: "differs: proteins.fasta: only in C: MAKFGPQQMR")))
     }
+
+    /// One changed line and a reorder in one file give the line and the order, so a declared line cannot cover the reorder.
+    func testAReorderBesideAnExplainedLineIsFound() throws {
+        let (a, c) = try sides(["rows.tsv": "head\nx\ny\n"], ["rows.tsv": "head2\ny\nx\n"])
+        XCTAssertEqual(try harness.differences(a, c).map(\.id), [
+            "differs: rows.tsv: only in A: head",
+            "differs: rows.tsv: only in C: head2",
+            "differs: rows.tsv: line order",
+        ])
+    }
 }
