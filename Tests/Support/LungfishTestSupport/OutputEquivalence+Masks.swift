@@ -82,10 +82,14 @@ extension OutputEquivalence {
         public static let rootToken = "<ROOT>"
 
         /// Replaces every spelling of either root with `<ROOT>`, including the
-        /// `/private` twin of a temporary path and the JSON-escaped form.
+        /// `/private` twin of a temporary path and the JSON-escaped form. The
+        /// spellings of both roots go longest first together, so a root whose
+        /// path starts the other's, such as `C` beside `C-prime`, never leaves
+        /// `<ROOT>-prime` behind.
         public static let roots = Mask(name: "roots") { text, context in
             var result = text
-            for spelling in rootSpellings(context.rootA) + rootSpellings(context.rootB) {
+            let spellings = rootSpellings(context.rootA) + rootSpellings(context.rootB)
+            for spelling in spellings.sorted(by: { $0.count > $1.count }) {
                 result = result.replacingOccurrences(of: spelling, with: rootToken)
             }
             return result

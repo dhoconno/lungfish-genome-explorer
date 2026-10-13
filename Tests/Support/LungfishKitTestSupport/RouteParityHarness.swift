@@ -51,10 +51,7 @@ public enum RouteParitySide: String, CaseIterable, Sendable, CustomStringConvert
 
     public var description: String { rawValue }
 
-    /// The folder of the side's root, a name a recorded command needs no quotes for. No side's
-    /// root path starts with another's. The contract's root mask replaces the first root's
-    /// spellings before the second's, so a root `C` beside `C-prime` would leave `<ROOT>-prime`
-    /// in every path side C' records.
+    /// The folder of the side's root, a name a recorded command needs no quotes for.
     public var folderName: String {
         switch self {
         case .a: return "A-route"

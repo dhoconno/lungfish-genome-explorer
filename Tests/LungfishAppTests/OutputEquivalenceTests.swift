@@ -327,6 +327,19 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle).count, 1)
     }
 
+    /// Root A's path is a string prefix of root B's, as `C` is of `C-prime`. Every spelling of
+    /// either root becomes `<ROOT>`, so root B's paths do not read `<ROOT>-prime` (lane Q30, R1).
+    func testRootsMatchWhenOneRootPathIsAPrefixOfTheOther() throws {
+        let a = scratch.appendingPathComponent("C", isDirectory: true)
+        let b = scratch.appendingPathComponent("C-prime", isDirectory: true)
+        for root in [a, b] {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try "wrote \(root.path)/out/reads.fasta\n"
+                .write(to: root.appendingPathComponent("log.txt"), atomically: true, encoding: .utf8)
+        }
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .files), [])
+    }
+
     // MARK: - Fixture helpers
 
     private func makeRoots() throws -> (URL, URL) {
