@@ -6,6 +6,11 @@
 // in-process route and write its result beside the first input, where no project lists it. It now
 // shows the `No Project Open` sheet and launches nothing: no row on the Operations panel, and no
 // byte written under the folder of the reads.
+//
+// Phase 2.10 lane A35 (panel decision A4). A classifier item chosen with no main window used to
+// beep, so the refusal never ran. It now shows the same refusal app-modal through the presenter
+// seam (NoProjectAlertPresenter.swift), and these tests bind a recording presenter, since no test
+// can click an application-modal alert away. An item of any other category still only beeps.
 
 import AppKit
 import XCTest
@@ -111,44 +116,51 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
 
     // MARK: - No main window
 
-    /// Phase 2.10 lane A35 (panel decision A4). The Tools menu reaches `showFASTQOperationsDialog` from
-    /// a delegate with no main window, as it does with no project window open. The entry finds no
-    /// window to open the dialog on, so it starts nothing and writes nothing.
-    func testEveryClassifierEntryWithNoMainWindowStartsNothingAndWritesNothing() throws {
+    /// Phase 2.10 lane A35 (panel decision A4). The Tools menu reaches `showFASTQOperationsDialog`
+    /// from a delegate with no main window, as it does with no project window open. A classifier
+    /// entry shows the `No Project Open` refusal app-modal, with no window given, in decision L1's
+    /// words and with the Tools menu's tool word. It starts nothing and writes nothing.
+    func testEveryClassifierEntryWithNoMainWindowShowsNoProjectOpenAndStartsNothing() throws {
         let input = try readsInputs(count: 1)[0]
-        let entries: [(name: String, call: (AppDelegate) -> Void)] = [
-            ("launchKraken2Classification", { $0.launchKraken2Classification(nil) }),
-            ("launchEsVirituDetection", { $0.launchEsVirituDetection(nil) }),
-            ("launchTaxTriage", { $0.launchTaxTriage(nil) }),
-            ("classifyReads", { $0.classifyReads(nil) }),
-            ("the Tools menu's Kraken2 item", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .kraken2)) }),
-            ("the Tools menu's EsViritu item", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .esViritu)) }),
-            ("the Tools menu's TaxTriage item", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .taxTriage)) }),
-            ("the dialog with Kraken2 and inputs", {
+        let entries: [(name: String, tool: String, call: (AppDelegate) -> Void)] = [
+            ("launchKraken2Classification", "Kraken2", { $0.launchKraken2Classification(nil) }),
+            ("launchEsVirituDetection", "EsViritu", { $0.launchEsVirituDetection(nil) }),
+            ("launchTaxTriage", "TaxTriage", { $0.launchTaxTriage(nil) }),
+            // The generic item has no tool id, so it names the category the way the Tools menu does.
+            ("classifyReads", "Classification", { $0.classifyReads(nil) }),
+            ("the Tools menu's Kraken2 item", "Kraken2", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .kraken2)) }),
+            ("the Tools menu's EsViritu item", "EsViritu", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .esViritu)) }),
+            ("the Tools menu's TaxTriage item", "TaxTriage", { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: .taxTriage)) }),
+            ("the dialog with Kraken2 and inputs", "Kraken2", {
                 $0.showFASTQOperationsDialog(nil, initialCategory: .classification, initialToolID: .kraken2, preferredInputURLs: [input])
             }),
         ]
         for entry in entries {
             let outcome = try startWithNoMainWindow(entry.call)
+            XCTAssertEqual(outcome.presentations.map(\.title), ["No Project Open"], "\(entry.name): one refusal, titled by L1")
+            XCTAssertEqual(outcome.presentations.map(\.message), [refusalMessage(tool: entry.tool)], "\(entry.name): L1's words")
+            XCTAssertEqual(outcome.presentations.map { $0.window == nil }, [true], "\(entry.name): no window is given, so it is app-modal")
             XCTAssertEqual(outcome.startedRows, [], "\(entry.name): starts no row")
             XCTAssertTrue(outcome.readsUnchanged, "\(entry.name): writes nothing beside the reads")
         }
     }
 
-    /// An item of any other category also starts nothing and writes nothing with no main window,
-    /// and it keeps its beep (panel decision A4).
-    func testAnEntryOfAnotherCategoryWithNoMainWindowStartsNothingAndWritesNothing() throws {
+    /// An item of any other category keeps its beep. It presents nothing, starts nothing and writes
+    /// nothing with no main window (panel decision A4).
+    func testAnEntryOfAnotherCategoryWithNoMainWindowPresentsNothingAndStartsNothing() throws {
         let input = try readsInputs(count: 1)[0]
         for category in FASTQOperationCategoryID.allCases where category != .classification {
             let outcome = try startWithNoMainWindow {
                 $0.showFASTQOperationsDialog(nil, initialCategory: category, preferredInputURLs: [input])
             }
+            XCTAssertEqual(outcome.presentations.count, 0, "\(category.displayName): the beep is all it does")
             XCTAssertEqual(outcome.startedRows, [], "\(category.displayName): starts no row")
             XCTAssertTrue(outcome.readsUnchanged, "\(category.displayName): writes nothing beside the reads")
         }
         let otherTools: [FASTQOperationToolID] = [.spades, .minimap2, .fastpTrim]
         for toolID in otherTools {
             let outcome = try startWithNoMainWindow { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: toolID)) }
+            XCTAssertEqual(outcome.presentations.count, 0, "\(toolID.title): the beep is all it does")
             XCTAssertEqual(outcome.startedRows, [], "\(toolID.title): starts no row")
             XCTAssertTrue(outcome.readsUnchanged, "\(toolID.title): writes nothing beside the reads")
         }
@@ -162,18 +174,91 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
     }
 
     /// What a call on a delegate with no main window left behind. The delegate has no window to
-    /// hold a sheet, so the outcome holds the rows and the bytes only.
+    /// hold a sheet, so the outcome holds what the presenter received, the rows and the bytes.
     private func startWithNoMainWindow(
         _ start: (AppDelegate) -> Void
-    ) throws -> (startedRows: [String], readsUnchanged: Bool) {
+    ) throws -> (presentations: [RecordingNoProjectPresenter.Presentation], startedRows: [String], readsUnchanged: Bool) {
         let before = try ClassifierRouteFixtures.snapshot(of: root)
         let delegate = makeAppDelegateWithTemporaryState()
-        XCTAssertNil(delegate.activeMainWindowController(sender: nil), "the premise: this process has no main window")
+        // The premise. A main window left open by another test would open the real dialog.
+        guard delegate.activeMainWindowController(sender: nil) == nil else {
+            XCTFail("this process has a main window")
+            return ([], [], true)
+        }
+        let recorder = RecordingNoProjectPresenter()
         let existing = Set(OperationCenter.shared.items.map(\.id))
-        start(delegate)
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) { start(delegate) }
         let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
         rowIDs.append(contentsOf: started.map(\.id))
-        return (started.map(\.title), try ClassifierRouteFixtures.snapshot(of: root) == before)
+        return (recorder.presentations, started.map(\.title), try ClassifierRouteFixtures.snapshot(of: root) == before)
+    }
+
+    // MARK: - Where the refusal goes
+
+    /// A launch from a window hands that window to the presenter, which puts the sheet on it
+    /// (decision L1). A launch whose viewer sits in no window hands none, and the refusal reaches
+    /// the user app-modal where `showAlert` used to find nothing to show it on.
+    func testARefusedLaunchHandsTheViewersWindowToThePresenterOrNoneAtAll() throws {
+        let configs = try kraken2Configs(count: 1)
+        let delegate = makeAppDelegateWithTemporaryState()
+        let windowless = ViewerViewController()
+        let viewer = ViewerViewController()
+        let window = NSWindow(contentViewController: viewer)
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentViewController = nil
+            window.close()
+        }
+        let recorder = RecordingNoProjectPresenter()
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+            delegate.launchClassification(configs: configs, viewerController: viewer, routeContext: nil)
+            delegate.launchClassification(configs: configs, viewerController: windowless, routeContext: nil)
+        }
+
+        XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open", "No Project Open"])
+        XCTAssertEqual(recorder.presentations.map(\.message), Array(repeating: refusalMessage(tool: "Kraken2"), count: 2))
+        XCTAssertTrue(recorder.presentations.first?.window === window, "a launch from a window: the sheet sits on it")
+        XCTAssertNil(recorder.presentations.last?.window, "a viewer in no window: the refusal is app-modal")
+    }
+
+    /// The one refusal takes the tool's name and an optional window, and hands the presenter L1's
+    /// words with that window.
+    func testTheOneRefusalTakesAToolNameAndAnOptionalWindow() {
+        let delegate = makeAppDelegateWithTemporaryState()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let recorder = RecordingNoProjectPresenter()
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+            delegate.refuseClassifierLaunchWithoutProject(tool: "Kraken2", window: window)
+            delegate.refuseClassifierLaunchWithoutProject(tool: "EsViritu", window: nil)
+        }
+
+        XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open", "No Project Open"])
+        XCTAssertEqual(recorder.presentations.map(\.message), [refusalMessage(tool: "Kraken2"), refusalMessage(tool: "EsViritu")])
+        XCTAssertTrue(recorder.presentations.first?.window === window)
+        XCTAssertNil(recorder.presentations.last?.window)
+    }
+
+    /// The live presenter puts a sheet on a given window and shows an application-modal alert with
+    /// none. The modal branch is not run here, since a unit test cannot click it away.
+    func testTheLivePresenterChoosesASheetOnlyForAGivenWindow() {
+        XCTAssertEqual(LiveNoProjectAlertPresenter.mode(hasWindow: true), .sheet)
+        XCTAssertEqual(LiveNoProjectAlertPresenter.mode(hasWindow: false), .applicationModal)
+    }
+
+    func testTheLivePresenterShowsTheTitleAndTextAsASheetOnAGivenWindow() async throws {
+        let viewer = ViewerViewController()
+        let window = NSWindow(contentViewController: viewer)
+        window.isReleasedWhenClosed = false
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            window.contentViewController = nil
+            window.close()
+        }
+        LiveNoProjectAlertPresenter().present(title: "No Project Open", message: refusalMessage(tool: "Kraken2"), on: window)
+        _ = await waitUntil(timeout: .seconds(5)) { window.attachedSheet != nil }
+        XCTAssertEqual(window.attachedSheet.map(Self.texts(in:)), refusalText(tool: "Kraken2"))
     }
 
     // MARK: - One launch
@@ -190,7 +275,12 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
 
     /// The sheet a refused launch shows for `tool`, in the words decision L1 gives.
     private func refusalText(tool: String) -> String {
-        "No Project Open\nOpen or create a project before running \(tool). LGE saves its results in the project's Analyses folder."
+        "No Project Open\n\(refusalMessage(tool: tool))"
+    }
+
+    /// The text under the title of the refusal for `tool`, in decision L1's words.
+    private func refusalMessage(tool: String) -> String {
+        "Open or create a project before running \(tool). LGE saves its results in the project's Analyses folder."
     }
 
     private func assertRefused(
@@ -302,5 +392,23 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
         }
         if let content = window.contentView { walk(content) }
         return texts.joined(separator: "\n")
+    }
+}
+
+/// Records what the `No Project Open` refusal hands to its presenter, in place of showing it. An
+/// application-modal alert in a unit test waits for a click that never comes, so a test that can
+/// reach the refusal with no window binds this through `AppDelegate.NoProjectPresenterSeam`.
+@MainActor
+final class RecordingNoProjectPresenter: NoProjectAlertPresenting {
+    struct Presentation {
+        let title: String
+        let message: String
+        let window: NSWindow?
+    }
+
+    private(set) var presentations: [Presentation] = []
+
+    func present(title: String, message: String, on window: NSWindow?) {
+        presentations.append(Presentation(title: title, message: message, window: window))
     }
 }

@@ -116,8 +116,7 @@ extension AppDelegate {
         guard let originController = activeMainWindowController(sender: sender),
               let originSplit = originController.mainSplitViewController,
               let window = originController.window else {
-            debugLog("showFASTQOperationsDialog: No main window available")
-            NSSound.beep()
+            answerToolsMenuItemWithNoMainWindow(category: initialCategory, toolID: initialToolID)
             return
         }
 
