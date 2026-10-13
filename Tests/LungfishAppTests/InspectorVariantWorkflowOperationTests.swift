@@ -271,9 +271,39 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
             XCTAssertEqual(item.detail, "Created variant track \(completion.trackName)", "oldCLI \(oldCLI)")
             XCTAssertEqual(item.progress, 1, "oldCLI \(oldCLI)")
             XCTAssertEqual(loggedLines(of: id), expectedLog, "oldCLI \(oldCLI)")
+            XCTAssertEqual(
+                loggedLines(of: id).filter { $0 == "info: Parsing variants (0)..." }.count, 1,
+                "oldCLI \(oldCLI): the captured run says it twice in a row and the history holds it once"
+            )
             XCTAssertEqual(item.bundleURLs, [], "oldCLI \(oldCLI): the run imports no file, the track is already in the bundle")
             XCTAssertEqual(item.outputURLs, [], "oldCLI \(oldCLI)")
         }
+    }
+
+    /// The caller workflow and the SQLite import each report 0 to 1. The closure keeps both to
+    /// 0.10...0.88 and the bridge holds the bar, so the import's first fractions do not pull the bar
+    /// back to 0.10. A message that repeats is logged once, by the bridge alone (Phase 2.10 lane U32).
+    func testTheBarHoldsAtTheTopOfItsRangeWhenTheImportRestartsAndARepeatedMessageIsLoggedOnce() async throws {
+        let id = beginRow()
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let handle = InspectorViewController.variantCallingEventHandler(operationID: id)
+
+        handle(.progress(fraction: 0.92, message: "Indexing compressed VCF"))
+        await waitForLog(of: id, count: 1)
+        XCTAssertEqual(row(id)?.progress, 0.88, "the caller workflow ends at the top of the range")
+
+        handle(.progress(fraction: 0.05, message: "Parsing VCF (Ultra Low Memory profile)..."))
+        handle(.progress(fraction: 0.9, message: "Parsing variants (0)..."))
+        handle(.progress(fraction: 0.9, message: "Parsing variants (0)..."))
+        await eventsApplied()
+
+        XCTAssertEqual(row(id)?.progress, 0.88, "the import starts again at 0 and the bar stays")
+        XCTAssertEqual(row(id)?.detail, "Parsing variants (0)...")
+        XCTAssertEqual(loggedLines(of: id), [
+            "info: Indexing compressed VCF",
+            "info: Parsing VCF (Ultra Low Memory profile)...",
+            "info: Parsing variants (0)...",
+        ])
     }
 
     /// A warning logged during the run reads Completed with Warnings, as it does for every runner.
@@ -316,6 +346,14 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         await waitUntil(timeout: .seconds(30)) { self.loggedLines(of: id).count >= count }
     }
 
+    /// Returns once the bridge has applied every event handed to it so far. It hops each event to the
+    /// main queue in arrival order, so a block queued afterwards runs after all of them.
+    private func eventsApplied() async {
+        await withCheckedContinuation { (applied: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { applied.resume() }
+        }
+    }
+
     /// The lines of the real run of `variants call` kept under `Tests/Fixtures/cli-events`, or
     /// the same lines as a version 1 CLI wrote them, with no version and no artifacts.
     private func capturedRun(asVersion1: Bool) throws -> [String] {
@@ -347,18 +385,22 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         )
     }
 
-    /// What the launcher has always kept in the history. Each start, progress and log line, in
-    /// order and at its own level, and nothing for the completion.
+    /// What the bridge keeps in the history. Each start and log line, in order and at its own level,
+    /// each progress message once when it differs from the entry before it, and nothing for the
+    /// completion. The captured run repeats `Parsing variants (0)...`, which the history holds once.
     private func expectedHistory(of lines: [String]) throws -> [String] {
         let decoder = CLIEventLineDecoder()
-        return try lines.compactMap { line in
+        var history: [String] = []
+        for line in lines {
             switch try decoder.decode(line: line) {
-            case let .start(message)?: return "info: \(message)"
-            case let .progress(_, message)?: return "info: \(message)"
-            case let .log(level, message)?: return "\(level.rawValue): \(message)"
-            default: return nil
+            case let .start(message)?: history.append("info: \(message)")
+            case let .progress(_, message)?:
+                if !message.isEmpty, history.last != "info: \(message)" { history.append("info: \(message)") }
+            case let .log(level, message)?: history.append("\(level.rawValue): \(message)")
+            default: break
             }
         }
+        return history
     }
 
     /// A shell script in place of `lungfish-cli` that prints `lines` on standard output.

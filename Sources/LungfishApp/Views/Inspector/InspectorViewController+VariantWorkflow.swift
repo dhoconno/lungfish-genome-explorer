@@ -357,17 +357,15 @@ extension InspectorViewController {
     }
 
     /// The `onEvent` closure the launcher gives the runner, a static function so a test can feed it
-    /// the events of a run and read the row. The shared bridge maps every event onto the row
-    /// (ADDING-AN-OPERATION rule 8), and two rules of this row stay on top of it. The caller workflow
-    /// and the SQLite import each report 0 to 1, so the bar keeps to 0.10...0.88 between the first and
-    /// the last narrated step, and each progress message also goes into the log, where the history
-    /// of this row has always held it.
+    /// the events of a run and read the row. The shared bridge maps every event onto the row, holds the
+    /// bar and logs each progress message once (ADDING-AN-OPERATION rule 8), and one rule of this row
+    /// stays on top of it. The caller workflow and the SQLite import each report 0 to 1, so the bar
+    /// keeps to 0.10...0.88 between the first and the last narrated step.
     static func variantCallingEventHandler(operationID: UUID) -> @Sendable (CLIEvent) -> Void {
         let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
         return { event in
             guard case let .progress(fraction, message) = event else { return bridge(event) }
             bridge(.progress(fraction: max(0.10, min(0.88, fraction)), message: message))
-            if !message.isEmpty { bridge(.log(level: .info, message: message)) }
         }
     }
 
