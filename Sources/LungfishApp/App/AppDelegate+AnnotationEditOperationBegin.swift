@@ -5,7 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishKit
-import LungfishOperations
+import LungfishWorkflow
 
 /// The begin helpers for the two annotation edits AppDelegate.swift persists
 /// to a reference bundle, the Inspector or viewer rename and the delete

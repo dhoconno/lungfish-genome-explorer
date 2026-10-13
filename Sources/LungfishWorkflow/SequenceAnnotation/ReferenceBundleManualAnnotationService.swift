@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
 public struct ReferenceBundleManualAnnotationResult: Sendable, Equatable {
     public let bundleURL: URL

@@ -20,6 +20,7 @@ import XCTest
 import LungfishKit
 @testable import LungfishOperations
 import LungfishTestSupport
+import LungfishWorkflow
 
 @MainActor
 final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {

@@ -16,7 +16,7 @@ LungfishCore, LungfishIO, LungfishWorkflow and system frameworks that carry no U
 |---|---|
 | FASTQ derivatives and statistics | `FASTQDerivativeService` and its `+BBTools`, `+HumanScrub`, `+Materialization`, `+MixedOutput`, `+RecipePipeline`, `+SubsetHelpers` and `+TrimExtraction` files, `FASTQBundleMergeService`, `FASTQStatisticsService`, `FASTQAutoBundleWorkflow`, `FASTQOperationProvenanceRehydrator`, `FASTQOperationStagingCleanup` |
 | Bundle browsing and merging | `BundleBrowserLoader`, `BundleBrowserMirrorStore`, `BundleDataProvider`, `BundleMergeProvenance`, `BundleSequenceSummarySynthesizer`, `ClampedSequenceProvider`, `ReadAnnotationProvider` |
-| Annotations | `AnnotationSearchIndex`, `AnnotationExportService`, `ReferenceBundleManualAnnotationService`, `MSAExtractionAnnotationProvenance` |
+| Annotations | `AnnotationSearchIndex`, `AnnotationExportService`, `MSAExtractionAnnotationProvenance`. `ReferenceBundleManualAnnotationService` moved down to `Sources/LungfishWorkflow/SequenceAnnotation/` in Phase 2.10, where `lungfish-cli` reaches it |
 | Variants | `VariantDeletionMutationService`, `VariantSampleMetadataImportService`, `VariantSampleMetadataMutationService`, `VariantFormatOverlay`, `VariantTableExportResolverSnapshot`, `BookmarkedVariantExportService` |
 | Project files and search | `FileSystemWatcher`, `ProjectFilesystemRefreshCoordinator`, `ProjectDeletionPlanner`, `UniversalProjectSearchService`, `SidebarRefreshScheduler`, `SidebarSearchScheduler`, `NativeProjectCopyImportService`, `ProvenanceAwareAttachmentImporter`, `ProvenancePathRehydrator` |
 | Helper processes | `BAMImportHelperClient`, `MetagenomicsImportHelperClient` |
