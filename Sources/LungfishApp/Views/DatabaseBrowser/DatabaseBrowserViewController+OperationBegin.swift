@@ -19,15 +19,12 @@ extension DatabaseBrowserViewModel {
     /// The row is a download row and locks no bundle. `title` is the descriptive
     /// title the Downloads popover shows, built from the first accessions.
     ///
-    /// The command comes from `batchDownloadCLICommand`. Only a single NCBI
-    /// genome assembly with a project in the route context records one. Every
-    /// other download records no command until a command covers it, as that
-    /// function describes.
+    /// The command comes from `batchDownloadCLICommand`. NCBI genome
+    /// assemblies record one, with a project in the route context or none.
+    /// Every other download records no command until a command covers it, as
+    /// that function describes.
     ///
     /// - cli-parity-gap: download-sra. Every SRA run download.
-    /// - cli-parity-gap: download-genome-batch. Two or more genome assemblies.
-    /// - cli-parity-gap: download-genome-no-project. One genome assembly with
-    ///   no project in the route context.
     /// - cli-parity-gap: download-ncbi-bundle. NCBI nucleotide and virus
     ///   records, and any other source `fetch` cannot read.
     /// - cli-parity-gap: download-pathoplexus. Pathoplexus records.
@@ -65,22 +62,16 @@ extension DatabaseBrowserViewModel {
     /// The `lungfish-cli fetch` command a batch download row records, or nil
     /// when no command reproduces the download.
     ///
-    /// - One NCBI genome assembly with a project records `fetch genome
-    ///   <accession> --output-dir <project>/Downloads`. It builds the same kind of
-    ///   `.lungfishref` bundle from the assembly's FASTA and GFF3. The run
-    ///   builds the bundle in a temporary folder, and the completed download is
-    ///   copied into the project's Downloads folder
-    ///   (`handleMultipleDownloadsSync`), so that is the folder the command
-    ///   names (R3). With no project in the route context the run picks the
-    ///   folder from the window it lands in, which this function cannot know,
-    ///   so it records nil then, because a command path must be absolute. The
-    ///   run also
-    ///   names the bundle `<organism> - <assembly name>` from the assembly
-    ///   summary it fetches, where `fetch genome` names it
-    ///   `<organism>_<accession>` unless `--name` is given, so the two bundles
-    ///   differ in name.
-    /// - Two or more genome assemblies record nil, because `fetch genome`
-    ///   takes one accession.
+    /// - NCBI genome assemblies, one or several, record `fetch genome
+    ///   <accessions> --output-dir <folder> --format json`. The run launches
+    ///   that command for each row in turn (lane A44,
+    ///   DatabaseBrowserViewModel+GenomeRowDownload.swift), and each bundle's
+    ///   record names its own accession, so one line with every accession
+    ///   builds the same bundles. The folder is the project's Downloads folder,
+    ///   or the user's Downloads folder with no project in the route context
+    ///   (`genomeRowFolder(projectURL:userDownloads:)`), which the run writes
+    ///   into. The in-process route behind the hidden key builds the same
+    ///   bundles with no record, a difference the parity class declares.
     /// - SRA runs record nil. `fetch sra download` downloads one run, and the
     ///   run then imports the FASTQ files into the project with the settings
     ///   the user confirmed in the import sheet, which no command does.
@@ -95,13 +86,14 @@ extension DatabaseBrowserViewModel {
         source: DatabaseSource,
         searchType: NCBISearchType,
         accessions: [String],
-        projectURL: URL?
+        projectURL: URL?,
+        userDownloads: URL = userDownloadsFolder
     ) -> String? {
-        guard source == .ncbi, searchType == .genome, accessions.count == 1, let projectURL else { return nil }
-        let downloads = projectURL.appendingPathComponent("Downloads", isDirectory: true).path
+        guard source == .ncbi, searchType == .genome, !accessions.isEmpty else { return nil }
+        let folder = genomeRowFolder(projectURL: projectURL, userDownloads: userDownloads)
         return OperationCenter.buildCLICommand(
             subcommand: "fetch genome",
-            args: accessions + ["--output-dir", downloads]
+            args: Array(genomeFetchArguments(accessions: accessions, folder: folder).dropFirst(2))
         )
     }
 }

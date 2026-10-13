@@ -2507,43 +2507,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                         switch currentSource {
                         case .ncbi:
-                            // Handle genome downloads: download FASTA + GFF3 and build .lungfishref bundle
+                            // A genome row runs `lungfish-cli fetch genome` into the folder the
+                            // row's command names, or the in-process build behind the hidden key
+                            // (lane A44, DatabaseBrowserViewModel+GenomeRowDownload.swift).
                             if searchType == .genome {
-                                // For genome downloads, get the assembly summary and use
-                                // GenomeDownloadViewModel to download FASTA + GFF3 annotations
-                                // and build a .lungfishref reference bundle.
-                                logger.info("performBatchDownload: Fetching assembly summary for id=\(record.id, privacy: .public)")
-                                let assemblySummaries = try await ncbi.assemblyEsummary(ids: [record.id])
-                                guard let summary = assemblySummaries.first else {
-                                    throw DatabaseServiceError.notFound(accession: record.accession)
-                                }
-                                logger.info("performBatchDownload: Got assembly summary: \(summary.assemblyAccession ?? "nil", privacy: .public) organism=\(summary.organism ?? "nil", privacy: .public)")
-
-                                performOnMainRunLoop {
-                                    _ = DownloadCenter.shared.update(
-                                        id: downloadCenterTaskID,
-                                        progress: progressFraction,
-                                        detail: "Downloading genome for \(record.accession)..."
-                                    )
-                                }
-
-                                logger.info("performBatchDownload: Calling genomeVM.downloadAndBuild for \(record.accession, privacy: .public)")
-                                let bundleURL = try await genomeVM.downloadAndBuild(
-                                    assembly: summary,
-                                    outputDirectory: batchDir
-                                ) { progress, message in
-                                    let overall = (Double(index) + progress) / Double(totalCount)
-                                    performOnMainRunLoop {
-                                        _ = DownloadCenter.shared.update(
-                                            id: downloadCenterTaskID,
-                                            progress: overall,
-                                            detail: "\(record.accession): \(message)"
-                                        )
-                                    }
-                                }
-
-                                fileURL = bundleURL
-                                logger.info("performBatchDownload: Built genome bundle at \(bundleURL.path, privacy: .public)")
+                                fileURL = try await Self.downloadGenomeRow(
+                                    record, index: index, totalCount: totalCount,
+                                    operationID: downloadCenterTaskID, route: self.genomeRowRoute,
+                                    ncbi: ncbi, genomeVM: genomeVM,
+                                    batchDirectory: batchDir, projectURL: batchProjectURL
+                                )
                             } else {
                                 // Nucleotide and virus downloads always end as .lungfishref bundles.
                                 logger.info("performBatchDownload: Starting GenBank bundle build for \(record.accession, privacy: .public)")

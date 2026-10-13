@@ -5,10 +5,10 @@
 // The database browser registers its batch download row through a static begin
 // helper (R4). The row is a download row and locks no bundle, so a reporter
 // that refuses every begin stands in for a refusal and proves the launch
-// closure sits behind the `.started` case. Only one NCBI genome assembly
-// records a command, `fetch genome`, which must parse with the values the run
-// uses and names the project's Downloads folder, where the run puts the
-// bundle (R3). SRA runs, genome batches, NCBI nucleotide and virus records and
+// closure sits behind the `.started` case. NCBI genome assemblies, one or a
+// batch, with a project or none, record `fetch genome`, which must parse with
+// the values the run uses and names the folder the run writes the bundles
+// into (R3, lane A44). SRA runs, NCBI nucleotide and virus records and
 // Pathoplexus records record no command, and the tests pin each as a CLI
 // parity gap. A command added later fails a pin and prompts a parse test in
 // its place.
@@ -86,22 +86,25 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
 
         // The row used to record `fetch genome --accession <accessions> -o .`,
         // which the CLI never parsed, and then `--output-dir .`, the shell's
-        // current folder. The run copies the bundle it builds into the
-        // project's Downloads folder, which the command now names.
+        // current folder. The run writes the bundle into the project's
+        // Downloads folder, which the command names, and reads its events.
         XCTAssertEqual(
             item.cliCommand,
-            "lungfish-cli fetch genome GCF_003047895.1 --output-dir '/tmp/lane 1a2g/Project.lungfish/Downloads'"
+            "lungfish-cli fetch genome GCF_003047895.1 --output-dir '/tmp/lane 1a2g/Project.lungfish/Downloads' --format json"
         )
         XCTAssertFalse(item.cliCommand?.contains("--accession") ?? true)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: GenomeSubcommand.self)
         XCTAssertEqual(command.accessions, ["GCF_003047895.1"])
         XCTAssertEqual(command.outputDir, "/tmp/lane 1a2g/Project.lungfish/Downloads")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
         XCTAssertNil(command.name)
+        XCTAssertNil(command.intoBundle)
+        XCTAssertNil(command.apiKey)
         XCTAssertFalse(command.fastaOnly)
         XCTAssertFalse(command.noBundle)
     }
 
-    func testGenomeAssemblyBatchRecordsNoCommandAsAParityGap() throws {
+    func testGenomeAssemblyBatchRecordsOneFetchGenomeCommandForEveryAccession() throws {
         let item = try recordedRow(
             title: "Genome: GCF_003047895.1, GCF_000001405.40",
             accessions: ["GCF_003047895.1", "GCF_000001405.40"],
@@ -109,17 +112,20 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
             searchType: .genome
         )
 
-        // `fetch genome` takes one accession, so no single command builds the
-        // batch, and the row records no command.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "download-genome-batch")
+        // `fetch genome` takes several accessions since lane A44. The run
+        // launches it for each row, and each bundle's record names its own
+        // accession, so one command with every accession builds the batch.
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: GenomeSubcommand.self)
+        XCTAssertEqual(command.accessions, ["GCF_003047895.1", "GCF_000001405.40"])
+        XCTAssertEqual(command.outputDir, "/tmp/lane 1a2g/Project.lungfish/Downloads")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        XCTAssertNil(command.name)
     }
 
-    func testGenomeAssemblyWithNoProjectRecordsNoCommandAsAParityGap() throws {
-        // With no project in the route context the run picks the Downloads
-        // folder of the window the download lands in, which the row cannot
-        // know before the run. A relative `--output-dir .` would break the
-        // absolute-path rule, so the row records no command.
+    func testGenomeAssemblyWithNoProjectRecordsTheUsersDownloadsFolder() throws {
+        // With no project in the route context the run writes into the
+        // user's Downloads folder, never a system scratch folder (UX 8), so
+        // the command names that absolute folder.
         let reporter = RecordingOperationReporter()
         DatabaseBrowserViewModel.beginBatchDownloadOperation(
             title: "GCF_003047895.1",
@@ -130,8 +136,11 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
             reporter: reporter
         ) { _ in }
         let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: GenomeSubcommand.self)
+        XCTAssertEqual(command.accessions, ["GCF_003047895.1"])
+        XCTAssertEqual(command.outputDir, DatabaseBrowserViewModel.userDownloadsFolder.path)
+        XCTAssertTrue(command.outputDir.hasPrefix("/"), command.outputDir)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
 
     // MARK: - NCBI nucleotide and virus records, and Pathoplexus
