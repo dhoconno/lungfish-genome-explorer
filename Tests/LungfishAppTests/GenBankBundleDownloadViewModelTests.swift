@@ -30,15 +30,15 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
         try Data("VERSION NM_000546.6".utf8).write(to: source)
         try Data("compressed sequence".utf8).write(to: output)
         let runClock = ProvenanceRunClock()
-        let fetch = try GenBankBundleDownloadViewModel.fetchProvenanceStep(
+        let fetch = try GenBankDownloadBundleBuilder.fetchProvenanceStep(
             accession: "NM_000546.6", format: "gb", output: source, runClock: runClock)
-        let conversion = try GenBankBundleDownloadViewModel.conversionProvenanceStep(
+        let conversion = try GenBankDownloadBundleBuilder.conversionProvenanceStep(
             entryPoint: "test-conversion", inputs: [source], outputs: [output],
             options: ["preserveQualifiers": .boolean(true)], runClock: runClock)
         XCTAssertEqual(conversion.inputs.first?.checksumSHA256, try ProvenanceFileHasher.sha256(of: source))
         XCTAssertEqual(conversion.outputs.first?.checksumSHA256, try ProvenanceFileHasher.sha256(of: output))
         XCTAssertEqual(conversion.exitStatus, 0)
-        try GenBankBundleDownloadViewModel.writeDownloadProvenance(
+        try GenBankDownloadBundleBuilder.writeDownloadProvenance(
             bundleURL: bundle, requestedAccession: "NM_000546.6", resolvedAccession: "NM_000546.6",
             includeGFF3Annotations: false, steps: [fetch, conversion], runClock: runClock, stderr: "fallback detail")
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))

@@ -7,11 +7,11 @@ import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 
-/// Shared helpers used by both ``GenomeDownloadViewModel`` and ``GenBankBundleDownloadViewModel``
-/// during `.lungfishref` bundle creation.
-enum BundleBuildHelpers {
+/// Shared helpers used by ``GenomeDownloadBundleBuilder``, ``GenBankDownloadBundleBuilder`` and the
+/// sequence extraction pipeline during `.lungfishref` bundle creation.
+public enum BundleBuildHelpers {
 
-    static func sanitizedFilename(_ raw: String) -> String {
+    public static func sanitizedFilename(_ raw: String) -> String {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
@@ -19,7 +19,7 @@ enum BundleBuildHelpers {
             .replacingOccurrences(of: " ", with: "_")
     }
 
-    static func makeUniqueBundleURL(baseName: String, in directory: URL) -> URL {
+    public static func makeUniqueBundleURL(baseName: String, in directory: URL) -> URL {
         var candidate = directory.appendingPathComponent("\(baseName).lungfishref", isDirectory: true)
         var counter = 1
         while FileManager.default.fileExists(atPath: candidate.path) {
@@ -29,7 +29,7 @@ enum BundleBuildHelpers {
         return candidate
     }
 
-    static func parseFai(at url: URL) throws -> [ChromosomeInfo] {
+    public static func parseFai(at url: URL) throws -> [ChromosomeInfo] {
         let content = try String(contentsOf: url, encoding: .utf8)
         let lines = content.split(whereSeparator: \.isNewline)
 
@@ -185,7 +185,7 @@ enum BundleBuildHelpers {
     /// Validates that required tools (bgzip, samtools) are available.
     ///
     /// - Throws: `BundleBuildError.missingTools` if essential tools are missing.
-    static func validateTools(using toolRunner: NativeToolRunner) async throws {
+    public static func validateTools(using toolRunner: NativeToolRunner) async throws {
         let (valid, missing) = await toolRunner.validateToolsInstallation()
         if !valid {
             let essential = missing.filter { $0 == .bgzip || $0 == .samtools }

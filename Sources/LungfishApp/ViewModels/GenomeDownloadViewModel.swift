@@ -15,24 +15,54 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "GenomeDownlo
 
 // MARK: - GenomeDownloadViewModel
 
+/// Downloads NCBI genome assemblies into `.lungfishref` bundles for the database browser and the
+/// variant-only reference download. ``GenomeDownloadBundleBuilder`` builds each bundle.
+public final class GenomeDownloadViewModel: Sendable {
+
+    private let builder: GenomeDownloadBundleBuilder
+
+    public init(
+        ncbiService: NCBIService = NCBIService(),
+        toolRunner: NativeToolRunner = .shared
+    ) {
+        self.builder = GenomeDownloadBundleBuilder(ncbiService: ncbiService, toolRunner: toolRunner)
+    }
+
+    /// Validates that required native tools are available.
+    public func validateTools() async throws {
+        try await builder.validateTools()
+    }
+
+    /// Downloads FASTA and GFF3 files for an assembly and builds a `.lungfishref` bundle.
+    public func downloadAndBuild(
+        assembly: NCBIAssemblySummary,
+        outputDirectory: URL,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> URL {
+        try await builder.downloadAndBuild(
+            assembly: assembly, outputDirectory: outputDirectory, progressHandler: progressHandler)
+    }
+}
+
+// MARK: - GenomeDownloadBundleBuilder
+
 /// Downloads NCBI genome assemblies (FASTA + GFF3) and builds `.lungfishref` bundles.
 ///
-/// This implementation avoids `@MainActor` isolation so it can run from `Task.detached`
-/// contexts without cooperative executor scheduling issues. It follows the same pattern as
-/// ``GenBankBundleDownloadViewModel``: direct `NativeToolRunner` usage for all tool
-/// invocations, with progress reported via a `@Sendable` callback.
+/// It is not bound to the main actor, so it can run from `Task.detached` contexts without
+/// cooperative executor scheduling issues. It runs every tool through `NativeToolRunner`, as
+/// ``GenBankDownloadBundleBuilder`` does, and reports progress through a `@Sendable` callback.
 ///
 /// ## Usage
 /// ```swift
-/// let viewModel = GenomeDownloadViewModel()
-/// let bundleURL = try await viewModel.downloadAndBuild(
+/// let builder = GenomeDownloadBundleBuilder()
+/// let bundleURL = try await builder.downloadAndBuild(
 ///     assembly: assemblySummary,
 ///     outputDirectory: downloadsDir
 /// ) { progress, message in
 ///     print("\(Int(progress * 100))%: \(message)")
 /// }
 /// ```
-public final class GenomeDownloadViewModel: @unchecked Sendable {
+public final class GenomeDownloadBundleBuilder: @unchecked Sendable {
 
     private let ncbiService: NCBIService
     private let toolRunner: NativeToolRunner
