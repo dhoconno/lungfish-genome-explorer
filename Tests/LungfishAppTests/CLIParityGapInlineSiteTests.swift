@@ -13,8 +13,8 @@
 import XCTest
 
 final class CLIParityGapInlineSiteTests: XCTestCase {
-    /// The Import Center annotation track attach in
-    /// App/AppDelegate+ImportCenter.swift records nil.
+    /// The Import Center annotation track attach,
+    /// `AppDelegate.performSingleAnnotationTrackImport`, records nil.
     func testImportCenterAnnotationAttachRecordsNoCommand() {
         let recorded: String? = nil
         assertCLIParityGap(recorded, id: "annotation-attach-import-center")

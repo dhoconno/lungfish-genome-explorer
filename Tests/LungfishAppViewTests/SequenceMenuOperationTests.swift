@@ -718,15 +718,10 @@ final class SequenceMenuOperationTests: XCTestCase {
         )
         // The drawer runs the argv ReferenceBundleManualAnnotationService
         // builds, which the Inspector delete and its provenance share.
-        let builderSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishOperations/ReferenceBundleManualAnnotationService.swift"),
-            encoding: .utf8
-        )
-
+        // ViewerAnnotationDrawerOperationTests checks that argv by value.
         XCTAssertTrue(drawerSource.contains("didRequestDeleteAnnotations"))
         XCTAssertFalse(drawerSource.contains("searchIndex.deleteAnnotations(rowIDsByTrack: rowIDsByTrack)"))
         XCTAssertTrue(viewerDrawerSource.contains("ReferenceBundleManualAnnotationService.annotationRowDeletionArguments("))
-        XCTAssertTrue(builderSource.contains("\"delete-annotations\""))
     }
 
     func testViewportAnnotationSelectionSyncsBottomDrawer() throws {

@@ -5,6 +5,7 @@
 import XCTest
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 @MainActor
 final class OperationCenterLockingTests: XCTestCase {
@@ -253,12 +254,9 @@ final class OperationCenterLockingTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let importCenterSource = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "Sources/LungfishApp/App/AppDelegate+ImportCenter.swift"
-            ),
-            encoding: .utf8
-        )
+        // The Import Center attach sits in an AppDelegate extension file, so
+        // the pin reads them all and follows the attach to any of them.
+        let importCenterSource = combinedAppDelegateSource()
 
         XCTAssertTrue(
             Self.operationStartBlock(titled: "Annotation Import", in: sidebarSource)
