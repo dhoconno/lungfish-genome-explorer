@@ -159,6 +159,30 @@ final class TaxTriageRunBundleInputsTests: XCTestCase {
         XCTAssertEqual(flagged.units.map(\.value.config.platform), [.pacbio])
     }
 
+    func testAPooledSamplesheetOfTwoPlatformsIsRefusedAndABatchRunsEachOnItsOwn() async throws {
+        let ont = root.appendingPathComponent("ont.fastq")
+        let ilmn = root.appendingPathComponent("ilmn.fastq")
+        try ReadSetFixtures.fastq(["ont-1"]).write(to: ont, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["ilmn-1"]).write(to: ilmn, atomically: true, encoding: .utf8)
+        let sheet = root.appendingPathComponent("samplesheet.csv")
+        try TaxTriageSamplesheetBuilder().write([
+            TaxTriageSample(sampleId: "ont", fastq1: ont, platform: .oxford),
+            TaxTriageSample(sampleId: "ilmn", fastq1: ilmn, platform: .illumina),
+        ], to: sheet)
+
+        let error = await planError(try parse(["--samplesheet", sheet.path, "--output", output.path]))
+        XCTAssertEqual(
+            error?.localizedDescription,
+            "These samples record different platforms, ont as Oxford Nanopore and ilmn as Illumina, and one Nextflow run takes one platform. Add --batch to run each sample alone on its own platform.",
+            "T6, a pooled samplesheet of two platforms is refused, never relabelled"
+        )
+        XCTAssertEqual((error as? any AnalysisRunExitCoding)?.analysisRunExitCode, 3)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a refused plan makes no folder")
+
+        let batch = try await plan(try parse(["--samplesheet", sheet.path, "--output", output.path, "--batch"]))
+        XCTAssertEqual(batch.units.map(\.value.config.platform), [.oxford, .illumina], "each row runs on its own platform")
+    }
+
     func testAFileInsideABundleReadsItsBundleAndAnExtractionBlankIsAControl() async throws {
         let blank = try makeBundle("blank", platform: .pacbio, role: .extractionBlank)
 
