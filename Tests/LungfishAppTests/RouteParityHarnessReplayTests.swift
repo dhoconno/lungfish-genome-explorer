@@ -116,12 +116,12 @@ final class RouteParityHarnessReplayTests: XCTestCase {
         ]
         XCTAssertEqual(try harness.evaluate(Case.translate, declared: [], runs: runs).failures, expected)
         let entry = RouteParityDeclaredDifference<Case>(
-            [.translate: 2], "differs: proteins.fasta: *", scope: .cAgainstCPrime,
+            [.translate: 2], "differs: proteins.fasta: <ANY>", scope: .cAgainstCPrime,
             reason: "an entry that tries to declare a difference of C against C'", closedBy: Self.closer
         )
         XCTAssertEqual(
             try harness.evaluate(Case.translate, declared: [entry], runs: runs).failures,
-            ["C against C' declares nothing, delete the entry (closed by \(Self.closer)): differs: proteins.fasta: *"] + expected
+            ["C against C' declares nothing, delete the entry (closed by \(Self.closer)): differs: proteins.fasta: <ANY>"] + expected
         )
     }
 

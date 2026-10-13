@@ -50,4 +50,17 @@ final class RouteParityHarnessTests: XCTestCase {
             ]
         )
     }
+
+    /// A `*` in an id is data, such as a stop codon, and only `<ANY>` matches any run of characters.
+    func testAStarInAnIdMatchesOnlyAStar() {
+        let stop = RouteParityDeclaredDifference<String>(
+            ["case": 1], "differs: proteins.fasta: only in C: MAKFGP*MR", reason: "a stop codon", closedBy: "Q30"
+        )
+        XCTAssertTrue(stop.matches(RouteParityDifference(id: "differs: proteins.fasta: only in C: MAKFGP*MR")))
+        XCTAssertFalse(stop.matches(RouteParityDifference(id: "differs: proteins.fasta: only in C: MAKFGPQQMR")))
+        let any = RouteParityDeclaredDifference<String>(
+            ["case": 1], "differs: proteins.fasta: <ANY>", reason: "any line", closedBy: "Q30"
+        )
+        XCTAssertTrue(any.matches(RouteParityDifference(id: "differs: proteins.fasta: only in C: MAKFGPQQMR")))
+    }
 }

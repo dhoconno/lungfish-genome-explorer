@@ -52,7 +52,7 @@ public struct RouteParityDeclaredDifference<Case: Hashable & Sendable>: Sendable
     /// The cases the entry applies to, each with the number of found differences it matches.
     public let counts: [Case: Int]
     public let scope: RouteParityScope
-    /// The id of the difference, where `*` stands for any run of characters.
+    /// The id of the difference, where `<ANY>` stands for any run of characters and `*` matches itself.
     public let id: String
     /// Why the routes differ here, in BIO's words.
     public let reason: String
@@ -73,9 +73,9 @@ public struct RouteParityDeclaredDifference<Case: Hashable & Sendable>: Sendable
         self.closedBy = closedBy
     }
 
-    /// Whether `difference` has this entry's id, with `*` matching any run of characters.
+    /// Whether `difference` has this entry's id, with `<ANY>` matching any run of characters.
     public func matches(_ difference: RouteParityDifference) -> Bool {
-        let pattern = "^" + NSRegularExpression.escapedPattern(for: id).replacingOccurrences(of: "\\*", with: ".*") + "$"
+        let pattern = "^" + NSRegularExpression.escapedPattern(for: id).replacingOccurrences(of: "<ANY>", with: ".*") + "$"
         return difference.id.range(of: pattern, options: .regularExpression) != nil
     }
 }
