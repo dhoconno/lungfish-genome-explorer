@@ -1,0 +1,39 @@
+status 64
+
+stderr:
+Error: The local executor is not supported. Use Docker.
+Usage: lungfish-cli [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>] <subcommand>
+  See 'lungfish-cli --help' for more information.
+
+
+argv:
+
+
+environment:
+
+
+tree:
+Analyses/
+Analyses/.viralrecon-inputs/
+Analyses/.viralrecon-inputs/samplesheet.csv
+Analyses/viralrecon.lungfishrun/
+Analyses/viralrecon.lungfishrun/inputs/
+Analyses/viralrecon.lungfishrun/inputs/read-pairing.json
+
+digest gap:
+
+
+records:
+== Analyses/viralrecon.lungfishrun/inputs/read-pairing.json
+[
+  {
+    "handling" : "as_pairs",
+    "layout" : "paired_files",
+    "reason" : "Two input files are bound as R1 and R2.",
+    "sampleName" : "S1",
+    "sourceFASTQURLs" : [
+      "file://<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "file://<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
+    ]
+  }
+]

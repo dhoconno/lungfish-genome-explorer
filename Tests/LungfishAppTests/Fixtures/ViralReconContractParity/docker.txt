@@ -1,0 +1,1618 @@
+status 0
+
+stderr:
+
+
+argv:
+run
+nf-core/viralrecon
+-r
+3.0.0
+-profile
+docker
+--consensus_caller
+bcftools
+--genome
+MN908947.3
+--input
+<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv
+--min_mapped_reads
+1
+--outdir
+<root>/Project/Analyses/viralrecon-results
+--platform
+illumina
+--primer_bed
+<repository>/Tests/Fixtures/sarscov2/test.bed
+--primer_left_suffix
+_LEFT
+--primer_right_suffix
+_RIGHT
+--protocol
+amplicon
+--skip_assembly
+true
+--skip_freyja
+true
+--skip_freyja_boot
+true
+--skip_kraken2
+true
+--variant_caller
+ivar
+-c
+<scratch>/lungfish-resource-limits.config
+-work-dir
+<scratch>/work
+
+environment:
+HOME=<root>/engine/home
+MAMBA_ROOT_PREFIX=<root>/engine/home/.lungfish/conda
+NXF_ANSI_LOG=false
+NXF_HOME=<root>/engine/home/.nextflow
+NXF_SYNTAX_PARSER=v1
+PATH=<root>/engine/home/.lungfish/conda/envs/nextflow/bin:<root>/engine/home/.lungfish/conda/bin:/usr/local/bin:<the CLI's PATH>
+
+tree:
+Analyses/
+Analyses/.viralrecon-inputs/
+Analyses/.viralrecon-inputs/samplesheet.csv
+Analyses/viralrecon-results/
+Analyses/viralrecon-results/.lungfish-provenance.json
+Analyses/viralrecon-results/variants/
+Analyses/viralrecon-results/variants/bowtie2/
+Analyses/viralrecon-results/variants/bowtie2/S1.ivar_trim.sorted.bam
+Analyses/viralrecon-results/variants/bowtie2/S1.ivar_trim.sorted.bam.bai
+Analyses/viralrecon-results/variants/bowtie2/S1.sorted.bam
+Analyses/viralrecon-results/variants/bowtie2/S1.sorted.bam.bai
+Analyses/viralrecon-results/variants/ivar/
+Analyses/viralrecon-results/variants/ivar/S1.vcf.gz
+Analyses/viralrecon-results/variants/ivar/S1.vcf.gz.tbi
+Analyses/viralrecon-results/variants/ivar/consensus/
+Analyses/viralrecon-results/variants/ivar/consensus/bcftools/
+Analyses/viralrecon-results/variants/ivar/consensus/bcftools/S1.consensus.fa
+Analyses/viralrecon.lungfishrun/
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json
+Analyses/viralrecon.lungfishrun/inputs/
+Analyses/viralrecon.lungfishrun/inputs/read-pairing.json
+Analyses/viralrecon.lungfishrun/logs/
+Analyses/viralrecon.lungfishrun/logs/stderr.log
+Analyses/viralrecon.lungfishrun/logs/stdout.log
+Analyses/viralrecon.lungfishrun/manifest.json
+Analyses/viralrecon.lungfishrun/outputs/
+Analyses/viralrecon.lungfishrun/provenance/
+Analyses/viralrecon.lungfishrun/provenance/bundle.lungfish-provenance.json
+Analyses/viralrecon.lungfishrun/provenance/manifest.json.lungfish-provenance.json
+Analyses/viralrecon.lungfishrun/reports/
+
+digest gap:
+Analyses/viralrecon-results/.lungfish-provenance.json files[1].checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json files[1].fileSize
+Analyses/viralrecon-results/.lungfish-provenance.json files[2].checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json files[2].fileSize
+Analyses/viralrecon-results/.lungfish-provenance.json output.checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json output.fileSize
+Analyses/viralrecon-results/.lungfish-provenance.json outputs[0].checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json outputs[0].fileSize
+Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[0].checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[0].fileSize
+Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[1].checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[1].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[1].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[1].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[2].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[2].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[4].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[4].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json output.checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json output.fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json outputs[0].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json outputs[0].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json outputs[1].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json outputs[1].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json outputs[3].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json outputs[3].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json steps[0].outputs[0].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json steps[0].outputs[0].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json steps[0].outputs[1].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json steps[0].outputs[1].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json steps[0].outputs[3].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json steps[0].outputs[3].fileSize
+
+records:
+== Analyses/viralrecon-results/.lungfish-provenance.json
+{
+  "argv" : [
+    "lungfish-cli",
+    "workflow",
+    "run",
+    "nf-core/viralrecon",
+    "--executor",
+    "docker",
+    "--results-dir",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--bundle-path",
+    "<root>/Project/Analyses/viralrecon.lungfishrun",
+    "--version",
+    "3.0.0",
+    "--input",
+    "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+    "--expected-output",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--param",
+    "consensus_caller=bcftools",
+    "--param",
+    "genome=MN908947.3",
+    "--param",
+    "max_cpus=2",
+    "--param",
+    "max_memory=4.GB",
+    "--param",
+    "min_mapped_reads=1",
+    "--param",
+    "platform=illumina",
+    "--param",
+    "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+    "--param",
+    "primer_left_suffix=_LEFT",
+    "--param",
+    "primer_right_suffix=_RIGHT",
+    "--param",
+    "protocol=amplicon",
+    "--param",
+    "skip_assembly=true",
+    "--param",
+    "skip_freyja=true",
+    "--param",
+    "skip_freyja_boot=true",
+    "--param",
+    "skip_kraken2=true",
+    "--param",
+    "variant_caller=ivar"
+  ],
+  "createdAt" : "<time>",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "text",
+      "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon-results",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon-results",
+      "role" : "output"
+    }
+  ],
+  "id" : "<uuid>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "consensus_caller" : {
+        "type" : "string",
+        "value" : "bcftools"
+      },
+      "executor" : {
+        "type" : "string",
+        "value" : "docker"
+      },
+      "expectedOutputs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "<root>/Project/Analyses/viralrecon-results"
+          }
+        ]
+      },
+      "genome" : {
+        "type" : "string",
+        "value" : "MN908947.3"
+      },
+      "github_release_version" : {
+        "type" : "string",
+        "value" : "3.0.0"
+      },
+      "input" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv"
+      },
+      "max_cpus" : {
+        "type" : "string",
+        "value" : "2"
+      },
+      "max_memory" : {
+        "type" : "string",
+        "value" : "4.GB"
+      },
+      "min_mapped_reads" : {
+        "type" : "string",
+        "value" : "1"
+      },
+      "outdir" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/viralrecon-results"
+      },
+      "platform" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "primer_bed" : {
+        "type" : "string",
+        "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
+      },
+      "primer_left_suffix" : {
+        "type" : "string",
+        "value" : "_LEFT"
+      },
+      "primer_right_suffix" : {
+        "type" : "string",
+        "value" : "_RIGHT"
+      },
+      "protocol" : {
+        "type" : "string",
+        "value" : "amplicon"
+      },
+      "readPairing" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "dictionary",
+            "value" : {
+              "handling" : {
+                "type" : "string",
+                "value" : "as_pairs"
+              },
+              "readLayout" : {
+                "type" : "string",
+                "value" : "paired_files"
+              },
+              "readLayoutReason" : {
+                "type" : "string",
+                "value" : "Two input files are bound as R1 and R2."
+              },
+              "sample" : {
+                "type" : "string",
+                "value" : "S1"
+              },
+              "sources" : {
+                "type" : "array",
+                "value" : [
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz"
+                  },
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "skip_assembly" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja_boot" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_kraken2" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "variant_caller" : {
+        "type" : "string",
+        "value" : "ivar"
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "<digest gap>",
+    "fileSize" : "<digest gap>",
+    "format" : "unknown",
+    "path" : "<root>/Project/Analyses/viralrecon-results",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon-results",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "runtimeIdentity" : {
+    "appVersion" : "<appversion>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "operatingSystemVersion" : "<operatingsystemversion>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "stderr" : "",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "workflow",
+        "run",
+        "nf-core/viralrecon",
+        "--executor",
+        "docker",
+        "--results-dir",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--bundle-path",
+        "<root>/Project/Analyses/viralrecon.lungfishrun",
+        "--version",
+        "3.0.0",
+        "--input",
+        "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+        "--expected-output",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--param",
+        "consensus_caller=bcftools",
+        "--param",
+        "genome=MN908947.3",
+        "--param",
+        "max_cpus=2",
+        "--param",
+        "max_memory=4.GB",
+        "--param",
+        "min_mapped_reads=1",
+        "--param",
+        "platform=illumina",
+        "--param",
+        "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+        "--param",
+        "primer_left_suffix=_LEFT",
+        "--param",
+        "primer_right_suffix=_RIGHT",
+        "--param",
+        "protocol=amplicon",
+        "--param",
+        "skip_assembly=true",
+        "--param",
+        "skip_freyja=true",
+        "--param",
+        "skip_freyja_boot=true",
+        "--param",
+        "skip_kraken2=true",
+        "--param",
+        "variant_caller=ivar"
+      ],
+      "completedAt" : "<time>",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "githubReleaseVersion" : "3.0.0",
+      "id" : "<uuid>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "<masked checksum>",
+          "fileSize" : "<masked size>",
+          "format" : "text",
+          "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "<digest gap>",
+          "fileSize" : "<digest gap>",
+          "format" : "unknown",
+          "path" : "<root>/Project/Analyses/viralrecon-results",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "<digest gap>",
+          "fileSize" : "<digest gap>",
+          "format" : "unknown",
+          "path" : "<root>/Project/Analyses/viralrecon-results",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "<time>",
+      "stderr" : "",
+      "toolName" : "lungfish-cli workflow run",
+      "toolVersion" : "<cli version>",
+      "wallTimeSeconds" : "<seconds>"
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish-cli workflow run",
+    "version" : "<cli version>"
+  },
+  "toolName" : "lungfish-cli workflow run",
+  "toolVersion" : "<cli version>",
+  "wallTimeSeconds" : "<seconds>",
+  "workflowName" : "Run nf-core/viralrecon",
+  "workflowVersion" : "<workflowversion>"
+}
+== Analyses/viralrecon.lungfishrun/.lungfish-provenance.json
+{
+  "argv" : [
+    "lungfish-cli",
+    "workflow",
+    "run",
+    "nf-core/viralrecon",
+    "--executor",
+    "docker",
+    "--results-dir",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--bundle-path",
+    "<root>/Project/Analyses/viralrecon.lungfishrun",
+    "--version",
+    "3.0.0",
+    "--input",
+    "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+    "--expected-output",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--param",
+    "consensus_caller=bcftools",
+    "--param",
+    "genome=MN908947.3",
+    "--param",
+    "max_cpus=2",
+    "--param",
+    "max_memory=4.GB",
+    "--param",
+    "min_mapped_reads=1",
+    "--param",
+    "platform=illumina",
+    "--param",
+    "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+    "--param",
+    "primer_left_suffix=_LEFT",
+    "--param",
+    "primer_right_suffix=_RIGHT",
+    "--param",
+    "protocol=amplicon",
+    "--param",
+    "skip_assembly=true",
+    "--param",
+    "skip_freyja=true",
+    "--param",
+    "skip_freyja_boot=true",
+    "--param",
+    "skip_kraken2=true",
+    "--param",
+    "variant_caller=ivar"
+  ],
+  "createdAt" : "<time>",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "text",
+      "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon-results",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "json",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon-results",
+      "role" : "output"
+    }
+  ],
+  "githubReleaseVersion" : "3.0.0",
+  "id" : "<uuid>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "consensus_caller" : {
+        "type" : "string",
+        "value" : "bcftools"
+      },
+      "executor" : {
+        "type" : "string",
+        "value" : "docker"
+      },
+      "expectedOutputs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "<root>/Project/Analyses/viralrecon-results"
+          }
+        ]
+      },
+      "genome" : {
+        "type" : "string",
+        "value" : "MN908947.3"
+      },
+      "github_release_version" : {
+        "type" : "string",
+        "value" : "3.0.0"
+      },
+      "input" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv"
+      },
+      "max_cpus" : {
+        "type" : "string",
+        "value" : "2"
+      },
+      "max_memory" : {
+        "type" : "string",
+        "value" : "4.GB"
+      },
+      "min_mapped_reads" : {
+        "type" : "string",
+        "value" : "1"
+      },
+      "outdir" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/viralrecon-results"
+      },
+      "platform" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "primer_bed" : {
+        "type" : "string",
+        "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
+      },
+      "primer_left_suffix" : {
+        "type" : "string",
+        "value" : "_LEFT"
+      },
+      "primer_right_suffix" : {
+        "type" : "string",
+        "value" : "_RIGHT"
+      },
+      "protocol" : {
+        "type" : "string",
+        "value" : "amplicon"
+      },
+      "readPairing" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "dictionary",
+            "value" : {
+              "handling" : {
+                "type" : "string",
+                "value" : "as_pairs"
+              },
+              "readLayout" : {
+                "type" : "string",
+                "value" : "paired_files"
+              },
+              "readLayoutReason" : {
+                "type" : "string",
+                "value" : "Two input files are bound as R1 and R2."
+              },
+              "sample" : {
+                "type" : "string",
+                "value" : "S1"
+              },
+              "sources" : {
+                "type" : "array",
+                "value" : [
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz"
+                  },
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "skip_assembly" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja_boot" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_kraken2" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "variant_caller" : {
+        "type" : "string",
+        "value" : "ivar"
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "<digest gap>",
+    "fileSize" : "<digest gap>",
+    "format" : "unknown",
+    "path" : "<root>/Project/Analyses/viralrecon.lungfishrun",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon-results",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "json",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "<digest gap>",
+      "fileSize" : "<digest gap>",
+      "format" : "unknown",
+      "path" : "<root>/Project/Analyses/viralrecon-results",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "runtimeIdentity" : {
+    "appVersion" : "<appversion>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "operatingSystemVersion" : "<operatingsystemversion>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "stderr" : "",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "workflow",
+        "run",
+        "nf-core/viralrecon",
+        "--executor",
+        "docker",
+        "--results-dir",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--bundle-path",
+        "<root>/Project/Analyses/viralrecon.lungfishrun",
+        "--version",
+        "3.0.0",
+        "--input",
+        "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+        "--expected-output",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--param",
+        "consensus_caller=bcftools",
+        "--param",
+        "genome=MN908947.3",
+        "--param",
+        "max_cpus=2",
+        "--param",
+        "max_memory=4.GB",
+        "--param",
+        "min_mapped_reads=1",
+        "--param",
+        "platform=illumina",
+        "--param",
+        "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+        "--param",
+        "primer_left_suffix=_LEFT",
+        "--param",
+        "primer_right_suffix=_RIGHT",
+        "--param",
+        "protocol=amplicon",
+        "--param",
+        "skip_assembly=true",
+        "--param",
+        "skip_freyja=true",
+        "--param",
+        "skip_freyja_boot=true",
+        "--param",
+        "skip_kraken2=true",
+        "--param",
+        "variant_caller=ivar"
+      ],
+      "completedAt" : "<time>",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "githubReleaseVersion" : "3.0.0",
+      "id" : "<uuid>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "<masked checksum>",
+          "fileSize" : "<masked size>",
+          "format" : "text",
+          "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "<digest gap>",
+          "fileSize" : "<digest gap>",
+          "format" : "unknown",
+          "path" : "<root>/Project/Analyses/viralrecon.lungfishrun",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "<digest gap>",
+          "fileSize" : "<digest gap>",
+          "format" : "unknown",
+          "path" : "<root>/Project/Analyses/viralrecon-results",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "<masked checksum>",
+          "fileSize" : "<masked size>",
+          "format" : "json",
+          "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "<digest gap>",
+          "fileSize" : "<digest gap>",
+          "format" : "unknown",
+          "path" : "<root>/Project/Analyses/viralrecon-results",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "<time>",
+      "stderr" : "",
+      "toolName" : "lungfish-cli workflow run",
+      "toolVersion" : "<cli version>",
+      "wallTimeSeconds" : "<seconds>"
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish-cli workflow run",
+    "version" : "<cli version>"
+  },
+  "toolName" : "lungfish-cli workflow run",
+  "toolVersion" : "<cli version>",
+  "wallTimeSeconds" : "<seconds>",
+  "workflowName" : "Run nf-core/viralrecon",
+  "workflowVersion" : "<workflowversion>"
+}
+== Analyses/viralrecon.lungfishrun/inputs/read-pairing.json
+[
+  {
+    "handling" : "as_pairs",
+    "layout" : "paired_files",
+    "reason" : "Two input files are bound as R1 and R2.",
+    "sampleName" : "S1",
+    "sourceFASTQURLs" : [
+      "file://<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "file://<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
+    ]
+  }
+]
+== Analyses/viralrecon.lungfishrun/manifest.json
+{
+  "adapterIDs" : [
+    "viralrecon"
+  ],
+  "commandPreview" : "nextflow run nf-core/viralrecon -r 3.0.0 -profile docker --consensus_caller bcftools --genome MN908947.3 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --max_cpus 2 --max_memory 4.GB --min_mapped_reads 1 --outdir <root>/Project/Analyses/viralrecon-results --platform illumina --primer_bed <repository>/Tests/Fixtures/sarscov2/test.bed --primer_left_suffix _LEFT --primer_right_suffix _RIGHT --protocol amplicon --skip_assembly true --skip_freyja true --skip_freyja_boot true --skip_kraken2 true --variant_caller ivar",
+  "completedAt" : "<time>",
+  "createdAt" : "<time>",
+  "executionStatus" : "completed",
+  "executor" : "docker",
+  "exitCode" : 0,
+  "outputDirectoryName" : "viralrecon-results",
+  "params" : {
+    "consensus_caller" : "bcftools",
+    "genome" : "MN908947.3",
+    "input" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+    "max_cpus" : "2",
+    "max_memory" : "4.GB",
+    "min_mapped_reads" : "1",
+    "outdir" : "<root>/Project/Analyses/viralrecon-results",
+    "platform" : "illumina",
+    "primer_bed" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
+    "primer_left_suffix" : "_LEFT",
+    "primer_right_suffix" : "_RIGHT",
+    "protocol" : "amplicon",
+    "skip_assembly" : "true",
+    "skip_freyja" : "true",
+    "skip_freyja_boot" : "true",
+    "skip_kraken2" : "true",
+    "variant_caller" : "ivar"
+  },
+  "resultSurfaces" : [
+    "referenceBundles",
+    "mappingBundles",
+    "variantTracks",
+    "reports"
+  ],
+  "resume" : false,
+  "schemaVersion" : 1,
+  "startedAt" : "<time>",
+  "stderrLogPath" : "logs/stderr.log",
+  "stdoutLogPath" : "logs/stdout.log",
+  "version" : "3.0.0",
+  "workflowDescription" : "Generate viral consensus sequences, coverage summaries, alignments, and mutation tables.",
+  "workflowDisplayName" : "nf-core/viralrecon",
+  "workflowGithubReleaseVersion" : "3.0.0",
+  "workflowName" : "viralrecon",
+  "workflowPinnedVersion" : "3.0.0"
+}
+== Analyses/viralrecon.lungfishrun/provenance/bundle.lungfish-provenance.json
+{
+  "argv" : [
+    "lungfish-cli",
+    "workflow",
+    "run",
+    "nf-core/viralrecon",
+    "--executor",
+    "docker",
+    "--results-dir",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--bundle-path",
+    "<root>/Project/Analyses/viralrecon.lungfishrun",
+    "--version",
+    "3.0.0",
+    "--input",
+    "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+    "--expected-output",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--param",
+    "consensus_caller=bcftools",
+    "--param",
+    "genome=MN908947.3",
+    "--param",
+    "max_cpus=2",
+    "--param",
+    "max_memory=4.GB",
+    "--param",
+    "min_mapped_reads=1",
+    "--param",
+    "platform=illumina",
+    "--param",
+    "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+    "--param",
+    "primer_left_suffix=_LEFT",
+    "--param",
+    "primer_right_suffix=_RIGHT",
+    "--param",
+    "protocol=amplicon",
+    "--param",
+    "skip_assembly=true",
+    "--param",
+    "skip_freyja=true",
+    "--param",
+    "skip_freyja_boot=true",
+    "--param",
+    "skip_kraken2=true",
+    "--param",
+    "variant_caller=ivar"
+  ],
+  "createdAt" : "<time>",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "text",
+      "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "json",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+      "role" : "output"
+    }
+  ],
+  "id" : "<uuid>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "consensus_caller" : {
+        "type" : "string",
+        "value" : "bcftools"
+      },
+      "executor" : {
+        "type" : "string",
+        "value" : "docker"
+      },
+      "expectedOutputs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "<root>/Project/Analyses/viralrecon-results"
+          }
+        ]
+      },
+      "genome" : {
+        "type" : "string",
+        "value" : "MN908947.3"
+      },
+      "github_release_version" : {
+        "type" : "string",
+        "value" : "3.0.0"
+      },
+      "input" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv"
+      },
+      "max_cpus" : {
+        "type" : "string",
+        "value" : "2"
+      },
+      "max_memory" : {
+        "type" : "string",
+        "value" : "4.GB"
+      },
+      "min_mapped_reads" : {
+        "type" : "string",
+        "value" : "1"
+      },
+      "outdir" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/viralrecon-results"
+      },
+      "platform" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "primer_bed" : {
+        "type" : "string",
+        "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
+      },
+      "primer_left_suffix" : {
+        "type" : "string",
+        "value" : "_LEFT"
+      },
+      "primer_right_suffix" : {
+        "type" : "string",
+        "value" : "_RIGHT"
+      },
+      "protocol" : {
+        "type" : "string",
+        "value" : "amplicon"
+      },
+      "readPairing" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "dictionary",
+            "value" : {
+              "handling" : {
+                "type" : "string",
+                "value" : "as_pairs"
+              },
+              "readLayout" : {
+                "type" : "string",
+                "value" : "paired_files"
+              },
+              "readLayoutReason" : {
+                "type" : "string",
+                "value" : "Two input files are bound as R1 and R2."
+              },
+              "sample" : {
+                "type" : "string",
+                "value" : "S1"
+              },
+              "sources" : {
+                "type" : "array",
+                "value" : [
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz"
+                  },
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "skip_assembly" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja_boot" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_kraken2" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "variant_caller" : {
+        "type" : "string",
+        "value" : "ivar"
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "<masked checksum>",
+    "fileSize" : "<masked size>",
+    "format" : "json",
+    "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "json",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "runtimeIdentity" : {
+    "appVersion" : "<appversion>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "operatingSystemVersion" : "<operatingsystemversion>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "stderr" : "",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "workflow",
+        "run",
+        "nf-core/viralrecon",
+        "--executor",
+        "docker",
+        "--results-dir",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--bundle-path",
+        "<root>/Project/Analyses/viralrecon.lungfishrun",
+        "--version",
+        "3.0.0",
+        "--input",
+        "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+        "--expected-output",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--param",
+        "consensus_caller=bcftools",
+        "--param",
+        "genome=MN908947.3",
+        "--param",
+        "max_cpus=2",
+        "--param",
+        "max_memory=4.GB",
+        "--param",
+        "min_mapped_reads=1",
+        "--param",
+        "platform=illumina",
+        "--param",
+        "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+        "--param",
+        "primer_left_suffix=_LEFT",
+        "--param",
+        "primer_right_suffix=_RIGHT",
+        "--param",
+        "protocol=amplicon",
+        "--param",
+        "skip_assembly=true",
+        "--param",
+        "skip_freyja=true",
+        "--param",
+        "skip_freyja_boot=true",
+        "--param",
+        "skip_kraken2=true",
+        "--param",
+        "variant_caller=ivar"
+      ],
+      "completedAt" : "<time>",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "githubReleaseVersion" : "3.0.0",
+      "id" : "<uuid>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "<masked checksum>",
+          "fileSize" : "<masked size>",
+          "format" : "text",
+          "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "<masked checksum>",
+          "fileSize" : "<masked size>",
+          "format" : "json",
+          "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "<time>",
+      "stderr" : "",
+      "toolName" : "lungfish-cli workflow run",
+      "toolVersion" : "<cli version>",
+      "wallTimeSeconds" : "<seconds>"
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish-cli workflow run",
+    "version" : "<cli version>"
+  },
+  "toolName" : "lungfish-cli workflow run",
+  "toolVersion" : "<cli version>",
+  "wallTimeSeconds" : "<seconds>",
+  "workflowName" : "Run nf-core/viralrecon",
+  "workflowVersion" : "<workflowversion>"
+}
+== Analyses/viralrecon.lungfishrun/provenance/manifest.json.lungfish-provenance.json
+{
+  "argv" : [
+    "lungfish-cli",
+    "workflow",
+    "run",
+    "nf-core/viralrecon",
+    "--executor",
+    "docker",
+    "--results-dir",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--bundle-path",
+    "<root>/Project/Analyses/viralrecon.lungfishrun",
+    "--version",
+    "3.0.0",
+    "--input",
+    "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+    "--expected-output",
+    "<root>/Project/Analyses/viralrecon-results",
+    "--param",
+    "consensus_caller=bcftools",
+    "--param",
+    "genome=MN908947.3",
+    "--param",
+    "max_cpus=2",
+    "--param",
+    "max_memory=4.GB",
+    "--param",
+    "min_mapped_reads=1",
+    "--param",
+    "platform=illumina",
+    "--param",
+    "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+    "--param",
+    "primer_left_suffix=_LEFT",
+    "--param",
+    "primer_right_suffix=_RIGHT",
+    "--param",
+    "protocol=amplicon",
+    "--param",
+    "skip_assembly=true",
+    "--param",
+    "skip_freyja=true",
+    "--param",
+    "skip_freyja_boot=true",
+    "--param",
+    "skip_kraken2=true",
+    "--param",
+    "variant_caller=ivar"
+  ],
+  "createdAt" : "<time>",
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "text",
+      "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "json",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+      "role" : "output"
+    }
+  ],
+  "id" : "<uuid>",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "consensus_caller" : {
+        "type" : "string",
+        "value" : "bcftools"
+      },
+      "executor" : {
+        "type" : "string",
+        "value" : "docker"
+      },
+      "expectedOutputs" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "file",
+            "value" : "<root>/Project/Analyses/viralrecon-results"
+          }
+        ]
+      },
+      "genome" : {
+        "type" : "string",
+        "value" : "MN908947.3"
+      },
+      "github_release_version" : {
+        "type" : "string",
+        "value" : "3.0.0"
+      },
+      "input" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv"
+      },
+      "max_cpus" : {
+        "type" : "string",
+        "value" : "2"
+      },
+      "max_memory" : {
+        "type" : "string",
+        "value" : "4.GB"
+      },
+      "min_mapped_reads" : {
+        "type" : "string",
+        "value" : "1"
+      },
+      "outdir" : {
+        "type" : "string",
+        "value" : "<root>/Project/Analyses/viralrecon-results"
+      },
+      "platform" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "primer_bed" : {
+        "type" : "string",
+        "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
+      },
+      "primer_left_suffix" : {
+        "type" : "string",
+        "value" : "_LEFT"
+      },
+      "primer_right_suffix" : {
+        "type" : "string",
+        "value" : "_RIGHT"
+      },
+      "protocol" : {
+        "type" : "string",
+        "value" : "amplicon"
+      },
+      "readPairing" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "dictionary",
+            "value" : {
+              "handling" : {
+                "type" : "string",
+                "value" : "as_pairs"
+              },
+              "readLayout" : {
+                "type" : "string",
+                "value" : "paired_files"
+              },
+              "readLayoutReason" : {
+                "type" : "string",
+                "value" : "Two input files are bound as R1 and R2."
+              },
+              "sample" : {
+                "type" : "string",
+                "value" : "S1"
+              },
+              "sources" : {
+                "type" : "array",
+                "value" : [
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz"
+                  },
+                  {
+                    "type" : "file",
+                    "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "skip_assembly" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_freyja_boot" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "skip_kraken2" : {
+        "type" : "string",
+        "value" : "true"
+      },
+      "variant_caller" : {
+        "type" : "string",
+        "value" : "ivar"
+      }
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "<masked checksum>",
+    "fileSize" : "<masked size>",
+    "format" : "json",
+    "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "<masked checksum>",
+      "fileSize" : "<masked size>",
+      "format" : "json",
+      "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "runtimeIdentity" : {
+    "appVersion" : "<appversion>",
+    "architecture" : "<architecture>",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "operatingSystemVersion" : "<operatingsystemversion>"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "stderr" : "",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "workflow",
+        "run",
+        "nf-core/viralrecon",
+        "--executor",
+        "docker",
+        "--results-dir",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--bundle-path",
+        "<root>/Project/Analyses/viralrecon.lungfishrun",
+        "--version",
+        "3.0.0",
+        "--input",
+        "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+        "--expected-output",
+        "<root>/Project/Analyses/viralrecon-results",
+        "--param",
+        "consensus_caller=bcftools",
+        "--param",
+        "genome=MN908947.3",
+        "--param",
+        "max_cpus=2",
+        "--param",
+        "max_memory=4.GB",
+        "--param",
+        "min_mapped_reads=1",
+        "--param",
+        "platform=illumina",
+        "--param",
+        "primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed",
+        "--param",
+        "primer_left_suffix=_LEFT",
+        "--param",
+        "primer_right_suffix=_RIGHT",
+        "--param",
+        "protocol=amplicon",
+        "--param",
+        "skip_assembly=true",
+        "--param",
+        "skip_freyja=true",
+        "--param",
+        "skip_freyja_boot=true",
+        "--param",
+        "skip_kraken2=true",
+        "--param",
+        "variant_caller=ivar"
+      ],
+      "completedAt" : "<time>",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "githubReleaseVersion" : "3.0.0",
+      "id" : "<uuid>",
+      "inputs" : [
+        {
+          "checksumSHA256" : "<masked checksum>",
+          "fileSize" : "<masked size>",
+          "format" : "text",
+          "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "<masked checksum>",
+          "fileSize" : "<masked size>",
+          "format" : "json",
+          "path" : "<root>/Project/Analyses/viralrecon.lungfishrun/manifest.json",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "<time>",
+      "stderr" : "",
+      "toolName" : "lungfish-cli workflow run",
+      "toolVersion" : "<cli version>",
+      "wallTimeSeconds" : "<seconds>"
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish-cli workflow run",
+    "version" : "<cli version>"
+  },
+  "toolName" : "lungfish-cli workflow run",
+  "toolVersion" : "<cli version>",
+  "wallTimeSeconds" : "<seconds>",
+  "workflowName" : "Run nf-core/viralrecon",
+  "workflowVersion" : "<workflowversion>"
+}
