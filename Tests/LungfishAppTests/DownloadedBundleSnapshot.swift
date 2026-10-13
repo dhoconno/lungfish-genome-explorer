@@ -111,12 +111,14 @@ enum DownloadedBundleSnapshot {
             .map { "manifest " + $0 }
     }
 
-    /// Drops every key whose name holds "date", since a build stamps its clock there, and writes
+    private static let buildStampKeys: Set<String> = ["created_date", "modified_date", "download_date", "added_date"]
+
+    /// Drops the four keys a build stamps with its clock (BundleManifest and BundleTracks), and writes
     /// `<uuid>` for each UUID, since a metadata group and item draw a new one each build.
     private static func repeatable(_ object: Any) -> Any {
         if let dictionary = object as? [String: Any] {
             return dictionary
-                .filter { !$0.key.lowercased().contains("date") }
+                .filter { !Self.buildStampKeys.contains($0.key) }
                 .mapValues(repeatable)
         }
         if let array = object as? [Any] { return array.map(repeatable) }
