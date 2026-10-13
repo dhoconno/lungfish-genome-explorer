@@ -349,6 +349,27 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         ])
     }
 
+    /// The classifier route sends its database step as a progress event with today's detail and
+    /// a log event with today's database line, which has other words, so the log holds both,
+    /// the detail first (Phase 2.10 U32 review fix 1).
+    func testTheClassifierDatabaseStepLogsItsDetailBeforeTodaysDatabaseLine() async throws {
+        let id = beginRow(title: "EsViritu sarscov2", type: .classification)
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let handle = OperationCenterCLIBridge.onEvent(operationID: id)
+        var rowEvents = CLIClassifierRowEvents(tool: .esViritu, sampleIDs: ["sarscov2"])
+        let events: [CLIEvent] = [
+            .progress(fraction: 1, message: "Writing the EsViritu batch summary\u{2026}"),
+            .progress(fraction: 1, message: "Building EsViritu database\u{2026}"),
+        ]
+        for event in events { rowEvents.effects(of: event).bridged.forEach(handle) }
+        await eventsApplied()
+        XCTAssertEqual(loggedLines(of: item(id)), [
+            "info: Writing the EsViritu batch summary\u{2026}",
+            "info: Building EsViritu database\u{2026}",
+            "info: Building esviritu.sqlite from single-sample result",
+        ])
+    }
+
     /// Events from one producer land in the order they arrive. The log and the detail read the same
     /// sequence the producer sent.
     func testEventsKeepTheirArrivalOrder() async throws {
