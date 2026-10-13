@@ -11,20 +11,25 @@ import LungfishIO
 /// The options of one `lungfish-cli taxtriage run`, as the command parsed them.
 ///
 /// ``TaxTriageAnalysisRunTool`` turns them into units in its plan. The inputs stay as they were typed,
-/// so the plan expands a folder, reads a samplesheet and pairs `--input2` itself, before any folder
-/// exists. Every other choice of the command travels in ``settings``.
+/// so the plan expands a folder, reads a samplesheet and each bundle, and pairs `--input2` itself,
+/// before any folder exists. Every other choice of the command travels in ``settings``.
 package struct TaxTriageRunRequest: Sendable {
-    /// `--input` as typed, a FASTQ file, a `.lungfishfastq` bundle or a folder of them. Nil with
-    /// `--samplesheet`.
-    package var input: String?
-    /// `--input2` as typed, the R2 file of the pair whose R1 is `--input`.
+    /// Each `--input` as typed, in the order given, a FASTQ file, a `.lungfishfastq` bundle or a folder of
+    /// them. Empty with `--samplesheet`. The app hands several bundles this way, each one sample (2.10 T6).
+    package var inputs: [String]
+    /// `--input2` as typed, the R2 file of the pair whose R1 is the one `--input`.
     package var input2: String?
     /// `--recursive`, which also takes the reads in the subfolders of an `--input` folder.
     package var recursive: Bool
-    /// `--sample`, the name of the sample `--input` names. The inputs of a folder take it as a prefix.
+    /// `--sample`, the name of the sample one `--input` names. The inputs of a folder, and several inputs,
+    /// take it as a prefix.
     package var sampleID: String?
     /// `--samplesheet` as typed.
     package var samplesheet: String?
+    /// Each `--negative-control` as typed, the names of the samples the user marks as negative controls,
+    /// beside those their bundles' sample roles mark (2.10 T4). Each sample's configuration keeps its mark,
+    /// which never reaches Nextflow.
+    package var negativeControls: [String]
     /// `--revision` as typed, or nil to run the commit the lock pins (N4, A16 M1 review ruling 1). The
     /// repository always comes from the lock.
     package var revision: String?
@@ -41,7 +46,32 @@ package struct TaxTriageRunRequest: Sendable {
     package var usageConflict: String?
 
     package init(
-        input: String? = nil,
+        inputs: [String] = [],
+        input2: String? = nil,
+        recursive: Bool = false,
+        sampleID: String? = nil,
+        samplesheet: String? = nil,
+        negativeControls: [String] = [],
+        revision: String? = nil,
+        extraArguments: String = "",
+        settings: TaxTriageConfig,
+        usageConflict: String? = nil
+    ) {
+        self.inputs = inputs
+        self.input2 = input2
+        self.recursive = recursive
+        self.sampleID = sampleID
+        self.samplesheet = samplesheet
+        self.negativeControls = negativeControls
+        self.revision = revision
+        self.extraArguments = extraArguments
+        self.settings = settings
+        self.usageConflict = usageConflict
+    }
+
+    /// A request of one `--input`, or of none when `input` is nil, as the command took it before 2.10 T6.
+    package init(
+        input: String?,
         input2: String? = nil,
         recursive: Bool = false,
         sampleID: String? = nil,
@@ -51,15 +81,17 @@ package struct TaxTriageRunRequest: Sendable {
         settings: TaxTriageConfig,
         usageConflict: String? = nil
     ) {
-        self.input = input
-        self.input2 = input2
-        self.recursive = recursive
-        self.sampleID = sampleID
-        self.samplesheet = samplesheet
-        self.revision = revision
-        self.extraArguments = extraArguments
-        self.settings = settings
-        self.usageConflict = usageConflict
+        self.init(
+            inputs: input.map { [$0] } ?? [],
+            input2: input2,
+            recursive: recursive,
+            sampleID: sampleID,
+            samplesheet: samplesheet,
+            revision: revision,
+            extraArguments: extraArguments,
+            settings: settings,
+            usageConflict: usageConflict
+        )
     }
 }
 
@@ -99,6 +131,34 @@ package struct TaxTriageRunRefusal: Error, LocalizedError, AnalysisRunExitCoding
     /// `read1` and `read2` name one such pair as the folder holds them.
     package static func folderHoldsPairedReads(folder: String, read1: String, read2: String) -> TaxTriageRunRefusal {
         .input("The folder \(folder) holds paired reads, such as \(read1) and \(read2). Use --samplesheet to pair them.")
+    }
+
+    /// 2.10 T6. `--input2` beside several `--input`, whose R1 it cannot name.
+    package static let input2WithSeveralInputs = TaxTriageRunRefusal.input(
+        "--input2 pairs with one --input. Give the pairs of several samples in a --samplesheet."
+    )
+
+    /// 2.10 T6. The samples of one pooled launch record different platforms. The launch runs one
+    /// configuration, whose platform its record and its analysis entry name, so the run is refused
+    /// rather than run with a platform some of its samples did not come from.
+    package static func mixedPlatforms(_ samples: [TaxTriageSample]) -> TaxTriageRunRefusal {
+        let platforms = listing(samples.map { "\($0.sampleId) as \($0.platform.displayName)" }, joinedBy: "and")
+        return .input(
+            "These samples record different platforms, \(platforms), and one Nextflow run takes one platform. Add --batch to run each sample alone on its own platform."
+        )
+    }
+
+    /// 2.10 T4. `--negative-control` names a sample the run does not have.
+    package static func unknownNegativeControls(_ names: [String], sampleIDs: [String]) -> TaxTriageRunRefusal {
+        .input(
+            "This run has no sample named \(listing(names, joinedBy: "or")), which --negative-control names. Its samples are \(listing(sampleIDs, joinedBy: "and"))."
+        )
+    }
+
+    /// `items` as a sentence lists them, `a`, `a and b` or `a, b and c`.
+    static func listing(_ items: [String], joinedBy word: String) -> String {
+        guard items.count > 1, let last = items.last else { return items.first ?? "" }
+        return items.dropLast().joined(separator: ", ") + " \(word) \(last)"
     }
 }
 

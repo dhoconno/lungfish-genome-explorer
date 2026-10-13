@@ -219,6 +219,8 @@ extension TaxTriagePipeline {
 ///   source URL and source policy its install receipt names, and no placeholder of the receipt as a catalog entry or
 ///   version (``DatabaseReceiptPlaceholder``). Its status is the word `unpinned`, which ``DatabaseIdentityStatus`` reads.
 /// - Each task failure TaxTriage ignored is one warning line (T8), and the run still ends `completed`.
+/// - The negative controls a user named are the explicit option `negative_controls`, present only when one was named
+///   (2.10 T4). A mark a bundle's sample role makes is no option of the record.
 ///
 /// The R1 and R2 halves of an interleaved file are scratch that the run removes, so no fact names one (T6). The record
 /// names the durable interleaved file instead.
@@ -267,6 +269,11 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
                 explicit["github_release_version"] = .string(githubReleaseVersion)
             }
         }
+        // 2.10 T4. The negative controls the user named, recorded only when given.
+        let namedControls = Self.namedNegativeControls(in: config)
+        if !namedControls.isEmpty {
+            explicit["negative_controls"] = .array(namedControls.map { .string($0) })
+        }
         var resolved = Self.databaseIdentity(at: config.kraken2DatabasePath)
         // R5. The launch passes no `--classifiers`, so the classifiers TaxTriage ran are its default, not a choice.
         resolved["classifiers"] = .array(config.classifiers.map { .string($0) })
@@ -284,6 +291,18 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         }
         explicitOptions = explicit
         resolvedDefaults = resolved
+    }
+
+    /// The samples a user marked as negative controls, by `--negative-control` or by the wizard's own mark, in sample
+    /// order (2.10 T4). Each is a marked sample whose bundle's sample role marks no negative control. A mark the role
+    /// makes comes from the input, so the record names no option for it, and a sample both mark counts as the role's.
+    static func namedNegativeControls(in config: TaxTriageConfig) -> [String] {
+        config.samples
+            .filter { sample in
+                let roleMarks = sample.metadata.map { TaxTriageAnalysisRunTool.negativeControlRoles.contains($0.sampleRole) } ?? false
+                return sample.isNegativeControl && !roleMarks
+            }
+            .map(\.sampleId)
     }
 
     /// Every option of the record, the parameters a recorded run begins with. The recorder takes a record's resolved

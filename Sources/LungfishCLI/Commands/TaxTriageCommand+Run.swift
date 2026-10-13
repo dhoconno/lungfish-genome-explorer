@@ -31,14 +31,22 @@ extension TaxTriageCommand {
 
         // MARK: - Input Options
 
+        /// The help says what each bundle gives its sample, which ``TaxTriageAnalysisRunTool/inputSample(_:named:read2:)``
+        /// reads (2.10 T4 and T6), so change them together.
         @Option(
             name: .customLong("input"),
             help: ArgumentHelp(
-                "Input FASTQ file (R1 or single-end) or .lungfishfastq bundle",
-                discussion: "A bundle is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. --input and --input2 that name every file of one bundle are read as that bundle. A folder gives one sample of each FASTQ file or bundle in it. A folder that holds paired reads is refused, since the folder route pairs no R1 and R2 files. Use --samplesheet to pair them."
+                "Input FASTQ file (R1 or single-end) or .lungfishfastq bundle. Repeat it to run several",
+                discussion: "A bundle is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. --input and --input2 that name every file of one bundle are read as that bundle. A folder gives one sample of each FASTQ file or bundle in it. A folder that holds paired reads is refused, since the folder route pairs no R1 and R2 files. Use --samplesheet to pair them. Several --input run their samples in the order given. A sample whose reads lie in a bundle runs on the platform the bundle records, and it is a negative control when the bundle's sample role is negative control or extraction blank.",
+                valueName: "input"
             )
         )
-        var input: String?
+        var inputs: [String] = []
+
+        /// The one `--input` of a run that names one, nil with none or several.
+        var input: String? {
+            inputs.count == 1 ? inputs[0] : nil
+        }
 
         @Option(
             name: .customLong("input2"),
@@ -54,7 +62,7 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("sample"),
-            help: "Sample name, required with an --input file or bundle and with --input2. With an --input folder, each sample is named after its file, behind this name when given"
+            help: "Sample name, required with one --input file or bundle and with --input2. With an --input folder or several --input, each sample is named after its file or bundle, behind this name when given"
         )
         var sampleId: String?
 
@@ -64,9 +72,25 @@ extension TaxTriageCommand {
         )
         var samplesheet: String?
 
+        /// The marks stay in each sample's configuration, where the viewer reads them (2.10 T4), and the
+        /// samplesheet the launch writes takes no column for them.
+        @Option(
+            name: .customLong("negative-control"),
+            help: ArgumentHelp(
+                "Mark the sample of this name as a negative control. Repeat it for several",
+                discussion: "The result keeps the mark, so the batch overview flags organisms found in a control as possible contamination. TaxTriage never sees it. A bundle whose sample role is negative control or extraction blank marks its sample without this option. A name that no sample of the run has is refused.",
+                valueName: "sample"
+            )
+        )
+        var negativeControls: [String] = []
+
+        /// The help names what a bundle's platform does, which the plan reads (2.10 T6), so change them together.
         @Option(
             name: .customLong("platform"),
-            help: "Sequencing platform: illumina, oxford, pacbio (default: illumina)"
+            help: ArgumentHelp(
+                "Sequencing platform: illumina, oxford, pacbio (default: illumina)",
+                discussion: "The platform of each sample whose reads record none. A bundle of Illumina, Oxford Nanopore or PacBio reads runs on the platform it records, and a --samplesheet row on its platform column. A plain --output runs every sample in one Nextflow run of one platform, so samples that record different platforms are refused there. Add --batch to run each alone."
+            )
         )
         var platform: PlatformArgument = .illumina
 
@@ -212,14 +236,15 @@ extension TaxTriageCommand {
 
         func validate() throws {
             // Must provide either --input or --samplesheet
-            if input == nil && samplesheet == nil {
+            if inputs.isEmpty && samplesheet == nil {
                 throw CLIError.validationFailed(errors: ["Provide either --input (with --sample) or --samplesheet"])
             }
-            if input != nil && samplesheet != nil {
+            if !inputs.isEmpty && samplesheet != nil {
                 throw CLIError.validationFailed(errors: ["Cannot use both --input and --samplesheet"])
             }
-            if input != nil && sampleId == nil {
-                let inputURL = URL(fileURLWithPath: input ?? "")
+            // One --input file or bundle needs its name. A folder or several --input name each sample after its input.
+            if let input, sampleId == nil {
+                let inputURL = URL(fileURLWithPath: input)
                 var isDirectory: ObjCBool = false
                 let isFolderInput = FileManager.default.fileExists(atPath: inputURL.path, isDirectory: &isDirectory)
                     && isDirectory.boolValue
@@ -227,6 +252,9 @@ extension TaxTriageCommand {
                 if !isFolderInput {
                     throw CLIError.validationFailed(errors: ["--sample is required when using --input"])
                 }
+            }
+            if input2 != nil && inputs.count > 1 {
+                throw CLIError.validationFailed(errors: [TaxTriageRunRefusal.input2WithSeveralInputs.message])
             }
             if input2 != nil && sampleId == nil {
                 throw CLIError.validationFailed(errors: ["--sample is required when using --input2"])
@@ -283,7 +311,7 @@ extension TaxTriageCommand {
             )
             let tool = TaxTriageAnalysisRunTool(request: runRequest(usageConflict: conflict), services: services)
             let request = AnalysisRunRequest(
-                inputs: [input ?? samplesheet].compactMap { $0 }.map { URL(fileURLWithPath: $0).standardizedFileURL },
+                inputs: (inputs + [samplesheet].compactMap { $0 }).map { URL(fileURLWithPath: $0).standardizedFileURL },
                 destination: destination,
                 groupsSamples: batch,
                 commandLine: Self.recordedCommandLine(CommandLine.arguments, fallback: canonicalArguments())
@@ -322,11 +350,12 @@ extension TaxTriageCommand {
                 destinationURL = url
             }
             return TaxTriageRunRequest(
-                input: input,
+                inputs: inputs,
                 input2: input2,
                 recursive: recursive,
                 sampleID: sampleId,
                 samplesheet: samplesheet,
+                negativeControls: negativeControls,
                 revision: revision,
                 extraArguments: extraArgs,
                 settings: settingsConfig(samples: [], outputDirectory: destinationURL, extraArguments: []),
@@ -418,11 +447,12 @@ extension TaxTriageCommand {
         /// The command that runs these options again, every option it was given spelled out.
         func canonicalArguments() -> [String] {
             var arguments = [CLICommandIdentity.executableName, "taxtriage", "run"]
-            if let input { arguments += ["--input", input] }
+            for input in inputs { arguments += ["--input", input] }
             if let input2 { arguments += ["--input2", input2] }
             if recursive { arguments.append("--recursive") }
             if let sampleId { arguments += ["--sample", sampleId] }
             if let samplesheet { arguments += ["--samplesheet", samplesheet] }
+            for control in negativeControls { arguments += ["--negative-control", control] }
             arguments += ["--platform", platform.rawValue]
             if let project { arguments += ["--project", project] }
             if let outputDir { arguments += ["--output", outputDir] }
@@ -476,9 +506,9 @@ extension TaxTriageCommand {
             }
         }
 
-        /// The header and settings table each launch prints before Nextflow starts.
+        /// The header and settings table each launch prints before Nextflow starts, with the platform the
+        /// launch runs on, which a bundle's platform can set (2.10 T6).
         private func textPresentation(useColors: Bool) -> TaxTriageRunPresentation {
-            let platformName = platform.rawValue
             let databaseName = databasePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "default"
             return TaxTriageRunPresentation(configured: { config in
                 let formatter = TerminalFormatter(useColors: useColors)
@@ -486,7 +516,7 @@ extension TaxTriageCommand {
                 print("")
                 print(formatter.keyValueTable([
                     ("Samples", String(config.samples.count)),
-                    ("Platform", platformName),
+                    ("Platform", config.platform.rawValue.lowercased()),
                     ("Database", databaseName),
                     ("Confidence", String(format: "%.2f", config.k2Confidence)),
                     ("Top hits", String(config.topHitsCount)),

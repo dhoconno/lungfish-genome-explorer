@@ -4,7 +4,7 @@ USAGE: lungfish-cli taxtriage run <options>
 
 OPTIONS:
   --input <input>         Input FASTQ file (R1 or single-end) or .lungfishfastq
-                          bundle
+                          bundle. Repeat it to run several
         A bundle is planned whole. A bundle of pairs runs as pairs, and a
         bundle that mixes pairs with merged or single reads, or holds several
         files of single reads, gives one single-end file of every read. A file
@@ -13,20 +13,37 @@ OPTIONS:
         file of one bundle are read as that bundle. A folder gives one sample
         of each FASTQ file or bundle in it. A folder that holds paired reads is
         refused, since the folder route pairs no R1 and R2 files. Use
-        --samplesheet to pair them.
+        --samplesheet to pair them. Several --input run their samples in the
+        order given. A sample whose reads lie in a bundle runs on the platform
+        the bundle records, and it is a negative control when the bundle's
+        sample role is negative control or extraction blank.
   --input2 <input2>       Second FASTQ file (R2 for paired-end)
   --recursive             When --input is a directory, include eligible FASTQ
                           files in subfolders
-  --sample <sample>       Sample name, required with an --input file or bundle
-                          and with --input2. With an --input folder, each
-                          sample is named after its file, behind this name when
-                          given
+  --sample <sample>       Sample name, required with one --input file or bundle
+                          and with --input2. With an --input folder or several
+                          --input, each sample is named after its file or
+                          bundle, behind this name when given
   --samplesheet <samplesheet>
                           Path to a TaxTriage samplesheet CSV (alternative to
                           --input)
+  --negative-control <sample>
+                          Mark the sample of this name as a negative control.
+                          Repeat it for several
+        The result keeps the mark, so the batch overview flags organisms found
+        in a control as possible contamination. TaxTriage never sees it. A
+        bundle whose sample role is negative control or extraction blank marks
+        its sample without this option. A name that no sample of the run has is
+        refused.
   --platform <platform>   Sequencing platform: illumina, oxford, pacbio
                           (default: illumina) (values: illumina, oxford,
                           pacbio; default: illumina)
+        The platform of each sample whose reads record none. A bundle of
+        Illumina, Oxford Nanopore or PacBio reads runs on the platform it
+        records, and a --samplesheet row on its platform column. A plain
+        --output runs every sample in one Nextflow run of one platform, so
+        samples that record different platforms are refused there. Add --batch
+        to run each alone.
   -o, --output <output>   Output directory for results
         Without --project or --batch, one Nextflow run processes every sample
         and writes their results to this folder, and the folder keeps every

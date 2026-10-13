@@ -11,7 +11,9 @@
 //   `analyses-manifest.json`, as a Kraken2 result in a project does, a failed sample's bundle records nothing,
 //   and a result outside the project records nothing. At the base no bundle recorded the run.
 // - The aggregate result (X3). Today the batch root holds no `taxtriage-result.json`, each sample keeps its own.
-// - The control mark (T4). Today the control's sample is not marked, `isNegativeControl` is false in its result.
+// - The control mark (T4). Since B30 M2 the control's result marks its sample, `isNegativeControl` true, from its
+//   bundle's role, and `--negative-control` marks the sample it names, whose record names it as an explicit option.
+//   At the base no sample was marked.
 // - X7. A `build-db taxtriage --force` rebuild runs the legacy cleanup, which deletes the `top/` the executor kept
 //   and its root record still names.
 //
@@ -44,7 +46,7 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
 
     // MARK: - The tree
 
-    func testAProjectBatchRecordsEachSampleInItsBundleWithNoAggregateAndNoMark() async throws {
+    func testAProjectBatchRecordsEachSampleInItsBundleWithNoAggregateAndMarksTheControl() async throws {
         let engine = try makeEngine()
         let project = try makeProject()
         let control = bundle(Self.controlSample, in: project)
@@ -59,12 +61,35 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
         }
         // X3. The batch root holds no aggregate result, each sample keeps its own.
         XCTAssertFalse(FileManager.default.fileExists(atPath: batch.appendingPathComponent("taxtriage-result.json").path))
-        // T4. No sample carries a negative control mark, the control included.
+        // T4, flipped by B30 M2. The control's result keeps the mark its bundle's role gives it, for the viewer.
         for sample in Self.samples {
             let result = try TaxTriageResult.load(from: batch.appendingPathComponent(sample, isDirectory: true))
             XCTAssertEqual(result.config.samples.map(\.sampleId), [sample], "\(sample)'s result names its one sample")
-            XCTAssertEqual(result.config.samples.map(\.isNegativeControl), [false], "\(sample) carries no control mark")
+            XCTAssertEqual(result.config.samples.map(\.isNegativeControl), [sample == Self.controlSample], "\(sample)'s mark")
+            XCTAssertNil(try sampleRecord(sample, in: batch).options.explicit["negative_controls"], "a role's mark is no option of \(sample)'s record")
         }
+    }
+
+    func testANamedNegativeControlIsKeptInItsResultAndRecordedAsExplicit() async throws {
+        let engine = try makeEngine()
+        let project = try makeProject()
+        let patient = try XCTUnwrap(Self.samples.first { $0 != Self.controlSample })
+
+        let batch = try await runBatch(project: project, engine: engine, extra: ["--negative-control", patient])
+
+        for sample in Self.samples {
+            let result = try TaxTriageResult.load(from: batch.appendingPathComponent(sample, isDirectory: true))
+            XCTAssertEqual(result.config.samples.map(\.isNegativeControl), [true], "\(sample), by its role or by --negative-control")
+        }
+        XCTAssertEqual(try sampleRecord(patient, in: batch).options.explicit["negative_controls"], .array([.string(patient)]), "T4, explicit when given")
+        XCTAssertNil(try sampleRecord(Self.controlSample, in: batch).options.explicit["negative_controls"])
+        let argv = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch)).argv
+        XCTAssertTrue(zip(argv, argv.dropFirst()).contains { $0 == "--negative-control" && $1 == patient }, "the root record's command names it: \(argv)")
+    }
+
+    /// The record `sample`'s launch keeps in its folder of `batch`.
+    private func sampleRecord(_ sample: String, in batch: URL) throws -> ProvenanceEnvelope {
+        try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch.appendingPathComponent(sample, isDirectory: true)), "no record of \(sample)")
     }
 
     func testAFailedSampleRecordsNothingInItsBundle() async throws {
@@ -159,11 +184,11 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
         return engine
     }
 
-    /// Runs `taxtriage run --input <Imports> --project <project> --batch` on the stand-in and returns the one batch
-    /// folder it made, after checking it completed with one launch per sample.
-    private func runBatch(project: URL, engine: TaxTriageStandInEngine) async throws -> URL {
+    /// Runs `taxtriage run --input <Imports> --project <project> --batch` with `extra` on the stand-in and returns the
+    /// one batch folder it made, after checking it completed with one launch per sample.
+    private func runBatch(project: URL, engine: TaxTriageStandInEngine, extra: [String] = []) async throws -> URL {
         let imports = project.appendingPathComponent("Imports", isDirectory: true)
-        let (code, lines) = try await run(["--input", imports.path, "--project", project.path, "--batch"], engine: engine)
+        let (code, lines) = try await run(["--input", imports.path, "--project", project.path, "--batch"] + extra, engine: engine)
         XCTAssertEqual(code, 0, lines.joined(separator: "\n"))
         XCTAssertEqual(try engine.launches().count, Self.samples.count, "one Nextflow per sample")
         let analyses = project.appendingPathComponent("Analyses", isDirectory: true)

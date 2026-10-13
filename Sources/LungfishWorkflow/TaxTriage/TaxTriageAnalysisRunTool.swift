@@ -15,6 +15,9 @@ import LungfishIO
 /// tag from the lock its services hold and refuses a lock with no usable TaxTriage pin, with no
 /// fallback revision (N4). It refuses an `--input` folder that holds mates, which the folder route
 /// would split into half samples (T8). It lays the run out by decision T5, which keeps 2.8 T2 and T4.
+/// Since 2.10 each sample of an `--input` takes the platform and the sample role of its bundle, the
+/// user's `--negative-control` marks join the roles' (T4), and a pooled run whose samples record
+/// different platforms is refused (T6).
 ///
 /// | Request | Layout | Units |
 /// |---|---|---|
@@ -72,9 +75,13 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
             groupsSamples: runRequest.groupsSamples,
             sampleCount: samples.count
         )
+        if layout == .singleFolder {
+            try Self.refuseMixedPlatforms(samples)
+        }
         let launches = layout == .batchRoot ? samples.map { [$0] } : [samples]
         let units = try launches.map { launchSamples in
-            var config = request.settings
+            // A launch runs on its samples' one platform, which its record and analysis entry name (2.10 T6).
+            var config = Self.settings(request.settings, platform: launchSamples[0].platform)
             config.samples = launchSamples
             config.outputDirectory = runRequest.destination.url
             config.revision = revision
@@ -113,24 +120,25 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
 
     // MARK: - Samples
 
-    /// The samples of the request in input order, from the samplesheet or from `--input`, with the
-    /// refusals the command made before it ran the pipeline.
+    /// The samples of the request in input order, from the samplesheet or from the `--input`s, with the
+    /// refusals the command made before it ran the pipeline, each sample `--negative-control` names
+    /// marked as a negative control (2.10 T4).
     func plannedSamples() throws -> [TaxTriageSample] {
         let samples: [TaxTriageSample]
-        switch (request.input, request.samplesheet) {
-        case (nil, nil):
+        switch (request.inputs.isEmpty, request.samplesheet) {
+        case (true, nil):
             throw TaxTriageRunRefusal.input("Provide either --input (with --sample) or --samplesheet")
-        case (.some, .some):
+        case (false, .some):
             throw TaxTriageRunRefusal.input("Cannot use both --input and --samplesheet")
-        case (nil, .some(let samplesheet)):
+        case (true, .some(let samplesheet)):
             samples = try samplesheetSamples(samplesheet)
-        case (.some(let input), nil):
-            samples = try inputSamples(input)
+        case (false, nil):
+            samples = try inputSamples(request.inputs)
         }
         guard !samples.isEmpty else {
             throw TaxTriageRunRefusal.input(TaxTriageConfigError.noSamples.localizedDescription)
         }
-        return samples
+        return try Self.markingNegativeControls(samples, named: request.negativeControls)
     }
 
     /// One sample per row of the samplesheet, each file read as it is named, as the command reads a
@@ -160,18 +168,21 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
         return samples
     }
 
-    /// The samples `--input` names. With `--input2` it is one pair. Otherwise every input is one sample,
-    /// a file or a bundle planned whole by the unit, and a folder that holds mates is refused (T8).
-    func inputSamples(_ inputPath: String) throws -> [TaxTriageSample] {
-        let platform = request.settings.platform
-        let inputs: [URL]
-        do {
-            inputs = try services.expandInputs([inputPath], request.recursive)
-        } catch {
-            throw TaxTriageRunRefusal.input(error.localizedDescription)
+    /// The samples the `--input`s name, in the order given. With `--input2` the one `--input` is one pair.
+    /// Otherwise every input is one sample, a file or a bundle planned whole by the unit, a folder gives
+    /// one of each file or bundle in it, and a folder that holds mates is refused (T8). An input named
+    /// twice runs once. Each sample takes the platform and the sample role its bundle records (2.10 T4
+    /// and T6, ``inputSample(_:named:read2:)``).
+    func inputSamples(_ inputPaths: [String]) throws -> [TaxTriageSample] {
+        if request.input2 != nil, inputPaths.count > 1 {
+            throw TaxTriageRunRefusal.input2WithSeveralInputs
         }
-        guard !inputs.isEmpty else {
-            throw TaxTriageRunRefusal.input("No eligible FASTQ inputs found in \(inputPath)")
+        var inputs: [URL] = []
+        var seen = Set<String>()
+        for inputPath in inputPaths {
+            for url in try expandedInput(inputPath) where seen.insert(url.standardizedFileURL.path).inserted {
+                inputs.append(url)
+            }
         }
 
         if let input2Path = request.input2 {
@@ -182,14 +193,25 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
             guard FileManager.default.fileExists(atPath: read2.path) else {
                 throw TaxTriageRunRefusal.input("Input R2 file not found: \(input2Path)")
             }
-            return [TaxTriageSample(
-                sampleId: request.sampleID ?? Self.stem(of: inputs[0]),
-                fastq1: inputs[0],
-                fastq2: read2,
-                platform: platform
-            )]
+            return [inputSample(inputs[0], named: request.sampleID ?? Self.stem(of: inputs[0]), read2: read2)]
         }
+        return inputs.map { url in
+            inputSample(url, named: Self.sampleID(for: url, explicitSampleID: request.sampleID, totalSampleCount: inputs.count))
+        }
+    }
 
+    /// The files and bundles one `--input` names, a folder's listed, with the refusals of an input that
+    /// names none and of a folder that holds mates (T8).
+    func expandedInput(_ inputPath: String) throws -> [URL] {
+        let inputs: [URL]
+        do {
+            inputs = try services.expandInputs([inputPath], request.recursive)
+        } catch {
+            throw TaxTriageRunRefusal.input(error.localizedDescription)
+        }
+        guard !inputs.isEmpty else {
+            throw TaxTriageRunRefusal.input("No eligible FASTQ inputs found in \(inputPath)")
+        }
         let folder = URL(fileURLWithPath: inputPath).standardizedFileURL
         if Self.isFolder(folder), let mates = Self.firstMatePair(in: inputs) {
             throw TaxTriageRunRefusal.folderHoldsPairedReads(
@@ -198,13 +220,102 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
                 read2: Self.name(of: mates.read2, in: folder)
             )
         }
-        return inputs.map { url in
-            TaxTriageSample(
-                sampleId: Self.sampleID(for: url, explicitSampleID: request.sampleID, totalSampleCount: inputs.count),
-                fastq1: url,
-                platform: platform
-            )
+        return inputs
+    }
+
+    // MARK: - Platforms and roles (2.10 T4 and T6)
+
+    /// The sample roles that mark a sample as a negative control, as the TaxTriage wizard reads them.
+    package static let negativeControlRoles: Set<SampleRole> = [.negativeControl, .extractionBlank]
+
+    /// One sample of an `--input`, named `sampleID`, read as the TaxTriage wizard reads a bundle. The
+    /// bundle that holds its reads, the input itself or the bundle a file of it lies in, gives the sample
+    /// its metadata and the platform it records. A bundle of Illumina, Oxford Nanopore or PacBio reads
+    /// runs on that platform whatever `--platform` says, so no sample runs as reads it did not come from
+    /// (BIO R5). Reads in no bundle, and a bundle that records no platform TaxTriage runs, take
+    /// `--platform`. A bundle whose `metadata.csv` gives the sample role negative control or extraction
+    /// blank marks the sample as a negative control, a mark the result keeps for the viewer and Nextflow
+    /// never sees.
+    func inputSample(_ url: URL, named sampleID: String, read2: URL? = nil) -> TaxTriageSample {
+        let bundle = SequenceInputResolver.enclosingFASTQBundleURL(for: url)
+        let metadata = bundle
+            .flatMap { FASTQBundleCSVMetadata.load(from: $0) }
+            .map { FASTQSampleMetadata(from: $0, fallbackName: sampleID) }
+        return TaxTriageSample(
+            sampleId: sampleID,
+            fastq1: url,
+            fastq2: read2,
+            platform: bundle.flatMap(Self.recordedPlatform(of:)) ?? request.settings.platform,
+            isNegativeControl: metadata.map { Self.negativeControlRoles.contains($0.sampleRole) } ?? false,
+            metadata: metadata
+        )
+    }
+
+    /// The TaxTriage platform a bundle records, from its reads' sidecar, its own or the bundle it derives
+    /// from (`ReadSetResolver.recordedPlatform(of:)`). Nil when it records none, or a platform TaxTriage
+    /// has no mode for, as Element, Ultima and MGI reads are, which then run on `--platform`.
+    static func recordedPlatform(of bundle: URL) -> TaxTriageConfig.Platform? {
+        switch ReadSetResolver.recordedPlatform(of: bundle) {
+        case .illumina?: return .illumina
+        case .oxfordNanopore?: return .oxford
+        case .pacbio?: return .pacbio
+        case .element?, .ultima?, .mgi?, .unknown?, nil: return nil
         }
+    }
+
+    /// `samples` with each one `--negative-control` names marked as a negative control, beside those the
+    /// roles of their bundles mark (2.10 T4). A name that matches no sample is refused before any folder
+    /// exists. A name two samples of a batch share marks both.
+    static func markingNegativeControls(_ samples: [TaxTriageSample], named names: [String]) throws -> [TaxTriageSample] {
+        guard !names.isEmpty else { return samples }
+        let sampleIDs = samples.map(\.sampleId)
+        var unknown: [String] = []
+        for name in names where !sampleIDs.contains(name) && !unknown.contains(name) {
+            unknown.append(name)
+        }
+        guard unknown.isEmpty else {
+            throw TaxTriageRunRefusal.unknownNegativeControls(unknown, sampleIDs: sampleIDs)
+        }
+        let named = Set(names)
+        return samples.map { sample in
+            var marked = sample
+            marked.isNegativeControl = sample.isNegativeControl || named.contains(sample.sampleId)
+            return marked
+        }
+    }
+
+    /// 2.10 T6. One pooled launch runs one configuration on one platform, the platform its record and its
+    /// analysis entry name, so samples that record different platforms are refused, never relabelled.
+    static func refuseMixedPlatforms(_ samples: [TaxTriageSample]) throws {
+        guard Set(samples.map(\.platform)).count > 1 else { return }
+        throw TaxTriageRunRefusal.mixedPlatforms(samples)
+    }
+
+    /// `settings` on `platform`, every other value kept. A configuration's platform is a constant, so a
+    /// launch whose samples run on another platform than `--platform` gets a configuration of its own.
+    /// `TaxTriageRunBundleInputsTests` checks that it keeps every stored value.
+    static func settings(_ settings: TaxTriageConfig, platform: TaxTriageConfig.Platform) -> TaxTriageConfig {
+        guard settings.platform != platform else { return settings }
+        return TaxTriageConfig(
+            samples: settings.samples,
+            platform: platform,
+            outputDirectory: settings.outputDirectory,
+            kraken2DatabasePath: settings.kraken2DatabasePath,
+            classifiers: settings.classifiers,
+            topHitsCount: settings.topHitsCount,
+            k2Confidence: settings.k2Confidence,
+            rank: settings.rank,
+            skipAssembly: settings.skipAssembly,
+            skipKrona: settings.skipKrona,
+            maxMemory: settings.maxMemory,
+            maxCpus: settings.maxCpus,
+            profile: settings.profile,
+            containerRuntime: settings.containerRuntime,
+            revision: settings.revision,
+            sourceBundleURLs: settings.sourceBundleURLs,
+            extraArguments: settings.extraArguments,
+            removeTaxids: settings.removeTaxids
+        )
     }
 
     /// T8. The first pair of mates by name among the loose files, by the grouper's R1 and R2 names, or
