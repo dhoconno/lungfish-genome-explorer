@@ -232,6 +232,151 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: erroredOutput.appendingPathComponent("report/S1.odr.txt").path))
     }
 
+    // MARK: - Viral Recon (Phase 2.10 lane Q33)
+
+    /// Viral Recon through `engineLaunch`, the direct launch `workflow run` takes, with its options
+    /// where `workflow run` puts them today: the parameters sorted by name, then the resource-limit
+    /// `-c` and `-work-dir`. The stand-in prints the pinned release's logo, its manifest line and one
+    /// task line per task, and writes the files LGE reads back for each sample.
+    func testViralReconRunsOnTheDirectLaunchWithTheOptionsWorkflowRunPasses() throws {
+        let engine = try NextflowStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), workflow: .viralRecon)
+        let sheet = try writeViralReconSamplesheet(["S1", "S2"])
+        let output = root.appendingPathComponent("results", isDirectory: true)
+        let scratch = root.appendingPathComponent("nfcore-run-1", isDirectory: true)
+        let config = scratch.appendingPathComponent("lungfish-resource-limits.config")
+        let work = scratch.appendingPathComponent("work", isDirectory: true)
+        let result = try launchDirectly(engine.engineLaunch, [
+            "run", "nf-core/viralrecon", "-r", "3.0.0", "-profile", "docker",
+            "--genome", "MN908947.3", "--input", sheet.path, "--outdir", output.path, "--platform", "illumina",
+            "--protocol", "amplicon", "--skip_freyja", "true", "--skip_freyja_boot", "true",
+            "-c", config.path, "-work-dir", work.path,
+        ])
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        XCTAssertEqual(Array(lines.prefix(8)), Self.viralReconLogo)
+        XCTAssertEqual(Array(lines.dropFirst(8).prefix(2)), ["[PIPELINE] nf-core/viralrecon 3.0.0 | profile=docker", "[WORKDIR] \(work.path)"])
+        let tasks = lines.filter { $0.hasPrefix("[PROCESS ") }
+        XCTAssertEqual(tasks.count, NextflowStandInWorkflow.viralRecon.taskCount(sampleCount: 2))
+        XCTAssertEqual(tasks.count, 59, "29 tasks for each sample and MultiQC")
+        XCTAssertEqual(tasks.filter { $0.hasSuffix(":FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (S2)") }.count, 1)
+        XCTAssertEqual(tasks.last.map(Self.shape), "[PROCESS <hash>] NFCORE_VIRALRECON:VIRALRECON:MULTIQC")
+        XCTAssertEqual(Array(lines.suffix(2)), [
+            "-\u{1B}[0;35m[nf-core/viralrecon]\u{1B}[0;32m Pipeline completed successfully\u{1B}[0m-",
+            "[SUCCESS] completed=59 failed=0 cached=0",
+        ])
+
+        let fixtures = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2", isDirectory: true)
+        for sample in ["S1", "S2"] {
+            let copies = [
+                ("variants/bowtie2/\(sample).sorted.bam", "test.paired_end.sorted.bam"),
+                ("variants/bowtie2/\(sample).ivar_trim.sorted.bam.bai", "test.paired_end.sorted.bam.bai"),
+                ("variants/ivar/\(sample).vcf.gz", "test.vcf.gz"),
+                ("variants/ivar/\(sample).vcf.gz.tbi", "test.vcf.gz.tbi"),
+            ]
+            for (written, source) in copies {
+                XCTAssertEqual(
+                    try Data(contentsOf: output.appendingPathComponent(written)),
+                    try Data(contentsOf: fixtures.appendingPathComponent(source)), written)
+            }
+            let consensus = try String(contentsOf: output.appendingPathComponent("variants/ivar/consensus/bcftools/\(sample).consensus.fa"), encoding: .utf8)
+            let reference = try String(contentsOf: fixtures.appendingPathComponent("genome.fasta"), encoding: .utf8)
+            XCTAssertEqual(consensus, reference.replacingOccurrences(of: ">", with: ">\(sample) "), "RENAME_FASTA_HEADER's prefix")
+        }
+
+        let launch = try XCTUnwrap(engine.launches().first)
+        XCTAssertEqual(launch.configFiles, [config.path])
+        XCTAssertEqual(launch.workDirectory, work.path)
+        XCTAssertEqual(launch.revision, "3.0.0")
+        XCTAssertEqual(launch.profile, "docker")
+        XCTAssertNil(launch.paramsFile)
+        XCTAssertEqual(launch.environment["NXF_ANSI_LOG"], "false")
+        XCTAssertEqual(launch.fastqRecords.map(\.column), ["fastq_1", "fastq_2", "fastq_1", "fastq_2"])
+        XCTAssertEqual(Set(launch.fastqRecords.map(\.records)).count, 1, "\(launch.fastqRecords)")
+        XCTAssertGreaterThan(launch.fastqRecords.first?.records ?? 0, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: work.appendingPathComponent("aa/000001/.command.log").path))
+    }
+
+    /// A JSON `-params-file` gives the launch its samplesheet and output folder as Nextflow reads
+    /// it, the command line's `--outdir` wins over the file's, and a file with no input is refused.
+    func testAParamsFileGivesInputAndOutdirAndTheCommandLineWins() throws {
+        let engine = try NextflowStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), workflow: .viralRecon)
+        let sheet = try writeViralReconSamplesheet(["S1"])
+        let fromFile = root.appendingPathComponent("from-file", isDirectory: true)
+        let fromCommandLine = root.appendingPathComponent("from-command-line", isDirectory: true)
+        let params = root.appendingPathComponent("params.json")
+        try JSONSerialization.data(withJSONObject: ["input": sheet.path, "outdir": fromFile.path, "platform": "illumina"])
+            .write(to: params)
+        let noInput = root.appendingPathComponent("no-input.json")
+        try JSONSerialization.data(withJSONObject: ["outdir": fromFile.path]).write(to: noInput)
+
+        let byFile = try ProcessRunner.run(engine.nextflow, ["run", "nf-core/viralrecon", "-params-file", params.path], timeout: 60)
+        let overridden = try ProcessRunner.run(engine.nextflow, [
+            "run", "nf-core/viralrecon", "-params-file", params.path, "--outdir", fromCommandLine.path,
+        ], timeout: 60)
+        let refused = try ProcessRunner.run(engine.nextflow, ["run", "nf-core/viralrecon", "-params-file", noInput.path], timeout: 60)
+
+        XCTAssertEqual([byFile.status, overridden.status], [0, 0], byFile.stderr + overridden.stderr)
+        XCTAssertEqual(refused.status, 64)
+        XCTAssertEqual(refused.stderr, "ERROR ~ The stand-in Nextflow needs a readable --input and an --outdir\n")
+        for folder in [fromFile, fromCommandLine] {
+            let consensus = folder.appendingPathComponent("variants/ivar/consensus/bcftools/S1.consensus.fa")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: consensus.path), consensus.path)
+        }
+        let launches = try engine.launches()
+        XCTAssertEqual(launches.map(\.paramsFile), [params.path, params.path, noInput.path])
+        XCTAssertEqual(launches.map { $0.value(after: "--outdir") }, [nil, fromCommandLine.path, nil])
+        XCTAssertEqual(launches[0].samplesheet, try Data(contentsOf: sheet))
+    }
+
+    /// A sample of `.failsSamples` stops the run at its Bowtie 2 alignment with Nextflow's task
+    /// error, and the run writes no sample's outputs.
+    func testViralReconFailsASampleAtItsAlignment() throws {
+        let engine = try NextflowStandInEngine(
+            root: root.appendingPathComponent("engine", isDirectory: true),
+            workflow: .viralRecon,
+            behaviour: .failsSamples(["S2"])
+        )
+        let output = root.appendingPathComponent("results", isDirectory: true)
+        let result = try ProcessRunner.run(engine.nextflow, [
+            "run", "nf-core/viralrecon", "--input", try writeViralReconSamplesheet(["S1", "S2"]).path, "--outdir", output.path,
+        ], timeout: 60)
+        XCTAssertEqual(result.status, 1)
+        XCTAssertEqual(result.stderr, "ERROR ~ Error executing process > 'NFCORE_VIRALRECON:VIRALRECON:FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (S2)'\n")
+        XCTAssertEqual(result.stdout.split(separator: "\n").last.map(String.init), "-\u{1B}[0;35m[nf-core/viralrecon]\u{1B}[0;31m Pipeline completed with errors\u{1B}[0m-")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathComponent("variants").path))
+    }
+
+    /// The eight lines of `before_text` in subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf
+    /// at tag 3.0.0, with the manifest version, after the empty line it starts with.
+    private static let viralReconLogo: [String] = {
+        let esc = "\u{1B}"
+        return [
+            "-\(esc)[2m----------------------------------------------------\(esc)[0m-",
+            "                                        \(esc)[0;32m,--.\(esc)[0;30m/\(esc)[0;32m,-.\(esc)[0m",
+            "\(esc)[0;34m        ___     __   __   __   ___     \(esc)[0;32m/,-._.--~'\(esc)[0m",
+            "\(esc)[0;34m  |\\ | |__  __ /  ` /  \\ |__) |__         \(esc)[0;33m}  {\(esc)[0m",
+            "\(esc)[0;34m  | \\| |       \\__, \\__/ |  \\ |___     \(esc)[0;32m\\`-._,-`-,\(esc)[0m",
+            "                                        \(esc)[0;32m`._,._,'\(esc)[0m",
+            "\(esc)[0;35m  nf-core/viralrecon 3.0.0\(esc)[0m",
+            "-\(esc)[2m----------------------------------------------------\(esc)[0m-",
+        ]
+    }()
+
+    /// A Viral Recon Illumina samplesheet that names the nf-core/test-datasets read pair of
+    /// Tests/Fixtures/sarscov2 for each sample.
+    private func writeViralReconSamplesheet(_ samples: [String]) throws -> URL {
+        let reads = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2", isDirectory: true)
+        let folder = root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let rows = ["sample,fastq_1,fastq_2"] + samples.map {
+            "\($0),\(reads.appendingPathComponent("test_1.fastq.gz").path),\(reads.appendingPathComponent("test_2.fastq.gz").path)"
+        }
+        let sheet = folder.appendingPathComponent("samplesheet.csv")
+        try (rows.joined(separator: "\n") + "\n").write(to: sheet, atomically: true, encoding: .utf8)
+        return sheet
+    }
+
     // MARK: - Support files
 
     /// The pin of `rg -n "@testable" Tests/Support` (ARCH API ruling, risk 2). The stand-in engines

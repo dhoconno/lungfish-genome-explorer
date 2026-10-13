@@ -5,16 +5,22 @@
 // Phase 2.9 lane Q9 M1, decision N11 (docs/plans/2026-10-12-phase-2-9.md). `NextflowStandInEngine`
 // records each launch and prints the engine's own lines. A workflow brings what only it knows:
 // its fixtures, the outputs it writes for each sample, the names of its tasks and the lines its
-// own code prints. `.taxTriage` is the first, and Q9 M2 adds Viral Recon's.
+// own code prints. `.taxTriage` is the first, and Phase 2.10 lane Q33 adds `.viralRecon`.
 //
 // The task names of `.taxTriage` are the 46 tasks of Q15's real run R1 (Nextflow 26.04.6 with
 // TaxTriage v3.3.8 at e10bfebda32a, two samples): 3 run-level tasks first, 17 for each sample and
 // 9 run-level tasks last, so one sample gives the 29 tasks of R2.
+//
+// `.viralRecon` comes from the files of the release the lock pins, nf-core/viralrecon 3.0.0 (tag
+// 3.0.0 of github.com/nf-core/viralrecon), since no real run of that release was on record when Q33
+// wrote it. Its task names follow the calls of `workflows/viralrecon.nf` and the subworkflows it
+// includes, its output paths the `publishDir` folders of `conf/modules_illumina.config`, and its
+// banner is the logo `subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf` prints
+// (`before_text`). The output bytes are the nf-core/test-datasets files of Tests/Fixtures/sarscov2.
 
 import Foundation
 
-/// One workflow's fixtures, output tree, process names and banner, `.taxTriage` in M1 and Viral
-/// Recon's in Q9 M2.
+/// One workflow's fixtures, output tree, process names and banner, `.taxTriage` and `.viralRecon`.
 public struct NextflowStandInWorkflow: Sendable {
     /// A file the outputs are made from, copied into `<root>/fixtures/<name>` when the engine is
     /// written and read there at each launch.
@@ -154,6 +160,103 @@ extension NextflowStandInWorkflow {
       ' "$fixtures/odr.txt" > "$outdir/report/$1.odr.txt"
       cp "$fixtures/gcfmap.tsv" "$outdir/combine/$1.combined.gcfmap.tsv"
       cp "$fixtures/top_report.tsv" "$outdir/top/$1.top_report.tsv"
+    }
+    """#
+}
+
+extension NextflowStandInWorkflow {
+    /// nf-core/viralrecon 3.0.0, the release the lock pins, on an Illumina amplicon run with the
+    /// options a new run in the app starts with (iVar variants, a BCFtools consensus, no assembly,
+    /// no Kraken 2 and no Freyja). Each sample runs the tasks of its reads, alignment, primer
+    /// trimming, coverage, variants and consensus in the order `workflows/viralrecon.nf` calls
+    /// them, and the run ends with MultiQC. Genome preparation is left out, because its task tags
+    /// name the genome's own files. Each sample writes the files LGE reads back
+    /// (`ViralReconResultInventory`): `variants/bowtie2/<sample>.sorted.bam` and
+    /// `<sample>.ivar_trim.sorted.bam` with their indexes, `variants/ivar/<sample>.vcf.gz` with its
+    /// index, and `variants/ivar/consensus/bcftools/<sample>.consensus.fa`, whose header the
+    /// pipeline's RENAME_FASTA_HEADER prefixes with the sample. A sample of `.failsSamples` fails
+    /// at its Bowtie 2 alignment. The pinned modules carry no `error_ignore` label, so no task of
+    /// the real release ignores a failure, and `.reportsErroredTasks` fails Nextclade only so that
+    /// the behaviour has a task to report.
+    public static let viralRecon: NextflowStandInWorkflow = {
+        let sarscov2 = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2", isDirectory: true)
+        let prefix = "NFCORE_VIRALRECON:VIRALRECON:"
+        let samtools = ["SAMTOOLS_SORT", "SAMTOOLS_INDEX"].map { "BAM_SORT_STATS_SAMTOOLS:\($0) (@SAMPLE@)" }
+            + ["SAMTOOLS_STATS", "SAMTOOLS_FLAGSTAT", "SAMTOOLS_IDXSTATS"].map { "BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:\($0) (@SAMPLE@)" }
+        let sampleTasks = [
+            "FASTQ_TRIM_FASTP_FASTQC:FASTQC_RAW (@SAMPLE@)",
+            "FASTQ_TRIM_FASTP_FASTQC:FASTP (@SAMPLE@)",
+            "FASTQ_TRIM_FASTP_FASTQC:FASTQC_TRIM (@SAMPLE@)",
+            "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (@SAMPLE@)",
+        ] + samtools.map { "FASTQ_ALIGN_BOWTIE2:" + $0 } + [
+            "BAM_TRIM_PRIMERS_IVAR:IVAR_TRIM (@SAMPLE@)",
+        ] + samtools.map { "BAM_TRIM_PRIMERS_IVAR:" + $0 } + [
+            "PICARD_COLLECTMULTIPLEMETRICS (@SAMPLE@)",
+            "MOSDEPTH_GENOME (@SAMPLE@)",
+            "MOSDEPTH_AMPLICON (@SAMPLE@)",
+            "VARIANTS_IVAR:IVAR_VARIANTS (@SAMPLE@)",
+            "VARIANTS_IVAR:IVAR_VARIANTS_TO_VCF (@SAMPLE@)",
+            "VARIANTS_IVAR:BCFTOOLS_SORT (@SAMPLE@)",
+            "VARIANTS_IVAR:VCF_TABIX_STATS:TABIX_TABIX (@SAMPLE@)",
+            "VARIANTS_IVAR:VCF_TABIX_STATS:BCFTOOLS_STATS (@SAMPLE@)",
+            "CONSENSUS_BCFTOOLS:BCFTOOLS_FILTER (@SAMPLE@)",
+            "CONSENSUS_BCFTOOLS:TABIX_TABIX (@SAMPLE@)",
+            "CONSENSUS_BCFTOOLS:BCFTOOLS_CONSENSUS (@SAMPLE@)",
+            "CONSENSUS_BCFTOOLS:RENAME_FASTA_HEADER (@SAMPLE@)",
+            "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN (@SAMPLE@)",
+            "CONSENSUS_BCFTOOLS:CONSENSUS_QC:NEXTCLADE_RUN (@SAMPLE@)",
+        ]
+        return NextflowStandInWorkflow(
+            name: "nf-core/viralrecon",
+            version: "3.0.0",
+            processNames: sampleTasks.map { prefix + $0 },
+            leadingProcessNames: [],
+            trailingProcessNames: [prefix + "MULTIQC"],
+            failingProcessName: prefix + "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (@SAMPLE@)",
+            ignoredFailureProcessName: prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:NEXTCLADE_RUN (@SAMPLE@)",
+            fixtures: [
+                Fixture(name: "sorted.bam", source: sarscov2.appendingPathComponent("test.paired_end.sorted.bam")),
+                Fixture(name: "sorted.bam.bai", source: sarscov2.appendingPathComponent("test.paired_end.sorted.bam.bai")),
+                Fixture(name: "variants.vcf.gz", source: sarscov2.appendingPathComponent("test.vcf.gz")),
+                Fixture(name: "variants.vcf.gz.tbi", source: sarscov2.appendingPathComponent("test.vcf.gz.tbi")),
+                Fixture(name: "genome.fasta", source: sarscov2.appendingPathComponent("genome.fasta")),
+            ],
+            progressLinesProcessName: prefix + "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN",
+            progressLinesIgnoredProcessName: prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:NEXTCLADE_RUN",
+            progressLinesRepository: "nf-core/viralrecon",
+            shellFunctions: NextflowStandInWorkflow.viralReconShellFunctions
+        )
+    }()
+
+    private static let viralReconShellFunctions = #"""
+    # Viral Recon's part of the stand-in Nextflow (NextflowStandInWorkflow.viralRecon).
+    workflow_banner() {
+      # The logo Viral Recon 3.0.0 prints before its parameter summary (before_text of
+      # subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf), with the manifest's name and
+      # version. The summary itself is left out, as the TaxTriage stand-in leaves out R1's.
+      echo ""
+      printf '%s\n' "-${esc}[2m----------------------------------------------------${esc}[0m-"
+      printf '%s\n' "                                        ${esc}[0;32m,--.${esc}[0;30m/${esc}[0;32m,-.${esc}[0m"
+      printf '%s\n' "${esc}[0;34m        ___     __   __   __   ___     ${esc}[0;32m/,-._.--~'${esc}[0m"
+      printf '%s\n' "${esc}[0;34m  |\\ | |__  __ /  \` /  \\ |__) |__         ${esc}[0;33m}  {${esc}[0m"
+      printf '%s\n' "${esc}[0;34m  | \\| |       \\__, \\__/ |  \\ |___     ${esc}[0;32m\\\`-._,-\`-,${esc}[0m"
+      printf '%s\n' "                                        ${esc}[0;32m\`._,._,'${esc}[0m"
+      printf '%s\n' "${esc}[0;35m  $workflow_name $workflow_version${esc}[0m"
+      printf '%s\n' "-${esc}[2m----------------------------------------------------${esc}[0m-"
+    }
+    workflow_prepare_outputs() {
+      mkdir -p "$outdir/variants/bowtie2" "$outdir/variants/ivar/consensus/bcftools"
+    }
+    workflow_sample_outputs() {
+      for kind in sorted ivar_trim.sorted; do
+        cp "$fixtures/sorted.bam" "$outdir/variants/bowtie2/$1.$kind.bam"
+        cp "$fixtures/sorted.bam.bai" "$outdir/variants/bowtie2/$1.$kind.bam.bai"
+      done
+      cp "$fixtures/variants.vcf.gz" "$outdir/variants/ivar/$1.vcf.gz"
+      cp "$fixtures/variants.vcf.gz.tbi" "$outdir/variants/ivar/$1.vcf.gz.tbi"
+      # RENAME_FASTA_HEADER runs sed "s/>/>${meta.id} /g" on the consensus.
+      awk -v sample="$1" '{ gsub(/>/, ">" sample " "); print }' "$fixtures/genome.fasta" \
+        > "$outdir/variants/ivar/consensus/bcftools/$1.consensus.fa"
     }
     """#
 }

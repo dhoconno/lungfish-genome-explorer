@@ -13,7 +13,9 @@
 //   the samplesheet names, counted while the launch runs (T16). The number is taken with mkdir,
 //   which only one launch can win, so launches at once never share a folder. `launches()` reads
 //   the records back with the values of `-c`, `-r`, `-profile`, `-w`, `-work-dir` and
-//   `-params-file`.
+//   `-params-file`. A launch may name its options anywhere in its argv, as `workflow run` puts
+//   `-c` and `-work-dir` after the parameters, and a JSON `-params-file` gives `input` and
+//   `outdir` when the command line names neither, as Nextflow reads it (Phase 2.10 lane Q33).
 // - A `NextflowStandInWorkflow` writes the per-sample outputs and names the tasks. The engine
 //   writes the trace file `-with-trace` names, and what it prints becomes the run's log.
 //   `OutputMode.plainLog26` prints the line shapes of Nextflow 26.04.6 with `NXF_ANSI_LOG=false`
@@ -434,6 +436,7 @@ public struct NextflowStandInEngine: Sendable {
     profile=""
     revision=""
     target=""
+    params_file=""
     previous=""
     for argument in "$@"; do
       case "$previous" in
@@ -443,10 +446,17 @@ public struct NextflowStandInEngine: Sendable {
         -w|-work-dir) workdir="$argument" ;;
         -profile) profile="$argument" ;;
         -r) revision="$argument" ;;
+        -params-file) params_file="$argument" ;;
         run) [ -n "$target" ] || target="$argument" ;;
       esac
       previous="$argument"
     done
+    # As Nextflow does, a JSON -params-file gives input and outdir, and the command line's
+    # --input and --outdir win over it.
+    if [ -n "$params_file" ] && [ -r "$params_file" ]; then
+      [ -n "$input" ] || input=$(plutil -extract input raw -o - "$params_file" 2>/dev/null)
+      [ -n "$outdir" ] || outdir=$(plutil -extract outdir raw -o - "$params_file" 2>/dev/null)
+    fi
     if [ -z "$input" ] || [ -z "$outdir" ] || [ ! -r "$input" ]; then
       echo "ERROR ~ The stand-in Nextflow needs a readable --input and an --outdir" >&2
       finish 64
