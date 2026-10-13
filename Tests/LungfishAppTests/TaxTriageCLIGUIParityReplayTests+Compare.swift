@@ -20,6 +20,15 @@
 // folder by the second it started, so records pair with the candidate's analysis folder named as
 // the reference's, and for A against C only a step's toolVersion is left out when each side holds
 // its own process's LGE version there (ruling R1 of Phase 2.8, `withoutOwnLGEVersion`).
+//
+// One mask is this parity's own (lane Q31, panel decision G3). The contract numbers the UUIDs of a
+// tree in the order it meets them, and a UUID that only a payload holds reads the tree's count plus
+// its place in that payload. So one UUID more in a side's names or records moved the number of every
+// such UUID, which four declared differences of 2.9 carried until this lane. Here the UUIDs of each
+// file are numbered by first appearance in that file alone, in the text of every role. File names
+// keep the contract's per-tree numbering, since names numbered alone would mask to one name and
+// collide. The contract's mask row and the classifier parity stay as they are, and
+// TaxTriageParityUUIDNumberingTests holds the checks.
 
 import Foundation
 import XCTest
@@ -97,12 +106,32 @@ enum TaxTriageParityComparison {
 
     // MARK: - Folders
 
+    /// The contract's `uuids` mask given no tree to look a UUID up in, so it numbers the UUIDs of
+    /// the one text it is given by first appearance, from 1. It is the contract's own pattern and
+    /// token, and only the number differs.
+    static let perFileUUIDs = OutputEquivalence.Mask(name: "uuidsPerFile") { text, context in
+        OutputEquivalence.Masks.uuids(text, context: OutputEquivalence.MaskContext(rootA: context.rootA, rootB: context.rootB))
+    }
+
+    /// `policy` with `perFileUUIDs` in place of the contract's `uuids` mask in the text masks of
+    /// every role, at the same place in each list. The names mask keeps the contract's.
+    static func numberingUUIDsPerFile(_ policy: OutputEquivalence.MaskPolicy) -> OutputEquivalence.MaskPolicy {
+        func swapped(_ masks: [OutputEquivalence.Mask]) -> [OutputEquivalence.Mask] {
+            masks.map { $0.name == "uuids" ? perFileUUIDs : $0 }
+        }
+        var result = policy
+        result.provenance = swapped(policy.provenance)
+        result.records = swapped(policy.records)
+        result.payloads = swapped(policy.payloads)
+        return result
+    }
+
     static func folderDifferences(
         _ reference: TaxTriageParitySideRun,
         _ candidate: TaxTriageParitySideRun,
         bundlePaths: [String]
     ) throws -> [TaxTriageParityDifference] {
-        var policy = Rules.maskPolicy(sideRoots: [reference.root, candidate.root])
+        var policy = numberingUUIDsPerFile(Rules.maskPolicy(sideRoots: [reference.root, candidate.root]))
         // The run record that a cancelled or failed run keeps (E5) names the process that wrote
         // it and when that process started, which no two runs share (lane Q1b, X6 of C against C').
         // The launch scratch a cancelled executor launch leaves for the sweep (N7) names its creating
@@ -154,7 +183,7 @@ enum TaxTriageParityComparison {
         // Only the source manifests of the case's own bundles are left out, compared above, so a
         // write to another bundle or folder of `Imports/` shows.
         var inputPolicy = policy
-        for unmasked in ["uuids", "runIDs"] {
+        for unmasked in ["uuids", perFileUUIDs.name, "runIDs"] {
             inputPolicy.records.removeAll { $0.name == unmasked }
             inputPolicy.provenance.removeAll { $0.name == unmasked }
             inputPolicy.names.removeAll { $0.name == unmasked }

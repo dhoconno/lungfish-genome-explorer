@@ -13,8 +13,6 @@ import Foundation
 extension TaxTriageParityKnownDifferences {
     static let routeC: [TaxTriageParityKnownDifference] = routeCLayout + routeCRecords + routeCBatchRecords + routeCFacts
 
-    /// The comparison numbers a side's UUIDs in the order it meets them across its whole tree.
-    static let uuidNumbering = "a comparison that numbers the UUIDs of each file alone, a part of Q1b moved out of the A2 M3b continuation"
     /// build-db taxtriage itself keeps the legacy cleanup.
     static let buildDbForce = "build-db taxtriage --force with the executor's recorded cleanup that keeps top/ (2.8 row 247 and T5)"
 
@@ -52,11 +50,6 @@ extension TaxTriageParityKnownDifferences {
         pairAC([.x1: 1, .x2: 1, .x3: 2, .x4: 1, .x5: 1], "analysis: only in C: *top/*.top_report.tsv",
                "The GUI's build-db step deletes top/ with the other intermediate folders, and the executor's finalize keeps it and records what it removes (2.8 T5, row 258). X4's failed sample writes no top report, and X7's rebuild deletes top/ on both sides",
                closedBy: guiRoute),
-        pairAC([.x1: 1, .x2: 1, .x3: 2, .x4: 2, .x5: 1, .x6: 1, .x7: 1], "analysis: differs: *nextflow.log",
-               "The same lines on both sides but the launch scratch, which each names by its UUID. The comparison numbers a side's UUIDs in the order it meets them in its tree, and side C's tree holds more of them before this file, as on side B",
-               closedBy: uuidNumbering),
-        pairAC([.x1: 2, .x2: 2, .x3: 4, .x4: 4, .x5: 2, .x6: 2, .x7: 2], "analysis: differs: *taxtriage-launch-command.*",
-               "As nextflow.log, the .sh and .txt launch commands", closedBy: uuidNumbering),
         pairAC([.x1: 1, .x2: 1, .x3: 2, .x4: 2, .x5: 1, .x7: 1], "source manifest: only in A: *",
                "Only the GUI records the run in each source bundle's analyses-manifest.json (completeTaxTriageRun), for every sample of the request, a failed one too (X4)",
                closedBy: guiRoute),
