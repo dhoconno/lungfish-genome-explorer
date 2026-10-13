@@ -55,7 +55,8 @@ public struct AnalysisResultIndexRequest: Sendable {
     /// finalize keeps it (2.9 R6). The root record uses its descriptors as they are and hashes
     /// nothing again. Hand the steps over in the order they ran, and never one whose outputs are
     /// partial. A step handed over here and also listed in ``AnalysisResultIndex/steps`` is named
-    /// once.
+    /// once, as it was first handed over, so hand each step over in its final form, its
+    /// `dependsOn` included.
     public func recordStep(_ step: ProvenanceStep) {
         stepRecorder(step)
     }
