@@ -1,5 +1,5 @@
 bundle ZZ000001.1.lungfishref
-file .lungfish-provenance.json provenance
+file .lungfish-provenance.json provenance, the bundle record
 file annotations/ncbi_genbank_annotations.db sqlite
 file genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
 file genome/sequence.fa.gz gzip content-sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
@@ -8,13 +8,124 @@ file genome/sequence.fa.gz.fai fasta-index
 file genome/sequence.fa.gz.gzi bgzf-index
 file manifest.json manifest
 file provenance/annotations/ncbi_genbank_annotations.db.lungfish-provenance.json provenance
-file provenance/bundle.lungfish-provenance.json provenance
+  provenance workflow gui-genbank-download exit 0
+  provenance stderr
+  provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+  provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+  provenance option containerRuntime explicit="none" default=- resolved="none"
+  provenance option includeGFF3Annotations explicit=false default=true resolved=false
+  provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance step 0 writeGenBankAnnotationsToBED + clipBEDCoordinates + AnnotationDatabase.createFromBED exit 0
+    argv host
+    option bedFormat="BED12+"
+    option chromosome="ZZ000001"
+    option clipToChromosomeBounds=true
+    option preserveQualifiers=true
+    in <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+    out <OUT>/ZZ000001.1.lungfishref/annotations/ncbi_genbank_annotations.db sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/annotations/ncbi_genbank_annotations.db sha256=build-dependent
+file provenance/bundle.lungfish-provenance.json provenance, the bundle record
 file provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
+  provenance workflow gui-genbank-download exit 0
+  provenance stderr
+  provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+  provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+  provenance option containerRuntime explicit="none" default=- resolved="none"
+  provenance option includeGFF3Annotations explicit=false default=true resolved=false
+  provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance step 0 samtools exit 0
+    argv samtools faidx <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz
+    in <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=ec8a2ae8b8ee74bfe65552c7874303064a518204a1980d4a35ff4810b87736fc
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=ec8a2ae8b8ee74bfe65552c7874303064a518204a1980d4a35ff4810b87736fc
 file provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
+  provenance workflow gui-genbank-download exit 0
+  provenance stderr
+  provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+  provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+  provenance option containerRuntime explicit="none" default=- resolved="none"
+  provenance option includeGFF3Annotations explicit=false default=true resolved=false
+  provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance step 0 samtools exit 0
+    argv samtools faidx <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz
+    in <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
 file provenance/genome/sequence.fa.gz.lungfish-provenance.json provenance
+  provenance workflow gui-genbank-download exit 0
+  provenance stderr
+  provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+  provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+  provenance option containerRuntime explicit="none" default=- resolved="none"
+  provenance option includeGFF3Annotations explicit=false default=true resolved=false
+  provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance step 0 bgzip exit 0
+    argv bgzip -f -k -@ <threads> <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa
+    in <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
 file provenance/genome/sequence.fa.lungfish-provenance.json provenance
+  provenance workflow gui-genbank-download exit 0
+  provenance stderr
+  provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+  provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+  provenance option containerRuntime explicit="none" default=- resolved="none"
+  provenance option includeGFF3Annotations explicit=false default=true resolved=false
+  provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance step 0 GenBankReader.readAll (first record) + FASTAWriter.write exit 0
+    argv host
+    option sequenceName="ZZ000001"
+    in <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa sha256=149f2c005cd3d56b62cde9fa072b251dda022933de4e52ed524501ba9bb8ff79
 file provenance/manifest.json.lungfish-provenance.json provenance
+  provenance workflow gui-genbank-download exit 0
+  provenance stderr
+  provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+  provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+  provenance option containerRuntime explicit="none" default=- resolved="none"
+  provenance option includeGFF3Annotations explicit=false default=true resolved=false
+  provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance output <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
 file provenance/sources/record.gb.lungfish-provenance.json provenance
+  provenance workflow gui-genbank-download exit 0
+  provenance stderr
+  provenance option annotationFallback explicit="GenBank FEATURES when GFF3 is unavailable" default=- resolved="GenBank FEATURES when GFF3 is unavailable"
+  provenance option condaEnvironments explicit="htslib, samtools (see per-step runtime identities)" default=- resolved="htslib, samtools (see per-step runtime identities)"
+  provenance option containerRuntime explicit="none" default=- resolved="none"
+  provenance option includeGFF3Annotations explicit=false default=true resolved=false
+  provenance option keepUncompressedFASTA explicit=true default=- resolved=true
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=- resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option requestedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option resolvedAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance step 0 NCBI EFetch (URLSession) exit 0
+    command curl --fail --location 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gb&retmode=text' --output '<OUT>/ZZ000001.1.lungfishref/sources/record.gb'
+    option accession="ZZ000001.1"
+    option commandPurpose="Pinned replay URL; transport may resolve an accession through ESearch"
+    option database="nuccore"
+    option retmode="text"
+    option rettype="gb"
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gb&retmode=text sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+    out <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
+  provenance output <OUT>/ZZ000001.1.lungfishref/sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
 file sources/record.gb sha256=49f1c43f557be658688af27a3c4ae3cdb9c9fcfa48db8e71a62b5871ae1281c1
 manifest {
 manifest   "alignments" : [

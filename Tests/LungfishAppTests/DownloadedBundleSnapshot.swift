@@ -20,18 +20,15 @@ enum DownloadedBundleSnapshot {
     static func text(of bundle: URL, replacing replacements: [(String, String)]) async throws -> String {
         var lines = ["bundle \(bundle.lastPathComponent)"]
         let files = try regularFiles(in: bundle)
+        let bundleRecord = ProvenanceRecorder.loadEnvelope(from: bundle).map(provenanceLines)
         for path in files {
-            lines += try await fileLines(path, in: bundle)
+            lines += try await fileLines(path, in: bundle, bundleRecord: bundleRecord)
         }
         lines += try manifestLines(bundle)
         for path in files where path.hasSuffix(".db") {
             lines += try annotationLines(path, in: bundle)
         }
-        if let envelope = ProvenanceRecorder.loadEnvelope(from: bundle) {
-            lines += provenanceLines(envelope)
-        } else {
-            lines.append("provenance none")
-        }
+        lines += bundleRecord ?? ["provenance none"]
         var text = lines.joined(separator: "\n")
         for (from, to) in replacements where !from.isEmpty {
             text = text.replacingOccurrences(of: from, with: to)
@@ -74,11 +71,11 @@ enum DownloadedBundleSnapshot {
         return paths.sorted()
     }
 
-    private static func fileLines(_ path: String, in bundle: URL) async throws -> [String] {
+    private static func fileLines(_ path: String, in bundle: URL, bundleRecord: [String]?) async throws -> [String] {
         let url = bundle.appendingPathComponent(path)
         if path == "manifest.json" { return ["file \(path) manifest"] }
         if path.hasSuffix(".db") { return ["file \(path) sqlite"] }
-        if path.contains("provenance") { return ["file \(path) provenance"] }
+        if path.contains("provenance") { return recordLines(path, in: bundle, bundleRecord: bundleRecord) }
         if path.hasSuffix(".gzi") { return ["file \(path) bgzf-index"] }
         if path.hasSuffix(".gz") {
             return ["file \(path) gzip content-sha256=\(try await decompressedSHA256(url))"]
@@ -91,6 +88,18 @@ enum DownloadedBundleSnapshot {
             return ["file \(path) fasta-index"] + rows
         }
         return ["file \(path) sha256=\(try ProvenanceFileHasher.sha256(of: url))"]
+    }
+
+    /// The lines of one record file (review fix F5 of lane A44). A file that says what the bundle
+    /// record says, under the same masks, is one line, and any other is dumped whole, so no record
+    /// file is masked whole.
+    private static func recordLines(_ path: String, in bundle: URL, bundleRecord: [String]?) -> [String] {
+        guard let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: bundle.appendingPathComponent(path)) else {
+            return ["file \(path) provenance unreadable"]
+        }
+        let lines = provenanceLines(envelope)
+        if lines == bundleRecord { return ["file \(path) provenance, the bundle record"] }
+        return ["file \(path) provenance"] + lines.map { "  " + $0 }
     }
 
     private static func decompressedSHA256(_ url: URL) async throws -> String {
