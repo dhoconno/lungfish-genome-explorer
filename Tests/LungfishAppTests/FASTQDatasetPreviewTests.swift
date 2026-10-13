@@ -135,19 +135,16 @@ enum FASTQDatasetPreviewFixture {
     }
 
     private static func gzipCopy(of source: URL, to destination: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-c", source.path]
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = Pipe()
-        try process.run()
-        let compressed = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "FASTQDatasetPreviewFixture.gzip", code: Int(process.terminationStatus))
+        // gzip -k writes <source>.gz beside the source and keeps the source. The wait is bounded at 30 seconds.
+        guard destination.path == source.path + ".gz" else {
+            throw NSError(domain: "FASTQDatasetPreviewFixture.gzip", code: -1)
         }
-        try compressed.write(to: destination)
+        let result = try LungfishTestSupport.ProcessRunner.run(
+            URL(fileURLWithPath: "/usr/bin/gzip"), ["-k", "-f", source.path], timeout: 30
+        )
+        guard result.status == 0 else {
+            throw NSError(domain: "FASTQDatasetPreviewFixture.gzip", code: Int(result.status))
+        }
     }
 
     /// Every path under `directory`, hidden ones too, with its kind, modification time, size and SHA-256.
@@ -474,15 +471,12 @@ final class FASTQDatasetPreviewTests: XCTestCase {
 
     /// Process IDs of the `gzip` children of this test process.
     private func gzipChildren() throws -> [String] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        process.arguments = ["-P", String(ProcessInfo.processInfo.processIdentifier), "-x", "gzip"]
-        let output = Pipe()
-        process.standardOutput = output
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
+        let result = try LungfishTestSupport.ProcessRunner.run(
+            URL(fileURLWithPath: "/usr/bin/pgrep"),
+            ["-P", String(ProcessInfo.processInfo.processIdentifier), "-x", "gzip"],
+            timeout: 30
+        )
+        return result.stdout.split(separator: "\n").map(String.init)
     }
 
     func testAReadThatIsCancelledEndsWithCancellationInsteadOfAShortList() async throws {
