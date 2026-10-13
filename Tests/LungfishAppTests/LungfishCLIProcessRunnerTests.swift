@@ -182,8 +182,10 @@ final class LungfishCLIProcessRunnerTests: XCTestCase {
     /// the drain grace instead of waiting for the child. The exit code stays the truth about the run,
     /// and the row logs one warning line that says its log may miss the last lines.
     func testACleanExitWhoseOutputAChildKeptOpenReturnsAndLogsAWarning() async throws {
+        let childFile = scratch.appendingPathComponent("child")
         let cli = try writeCLI("""
             sleep 10 &
+            echo $! > "\(childFile.path)"
             exit 0
             """)
         let logged = Recorded()
@@ -193,6 +195,7 @@ final class LungfishCLIProcessRunnerTests: XCTestCase {
             logHandler: { level, message in logged.append("\(level.rawValue):\(message)") },
             progress: { _, _ in }
         )
+        if let child = await CLISIGTERMHarness.waitForProcessID(in: childFile) { kill(child, SIGKILL) }
 
         XCTAssertEqual(logged.lines.count, 1, "logged: \(logged.lines)")
         XCTAssertTrue(
