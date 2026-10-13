@@ -159,6 +159,9 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
     /// printed before version 2, played back by a stand-in `lungfish-cli`. The runner moves onto
     /// `CLISubprocessTransport` in a later step of the lane, and these pins must pass unchanged on the
     /// other side, which is how an older CLI is shown to give the same label, log and imported bundle.
+    /// Phase 2.10 lane U32 moved each log on purpose. The bridge now logs a progress message once, so a
+    /// log holds the start line and the progress messages of the stream in the order they arrived. The
+    /// labels, the details and the bars did not move.
     private func replay(
         _ name: String,
         title: String = "MSA Import",
@@ -202,7 +205,12 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
             failure: nil,
             progress: 0.92,
             detail: "Writing MSA provenance...",
-            log: ["info: Started multiple-sequence-alignment import via lungfish-cli"],
+            log: [
+                "info: Started multiple-sequence-alignment import via lungfish-cli",
+                "info: Preparing MSA bundle destination...",
+                "info: Parsing and indexing mhc.aln...",
+                "info: Writing MSA provenance...",
+            ],
             hasWarnings: false,
             label: "Completed"
         ))
@@ -219,7 +227,10 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
             detail: "Writing MSA provenance...",
             log: [
                 "info: Started multiple-sequence-alignment import via lungfish-cli",
+                "info: Preparing MSA bundle destination...",
+                "info: Parsing and indexing duplicates.fasta...",
                 "warning: Duplicate row names are present; stable row IDs preserve row order.",
+                "info: Writing MSA provenance...",
             ],
             hasWarnings: true,
             label: "Completed with Warnings"
@@ -253,7 +264,12 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
             failure: nil,
             progress: 0.92,
             detail: "Writing tree provenance...",
-            log: ["info: Started phylogenetic-tree import via lungfish-cli"],
+            log: [
+                "info: Started phylogenetic-tree import via lungfish-cli",
+                "info: Preparing tree bundle destination...",
+                "info: Parsing and indexing mhc.nwk...",
+                "info: Writing tree provenance...",
+            ],
             hasWarnings: false,
             label: "Completed"
         ))
@@ -270,7 +286,10 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
             detail: "Writing tree provenance...",
             log: [
                 "info: Started phylogenetic-tree import via lungfish-cli",
+                "info: Preparing tree bundle destination...",
+                "info: Parsing and indexing bare.nwk...",
                 "warning: Tree contains one or more edges without branch lengths.",
+                "info: Writing tree provenance...",
             ],
             hasWarnings: true,
             label: "Completed with Warnings"
@@ -531,7 +550,7 @@ final class CLINativeBundleImportRunnerTests: XCTestCase {
         let shown = try await replay(transcript: transcript, title: "Tree Import")
 
         XCTAssertEqual(shown.importedPath, outputPath)
-        XCTAssertEqual(shown.log, ["info: Started phylogenetic-tree import via lungfish-cli"])
+        XCTAssertEqual(shown.log, ["info: Started phylogenetic-tree import via lungfish-cli", "info: Parsing t.nwk..."])
         XCTAssertEqual(shown.detail, "Parsing t.nwk...")
         XCTAssertEqual(shown.label, "Completed")
     }

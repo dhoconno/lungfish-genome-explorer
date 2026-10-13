@@ -174,7 +174,19 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
             failure: nil,
             progress: 1,
             detail: "Geneious import complete.",
-            log: ["info: Started geneious-export import via lungfish-cli"],
+            log: [
+                "info: Started geneious-export import via lungfish-cli",
+                "info: Scanning Geneious export...",
+                "info: Decoding Geneious sequence payloads...",
+                "info: Processing document.geneious...",
+                "info: Processing fileData.1...",
+                "info: Processing refs/reference.fa...",
+                "info: Processing reports/summary.tsv...",
+                "info: Writing Geneious inventory...",
+                "info: Writing Geneious import report...",
+                "info: Writing Geneious import provenance...",
+                "info: Geneious import complete.",
+            ],
             hasWarnings: false,
             label: "Completed"
         ))
@@ -191,6 +203,16 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
             detail: "Geneious import complete.",
             log: [
                 "info: Started geneious-export import via lungfish-cli",
+                "info: Scanning Geneious export...",
+                "info: Decoding Geneious sequence payloads...",
+                "info: Processing document.geneious...",
+                "info: Processing fileData.1...",
+                "info: Processing refs/reference.fa...",
+                "info: Processing reports/summary.tsv...",
+                "info: Writing Geneious inventory...",
+                "info: Writing Geneious import report...",
+                "info: Writing Geneious import provenance...",
+                "info: Geneious import complete.",
                 "warning: Native Geneious data is preserved but not decoded in the no-Geneious baseline.",
                 "warning: document.geneious contains native Geneious data that is preserved but not decoded in the no-Geneious baseline.",
                 "warning: fileData.1 contains native Geneious data that is preserved but not decoded in the no-Geneious baseline.",
@@ -229,7 +251,16 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
             failure: nil,
             progress: 1,
             detail: "Alignment Tree import complete.",
-            log: ["info: Started alignment-tree import via lungfish-cli"],
+            log: [
+                "info: Started alignment-tree import via lungfish-cli",
+                "info: Scanning Alignment Tree export...",
+                "info: Processing alignments/example.aln...",
+                "info: Processing trees/example.nwk...",
+                "info: Writing Alignment Tree inventory...",
+                "info: Writing Alignment Tree import report...",
+                "info: Writing Alignment Tree import provenance...",
+                "info: Alignment Tree import complete.",
+            ],
             hasWarnings: false,
             label: "Completed"
         ))
@@ -246,6 +277,14 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
             detail: "Alignment Tree import complete.",
             log: [
                 "info: Started alignment-tree import via lungfish-cli",
+                "info: Scanning Alignment Tree export...",
+                "info: Processing alignments/example.aln...",
+                "info: Processing reports/summary.tsv...",
+                "info: Processing trees/example.nwk...",
+                "info: Writing Alignment Tree inventory...",
+                "info: Writing Alignment Tree import report...",
+                "info: Writing Alignment Tree import provenance...",
+                "info: Alignment Tree import complete.",
                 "warning: reports/summary.tsv is recognized as report but is not imported by this native-only operation.",
             ],
             hasWarnings: true,
@@ -507,7 +546,7 @@ final class CLIApplicationExportImportRunnerTests: XCTestCase {
         let shown = try await replay(transcript: transcript)
 
         XCTAssertEqual(shown.importedPath, outputPath)
-        XCTAssertEqual(shown.log, ["info: Started clc-workbench import via lungfish-cli"])
+        XCTAssertEqual(shown.log, ["info: Started clc-workbench import via lungfish-cli", "info: Processing refs/reference.fa..."])
         XCTAssertEqual(shown.detail, "Processing refs/reference.fa...")
         XCTAssertEqual(shown.label, "Completed")
     }
