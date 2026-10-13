@@ -260,8 +260,10 @@ let package = Package(
         .target(
             name: "LungfishKitTestSupport",
             dependencies: [
+                "LungfishCore",
                 "LungfishKit",
                 "LungfishTestSupport",
+                "LungfishWorkflow",
             ],
             path: "Tests/Support/LungfishKitTestSupport"
         ),
