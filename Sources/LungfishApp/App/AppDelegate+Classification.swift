@@ -33,9 +33,9 @@ extension AppDelegate {
     }
 
     /// Resolves `inputFiles` to the files a classifier reads, materializing a virtual FASTQ bundle into `tempDirectory`.
-    /// `resolvedKraken2Config` calls it, and `BundleResolutionCLIParityTests` compares its files
-    /// with the command's. The in-process launches that called it at the start of a run went in
-    /// Phase 2.9 (E14). The resolution itself is ``ResolvedSequenceInputs``, shared with the
+    /// `BundleResolutionCLIParityTests` compares its files with the command's. The in-process launches
+    /// that called it at the start of a run went in Phase 2.9 (E14), and the Kraken2 resolver after them
+    /// in Phase 2.10 (A32). The resolution itself is ``ResolvedSequenceInputs``, shared with the
     /// Map Reads window, with the derivative service's tool runner as the materializer.
     internal func resolveInputFiles(
         _ inputFiles: [URL],

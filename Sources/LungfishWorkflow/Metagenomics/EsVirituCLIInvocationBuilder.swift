@@ -40,9 +40,9 @@ public enum EsVirituCLIInvocationBuilder {
     /// records for a batch run.
     ///
     /// Every sample's inputs follow one `--input`, and `--sample` names the
-    /// first sample. No command runs a batch, so the batch row records none
-    /// (`cli-parity-gap` `esviritu-batch` on `AppDelegate.beginEsVirituBatchOperation(configs:routeContext:reporter:launch:)`).
-    /// Only the batch provenance still starts from this list.
+    /// first sample. The CLI route keeps the inputs and drops `--sample`,
+    /// since `esviritu detect --batch` names each sample by its files, and the
+    /// batch provenance starts from the whole list.
     public static func esVirituBatchCLIArguments(for configs: [EsVirituConfig]) -> [String] {
         var args = ["--input"]
         for config in configs {

@@ -86,8 +86,7 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
     /// route keeps its batch writer until 2.9 (E14). Its EsViritu batch
     /// record's argv folds every sample's inputs into one `esviritu detect
     /// --input` named after the first sample, with no database, output folder
-    /// or threads, a command that reproduces nothing, and its batch row
-    /// records no command at all (`cli-parity-gap` `esviritu-batch`).
+    /// or threads, a command that reproduces nothing.
     func testEsVirituBatchRowRecordsOneBatchCommandWhereTheLegacyRecordFoldsTheInputs() async throws {
         let root = try TestTempDirectory.make(prefix: "esviritu-batch-argv-pin")
         defer { TestTempDirectory.cleanup(root) }
@@ -105,11 +104,6 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
             XCTAssertFalse(record.argv.contains(flag), "\(flag) is not recorded")
         }
         XCTAssertEqual(record.exitStatus, 0)
-
-        let reporter = RecordingOperationReporter()
-        AppDelegate.beginEsVirituBatchOperation(configs: batch.configs, routeContext: nil, reporter: reporter) { _ in }
-        XCTAssertEqual(reporter.items.count, 1)
-        XCTAssertNil(reporter.items.first?.cliCommand)
 
         // The CLI route's row, the app's route since lane F3.
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)

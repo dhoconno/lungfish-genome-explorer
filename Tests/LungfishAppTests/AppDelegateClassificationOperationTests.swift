@@ -173,25 +173,6 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         }
     }
 
-    func testEmptyKraken2BatchRecordsNoCommand() {
-        XCTAssertNil(AppDelegate.classificationBatchCLICommand(for: []))
-    }
-
-    func testKraken2BatchTitleCountsSamples() throws {
-        let config = ClassificationConfig(
-            inputFiles: [importURL("Sample 1.lungfishfastq")],
-            isPairedEnd: false,
-            databaseName: "Viral",
-            databasePath: databaseURL,
-            outputDirectory: analysisURL("kraken2-batch-2026-10-02/Sample 1")
-        )
-        let reporter = RecordingOperationReporter()
-
-        AppDelegate.beginClassificationBatchOperation(configs: [config], routeContext: nil, reporter: reporter) { _ in }
-
-        XCTAssertEqual(try XCTUnwrap(reporter.items.first).title, "Classification Batch (1 sample)")
-    }
-
     // MARK: - EsViritu
 
     func testEsVirituCommandIsTheBuildersArgvAndTheCLIParsesIt() throws {
@@ -310,54 +291,6 @@ final class AppDelegateClassificationOperationTests: XCTestCase {
         let index = try XCTUnwrap(unplanned.firstIndex(of: "--read-format"))
         XCTAssertEqual(unplanned[index + 1], "paired")
         XCTAssertNotNil(EsVirituCommand.DetectSubcommand.inputCountError(format: .paired, fileCount: 1))
-    }
-
-    func testEsVirituBatchRowRecordsNoCommandAndPinsTheParityGap() throws {
-        let reporter = RecordingOperationReporter()
-        let routeContext = makeRouteContext()
-        let pairedInputs = [importURL("Sample 1_R1.fastq.gz"), importURL("Sample 1_R2.fastq.gz")]
-        let singleInput = importURL("Sample 2.fastq.gz")
-        let first = EsVirituConfig(
-            inputFiles: pairedInputs,
-            isPairedEnd: true,
-            sampleName: "Sample 1",
-            outputDirectory: analysisURL("esviritu-batch-2026-10-02/Sample 1"),
-            databasePath: URL(fileURLWithPath: "/tmp/lane 1a2/Databases/EsViritu"),
-            readFormat: .paired
-        )
-        let second = EsVirituConfig(
-            inputFiles: [singleInput],
-            isPairedEnd: false,
-            sampleName: "Sample 2",
-            outputDirectory: analysisURL("esviritu-batch-2026-10-02/Sample 2"),
-            databasePath: URL(fileURLWithPath: "/tmp/lane 1a2/Databases/EsViritu"),
-            readFormat: .unpaired
-        )
-        var launchedID: UUID?
-
-        AppDelegate.beginEsVirituBatchOperation(
-            configs: [first, second],
-            routeContext: routeContext,
-            reporter: reporter
-        ) { launchedID = $0 }
-
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "EsViritu Batch (2 samples)")
-        XCTAssertEqual(item.initialDetail, "Starting EsViritu batch\u{2026}")
-        XCTAssertEqual(item.operationType, .classification)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-
-        // cli-parity-gap: esviritu-batch. The batch runs EsViritu once per
-        // sample with each sample's own read format, and no command does. The
-        // row used to record one `esviritu detect` with every input after
-        // `--input` and the first sample's name, which the CLI would run as a
-        // single unpaired sample. It records no command until a batch command
-        // lands. The closest reproduction is one `esviritu detect` per sample.
-        XCTAssertNil(item.cliCommand, "the row records no command it cannot reproduce")
-        assertCLIParityGap(item.cliCommand, id: "esviritu-batch")
     }
 
     func testEsVirituBatchArgumentsFallBackToABatchSampleName() {
