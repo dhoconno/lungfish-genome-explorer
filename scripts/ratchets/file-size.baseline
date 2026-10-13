@@ -7,7 +7,7 @@ Sources/LungfishApp/App/AppDelegate.swift 2696
 Sources/LungfishApp/App/MainMenu.swift 1364
 Sources/LungfishApp/App/VCFImportHelper.swift 1134
 Sources/LungfishApp/Services/FASTQIngestionService.swift 1016
-Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 859
+Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 843
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1335
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1090
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
