@@ -183,6 +183,16 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
     var planCancels: PlanCancel?
     /// A finalize that cancels its own run, then returns what it wrote.
     var finalizeCancels = false
+    /// The number of whole steps the finalize runs after its summary in place of `fake-index`,
+    /// `fake-finalize-1` and on, each writing the file ``finalizeStepURL(_:in:)`` names and naming
+    /// it with the digest it took. Nil keeps the one `fake-index` step.
+    var finalizeStepCount: Int?
+    /// The step boundary at which that finalize cancels its own run, after this many of its steps,
+    /// 0 before the first. It then stops, and throws or returns what it wrote.
+    var finalizeCancelsAfterStep: Int?
+    /// Whether that finalize throws once it cancelled, as an index build that sees the cancel does,
+    /// instead of returning what it wrote.
+    var finalizeThrowsAfterCancel = false
     /// A finalize that writes `kept.fastq` into the root and names it as a recorded input and
     /// output with ``recordedDigest``, which is not the file's SHA-256.
     var finalizeRecordsKeptFile = false
@@ -376,9 +386,13 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
                 ProvenanceFileDescriptor(path: kept.path, checksumSHA256: Self.recordedDigest, fileSize: 3, format: .fastq, role: $0)
             }
         }
+        var steps = [ProvenanceStep(toolName: "fake-index", toolVersion: "1.0", argv: ["fake-index", summary.path])]
+        if let finalizeStepCount {
+            steps = try runFinalizeSteps(finalizeStepCount, in: context.rootDirectory)
+        }
         return AnalysisRunFinalization(
             outputs: finalizeOutputs ? [AnalysisRunOutput(url: summary, format: .text)] : [],
-            steps: [ProvenanceStep(toolName: "fake-index", toolVersion: "1.0", argv: ["fake-index", summary.path])],
+            steps: steps,
             sourceRecords: sourceRecords,
             artifacts: [CLIEventArtifact(kind: "tsv", path: summary.path, role: "summary")],
             completionDetail: "\(units.filter { $0.outcome.completed }.count) of \(units.count) samples classified",
@@ -386,6 +400,46 @@ struct FakeAnalysisRunTool: AnalysisRunTool {
             options: finalizeOptions,
             recordedFiles: recordedFiles
         )
+    }
+
+    /// Runs the finalize's whole steps, `fake-finalize-1` up to `count`, and hands each over as it
+    /// ends, into the steps this returns for the finalization. At the boundary
+    /// ``finalizeCancelsAfterStep`` names it cancels the run and stops, and throws when
+    /// ``finalizeThrowsAfterCancel`` says so.
+    private func runFinalizeSteps(_ count: Int, in root: URL) throws -> [ProvenanceStep] {
+        var steps: [ProvenanceStep] = []
+        for boundary in 0...count {
+            if boundary == finalizeCancelsAfterStep {
+                Self.cancelCurrentTask()
+                if finalizeThrowsAfterCancel {
+                    throw CancellationError()
+                }
+                break
+            }
+            if boundary < count {
+                steps.append(try Self.finalizeStep(boundary + 1, in: root))
+            }
+        }
+        return steps
+    }
+
+    /// Writes the file of finalize step `number` and returns the whole step that wrote it, which
+    /// names the file with its digest and size.
+    static func finalizeStep(_ number: Int, in root: URL) throws -> ProvenanceStep {
+        let file = finalizeStepURL(number, in: root)
+        try Data("finalize step \(number)\n".utf8).write(to: file)
+        return ProvenanceStep(
+            toolName: "fake-finalize-\(number)",
+            toolVersion: "1.0",
+            argv: ["fake-finalize-\(number)", file.path],
+            outputs: [try ProvenanceFileDescriptor.file(url: file, role: .output)],
+            exitStatus: 0
+        )
+    }
+
+    /// The file finalize step `number` writes into the result folder.
+    static func finalizeStepURL(_ number: Int, in root: URL) -> URL {
+        root.appendingPathComponent("finalize-step-\(number).txt")
     }
 
     static func recordURL(in directory: URL) -> URL {
