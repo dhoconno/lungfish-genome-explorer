@@ -77,14 +77,13 @@ extension EsVirituAnalysisRunTool {
             CLIEventArtifact(kind: "tsv", path: summaryURL.path, role: ArtifactRole.batchSummary),
             CLIEventArtifact(kind: "json", path: manifestURL.path, role: ArtifactRole.batchManifest),
         ]
-        var steps: [ProvenanceStep] = []
         var warnings: [String] = []
         if !completed.isEmpty {
             context.progress("Building EsViritu database\u{2026}")
             do {
+                // The build's steps reach the root record through the context as the build ends.
                 let index = try await context.buildIndex()
                 outputs += index.outputs
-                steps += index.steps
                 warnings += index.warnings
                 if let database = index.outputs.first {
                     artifacts.insert(
@@ -101,7 +100,6 @@ extension EsVirituAnalysisRunTool {
         let failureCount = units.count - completed.count
         return AnalysisRunFinalization(
             outputs: outputs,
-            steps: steps,
             sourceRecords: sourceRecords(for: completed, root: root, projectURL: context.projectURL),
             artifacts: artifacts,
             completionDetail: groupsSamples

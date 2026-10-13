@@ -168,11 +168,10 @@ extension Kraken2AnalysisRunTool {
         return finalization
     }
 
-    /// Copies an index build's outputs, steps and warnings into the finalization, so the root
-    /// record names the index.
+    /// Copies an index build's outputs and warnings into the finalization, so the root record names
+    /// the index. The build's steps reached the root record through the context as it ended.
     private func add(_ index: AnalysisResultIndex, to finalization: inout AnalysisRunFinalization) {
         finalization.outputs += index.outputs
-        finalization.steps += index.steps
         finalization.warnings += index.warnings
         finalization.artifacts += index.outputs.map {
             CLIEventArtifact(kind: "sqlite", path: $0.url.path, role: CLIEventArtifact.Role.classificationDatabase)

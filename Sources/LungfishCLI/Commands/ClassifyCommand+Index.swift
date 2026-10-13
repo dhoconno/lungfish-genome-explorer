@@ -13,7 +13,9 @@ import LungfishWorkflow
 /// A batch root indexes the sample folders its manifest lists, the completed samples, as the app
 /// has always passed them with `--sample-dir`. A one-folder result indexes its own report. The core
 /// writes no record at the root, because the executor writes the root record after the finalize,
-/// and the index build's steps go into that record instead.
+/// and the build hands its steps to that record through the request once the core returns (2.9
+/// R6). The core hands back no step before it returns, so a cancel inside it keeps none of its
+/// steps, those that ended included, until the core hands each over as it ends (lane S33).
 struct Kraken2ResultIndexer: AnalysisResultIndexing {
     func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
         guard request.toolID == .kraken2 else {
@@ -44,9 +46,11 @@ struct Kraken2ResultIndexer: AnalysisResultIndexing {
             options: options,
             events: events
         )
+        let steps = built.record?.steps ?? []
+        steps.forEach(request.recordStep)
         return AnalysisResultIndex(
             outputs: [AnalysisRunOutput(url: built.databaseURL, role: .index)],
-            steps: built.record?.steps ?? []
+            steps: steps
         )
     }
 }

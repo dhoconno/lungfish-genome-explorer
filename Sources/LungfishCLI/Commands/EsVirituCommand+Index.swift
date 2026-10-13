@@ -12,9 +12,11 @@ import LungfishWorkflow
 /// The core runs as `lungfish-cli build-db esviritu <root> --force` would, with its cleanup, and its
 /// record names that command. It writes no record at the result root, because the executor writes
 /// the root record last (risk R8), and its steps, the BAM relocation (E7), the samtools passes and
-/// the database build, join the root record. The core's own lines and warnings become info lines of
-/// the run, because the app's EsViritu runs have never shown them on the row. A build that throws
-/// leaves the finalize to warn, as the app does.
+/// the database build, join the root record through the request once the core returns (2.9 R6).
+/// The core hands back no step before it returns, so a cancel inside it keeps none of its steps,
+/// those that ended included, until the core hands each over as it ends (lane S33). The core's own
+/// lines and warnings become info lines of the run, because the app's EsViritu runs have never
+/// shown them on the row. A build that throws leaves the finalize to warn, as the app does.
 struct EsVirituResultIndexing: AnalysisResultIndexing {
     enum IndexingError: Error, LocalizedError {
         case notEsViritu(AnalysisToolID)
@@ -42,9 +44,11 @@ struct EsVirituResultIndexing: AnalysisResultIndexing {
             options: BuildDbRunOptions(force: true, globalOptions: try GlobalOptions.parse([]), writesFolderRecord: false),
             events: sink
         )
+        let steps = built.record?.steps ?? []
+        steps.forEach(request.recordStep)
         return AnalysisResultIndex(
             outputs: [AnalysisRunOutput(url: built.databaseURL, format: .sqlite)],
-            steps: built.record?.steps ?? []
+            steps: steps
         )
     }
 }

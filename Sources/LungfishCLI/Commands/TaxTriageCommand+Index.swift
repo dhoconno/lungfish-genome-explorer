@@ -16,7 +16,11 @@ import LungfishWorkflow
 /// its removal step comes after the build step in the steps this returns, so the root record names
 /// the removal after the step that read what it removed (2.8 P1). The step names each removed file
 /// with the digest a record already holds, and the cleanup hashes none (T5 as amended in 2.9). The
-/// core writes no record at the root, because the executor writes the root record after the finalize.
+/// core writes no record at the root, because the executor writes the root record after the finalize,
+/// and the build hands its steps and then the removal step to that record through the request once
+/// the core returns (2.9 R6). The core runs the cleanup before it returns and hands back no step
+/// before then, so a cancel inside it, the cleanup included, keeps none of its steps until the core
+/// hands each over as it ends (lane S33).
 struct TaxTriageResultIndexer: AnalysisResultIndexing {
     func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
         guard request.toolID == .taxtriage else {
@@ -41,9 +45,11 @@ struct TaxTriageResultIndexer: AnalysisResultIndexing {
             recordedFiles: request.recordedFiles,
             events: events
         )
+        let steps = (built.result.record?.steps ?? []) + (built.removal.map { [$0] } ?? [])
+        steps.forEach(request.recordStep)
         return AnalysisResultIndex(
             outputs: [AnalysisRunOutput(url: built.result.databaseURL, role: .index)],
-            steps: (built.result.record?.steps ?? []) + (built.removal.map { [$0] } ?? [])
+            steps: steps
         )
     }
 }

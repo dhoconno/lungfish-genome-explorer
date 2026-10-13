@@ -113,6 +113,61 @@ final class AnalysisRunIndexStepRecordTests: XCTestCase {
         XCTAssertFalse(named.contains { $0.hasSuffix("/esviritu.sqlite") }, "no digest of a database that is not there")
         try assertNothingOfTheFinalization(in: record, of: run)
     }
+
+    // MARK: - The build's steps reach the root record before the build returns
+
+    /// The Kraken2 index builder hands each step of the build to the root record once its core
+    /// returns and before the builder does, so a cancel later in the finalize keeps them (2.9 R6),
+    /// and the finalization names none of them.
+    func testTheKraken2BuildHandsItsStepsOverBeforeItReturns() async throws {
+        let batch = try kraken2Batch()
+
+        let run = try await Self.finalize(.kraken2, batch.directory, layout: .batchRoot, base: Kraken2ResultIndexer()) { context in
+            try await Self.kraken2Tool.finalize(batch.units, context: context)
+        }
+
+        try Self.assertTheBuildHandedItsStepsOver(run)
+    }
+
+    /// The TaxTriage index builder hands over the build's steps and then the removal step of its
+    /// cleanup, in that order, before it returns.
+    func testTheTaxTriageBuildHandsItsStepsThenItsRemovalOverBeforeItReturns() async throws {
+        let result = try Self.taxTriageResult(in: root, withBAMs: false)
+
+        let run = try await Self.finalize(
+            .taxtriage, result.directory, layout: .sharedBatchRoot, base: TaxTriageResultIndexer(), unitSteps: [result.launch]
+        ) { context in
+            try await Self.taxTriageTool(result.directory).finalize([], context: context)
+        }
+
+        try Self.assertTheBuildHandedItsStepsOver(run)
+        XCTAssertEqual(run.recorded.last?.toolName, BuildDbCommand.TaxTriageSubcommand.cleanupRemovalToolName)
+    }
+
+    /// A cancel that arrives just after the build ended whole, while the finalize goes on, keeps the
+    /// build's steps in the cancelled record, byte for byte after the units' steps, each file they
+    /// wrote there with the digest and size its step took. The record drops the finalization's
+    /// outputs, its batch summary and manifest, its source record and its artifacts (2.9 R6).
+    func testACancelJustAfterTheEsVirituBuildKeepsItsStepsAndDropsTheFinalization() async throws {
+        let indexer = CapturingIndexer(base: EsVirituResultIndexing(), cancelsAfterTheBuild: true)
+
+        let run = try await esVirituRun(indexing: indexer)
+
+        try assertCancelled(run)
+        let record = try run.record()
+        let built = try XCTUnwrap(indexer.builds.first?.index)
+        XCTAssertEqual(built.steps.last?.toolName, "lungfish build-db esviritu")
+        let unitSteps = record.steps.dropLast(built.steps.count)
+        XCTAssertTrue(unitSteps.contains { $0.toolName == "EsViritu" }, "\(record.steps.map(\.toolName))")
+        XCTAssertEqual(try Self.encoded(Array(record.steps.suffix(built.steps.count))), try Self.encoded(built.steps))
+        Self.assertEachStepOnce(record.steps)
+        for output in built.steps.flatMap(\.outputs) {
+            let taken = try ProvenanceFileDescriptor.file(url: URL(fileURLWithPath: output.path), role: .output)
+            XCTAssertEqual(taken.checksumSHA256, output.checksumSHA256, output.path)
+            XCTAssertEqual(taken.fileSize, output.fileSize, output.path)
+        }
+        try assertNothingOfTheFinalization(in: record, of: run)
+    }
 }
 
 // MARK: - Finalizes run directly
@@ -224,6 +279,49 @@ extension AnalysisRunIndexStepRecordTests {
 
     fileprivate static func assertEachStepOnce(_ steps: [ProvenanceStep], file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(Set(steps.map(\.id)).count, steps.count, "a step is named twice, \(steps.map(\.toolName))", file: file, line: line)
+    }
+
+    /// The build's steps had all reached the finalize's recorder, in their order, when the builder
+    /// returned, the recorder holds each once, and the finalization names none of them.
+    fileprivate static func assertTheBuildHandedItsStepsOver(
+        _ run: FinalizeRun, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        XCTAssertFalse(run.built.steps.isEmpty, "the build returned its steps", file: file, line: line)
+        XCTAssertEqual(
+            try encoded(run.recordedWhenTheBuildReturned), try encoded(run.built.steps),
+            "each step was handed over before the build returned", file: file, line: line
+        )
+        XCTAssertEqual(try encoded(run.recorded), try encoded(run.built.steps), "each step recorded once", file: file, line: line)
+        XCTAssertEqual(run.finalization.steps, [], "the finalization names no step of the build", file: file, line: line)
+    }
+}
+
+// MARK: - Live
+
+/// The TaxTriage build over the BAMs of `taxtriage-mini` with the managed samtools, the live form of
+/// `AnalysisRunIndexStepRecordTests` (2.9 O5). Every step of the build, its samtools passes
+/// included, reaches the root record before the build returns, and each file a step wrote that
+/// the cleanup kept is there with the digest the step took.
+final class AnalysisRunIndexStepLiveConformanceTests: XCTestCase {
+    func testTheTaxTriageBuildOverBAMsHandsItsSamtoolsStepsOverBeforeItReturns() async throws {
+        _ = try await ToolAvailability.require("samtools", environment: "samtools")
+        let root = try TestTempDirectory.make(prefix: "analysis-run-index-steps-live")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = try AnalysisRunIndexStepRecordTests.taxTriageResult(in: root, withBAMs: true)
+
+        let run = try await AnalysisRunIndexStepRecordTests.finalize(
+            .taxtriage, result.directory, layout: .sharedBatchRoot, base: TaxTriageResultIndexer(), unitSteps: [result.launch]
+        ) { context in
+            try await AnalysisRunIndexStepRecordTests.taxTriageTool(result.directory).finalize([], context: context)
+        }
+
+        XCTAssertTrue(run.built.steps.contains { $0.toolName == "samtools" }, "\(run.built.steps.map(\.toolName))")
+        try AnalysisRunIndexStepRecordTests.assertTheBuildHandedItsStepsOver(run)
+        let removed = Set(run.recorded.last?.inputs.map(\.path) ?? [])
+        for output in run.recorded.flatMap(\.outputs) where !removed.contains(output.path) {
+            let taken = try ProvenanceFileDescriptor.file(url: URL(fileURLWithPath: output.path), role: .output)
+            XCTAssertEqual(taken.checksumSHA256, output.checksumSHA256, output.path)
+        }
     }
 }
 

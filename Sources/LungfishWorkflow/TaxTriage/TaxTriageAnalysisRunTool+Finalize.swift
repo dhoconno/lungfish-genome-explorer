@@ -20,12 +20,13 @@ extension TaxTriageAnalysisRunTool {
     /// (S2). Those the cleanup then removes drop out of the run level, which names only kept files.
     ///
     /// A result in a project or a batch root then gets its viewer index in process, `taxtriage.sqlite`
-    /// through the index builder the executor was given, with the build's steps and the recorded
-    /// removal step of its cleanup, which keeps `top/` (2.8 T5 and row 258, B12 M2) and names each
-    /// removed file with the digest a record already holds (T5 as amended in 2.9). A plain `--output`
-    /// keeps its folder as the command has always left it, with no index and no cleanup, as a Kraken2
-    /// result outside a project does. An index that cannot be built leaves a warning and the result,
-    /// since the viewer builds the index when the result opens.
+    /// through the index builder the executor was given. The build's steps and the recorded removal
+    /// step of its cleanup reach the root record through the context as the build ends (2.9 R6). The
+    /// cleanup keeps `top/` (2.8 T5 and row 258, B12 M2) and names each removed file with the digest
+    /// a record already holds (T5 as amended in 2.9). A plain `--output` keeps its folder as the
+    /// command has always left it, with no index and no cleanup, as a Kraken2 result outside a
+    /// project does. An index that cannot be built leaves a warning and the result, since the viewer
+    /// builds the index when the result opens.
     package func finalize(
         _ units: [AnalysisUnitReport<TaxTriageUnitResult>],
         context: AnalysisRunFinalizeContext
@@ -47,7 +48,6 @@ extension TaxTriageAnalysisRunTool {
             let recorded = context.recordedSteps.flatMap { $0.inputs + $0.outputs }
             let index = try await context.buildIndex(recordedFiles: recorded)
             finalization.outputs += index.outputs
-            finalization.steps += index.steps
             finalization.warnings += index.warnings
         } catch {
             finalization.warnings.append(

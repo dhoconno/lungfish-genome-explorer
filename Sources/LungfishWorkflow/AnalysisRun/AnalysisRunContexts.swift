@@ -180,7 +180,8 @@ public struct AnalysisRunFinalizeContext: Sendable {
     /// build's step with the digest and size of the database it wrote. Its descriptors are used as
     /// they are and never hashed again. The root record lists it after the units' steps, in the
     /// order the finalize recorded it and before ``AnalysisRunFinalization/steps``, so a step goes
-    /// through one of the two and never both.
+    /// through one of the two and never both. ``buildIndex(recordedFiles:)`` records the steps of
+    /// the index build this way.
     ///
     /// A run that a cancel or a thrown error ends during the finalize keeps every step recorded
     /// before then, and a cancel drops the finalization's outputs, recorded files, source records
@@ -211,26 +212,34 @@ public struct AnalysisRunFinalizeContext: Sendable {
     }
 
     /// Builds the viewer index of the result in process, through the index builder the executor
-    /// was given for this analysis kind (E6). Add the index's outputs and steps to the
-    /// finalization so the root record names them. `recordedFiles` are files the run's records
-    /// already name with a digest and a size, which a cleanup of the build names as it removes
-    /// them, reading none of them again (2.8 T5 as amended in 2.9).
+    /// was given for this analysis kind (E6). The builder hands each step of the build to the
+    /// root record once the step ended whole, and a step it only lists in the index it returns is
+    /// recorded when the build returns, each once and as ``recordStep(_:)`` records it, so a cancel
+    /// later in the finalize keeps them (2.9 R6). The index this returns lists no step, so add its outputs and
+    /// warnings to the finalization. `recordedFiles` are files the run's records already name with
+    /// a digest and a size, which a cleanup of the build names as it removes them, reading none of
+    /// them again (2.8 T5 as amended in 2.9).
     ///
     /// - Throws: ``AnalysisRunError/noResultIndexer(_:)`` when the executor has no index builder,
-    ///   or the builder's error.
+    ///   or the builder's error. A build that throws keeps the steps it handed over before then.
     public func buildIndex(recordedFiles: [ProvenanceFileDescriptor] = []) async throws -> AnalysisResultIndex {
         guard let indexing else {
             throw AnalysisRunError.noResultIndexer(toolID)
         }
         let logHandler = logHandler
-        return try await indexing.buildIndex(
+        let steps = AnalysisResultIndexStepRecorder(stepRecorder)
+        let index = try await indexing.buildIndex(
             AnalysisResultIndexRequest(
                 toolID: toolID,
                 resultDirectory: rootDirectory,
                 layout: layout,
                 recordedFiles: recordedFiles,
-                log: logHandler
+                log: logHandler,
+                recordStep: { step in steps.record(step) }
             )
         )
+        // A step the builder listed and did not hand over had ended whole by the time it returned.
+        index.steps.forEach(steps.record)
+        return AnalysisResultIndex(outputs: index.outputs, warnings: index.warnings)
     }
 }
