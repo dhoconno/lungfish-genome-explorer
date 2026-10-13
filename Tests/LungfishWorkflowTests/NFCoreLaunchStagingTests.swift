@@ -1,5 +1,4 @@
 import XCTest
-@testable import LungfishCLI
 @testable import LungfishWorkflow
 
 final class NFCoreLaunchStagingTests: XCTestCase {

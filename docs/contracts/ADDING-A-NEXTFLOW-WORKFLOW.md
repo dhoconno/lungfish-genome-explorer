@@ -77,7 +77,7 @@ The Docker wait follows the launch's effective profile. `waitsForDocker(profile:
 | `Tests/LungfishWorkflowTests/NextflowLaunchArgumentsTests.swift` | TaxTriage's arguments byte for byte against `TaxTriagePipeline.buildNextflowLaunchArguments`, for both targets and a user's revision, with and without a work folder, under the profiles nil, `conda` and `local` |
 | `Tests/LungfishWorkflowTests/NextflowViralReconFitTests.swift` | Viral Recon's arguments and environment against `NFCoreRunRequest` for the pinned release, with and without `-resume` and a work folder, for each executor and for a release the user picks |
 
-The Viral Recon fit leaves three differences to the commit that moves its launch. The request writes no `--input` when it has no input and joins several inputs with commas, while `lungfish-cli workflow run` always passes one samplesheet. The command adds its resource-limit config with `-c` after the parameters (`Sources/LungfishCLI/Commands/NFCoreResourceLimits.swift`), where the descriptor writes every `-c` file before `run`. Its catalog still falls back to `3.0.0` when the lock lacks its pin.
+The Viral Recon fit leaves three differences to the commit that moves its launch. The request writes no `--input` when it has no input and joins several inputs with commas, while `lungfish-cli workflow run` always passes one samplesheet. The command adds its resource-limit config with `-c` after the parameters (`Sources/LungfishWorkflow/nf-core/NFCoreResourceLimits.swift`), where the descriptor writes every `-c` file before `run`. Its catalog still falls back to `3.0.0` when the lock lacks its pin.
 
 ## 2. The samplesheet (A16)
 

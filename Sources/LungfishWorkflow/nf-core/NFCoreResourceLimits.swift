@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishWorkflow
 
 /// Translates Lungfish's CPU and memory caps into whatever a given nf-core
 /// release understands.
@@ -16,16 +15,16 @@ import LungfishWorkflow
 /// 72 GB and Nextflow aborts the run with "Process requirement exceeds
 /// available memory" on any ordinary laptop. For those releases the caps are
 /// written into a small config passed with `-c` instead.
-enum NFCoreResourceLimits {
+package enum NFCoreResourceLimits {
     /// The launch adjustments needed for one request.
-    struct Plan {
+    package struct Plan {
         /// The request with unsupported parameters removed.
-        let request: NFCoreRunRequest
+        package let request: NFCoreRunRequest
         /// Config file carrying `process.resourceLimits`, when one is needed.
         let configURL: URL?
 
         /// Appends the `-c` flag for the generated config, if any.
-        func nextflowArguments(base: [String]) -> [String] {
+        package func nextflowArguments(base: [String]) -> [String] {
             guard let configURL else { return base }
             return base + ["-c", configURL.path]
         }
@@ -35,7 +34,7 @@ enum NFCoreResourceLimits {
     static let maxMemoryParameter = "max_memory"
 
     /// Builds the plan, writing a config into `directory` when required.
-    static func plan(for request: NFCoreRunRequest, in directory: URL) throws -> Plan {
+    package static func plan(for request: NFCoreRunRequest, in directory: URL) throws -> Plan {
         guard usesResourceLimits(workflow: request.workflow.name, version: request.version) else {
             return Plan(request: request, configURL: nil)
         }
