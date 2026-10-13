@@ -150,7 +150,8 @@ public actor NCBIService: DatabaseService {
     // MARK: - Properties
 
     public nonisolated let name = "NCBI"
-    public nonisolated let baseURL = URL(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/")!
+    public nonisolated let baseURL: URL
+    private nonisolated let datasetsOrigin: String
 
     private let httpClient: HTTPClient
     private let apiKey: String?
@@ -176,7 +177,11 @@ public actor NCBIService: DatabaseService {
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
     ) {
-        let resolvedAPIKey = NCBIAPIKeyResolver.resolve(explicitAPIKey: apiKey, environment: environment)
+        // A debug build may name a loopback stand-in, which gets no key whatever the environment holds.
+        let endpoints = NCBIServiceEndpoints(environment: environment)
+        let resolvedAPIKey = endpoints.isStandIn ? nil : NCBIAPIKeyResolver.resolve(explicitAPIKey: apiKey, environment: environment)
+        self.baseURL = endpoints.eutilsBase
+        self.datasetsOrigin = endpoints.datasetsOrigin
         self.apiKey = resolvedAPIKey
         self.httpClient = httpClient
         self.retryPolicy = retryPolicy
@@ -552,7 +557,7 @@ public actor NCBIService: DatabaseService {
         releasedSince: String? = nil
     ) async throws -> SearchResults {
         let encodedTaxon = taxon.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taxon
-        var urlString = "https://api.ncbi.nlm.nih.gov/datasets/v2/virus/taxon/\(encodedTaxon)/dataset_report?page_size=\(pageSize)"
+        var urlString = "\(datasetsOrigin)/datasets/v2/virus/taxon/\(encodedTaxon)/dataset_report?page_size=\(pageSize)"
 
         if let pageToken {
             if let encoded = pageToken.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
@@ -968,7 +973,7 @@ public actor NCBIService: DatabaseService {
         progressHandler: @escaping @Sendable (Int64, Int64?) -> Void
     ) async throws -> DatasetsDownloadResult {
         // Construct Datasets API URL for FASTA + GFF3
-        let urlString = "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/\(accession)/download?include_annotation_type=GENOME_FASTA,GENOME_GFF"
+        let urlString = "\(datasetsOrigin)/datasets/v2/genome/accession/\(accession)/download?include_annotation_type=GENOME_FASTA,GENOME_GFF"
         guard let url = URL(string: urlString) else {
             throw DatabaseServiceError.parseError(message: "Invalid Datasets API URL for \(accession)")
         }
