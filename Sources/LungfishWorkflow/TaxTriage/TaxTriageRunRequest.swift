@@ -44,6 +44,9 @@ package struct TaxTriageRunRequest: Sendable {
     /// Why the flags that name the result's place cannot run together, such as `--project` with
     /// `--output`, which the plan refuses first, before any folder exists. Nil for none.
     package var usageConflict: String?
+    /// Whether the result goes to a project with `--project`, whose completed samples then record the run
+    /// in their source bundles, as Kraken2's do (B30 ruling Q2).
+    package var destinationIsProject: Bool
 
     package init(
         inputs: [String] = [],
@@ -55,7 +58,8 @@ package struct TaxTriageRunRequest: Sendable {
         revision: String? = nil,
         extraArguments: String = "",
         settings: TaxTriageConfig,
-        usageConflict: String? = nil
+        usageConflict: String? = nil,
+        destinationIsProject: Bool = false
     ) {
         self.inputs = inputs
         self.input2 = input2
@@ -67,6 +71,7 @@ package struct TaxTriageRunRequest: Sendable {
         self.extraArguments = extraArguments
         self.settings = settings
         self.usageConflict = usageConflict
+        self.destinationIsProject = destinationIsProject
     }
 
     /// A request of one `--input`, or of none when `input` is nil, as the command took it before 2.10 T6.

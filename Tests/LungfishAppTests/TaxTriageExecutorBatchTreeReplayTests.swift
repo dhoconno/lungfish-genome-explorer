@@ -8,8 +8,9 @@
 // `metadata.csv`, and follow it as B30 adds each fact.
 //
 // - Source records (X4). Since B30 M1 each completed sample's bundle records the run once in its
-//   `analyses-manifest.json`, as a Kraken2 result in a project does, a failed sample's bundle records nothing,
-//   and a result outside the project records nothing. At the base no bundle recorded the run.
+//   `analyses-manifest.json`, as a Kraken2 `--project` result does, and a failed sample's bundle records nothing.
+//   A plain `--output` result records nothing, outside the project or in its `Analyses/` folder (B30 ruling Q2).
+//   At the base no bundle recorded the run.
 // - The aggregate result (X3). Today the batch root holds no `taxtriage-result.json`, each sample keeps its own.
 // - The control mark (T4). Since B30 M2 the control's result marks its sample, `isNegativeControl` true, from its
 //   bundle's role, and `--negative-control` marks the sample it names, whose record names it as an explicit option.
@@ -122,6 +123,24 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
             XCTAssertFalse(
                 FileManager.default.fileExists(atPath: bundle(sample, in: project).appendingPathComponent(AnalysisManifest.filename).path),
                 "a result outside the project's Analyses folder is no entry of \(sample)'s bundle"
+            )
+        }
+    }
+
+    func testAnOutputBatchInTheAnalysesFolderRecordsNothingInTheBundles() async throws {
+        let engine = try makeEngine()
+        let project = try makeProject()
+        let imports = project.appendingPathComponent("Imports", isDirectory: true)
+        let output = project.appendingPathComponent("Analyses/cli-batch", isDirectory: true)
+
+        let (code, lines) = try await run(["--input", imports.path, "--output", output.path, "--batch"], engine: engine)
+
+        XCTAssertEqual(code, 0, lines.joined(separator: "\n"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.appendingPathComponent("\(Self.controlSample)/taxtriage-result.json").path))
+        for sample in Self.samples {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: bundle(sample, in: project).appendingPathComponent(AnalysisManifest.filename).path),
+                "an --output result records nothing in its inputs' bundles, as Kraken2's (B30 ruling Q2), \(sample)"
             )
         }
     }

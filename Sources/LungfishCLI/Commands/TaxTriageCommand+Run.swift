@@ -345,9 +345,14 @@ extension TaxTriageCommand {
         /// arguments, so the configuration's values for those four are never read.
         func runRequest(usageConflict: String? = nil) -> TaxTriageRunRequest {
             let destinationURL: URL
+            let destinationIsProject: Bool
             switch resultDestination().0 {
-            case .project(let url), .directory(let url):
+            case .project(let url):
                 destinationURL = url
+                destinationIsProject = true
+            case .directory(let url):
+                destinationURL = url
+                destinationIsProject = false
             }
             return TaxTriageRunRequest(
                 inputs: inputs,
@@ -359,7 +364,8 @@ extension TaxTriageCommand {
                 revision: revision,
                 extraArguments: extraArgs,
                 settings: settingsConfig(samples: [], outputDirectory: destinationURL, extraArguments: []),
-                usageConflict: usageConflict
+                usageConflict: usageConflict,
+                destinationIsProject: destinationIsProject
             )
         }
 

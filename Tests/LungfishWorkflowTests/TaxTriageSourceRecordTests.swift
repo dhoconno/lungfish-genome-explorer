@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B30 M1 (parity X4, panel R1). The executor's finalize gives each completed sample of a result in
-// its project's `Analyses/` folder one `analyses-manifest.json` entry in its source bundle, as Kraken2's finalize
-// records a result in a project, so the GUI's own manifest writer can go when its route moves onto the command (U30).
-// These cases read `TaxTriageAnalysisRunTool.sourceRecords(for:context:)` alone, with no run.
+// Phase 2.10 lane B30 M1 (parity X4, panel R1). The executor's finalize gives each completed sample of a `--project`
+// result one `analyses-manifest.json` entry in its source bundle, as Kraken2's finalize records a result in a project,
+// so the GUI's own manifest writer can go when its route moves onto the command (U30). A plain `--output` result
+// records nothing, in the project's `Analyses/` folder too (B30 ruling Q2). These cases read
+// `TaxTriageAnalysisRunTool.sourceRecords(for:context:destinationIsProject:)` alone, with no run.
 // `TaxTriageExecutorBatchTreeReplayTests` runs the command on the stand-in engine.
 
 import Foundation
@@ -37,7 +38,11 @@ final class TaxTriageSourceRecordTests: XCTestCase {
             try report(3, sample: "D", reads: bundleReads("D"), completed: true),
         ]
 
-        let records = TaxTriageAnalysisRunTool.sourceRecords(for: units, context: context(root: batch, layout: .batchRoot))
+        let records = TaxTriageAnalysisRunTool.sourceRecords(
+            for: units,
+            context: context(root: batch, layout: .batchRoot),
+            destinationIsProject: true
+        )
 
         let entries = records.compactMap { $0 as? AnalysisManifestSourceRecord }
         XCTAssertEqual(entries.count, records.count, "every record is an analyses-manifest.json entry")
@@ -57,7 +62,11 @@ final class TaxTriageSourceRecordTests: XCTestCase {
         let batch = try analysisFolder("taxtriage-batch-2026-10-13T10-00-00")
         let units = [try report(0, sample: "A", reads: bundleReads("A"), completed: true, directory: batch)]
 
-        let records = TaxTriageAnalysisRunTool.sourceRecords(for: units, context: context(root: batch, layout: .sharedBatchRoot))
+        let records = TaxTriageAnalysisRunTool.sourceRecords(
+            for: units,
+            context: context(root: batch, layout: .sharedBatchRoot),
+            destinationIsProject: true
+        )
 
         XCTAssertEqual(records.compactMap { ($0 as? AnalysisManifestSourceRecord)?.bundleURL.lastPathComponent }, ["A.lungfishfastq"])
     }
@@ -68,13 +77,37 @@ final class TaxTriageSourceRecordTests: XCTestCase {
         let units = [try report(0, sample: "A", reads: bundleReads("A"), completed: true)]
 
         XCTAssertTrue(
-            TaxTriageAnalysisRunTool.sourceRecords(for: units, context: context(root: elsewhere, layout: .batchRoot, project: nil)).isEmpty,
+            TaxTriageAnalysisRunTool.sourceRecords(
+                for: units,
+                context: context(root: elsewhere, layout: .batchRoot, project: nil),
+                destinationIsProject: true
+            ).isEmpty,
             "a result in no project is no entry of any bundle"
         )
         XCTAssertTrue(
-            TaxTriageAnalysisRunTool.sourceRecords(for: units, context: context(root: inProject, layout: .batchRoot)).isEmpty,
+            TaxTriageAnalysisRunTool.sourceRecords(
+                for: units,
+                context: context(root: inProject, layout: .batchRoot),
+                destinationIsProject: true
+            ).isEmpty,
             "an entry names its folder below the project's Analyses folder, so a result elsewhere in the project records nothing"
         )
+    }
+
+    func testAnOutputResultInTheAnalysesFolderRecordsNothing() throws {
+        let batch = try analysisFolder("cli-batch")
+        let units = [
+            try report(0, sample: "A", reads: bundleReads("A"), completed: true),
+            try report(1, sample: "B", reads: bundleReads("B"), completed: true),
+        ]
+
+        let records = TaxTriageAnalysisRunTool.sourceRecords(
+            for: units,
+            context: context(root: batch, layout: .batchRoot),
+            destinationIsProject: false
+        )
+
+        XCTAssertTrue(records.isEmpty, "a plain --output result records nothing in its inputs' bundles, as Kraken2's (B30 ruling Q2)")
     }
 
     func testTheSummaryIsTheResultsSummaryWithoutTheMeasuredRuntime() throws {

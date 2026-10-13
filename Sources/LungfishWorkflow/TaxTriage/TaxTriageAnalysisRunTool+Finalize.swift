@@ -29,8 +29,8 @@ extension TaxTriageAnalysisRunTool {
     /// project does. An index that cannot be built leaves a warning and the result, since the viewer
     /// builds the index when the result opens.
     ///
-    /// Each completed sample of a result in its project's `Analyses/` folder then records the run in
-    /// its source bundle's analysis history (``sourceRecords(for:context:)``, X4), which the executor
+    /// Each completed sample of a `--project` result then records the run in its source bundle's
+    /// analysis history (``sourceRecords(for:context:destinationIsProject:)``, X4), which the executor
     /// writes after the root record.
     package func finalize(
         _ units: [AnalysisUnitReport<TaxTriageUnitResult>],
@@ -59,7 +59,11 @@ extension TaxTriageAnalysisRunTool {
                 "The viewer index could not be built: \(error.localizedDescription). The viewer builds it when the result opens."
             )
         }
-        finalization.sourceRecords = Self.sourceRecords(for: units, context: context)
+        finalization.sourceRecords = Self.sourceRecords(
+            for: units,
+            context: context,
+            destinationIsProject: request.destinationIsProject
+        )
         context.progress(1, Self.databaseStageMessage)
         return finalization
     }
@@ -69,22 +73,25 @@ extension TaxTriageAnalysisRunTool {
     /// The name of the run in a source bundle's analysis history, the one the app's TaxTriage run writes.
     static let sourceRecordDisplayName = "TaxTriage Classification"
 
-    /// X4, as Kraken2's finalize records a result in a project. Each completed sample of a result that
-    /// sits in its project's `Analyses/` folder, every `--project` result among them, gets one entry in
-    /// its source bundle's `analyses-manifest.json`, which names the result folder, so the bundle keeps
-    /// its link to the result (BIO 6). A failed sample records nothing, where the app's in-process route
-    /// records every sample of the request. A sample whose reads belong to no bundle records nothing,
-    /// and a result outside the project's `Analyses/` folder, whose entry would name a folder the
-    /// project does not list, records nothing.
+    /// X4, as Kraken2's finalize records a result in a project. Each completed sample of a `--project`
+    /// result gets one entry in its source bundle's `analyses-manifest.json`, which names the result
+    /// folder, so the bundle keeps its link to the result (BIO 6). A plain `--output` result records
+    /// nothing, with or without `--batch` and wherever its folder sits, as Kraken2's does, since a
+    /// folder the run did not make for the project may hold another result (B30 ruling Q2). A failed
+    /// sample records nothing, where the app's in-process route records every sample of the request. A
+    /// sample whose reads belong to no bundle records nothing, and so does a result outside the
+    /// project's `Analyses/` folder, whose entry would name a folder the project does not list.
     ///
     /// The entry carries the sample's settings as the app's does (``TaxTriageConfig/summaryParameters()``)
     /// and the summary of the sample's own result without the runtime it measured, which the sample's
     /// record holds, so a replay of the command writes the same entry (2.7 T2, QA 5).
     static func sourceRecords(
         for units: [AnalysisUnitReport<TaxTriageUnitResult>],
-        context: AnalysisRunFinalizeContext
+        context: AnalysisRunFinalizeContext,
+        destinationIsProject: Bool
     ) -> [any AnalysisSourceRecord] {
-        guard let projectURL = context.projectURL,
+        guard destinationIsProject,
+              let projectURL = context.projectURL,
               AnalysisManifestStore.analysisDirectoryPath(for: context.rootDirectory, projectURL: projectURL) != nil else {
             return []
         }
