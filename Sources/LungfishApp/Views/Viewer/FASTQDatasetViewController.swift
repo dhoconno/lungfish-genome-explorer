@@ -1230,10 +1230,11 @@ public final class FASTQDatasetViewController: NSViewController {
     /// there, so a preview of a large file never reads past them. Both previews
     /// use it and neither writes a file. Quality is fixed at Phred+33, as the
     /// read preview has always computed Mean Q, instead of guessed from the
-    /// first record.
+    /// first record. Lines have no length limit, as with seqkit, so an
+    /// ultra-long Nanopore read does not turn the preview into a failure.
     nonisolated static func firstRecords(from url: URL, limit: Int) async throws -> [FASTQRecord] {
         let wanted = max(1, limit)
-        let reader = FASTQReader(encoding: .phred33, validateSequence: false)
+        let reader = FASTQReader(encoding: .phred33, validateSequence: false, maxLineLength: .max)
         var records: [FASTQRecord] = []
         records.reserveCapacity(min(wanted, 1_024))
         for try await record in reader.records(from: url) {

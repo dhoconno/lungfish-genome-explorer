@@ -440,6 +440,23 @@ final class FASTQDatasetPreviewTests: XCTestCase {
         }
     }
 
+    func testARecordOfOverAMillionBasesIsPreviewed() async throws {
+        // seqkit read lines of any length, so an ultra-long Nanopore read among the first 1,000 must not turn
+        // the preview into a failure text. The reader's default limit is 1,000,000 characters a line.
+        let length = 1_100_000
+        let bases = String(repeating: "ACGT", count: length / 4)
+        let fastq = "@ultra_long\n\(bases)\n+\n\(String(repeating: "I", count: length))\n@short\nACGT\n+\nIIII\n"
+        let dataset = try Fixture.makeDataset(in: root, fastq: fastq)
+        for url in [dataset.plain, dataset.gzip] {
+            let controller = try await Fixture.readPreview(of: url)
+            XCTAssertEqual(controller.readPreviewRecords.map(\.readID), ["ultra_long", "short"], url.lastPathComponent)
+            XCTAssertEqual(controller.readPreviewRecords.first?.length, length, url.lastPathComponent)
+            let fasta = try await FASTQDatasetViewController.buildFASTAPreview(from: url, readLimit: 1_000)
+            XCTAssertTrue(fasta.hasPrefix(">ultra_long\nACGTACGT"), url.lastPathComponent)
+            XCTAssertTrue(fasta.hasSuffix(">short\nACGT\n"), url.lastPathComponent)
+        }
+    }
+
     func testStoppingAtTheLimitLeavesNoGzipChildBehind() async throws {
         // About 10 MB once decompressed, far more than the 64 KB a pipe holds, so a child that is not stopped
         // would sit blocked on its output for good.
