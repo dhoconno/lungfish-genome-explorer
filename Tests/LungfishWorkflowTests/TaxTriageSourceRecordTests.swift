@@ -110,19 +110,25 @@ final class TaxTriageSourceRecordTests: XCTestCase {
         XCTAssertTrue(records.isEmpty, "a plain --output result records nothing in its inputs' bundles, as Kraken2's (B30 ruling Q2)")
     }
 
-    func testTheSummaryIsTheResultsSummaryWithoutTheMeasuredRuntime() throws {
-        let unit = try report(0, sample: "A", reads: bundleReads("A"), completed: true)
+    func testTheSummaryIsTheResultsSummaryAsTheAppWritesIt() throws {
+        let batch = try analysisFolder("taxtriage-batch-2026-10-13T10-00-00")
+        let unit = try report(0, sample: "A", reads: bundleReads("A"), completed: true, directory: batch)
         let result = try XCTUnwrap(unit.outcome.result?.result)
 
-        let summary = TaxTriageAnalysisRunTool.manifestSummary(of: result)
-
-        XCTAssertTrue(result.summary.contains("Runtime: 12.3s"), result.summary)
-        XCTAssertEqual(
-            summary,
-            result.summary.components(separatedBy: "\n").filter { $0 != "Runtime: 12.3s" }.joined(separator: "\n"),
-            "every line of the app's summary but the runtime, which the sample's record holds"
+        let records = TaxTriageAnalysisRunTool.sourceRecords(
+            for: [unit],
+            context: context(root: batch, layout: .sharedBatchRoot),
+            destinationIsProject: true
         )
-        XCTAssertTrue(summary.hasPrefix("TaxTriage pipeline completed successfully\nSamples: 1\nReports: 1"), summary)
+
+        let entry = try XCTUnwrap(records.first as? AnalysisManifestSourceRecord)
+        XCTAssertEqual(entry.summary, result.summary, "the app's summary, runtime included (B30 ruling Q1, vote V-B30)")
+        XCTAssertTrue(entry.summary.contains("\nRuntime: 12.3s\n"), entry.summary)
+        XCTAssertEqual(
+            entry.summary,
+            "TaxTriage pipeline completed successfully\nRuntime: 12.3s\nSamples: 1\nReports: 1\nMetrics: 0\nTotal output files: 0",
+            "the words of the entry, whose first two lines the Inspector's Analyses section shows"
+        )
     }
 
     // MARK: - Helpers

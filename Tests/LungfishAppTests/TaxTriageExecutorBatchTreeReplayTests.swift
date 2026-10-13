@@ -10,6 +10,7 @@
 // - Source records (X4). Since B30 M1 each completed sample's bundle records the run once in its
 //   `analyses-manifest.json`, as a Kraken2 `--project` result does, and a failed sample's bundle records nothing.
 //   A plain `--output` result records nothing, outside the project or in its `Analyses/` folder (B30 ruling Q2).
+//   The entry's summary is the app's, its measured runtime included (B30 ruling Q1, vote V-B30).
 //   At the base no bundle recorded the run.
 // - The aggregate result (X3). Today the batch root holds no `taxtriage-result.json`, each sample keeps its own.
 // - The control mark (T4). Since B30 M2 the control's result marks its sample, `isNegativeControl` true, from its
@@ -146,7 +147,7 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
     }
 
     /// `bundle`'s analysis history holds one entry, the run in `batch` with `sample`'s settings and the summary of
-    /// its result without the runtime it measured, as the app's route words it.
+    /// its result as the app's route words it, runtime included (B30 ruling Q1, vote V-B30).
     private func assertRecordsTheRun(_ bundle: URL, project: URL, batch: URL, sample: String) throws {
         let entries = AnalysisManifestStore.load(bundleURL: bundle, projectURL: project).analyses
         XCTAssertEqual(entries.count, 1, "\(sample)'s bundle records the run once")
@@ -157,9 +158,8 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
         XCTAssertEqual(entry.displayName, "TaxTriage Classification", "the app's route's name for the run")
         XCTAssertEqual(entry.status, .completed, sample)
         XCTAssertEqual(entry.parameters, result.config.summaryParameters(), "\(sample)'s entry names its settings")
-        XCTAssertTrue(entry.summary.hasPrefix("TaxTriage pipeline completed"), entry.summary)
-        XCTAssertTrue(entry.summary.contains("Samples: 1"), entry.summary)
-        XCTAssertFalse(entry.summary.contains("Runtime:"), "no measured runtime, so a replay writes the same entry: \(entry.summary)")
+        XCTAssertEqual(entry.summary, result.summary, "the app's summary, runtime included")
+        XCTAssertTrue(entry.summary.hasPrefix("TaxTriage pipeline completed successfully\nRuntime: "), entry.summary)
     }
 
     // MARK: - X7

@@ -83,8 +83,8 @@ extension TaxTriageAnalysisRunTool {
     /// project's `Analyses/` folder, whose entry would name a folder the project does not list.
     ///
     /// The entry carries the sample's settings as the app's does (``TaxTriageConfig/summaryParameters()``)
-    /// and the summary of the sample's own result without the runtime it measured, which the sample's
-    /// record holds, so a replay of the command writes the same entry (2.7 T2, QA 5).
+    /// and the summary of the sample's result as the app writes it, `TaxTriageResult.summary` with the
+    /// runtime it measured (B30 ruling Q1, vote V-B30). The TaxTriage parity masks only that number.
     static func sourceRecords(
         for units: [AnalysisUnitReport<TaxTriageUnitResult>],
         context: AnalysisRunFinalizeContext,
@@ -103,7 +103,7 @@ extension TaxTriageAnalysisRunTool {
                     bundleURL: bundle,
                     displayName: sourceRecordDisplayName,
                     parameters: result.config.summaryParameters(),
-                    summary: manifestSummary(of: result)
+                    summary: result.summary
                 )
             }
         }
@@ -118,13 +118,5 @@ extension TaxTriageAnalysisRunTool {
             return bundle
         }
         return MappingResultLayoutService.findSourceBundle(for: sample.allFiles)
-    }
-
-    /// The summary of a sample's result as the app's route words it, without its `Runtime:` line.
-    static func manifestSummary(of result: TaxTriageResult) -> String {
-        result.summary
-            .components(separatedBy: "\n")
-            .filter { !$0.hasPrefix("Runtime: ") }
-            .joined(separator: "\n")
     }
 }

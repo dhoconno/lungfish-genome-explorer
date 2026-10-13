@@ -53,9 +53,11 @@ extension TaxTriageParityKnownDifferences {
         pairAC([.x4: 1], "source manifest: only in A: *",
                "X4. The GUI records the run in the analyses-manifest.json of every sample of the request, the failed one too (completeTaxTriageRun). Since B30 M1 the command records each completed sample only, as Kraken2 does",
                closedBy: guiRoute),
-        pairAC([.x1: 1, .x2: 1, .x3: 2, .x4: 1, .x5: 1, .x7: 1], "source manifest: differs: *",
-               "The entries agree but for their summary. The GUI's names the runtime it measured and, for several samples, the batch's counts. The command's is the sample's own summary without the runtime, which the sample's record holds, so a replay writes the same entry (B30 M1, QA 5), as the Kraken2 and EsViritu entries hold no runtime",
-               closedBy: guiRoute),
+        // B30 ruling Q1 and vote V-B30. Both entries hold the app's summary with its runtime, whose number the
+        // source-manifest compare masks (TaxTriageParityComparison.sourceManifestPolicy), so one-sample cases agree.
+        pairAC([.x3: 2, .x4: 1], "source manifest: differs: *",
+               "The GUI's entry holds the serial batch's summary, its counts and for X4 its warning state and failed sample, where the command's holds each sample's own",
+               closedBy: "B30 M3, whose batch root's entries carry the summary of its aggregate result"),
         pairAC([.x3: 1, .x4: 1], "analysis: only in A: taxtriage-result.json",
                "The GUI's serial batch writes an aggregate result at its batch root. The executor's batch root keeps each sample's result in the sample's folder and writes none at the root",
                closedBy: guiRoute),
