@@ -2,24 +2,16 @@ import AppKit
 import XCTest
 @testable import LungfishCore
 @testable import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class MetadataColumnPersistenceTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private var suiteName: String!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var defaults: UserDefaults { preferencesSuite.defaults }
 
     override func setUp() {
         super.setUp()
-        suiteName = "MetadataColumnPersistenceTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-    }
-
-    override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
-        defaults = nil
-        suiteName = nil
-        super.tearDown()
+        preferencesSuite = makeTestDefaultsSuite(prefix: "MetadataColumnPersistenceTests")
     }
 
     func testResultLayoutRestoresSelectedMetadataAndCompleteColumnOrder() throws {

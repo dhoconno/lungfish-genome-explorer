@@ -3,6 +3,7 @@ import SwiftUI
 import XCTest
 @testable import LungfishCore
 @testable import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class ContentTypographyTests: XCTestCase {
@@ -322,13 +323,9 @@ final class ContentTypographyTests: XCTestCase {
 
     func testGenomicSummaryCardsScaleAndRecoverWithAdaptiveHeight() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "ContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         let bar = TestGenomicSummaryCardBar()
         bar.setContentPreferredFontProvider(StubPreferredFontProvider())
 
@@ -350,13 +347,9 @@ final class ContentTypographyTests: XCTestCase {
 
     func testGenomicSummaryCardsReflowAtTwoHundredPercentAndExposeFullAccessibility() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "ContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(200)
         settings.save()
         let bar = FourCardGenomicSummaryCardBar(
@@ -379,13 +372,9 @@ final class ContentTypographyTests: XCTestCase {
 
     func testGenomicSummaryCardsWrapLongValuesAndInvalidateAfterCardMutation() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "ContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(200)
         let bar = MutableGenomicSummaryCardBar(
             frame: NSRect(x: 0, y: 0, width: 180, height: 48)
@@ -519,13 +508,9 @@ final class ContentTypographyTests: XCTestCase {
 
     func testViewApplicatorScalesPersistentTextAndTableGeometryWithoutCompounding() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "ContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         let label = NSTextField(labelWithString: "Primary detail")
         label.font = .systemFont(ofSize: 14, weight: .bold)
@@ -562,13 +547,9 @@ final class ContentTypographyTests: XCTestCase {
 
     func testViewApplicatorDoesNotTraverseEveryOutlineItemToPreserveExpansion() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "ContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         let dataSource = CountingOutlineDataSource(rowCount: 500)
         let outline = CountingItemLookupOutlineView(
@@ -597,13 +578,9 @@ final class ContentTypographyTests: XCTestCase {
 
     func testSemanticallyResolvedMetadataFontUsesInjectedPreferredBodyExactlyOnce() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "ContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         let provider = EnlargedBodyPreferredFontProvider()
         let root = NSView()
         let field = ResolvedMetadataTestTextField(
@@ -640,13 +617,9 @@ final class ContentTypographyTests: XCTestCase {
         label.font = .systemFont(ofSize: 13)
         root.addSubview(label)
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "ContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         var applicationCount = 0
 

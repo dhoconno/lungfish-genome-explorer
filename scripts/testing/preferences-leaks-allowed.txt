@@ -17,15 +17,12 @@
 
 LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
-LungfishTypographyTests                 Tests/LungfishKitTests/BatchTableViewTests.swift
-LungfishTypographyTests                 Tests/LungfishKitTests/ContentTypographyTests.swift
 LungfishTypographyTests                 Tests/LungfishNaoMgsUITests/NaoMgsResultViewControllerSmokeTests.swift
 LungfishTypographyTests                 Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishPhylogeneticsUITests/LungfishPhylogeneticsUISmokeTests.swift
 LungfishTypographyTests                 Tests/LungfishTaxTriageUITests/TaxTriageContentTypographyTests.swift
 LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSAmpliconResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSTableViewTests.swift
-MetadataColumnPersistenceTests          Tests/LungfishKitTests/MetadataColumnPersistenceTests.swift
 NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 TaxTriageFilterAlignment                Tests/LungfishTaxTriageUITests/TaxTriageDatabaseModeTests.swift
 TaxTriageLayoutTests                    Tests/LungfishTaxTriageUITests/TaxTriageResultViewControllerSmokeTests.swift
