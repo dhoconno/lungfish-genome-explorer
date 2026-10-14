@@ -191,7 +191,7 @@ Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleContract.swift 1231
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift 930
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift 1055
-Sources/LungfishWorkflow/Provenance/GUIImportedProvenanceRehydrator.swift 945
+Sources/LungfishWorkflow/Provenance/GUIImportedProvenanceRehydrator.swift 926
 Sources/LungfishWorkflow/Provenance/ProvenanceExporter.swift 1604
 Sources/LungfishWorkflow/Provenance/ProvenancePublicationSnapshot.swift 862
 Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift 1514
