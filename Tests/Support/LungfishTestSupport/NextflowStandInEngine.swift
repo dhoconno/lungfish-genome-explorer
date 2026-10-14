@@ -48,9 +48,10 @@ public struct NextflowStandInEngine: Sendable {
         /// of these samples, and completes otherwise. A serial batch launches one sample at a
         /// time, so this fails one sample of the batch.
         case failsSamples(Set<String>)
-        /// Writes the outputs, reports one alignment task per sample that failed with exit 137
-        /// and was ignored, in trace.txt and in the log, and exits 0, as TaxTriage's ignore
-        /// strategy does.
+        /// Writes the outputs, reports the workflow's `ignoredFailureProcessName` task of each
+        /// sample as failed with exit 137 and ignored, in trace.txt and in the log, and exits 0,
+        /// as TaxTriage's ignore strategy does. Viral Recon's release ignores no failure, so its
+        /// case is the stand-in's own (`NextflowStandInWorkflow.viralRecon`).
         case reportsErroredTasks
         /// Waits once the launch is marked started. A signal ends it, `release()` lets it complete,
         /// `stopLeftoverProcesses()` ends it with 143, and it gives up with 124 after the
