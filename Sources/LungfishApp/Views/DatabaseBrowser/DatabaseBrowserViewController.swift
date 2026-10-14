@@ -2429,121 +2429,14 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             )
 
                         case .pathoplexus:
-                            // Check if this record has an INSDC accession for GenBank retrieval
-                            let pathoplexusService = PathoplexusService()
-                            let ppMeta = try await pathoplexusService.fetchMetadataForAccession(
-                                organism: ppOrganism,
-                                accession: normalizedRecordAccession
+                            // A Pathoplexus row builds its bundle in the batch folder (lane A45,
+                            // DatabaseBrowserViewModel+PathoplexusRowDownload.swift).
+                            fileURL = try await Self.downloadPathoplexusRow(
+                                record, index: index, totalCount: totalCount,
+                                operationID: downloadCenterTaskID, organism: ppOrganism,
+                                genBankVM: genBankVM, includeGFF3Annotations: includeGFF3Annotations,
+                                batchFolder: batchFolder
                             )
-
-                            if ppMeta?.dataUseTerms?.uppercased() == DataUseTerms.restricted.rawValue {
-                                throw DatabaseServiceError.invalidQuery(
-                                    reason: "Record \(normalizedRecordAccession) is restricted and cannot be downloaded"
-                                )
-                            } else if let insdcAccession = ppMeta?.bestINSDCAccession?.trimmingCharacters(in: .whitespacesAndNewlines), !insdcAccession.isEmpty {
-                                // Prefer INSDC GenBank retrieval for rich annotations; if unavailable,
-                                // fall back to direct Pathoplexus FASTA so the sample still downloads.
-                                logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has INSDC accession \(insdcAccession, privacy: .public), fetching from GenBank")
-                                do {
-                                    performOnMainRunLoop {
-                                        _ = DownloadCenter.shared.update(
-                                            id: downloadCenterTaskID,
-                                            progress: progressFraction,
-                                            detail: "Fetching GenBank record \(insdcAccession)..."
-                                        )
-                                    }
-
-                                    let bundleURL = try await genBankVM.downloadAndBuild(
-                                        accession: insdcAccession,
-                                        outputDirectory: try batchFolder.url(),
-                                        includeGFF3Annotations: includeGFF3Annotations
-                                    ) { progress, message in
-                                        let overall = (Double(index) + progress) / Double(totalCount)
-                                        performOnMainRunLoop {
-                                            _ = DownloadCenter.shared.update(
-                                                id: downloadCenterTaskID,
-                                                progress: overall,
-                                                detail: "\(insdcAccession): \(message)"
-                                            )
-                                        }
-                                    }
-
-                                    // Append Pathoplexus metadata to the bundle manifest
-                                    if let meta = ppMeta {
-                                        appendPathoplexusMetadata(meta, organism: ppOrganism, toBundleAt: bundleURL)
-                                    }
-
-                                    fileURL = bundleURL
-                                    logger.info("performBatchDownload: Built GenBank bundle from Pathoplexus INSDC at \(bundleURL.path, privacy: .public)")
-                                } catch {
-                                    logger.warning("performBatchDownload: INSDC fetch failed for \(record.accession, privacy: .public) (\(insdcAccession, privacy: .public)); falling back to Pathoplexus FASTA. Error: \(error.localizedDescription, privacy: .public)")
-                                    performOnMainRunLoop {
-                                        _ = DownloadCenter.shared.update(
-                                            id: downloadCenterTaskID,
-                                            progress: progressFraction,
-                                            detail: "GenBank unavailable for \(record.accession); falling back to FASTA..."
-                                        )
-                                    }
-
-                                    let dbRecord = try await pathoplexusService.fetch(accession: record.accession, organism: ppOrganism)
-                                    let bundleURL = try await genBankVM.buildBundleFromSequence(
-                                        accession: dbRecord.accession,
-                                        title: dbRecord.title,
-                                        sequence: dbRecord.sequence,
-                                        outputDirectory: try batchFolder.url(),
-                                        sourceDatabase: "Pathoplexus",
-                                        sourceURL: URL(string: "https://pathoplexus.org/\(ppOrganism)/search?accession=\(dbRecord.accession)"),
-                                        notes: "Generated from Pathoplexus FASTA fallback after INSDC lookup failed"
-                                    ) { progress, message in
-                                        let overall = (Double(index) + progress) / Double(totalCount)
-                                        performOnMainRunLoop {
-                                            _ = DownloadCenter.shared.update(
-                                                id: downloadCenterTaskID,
-                                                progress: overall,
-                                                detail: "\(dbRecord.accession): \(message)"
-                                            )
-                                        }
-                                    }
-                                    if let meta = ppMeta {
-                                        appendPathoplexusMetadata(meta, organism: ppOrganism, toBundleAt: bundleURL)
-                                    }
-                                    fileURL = bundleURL
-                                }
-                            } else {
-                                // No INSDC accession — download FASTA only from Pathoplexus
-                                logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has no INSDC accession, building bundle from Pathoplexus FASTA")
-                                performOnMainRunLoop {
-                                    _ = DownloadCenter.shared.update(
-                                        id: downloadCenterTaskID,
-                                        progress: progressFraction,
-                                        detail: "Building bundle from Pathoplexus sequence for \(record.accession)..."
-                                    )
-                                }
-
-                                let dbRecord = try await pathoplexusService.fetch(accession: normalizedRecordAccession, organism: ppOrganism)
-                                let bundleURL = try await genBankVM.buildBundleFromSequence(
-                                    accession: dbRecord.accession,
-                                    title: dbRecord.title,
-                                    sequence: dbRecord.sequence,
-                                    outputDirectory: try batchFolder.url(),
-                                    sourceDatabase: "Pathoplexus",
-                                    sourceURL: URL(string: "https://pathoplexus.org/\(ppOrganism)/search?accession=\(dbRecord.accession)"),
-                                    notes: "Generated from Pathoplexus sequence (no INSDC accession available)"
-                                ) { progress, message in
-                                    let overall = (Double(index) + progress) / Double(totalCount)
-                                    performOnMainRunLoop {
-                                        _ = DownloadCenter.shared.update(
-                                            id: downloadCenterTaskID,
-                                            progress: overall,
-                                            detail: "\(dbRecord.accession): \(message)"
-                                        )
-                                    }
-                                }
-                                if let meta = ppMeta {
-                                    appendPathoplexusMetadata(meta, organism: ppOrganism, toBundleAt: bundleURL)
-                                }
-                                fileURL = bundleURL
-                            }
 
                         default:
                             throw DatabaseServiceError.invalidQuery(reason: "Unsupported database")
