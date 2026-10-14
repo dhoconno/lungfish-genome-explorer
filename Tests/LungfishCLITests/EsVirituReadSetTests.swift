@@ -126,7 +126,8 @@ final class EsVirituReadSetTests: XCTestCase {
         XCTAssertEqual(run.formatSeen, "interleaved")
         XCTAssertEqual(run.filesSeen, [["u1/1", "u1/2"]])
         XCTAssertNil(run.plan, "a sample of pairs only records no plan")
-        XCTAssertEqual(run.parameters?["readFormat"], .string("interleaved"))
+        XCTAssertEqual(run.options.resolvedDefaults["readFormat"], .string("interleaved"), "the planner's choice (B8)")
+        XCTAssertNil(run.parameters?["readFormat"], "the user chose no format (E12)")
         XCTAssertNil(run.parameters?["requestedReadFormat"], "the run was not changed after it was asked for")
         XCTAssertNotEqual(run.parameters?["inputReadLayout"], .string("mixed_interleaved"))
     }
@@ -163,34 +164,35 @@ final class EsVirituReadSetTests: XCTestCase {
 
     // MARK: - Where the record files the read format and the plan (lane B33, 2.10)
 
-    /// Pins that pass at the base (QA 1). A run that asked for `auto` and was planned to `unpaired` files the
-    /// resolved format among the explicit options beside a default of `auto`, though the user chose no format
-    /// (2.7 E12, B8). The plan reaches its one home only after the unit moved it out of the explicit options
-    /// (E13, B16).
-    func testAnAutoRunFilesTheResolvedFormatAmongTheExplicitOptionsAndTheUnitMovesThePlan() async throws {
+    /// B8 (2.7 E12). A run that asked for `auto` and was planned to `unpaired` files the resolved format under
+    /// the resolved defaults beside a default of `auto`, because the user chose no format. The plan sits in its
+    /// one home and not among the explicit options (E13, B16).
+    func testAnAutoRunFilesTheResolvedFormatUnderResolvedDefaultsAndNotAmongTheExplicitOptions() async throws {
         let run = try await detect(fixtures.subsetOfMerge)
         XCTAssertEqual(run.formatSeen, "unpaired")
         XCTAssertEqual(run.options.defaults["readFormat"], .string("auto"))
-        XCTAssertEqual(run.options.explicit["readFormat"], .string("unpaired"), "the user chose no format")
-        XCTAssertNil(run.options.resolvedDefaults["readFormat"])
+        XCTAssertNil(run.options.explicit["readFormat"], "the user chose no format")
+        XCTAssertEqual(run.options.resolvedDefaults["readFormat"], .string("unpaired"))
         XCTAssertEqual(run.planPlace, .resolvedDefaults)
         XCTAssertNil(run.options.explicit[AnalysisRootRecordOptions.readSetPlanKey])
     }
 
-    /// A format the user gave stays an explicit option with the value the run used, whichever home the
-    /// resolved format has.
+    /// A format the user gave stays an explicit option with the value the user gave, and the resolved format
+    /// is a resolved default beside it.
     func testAGivenFormatStaysAnExplicitOption() async throws {
         let run = try await detect(fixtures.singleRoot, readFormat: "unpaired")
         XCTAssertEqual(run.options.explicit["readFormat"], .string("unpaired"))
+        XCTAssertEqual(run.options.resolvedDefaults["readFormat"], .string("unpaired"))
         XCTAssertEqual(run.options.defaults["readFormat"], .string("auto"))
     }
 
     /// The pipeline's own record of a planned sample, the one a batch or `--project` run keeps in the
-    /// sample's folder, files both the format and the plan among the explicit options today.
-    func testThePipelineRecordOfAPlannedSampleFilesTheFormatAndThePlanAmongTheExplicitOptions() async throws {
+    /// sample's folder, files the resolved format under the resolved defaults (B8). The plan stays among the
+    /// explicit options until B16.
+    func testThePipelineRecordOfAPlannedSampleFilesTheFormatUnderResolvedDefaultsAndThePlanAmongTheExplicitOptions() async throws {
         let record = try await pipelineRecord(of: fixtures.subsetOfMerge)
-        XCTAssertEqual(record.options.explicit["readFormat"], .string("unpaired"))
-        XCTAssertNil(record.options.resolvedDefaults["readFormat"])
+        XCTAssertNil(record.options.explicit["readFormat"])
+        XCTAssertEqual(record.options.resolvedDefaults["readFormat"], .string("unpaired"))
         XCTAssertEqual(record.readSetPlan?.place, .explicitOptions)
         XCTAssertNotNil(record.readSetPlan?.fields["singleReadReason"])
     }

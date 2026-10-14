@@ -44,6 +44,14 @@ extension EsVirituPipeline {
         ]) { current, _ in current }
     }
 
+    /// The options the pipeline's record holds besides its run parameters, which are explicit. The read
+    /// format is the one the run used, a resolved default. A configuration cannot tell a format the user
+    /// chose from one the planner chose, so the executor adds the user's own `--read-format` to the explicit
+    /// options (2.7 E12, B8).
+    static func resolvedRunOptions(for config: EsVirituConfig) -> ProvenanceOptions {
+        ProvenanceOptions(resolvedDefaults: ["readFormat": .string(config.readFormat.rawValue)])
+    }
+
     /// The EsViritu step's input records with the bundle behind each file,
     /// meaning the bundle's manifest, payload and root FASTQ, then the file
     /// EsViritu read. Nil when the files ran as given, or when the lineage

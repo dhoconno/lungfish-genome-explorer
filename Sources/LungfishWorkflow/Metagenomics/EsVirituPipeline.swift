@@ -466,7 +466,6 @@ public actor EsVirituPipeline {
             "qualityFilter": .boolean(config.qualityFilter),
             "threads": .integer(config.threads),
             "pairedEnd": .boolean(config.isPairedEnd),
-            "readFormat": .string(config.readFormat.rawValue),
             "github_release_version": .string(Self.esVirituGithubReleaseVersion),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
         ]
@@ -484,6 +483,7 @@ public actor EsVirituPipeline {
             name: "Viral Metagenomics Detection",
             parameters: provenanceParameters.merging(Self.inputLineageParameters(for: config)) { current, _ in current }
         )
+        let provenanceOptions = Self.resolvedRunOptions(for: config)
 
         // Phase 3: Run EsViritu (0.15 -- 0.85)
         let esVirituArgs = effectiveConfig.esVirituArguments()
@@ -669,7 +669,7 @@ public actor EsVirituPipeline {
             )
             await provenanceRecorder.completeRun(runID, status: .failed)
             do {
-                try await provenanceRecorder.save(runID: runID, to: config.outputDirectory)
+                try await provenanceRecorder.save(runID: runID, to: config.outputDirectory, options: provenanceOptions)
             } catch let provenanceError {
                 throw EsVirituPipelineError.resultSidecarSaveFailed(
                     sidecarURL,
@@ -703,7 +703,7 @@ public actor EsVirituPipeline {
         await provenanceRecorder.completeRun(runID, status: .completed)
 
         do {
-            try await provenanceRecorder.save(runID: runID, to: config.outputDirectory)
+            try await provenanceRecorder.save(runID: runID, to: config.outputDirectory, options: provenanceOptions)
         } catch {
             try? fm.removeItem(at: sidecarURL)
             await provenanceRecorder.completeRun(runID, status: .failed)
