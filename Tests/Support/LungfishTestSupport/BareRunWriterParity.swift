@@ -195,10 +195,11 @@ public enum BareRunWriterParity {
         public static let sraWindowKeepsCLIRecord = Scenario(id: "sra-window-keeps-cli-record", timing: .injected)
 
         // Integration
+        // The typed record the bundle keeps names the bundle, whose folder holds a fresh UUID on every run.
         public static let bamAdoptMapping = Scenario(
             id: "bam-adopt-mapping",
             timing: .clockedRunAndSteps,
-            volatileFileSuffixes: [".bam", ".bai", ".stats.db"]
+            volatileFileSuffixes: [".bam", ".bai", ".stats.db", "/alignments/mapped/mapping-provenance.json"]
         )
 
         public static let all: [Scenario] = [

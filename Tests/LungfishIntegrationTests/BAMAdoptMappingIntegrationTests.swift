@@ -41,11 +41,7 @@ struct BAMAdoptMappingIntegrationTests {
         let stagedBAI = mappingDir.appendingPathComponent("sorted.bam.bai")
         try FileManager.default.copyItem(at: fixture.sourceBAMURL, to: stagedBAM)
         try FileManager.default.copyItem(at: fixture.sourceIndexURL, to: stagedBAI)
-        try "{}".write(
-            to: mappingDir.appendingPathComponent("mapping-provenance.json"),
-            atomically: true,
-            encoding: .utf8
-        )
+        try AdoptableMappingRecord.write(into: mappingDir)
 
         // 3. Run the new subcommand programmatically.
         let cmd = try BAMCommand.AdoptMappingSubcommand.parse([
@@ -119,11 +115,7 @@ struct BAMAdoptMappingIntegrationTests {
             wallClockSeconds: 1,
             contigs: []
         ).save(to: mappingDir)
-        try "{}".write(
-            to: mappingDir.appendingPathComponent("mapping-provenance.json"),
-            atomically: true,
-            encoding: .utf8
-        )
+        try AdoptableMappingRecord.write(into: mappingDir)
 
         let cmd = try BAMCommand.AdoptMappingSubcommand.parse([
             "--bundle", fixture.bundleURL.path,
@@ -170,11 +162,7 @@ struct BAMAdoptMappingIntegrationTests {
         let mappingDir = try project.folder("Analyses/mapping")
         try FileManager.default.copyItem(at: fixture.sourceBAMURL, to: mappingDir.appendingPathComponent("sorted.bam"))
         try FileManager.default.copyItem(at: fixture.sourceIndexURL, to: mappingDir.appendingPathComponent("sorted.bam.bai"))
-        try "{}".write(
-            to: mappingDir.appendingPathComponent("mapping-provenance.json"),
-            atomically: true,
-            encoding: .utf8
-        )
+        try AdoptableMappingRecord.write(into: mappingDir)
 
         let command = try BAMCommand.AdoptMappingSubcommand.parse([
             "--bundle", fixture.bundleURL.path,
@@ -207,5 +195,163 @@ struct BAMAdoptMappingIntegrationTests {
         #expect(problems.isEmpty, "bam-adopt-mapping changed: \(problems)")
         let findings = try BareRunWriterParity.strictFindings(sidecar: sidecar)
         #expect(findings.isEmpty, "bam-adopt-mapping record: \(findings)")
+    }
+
+    // MARK: What an adopted bundle keeps of the run (2.10 A36, 2.8 P5)
+
+    /// A real typed record is saved again for the bundle and is all the bundle keeps of the run. The mapping
+    /// folder's canonical record stays behind (2.8 P5), and so does every other file of the folder.
+    @Test("adopting a real typed record keeps it once, saved again for the bundle")
+    func adoptsRealTypedRecordAndKeepsOnlyIt() async throws {
+        let scratch = try Self.makeScratch("adopt-real-record")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let scene = try Self.makeScene(in: scratch)
+        let mappingDir = try scene.stageMappingFolder()
+        try AdoptableMappingRecord.write(into: mappingDir)
+        let source = try #require(MappingProvenance.load(from: mappingDir), "the golden record decodes")
+        #expect(source.viewerBundlePath == nil, "the run had no viewer bundle yet")
+        let canonicalURL = try source.saveCanonicalEnvelope(to: mappingDir)
+        let filesBefore = Self.files(under: scene.bundleURL)
+
+        try await scene.adopt(mappingDir, name: "real record", trackID: "real-record")
+
+        let filesAfter = Self.files(under: scene.bundleURL)
+        #expect(filesBefore.subtracting(filesAfter).isEmpty, "the bundle lost no file")
+        #expect(
+            filesAfter.subtracting(filesBefore) == [
+                "alignments/mapped/real-record.bam",
+                "alignments/mapped/real-record.bam.bai",
+                "alignments/mapped/real-record.stats.db",
+                "alignments/mapped/real-record.adopt-mapping-provenance.json",
+                "alignments/mapped/mapping-provenance.json",
+            ],
+            "the bundle gained the track, the adopt record and one typed record"
+        )
+        #expect(
+            !filesAfter.contains { ($0 as NSString).lastPathComponent == canonicalURL.lastPathComponent },
+            "the mapping folder's canonical record \(canonicalURL.lastPathComponent) is not carried into the bundle"
+        )
+        let kept = try #require(MappingProvenance.load(from: scene.keptRecordFolder), "the kept record decodes")
+        #expect(
+            kept.viewerBundlePath.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+                == scene.bundleURL.standardizedFileURL.path,
+            "the kept record is rooted at the bundle"
+        )
+        #expect(
+            kept.withViewerBundleURL(nil) == source.withViewerBundleURL(nil),
+            "the kept record holds everything the run wrote"
+        )
+    }
+
+    /// A released build recorded the plan of a mixed sample on the mapper step, and the typed record had no
+    /// plan of its own. Adoption keeps that record as it was, and the one reader finds the same plan in the
+    /// same place before and after.
+    @Test("adopting a released mixed-sample record keeps its plan where the build wrote it")
+    func adoptsReleasedMixedSampleRecord() async throws {
+        let plan = AdoptableMappingRecord.mixedSamplePlan
+        let (before, after) = try await adoptedPlan(of: .mapperStep(plan), trackID: "released-mixed")
+        guard case .stepResolvedOptions = before.place else {
+            Issue.record("the released record keeps its plan on the mapper step, not \(before.place)")
+            return
+        }
+        #expect(before.fields == plan)
+        #expect(after == before, "the plan reads the same from the adopted bundle")
+    }
+
+    /// A build since 2.7 keeps the plan of a mixed sample once, at the typed record's own level, which the one
+    /// reader finds in the resolved defaults (2.7 R, E13).
+    @Test("adopting a record that holds its plan at its own level keeps it there")
+    func adoptsRecordWithItsPlanAtItsOwnLevel() async throws {
+        let plan = AdoptableMappingRecord.mixedSamplePlan
+        let (before, after) = try await adoptedPlan(of: .recordLevel(plan), trackID: "record-level")
+        #expect(before.place == .resolvedDefaults)
+        #expect(before.fields == plan)
+        #expect(after == before, "the plan reads the same from the adopted bundle")
+    }
+
+    // MARK: Helpers
+
+    /// The plan the reader of provenance records finds in the typed record of the mapping folder, and in the
+    /// one the adopted bundle holds.
+    private func adoptedPlan(
+        of planHome: AdoptableMappingRecord.PlanHome,
+        trackID: String
+    ) async throws -> (before: RecordedReadSetPlan, after: RecordedReadSetPlan) {
+        let scratch = try Self.makeScratch("adopt-plan-\(trackID)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let scene = try Self.makeScene(in: scratch)
+        let mappingDir = try scene.stageMappingFolder()
+        let sourceURL = try AdoptableMappingRecord.write(into: mappingDir, planHome: planHome)
+        let before = try #require(Self.recordedPlan(in: sourceURL), "the reader finds the plan in the mapping folder")
+
+        try await scene.adopt(mappingDir, name: trackID, trackID: trackID)
+
+        let keptURL = scene.keptRecordFolder.appendingPathComponent(MappingProvenance.filename)
+        let after = try #require(Self.recordedPlan(in: keptURL), "the reader finds the plan in the bundle")
+        return (before, after)
+    }
+
+    private static func recordedPlan(in recordURL: URL) -> RecordedReadSetPlan? {
+        ProvenanceRecorder.findProvenanceReading(for: recordURL)?.reading.envelope.readSetPlan
+    }
+
+    private static func makeScratch(_ prefix: String) throws -> URL {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        return scratch
+    }
+
+    private static func makeScene(in scratch: URL) throws -> Scene {
+        let managedHome = try ManagedSamtoolsHome.makeReal(rootURL: scratch)
+        let fixture = try BundleAlignmentFixture.make(
+            rootURL: scratch,
+            samtoolsPath: managedHome.samtoolsPath,
+            includeMappingResult: false
+        )
+        return Scene(scratch: scratch, fixture: fixture)
+    }
+
+    /// Every regular file under `root`, by its path from `root`.
+    private static func files(under root: URL) -> Set<String> {
+        let prefix = root.standardizedFileURL.path + "/"
+        var result = Set<String>()
+        let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])
+        while let url = walker?.nextObject() as? URL {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            result.insert(String(url.standardizedFileURL.path.dropFirst(prefix.count)))
+        }
+        return result
+    }
+
+    /// A bundle with one alignment track, and a folder for each mapping result to adopt into it.
+    private struct Scene {
+        let scratch: URL
+        let fixture: BundleAlignmentFixture
+
+        var bundleURL: URL { fixture.bundleURL }
+        var manifestURL: URL { bundleURL.appendingPathComponent(BundleManifest.filename) }
+        /// Where the bundle keeps a typed record that an adoption saved.
+        var keptRecordFolder: URL { bundleURL.appendingPathComponent("alignments/mapped", isDirectory: true) }
+
+        /// A mapping folder holding a BAM and its index, which an adoption moves into the bundle.
+        func stageMappingFolder(named name: String = "mapping") throws -> URL {
+            let folder = scratch.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: fixture.sourceBAMURL, to: folder.appendingPathComponent("sorted.bam"))
+            try FileManager.default.copyItem(at: fixture.sourceIndexURL, to: folder.appendingPathComponent("sorted.bam.bai"))
+            return folder
+        }
+
+        func adopt(_ mappingDir: URL, name: String, trackID: String) async throws {
+            let command = try BAMCommand.AdoptMappingSubcommand.parse([
+                "--bundle", bundleURL.path,
+                "--mapping-result", mappingDir.path,
+                "--name", name,
+                "--track-id", trackID,
+                "--quiet",
+            ])
+            try await command.run()
+        }
     }
 }

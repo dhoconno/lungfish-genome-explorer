@@ -92,11 +92,8 @@ struct ReadsToVariantsEndToEndTests {
             at: TestFixtures.sarscov2.bamIndex,
             to: mappingDir.appendingPathComponent("sorted.bam.bai")
         )
-        try "{}".write(
-            to: mappingDir.appendingPathComponent("mapping-provenance.json"),
-            atomically: true,
-            encoding: .utf8
-        )
+        // `bam adopt-mapping` refuses a mapping-provenance.json it cannot decode, so the folder holds a real one.
+        try AdoptableMappingRecord.write(into: mappingDir)
 
         // 3. Adopt the mapping into the bundle as a new alignment track.
         let adopt = try BAMCommand.AdoptMappingSubcommand.parse([

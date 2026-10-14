@@ -116,8 +116,8 @@
       "format" : "json",
       "path" : "<project>/Analyses/mapping/mapping-provenance.json",
       "role" : "input",
-      "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "size" : 2
+      "sha256" : "a5efbcd860afc4bde3a57379315ae7f6f44308ac8761b191d2c1d5009acff58b",
+      "size" : 13744
     },
     {
       "format" : "bam",
@@ -137,9 +137,7 @@
     {
       "format" : "json",
       "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
-      "role" : "output",
-      "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "size" : 2
+      "role" : "output"
     }
   ],
   "legacyRunParameters" : {
@@ -251,9 +249,7 @@
     {
       "format" : "json",
       "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
-      "role" : "output",
-      "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "size" : 2
+      "role" : "output"
     }
   ],
   "readStatus" : "completed",
@@ -302,8 +298,8 @@
           "format" : "json",
           "path" : "<project>/Analyses/mapping/mapping-provenance.json",
           "role" : "input",
-          "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-          "size" : 2
+          "sha256" : "a5efbcd860afc4bde3a57379315ae7f6f44308ac8761b191d2c1d5009acff58b",
+          "size" : 13744
         }
       ],
       "outputs" : [
@@ -325,9 +321,7 @@
         {
           "format" : "json",
           "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
-          "role" : "output",
-          "sha256" : "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-          "size" : 2
+          "role" : "output"
         }
       ],
       "recorded" : {
