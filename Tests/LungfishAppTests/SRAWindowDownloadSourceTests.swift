@@ -36,9 +36,7 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
 
     @MainActor
     func testThePopupStoresTheChoiceWhereTheDownloadReadsIt() throws {
-        let suite = "sra-window-download-source-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "SRAWindowDownloadSourceTests").defaults
 
         let storage = SRADownloadSourcePicker.storage(in: defaults)
         XCTAssertEqual(storage.wrappedValue, .ena, "Prefer ENA is the default")
@@ -52,9 +50,7 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
     /// above it is not a second element saying the same thing.
     @MainActor
     func testVoiceOverReadsThePopupLabelOnce() throws {
-        let suite = "sra-window-download-source-ax-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "SRAWindowDownloadSourceTests").defaults
 
         NSApplication.shared.accessibilitySetValue(
             true,
@@ -204,12 +200,11 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
     /// The window's own download path reads the setting from the defaults
     /// it was given, so Prefer NCBI reaches the run's download.
     func testTheWindowDownloadPathReadsTheStoredSetting() async throws {
-        let suite = "sra-window-download-path-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let suite = makeTestDefaultsSuite(prefix: "SRAWindowDownloadSourceTests")
+        let defaults = suite.defaults
         SRADownloadSourcePreference.ncbi.store(in: defaults)
         let viewModel = await MainActor.run {
-            DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite)
+            DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite.name)
         }
 
         let statuses = Statuses()
@@ -239,14 +234,13 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
     /// read, so a view model built with a suite never reads another store.
     @MainActor
     func testThePopupAndTheDownloadShareTheWindowsDefaults() throws {
-        let suite = "sra-window-shared-defaults-\(UUID().uuidString)"
-        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        let viewModel = DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite)
+        let suite = makeTestDefaultsSuite(prefix: "SRAWindowDownloadSourceTests")
+        let viewModel = DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite.name)
         XCTAssertEqual(viewModel.sraDownloadPreference(), .ena)
         let storage = SRADownloadSourcePicker.storage(in: viewModel.sraDownloadDefaults)
         storage.wrappedValue = .ncbi
         XCTAssertEqual(viewModel.sraDownloadPreference(), .ncbi)
-        XCTAssertEqual(SRADownloadSourcePreference.stored(in: try XCTUnwrap(UserDefaults(suiteName: suite))), .ncbi)
+        XCTAssertEqual(SRADownloadSourcePreference.stored(in: suite.makeDefaults()), .ncbi)
     }
 
     /// ENA can be slow, so under Prefer NCBI the toolkit starts while ENA's

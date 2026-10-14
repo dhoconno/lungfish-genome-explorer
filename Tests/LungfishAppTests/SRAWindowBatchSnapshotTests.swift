@@ -17,16 +17,15 @@ final class SRAWindowBatchSnapshotTests: XCTestCase {
 
     @MainActor
     func testChangingThePreferenceMidBatchDoesNotChangeTheBatchsLaterRuns() async throws {
-        let suite = "sra-window-batch-snapshot-\(UUID().uuidString)"
-        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let suite = makeTestDefaultsSuite(prefix: "SRAWindowBatchSnapshotTests")
+        let defaults = suite.defaults
         SRADownloadSourcePreference.ena.store(in: defaults)
 
         let portal = DownPortal()
         let viewModel = DatabaseBrowserViewModel(
             source: .ena,
             enaService: ENAService(httpClient: portal),
-            sraDownloadSuiteName: suite
+            sraDownloadSuiteName: suite.name
         )
         let toolkitRuns = RunRecorder()
         let prefetch = URL(fileURLWithPath: "/scripted/sra-tools/bin/prefetch")
@@ -34,9 +33,7 @@ final class SRAWindowBatchSnapshotTests: XCTestCase {
             if executable == prefetch, let accession = arguments.first {
                 toolkitRuns.append(accession)
                 // The user switches to Prefer NCBI while the first run downloads.
-                if let defaults = UserDefaults(suiteName: suite) {
-                    SRADownloadSourcePreference.ncbi.store(in: defaults)
-                }
+                SRADownloadSourcePreference.ncbi.store(in: suite.makeDefaults())
             }
             return SRAToolkitRunner.Result(exitCode: 3, stderr: "scripted failure")
         }

@@ -80,11 +80,4 @@ org.lungfish.tests.AppSettings          Tests/LungfishCoreTests/AppSettingsTests
 org.lungfish.tests.AppSettings.nested   Tests/LungfishCoreTests/AppSettingsTests.swift
 reference-bundle-scroll-direction-pref  Tests/LungfishAppTests/ReferenceBundleScrollDirectionPreferenceTests.swift
 sra-source-preference                   Tests/LungfishCoreTests/Services/SRADownloadSourcePreferenceTests.swift
-sra-window-batch-snapshot               Tests/LungfishAppTests/SRAWindowBatchSnapshotTests.swift
-sra-window-download-cancel              Tests/LungfishAppTests/SRAWindowDownloadCancelTests.swift
-sra-window-download-path                Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
-sra-window-download-source              Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
-sra-window-download-source-ax           Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
-sra-window-failed-import                Tests/LungfishAppTests/SRAWindowFailedImportCleanupTests.swift
-sra-window-shared-defaults              Tests/LungfishAppTests/SRAWindowDownloadSourceTests.swift
 update-tools-deferral                   Tests/LungfishAppTests/UpdateToolsSheetViewModelTests.swift

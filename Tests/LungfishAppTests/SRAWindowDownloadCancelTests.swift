@@ -18,13 +18,12 @@ final class SRAWindowDownloadCancelTests: XCTestCase {
 
     @MainActor
     func testCancelInTheOperationsPanelStopsTheDownloadPromptly() async throws {
-        let suite = "sra-window-download-cancel-\(UUID().uuidString)"
-        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let suite = makeTestDefaultsSuite(prefix: "SRAWindowDownloadCancelTests")
         let portal = HangingPortal()
         let viewModel = DatabaseBrowserViewModel(
             source: .ena,
             enaService: ENAService(httpClient: portal),
-            sraDownloadSuiteName: suite
+            sraDownloadSuiteName: suite.name
         )
         let id = OperationCenter.shared.begin(
             title: "SRA cancel test",

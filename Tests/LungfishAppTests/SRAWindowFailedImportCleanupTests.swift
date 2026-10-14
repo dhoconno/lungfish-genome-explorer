@@ -48,13 +48,12 @@ final class SRAWindowFailedImportCleanupTests: XCTestCase {
         }
         let service = SRAService(ncbiService: NCBIService(httpClient: archives, environment: [:]), httpClient: archives, toolkitRunner: observing)
 
-        let suite = "sra-window-failed-import-\(UUID().uuidString)"
-        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let suite = makeTestDefaultsSuite(prefix: "SRAWindowFailedImportCleanupTests")
         let viewModel = DatabaseBrowserViewModel(
             source: .ena,
             ncbiService: NCBIService(httpClient: archives, environment: [:]),
             enaService: ENAService(httpClient: archives),
-            sraDownloadSuiteName: suite
+            sraDownloadSuiteName: suite.name
         )
         let id = OperationCenter.shared.begin(
             title: "SRA failed import cleanup test",

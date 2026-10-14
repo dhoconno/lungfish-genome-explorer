@@ -64,13 +64,12 @@ final class SRAWindowRowPinReplayTests: XCTestCase {
     ) -> UUID {
         // A batch with a project asks `AppDelegate.shared` whether the project is writable, which reads `NSApp`.
         _ = NSApplication.shared
-        let suite = "sra-window-row-pin-\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let suite = makeTestDefaultsSuite(prefix: "SRAWindowRowPinReplayTests")
         let viewModel = DatabaseBrowserViewModel(
             source: .ena,
             ncbiService: NCBIService(httpClient: archives, environment: [:]),
             enaService: ENAService(httpClient: archives),
-            sraDownloadSuiteName: suite)
+            sraDownloadSuiteName: suite.name)
         viewModel.routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: UUID())
         let id = OperationCenter.shared.begin(
             title: "SRA window row pin", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
