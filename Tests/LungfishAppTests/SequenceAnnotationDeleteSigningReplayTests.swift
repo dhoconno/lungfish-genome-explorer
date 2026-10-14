@@ -33,5 +33,6 @@ final class SequenceAnnotationDeleteSigningReplayTests: XCTestCase {
         let record = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "the deletion left no record at \(record.path)")
         XCTAssertTrue(RouteParityHarness.isSigned(record), "\(record.lastPathComponent) has no signature and public key though a key is set")
+        try await SigningRecordVerification.assertVerifies(record, in: scratch, testClass: Self.self)
     }
 }

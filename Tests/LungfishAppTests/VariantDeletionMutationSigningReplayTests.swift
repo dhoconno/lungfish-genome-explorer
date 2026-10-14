@@ -18,7 +18,7 @@ import LungfishTestSupport
 
 @MainActor
 final class VariantDeletionMutationSigningReplayTests: XCTestCase {
-    func testTheDeletionRecordIsSignedWhenAKeyIsSet() throws {
+    func testTheDeletionRecordIsSignedWhenAKeyIsSet() async throws {
         let scratch = try TestTempDirectory.make(prefix: "variant-deletion-signing")
         defer { TestTempDirectory.cleanup(scratch) }
         let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
@@ -40,5 +40,6 @@ final class VariantDeletionMutationSigningReplayTests: XCTestCase {
         let record = fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "the deletion left no record at \(record.path)")
         XCTAssertTrue(RouteParityHarness.isSigned(record), "\(record.lastPathComponent) has no signature and public key though a key is set")
+        try await SigningRecordVerification.assertVerifies(record, in: scratch, testClass: Self.self)
     }
 }
