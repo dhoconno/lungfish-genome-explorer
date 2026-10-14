@@ -171,7 +171,7 @@ Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1213
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 913
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1749
-Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2524
+Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2519
 Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift 819
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 1006
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2267
