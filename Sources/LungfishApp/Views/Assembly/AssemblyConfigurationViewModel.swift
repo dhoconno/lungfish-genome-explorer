@@ -79,7 +79,7 @@ public enum AssemblyRunner {
     }
 
     /// Checks that the run may write and has room, then starts it on the route the Reassemble key
-    /// picks, the in-process pipeline until the key flips (Phase 2.10 lane A46, decision C4).
+    /// picks, `lungfish-cli assemble` unless the key says `legacy` (Phase 2.10 lane A46, decision C4).
     static func runValidated(
         request: AssemblyRunRequest,
         routeContext: OperationRouteContext? = nil,

@@ -100,11 +100,18 @@ struct MappingRouteRow: Equatable {
             .appendingPathComponent("Fixtures/MappingRouteRow", isDirectory: true)
     }
 
-    /// Runs `request` alone through `runManagedMapping` and records its row until it ends.
+    /// Runs `request` alone through `runManagedMapping` and records its row until it ends. The
+    /// freeze holds the in-process route, which stays one release behind the Map Reads key (2.7
+    /// E14), so the default `run` reads a key set to `legacy` now that the key defaults to `cli`.
     @MainActor
     static func recordInProcess(
         _ request: MappingRunRequest,
-        run: (AppDelegate, MappingRunPlan) -> Void = { $0.runManagedMapping(plan: $1) }
+        run: (AppDelegate, MappingRunPlan) -> Void = { appDelegate, plan in
+            let keys = TestDefaultsSuite(prefix: "MappingRouteRowConformanceTests")
+            defer { keys.tearDown() }
+            keys.defaults.set(ReadsLaunchRoute.legacy.rawValue, forKey: ReadsLaunchPath.mapping.defaultsKey)
+            appDelegate.runManagedMapping(plan: plan, routeSettings: ReadsLaunchRouteSettings(defaults: keys.defaults))
+        }
     ) async throws -> MappingRouteRow {
         let recorder = Recorder(title: "Map Reads (\(request.tool.displayName)): \(request.sampleName)")
         let subscription = OperationCenter.shared.$items.sink { items in recorder.take(items) }

@@ -10,6 +10,7 @@
 // the cancel losing its folder. M3 adds each key value's route through the launch that reads it
 // (ARCH 7). The runner runs a stand-in `lungfish-cli` script, so no tool runs.
 
+import AppKit
 import Foundation
 import XCTest
 @testable import LungfishApp
@@ -22,19 +23,21 @@ import LungfishTestSupport
 
 @MainActor
 final class ReadsLaunchRouteTests: XCTestCase {
-    func testAnUnsetKeyKeepsTodaysInProcessRoute() {
+    func testAnUnsetKeyTakesTheCLIRoute() {
         let settings = ReadsLaunchRouteSettings(defaults: makeTestDefaultsSuite(prefix: "reads-route").defaults)
-        XCTAssertEqual(ReadsLaunchRouteSettings.defaultRoute, .legacy)
+        XCTAssertEqual(ReadsLaunchRouteSettings.defaultRoute, .cli, "the CLI route is the default (C4)")
         for path in ReadsLaunchPath.allCases {
-            XCTAssertEqual(settings.route(for: path), .legacy, path.rawValue)
+            XCTAssertEqual(settings.route(for: path), .cli, path.rawValue)
         }
     }
 
     func testEachKeyValuePicksItsRoute() {
         let defaults = makeTestDefaultsSuite(prefix: "reads-route").defaults
         let settings = ReadsLaunchRouteSettings(defaults: defaults)
+        // A value the reader does not know, such as "in-process", reads the default, the CLI route.
         let cases: [(Any, ReadsLaunchRoute)] = [
-            ("cli", .cli), ("CLI", .cli), ("legacy", .legacy), (true, .cli), (false, .legacy), ("in-process", .legacy),
+            ("cli", .cli), ("CLI", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy),
+            ("in-process", .cli),
         ]
         for (value, route) in cases {
             defaults.set(value, forKey: ReadsLaunchPath.mapping.defaultsKey)
@@ -47,8 +50,12 @@ final class ReadsLaunchRouteTests: XCTestCase {
         let settings = ReadsLaunchRouteSettings(defaults: defaults)
         XCTAssertEqual(ReadsLaunchPath.mapping.defaultsKey, "ReadsLaunchRoute.mapping")
         XCTAssertEqual(ReadsLaunchPath.assembly.defaultsKey, "ReadsLaunchRoute.assembly")
-        defaults.set("cli", forKey: ReadsLaunchPath.mapping.defaultsKey)
-        XCTAssertEqual(settings.route(for: .mapping), .cli)
+        defaults.set("legacy", forKey: ReadsLaunchPath.mapping.defaultsKey)
+        XCTAssertEqual(settings.route(for: .mapping), .legacy)
+        XCTAssertEqual(settings.route(for: .assembly), .cli, "the other launch keeps its own route")
+        defaults.set("legacy", forKey: ReadsLaunchPath.assembly.defaultsKey)
+        defaults.removeObject(forKey: ReadsLaunchPath.mapping.defaultsKey)
+        XCTAssertEqual(settings.route(for: .mapping), .cli, "an unset key reads the default again")
         XCTAssertEqual(settings.route(for: .assembly), .legacy)
     }
 
@@ -205,16 +212,79 @@ final class ReadsLaunchRouteTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: launched.path), "the legacy route launches no lungfish-cli")
     }
 
+    /// Reassemble reads its key in `runValidated`. `legacy` runs the managed pipeline in this
+    /// process and launches no `lungfish-cli`, and `cli` launches the `lungfish-cli` that
+    /// LUNGFISH_CLI_PATH names, a stand-in that fails with its `failed` line. An unset key takes the
+    /// default, which is the CLI route. The reads are missing, so the in-process run fails at once too.
+    func testEachReassembleKeyValueRunsItsRoute() async throws {
+        // runValidated asks AppDelegate.shared, which reads NSApp, so the application must exist
+        // when this class runs on its own.
+        _ = NSApplication.shared
+        let saved = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        defer {
+            if let saved { setenv("LUNGFISH_CLI_PATH", saved, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
+        }
+        let keyValues: [(String?, Bool)] = [("legacy", false), ("cli", true), (nil, true)]
+        for (keyValue, runsCLI) in keyValues {
+            let value = keyValue ?? "unset"
+            let root = try TestTempDirectory.make(prefix: "reassemble-key-\(value)")
+            defer { TestTempDirectory.cleanup(root) }
+            let launched = root.appendingPathComponent("launched")
+            let cli = try standInCLI("""
+            touch '\(launched.path)'
+            echo '{"error":"the stand-in refused","event":"failed","schemaVersion":2}'
+            exit 1
+            """)
+            setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+            let suite = makeTestDefaultsSuite(prefix: "reads-route")
+            if let keyValue { suite.defaults.set(keyValue, forKey: ReadsLaunchPath.assembly.defaultsKey) }
+            let request = AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [root.appendingPathComponent("missing.fastq")],
+                projectName: "key-\(value)",
+                outputDirectory: root.appendingPathComponent("Assemblies", isDirectory: true),
+                threads: 1
+            )
+            let before = Set(OperationCenter.shared.items.map(\.id))
+
+            AssemblyRunner.runValidated(request: request, routeSettings: ReadsLaunchRouteSettings(defaults: suite.defaults))
+            var ended: OperationCenter.Item?
+            await waitUntil(timeout: .seconds(30)) {
+                ended = OperationCenter.shared.items.first {
+                    !before.contains($0.id) && $0.title.hasSuffix("Assembly: key-\(value)") && $0.finishedAt != nil
+                }
+                return ended != nil
+            }
+
+            let item = try XCTUnwrap(ended, "the \(value) row never ended")
+            defer { OperationCenter.shared.clearItem(id: item.id) }
+            XCTAssertEqual(item.state, .failed, "\(value): \(item.detail)")
+            XCTAssertEqual(FileManager.default.fileExists(atPath: launched.path), runsCLI, "\(value) launches lungfish-cli only on cli")
+            if runsCLI {
+                XCTAssertEqual(item.detail, "the stand-in refused", "\(value): the failed line is the row's detail")
+            } else {
+                XCTAssertTrue(
+                    item.logEntries.contains { $0.message == "Launching managed assembly pipeline" },
+                    "the in-process pipeline ran: \(item.logEntries.map(\.message))"
+                )
+            }
+        }
+    }
+
     /// Map Reads reads its key at launch. `legacy` runs the in-process route, whose row records the
     /// command without `--format json` and launches no `lungfish-cli`, and `cli` launches the
     /// `lungfish-cli` that LUNGFISH_CLI_PATH names, a stand-in that fails, with the argv its row
-    /// records. The reads are missing, so the in-process run fails at once too.
+    /// records. An unset key takes the default, which is the CLI route. The reads are missing, so
+    /// the in-process run fails at once too.
     func testEachMappingKeyValueRunsItsRoute() async throws {
         let saved = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
         defer {
             if let saved { setenv("LUNGFISH_CLI_PATH", saved, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
         }
-        for (value, runsCLI) in [("legacy", false), ("cli", true)] {
+        let keyValues: [(String?, Bool)] = [("legacy", false), ("cli", true), (nil, true)]
+        for (keyValue, runsCLI) in keyValues {
+            let value = keyValue ?? "unset"
             let root = try TestTempDirectory.make(prefix: "map-key-\(value)")
             defer { TestTempDirectory.cleanup(root) }
             let launched = root.appendingPathComponent("launched")
@@ -225,7 +295,7 @@ final class ReadsLaunchRouteTests: XCTestCase {
             """)
             setenv("LUNGFISH_CLI_PATH", cli.path, 1)
             let suite = makeTestDefaultsSuite(prefix: "reads-route")
-            suite.defaults.set(value, forKey: ReadsLaunchPath.mapping.defaultsKey)
+            if let keyValue { suite.defaults.set(keyValue, forKey: ReadsLaunchPath.mapping.defaultsKey) }
             let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
             try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
             let request = MappingRunRequest(

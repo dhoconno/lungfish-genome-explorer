@@ -5,12 +5,13 @@
 import Foundation
 
 /// The route a Map Reads or Reassemble launch takes (Phase 2.10, decision C4). The in-process
-/// route and its key stay for one release once the key turns to `cli` (2.7 E14).
+/// route and its key stay for one release now that the key defaults to `cli` (2.7 E14).
 enum ReadsLaunchRoute: String, Sendable, Equatable, CaseIterable {
-    /// Today's route. The app runs the managed pipeline in process.
+    /// The route of the releases before the flip. The app runs the managed pipeline in process. A
+    /// key set to `legacy` keeps it for one release.
     case legacy
-    /// The app runs `lungfish-cli map` or `lungfish-cli assemble` on `CLIReadsRunner` and records
-    /// the argv it runs.
+    /// The default since lane A46 M3's last commit. The app runs `lungfish-cli map` or
+    /// `lungfish-cli assemble` on `CLIReadsRunner` and records the argv it runs.
     case cli
 }
 
@@ -24,7 +25,7 @@ enum ReadsLaunchPath: String, Sendable, Equatable, CaseIterable {
 
     /// The hidden `UserDefaults` key of the launch, such as `ReadsLaunchRoute.mapping`. It holds
     /// `cli` or `legacy`, or a Boolean that is true for the CLI route, for example
-    /// `defaults write <app id> ReadsLaunchRoute.mapping cli`.
+    /// `defaults write <app id> ReadsLaunchRoute.mapping legacy`.
     var defaultsKey: String {
         "ReadsLaunchRoute.\(rawValue)"
     }
@@ -33,9 +34,9 @@ enum ReadsLaunchPath: String, Sendable, Equatable, CaseIterable {
 /// Reads the route of each launch from the defaults it is given, so a test passes its own suite and
 /// never touches the user's defaults.
 struct ReadsLaunchRouteSettings {
-    /// The route of a launch whose key is unset or holds a value this reader does not know. It stays
-    /// on today's route until both parity classes pass, and lane A46's last commit turns it to `cli`.
-    static let defaultRoute: ReadsLaunchRoute = .legacy
+    /// The route of a launch whose key is unset or holds a value this reader does not know. It is
+    /// the CLI route since lane A46's last commit, which came once both parity classes passed.
+    static let defaultRoute: ReadsLaunchRoute = .cli
 
     let defaults: UserDefaults
 
