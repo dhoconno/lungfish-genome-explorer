@@ -56,12 +56,12 @@ final class ViralReconRowEventsTests: XCTestCase {
     func testAStandardErrorLineLeavesTheRowCompleted() async throws {
         let item = try await run([
             .standardOutput(Self.line(.log(level: .info, message: "Read pairing: S1: paired R1/R2 files, runs paired-end"))),
-            .standardError("Warning: S1 mixes merged reads with pairs, so it runs single-end"),
+            .standardError("WARN: low coverage"),
         ])
 
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(item.displayStateLabel, "Completed", "standard error stays at info (rule 5)")
-        XCTAssertTrue(Self.loggedLines(of: item).contains("info: Warning: S1 mixes merged reads with pairs, so it runs single-end"))
+        XCTAssertTrue(Self.loggedLines(of: item).contains("info: WARN: low coverage"))
     }
 
     /// The bridge takes each event one main-queue hop after the runner hands it over, so a warning that is the CLI's
