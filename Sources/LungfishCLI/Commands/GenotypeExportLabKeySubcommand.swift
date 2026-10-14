@@ -24,6 +24,11 @@ import LungfishWorkflow
 ///                                 when another cohort is deleted, restored
 ///                                 or renamed
 ///
+/// Two smart cohorts that resolve to one `cohort_id` would be exported twice
+/// under it, and a reader of the table could not tell them apart. The command
+/// then writes no file, not even the output folder, prints each shared id with
+/// its cohorts on standard error and exits with status 3 (panel decision R2).
+///
 /// The haplotype calls are the workbook's effective calls, resolved by
 /// `GenotypeExcelSnapshotBuilder.effectiveCalls`, so LabKey, the Excel report
 /// and the `genotype export` matrix report one set of calls (finding SF2).
@@ -60,10 +65,14 @@ struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
         let runClock = ProvenanceRunClock()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let outputDirURL = URL(fileURLWithPath: outputDir, isDirectory: true)
-        try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
 
         let sidecar = try ONTGenotypeResultBundleData
             .loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
+
+        // The refusal comes before the output folder exists, so it leaves no
+        // file at all (panel decision R2).
+        try LabKeyExporter.refuseCollidingCohortIDs(in: sidecar)
+        try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
 
         // Loading the result is best-effort: when only the annotation
         // sidecar is present (no pipeline artifacts), still emit the
@@ -151,6 +160,9 @@ struct LabKeyExporter {
     ]
 
     func writeAll() throws -> [GenotypeLabKeyExportFile] {
+        // `run` has refused such a sidecar before it created the folder. This is
+        // the last guard before a CSV is written, for any other caller.
+        try Self.refuseCollidingCohortIDs(in: sidecar)
         let haplotypeRows = try buildHaplotypeRows()
         let alleleRows = buildAlleleRows()
         let overrideRows = buildOverrideRows()
@@ -456,5 +468,76 @@ struct LabKeyExporter {
             return "\"\(escaped)\""
         }
         return value
+    }
+}
+
+// MARK: - Cohort identity
+
+/// Smart cohorts of one sidecar that resolve to one `cohort_id` (panel
+/// decision R2).
+struct GenotypeLabKeyCohortIDCollision: Equatable {
+    /// One of the cohorts.
+    struct Cohort: Equatable {
+        /// Its place in the sidecar's `smartCohorts`, counting from 1, which is
+        /// its row in `genotype list-cohorts`.
+        let place: Int
+        let name: String
+        let scope: String
+    }
+
+    /// The id the cohorts share.
+    let id: UUID
+    /// The cohorts that resolve to `id`, in sidecar order. There are two or more.
+    let cohorts: [Cohort]
+}
+
+extension LabKeyExporter {
+    /// Every id that two or more smart cohorts of `sidecar` resolve to, in the
+    /// order the ids first appear.
+    ///
+    /// A cohort that stores no id derives one that no other cohort of the
+    /// sidecar has (`resolvedIDs`), so only cohorts that store one id collide.
+    static func cohortIDCollisions(in sidecar: GenotypeAnnotationSidecar) -> [GenotypeLabKeyCohortIDCollision] {
+        let ids = sidecar.resolvedSmartCohortIDs
+        var order: [UUID] = []
+        var cohortsByID: [UUID: [GenotypeLabKeyCohortIDCollision.Cohort]] = [:]
+        for (offset, cohort) in sidecar.smartCohorts.enumerated() {
+            let id = ids[offset]
+            if cohortsByID[id] == nil {
+                order.append(id)
+            }
+            cohortsByID[id, default: []].append(.init(place: offset + 1, name: cohort.name, scope: cohort.scope))
+        }
+        return order.compactMap { id in
+            guard let cohorts = cohortsByID[id], cohorts.count > 1 else { return nil }
+            return GenotypeLabKeyCohortIDCollision(id: id, cohorts: cohorts)
+        }
+    }
+
+    /// What the refusal prints on standard error. Each cohort is named by its
+    /// place, name and scope, because two cohorts can share a scope and a name.
+    static func cohortIDRefusalText(_ collisions: [GenotypeLabKeyCohortIDCollision]) -> String {
+        var lines = [
+            "Cannot export because smart cohorts share a cohort_id, and a reader of smart_cohorts.csv "
+                + "could not tell them apart. No file was written."
+        ]
+        for collision in collisions {
+            let named = collision.cohorts.map { "cohort \($0.place) \"\($0.name)\" (scope \($0.scope))" }
+            let list = named.count > 1
+                ? named.dropLast().joined(separator: ", ") + " and " + named[named.count - 1]
+                : named.joined()
+            lines.append("  \(collision.id.uuidString.lowercased()) is the id of \(list).")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Prints the refusal and exits with status 3 (`CLIExitCode.inputError`)
+    /// when two smart cohorts of `sidecar` resolve to one id. Nothing has been
+    /// written when it throws.
+    static func refuseCollidingCohortIDs(in sidecar: GenotypeAnnotationSidecar) throws {
+        let collisions = cohortIDCollisions(in: sidecar)
+        guard !collisions.isEmpty else { return }
+        printStatusLine(cohortIDRefusalText(collisions))
+        throw CLIExitCode.inputError.exitCode
     }
 }
