@@ -28,6 +28,7 @@ extension OutputEquivalenceTests {
         var fileSize = 10
         var recordLabel = "multiple-sequence-alignment-reinstall"
         var otherFile = #"{"installedAt":"2026-10-01T09:00:00Z"}"#
+        var manifestDate = "2026-01-01"
 
         func write(to root: URL) throws {
             let storage = root.appendingPathComponent("storage", isDirectory: true)
@@ -56,6 +57,7 @@ extension OutputEquivalenceTests {
                 "provenance/packs/\(stamp)-\(recordLabel).lungfish-provenance.json"
             )
             try put(otherFile, "plan.json")
+            try put(#"{"builtAt":"\#(manifestDate)"}"#, "conda/offline-packs/p/offline-pack-manifest.json")
         }
     }
 
@@ -93,6 +95,7 @@ extension OutputEquivalenceTests {
             ("a size in the status fingerprint", 1, { $0.fileSize = 11 }),
             ("installedAt in a file that is not the receipt", 1, { $0.otherFile = #"{"installedAt":"2026-10-02T09:00:00Z"}"# }),
             ("a record with another name behind the stamp", 2, { $0.recordLabel = "multiple-sequence-alignment-install" }),
+            ("a date in a manifest of the managed plan", 1, { $0.manifestDate = "2026-02-01" }),
         ]
         for (label, count, edit) in cases {
             var changed = second

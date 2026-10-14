@@ -22,7 +22,7 @@ extension OutputEquivalence {
         /// Every other text. That is payload text, a BAM header, an index
         /// listing, a remote request body and a managed plan.
         public var payloads: [Mask]
-        /// The masks a managed plan (`.managedPlan`) applies on top of its file's role, to the text of the
+        /// The masks a managed plan (`.managedPlan`) applies on top of the masks its file gets, to the text of the
         /// managed state files. No other kind applies them.
         public var managed: [Mask]
         /// The masks a managed plan applies to the relative name of each file. No other kind applies them.
@@ -50,9 +50,9 @@ extension OutputEquivalence {
         /// sidecar's three clock values and a demo project install record's
         /// install time alone, so any other date, a host or a read ID in data
         /// is compared as written.
-        /// A managed plan gives each file the masks of its role, as a file of the other kinds gets them, so a
-        /// provenance envelope takes the provenance masks. It also masks the clock values of its receipt and
-        /// pack status cache by key and the UTC stamp that starts a record's file name, and nothing else.
+        /// A managed plan gives a provenance envelope the provenance masks and every other file, a manifest
+        /// included, the payload masks. It also masks the clock values of its receipt and pack status cache by
+        /// key and the UTC stamp that starts a record's file name, and nothing else.
         public static var standard: MaskPolicy {
             let records = [
                 Masks.contentComparedDigests,
