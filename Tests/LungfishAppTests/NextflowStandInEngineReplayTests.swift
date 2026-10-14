@@ -337,6 +337,7 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
         let real = Self.v1Console.map(Self.consoleShape)
         let shapes = printed.map(Self.consoleShape)
         XCTAssertEqual(Array(shapes.prefix(12)), Array(real.prefix(12)), "the version line, Launching and the logo")
+        XCTAssertEqual(printed.first, "N E X T F L O W  ~  version \(NextflowStandInEngine.version)", "the sentinel, so a record that names 26.04.6 took it from the lock")
         XCTAssertEqual(shapes.last, real.last, "nf-core's completion line is last")
         let agentLines = ["[PIPELINE]", "[WORKDIR]", "[PROCESS ", "[SUCCESS]"]
         XCTAssertEqual(printed.filter { line in agentLines.contains { line.hasPrefix($0) } }, [], "no line of the agent log")
