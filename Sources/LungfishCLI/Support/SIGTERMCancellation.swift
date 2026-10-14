@@ -258,10 +258,11 @@ final class SIGTERMCancellation {
     /// over. The usual cancel, one post that the handler took long before the end, finds the count whole and
     /// writes no SIG_IGN at all. Only a post that no thread takes in that time is dropped, by ignoring SIGTERM for
     /// the moment between the two writes. That is a post the kernel merged with another, one sent while SIGTERM was
-    /// ignored, or one blocked on a thread. A post parked on the calling thread is dropped the same way, since the
-    /// kernel's note does not cover a signal raised at a thread. A fresh SIGTERM that lands in that moment can still
-    /// meet the race, and only after a post went untaken for the whole bound. A post the kernel noted is kept by
-    /// ``signalCaught``.
+    /// ignored, one blocked on a thread, or one whose thread did not run for the whole bound on a busy machine. A
+    /// post parked on the calling thread is dropped the same way, since the kernel's note does not cover a signal
+    /// raised at a thread. A delivery that begins in that moment can still meet the race, of a fresh SIGTERM or of
+    /// the untaken post when its thread runs at last, and only after a post went untaken for the whole bound. A post
+    /// the kernel noted is kept by ``signalCaught``.
     func end() {
         guard !ended else { return }
         ended = true
