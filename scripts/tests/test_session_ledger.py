@@ -109,6 +109,28 @@ class UsageAndCostTests(LedgerTestCase):
         self.assertEqual(lane['tokens']['out'], 500)
         self.assertEqual(lane['tokens']['cr'], 50000)
 
+    def test_message_without_a_final_usage_is_charged_its_content_estimate(self):
+        # Claude Code 2.1.295 writes most subagent messages with stop_reason None and the usage of message_start.
+        self.sub.prompt(0, 'brief')
+        thinking = {'type': 'thinking', 'thinking': '', 'signature': 'x' * 32000}
+        self.sub.turn(5, 'msg_1', usage(read=50000, write=2000, out=5), [thinking], stop=None)
+        self.sub.turn(6, 'msg_1', usage(read=50000, write=2000, out=5), [bash('t1', 'ls')], stop=None)
+        self.sub.result(7, 't1', 'a b c')
+        lane = self.agent(self.run_ledger(), AID)
+        tool_input = len(json.dumps({'command': 'ls', 'timeout': 270000})) / 3.5
+        expected = int((32000 / self.ledger.SIG_CHARS_PER_TOKEN + tool_input) / self.ledger.EST_BIAS)
+        self.assertEqual(lane['tokens']['out'], expected)
+        self.assertEqual(lane['est_out'], {'msgs': 1, 'tokens': expected - 5})
+
+    def test_message_with_a_stop_reason_keeps_its_recorded_output(self):
+        self.sub.prompt(0, 'brief')
+        thinking = {'type': 'thinking', 'thinking': '', 'signature': 'x' * 32000}
+        self.sub.turn(5, 'msg_1', usage(read=50000, write=2000, out=700), [thinking, bash('t1', 'ls')])
+        self.sub.result(6, 't1', 'a b c')
+        lane = self.agent(self.run_ledger(), AID)
+        self.assertEqual(lane['tokens']['out'], 700)
+        self.assertEqual(lane['est_out'], {'msgs': 0, 'tokens': 0})
+
     def test_cost_uses_the_price_of_the_turn_model(self):
         self.sub.prompt(0, 'brief')
         self.sub.turn(5, 'msg_1', usage(inp=1000, write=1000000, read=1000000, out=100000), [], stop='end_turn')
@@ -221,6 +243,9 @@ class OrchestrationTests(LedgerTestCase):
         self.assertEqual(role('R1 vote, QA expert', 'sub'), 'design')
         self.assertEqual(role('LLM monitor checkpoint 3', 'sub'), 'llm')
         self.assertEqual(role('Monitor checkpoint 2', 'sub'), 'llm')
+        self.assertEqual(role('Census of gap sites', 'sub', 'llm-efficiency-monitor'), 'llm')
+        self.assertEqual(role('Write next ten lane briefs', 'sub'), 'design')
+        self.assertEqual(role('Brief writer 6 (ten lanes)', 'sub'), 'design')
         self.assertEqual(role('anything', 'main'), 'main')
 
 

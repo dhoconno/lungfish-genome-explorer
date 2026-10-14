@@ -62,7 +62,7 @@ ROLE_RULES = [  # first match wins, so fix agents, landings and monitors stay ou
     ("review", re.compile(r"\breview|\baudit|\bverif|\bcheck(?:er)?\b|second opinion", re.I)),
     ("gate", re.compile(r"\bgate\b|golden|full.suite|unit tier|ratchet", re.I)),
     ("walk", re.compile(r"gui walk|\bwalk\b|computer.use|screenshot", re.I)),
-    ("design", re.compile(r"inventor|expert|design|memo|\bplan\b|planning|panel|question|survey|scope|research|investigat|triage|diagnos", re.I)),
+    ("design", re.compile(r"inventor|expert|design|memo|\bplan\b|planning|panel|question|survey|scope|research|investigat|triage|diagnos|\bbriefs?\b", re.I)),
     ("lane", re.compile(r"\blane\b|\bfix|implement|\bwave\b|writer|\bland|port|migrat|refactor|add |build", re.I)),
 ]
 READ_CMD_RES = [  # group 1: range or command form, group 2: file argument(s)
@@ -119,6 +119,41 @@ def price_for(model):
     return None
 
 
+# Claude Code 2.1.295 writes most subagent assistant messages with stop_reason None and the usage of message_start
+# (output_tokens 3 to 8), so their thinking and tool input never reach the transcript's usage. For such a message
+# the ledger charges the output estimated from its content instead: thinking text and text at 4 characters a token,
+# a thinking block stored without text at SIG_CHARS_PER_TOKEN characters of signature a token (3.03 pooled over the
+# messages that do carry a final usage in 2.10, 2.98 on a 128K max_tokens message), tool input JSON at 3.5. The
+# estimate ran 6% over the recorded output of 2.9's fully recorded messages, so it is divided by EST_BIAS.
+SIG_CHARS_PER_TOKEN = 3.2
+EST_BIAS = 1.06
+
+
+def content_estimate(content):
+    """Estimated output tokens of one entry's content blocks, and the thinking part of them."""
+    est = think = 0.0
+    if not isinstance(content, list):
+        return est, think
+    for b in content:
+        if not isinstance(b, dict):
+            continue
+        t = b.get("type")
+        if t == "thinking":
+            txt = b.get("thinking") or ""
+            n = len(txt) / 4 if txt else len(b.get("signature") or "") / SIG_CHARS_PER_TOKEN
+            est += n
+            think += n
+        elif t == "redacted_thinking":
+            n = len(b.get("data") or "") / SIG_CHARS_PER_TOKEN
+            est += n
+            think += n
+        elif t == "text":
+            est += len(b.get("text") or "") / 4
+        elif t == "tool_use":
+            est += len(json.dumps(b.get("input") or {})) / 3.5
+    return est, think
+
+
 def cost_of(u, model):
     p = price_for(model)
     if not p:
@@ -132,9 +167,11 @@ def cost_of(u, model):
     return sum(parts.values()), parts
 
 
-def role_of(label, kind):
+def role_of(label, kind, agent_type=None):
     if kind == "main":
         return "main"
+    if agent_type == "llm-efficiency-monitor":
+        return "llm"
     for role, rx in ROLE_RULES:
         if rx.search(label or ""):
             return role
@@ -354,6 +391,10 @@ def handle_assistant(ag, e, ts, o):
                 rec["u"][k] = v
         if m.get("stop_reason"):
             rec["stop"] = m.get("stop_reason")
+    est, est_think = content_estimate(content)
+    rec = ag.msgs[mid]
+    rec["est"] = rec.get("est", 0.0) + est
+    rec["est_think"] = rec.get("est_think", 0.0) + est_think
     ids = []
     if isinstance(content, list):
         for b in content:
@@ -465,6 +506,16 @@ def discover(arg, root):
 def analyze_agent(ag, now, top):
     r = {"key": ag.key, "kind": ag.kind, "label": ag.label, "paths": ag.paths}
     msgs = sorted(ag.msgs.values(), key=lambda x: x["ts"] or 0)
+    est_n, est_added = 0, 0
+    for mrec in msgs:  # charge the content estimate where the transcript kept no final usage
+        u = mrec["u"]
+        e = mrec.get("est", 0.0) / EST_BIAS
+        if not mrec.get("stop") and e > u["out"]:
+            est_added += int(e) - u["out"]
+            u["out"] = int(e)
+            u["think"] = max(u["think"], int(mrec.get("est_think", 0.0) / EST_BIAS))
+            est_n += 1
+    r["est_out"] = {"msgs": est_n, "tokens": est_added}
     # what preceded each API turn: R tool result, U message / notification, O other
     prev_kind = {}
     last_kind = None
@@ -737,7 +788,7 @@ def load_session(arg, root, now, top):
         r = analyze_agent(ag, now, top)
         r["meta"] = {k: ag.meta.get(k) for k in ("agentType", "model", "effort", "spawnedWithWorktree",
                                                    "worktreePath", "spawnDepth")} if ag.meta else {}
-        r["role"] = role_of(r["label"], ag.kind)
+        r["role"] = role_of(r["label"], ag.kind, (ag.meta or {}).get("agentType"))
         results.append(r)
     # map spawn info onto subagents
     main = next((r for r in results if r["kind"] == "main"), None)
@@ -803,6 +854,10 @@ def md_session(S, top):
                    + "; ".join(f"{m}: ${d.get('costUSD', 0):.2f}" for m, d in mu.items()))
     out.append(f"- ledger estimate: ${T['cost']:.2f} (read ${T['cost_read']:.2f}, write ${T['cost_write']:.2f}, "
                f"output ${T['cost_out']:.2f}, input ${T['cost_in']:.2f}); cache hit {100 * T['hit']:.1f}%")
+    en = sum((r.get("est_out") or {}).get("msgs", 0) for r in A)
+    if en:
+        et = sum((r.get("est_out") or {}).get("tokens", 0) for r in A)
+        out.append(f"- output estimated from content for {en} messages without a final usage: +{tok(et)} tokens")
     out.append("")
     out.append("### Totals\n")
     out.append("| turns | input | cache write | cache read | output | hit % | est $ | tool calls | failed (guard; ctx of failing turns) | >20KB results | re-reads | cache rebuilds | compactions | build/test calls | commits |")
