@@ -859,7 +859,7 @@ extension ViewerViewController {
     /// the real `NSAlert` sheet (or `NSApp.presentError` when no window hosts a
     /// sheet). Centralizing this keeps both extract paths off a live
     /// `beginSheetModal` in tests, which blocks under an attached WindowServer.
-    private func presentExtractionFailureAlert(title: String, message: String) {
+    func presentExtractionFailureAlert(title: String, message: String) {
         if let presenter = extractionFailureAlertPresenter {
             presenter(title, message)
             return
