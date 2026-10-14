@@ -527,6 +527,35 @@
           "role" : "reference"
         }
       ],
+      "observation" : {
+        "environment" : {
+          "base" : "hermetic",
+          "changed" : [
+            "HOME",
+            "MAMBA_ROOT_PREFIX",
+            "PATH",
+            "TMPDIR"
+          ],
+          "pathPrefix" : [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+          ],
+          "values" : {
+            "MAMBA_ROOT_PREFIX" : "<tool-root>"
+          }
+        },
+        "outputComplete" : true,
+        "stage" : {
+          "count" : 1,
+          "index" : 0
+        },
+        "termination" : {
+          "code" : 0,
+          "kind" : "exited"
+        }
+      },
       "outputs" : [
         {
           "checksumSHA256" : "39a0faf6699d341e61c5f53f7763ee985e01e0c6db02b619930467b369446789",
@@ -719,6 +748,7 @@
       ],
       "completedAt" : "<TIMESTAMP>",
       "dependsOn" : [
+        "<UUID-5>",
         "<UUID-6>"
       ],
       "exitStatus" : 0,
@@ -759,7 +789,9 @@
       ],
       "completedAt" : "<TIMESTAMP>",
       "dependsOn" : [
-        "<UUID-4>"
+        "<UUID-4>",
+        "<UUID-5>",
+        "<UUID-6>"
       ],
       "exitStatus" : 0,
       "id" : "<UUID-8>",

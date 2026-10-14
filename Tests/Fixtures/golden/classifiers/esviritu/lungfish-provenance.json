@@ -115,10 +115,6 @@
         "type" : "boolean",
         "value" : true
       },
-      "readFormat" : {
-        "type" : "string",
-        "value" : "unpaired"
-      },
       "sample" : {
         "type" : "string",
         "value" : "sarscov2-R1-len150"
@@ -173,6 +169,10 @@
       "databaseSourceURL" : {
         "type" : "string",
         "value" : "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz"
+      },
+      "readFormat" : {
+        "type" : "string",
+        "value" : "unpaired"
       },
       "sampleCount" : {
         "type" : "integer",
@@ -275,6 +275,36 @@
           "role" : "input"
         }
       ],
+      "observation" : {
+        "environment" : {
+          "base" : "hermetic",
+          "changed" : [
+            "ESVIRITU_DB",
+            "HOME",
+            "MAMBA_ROOT_PREFIX",
+            "PATH",
+            "TMPDIR"
+          ],
+          "pathPrefix" : [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+          ],
+          "values" : {
+            "MAMBA_ROOT_PREFIX" : "<tool-root>"
+          }
+        },
+        "outputComplete" : true,
+        "stage" : {
+          "count" : 1,
+          "index" : 0
+        },
+        "termination" : {
+          "code" : 0,
+          "kind" : "exited"
+        }
+      },
       "outputs" : [
         {
           "checksumSHA256" : "a53cd27b64550d51aa44600c22cb62967228ba08c2f5ff450ff925673a23dfca",

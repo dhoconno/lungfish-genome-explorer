@@ -1,6 +1,6 @@
 exit: 0
 --- stdout
-ℹ Materializing pointer dataset...
+ℹ Writing the reads to a FASTQ file…
 EsViritu Viral Detection
 
 Input files   : len-150-any-00000000.lungfishfastq
