@@ -183,4 +183,84 @@ final class FASTQCLIMaterializerWriterDurabilityTests: XCTestCase {
         XCTAssertEqual(tally["syncFile"], 2, "one fsync for each output file")
         XCTAssertEqual(try Fixtures.entries(of: directory), ["oriented.fasta", "trimmed.fasta"])
     }
+
+    // MARK: - Interleaving mates
+
+    /// Two pairs, R1 named `/1` and R2 named `/2`, in `mates-R1.fastq` and
+    /// `mates-R2.fastq`.
+    private func matePair(r2Names: [String] = ["p1/2", "p2/2"]) throws -> (r1: URL, r2: URL) {
+        (
+            try Fixtures.write(Fixtures.mates(["p1/1", "p2/1"], base: "A"), named: "mates-R1.fastq", in: folder),
+            try Fixtures.write(Fixtures.mates(r2Names, base: "C"), named: "mates-R2.fastq", in: folder)
+        )
+    }
+
+    func testAFullDiskDuringTheInterleaveIsAThrownErrorAndTheNameKeepsItsOldFile() throws {
+        let mates = try matePair()
+        let output = try Fixtures.write(Data("old\n".utf8), named: "interleaved.fastq", in: folder)
+        let tally = Fixtures.Tally()
+        let operations = Fixtures.fullDisk(afterWrites: 0, matching: ".interleaved.fastq.lungfish-stage-", tally: tally)
+
+        XCTAssertThrowsError(
+            try DurableReplace.$overrideOperations.withValue(operations) {
+                try FASTQCLIMaterializer(runner: .shared).interleaveMates(r1URL: mates.r1, r2URL: mates.r2, outputURL: output)
+            }
+        ) { Fixtures.assertFullDisk($0) }
+
+        XCTAssertEqual(tally["stageWrites"], 1, "the write after the failure never ran")
+        XCTAssertEqual(try Data(contentsOf: output), Data("old\n".utf8))
+        XCTAssertEqual(try entries(), ["interleaved.fastq", "mates-R1.fastq", "mates-R2.fastq"], "no stage file is left")
+    }
+
+    func testMatesThatAreOutOfStepLeaveNoFileAndKeepTheOldOutput() throws {
+        let mates = try matePair(r2Names: ["p1/2", "p9/2"])
+        let output = try Fixtures.write(Data("old\n".utf8), named: "interleaved.fastq", in: folder)
+        let fresh = folder.appendingPathComponent("fresh.fastq")
+        let materializer = FASTQCLIMaterializer(runner: .shared)
+
+        XCTAssertThrowsError(try materializer.interleaveMates(r1URL: mates.r1, r2URL: mates.r2, outputURL: output)) { error in
+            guard case .mateNameMismatch? = error as? FASTQPairInterleaver.InterleaveError else {
+                return XCTFail("expected a mate name mismatch, got \(error)")
+            }
+        }
+        XCTAssertThrowsError(try materializer.interleaveMates(r1URL: mates.r1, r2URL: mates.r2, outputURL: fresh))
+
+        XCTAssertEqual(try Data(contentsOf: output), Data("old\n".utf8), "a refused interleave keeps the earlier file")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fresh.path), "a refused interleave names no file")
+        XCTAssertEqual(try entries(), ["interleaved.fastq", "mates-R1.fastq", "mates-R2.fastq"], "no stage file is left")
+    }
+
+    func testAMissingMateFileKeepsTheOldInterleavedOutput() throws {
+        let mates = try matePair()
+        let output = try Fixtures.write(Data("old\n".utf8), named: "interleaved.fastq", in: folder)
+
+        XCTAssertThrowsError(
+            try FASTQCLIMaterializer(runner: .shared).interleaveMates(
+                r1URL: mates.r1,
+                r2URL: folder.appendingPathComponent("gone-R2.fastq"),
+                outputURL: output
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: output), Data("old\n".utf8))
+        XCTAssertEqual(try entries(), ["interleaved.fastq", "mates-R1.fastq", "mates-R2.fastq"])
+    }
+
+    func testTheInterleavedFileIsSyncedBeforeItIsNamed() throws {
+        let mates = try matePair()
+        let output = folder.appendingPathComponent("interleaved.fastq")
+        let tally = Fixtures.Tally()
+        let operations = DurableReplace.Operations(
+            syncFile: { tally.add("syncFile"); return Darwin.fsync($0) },
+            checkpoint: { tally.add($0.rawValue) }
+        )
+
+        try DurableReplace.$overrideOperations.withValue(operations) {
+            try FASTQCLIMaterializer(runner: .shared).interleaveMates(r1URL: mates.r1, r2URL: mates.r2, outputURL: output)
+        }
+
+        XCTAssertEqual(tally["syncFile"], 1, "one fsync of the file")
+        XCTAssertEqual(tally["published"], 1)
+        XCTAssertEqual(try entries(), ["interleaved.fastq", "mates-R1.fastq", "mates-R2.fastq"])
+    }
 }

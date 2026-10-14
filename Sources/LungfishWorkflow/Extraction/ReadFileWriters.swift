@@ -44,15 +44,27 @@ enum ReadFileWriters {
     }
 
     /// Publishes the bytes that `body` streams as `destination`, swapping out
-    /// any regular file the name holds. When `body` throws, the name keeps its
-    /// old file and no stage file is left in the folder.
-    static func publish(_ destination: URL, writing body: (DurableReplace.StageWriter) throws -> Void) throws {
+    /// any regular file the name holds, and returns what `body` returns. When
+    /// `body` throws, the name keeps its old file and no stage file is left
+    /// in the folder.
+    @discardableResult
+    static func publish<Value>(
+        _ destination: URL,
+        writing body: (DurableReplace.StageWriter) throws -> Value
+    ) throws -> Value {
+        var result: Value?
         try DurableReplace.replace(
             named: destination.lastPathComponent,
             in: destination.deletingLastPathComponent(),
-            recovery: .none,
-            writing: body
-        )
+            recovery: .none
+        ) { stage in
+            result = try body(stage)
+        }
+        guard let result else {
+            // `replace` runs its body exactly once before it returns.
+            throw DurableReplace.ReplaceError.systemFailure(path: destination.path, operation: "run the writer", code: EIO)
+        }
+        return result
     }
 
     /// Streams `source` into `stage` in chunks.

@@ -96,17 +96,11 @@ extension FASTQCLIMaterializer {
         outputURL: URL,
         progress: (@Sendable (String) -> Void)? = nil
     ) throws {
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
-            throw FASTQCLIMaterializerError.toolFailed("interleave", "cannot create \(outputURL.path)")
-        }
-        let handle = try FileHandle(forWritingTo: outputURL)
-        defer { try? handle.close() }
-        let written: FASTQPairInterleaver.RecordedPairCounts
-        do {
-            written = try FASTQPairInterleaver.interleaveRecordedPair(r1: r1URL, r2: r2URL, to: handle)
-        } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
+        // The file is staged and named only when it is whole and synced, so a
+        // refused interleave leaves the name with its old file, and a full
+        // disk is a thrown error (Phase 2.10 lane S31).
+        let written = try ReadFileWriters.publish(outputURL) { stage in
+            try FASTQPairInterleaver.interleaveRecordedPair(r1: r1URL, r2: r2URL, to: stage)
         }
         if let first = written.firstPairedByPosition, first.count == 2 {
             let warning = "Warning: \(written.pairedByPosition) of the \(written.counts.r1Records) record pairs of "

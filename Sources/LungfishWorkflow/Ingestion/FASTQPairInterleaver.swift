@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 /// Streams a paired R1/R2 FASTQ into one interleaved FASTQ without any
@@ -61,6 +62,29 @@ public enum FASTQPairInterleaver {
         requireMates: Bool = false
     ) throws -> Counts {
         var output = BufferedSink(handle: sink)
+        return try interleave(r1: r1, r2: r2, into: &output, requireMates: requireMates)
+    }
+
+    /// ``interleave(r1:r2:to:requireMates:)`` into the stage file of a
+    /// ``DurableReplace`` publication, so a failed write is a thrown error and
+    /// the name holds the interleaved file only when it is whole and synced
+    /// (Phase 2.10 lane S31).
+    static func interleave(
+        r1: URL,
+        r2: URL,
+        to stage: DurableReplace.StageWriter,
+        requireMates: Bool = false
+    ) throws -> Counts {
+        var output = BufferedSink(stage: stage)
+        return try interleave(r1: r1, r2: r2, into: &output, requireMates: requireMates)
+    }
+
+    private static func interleave(
+        r1: URL,
+        r2: URL,
+        into output: inout BufferedSink,
+        requireMates: Bool
+    ) throws -> Counts {
         let counts = try interleave(r1: r1, r2: r2, requireMates: requireMates) { record1, record2 in
             try output.write(record1)
             try output.write(record2)
@@ -107,6 +131,25 @@ public enum FASTQPairInterleaver {
     /// are named `x.1` and `x.2` threw before this rule (final review A, N2).
     public static func interleaveRecordedPair(r1: URL, r2: URL, to sink: FileHandle) throws -> RecordedPairCounts {
         var output = BufferedSink(handle: sink)
+        return try interleaveRecordedPair(r1: r1, r2: r2, into: &output)
+    }
+
+    /// `interleaveRecordedPair(r1:r2:to:)` with a file handle, into the stage
+    /// file of a ``DurableReplace`` publication (Phase 2.10 lane S31).
+    static func interleaveRecordedPair(
+        r1: URL,
+        r2: URL,
+        to stage: DurableReplace.StageWriter
+    ) throws -> RecordedPairCounts {
+        var output = BufferedSink(stage: stage)
+        return try interleaveRecordedPair(r1: r1, r2: r2, into: &output)
+    }
+
+    private static func interleaveRecordedPair(
+        r1: URL,
+        r2: URL,
+        into output: inout BufferedSink
+    ) throws -> RecordedPairCounts {
         var recordNumber = 0
         var pairedByPosition = 0
         var firstPairedByPosition: [String]?
@@ -286,6 +329,25 @@ public enum FASTQPairInterleaver {
         inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
     ) throws -> Int {
         var output = BufferedSink(handle: sink)
+        return try copyRecords(of: file, into: &output, inspecting: inspect)
+    }
+
+    /// `copyRecords(of:to:inspecting:)` with a file handle, into the stage
+    /// file of a ``DurableReplace`` publication (Phase 2.10 lane S31).
+    static func copyRecords(
+        of file: URL,
+        to stage: DurableReplace.StageWriter,
+        inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
+    ) throws -> Int {
+        var output = BufferedSink(stage: stage)
+        return try copyRecords(of: file, into: &output, inspecting: inspect)
+    }
+
+    private static func copyRecords(
+        of file: URL,
+        into output: inout BufferedSink,
+        inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
+    ) throws -> Int {
         let reader = try FASTQRawLineReader(url: file)
         defer { reader.close() }
         var count = 0
@@ -519,13 +581,20 @@ public enum FASTQPairInterleaver {
     }
 
     private struct BufferedSink {
-        let handle: FileHandle
+        private let emit: ([UInt8]) throws -> Void
         var buffer: [UInt8] = []
         var recordsWritten = 0
         private let flushThreshold = 4 * 1_048_576
 
         init(handle: FileHandle) {
-            self.handle = handle
+            emit = { try handle.write(contentsOf: $0) }
+            buffer.reserveCapacity(flushThreshold + 65_536)
+        }
+
+        /// A sink into the stage file of a ``DurableReplace`` publication,
+        /// which reports a failed write as a thrown error.
+        init(stage: DurableReplace.StageWriter) {
+            emit = { bytes in try bytes.withUnsafeBytes { try stage.write($0) } }
             buffer.reserveCapacity(flushThreshold + 65_536)
         }
 
@@ -540,7 +609,7 @@ public enum FASTQPairInterleaver {
 
         mutating func flush() throws {
             guard !buffer.isEmpty else { return }
-            try handle.write(contentsOf: buffer)
+            try emit(buffer)
             buffer.removeAll(keepingCapacity: true)
         }
     }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 extension TaxonomyExtractionPipeline {
@@ -53,6 +54,38 @@ extension TaxonomyExtractionPipeline {
         pairs: FileHandle,
         reads: FileHandle
     ) throws -> Int {
+        try writeExtractedReads(
+            outputs,
+            of: files,
+            pairs: { try pairs.write(contentsOf: $0) },
+            reads: { try reads.write(contentsOf: $0) }
+        )
+    }
+
+    /// ``writeExtractedReads(_:of:pairs:reads:)`` into the stage files of two
+    /// ``DurableReplace`` publications, so a failed write is a thrown error and
+    /// each file is named only when it is whole and synced (Phase 2.10 lane
+    /// S31).
+    static func writeExtractedReads(
+        _ outputs: [URL?],
+        of files: [KrakenResultReadSources.File],
+        pairs: DurableReplace.StageWriter,
+        reads: DurableReplace.StageWriter
+    ) throws -> Int {
+        try writeExtractedReads(
+            outputs,
+            of: files,
+            pairs: { chunk in try chunk.withUnsafeBytes { try pairs.write($0) } },
+            reads: { chunk in try chunk.withUnsafeBytes { try reads.write($0) } }
+        )
+    }
+
+    private static func writeExtractedReads(
+        _ outputs: [URL?],
+        of files: [KrakenResultReadSources.File],
+        pairs: ([UInt8]) throws -> Void,
+        reads: ([UInt8]) throws -> Void
+    ) throws -> Int {
         var pairCount = 0
         for (index, file) in files.enumerated() {
             switch file.role {
@@ -69,14 +102,15 @@ extension TaxonomyExtractionPipeline {
         return pairCount
     }
 
-    /// Copies `file` into `handle` unchanged and returns its record count.
-    private static func copyRecords(of file: URL, into handle: FileHandle) throws -> Int {
+    /// Passes `file` to `write` unchanged, chunk by chunk, and returns its
+    /// record count.
+    private static func copyRecords(of file: URL, into write: ([UInt8]) throws -> Void) throws -> Int {
         let reader = try FASTQRawLineReader(url: file)
         defer { reader.close() }
         var lines = 0
         while let chunk = try reader.readChunk() {
             lines += chunk.reduce(0) { $0 + ($1 == UInt8(ascii: "\n") ? 1 : 0) }
-            try handle.write(contentsOf: chunk)
+            try write(chunk)
         }
         return lines / 4
     }

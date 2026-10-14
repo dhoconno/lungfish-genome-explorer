@@ -370,23 +370,7 @@ extension FASTQBatchImporter {
         // Cancellation reaches the join, which polls it as it copies
         // (F9 re-review N5).
         let counts = try await FASTQIngestionPipeline.detachedWork {
-            if let reason = Self.reasonNotToJoin(r1: r1, r2: r2, unpaired: unpaired) {
-                throw UnpairedReadsImportError.notJoinable(Self.notJoined(unpaired, to: r1, r2, because: reason.text))
-            }
-            FileManager.default.createFile(atPath: output.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: output)
-            defer { try? handle.close() }
-            let pairs = try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: handle, requireMates: true)
-            // Every adjacent pair of the third file is compared as it is
-            // copied, past the reads the check compared (F11-N1).
-            var previous: (name: String, read: Int)?
-            let singles = try FASTQPairInterleaver.copyRecords(of: unpaired, to: handle) { name, read in
-                if let previous, let reason = Self.oneFragment(previous.name, name, atRead: previous.read) {
-                    throw UnpairedReadsImportError.notJoinable(Self.notJoined(unpaired, to: r1, r2, because: reason))
-                }
-                previous = (name, read)
-            }
-            return RecipeMixedLayoutCounts(mergedReads: 0, pairs: pairs.r1Records, unpairedReads: singles)
+            try Self.joinPairsThenUnpairedReads(r1: r1, r2: r2, unpaired: unpaired, into: output)
         }
         let step = try ReadSetStep(
             kind: .interleaveByName,
@@ -412,6 +396,36 @@ extension FASTQBatchImporter {
                 unpaired.lastPathComponent: .integer(counts.unpairedReads),
             ]
         )
+    }
+
+    /// The synchronous join of ``writePairsThenUnpairedReads(of:in:log:)``:
+    /// the pairs, mate names checked record by record, then the reads without
+    /// a mate, streamed into a stage file. `output` names the result only when
+    /// the file is whole and synced, so a join that a check refuses leaves the
+    /// name with its old file or without one, and a full disk is a thrown
+    /// error (Phase 2.10 lane S31).
+    static func joinPairsThenUnpairedReads(
+        r1: URL,
+        r2: URL,
+        unpaired: URL,
+        into output: URL
+    ) throws -> RecipeMixedLayoutCounts {
+        if let reason = reasonNotToJoin(r1: r1, r2: r2, unpaired: unpaired) {
+            throw UnpairedReadsImportError.notJoinable(notJoined(unpaired, to: r1, r2, because: reason.text))
+        }
+        return try ReadFileWriters.publish(output) { stage in
+            let pairs = try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: stage, requireMates: true)
+            // Every adjacent pair of the third file is compared as it is
+            // copied, past the reads the check compared (F11-N1).
+            var previous: (name: String, read: Int)?
+            let singles = try FASTQPairInterleaver.copyRecords(of: unpaired, to: stage) { name, read in
+                if let previous, let reason = oneFragment(previous.name, name, atRead: previous.read) {
+                    throw UnpairedReadsImportError.notJoinable(notJoined(unpaired, to: r1, r2, because: reason))
+                }
+                previous = (name, read)
+            }
+            return RecipeMixedLayoutCounts(mergedReads: 0, pairs: pairs.r1Records, unpairedReads: singles)
+        }
     }
 
     /// Why an import refused a sample that holds reads without a mate.

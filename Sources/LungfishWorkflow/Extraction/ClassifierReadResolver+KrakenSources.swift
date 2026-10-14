@@ -89,15 +89,13 @@ extension ClassifierReadResolver {
         var skippedSamples: [String] = []
         // The R1 and R2 reads of every pair of files, each R1 record followed
         // by its R2 record, go into one file, and the reads of every other
-        // file follow it: all pairs first, then the single reads (D7d).
+        // file follow it: all pairs first, then the single reads (D7d). The
+        // loop only extracts. The two files are written after it through
+        // DurableReplace, since a staged write cannot span the awaits of the
+        // loop (Phase 2.10 lane S31).
         let pairsFile = tempDir.appendingPathComponent("kraken2-pairs.fastq")
         let readsFile = tempDir.appendingPathComponent("kraken2-reads.fastq")
-        FileManager.default.createFile(atPath: pairsFile.path, contents: nil)
-        FileManager.default.createFile(atPath: readsFile.path, contents: nil)
-        let pairsHandle = try FileHandle(forWritingTo: pairsFile)
-        defer { try? pairsHandle.close() }
-        let readsHandle = try FileHandle(forWritingTo: readsFile)
-        defer { try? readsHandle.close() }
+        var extractedSamples: [(outputs: [URL?], files: [KrakenResultReadSources.File])] = []
         // Whether any sample's reads hold mates, so the output may too.
         var sourcesHoldMates = false
         var singleReadRole = ReadClassification.FileRole.unpaired
@@ -183,15 +181,27 @@ extension ClassifierReadResolver {
                 }
             )
 
-            _ = try TaxonomyExtractionPipeline.writeExtractedReads(
-                extraction.outputs,
-                of: sources.files,
-                pairs: pairsHandle,
-                reads: readsHandle
-            )
+            extractedSamples.append((extraction.outputs, sources.files))
         }
-        try pairsHandle.close()
-        try readsHandle.close()
+
+        // The pairs of every sample go into one file and the other reads into
+        // the other, in sample order. The two are named together, with one
+        // full flush for the volume.
+        try DurableReplace.transaction {
+            try ReadFileWriters.publish(pairsFile) { pairsStage in
+                try ReadFileWriters.publish(readsFile) { readsStage in
+                    for sample in extractedSamples {
+                        try Task.checkCancellation()
+                        _ = try TaxonomyExtractionPipeline.writeExtractedReads(
+                            sample.outputs,
+                            of: sample.files,
+                            pairs: pairsStage,
+                            reads: readsStage
+                        )
+                    }
+                }
+            }
+        }
 
         let producedURLs = [pairsFile, readsFile].filter {
             ((try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? UInt64) ?? 0) > 0

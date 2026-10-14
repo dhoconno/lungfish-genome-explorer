@@ -7,6 +7,7 @@ import Foundation
 import Synchronization
 import XCTest
 import LungfishCore
+@testable import LungfishWorkflow
 
 /// Fixtures shared by the read writer tests of Phase 2.10 lane S31.
 enum ReadWriterFixtures {
@@ -177,6 +178,37 @@ enum ReadWriterFixtures {
         if let decoded = joinCase.decoded {
             XCTAssertEqual(try gunzip(destination), decoded, joinCase.name, file: file, line: line)
         }
+    }
+
+    // MARK: - Kraken2 extraction outputs
+
+    struct Extracted {
+        let files: [KrakenResultReadSources.File]
+        let outputs: [URL?]
+        let pairs: Data
+        let reads: Data
+    }
+
+    /// One sample's extraction: an interleaved output for the R1 and R2 files,
+    /// then a reads file and a file of adjacent mates.
+    static func extraction(_ label: String, folder: URL) throws -> Extracted {
+        let pairs = mates(["\(label)p1/1", "\(label)p1/2", "\(label)p2/1", "\(label)p2/2"], base: "A")
+        let reads = mates(["\(label)u1", "\(label)u2"], base: "G")
+        let adjacent = mates(["\(label)m1/1", "\(label)m1/2"], base: "T")
+        let outputs: [URL?] = [
+            try write(pairs, named: "\(label)-pairs.fastq", in: folder),
+            nil,
+            try write(reads, named: "\(label)-reads.fastq", in: folder),
+            try write(adjacent, named: "\(label)-adjacent.fastq", in: folder),
+        ]
+        let sources = folder.appendingPathComponent("sources")
+        let files = [
+            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_R1.fastq"), role: .r1),
+            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_R2.fastq"), role: .r2),
+            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_reads.fastq"), role: .reads),
+            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_mates.fastq"), role: .adjacentMates),
+        ]
+        return Extracted(files: files, outputs: outputs, pairs: pairs, reads: reads + adjacent)
     }
 
     // MARK: - Faults

@@ -101,34 +101,6 @@ final class ReadWriterHandleSitePinTests: XCTestCase {
 
     // MARK: - Kraken2 extraction, pairs first
 
-    private struct Extracted {
-        let files: [KrakenResultReadSources.File]
-        let outputs: [URL?]
-        let pairs: Data
-        let reads: Data
-    }
-
-    /// One sample's extraction: an interleaved output for the R1 and R2 files,
-    /// then a reads file and a file of adjacent mates.
-    private func extraction(_ label: String, folder: URL) throws -> Extracted {
-        let pairs = Fixtures.mates(["\(label)p1/1", "\(label)p1/2", "\(label)p2/1", "\(label)p2/2"], base: "A")
-        let reads = Fixtures.mates(["\(label)u1", "\(label)u2"], base: "G")
-        let adjacent = Fixtures.mates(["\(label)m1/1", "\(label)m1/2"], base: "T")
-        let outputs: [URL?] = [
-            try Fixtures.write(pairs, named: "\(label)-pairs.fastq", in: folder),
-            nil,
-            try Fixtures.write(reads, named: "\(label)-reads.fastq", in: folder),
-            try Fixtures.write(adjacent, named: "\(label)-adjacent.fastq", in: folder),
-        ]
-        let sources = folder.appendingPathComponent("sources")
-        let files = [
-            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_R1.fastq"), role: .r1),
-            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_R2.fastq"), role: .r2),
-            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_reads.fastq"), role: .reads),
-            KrakenResultReadSources.File(url: sources.appendingPathComponent("\(label)_mates.fastq"), role: .adjacentMates),
-        ]
-        return Extracted(files: files, outputs: outputs, pairs: pairs, reads: reads + adjacent)
-    }
 
     private func sink(_ name: String, in folder: URL) throws -> (url: URL, handle: FileHandle) {
         let url = folder.appendingPathComponent(name)
@@ -138,8 +110,8 @@ final class ReadWriterHandleSitePinTests: XCTestCase {
 
     func testExtractedReadsOfTwoSamplesPutAllPairsInOneFileAndAllOtherReadsInTheOtherInOrder() throws {
         let folder = root.appendingPathComponent("kraken", isDirectory: true)
-        let first = try extraction("a", folder: folder)
-        let second = try extraction("b", folder: folder)
+        let first = try Fixtures.extraction("a", folder: folder)
+        let second = try Fixtures.extraction("b", folder: folder)
         let pairsSink = try sink("pairs.fastq", in: folder)
         let readsSink = try sink("reads.fastq", in: folder)
 
@@ -160,7 +132,7 @@ final class ReadWriterHandleSitePinTests: XCTestCase {
 
     func testExtractedReadsToOneHandleGetThePairsBeforeTheOtherReads() throws {
         let folder = root.appendingPathComponent("kraken-one", isDirectory: true)
-        let extracted = try extraction("a", folder: folder)
+        let extracted = try Fixtures.extraction("a", folder: folder)
         let both = try sink("both.fastq", in: folder)
 
         _ = try TaxonomyExtractionPipeline.writeExtractedReads(
