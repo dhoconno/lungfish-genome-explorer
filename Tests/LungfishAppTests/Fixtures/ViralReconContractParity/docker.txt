@@ -455,22 +455,25 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
-
+        "pipelineSource" : {
+          "type" : "string",
+          "value" : "remote"
+        }
       },
       "startedAt" : "<time>",
       "stderr" : "",
-      "toolName" : "lungfish-cli workflow run",
-      "toolVersion" : "<cli version>",
+      "toolName" : "nf-core-viralrecon",
+      "toolVersion" : "3.0.0",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
-    "name" : "lungfish-cli workflow run",
-    "version" : "<cli version>"
+    "name" : "nf-core-viralrecon",
+    "version" : "3.0.0"
   },
-  "toolName" : "lungfish-cli workflow run",
-  "toolVersion" : "<cli version>",
+  "toolName" : "nf-core-viralrecon",
+  "toolVersion" : "3.0.0",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"
@@ -858,22 +861,25 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
-
+        "pipelineSource" : {
+          "type" : "string",
+          "value" : "remote"
+        }
       },
       "startedAt" : "<time>",
       "stderr" : "",
-      "toolName" : "lungfish-cli workflow run",
-      "toolVersion" : "<cli version>",
+      "toolName" : "nf-core-viralrecon",
+      "toolVersion" : "3.0.0",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
-    "name" : "lungfish-cli workflow run",
-    "version" : "<cli version>"
+    "name" : "nf-core-viralrecon",
+    "version" : "3.0.0"
   },
-  "toolName" : "lungfish-cli workflow run",
-  "toolVersion" : "<cli version>",
+  "toolName" : "nf-core-viralrecon",
+  "toolVersion" : "3.0.0",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"
@@ -1259,22 +1265,25 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
-
+        "pipelineSource" : {
+          "type" : "string",
+          "value" : "remote"
+        }
       },
       "startedAt" : "<time>",
       "stderr" : "",
-      "toolName" : "lungfish-cli workflow run",
-      "toolVersion" : "<cli version>",
+      "toolName" : "nf-core-viralrecon",
+      "toolVersion" : "3.0.0",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
-    "name" : "lungfish-cli workflow run",
-    "version" : "<cli version>"
+    "name" : "nf-core-viralrecon",
+    "version" : "3.0.0"
   },
-  "toolName" : "lungfish-cli workflow run",
-  "toolVersion" : "<cli version>",
+  "toolName" : "nf-core-viralrecon",
+  "toolVersion" : "3.0.0",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"
@@ -1598,22 +1607,25 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
-
+        "pipelineSource" : {
+          "type" : "string",
+          "value" : "remote"
+        }
       },
       "startedAt" : "<time>",
       "stderr" : "",
-      "toolName" : "lungfish-cli workflow run",
-      "toolVersion" : "<cli version>",
+      "toolName" : "nf-core-viralrecon",
+      "toolVersion" : "3.0.0",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
-    "name" : "lungfish-cli workflow run",
-    "version" : "<cli version>"
+    "name" : "nf-core-viralrecon",
+    "version" : "3.0.0"
   },
-  "toolName" : "lungfish-cli workflow run",
-  "toolVersion" : "<cli version>",
+  "toolName" : "nf-core-viralrecon",
+  "toolVersion" : "3.0.0",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"

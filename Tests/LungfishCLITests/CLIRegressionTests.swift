@@ -1032,7 +1032,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
         XCTAssertEqual(provenance.exitStatus, 0)
-        XCTAssertEqual(provenance.toolName, "lungfish-cli workflow run")
+        XCTAssertEqual(provenance.toolName, "nf-core-viralrecon", "2.9 R1, the step and the run name the pipeline")
         XCTAssertEqual(provenance.githubReleaseVersion, "3.0.0")
         XCTAssertEqual(provenance.options.explicit["github_release_version"], .string("3.0.0"))
         XCTAssertTrue(provenance.argv.contains("--prepare-only"))

@@ -529,11 +529,15 @@ extension RunSubcommand {
             parameters[ViralReconAnnotationStaging.provenanceKey] = stagedAnnotation.provenanceValue
         }
 
+        // 2.9 R1. The step is the pipeline at the revision that ran, with its tag and launch source, and LGE's command
+        // is the run's argv.
+        let facts = Self.viralReconStepFacts(for: request)
         let recordedAt = Date(), step = StepExecution(
-            toolName: "\(CLICommandIdentity.executableName) workflow run",
-            toolVersion: LungfishCLI.configuration.version,
-            githubReleaseVersion: request.version,
+            toolName: facts.toolName,
+            toolVersion: facts.toolVersion,
+            githubReleaseVersion: facts.githubReleaseVersion,
             command: command,
+            resolvedOptions: facts.resolvedOptions(logFile: nil),
             inputs: inputs,
             outputs: outputs,
             exitCode: exitCode,

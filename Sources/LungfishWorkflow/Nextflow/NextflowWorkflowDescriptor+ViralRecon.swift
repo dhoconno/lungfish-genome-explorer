@@ -34,6 +34,16 @@ extension NextflowWorkflowDescriptor {
 }
 
 extension NFCoreRunRequest {
+    /// The release tag that names the revision this run passes as `-r` (2.9 R1 and R2), the lock's tag for the pin's
+    /// own revision or that tag, the revision itself when it reads as a release such as `3.1.0`, and nil for a branch
+    /// or another commit, so a record never names a tag for code that tag does not name.
+    package func viralReconReleaseVersion(pin: NextflowPipelinePin?) -> String? {
+        if let pin, !pin.releaseVersion.isEmpty, version == pin.revision || version == pin.releaseVersion {
+            return pin.releaseVersion
+        }
+        return version.range(of: #"^[0-9]+(\.[0-9]+)+$"#, options: .regularExpression) == nil ? nil : version
+    }
+
     /// The launch ``NextflowWorkflowDescriptor/viralRecon`` writes the argv of for this run, with
     /// `samplesheet` as the one `--input` and `configFiles` passed with `-c` before `run`.
     ///
