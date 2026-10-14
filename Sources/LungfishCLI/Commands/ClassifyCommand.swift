@@ -171,9 +171,10 @@ struct ClassifyCommand: AsyncParsableCommand {
         let destination: AnalysisRunDestination = project.map { .project(URL(fileURLWithPath: $0).standardizedFileURL) }
             ?? .directory(outputDirectoryURL)
         // SIGTERM (the app's Cancel) cancels the run, so the executor records it as cancelled with
-        // exit 125, from the cancel request and never from how a child ended (SWIFT X2). The
-        // handler counts the signal at once, before the cancel reaches the task, and a kraken2
-        // child in the same process group can end first, so both sources say a cancel was asked.
+        // exit 125, from the cancel request and never from how a child ended (SWIFT X2). A kraken2
+        // child in the same process group can end first, before this process has run its handler.
+        // `signalCaught` reads the kernel's note of the post beside the handler's count, so it says a
+        // cancel was asked then too, and so does the cancel request (Phase 2.10 lane FXS).
         let pendingCancel = PendingTaskCancel<AnalysisRunReport>()
         let cancelRequested: @Sendable () -> Bool = {
             SIGTERMCancellation.signalCaught || pendingCancel.cancelRequested

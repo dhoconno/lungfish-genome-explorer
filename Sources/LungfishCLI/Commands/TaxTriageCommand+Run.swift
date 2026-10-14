@@ -286,8 +286,10 @@ extension TaxTriageCommand {
 
         /// The body of ``run()``. It runs the request through the executor, with a SIGTERM turned
         /// into a cancel of the run, so the run records `cancelled`, settles its folder and exits 125
-        /// inside the grace the app's transport gives it. A cancel is taken from the SIGTERM count
-        /// and the cancel request, never from how Nextflow ended (SWIFT X2). Given `events`, the
+        /// inside the grace the app's transport gives it. A cancel is taken from the SIGTERM count or
+        /// the kernel's note of a post (`SIGTERMCancellation.signalCaught`, which reads a post before
+        /// the handler has run) and from the cancel request, never from how Nextflow ended (SWIFT X2).
+        /// Given `events`, the
         /// executor's events go there in place of the lines this command writes, so a test can read
         /// each one. It throws the run's exit code when the run did not complete.
         func execute(events eventsOverride: AnalysisRunEvents? = nil) async throws {
