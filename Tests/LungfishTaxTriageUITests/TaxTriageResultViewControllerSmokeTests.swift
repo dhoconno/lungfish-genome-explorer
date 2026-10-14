@@ -75,9 +75,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     /// Inspector's Panel Layout picker shows as selected. Both read
     /// `MetagenomicsPanelLayout.current`, whose fallback is Detail | List.
     @MainActor func testFreshInstallLayoutMatchesInspectorPickerDefault() {
-        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "TaxTriageResultViewControllerSmokeTests").defaults
         XCTAssertNil(defaults.object(forKey: MetagenomicsPanelLayout.defaultsKey))
         XCTAssertNil(defaults.object(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey))
 
@@ -94,9 +92,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     }
 
     @MainActor func testDatabaseLoadInStackedLayoutSelectsTopRow() throws {
-        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "TaxTriageResultViewControllerSmokeTests").defaults
         defaults.set(MetagenomicsPanelLayout.stacked.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
         defaults.set(false, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
 
@@ -366,9 +362,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     }
 
     @MainActor func testDatabaseConfiguredBeforeWindowDisplaysBatchTableAfterAttach() throws {
-        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "TaxTriageResultViewControllerSmokeTests").defaults
         defaults.set(MetagenomicsPanelLayout.listLeading.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
         defaults.set(true, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
 
@@ -444,9 +438,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     }
 
     @MainActor func testDatabaseLayoutSwitchToDetailLeadingKeepsBatchTableVisible() throws {
-        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "TaxTriageResultViewControllerSmokeTests").defaults
         defaults.set(MetagenomicsPanelLayout.stacked.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
         defaults.set(false, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
 

@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishKit
 @testable import LungfishTaxTriageUI
+import LungfishTestSupport
 
 @MainActor
 final class TaxTriageContentTypographyTests: XCTestCase {
@@ -621,12 +622,10 @@ final class TaxTriageContentTypographyTests: XCTestCase {
     private func preservingContentTextSizePreference(
         _ body: () throws -> Void
     ) rethrows {
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "TaxTriageContentTypographyTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         try body()

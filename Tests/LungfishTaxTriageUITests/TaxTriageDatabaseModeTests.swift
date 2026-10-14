@@ -16,6 +16,7 @@ import SwiftUI
 @testable import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 private final class RecordingEvidenceViewer: NSObject, ClassifierAlignmentViewerProviding {
@@ -390,9 +391,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
     func testSampleFilterChangeKeepsTheAlignmentPaneDrawableForTheSelectedRow() throws {
         let fixture = try Fixture(writeSidecar: false)
         defer { fixture.cleanUp() }
-        let suiteName = "TaxTriageFilterAlignment.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "TaxTriageDatabaseModeTests").defaults
         defaults.set(MetagenomicsPanelLayout.stacked.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
 
         let recorder = RecordingEvidenceViewer()
