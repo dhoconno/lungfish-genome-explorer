@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -115,5 +116,60 @@ final class TaxTriageWizardSheetTests: XCTestCase {
         // The wizard accepts the same probe so the row can be driven without
         // a Docker install; this pins the initializer signature.
         _ = TaxTriageWizardSheet(containerRuntimeProbe: DaemonDownAppleReady())
+    }
+
+    // MARK: - Nextflow prerequisite row
+
+    /// What the wizard's Nextflow row asks: is Lungfish's managed Nextflow installed in this tool root. At this commit
+    /// the wizard asks `NextflowRunner.isAvailable()`, and this is the only line of the three cases that names it.
+    private func nextflowRowIsAvailable(home: URL) async -> Bool {
+        await NextflowRunner(homeDirectoryProvider: { home }, appIdentity: .preview).isAvailable()
+    }
+
+    private func installNextflow(in directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("nextflow")
+        try "#!/bin/bash\necho stub nextflow\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    }
+
+    func testNextflowRowIsAvailableForTheManagedCopy() async throws {
+        let home = try TestTempDirectory.make(prefix: "taxtriage-wizard-nextflow")
+        defer { TestTempDirectory.cleanup(home) }
+        try installNextflow(in: home.appendingPathComponent(".lungfish/conda/envs/nextflow/bin", isDirectory: true))
+
+        let available = await nextflowRowIsAvailable(home: home)
+
+        XCTAssertTrue(available)
+    }
+
+    func testNextflowRowIsNotAvailableWithoutAManagedCopy() async throws {
+        let home = try TestTempDirectory.make(prefix: "taxtriage-wizard-nextflow")
+        defer { TestTempDirectory.cleanup(home) }
+
+        let available = await nextflowRowIsAvailable(home: home)
+
+        XCTAssertFalse(available)
+    }
+
+    /// A Nextflow on PATH is a different, unpinned version, so it never turns the row green.
+    func testNextflowRowIgnoresACopyOnPATH() async throws {
+        let home = try TestTempDirectory.make(prefix: "taxtriage-wizard-nextflow")
+        defer { TestTempDirectory.cleanup(home) }
+        let fakeBin = home.appendingPathComponent("fake-bin", isDirectory: true)
+        try installNextflow(in: fakeBin)
+        let originalPATH = ProcessInfo.processInfo.environment["PATH"]
+        setenv("PATH", "\(fakeBin.path):\(originalPATH ?? "/usr/bin:/bin")", 1)
+        defer {
+            if let originalPATH {
+                setenv("PATH", originalPATH, 1)
+            } else {
+                unsetenv("PATH")
+            }
+        }
+
+        let available = await nextflowRowIsAvailable(home: home)
+
+        XCTAssertFalse(available)
     }
 }
