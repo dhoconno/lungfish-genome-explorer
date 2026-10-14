@@ -45,8 +45,9 @@ struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
     /// output holds only `CLIEvent` lines (Phase 2.10 lane A54): a `start` with the row's first
     /// detail, a `progress` for each stage of the service, and a `complete` that names the new bundle
     /// and says how many tracks were processed. SIGTERM, the app's Cancel, cancels the service and
-    /// the run is recorded as cancelled with exit 125. The source bundle is never changed, and a
-    /// partly written copy may remain beside it.
+    /// the run is recorded as cancelled with exit 125. The source bundle is never changed. The service
+    /// removes the copy it made when it stops, so a copy remains only where the output path was taken
+    /// before the run, and the cancel says which of the two holds.
     func execute(
         eventsOn: Bool,
         quiet: Bool,
@@ -85,16 +86,21 @@ struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
                     ?? sourceURL.deletingLastPathComponent().appendingPathComponent(
                         "\(sourceURL.deletingPathExtension().lastPathComponent)-deduplicated.lungfishref"
                     )
+                // The service writes to `expected` whenever that path was free, and removes what it wrote
+                // when it stops. A folder there after the cancel was not made by this run's copy, or the
+                // copy itself failed part way, so the leaf cannot say none remains.
+                let left = FileManager.default.fileExists(atPath: expected.path)
+                    ? "a partly written copy may remain beside it" : "no partial copy remains"
                 let record = CancelledAlignmentWorkflowRecord(
                     workflow: "lungfish bundle deduplicate-alignments",
                     argv: command,
                     explicit: ["sourceBundle": .string(bundlePath)],
-                    note: "Cancelled while creating the deduplicated bundle. The source bundle was not changed, and a partly written copy may remain beside it.",
+                    note: "Cancelled while creating the deduplicated bundle. The source bundle was not changed, and \(left).",
                     startedAt: startedAt,
                     url: URL(fileURLWithPath: expected.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
                 )
                 throw events.cancelled(
-                    "Deduplication cancelled. The source bundle was not changed. A partly written copy may remain beside it.",
+                    "Deduplication cancelled. The source bundle was not changed, and \(left).",
                     record: record
                 )
             }

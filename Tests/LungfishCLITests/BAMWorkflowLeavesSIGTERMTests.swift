@@ -48,7 +48,11 @@ final class BAMWorkflowLeavesSIGTERMTests: XCTestCase {
 
     /// Starts `arguments` against the stand-in, waits until samtools runs, sends one SIGTERM to the CLI
     /// and asserts exit 125 inside the grace, the cancelled record `recordStatus` reads, and no process left.
-    private func assertCancels(_ arguments: [String], recordStatus: @escaping () throws -> String?) async throws {
+    /// Returns how the run ended, for a test that reads what the leaf printed.
+    @discardableResult
+    private func assertCancels(
+        _ arguments: [String], recordStatus: @escaping () throws -> String?
+    ) async throws -> CLISIGTERMHarness.Stop {
         let pidFile = root.appendingPathComponent("samtools.pid")
         let condaRoot = try stubCondaRoot(pidFile: pidFile)
         let run = try CLISIGTERMHarness.launchCLI(
@@ -58,6 +62,7 @@ final class BAMWorkflowLeavesSIGTERMTests: XCTestCase {
         let samtoolsPID = await CLISIGTERMHarness.waitForProcessID(in: pidFile)
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: recordStatus)
         XCTAssertNotNil(samtoolsPID, "the leaf never reached samtools. Standard output: \(stop.standardOutput)")
+        return stop
     }
 
     /// The status of the one record under `bundle/provenance/cancelled`, or nil when there is none.
@@ -104,16 +109,20 @@ final class BAMWorkflowLeavesSIGTERMTests: XCTestCase {
     func testBundleDeduplicateAlignmentsTurnsSIGTERMIntoACancel() async throws {
         let bundle = try bundleURL()
         let output = root.appendingPathComponent("Out.lungfishref")
-        try await assertCancels(
+        let sidecar = URL(fileURLWithPath: output.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
+        let stop = try await assertCancels(
             ["bundle", "deduplicate-alignments", bundle.path, "--output", output.path, "--format", "json"],
-            recordStatus: {
-                let sidecar = URL(fileURLWithPath: output.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
-                return try ProvenanceEnvelopeReader.load(fromSidecar: sidecar)?.status.rawValue
-            }
+            recordStatus: { try ProvenanceEnvelopeReader.load(fromSidecar: sidecar)?.status.rawValue }
         )
         XCTAssertEqual(
             try BundleManifest.load(from: bundle).alignments.count, 2,
             "the source bundle was not changed"
         )
+        // The service copied the bundle before samtools began, so the cancel must have removed the copy
+        // (ruling on A54 deviation 4), and the leaf says so in its event and in its record.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a cancelled deduplication leaves no copy")
+        let note = "The source bundle was not changed, and no partial copy remains."
+        XCTAssertTrue(stop.standardOutput.contains(note), "the failed event states the copy is gone: \(stop.standardOutput)")
+        XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains(note), "the record states the copy is gone")
     }
 }

@@ -342,6 +342,85 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
         XCTAssertEqual(access.startedURLs(), [fixture.sourceBAMURL.standardizedFileURL])
         XCTAssertEqual(access.stoppedURLs(), [fixture.sourceBAMURL.standardizedFileURL])
     }
+
+    // MARK: - A deduplication that stops leaves no copy (Phase 2.10 lane A54, ruling on deviation 4)
+    //
+    // `createDeduplicatedBundle` copies the whole source bundle first, with every source track and its
+    // duplicates, and only removes those tracks at the end. A cancel or a failure in between therefore
+    // used to leave a visible `<name>-deduplicated.lungfishref` that is not deduplicated, on the app's
+    // route and the CLI's, and no sweep removes it. The service removes its own copy when it stops.
+
+    /// Runs `createDeduplicatedBundle` into `copy` with a pipeline that throws `error` on its first call
+    /// and returns what the call threw, or nil when it did not throw.
+    private func deduplicationThrown(
+        by error: any Error,
+        fixture: DuplicateWorkflowFixture,
+        copy: URL
+    ) async -> (any Error)? {
+        do {
+            _ = try await AlignmentDuplicateService.createDeduplicatedBundle(
+                from: fixture.bundleURL,
+                outputBundleURL: copy,
+                markdupPipeline: ThrowingDuplicateMarkdupPipeline(error: error),
+                attachmentService: PreparedAlignmentAttachmentService(
+                    metadataCollector: DuplicateWorkflowMetadataCollector()
+                ),
+                trackIDProvider: { "deduplicated-track" }
+            )
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    func testACancelledDeduplicationLeavesNoCopy() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let copy = tempDir.appendingPathComponent("cancelled-deduplicated.lungfishref", isDirectory: true)
+        let manifestURL = fixture.bundleURL.appendingPathComponent(BundleManifest.filename)
+        let manifestBefore = try Data(contentsOf: manifestURL)
+
+        let thrown = await deduplicationThrown(by: CancellationError(), fixture: fixture, copy: copy)
+
+        XCTAssertTrue(thrown is CancellationError, "the cancel reaches the caller, got \(String(describing: thrown))")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path), "a cancelled deduplication leaves no copy")
+        XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore, "the source manifest is unchanged")
+    }
+
+    func testADeduplicationThatSamtoolsFailedLeavesNoCopy() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let copy = tempDir.appendingPathComponent("failed-deduplicated.lungfishref", isDirectory: true)
+        let manifestURL = fixture.bundleURL.appendingPathComponent(BundleManifest.filename)
+        let manifestBefore = try Data(contentsOf: manifestURL)
+
+        let thrown = await deduplicationThrown(
+            by: AlignmentMarkdupPipelineError.samtoolsFailed("markdup stopped"),
+            fixture: fixture,
+            copy: copy
+        )
+
+        guard case AlignmentDuplicateError.samtoolsFailed(let message)? = thrown else {
+            return XCTFail("expected the samtools failure, got \(String(describing: thrown))")
+        }
+        XCTAssertEqual(message, "markdup stopped")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path), "a failed deduplication leaves no copy")
+        XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore, "the source manifest is unchanged")
+    }
+
+    /// A copy that is not the service's, because the output path was taken, is never removed.
+    func testAStoppedDeduplicationKeepsAnExistingFolderAtTheRequestedPath() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let taken = tempDir.appendingPathComponent("taken.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: taken, withIntermediateDirectories: true)
+        let marker = taken.appendingPathComponent("keep.txt")
+        try Data("not the service's".utf8).write(to: marker)
+
+        let thrown = await deduplicationThrown(by: CancellationError(), fixture: fixture, copy: taken)
+
+        XCTAssertTrue(thrown is CancellationError)
+        XCTAssertEqual(try Data(contentsOf: marker), Data("not the service's".utf8))
+        let sibling = tempDir.appendingPathComponent("fixture-deduplicated.lungfishref")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sibling.path), "the copy the service made instead is removed")
+    }
 }
 
 private struct DuplicateWorkflowFixture {
@@ -544,6 +623,22 @@ private struct DuplicateWorkflowMetadataCollector: PreparedAlignmentMetadataColl
 
 private enum DuplicateMetadataAppendFailure: Error, Equatable {
     case injected
+}
+
+/// A markdup pipeline that throws `error` on its first call and writes nothing, as a cancelled or a
+/// failed samtools run does.
+private struct ThrowingDuplicateMarkdupPipeline: AlignmentMarkdupPipelining {
+    let error: any Error
+
+    func run(
+        inputURL: URL,
+        outputURL: URL,
+        removeDuplicates: Bool,
+        referenceFastaPath: String?,
+        progressHandler: (@Sendable (Double, String) -> Void)?
+    ) async throws -> AlignmentMarkdupPipelineResult {
+        throw error
+    }
 }
 
 private enum DuplicateServiceBookmarkAccessError: Error {

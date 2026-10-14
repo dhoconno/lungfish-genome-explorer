@@ -134,7 +134,10 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
     /// Creates a sibling `.lungfishref` bundle with duplicate reads removed.
     ///
     /// The source bundle is copied first; then all copied alignment tracks are replaced by
-    /// deduplicated BAM tracks in `alignments/deduplicated/`.
+    /// deduplicated BAM tracks in `alignments/deduplicated/`. A run that stops before then, by a
+    /// cancel or a failure, removes the copy it made, so no bundle that still holds its duplicates
+    /// is left beside the source. The copy itself is not covered: when `copyItem` throws, the
+    /// destination is left as the file system left it.
     public static func createDeduplicatedBundle(
         from sourceBundleURL: URL,
         outputBundleURL: URL? = nil,
@@ -151,33 +154,42 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
 
         let targetURL = uniqueDeduplicatedBundleURL(for: sourceBundleURL, preferred: outputBundleURL)
         try FileManager.default.copyItem(at: sourceBundleURL, to: targetURL)
-        progressHandler?(0.08, "Created deduplicated bundle copy.")
+        // The copy holds every source track with its duplicates until `removeAlignmentTracks` below,
+        // so a run that stops before then must not leave it beside the source as if it were a result
+        // (Phase 2.10 lane A54, a cancel or a samtools failure). `copyItem` stays outside the `do`:
+        // its own failure may name a path that is another writer's, which this run must not remove.
+        do {
+            progressHandler?(0.08, "Created deduplicated bundle copy.")
 
-        let outputRoot = targetURL.appendingPathComponent("alignments/deduplicated", isDirectory: true)
-        try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
+            let outputRoot = targetURL.appendingPathComponent("alignments/deduplicated", isDirectory: true)
+            try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
 
-        let newTrackIDs = try await runDuplicateWorkflow(
-            bundleURL: targetURL,
-            tracks: tracks,
-            outputRoot: outputRoot,
-            relativeDirectory: "alignments/deduplicated",
-            removeDuplicates: true,
-            suffix: "deduplicated",
-            outputTrackNameSuffix: "[deduplicated]",
-            progressHandler: { progress, message in
-                let mappedProgress = 0.08 + progress * 0.92
-                progressHandler?(mappedProgress, message)
-            },
-            markdupPipeline: markdupPipeline,
-            attachmentService: attachmentService,
-            metadataAppender: appendDuplicateMetadata,
-            referenceBundleFactory: makeReferenceBundle(url:manifest:),
-            trackIDProvider: trackIDProvider
-        )
+            let newTrackIDs = try await runDuplicateWorkflow(
+                bundleURL: targetURL,
+                tracks: tracks,
+                outputRoot: outputRoot,
+                relativeDirectory: "alignments/deduplicated",
+                removeDuplicates: true,
+                suffix: "deduplicated",
+                outputTrackNameSuffix: "[deduplicated]",
+                progressHandler: { progress, message in
+                    let mappedProgress = 0.08 + progress * 0.92
+                    progressHandler?(mappedProgress, message)
+                },
+                markdupPipeline: markdupPipeline,
+                attachmentService: attachmentService,
+                metadataAppender: appendDuplicateMetadata,
+                referenceBundleFactory: makeReferenceBundle(url:manifest:),
+                trackIDProvider: trackIDProvider
+            )
 
-        try removeAlignmentTracks(tracks, from: targetURL)
-        progressHandler?(1.0, "Deduplicated bundle ready.")
-        return WorkflowResult(bundleURL: targetURL, processedTracks: tracks.count, newTrackIds: newTrackIDs)
+            try removeAlignmentTracks(tracks, from: targetURL)
+            progressHandler?(1.0, "Deduplicated bundle ready.")
+            return WorkflowResult(bundleURL: targetURL, processedTracks: tracks.count, newTrackIds: newTrackIDs)
+        } catch {
+            try? FileManager.default.removeItem(at: targetURL)
+            throw error
+        }
     }
 
     // MARK: - Workflow Internals
