@@ -17,7 +17,6 @@
 
 LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
-LungfishTypographyTests                 Tests/LungfishNaoMgsUITests/NaoMgsResultViewControllerSmokeTests.swift
 LungfishTypographyTests                 Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishPhylogeneticsUITests/LungfishPhylogeneticsUISmokeTests.swift
 NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
