@@ -55,8 +55,8 @@ struct ProvenanceLegacyRunEquivalenceTests {
 
     /// One line per way `rebuilt` loses or changes something `nested` says. The rebuilt run may
     /// hold more than the nested one in two places by design. Its parameters are the envelope's
-    /// explicit options, which may name more, and its final step also lists the outputs of the
-    /// earlier steps (`mergeFallbackOutputsIntoFinalStep`).
+    /// explicit options, which may name more, and its final step also lists the run outputs that
+    /// no step lists (`mergeFallbackOutputsIntoFinalStep`).
     static func differences(nested: WorkflowRun, rebuilt: WorkflowRun) -> [String] {
         var lines: [String] = []
         func check<Value: Equatable>(_ label: String, _ expected: Value, _ found: Value) {
@@ -162,10 +162,32 @@ struct ProvenanceLegacyRunEquivalenceTests {
         #expect(rebuilt.steps.count == 2)
         #expect(rebuilt.steps[1].dependsOn == [rebuilt.steps[0].id])
         #expect(rebuilt.steps[1].durableReplayArgv == run.steps[1].durableReplayArgv)
-        // The one thing the rebuilt run holds beyond the nested one is the earlier step's output,
-        // which `mergeFallbackOutputsIntoFinalStep` also lists on the final step.
+        // The earlier step's output stays on the earlier step. `mergeFallbackOutputsIntoFinalStep` adds to
+        // the final step only the run outputs that no step lists, and the first step lists raw.vcf.
         let extra = rebuilt.steps[1].outputs.filter { !run.steps[1].outputs.contains($0) }
-        #expect(extra.map { URL(fileURLWithPath: $0.path).lastPathComponent } == ["raw.vcf"])
+        #expect(extra.isEmpty, "\(extra.map { URL(fileURLWithPath: $0.path).lastPathComponent })")
+    }
+
+    @Test("the final step takes the run outputs that no step lists and leaves the ones a step lists")
+    func finalStepTakesOnlyTheRunOutputsNoStepLists() throws {
+        let project = try ProvenanceCompatScenarios.makeProject()
+        defer { project.cleanup() }
+        let analysis = try project.folder(ProvenanceCompatScenarios.variantsPhaseAnalysisFolder)
+        let run = try ProvenanceCompatScenarios.variantsPhaseRun(project: project.root, analysis: analysis)
+        let annotatedVCF = try ProvenanceCompatScenarios.write(
+            "##fileformat=VCFv4.2\n##annotated=true\n",
+            to: analysis.appendingPathComponent("annotated.vcf")
+        )
+        let unlisted = ProvenanceRecorder.fileRecord(url: annotatedVCF, format: .vcf, role: .output)
+
+        var envelope = run.canonicalEnvelope()
+        envelope.outputs.append(ProvenanceFileDescriptor(fileRecord: unlisted))
+        let rebuilt = try Self.withoutNestedRun(envelope).legacyWorkflowRun(preferCanonicalSteps: true)
+
+        // The first step keeps its own output. The final step lists its own, then the output that no step lists,
+        // and not the first step's output.
+        #expect(rebuilt.steps[0].outputs == run.steps[0].outputs)
+        #expect(rebuilt.steps[1].outputs == run.steps[1].outputs + [unlisted])
     }
 
     @Test("a mapping record rebuilds from the envelope MappingProvenance writes")

@@ -211,19 +211,16 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         XCTAssertFalse(words.contains("gui"))
         XCTAssertFalse(words.contains("fastq-grouped-result"))
 
-        // Each step lists the files its own command made, so the reading gives the first step its own output
-        // and the last step its own first. The reading still adds the first step's output to the last step,
-        // because `mergeFallbackOutputsIntoFinalStep` (ProvenanceRecord.swift) appends every run output that
-        // the last step does not list, where it should skip those that any step lists. That reader is not
-        // this record's to change. It gives no step an input, because the record is not told which command
-        // read which file.
-        XCTAssertEqual(reading.steps.map(\.outputs.count), [1, 2])
+        // Each step lists the files its own command made, so the reading gives each step its own output.
+        // `mergeFallbackOutputsIntoFinalStep` (ProvenanceRecord.swift) adds to the last step only the run
+        // outputs that no step lists, and every run output here belongs to a step. The reading gives no
+        // step an input, because the record is not told which command read which file.
+        XCTAssertEqual(reading.steps.map(\.outputs.count), [1, 1])
         XCTAssertEqual(reading.steps[0].outputs.map { tail($0.path, 2) }, [
             "filtered-sequences.\(FASTQBundle.directoryExtension)/reads.fastq",
         ])
         XCTAssertEqual(reading.steps[1].outputs.map { tail($0.path, 2) }, [
             "filtered-reads.\(FASTQBundle.directoryExtension)/reads.fastq",
-            "filtered-sequences.\(FASTQBundle.directoryExtension)/reads.fastq",
         ])
         XCTAssertTrue(reading.steps.allSatisfy { $0.inputs.isEmpty })
     }

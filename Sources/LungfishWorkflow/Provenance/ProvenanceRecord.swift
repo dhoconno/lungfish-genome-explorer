@@ -526,7 +526,8 @@ private extension Array where Element == StepExecution {
     mutating func mergeFallbackOutputsIntoFinalStep(_ fallbackOutputs: [ProvenanceFileDescriptor]) {
         guard !isEmpty, !fallbackOutputs.isEmpty else { return }
         let finalStepIndex = index(before: endIndex)
-        var seenOutputPaths = Set(self[finalStepIndex].outputs.map(\.path))
+        // A run output that any step lists stays on that step. The final step gets only those that no step lists.
+        var seenOutputPaths = Set(self.flatMap { $0.outputs.map(\.path) })
         let missingOutputs = fallbackOutputs
             .map(FileRecord.init(provenanceFile:))
             .filter { seenOutputPaths.insert($0.path).inserted }

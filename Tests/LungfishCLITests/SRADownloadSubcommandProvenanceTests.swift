@@ -32,8 +32,8 @@ final class SRADownloadSubcommandProvenanceTests: XCTestCase {
 
         XCTAssertEqual(run.parameters["downloadSource"], .string("SRA Toolkit"))
         XCTAssertEqual(run.parameters["condaEnvironment"], .string("managed sra-tools"))
-        // The envelope's own last step, not `run.steps`, which `legacyWorkflowRun()` rebuilds for a record without
-        // its embedded run by folding every output of the record into the final step.
+        // The envelope's own last step, which is the step as written. `legacyWorkflowRun()` rebuilds a record without
+        // its embedded run and adds to the final step only the outputs of the record that no step lists.
         let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: folder))
         let downloadStep = try XCTUnwrap(envelope.steps.last)
         XCTAssertEqual(

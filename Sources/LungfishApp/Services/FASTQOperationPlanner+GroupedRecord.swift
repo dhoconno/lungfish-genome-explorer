@@ -103,10 +103,10 @@ extension FASTQOperationPlanner {
             // outputs the dispatcher took from each invocation. A step that listed them all would claim
             // files its command never touched. This call is not told which command read which file, so
             // a step lists no input. A reader that converts the record to a WorkflowRun
-            // (`legacyWorkflowRun`, which script export and `lungfish-cli provenance` use) adds the run
-            // outputs that the last step does not list to the last step. Each step listing its own keeps
-            // the other steps from being left without files, and the descriptor of a local file cannot be
-            // added to the run verbatim, so a file is read once for the run and once for its step.
+            // (`legacyWorkflowRun`, which script export and `lungfish-cli provenance` use) adds to the
+            // last step only the run outputs that no step lists. Every run output here belongs to a
+            // step, so the reader adds none. The descriptor of a local file cannot be added to the run
+            // verbatim, so a file is read once for the run and once for its step.
             for url in inputPayloadURLs { builder = try builder.input(url, role: .input) }
             for url in outputPayloadURLs { builder = try builder.output(url, role: .output) }
             for (index, argv) in commandLines.enumerated() {
