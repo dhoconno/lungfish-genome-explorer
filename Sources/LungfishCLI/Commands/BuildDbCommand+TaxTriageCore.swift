@@ -254,10 +254,10 @@ extension BuildDbCommand {
         /// does, with the `.recordedRemoval` cleanup that keeps `top/` (2.8 T5 as amended in 2.9), and refreshes the
         /// result's root record, which still records the run. The record gains a removal step that names the database
         /// the build replaced with the digest the record held for it, when its size on disk is still the recorded
-        /// one, then the build's steps and the cleanup's removal step, and its run level names the database the
-        /// folder now holds. So every file the record names exists with its digest or has a step that says why
-        /// it does not (2.8 P1, BIO 6). A build that keeps an existing database without `--force` leaves the
-        /// record as it was.
+        /// one, then the build's steps and the cleanup's removal step. A run level that names the database names
+        /// the one the folder now holds, and a plain `--output` result's names none, its run having built none.
+        /// So every file the record names exists with its digest or has a step that says why it does not (2.8 P1,
+        /// BIO 6). A build that keeps an existing database without `--force` leaves the record as it was.
         static func rebuildExecutorResult(
             in resultURL: URL,
             record: ProvenanceEnvelope,
