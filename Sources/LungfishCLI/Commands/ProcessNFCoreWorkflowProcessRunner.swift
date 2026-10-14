@@ -28,10 +28,10 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
         _ = try resolveLaunch("nextflow", homeDirectory)
     }
 
-    func waitForDocker(profile: String) async throws {
+    func waitForDocker(profile: String, progress: (@Sendable (Double, String) -> Void)?) async throws {
         var engine = Self.engine(profile: profile)
         engine.dockerWait = dockerWait
-        try await engine.waitForDocker(probe: containerRuntimeProbe, progress: nil)
+        try await engine.waitForDocker(probe: containerRuntimeProbe, progress: progress)
     }
 
     /// The engine of a launch with `profile`, Viral Recon's scratch prefix and the 4 s grace (2.9 N6). Only the

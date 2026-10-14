@@ -47,7 +47,7 @@ final class ViralReconCancelledRunRecordTests: XCTestCase {
             lock.withLock { launchCount }
         }
 
-        func waitForDocker(profile: String) async throws {
+        func waitForDocker(profile: String, progress: (@Sendable (Double, String) -> Void)?) async throws {
             switch cancel {
             case .throwsFromTheWait:
                 throw CancellationError()

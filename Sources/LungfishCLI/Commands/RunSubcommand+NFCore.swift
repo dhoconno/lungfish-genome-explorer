@@ -118,8 +118,15 @@ extension RunSubcommand {
         do {
             try Self.nfCoreWorkflowProcessRunner.preflightEngine()
             // The docker profile waits for the Docker daemon. A cancel ends the wait at once, and a Docker
-            // Desktop that cannot be started fails the run at once (2.9 N9).
-            try await Self.nfCoreWorkflowProcessRunner.waitForDocker(profile: request.executor.rawValue)
+            // Desktop that cannot be started fails the run at once (2.9 N9). The wait's two lines keep the
+            // engine's words (rule 2 of the contract's section 5).
+            let quiet = globalOptions.quiet
+            try await Self.nfCoreWorkflowProcessRunner.waitForDocker(
+                profile: request.executor.rawValue,
+                progress: { _, message in
+                    if !quiet { print(formatter.info(message)) }
+                }
+            )
         } catch is CancellationError {
             // A cancel during the Docker wait is recorded as one during the engine's run is (SWIFT 3).
             recordCancelledRun(
@@ -361,7 +368,40 @@ extension RunSubcommand {
                 )
             )
         }
+        // After exit 0 the run's own trace and results say whether a task was ignored or a sample failed (N5).
+        // Each kind is one warning line on standard error, even under --quiet, as a read pairing warning is.
+        for line in Self.outcomeLines(
+            request: request,
+            samplesheetURL: effectiveSamplesheetURL ?? callerSamplesheetURL,
+            launchedAt: processClock.startedAt
+        ) {
+            printStatusLine(formatter.warning(line))
+        }
         print(runBundleURL.path)
+    }
+
+    /// The outcome lines of a Viral Recon run that exited 0, one for every ignored task and one for every failed
+    /// sample, in UX's words (ARCH's ruling on A30 M3, decision N5).
+    ///
+    /// The trace is the newest one the release wrote in the results folder's `pipeline_info` since the launch
+    /// (`nextflow.config:305-307`), and the samples are those of the samplesheet viralrecon read.
+    static func outcomeLines(request: NFCoreRunRequest, samplesheetURL: URL, launchedAt: Date) -> [String] {
+        let results = request.outputDirectory
+        let traceText = NextflowTraceTask.newestTrace(
+            in: results.appendingPathComponent("pipeline_info", isDirectory: true),
+            writtenSince: launchedAt
+        ).flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        let ignored = NextflowTraceTask.ignoredTasksLine(
+            workflowName: AnalysisToolRegistry.displayName(forRawID: NextflowWorkflowDescriptor.viralRecon.toolID.rawValue),
+            tasks: NextflowTraceTask.ignored(inTrace: traceText ?? "")
+        )
+        let failed = ViralReconRunOutcome.failedSamplesLine(ViralReconRunOutcome.failedSamples(
+            ViralReconRunOutcome.sampleNames(inSamplesheetAt: samplesheetURL),
+            resultsDirectory: results,
+            params: request.effectiveParams,
+            traceText: traceText
+        ))
+        return [ignored, failed].compactMap { $0 }
     }
 
     /// Prints one line per samplesheet row saying how viralrecon gets its
