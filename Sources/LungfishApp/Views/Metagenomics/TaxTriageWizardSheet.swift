@@ -679,7 +679,7 @@ struct TaxTriageWizardSheet: View {
         let probe = containerRuntimeProbe
 
         Task { @MainActor in
-            let nfAvailable = (try? WorkflowEngineLaunch.resolveManaged(
+            async let nfAvailable = (try? WorkflowEngineLaunch.resolveManaged(
                 executableName: "nextflow", homeDirectory: FileManager.default.homeDirectoryForCurrentUser)) != nil
             let container = TaxTriageContainerPrerequisite(
                 status: await PipelineContainerRuntimeStatus.check(probe: probe)
