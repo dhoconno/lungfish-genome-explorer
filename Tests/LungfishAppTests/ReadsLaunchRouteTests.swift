@@ -12,6 +12,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 import LungfishIO
+import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -105,6 +106,22 @@ final class ReadsLaunchRouteTests: XCTestCase {
             guard case .failed(let status, let detail) = error else { return XCTFail("\(error)") }
             XCTAssertEqual(status, 64)
             XCTAssertTrue(detail.contains("the reference is not a FASTA file"), detail)
+        }
+    }
+
+    func testTheRunnerReturnsAnEventsLeafsCompletion() async throws {
+        let cli = try standInCLI(#"echo '{"event":"complete","outputs":["/work/a.bam"],"progress":1,"schemaVersion":2}'; exit 0"#)
+        let result = try await CLIReadsRunner(cliURLOverride: cli).runEvents(arguments: ["assemble"], operationID: UUID())
+        XCTAssertEqual(result.outputs, ["/work/a.bam"])
+    }
+
+    func testTheRunnerFailsAnEventsLeafWithItsFailedEvent() async throws {
+        let cli = try standInCLI(#"echo '{"event":"failed","error":"the reads are empty","schemaVersion":2}'; exit 1"#)
+        do {
+            _ = try await CLIReadsRunner(cliURLOverride: cli).runEvents(arguments: ["assemble"], operationID: UUID())
+            XCTFail("a failed event fails the run")
+        } catch let error as CLISubprocessTransport.RunError {
+            XCTAssertEqual(error, .failedEvent(message: "the reads are empty", detail: nil))
         }
     }
 
