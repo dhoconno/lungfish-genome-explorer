@@ -16,7 +16,7 @@ Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1118
 Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift 833
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1012
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1114
-Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2798
+Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2771
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1066
 Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2316
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
@@ -95,7 +95,7 @@ Sources/LungfishCore/Bundles/Converters/AnnotationConverter.swift 866
 Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift 1361
 Sources/LungfishCore/Models/AppSettings.swift 827
 Sources/LungfishCore/Services/Blast/BlastService.swift 1651
-Sources/LungfishCore/Services/NCBI/NCBIService.swift 1959
+Sources/LungfishCore/Services/NCBI/NCBIService.swift 1929
 Sources/LungfishCore/Storage/PortablePath.swift 1014
 Sources/LungfishCore/Storage/ProjectStore.swift 1587
 Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 2272
