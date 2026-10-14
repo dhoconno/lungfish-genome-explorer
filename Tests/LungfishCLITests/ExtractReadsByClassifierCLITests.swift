@@ -740,7 +740,7 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         } catch {
             XCTAssertEqual(
                 error.localizedDescription,
-                "The BAM file of sample 's2' is a link to a file outside this result folder, and LGE reads alignments only from inside it. Copy the file into the result folder and try again."
+                "The BAM file of sample 's2' is a link to a file outside this result folder, and LGE extracts reads only from BAM files inside it. Replace the link with a copy of the file and try again."
             )
         }
         XCTAssertFalse(fm.fileExists(atPath: tempOut.path), "A refusal writes no output")

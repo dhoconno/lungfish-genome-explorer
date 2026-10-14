@@ -725,7 +725,7 @@ final class ClassifierReadResolverTests: XCTestCase {
 
     /// The words of the refusal for a BAM that links out of the result, UX Q-U5.
     private static func outsideResultMessage(_ sample: String) -> String {
-        "The BAM file of sample '\(sample)' is a link to a file outside this result folder, and LGE reads alignments only from inside it. Copy the file into the result folder and try again."
+        "The BAM file of sample '\(sample)' is a link to a file outside this result folder, and LGE extracts reads only from BAM files inside it. Replace the link with a copy of the file and try again."
     }
 
     /// The words of the refusal for a BAM that is missing, which this lane keeps.
