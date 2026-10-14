@@ -33,15 +33,9 @@ enum FetchNCBIBundleRecord {
         refreshingDigestsOf names: [String] = []
     ) throws {
         guard let envelope = ProvenanceRecorder.loadEnvelope(from: bundle) else { return }
-        var text = String(decoding: try ProvenanceJSON.encoder.encode(envelope), as: UTF8.self)
         // The builder keeps the spelling of the path it was given, and a reader may resolve it, so
-        // every spelling of the staged path goes, the longest first.
-        let spellings = Set([staged.path, staged.resolvingSymlinksInPath().path, "/private" + staged.path])
-            .sorted { $0.count > $1.count }
-        for spelling in spellings where !spelling.isEmpty {
-            text = text.replacingOccurrences(of: spelling, with: bundle.path)
-        }
-        var rebased = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(text.utf8))
+        // `relocated` replaces every spelling of the staged path (ruling A45-M3 section 3).
+        var rebased = envelope.relocated(from: staged, to: bundle)
         if !resolved.isEmpty {
             rebased.options = ProvenanceOptions(
                 explicit: rebased.options.explicit,
