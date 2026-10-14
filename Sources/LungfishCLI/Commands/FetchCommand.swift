@@ -852,7 +852,7 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
 
 }
 
-private func resolvedProvenanceOptions(
+func resolvedProvenanceOptions(
     explicit: [String: ParameterValue],
     defaults: [String: ParameterValue]
 ) -> [String: ParameterValue] {
@@ -863,7 +863,7 @@ private func resolvedProvenanceOptions(
     return resolved
 }
 
-private func fetchShellEscape(_ value: String) -> String {
+func fetchShellEscape(_ value: String) -> String {
     if value.isEmpty {
         return "''"
     }
