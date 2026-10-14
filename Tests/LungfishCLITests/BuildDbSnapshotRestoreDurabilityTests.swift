@@ -63,6 +63,24 @@ final class BuildDbSnapshotRestoreDurabilityTests: XCTestCase {
         }
     }
 
+    /// A first build has nothing to put back, so the restore removes each file the build wrote. A removal
+    /// that fails is thrown, where the restore once hid it, the files stay as the build left them, and a
+    /// second restore, once the folder can change, finishes the job.
+    func testARestoreThatCannotRemoveAFileThrowsAndCanBeRunAgain() throws {
+        let rebuild = try seedRebuild("cannot-remove", held: [])
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: rebuild.folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: rebuild.folder.path) }
+
+        XCTAssertThrowsError(try rebuild.snapshot.restore(), "The folder refused the removal")
+
+        for kind in Kind.allCases {
+            XCTAssertEqual(try read(rebuild.files.url(kind)), "rebuilt \(kind.rawValue)", "\(kind) was changed or removed")
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: rebuild.folder.path)
+        try rebuild.snapshot.restore()
+        try assertRestored(rebuild.files, "after a second restore", held: [])
+    }
+
     /// Each captured file goes back as one `DurableReplace` publication, staged beside its name and swapped
     /// in, and the four publications share one flush.
     func testARestorePublishesEachCapturedFileThroughDurableReplace() throws {
