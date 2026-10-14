@@ -192,20 +192,20 @@ public enum AssemblyRunner {
         )
     }
 
+    /// The `lungfish-cli assemble` command a Reassemble row records, the dialog's argv with
+    /// `--reference-bundle`, so the command publishes the bundle the route opens (Phase 2.10 lane
+    /// A46). The builder's arm cannot fail, so no row records a bare `assemble`.
     nonisolated static func cliCommandPreview(
         request: AssemblyRunRequest,
         outputDirectory: URL? = nil
     ) -> String {
-        guard let invocation = try? FASTQOperationCLIInvocationBuilder().buildInvocation(
-            for: .assemble(request: request, outputMode: .groupedResult),
-            outputTargetPath: (outputDirectory ?? request.outputDirectory).path
-        ) else {
-            return OperationCenter.buildCLICommand(subcommand: "assemble", args: [])
-        }
-
-        return OperationCenter.buildCLICommand(
-            subcommand: invocation.subcommand,
-            args: invocation.arguments
+        OperationCenter.buildCLICommand(
+            subcommand: "assemble",
+            args: FASTQOperationCLIInvocationBuilder.assembleArguments(
+                for: request,
+                outputTargetPath: (outputDirectory ?? request.outputDirectory).path,
+                referenceBundle: true
+            )
         )
     }
 

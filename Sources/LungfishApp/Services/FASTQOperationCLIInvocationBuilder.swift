@@ -62,6 +62,60 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         }
     }
 
+    /// The `assemble` argv for `request` writing into `outputTargetPath`. It cannot fail, so no row
+    /// records a bare `assemble` (Phase 2.10 lane A46). `referenceBundle` adds `--reference-bundle`,
+    /// which the Reassemble routes pass so the command publishes the bundle they open. The dialog's
+    /// route passes no switch.
+    static func assembleArguments(
+        for request: AssemblyRunRequest,
+        outputTargetPath: String,
+        referenceBundle: Bool = false
+    ) -> [String] {
+        let executionRequest = request.normalizedForExecution()
+        var arguments = executionRequest.inputURLs.map(\.path)
+        if executionRequest.pairedEnd {
+            arguments.append("--paired")
+        } else if let readLayout = Self.assembleReadLayoutArgument(for: executionRequest) {
+            // A layout the wizard already resolved is passed through so
+            // GUI and CLI agree; `nil` leaves the CLI's own resolution
+            // (bundle metadata, then a record scan) in charge.
+            arguments += ["--read-layout", readLayout]
+        }
+        arguments += [
+            "--assembler", executionRequest.tool.rawValue,
+            "--read-type", executionRequest.readType.cliArgument,
+            "--project-name", executionRequest.projectName,
+            "--threads", "\(executionRequest.threads)",
+            "--output", outputTargetPath,
+        ]
+        if let memoryGB = executionRequest.memoryGB {
+            arguments += ["--memory-gb", "\(memoryGB)"]
+        }
+        if let minContigLength = executionRequest.effectiveMinContigLength {
+            arguments += ["--min-contig-length", "\(minContigLength)"]
+        }
+        if let selectedProfileID = executionRequest.selectedProfileID {
+            arguments += ["--profile", selectedProfileID]
+            // Without the basis the CLI records an explicit profile with
+            // no reason, so a window run lost the read-quality
+            // preselection the sheet showed.
+            if let basis = executionRequest.profileSelectionBasis, !basis.isEmpty {
+                arguments += ["--profile-basis", basis]
+            }
+        }
+        if !executionRequest.extraArguments.isEmpty {
+            arguments += ["--extra-args", AdvancedCommandLineOptions.join(executionRequest.extraArguments)]
+        }
+        if referenceBundle {
+            arguments.append("--reference-bundle")
+        }
+        // `assemble` prints events behind --format json on standard output since 2.10 (lane
+        // A46, decision C7), where the runner reads them. A row recorded with --json-events
+        // before then still parses, since that switch stays as a hidden alias.
+        arguments += ["--format", "json"]
+        return arguments
+    }
+
     /// The `assemble --read-layout` value for a request whose single-file
     /// layout is already resolved, or `nil` to leave the CLI in auto mode.
     static func assembleReadLayoutArgument(for request: AssemblyRunRequest) -> String? {
@@ -218,46 +272,10 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             return FASTQCLIInvocation(subcommand: "map", arguments: arguments)
 
         case .assemble(let request, _):
-            let executionRequest = request.normalizedForExecution()
-            var arguments = executionRequest.inputURLs.map(\.path)
-            if executionRequest.pairedEnd {
-                arguments.append("--paired")
-            } else if let readLayout = Self.assembleReadLayoutArgument(for: executionRequest) {
-                // A layout the wizard already resolved is passed through so
-                // GUI and CLI agree; `nil` leaves the CLI's own resolution
-                // (bundle metadata, then a record scan) in charge.
-                arguments += ["--read-layout", readLayout]
-            }
-            arguments += [
-                "--assembler", executionRequest.tool.rawValue,
-                "--read-type", executionRequest.readType.cliArgument,
-                "--project-name", executionRequest.projectName,
-                "--threads", "\(executionRequest.threads)",
-                "--output", outputTargetPath,
-            ]
-            if let memoryGB = executionRequest.memoryGB {
-                arguments += ["--memory-gb", "\(memoryGB)"]
-            }
-            if let minContigLength = executionRequest.effectiveMinContigLength {
-                arguments += ["--min-contig-length", "\(minContigLength)"]
-            }
-            if let selectedProfileID = executionRequest.selectedProfileID {
-                arguments += ["--profile", selectedProfileID]
-                // Without the basis the CLI records an explicit profile with
-                // no reason, so a window run lost the read-quality
-                // preselection the sheet showed.
-                if let basis = executionRequest.profileSelectionBasis, !basis.isEmpty {
-                    arguments += ["--profile-basis", basis]
-                }
-            }
-            if !executionRequest.extraArguments.isEmpty {
-                arguments += ["--extra-args", AdvancedCommandLineOptions.join(executionRequest.extraArguments)]
-            }
-            // `assemble` prints events behind --format json on standard output since 2.10 (lane
-            // A46, decision C7), where the runner reads them. A row recorded with --json-events
-            // before then still parses, since that switch stays as a hidden alias.
-            arguments += ["--format", "json"]
-            return FASTQCLIInvocation(subcommand: "assemble", arguments: arguments)
+            return FASTQCLIInvocation(
+                subcommand: "assemble",
+                arguments: Self.assembleArguments(for: request, outputTargetPath: outputTargetPath)
+            )
 
         case .pbaa(let request):
             let outputDirectoryPath = outputTargetPath == "<derived>"

@@ -6,9 +6,10 @@
 // ManagedAssemblyPipeline in the app today (census row p32) and records the `lungfish-cli assemble`
 // command that `AssemblyRunner.cliCommandPreview` builds through the FASTQ operations dialog's
 // builder. Its CLI route will run that argv, so each word is frozen here first: `--json-events`,
-// the folder the pipeline writes, and the threads and memory the run uses (BIO). The preview falls
-// back to a bare `assemble` when the builder throws, and no request reaches that fallback. A
-// command a row recorded keeps parsing once `assemble` moves to `--format json` (QA).
+// the folder the pipeline writes, and the threads and memory the run uses (BIO). The preview fell
+// back to a bare `assemble` when the builder threw, and no request reached that fallback, which the
+// ruling on the reference bundle removed with `--reference-bundle`, the one word both Reassemble
+// routes add. A command a row recorded keeps parsing once `assemble` moves to `--format json` (QA).
 
 import XCTest
 @testable import LungfishApp
@@ -66,7 +67,7 @@ final class AssemblyRouteFreezeTests: XCTestCase {
             "--assembler", "spades", "--read-type", "illumina-short-reads", "--project-name", "Mito Assembly",
             "--threads", "4", "--output", "/tmp/lane a46/Assembly Output/Mito Assembly",
             "--memory-gb", "8", "--min-contig-length", "500", "--profile", "meta", "--extra-args", "--only-assembler",
-            "--format", "json",
+            "--reference-bundle", "--format", "json",
         ])
         // BIO. The recorded threads and memory are the ones the in-process pipeline runs with.
         let execution = AssemblyRunner.executionRequest(for: request)
@@ -87,12 +88,14 @@ final class AssemblyRouteFreezeTests: XCTestCase {
         XCTAssertEqual(try RecordedCLICommand.arguments(of: Self.recordedCommand(request)), [
             "assemble", Self.r1.path, "--read-layout", "interleaved",
             "--assembler", "megahit", "--read-type", "illumina-short-reads", "--project-name", "Interleaved",
-            "--threads", "2", "--output", "/tmp/lane a46/Assembly Output/Interleaved", "--format", "json",
+            "--threads", "2", "--output", "/tmp/lane a46/Assembly Output/Interleaved", "--reference-bundle",
+            "--format", "json",
         ])
     }
 
-    /// The preview records a bare `lungfish-cli assemble` when the builder throws, and the builder's
-    /// `assemble` case throws for no request, so no row records the bare command.
+    /// No request reaches a bare `lungfish-cli assemble`. The preview had that fallback until the
+    /// builder's `assemble` arm became a static that cannot throw, and every shape still records the
+    /// whole command.
     func testNoRequestReachesTheBareFallback() throws {
         for tool in AssemblyTool.allCases {
             let readType = AssemblyCompatibility.defaultReadType(for: tool)
