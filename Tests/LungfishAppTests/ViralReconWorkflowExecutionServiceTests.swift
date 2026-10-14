@@ -202,8 +202,9 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.cliCommand?.contains(persistedSamplesheet.path) == true)
         XCTAssertTrue(item.logEntries.map(\.message).contains { $0.contains("samplesheet") })
         XCTAssertTrue(item.logEntries.map(\.message).contains { $0.contains("lungfish-cli workflow run nf-core/viralrecon") })
-        XCTAssertTrue(item.logEntries.map(\.message).contains { $0.contains("nextflow progress") })
-        XCTAssertTrue(item.logEntries.map(\.message).contains { $0.contains("nextflow warning") })
+        // Since A30 M3 the CLI's lines reach the row as events through OperationCenterCLIBridge on the shared center
+        // (ViralReconRowEventsTests), and the route asks for them with --format json.
+        XCTAssertEqual(invocation.arguments.suffix(2), ["--format", "json"])
         XCTAssertEqual(item.state, .completed)
         XCTAssertTrue(item.detail.contains(request.outputDirectory.path))
         XCTAssertTrue(item.detail.contains(result.bundleURL.path))
@@ -793,8 +794,9 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
 
         let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
-        XCTAssertEqual(item.logEntries.map(\.message).filter { $0 == "streamed stdout" }.count, 1)
-        XCTAssertEqual(item.logEntries.map(\.message).filter { $0 == "streamed stderr" }.count, 1)
+        // Since A30 M3 the CLI's lines reach OperationCenterCLIBridge on the shared center (ViralReconRowEventsTests),
+        // so this case's own center holds none of them, and the route replays no returned text after a streamed run.
+        XCTAssertEqual(item.logEntries.map(\.message).filter { $0 == "streamed stdout" || $0 == "streamed stderr" }.count, 0)
     }
 
     func testServiceDoesNotReplayReturnedOutputWhenResultReportsStreaming() async throws {

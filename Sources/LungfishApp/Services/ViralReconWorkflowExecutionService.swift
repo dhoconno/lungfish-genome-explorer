@@ -83,22 +83,35 @@ final class ViralReconWorkflowExecutionService {
         logReferenceAcquisition(operationID: operationID)
 
         do {
+            // Each line the CLI prints is a CLIEvent under --format json, which the bridge reads by its one rule, so
+            // only the CLI's warning events, the run's outcome lines, warn. Standard error and the runner's
+            // incomplete-output reason reach it as info log events, as the transport hands them over (N5, rule 5).
+            let onEvent = OperationCenterCLIBridge.onEvent(operationID: operationID)
             let processResult = try await processRunner.runLungfishCLI(
-                arguments: persistedRequest.cliArguments(bundlePath: bundleURL),
+                arguments: persistedRequest.cliArguments(bundlePath: bundleURL) + ["--format", "json"],
                 workingDirectory: bundleURL,
-                outputHandler: { [operationCenter] output in
-                    switch output {
-                    case .standardOutput(let line):
-                        operationCenter.log(id: operationID, level: .info, message: line)
-                    case .standardError(let line):
-                        operationCenter.log(id: operationID, level: .warning, message: line)
-                    }
+                outputHandler: { output in
+                    if let event = Self.event(of: output) { onEvent(event) }
                 }
             )
-            try writeProcessLogs(processResult, to: bundleURL.appendingPathComponent("logs", isDirectory: true))
+            // The bundle's log holds each event's words, not its JSON.
+            try writeProcessLogs(
+                ViralReconWorkflowProcessResult(
+                    exitCode: processResult.exitCode,
+                    standardOutput: Self.messages(ofEventLines: processResult.standardOutput),
+                    standardError: processResult.standardError,
+                    didStreamOutput: processResult.didStreamOutput
+                ),
+                to: bundleURL.appendingPathComponent("logs", isDirectory: true)
+            )
             if !processResult.didStreamOutput {
-                logProcessOutput(processResult, operationID: operationID)
+                let lines = processResult.standardOutput.split(whereSeparator: \.isNewline).map { ViralReconWorkflowProcessOutput.standardOutput(String($0)) }
+                    + processResult.standardError.split(whereSeparator: \.isNewline).map { ViralReconWorkflowProcessOutput.standardError(String($0)) }
+                lines.compactMap(Self.event(of:)).forEach(onEvent)
             }
+            // The bridge takes each event one main-queue hop later (OperationCenterCLIBridge.swift:65), so the row
+            // has taken every line only after one more turn of the main queue.
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
 
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
                 operationCenter.acknowledgeCancellation(id: operationID)
@@ -505,13 +518,28 @@ final class ViralReconWorkflowExecutionService {
         operationCenter.log(id: operationID, level: .info, message: commandPreview)
     }
 
-    private func logProcessOutput(_ result: ViralReconWorkflowProcessResult, operationID: UUID) {
-        for line in result.standardOutput.split(whereSeparator: \.isNewline) {
-            operationCenter.log(id: operationID, level: .info, message: String(line))
+    /// The event a line of the CLI's output is under `--format json`: a decoded event for standard output, nil for a
+    /// line that is not one, and an info log event for standard error, as `CLISubprocessTransport` hands it over.
+    private static func event(of output: ViralReconWorkflowProcessOutput) -> CLIEvent? {
+        switch output {
+        case .standardOutput(let line):
+            return (try? CLIEventLineDecoder().decodeLine(line))?.event
+        case .standardError(let line):
+            return line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : .log(level: .info, message: line)
         }
-        for line in result.standardError.split(whereSeparator: \.isNewline) {
-            operationCenter.log(id: operationID, level: .warning, message: String(line))
-        }
+    }
+
+    /// The CLI's standard output with the words of each event line in place of its JSON. A line that is no event stays.
+    static func messages(ofEventLines text: String) -> String {
+        text.split(whereSeparator: \.isNewline).map { line -> String in
+            switch event(of: .standardOutput(String(line))) {
+            case .start(let message)?, .progress(_, let message)?, .log(_, let message)?: return message
+            case .output(let path, _)?: return path
+            case .complete(let outputs, let message)?: return ([message].compactMap { $0 } + outputs).joined(separator: "\n")
+            case .failed(let message, let detail)?: return ([message] + [detail].compactMap { $0 }).joined(separator: "\n")
+            case nil: return String(line)
+            }
+        }.joined(separator: "\n")
     }
 
     private func availableBundleURL(in root: URL) throws -> URL {

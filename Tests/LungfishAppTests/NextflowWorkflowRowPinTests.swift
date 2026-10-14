@@ -86,14 +86,9 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
         XCTAssertTrue(item.isCancellable, "the row registers a cancel callback before it launches")
         XCTAssertTrue(OperationRowAction.cancel.isAvailable(for: item))
         XCTAssertEqual(item.cliCommand?.hasPrefix("lungfish-cli workflow run nf-core/viralrecon "), true, "\(item.cliCommand ?? "nil")")
-        XCTAssertEqual(
-            Array(Self.loggedLines(of: item).suffix(3)),
-            [
-                "info: [aa/000001] Submitted process > FASTQC (SARS2_A)",
-                "info: process > FASTQC (SARS2_A) [100%] 1 of 1",
-                "warning: WARN: a streamed warning",
-            ]
-        )
+        // Since A30 M3 the lines go to OperationCenterCLIBridge as events (N5), which ViralReconRowEventsTests pins on
+        // the shared center. This case's own center holds none of them, and no line is a warning here.
+        XCTAssertFalse(Self.loggedLines(of: item).contains { $0.contains("FASTQC") || $0.hasPrefix("warning:") })
     }
 
     // MARK: - Viral Recon, the end of a run
@@ -116,15 +111,14 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
             "Viral Recon completed. Output: \(run.request.outputDirectory.path). Run bundle: \(result.bundleURL.path)"
         )
         XCTAssertEqual(item.bundleURLs, [result.bundleURL])
-        XCTAssertEqual(
-            Array(Self.loggedLines(of: item).suffix(3)),
-            ["info: line one", "info: line two", "info: Viral Recon completed"]
-        )
+        // Text that is no event line is left out of the row since A30 M3 (N5).
+        XCTAssertEqual(Array(Self.loggedLines(of: item).suffix(1)), ["info: Viral Recon completed"])
+        XCTAssertFalse(Self.loggedLines(of: item).contains("info: line one"))
     }
 
-    /// Every stderr line of the CLI is a warning line, so a run that wrote any reads
-    /// `Completed with Warnings` while its detail stays the same completed sentence.
-    func testEveryStderrLineOfAViralReconRunIsAWarningLineAndMakesTheLabel() async throws {
+    /// Since A30 M3 a stderr line of the CLI is an info line (N5, rule 5), so a run that wrote some still reads
+    /// `Completed`, with the same completed sentence. ViralReconRowEventsTests pins the lines on the shared center.
+    func testAViralReconRunsStderrLinesNoLongerMakeTheLabel() async throws {
         let runner = PinViralReconRunner()
         runner.result = ViralReconWorkflowProcessResult(
             exitCode: 0,
@@ -137,15 +131,13 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
 
         let item = try XCTUnwrap(result.operationItem)
         XCTAssertEqual(item.state, .completed)
-        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(item.displayStateLabel, "Completed")
+        XCTAssertFalse(item.hasWarnings)
         XCTAssertEqual(
             item.detail,
             "Viral Recon completed. Output: \(run.request.outputDirectory.path). Run bundle: \(result.bundleURL.path)"
         )
-        XCTAssertEqual(
-            Array(Self.loggedLines(of: item).suffix(4)),
-            ["info: line one", "warning: WARN: low coverage", "warning: WARN: retried a task", "info: Viral Recon completed"]
-        )
+        XCTAssertEqual(Array(Self.loggedLines(of: item).suffix(1)), ["info: Viral Recon completed"])
     }
 
     /// A failure shows the exit code and the last 40 lines of stderr as the detail, the same text

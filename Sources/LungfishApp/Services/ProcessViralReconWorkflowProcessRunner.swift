@@ -81,7 +81,8 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
             if let incomplete = exit.incompleteOutput, let outputHandler {
                 // The Viral Recon route logs the result's text only when no line streamed, so the
                 // reason streams too. Every earlier line was queued on the main queue before the run
-                // returned, so it arrives last and the row logs it as a warning line.
+                // returned, so it arrives last. The route logs it at info, as every standard error line
+                // (rule 5, ARCH's ruling on A30 M3), and the Local Workflow route as a warning line.
                 await MainActor.run { outputHandler(.standardError(incomplete)) }
                 didStreamOutput = true
             }
