@@ -17,6 +17,75 @@ private let secondSIGTERMEndsProcess = Atomic<Bool>(false)
 /// The write end of `SIGTERMPipe`, or -1 while no instance is listening.
 private let sigtermPipeWriteEnd = Atomic<Int32>(-1)
 
+/// The SIGTERMs the kernel posted to this process since the current `SIGTERMCancellation` began.
+private let sigtermPosts = SIGTERMPostLatch()
+
+/// Notes every SIGTERM the kernel posts to this process, at the moment it posts it and whether or not a handler
+/// has run (Phase 2.10 lane FXS, SWIFT Finding 2 of review A54). The kernel notes a post at the `kill`, and a
+/// thread takes it and runs the handler later, so a read of the handler's count between the two sees no signal.
+/// A kqueue signal filter coexists with the handler and records a signal even when its action is to ignore it.
+/// It notes a signal sent to the process, as `kill` and `killpg` send it, and not one sent to a single thread.
+///
+/// The filter clears an event when it reports one (`EV_CLEAR`), so a read that saw a post latches it. The latch
+/// holds after ``finish()`` closed the queue, until the next ``begin()``, because a leaf reads the flag after the
+/// run ended its instance. A queue that cannot be made leaves the handler's count as the only source.
+private final class SIGTERMPostLatch: Sendable {
+    private struct State {
+        var queue: Int32 = -1
+        var seen = false
+    }
+
+    private let state = Mutex(State())
+
+    /// Clears the latch and starts watching, in place of any queue an earlier instance left open.
+    func begin() {
+        state.withLock { state in
+            if state.queue >= 0 { close(state.queue) }
+            state.seen = false
+            state.queue = Self.makeQueue()
+        }
+    }
+
+    /// Whether a SIGTERM was posted since ``begin()``.
+    var occurred: Bool {
+        state.withLock { state in
+            if !state.seen, state.queue >= 0, Self.reports(state.queue) { state.seen = true }
+            return state.seen
+        }
+    }
+
+    /// Latches what the queue noted and closes it. The latch keeps the answer.
+    func finish() {
+        state.withLock { state in
+            guard state.queue >= 0 else { return }
+            if Self.reports(state.queue) { state.seen = true }
+            close(state.queue)
+            state.queue = -1
+        }
+    }
+
+    private static func makeQueue() -> Int32 {
+        let queue = kqueue()
+        guard queue >= 0 else { return -1 }
+        _ = fcntl(queue, F_SETFD, FD_CLOEXEC) // tools the command launches do not inherit it
+        var change = kevent(
+            ident: UInt(SIGTERM), filter: Int16(EVFILT_SIGNAL), flags: UInt16(EV_ADD | EV_CLEAR), fflags: 0, data: 0, udata: nil
+        )
+        guard kevent(queue, &change, 1, nil, 0, nil) >= 0 else {
+            close(queue)
+            return -1
+        }
+        return queue
+    }
+
+    /// Whether the queue holds a post, which reading it clears.
+    private static func reports(_ queue: Int32) -> Bool {
+        var event = kevent()
+        var immediately = timespec(tv_sec: 0, tv_nsec: 0)
+        return kevent(queue, nil, 0, &event, 1, &immediately) > 0
+    }
+}
+
 /// Counts the SIGTERM and writes one byte to the pipe. Only
 /// async-signal-safe calls are made here.
 private func handleSIGTERM(_ signalNumber: Int32) {
@@ -101,6 +170,8 @@ final class SIGTERMCancellation {
         let queue = DispatchQueue.global(qos: .userInitiated)
         let ends = SIGTERMPipe.ends
         if let ends { SIGTERMPipe.drain(ends.read) } // nothing from an earlier instance
+        // Watch for posts before the handler goes in, so no SIGTERM sent from here on goes unseen.
+        sigtermPosts.begin()
         // Touch all three atomics before signal() installs the handler. A
         // global is set up lazily on its first use, and that set-up is not
         // async-signal-safe, so it must never first happen inside the handler.
@@ -143,16 +214,28 @@ final class SIGTERMCancellation {
         self.init(secondSignalEndsProcess: secondSignalEndsProcess) { target.cancel() }
     }
 
-    /// Whether a SIGTERM was caught since the current instance started. The handler counts it
-    /// before anything else runs, so this is true before the cancel reaches the task, also when a
-    /// tool child that got the same signal ended first.
-    static var signalCaught: Bool { caughtSIGTERMs.load(ordering: .sequentiallyConsistent) > 0 }
+    /// Whether a SIGTERM was caught or posted since the current instance started. The handler counts
+    /// it before anything else runs, and the kernel notes a post at the `kill`, so this is true before
+    /// the cancel reaches the task and also before any thread has run the handler. A tool child that
+    /// got the same signal can end first, and the command still reads its own SIGTERM as the cancel it
+    /// answers. It stays true after ``end()`` until the next instance starts.
+    static var signalCaught: Bool {
+        caughtSIGTERMs.load(ordering: .sequentiallyConsistent) > 0 || sigtermPosts.occurred
+    }
 
     /// Gives SIGTERM back the handler it had before, or its default action.
+    ///
+    /// SIGTERM is ignored for a moment first. A post that is still pending was sent while this instance
+    /// listened, and the thread that takes it can run after the earlier action is back. In the CLI that
+    /// action is the one of `CLITerminationSignals`, which ends the process by signal 15, so the command
+    /// would die on a SIGTERM it had already answered. Ignoring a signal drops a pending one. A post the
+    /// kernel noted is kept by ``signalCaught``.
     func end() {
         guard !ended else { return }
         ended = true
+        signal(SIGTERM, SIG_IGN)
         signal(SIGTERM, previousHandler ?? SIG_DFL)
+        sigtermPosts.finish()
         secondSIGTERMEndsProcess.store(false, ordering: .sequentiallyConsistent)
         sigtermPipeWriteEnd.store(-1, ordering: .sequentiallyConsistent)
         source.cancel()
