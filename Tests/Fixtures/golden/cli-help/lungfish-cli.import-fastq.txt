@@ -11,23 +11,6 @@ OPTIONS:
                           CSV sample sheet with sample,r1,r2 columns and
                           optional metadata columns
   -p, --project <project> Path to .lungfish project directory
-  --recipe <recipe>       Processing recipe: vsp2-target-enrichment,
-                          wastewater-metagenomics, illumina-amplicon-merge,
-                          vsp2, wgs, hifi, or none (default: none)
-        vsp2-target-enrichment: VSP2 Target Enrichment
-        wastewater-metagenomics: Wastewater metagenomics
-        illumina-amplicon-merge: Illumina Amplicon Merge
-        vsp2: alias of vsp2-target-enrichment
-        wgs: the built-in Illumina whole-genome recipe
-        hifi: the built-in PacBio HiFi recipe
-  --quality-binning <quality-binning>
-                          Quality binning: illumina4 (7 quality levels),
-                          eightLevel (~21 quality levels), none (default:
-                          none). Binning is lossy and irreversible once
-                          originals are removed — opt in explicitly. (default:
-                          none)
-  --log-dir <log-dir>     Directory for per-sample log files
-  --dry-run               List detected pairs without importing
   --platform <platform>   Sequencing platform: auto, illumina, ont, pacbio,
                           element, mgi, ultima, unknown (default: auto)
         auto infers each sample's platform from its read headers (and a BAM
@@ -51,13 +34,30 @@ OPTIONS:
         single imports every file as its own single-end sample, even when a
         mate is detected. interleaved imports every file on its own and records
         it as interleaved mates.
+  --quality-binning <quality-binning>
+                          Quality binning: illumina4 (7 quality levels),
+                          eightLevel (~21 quality levels), none (default:
+                          none). Binning is lossy and irreversible once
+                          originals are removed — opt in explicitly. (default:
+                          none)
+  --compression <compression>
+                          Compression level: fast, balanced, maximum (default:
+                          balanced) (default: balanced)
+  --recipe <recipe>       Processing recipe: vsp2-target-enrichment,
+                          wastewater-metagenomics, illumina-amplicon-merge,
+                          vsp2, wgs, hifi, or none (default: none)
+        vsp2-target-enrichment: VSP2 Target Enrichment
+        wastewater-metagenomics: Wastewater metagenomics
+        illumina-amplicon-merge: Illumina Amplicon Merge
+        vsp2: alias of vsp2-target-enrichment
+        wgs: the built-in Illumina whole-genome recipe
+        hifi: the built-in PacBio HiFi recipe
   --no-optimize-storage   Skip read reordering for storage optimization
   --clumping-tool <clumping-tool>
                           Storage optimization tool: auto, bbtools,
                           trim-galore, none (default: platform-specific)
-  --compression <compression>
-                          Compression level: fast, balanced, maximum (default:
-                          balanced) (default: balanced)
+  --log-dir <log-dir>     Directory for per-sample log files
+  --dry-run               List detected pairs without importing
   --force                 Reimport samples even if bundle already exists
         A bundle that an earlier sample of the same import wrote is never
         replaced, and no sample writes a bundle that an earlier sample of the

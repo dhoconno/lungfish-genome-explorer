@@ -75,20 +75,17 @@ extension ImportCommand {
         )
         var project: String
 
-        @Option(
-            name: .customLong("recipe"),
-            help: ArgumentHelp(
-                "Processing recipe: \(recipeHelpNames()), or none",
-                discussion: recipeHelpDiscussion()
-            )
-        )
-        var recipe: String = "none"
+        /// The settings `fetch sra download --bundle` takes too (lane A45 M3). The properties below
+        /// forward their old names.
+        @OptionGroup var importOptions: ImportFastqOptions
 
-        @Option(
-            name: .customLong("quality-binning"),
-            help: "Quality binning: illumina4 (7 quality levels), eightLevel (~21 quality levels), none (default: none). Binning is lossy and irreversible once originals are removed — opt in explicitly."
-        )
-        var qualityBinning: String = "none"
+        var recipe: String { importOptions.recipe }
+        var qualityBinning: String { importOptions.qualityBinning }
+        var platform: String { importOptions.platform }
+        var pairing: String { importOptions.pairing }
+        var noOptimizeStorage: Bool { importOptions.noOptimizeStorage }
+        var clumpingTool: String? { importOptions.clumpingTool }
+        var compression: String { importOptions.compression }
 
         @Option(
             name: .customLong("log-dir"),
@@ -101,63 +98,6 @@ extension ImportCommand {
             help: "List detected pairs without importing"
         )
         var dryRun: Bool = false
-
-        @Option(
-            name: .customLong("platform"),
-            help: ArgumentHelp(
-                "Sequencing platform: auto, illumina, ont, pacbio, element, mgi, ultima, unknown",
-                discussion: """
-                auto infers each sample's platform from its read headers (and a BAM \
-                file's @RG PL) and prints the evidence. Reads whose platform cannot \
-                be inferred are recorded as unknown, never as Illumina. A given value \
-                is recorded as given, even when the reads suggest another platform.
-                """
-            )
-        )
-        var platform: String = "auto"
-
-        @Option(
-            name: .customLong("pairing"),
-            help: ArgumentHelp(
-                "Read pairing: auto, single, paired, interleaved (default: auto)",
-                discussion: """
-                auto and paired match R1/R2 files by name, inside one folder first. \
-                Mates in two folders pair only when no other listed file has either \
-                name. When one does, a warning names the files. They also join a run's \
-                file named for the run alone, such as SRR1.fastq beside SRR1_1.fastq and \
-                SRR1_2.fastq, to that pair as unpaired reads, by the same folder rule, \
-                when the first reads of the pair are named as mates, the first read of \
-                that file is not from their fragment, and no two adjacent reads among \
-                the first 1,000 of that file are mates. Otherwise the import skips that \
-                file and a warning says why. The import fails the sample when two \
-                adjacent reads later in that file are mates. \
-                For any other file with no mate file, they read its records and \
-                record interleaved mates when every record is followed by its mate, \
-                otherwise single-end. single imports every file as its own single-end \
-                sample, even when a mate is detected. interleaved imports every file on \
-                its own and records it as interleaved mates.
-                """
-            )
-        )
-        var pairing: String = "auto"
-
-        @Flag(
-            name: .customLong("no-optimize-storage"),
-            help: "Skip read reordering for storage optimization"
-        )
-        var noOptimizeStorage: Bool = false
-
-        @Option(
-            name: .customLong("clumping-tool"),
-            help: "Storage optimization tool: auto, bbtools, trim-galore, none (default: platform-specific)"
-        )
-        var clumpingTool: String?
-
-        @Option(
-            name: .customLong("compression"),
-            help: "Compression level: fast, balanced, maximum (default: balanced)"
-        )
-        var compression: String = "balanced"
 
         @Flag(
             name: .customLong("force"),
@@ -195,270 +135,18 @@ extension ImportCommand {
             )
             reporter.start()
 
-            guard !input.isEmpty || samplesheet != nil else {
-                throw reporter.fail("At least one input path or --samplesheet is required.", exitCode: .inputError)
-            }
-            guard !(samplesheet != nil && !input.isEmpty) else {
-                throw reporter.fail("Pass either FASTQ input paths or --samplesheet, not both.", exitCode: .inputError)
-            }
-
-            // MARK: Detect pairs
-
-            let detectedPairs: [SamplePair]
-            // Why detection left a file of another folder unpaired. Only a
-            // recursive scan and explicit files can span folders.
-            var pairingNotices: [FASTQBatchImporter.PairingNotice] = []
-            let fm = FileManager.default
-
-            if let samplesheet {
-                let sheetURL = URL(fileURLWithPath: samplesheet)
-                guard fm.fileExists(atPath: sheetURL.path) else {
-                    throw reporter.fail("Sample sheet not found: \(samplesheet)", exitCode: .inputError)
-                }
-                do {
-                    detectedPairs = try FASTQSampleSheet.parse(url: sheetURL).samplePairs()
-                } catch {
-                    throw reporter.fail("Could not parse sample sheet: \(error.localizedDescription)", exitCode: .formatError)
-                }
-            } else if input.count == 1 {
-                // Single argument: could be a directory or a single file
-                let inputURL = URL(fileURLWithPath: input[0])
-                var isDirectory: ObjCBool = false
-                let exists = fm.fileExists(atPath: inputURL.path, isDirectory: &isDirectory)
-
-                if exists && isDirectory.boolValue {
-                    do {
-                        if recursive {
-                            let detection = try FASTQBatchImporter.detectingPairsFromDirectoryRecursive(inputURL)
-                            detectedPairs = detection.samples
-                            pairingNotices = detection.notices
-                        } else {
-                            detectedPairs = try FASTQBatchImporter.detectPairsFromDirectory(inputURL)
-                        }
-                    } catch let batchError as BatchImportError {
-                        throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, exitCode: .inputError)
-                    } catch {
-                        // Any other error of the scan, such as a folder this user may not list, still ends the
-                        // run in a failed line. ArgumentParser reports the error as before.
-                        reporter.failedEvent(error.localizedDescription)
-                        throw error
-                    }
-                } else {
-                    guard exists else {
-                        throw reporter.fail("Input not found: \(input[0])", exitCode: .inputError)
-                    }
-                    detectedPairs = FASTQBatchImporter.detectPairs(from: [inputURL])
-                }
-            } else {
-                // Multiple arguments: treat as explicit file paths
-                var fileURLs: [URL] = []
-                for path in input {
-                    let url = URL(fileURLWithPath: path)
-                    guard fm.fileExists(atPath: url.path) else {
-                        throw reporter.fail("Input file not found: \(path)", exitCode: .inputError)
-                    }
-                    fileURLs.append(url)
-                }
-                let detection = FASTQBatchImporter.detectingPairs(from: fileURLs)
-                detectedPairs = detection.samples
-                pairingNotices = detection.notices
-            }
-
-            // MARK: Apply --pairing
-
-            guard let pairingChoice = FASTQBatchImporter.ImportPairing(rawValue: pairing.lowercased()) else {
-                throw reporter.fail("Unknown pairing value '\(pairing)'. Valid: auto, single, paired, interleaved", exitCode: .inputError)
-            }
-            var samples = FASTQBatchImporter.applyPairing(pairingChoice, to: detectedPairs)
-
-            // MARK: Apply --name override
-
-            // --name names the one sample detection made. It applies before
-            // the check below, so when the check leaves a run's third file
-            // out, the pair and that file both take the name, the pair
-            // imports under it and the file's sample is skipped, as the
-            // warning says. Applied after the check, --name refused such a
-            // run after printing a warning about an import that never ran
-            // (finding F11-N2).
-            if let name {
-                guard samples.count == 1 else {
-                    throw reporter.fail("--name requires exactly one detected sample (found \(samples.count)).", exitCode: .inputError)
-                }
-                samples = [samples[0].named(name)]
-            }
-
-            // A run's third file stays joined to its pair only when the first
-            // reads bear the join out. Otherwise the import skips the third
-            // file's sample, and a warning says why. The window runs this
-            // command with --format json, so its Operations row logs the notice.
-            let unpairedReadsCheck = FASTQBatchImporter.checkingUnpairedReads(samples)
-            let effectivePairs = unpairedReadsCheck.samples
-            // Why detection left a file of another folder unpaired, then the
-            // check's warnings. single and interleaved split every pair, so a
-            // notice about a pair detection did not make says nothing to them.
-            let warnings = (pairingChoice.keepsDetectedPairs ? pairingNotices.map(\.event) : [])
-                + unpairedReadsCheck.warnings
-
-            // MARK: Print detected pairs
-
-            reporter.text(formatter.header("FASTQ Import"))
-            reporter.text("")
-            reporter.text(formatter.info("Detected \(effectivePairs.count) sample(s):"))
-            for (i, pair) in effectivePairs.enumerated() {
-                let index = String(format: "%3d", i + 1)
-                if let r2 = pair.r2 {
-                    reporter.text("  \(index). \(pair.sampleName)  [paired]")
-                    reporter.text("        R1: \(pair.r1.lastPathComponent)")
-                    reporter.text("        R2: \(r2.lastPathComponent)")
-                    if let unpaired = pair.unpaired {
-                        reporter.text("        Unpaired: \(unpaired.lastPathComponent)")
-                    }
-                } else {
-                    reporter.text("  \(index). \(pair.sampleName)  [single-end]")
-                    reporter.text("        R1: \(pair.r1.lastPathComponent)")
-                }
-            }
-            reporter.text("")
-            if !warnings.isEmpty {
-                for case .notice(let sample, let message) in warnings {
-                    reporter.pairingNotice(sample: sample, message: message)
-                }
-                reporter.text("")
-            }
-
-            // MARK: Resolve platform request
-
-            guard let platformRequest = ImportPlatformRequest(cliValue: platform) else {
-                throw reporter.fail(
-                    "Unknown platform '\(platform)'. Valid: \(ImportPlatformRequest.cliValues.joined(separator: ", "))",
-                    exitCode: .inputError
-                )
-            }
-
-            // MARK: Dry-run exit
-
-            if dryRun {
-                for pair in effectivePairs {
-                    let resolution = FASTQBatchImporter.resolvePlatform(for: pair, request: platformRequest)
-                    reporter.text("  \(pair.sampleName): \(resolution.summaryLine)")
-                }
-                reporter.text(formatter.info("Dry-run mode — no files were imported."))
+            // The detection, the unpaired-reads check and the import are shared with
+            // `fetch sra download --bundle` (FASTQImportRun).
+            let importRun = FASTQImportRun(
+                input: input, samplesheet: samplesheet, project: project, recipe: recipe,
+                qualityBinning: qualityBinning, logDir: logDir, dryRun: dryRun, platform: platform,
+                pairing: pairing, noOptimizeStorage: noOptimizeStorage, clumpingTool: clumpingTool,
+                compression: compression, force: force, name: name, recursive: recursive, threads: threads,
+                quiet: globalOptions.quiet, useColors: globalOptions.useColors
+            )
+            guard let result = try await importRun.run(reporter: reporter, cancellation: .installsSIGTERMHandler) else {
                 reporter.complete(message: "Dry-run mode — no files were imported.")
                 return
-            }
-
-            // MARK: Resolve recipe
-
-            var newRecipe: Recipe? = nil
-            var oldRecipe: ProcessingRecipe? = nil
-            if recipe.lowercased() != "none" {
-                do {
-                    let resolvedRecipe = try Self.resolveImportRecipe(named: recipe)
-                    newRecipe = resolvedRecipe.newRecipe
-                    oldRecipe = resolvedRecipe.legacyRecipe
-                } catch let batchError as BatchImportError {
-                    throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, exitCode: .inputError)
-                } catch {
-                    reporter.failedEvent(error.localizedDescription)
-                    throw error
-                }
-            }
-
-            // MARK: Resolve quality binning
-
-            let binningScheme: QualityBinningScheme
-            switch qualityBinning.lowercased() {
-            case "illumina4":
-                binningScheme = .illumina4
-            case "eightlevel", "eight_level", "eight-level":
-                binningScheme = .eightLevel
-            case "none":
-                binningScheme = .none
-            default:
-                throw reporter.fail(
-                    "Unknown quality-binning value '\(qualityBinning)'. Valid: illumina4, eightLevel, none", exitCode: .inputError
-                )
-            }
-
-            // MARK: Resolve compression level
-
-            guard let compLevel = CompressionLevel(rawValue: compression.lowercased()) else {
-                throw reporter.fail("Unknown compression '\(compression)'. Valid: fast, balanced, maximum", exitCode: .inputError)
-            }
-
-            // MARK: Resolve clumping tool
-
-            let requestedClumpingTool: ClumpingTool?
-            do {
-                requestedClumpingTool = noOptimizeStorage
-                    ? ClumpingTool.none
-                    : try clumpingTool.map(Self.parseClumpingTool)
-            } catch {
-                throw reporter.fail(
-                    "Unknown clumping-tool value '\(clumpingTool ?? "")'. Valid: auto, bbtools, trim-galore, none", exitCode: .inputError
-                )
-            }
-
-            // MARK: Build config
-
-            let projectURL = URL(fileURLWithPath: project)
-            let logDirURL = logDir.map { URL(fileURLWithPath: $0) }
-            let threadCount = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
-
-            let config = FASTQBatchImporter.ImportConfig(
-                projectDirectory: projectURL,
-                platform: platformRequest,
-                recipe: oldRecipe,
-                newRecipe: newRecipe,
-                qualityBinning: binningScheme,
-                optimizeStorage: Self.requestedOptimizeStorage(
-                    noOptimizeStorage: noOptimizeStorage,
-                    clumpingTool: requestedClumpingTool
-                ),
-                clumpingTool: requestedClumpingTool,
-                compressionLevel: compLevel,
-                threads: threadCount,
-                logDirectory: logDirURL,
-                forceReimport: force,
-                pairing: pairingChoice
-            )
-
-            try await Self.installRequiredManagedDatabases(
-                requiredIDs: Self.requiredManagedDatabaseIDs(legacyRecipe: oldRecipe, newRecipe: newRecipe),
-                formatter: formatter,
-                isQuiet: globalOptions.quiet,
-                emit: { reporter.text($0) },
-                failure: { reporter.failedEvent($0) }
-            )
-
-            // MARK: Run import
-
-            if !globalOptions.quiet {
-                reporter.text(formatter.info("Starting import with \(threadCount) thread(s)…"))
-                reporter.text("")
-            }
-
-            // SIGTERM (the window's Cancel) cancels the import, so it removes
-            // its staging bundle and workspace before the command exits. It
-            // listens before the task starts, and a SIGTERM caught before then
-            // cancels the task as soon as it exists. A second SIGTERM ends the
-            // command at once. The batch itself says whether a cancel stopped
-            // it, so a SIGTERM after the last sample was published does not
-            // turn a finished import into a cancelled one.
-            let pendingCancel = PendingTaskCancel<FASTQBatchImporter.ImportResult>()
-            let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
-            let importTask = Task {
-                await FASTQBatchImporter.runBatchImport(
-                    pairs: effectivePairs,
-                    config: config,
-                    log: { event in reporter.log(event) }
-                )
-            }
-            pendingCancel.attach(importTask)
-            let result = await importTask.value
-            termination.end()
-            if result.cancelled {
-                throw reporter.fail("Import cancelled", exitCode: .cancelled)
             }
 
             // MARK: Print summary
