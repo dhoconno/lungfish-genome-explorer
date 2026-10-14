@@ -48,14 +48,14 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
 
         XCTAssertEqual(record.argv, command)
         XCTAssertEqual(record.reproducibleCommand, command.map(shellEscape).joined(separator: " "))
-        XCTAssertEqual(record.toolName, "lungfish gui grouped FASTQ operation")
+        XCTAssertEqual(record.toolName, "Lungfish Grouped FASTQ Operation")
         XCTAssertEqual(record.workflowName, "\(kind) grouped FASTQ operation")
         XCTAssertEqual(record.status, .completed)
         XCTAssertEqual(record.exitStatus, 0)
 
         XCTAssertEqual(record.steps.count, 1)
         let step = try XCTUnwrap(record.steps.first)
-        XCTAssertEqual(step.toolName, "lungfish gui grouped FASTQ operation")
+        XCTAssertEqual(step.toolName, "Lungfish Grouped FASTQ Operation")
         XCTAssertEqual(step.argv, command)
         XCTAssertEqual(step.reproducibleCommand, record.reproducibleCommand)
         XCTAssertEqual(step.exitStatus, 0)
@@ -121,7 +121,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         XCTAssertEqual(record.argv, ["/bin/sh", "-lc", script])
         XCTAssertEqual(record.reproducibleCommand, script)
         XCTAssertTrue(script.contains(" && "), "The two commands are one script")
-        XCTAssertEqual(record.toolName, "lungfish gui grouped FASTQ operation")
+        XCTAssertEqual(record.toolName, "Lungfish Grouped FASTQ Operation")
         XCTAssertEqual(record.workflowName, "\(run.request.batchManifestOperationKind) grouped FASTQ operation")
         XCTAssertEqual(record.status, .completed)
         XCTAssertEqual(record.exitStatus, 0)
@@ -133,7 +133,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
             run.commands.map { $0.map(shellEscape).joined(separator: " ") }
         )
         XCTAssertEqual(record.steps.map(\.exitStatus), [0, 0])
-        XCTAssertTrue(record.steps.allSatisfy { $0.toolName == "lungfish gui grouped FASTQ operation" })
+        XCTAssertTrue(record.steps.allSatisfy { $0.toolName == "Lungfish Grouped FASTQ Operation" })
         // Each step lists the files its own command made. The record is not told which command read which
         // file, so a step lists no input.
         XCTAssertEqual(record.steps.map { $0.outputs.map { tail($0.path, 2) } }, [
@@ -262,6 +262,32 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
 
         XCTAssertEqual(second.id, first.id)
         XCTAssertEqual(try Data(contentsOf: recordURL), firstBytes)
+    }
+
+    // MARK: - A record written with the old label
+
+    /// Records written before 2.10 call the run and each step `lungfish gui grouped FASTQ operation`. The label
+    /// is text, so such a record still loads, passes the completeness check and converts, and its steps keep
+    /// their label and their argv.
+    func testARecordWrittenWithTheOldLabelStillReads() throws {
+        let run = try makeMixedFormatRun()
+        _ = try writeRecord(for: run)
+        let recordURL = run.group.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let oldLabel = "lungfish gui grouped FASTQ operation"
+        let text = try String(contentsOf: recordURL, encoding: .utf8)
+        XCTAssertTrue(text.contains("Lungfish Grouped FASTQ Operation"), "the record carries the new label")
+        try text.replacingOccurrences(of: "Lungfish Grouped FASTQ Operation", with: oldLabel)
+            .write(to: recordURL, atomically: true, encoding: .utf8)
+
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.group))
+        XCTAssertEqual(record.toolName, oldLabel)
+        XCTAssertEqual(record.steps.map(\.toolName), [oldLabel, oldLabel])
+        XCTAssertEqual(record.steps.map(\.argv), run.commands)
+        try assertCanonicalAndComplete(record, in: run.group)
+
+        let reading = record.legacyWorkflowRun(preferCanonicalSteps: true)
+        XCTAssertEqual(reading.steps.map(\.toolName), [oldLabel, oldLabel])
+        XCTAssertEqual(reading.steps.map(\.command), run.commands)
     }
 
     // MARK: - Fixtures

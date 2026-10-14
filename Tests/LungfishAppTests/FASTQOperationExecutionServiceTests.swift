@@ -2571,7 +2571,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: groupedOutputDir))
-        XCTAssertEqual(envelope.toolName, "lungfish gui grouped FASTQ operation")
+        XCTAssertEqual(envelope.toolName, "Lungfish Grouped FASTQ Operation")
         XCTAssertTrue(envelope.outputs.contains { $0.path.hasSuffix("filtered.\(FASTQBundle.directoryExtension)/reads.fastq") })
     }
 

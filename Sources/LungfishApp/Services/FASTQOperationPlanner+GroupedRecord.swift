@@ -14,8 +14,10 @@ import LungfishWorkflow
 
 extension FASTQOperationPlanner {
     /// What the record's run and each of its steps are called. It labels the dispatcher's grouping
-    /// of the commands and is never an argv, so it names no command.
-    private static let groupedOperationToolName = "lungfish gui grouped FASTQ operation"
+    /// of the commands and is never an argv, so it names no command. Records written before 2.10 call
+    /// them `lungfish gui grouped FASTQ operation`, which looked like a command that no leaf defines,
+    /// and readers take the label as the text it is.
+    private static let groupedOperationToolName = "Lungfish Grouped FASTQ Operation"
 
     /// Writes the record of a grouped result unless its folder already holds one that names every output.
     ///
