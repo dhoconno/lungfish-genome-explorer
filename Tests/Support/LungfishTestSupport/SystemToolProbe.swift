@@ -45,11 +45,12 @@ public enum SystemToolProbe {
         return result.stdoutText.split(whereSeparator: \.isNewline).compactMap { Int32($0) }
     }
 
-    /// Writes `block` to `url` `times` times without holding the whole file in memory.
-    public static func writeRepeating(_ block: Data, times: Int, to url: URL) throws {
+    /// Writes `leading` and then `block` `times` times to `url`, without holding the whole file in memory.
+    public static func writeRepeating(_ block: Data, times: Int, leading: Data = Data(), to url: URL) throws {
         FileManager.default.createFile(atPath: url.path, contents: nil)
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
+        try handle.write(contentsOf: leading)
         for _ in 0..<times {
             try handle.write(contentsOf: block)
         }

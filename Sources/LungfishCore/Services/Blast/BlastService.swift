@@ -234,27 +234,40 @@ public actor BlastService {
         )
     }
 
-    private func launchGzipDecompression(for url: URL) throws -> (
-        handle: FileHandle,
-        process: Process,
-        stderr: Pipe
-    ) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", url.path]
+    /// Starts `gzip -dc` on `url` through ``ToolProcess`` with its stdout streamed, so cancelling
+    /// the reading task stops the gzip tree and no thread waits for the child.
+    private func launchGzipDecompression(for url: URL) throws -> ToolProcessRun {
+        try ToolProcess.start(ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+            arguments: ["-dc", url.path],
+            environment: ["PATH": "/usr/bin:/bin"],
+            stdout: .stream,
+            label: "gzip -dc"
+        ))
+    }
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
+    /// The next `count` bytes of a plain file or of `gzip -dc`, fewer at the end. A cancelled
+    /// task ends the read, and the caller's `defer` stops the gzip tree.
+    private nonisolated static func nextChunk(_ file: FileHandle?, _ gzip: ToolProcessRun?, count: Int) throws -> Data {
+        guard let gzip else { return file?.readData(ofLength: count) ?? Data() }
+        var data = Data()
+        while data.count < count {
+            if Task.isCancelled { throw CancellationError() }
+            let piece = gzip.stdout.read(upTo: count - data.count)
+            if piece.isEmpty { break }
+            data.append(piece)
+        }
+        return data
+    }
 
-        try process.run()
-
-        return (
-            handle: stdout.fileHandleForReading,
-            process: process,
-            stderr: stderr
-        )
+    /// Waits for `gzip -dc` once its stream has ended. A cancelled run is a `CancellationError`.
+    private nonisolated static func waitForGzip(_ run: ToolProcessRun, path: String) throws -> ToolProcessResult {
+        do {
+            return try run.waitBlocking()
+        } catch let error as ToolProcessError {
+            if case .cancelled = error { throw CancellationError() }
+            throw BlastServiceError.inputReadFailed(message: "gzip decompression failed for \(path): \(error.localizedDescription)")
+        }
     }
 
     /// Streams the lines of a plain or gzip-compressed Kraken 2 output file.
@@ -263,22 +276,12 @@ public actor BlastService {
         _ body: (Substring) -> Void
     ) throws {
         let isGzip = url.pathExtension.lowercased() == "gz"
-        let fileHandle: FileHandle
-        let gzipProcess: Process?
-        let gzipStderr: Pipe?
-
-        if isGzip {
-            let stream = try launchGzipDecompression(for: url)
-            fileHandle = stream.handle
-            gzipProcess = stream.process
-            gzipStderr = stream.stderr
-        } else {
-            guard let handle = FileHandle(forReadingAtPath: url.path) else {
-                throw BlastServiceError.noSequences
-            }
-            fileHandle = handle
-            gzipProcess = nil
-            gzipStderr = nil
+        let gzipRun = try isGzip ? launchGzipDecompression(for: url) : nil
+        defer { gzipRun?.cancel() }
+        let fileHandle = isGzip ? nil : FileHandle(forReadingAtPath: url.path)
+        defer { fileHandle?.closeFile() }
+        if !isGzip && fileHandle == nil {
+            throw BlastServiceError.noSequences
         }
 
         var residual = Data()
@@ -292,7 +295,7 @@ public actor BlastService {
         }
 
         while true {
-            let chunk = fileHandle.readData(ofLength: bufferSize)
+            let chunk = try Self.nextChunk(fileHandle, gzipRun, count: bufferSize)
             if chunk.isEmpty { break }
 
             var data = residual + chunk
@@ -314,16 +317,9 @@ public actor BlastService {
             emit(residual)
         }
 
-        fileHandle.closeFile()
-        if let gzipProcess {
-            gzipProcess.waitUntilExit()
-            guard gzipProcess.terminationStatus == 0 else {
-                throw Self.gzipFailure(
-                    path: url.path,
-                    status: gzipProcess.terminationStatus,
-                    stderr: gzipStderr
-                )
-            }
+        if let gzipRun {
+            let result = try Self.waitForGzip(gzipRun, path: url.path)
+            guard result.isSuccess else { throw Self.gzipFailure(path: url.path, result: result) }
         }
     }
 
@@ -571,6 +567,7 @@ public actor BlastService {
                     isGzip: isGzip
                 )
             } catch {
+                if error is CancellationError { throw error }
                 if isGzip, attempt < maxAttempts {
                     logger.warning("extractMatchingSequences: gzip attempt \(attempt, privacy: .public) failed: \(error.localizedDescription, privacy: .public); retrying...")
                     try await Task.sleep(nanoseconds: 500_000_000)
@@ -601,29 +598,19 @@ public actor BlastService {
         isGzip: Bool
     ) throws -> [(id: String, mate: Int?, sequence: String)] {
         var allSequences: [(id: String, mate: Int?, sequence: String)] = []
-        let handle: FileHandle?
-        var gzipProcess: Process?
-        var gzipStderr: Pipe?
-
-        if isGzip {
-            do {
-                let stream = try launchGzipDecompression(for: sourceURL)
-                handle = stream.handle
-                gzipProcess = stream.process
-                gzipStderr = stream.stderr
-            } catch {
-                logger.error("extractMatchingSequences: failed to launch gzip: \(error.localizedDescription, privacy: .public)")
-                throw BlastServiceError.noSequences
-            }
-        } else {
-            handle = FileHandle(forReadingAtPath: sourceURL.path)
-            gzipProcess = nil
-            gzipStderr = nil
+        let gzipRun: ToolProcessRun?
+        do {
+            gzipRun = try isGzip ? launchGzipDecompression(for: sourceURL) : nil
+        } catch {
+            logger.error("extractMatchingSequences: failed to launch gzip: \(error.localizedDescription, privacy: .public)")
+            throw BlastServiceError.noSequences
         }
+        defer { gzipRun?.cancel() }
+        let handle = isGzip ? nil : FileHandle(forReadingAtPath: sourceURL.path)
 
-        if let handle {
+        if gzipRun != nil || handle != nil {
             defer {
-                handle.closeFile()
+                handle?.closeFile()
             }
             var lineBuffer: [String] = []
             var residual = ""
@@ -634,7 +621,7 @@ public actor BlastService {
             var utf8Failures = 0
 
             while true {
-                let chunk = handle.readData(ofLength: bufferSize)
+                let chunk = try Self.nextChunk(handle, gzipRun, count: bufferSize)
                 if chunk.isEmpty { break }
                 chunksRead += 1
                 totalBytesRead += chunk.count
@@ -672,17 +659,10 @@ public actor BlastService {
             }
 
             // Check gzip exit status
-            if let proc = gzipProcess {
-                proc.waitUntilExit()
-                let status = proc.terminationStatus
-                logger.info("extractMatchingSequences: gzip exited with status \(status, privacy: .public), read \(chunksRead, privacy: .public) chunks (\(totalBytesRead, privacy: .public) bytes), \(totalRecords, privacy: .public) FASTQ records, \(utf8Failures, privacy: .public) UTF8 failures, \(allSequences.count, privacy: .public) matched")
-                guard status == 0 else {
-                    throw Self.gzipFailure(
-                        path: sourceURL.path,
-                        status: status,
-                        stderr: gzipStderr
-                    )
-                }
+            if let gzipRun {
+                let result = try Self.waitForGzip(gzipRun, path: sourceURL.path)
+                logger.info("extractMatchingSequences: gzip exited with status \(result.status, privacy: .public), read \(chunksRead, privacy: .public) chunks (\(totalBytesRead, privacy: .public) bytes), \(totalRecords, privacy: .public) FASTQ records, \(utf8Failures, privacy: .public) UTF8 failures, \(allSequences.count, privacy: .public) matched")
+                guard result.isSuccess else { throw Self.gzipFailure(path: sourceURL.path, result: result) }
             } else {
                 logger.info("extractMatchingSequences: read \(chunksRead, privacy: .public) chunks (\(totalBytesRead, privacy: .public) bytes), \(totalRecords, privacy: .public) FASTQ records, \(allSequences.count, privacy: .public) matched")
             }
@@ -1578,19 +1558,10 @@ public actor BlastService {
         return body[valueRange].trimmingCharacters(in: .whitespaces)
     }
 
-    private nonisolated static func gzipFailure(
-        path: String,
-        status: Int32,
-        stderr: Pipe?
-    ) -> BlastServiceError {
-        let stderrText = stderr
-            .flatMap { String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) }?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var message = "gzip decompression failed for \(path) with exit status \(status)"
-        if let stderrText, !stderrText.isEmpty {
-            message += ": \(stderrText)"
-        }
-        return .inputReadFailed(message: message)
+    private nonisolated static func gzipFailure(path: String, result: ToolProcessResult) -> BlastServiceError {
+        let detail = result.incompleteOutputReason ?? result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = detail.isEmpty ? "" : ": \(detail)"
+        return .inputReadFailed(message: "gzip decompression failed for \(path) with exit status \(result.status)\(suffix)")
     }
 
     /// Form-encodes a list of key-value pairs.
