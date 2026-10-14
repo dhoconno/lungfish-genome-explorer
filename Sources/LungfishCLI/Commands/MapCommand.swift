@@ -139,7 +139,36 @@ struct MapCommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    /// Maps so that SIGTERM cancels the run instead of ending this command (Phase 2.10, decision
+    /// P2). The Map Reads route stops `lungfish-cli map` with SIGTERM and gives it
+    /// `operationGrace`. Cancelling the task stops the mapper's tree through ToolProcess, the run
+    /// record of a chosen `--output-dir` reads cancelled, a created analysis folder goes, and the
+    /// command exits 125. A SIGTERM caught before the task exists cancels it once it starts, and a
+    /// second SIGTERM ends the command at once.
     func run() async throws {
+        let pendingCancel = PendingTaskCancel<(any Error)?>()
+        let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+        defer { termination.end() }
+        let task = Task { () -> (any Error)? in
+            do {
+                try await self.map()
+                return nil
+            } catch {
+                return error
+            }
+        }
+        pendingCancel.attach(task)
+        guard let error = await task.value else { return }
+        // A tool stopped by the cancel can surface as its own failure, so the caught signal decides.
+        if error is CancellationError || pendingCancel.cancelRequested {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            FileHandle.standardError.write(Data((formatter.error("Mapping cancelled") + "\n").utf8))
+            throw CLIExitCode.cancelled.exitCode
+        }
+        throw error
+    }
+
+    private func map() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let threadCount = globalOptions.effectiveThreads
         warnIfDeprecatedAdvancedOptionsUsed()
