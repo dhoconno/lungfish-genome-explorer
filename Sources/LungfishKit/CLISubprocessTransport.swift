@@ -122,6 +122,9 @@ public actor CLISubprocessTransport {
     ///   - environmentAdditions: Variables merged over the app's subprocess
     ///     environment for this run only, such as the NCBI key as
     ///     `NCBI_API_KEY`, so a secret never travels in `arguments`.
+    ///   - completionOutlivesCancel: For a leaf that converts SIGTERM. A run
+    ///     that still exits 0 with `complete` finished first and returns its
+    ///     result.
     ///   - isCancelled: Polled before launch and after exit to detect an
     ///     operation cancelled via its `OperationCenter` row rather than
     ///     `cancel()` directly (matches the previous per-runner
@@ -141,6 +144,7 @@ public actor CLISubprocessTransport {
         terminationGracePeriod: Duration = .zero,
         drainGracePeriod: Duration? = nil,
         environmentAdditions: [String: String] = [:],
+        completionOutlivesCancel: Bool = false,
         isCancelled: @Sendable () async -> Bool,
         onEvent: @escaping @Sendable (CLIEvent) -> Void,
         workingDirectory: URL? = nil
@@ -217,20 +221,6 @@ public actor CLISubprocessTransport {
             onStderrLine: handleStandardErrorLine
         )
 
-        let exit: CLIProcessExit
-        switch outcome {
-        case .exited(let finished):
-            exit = finished
-        case .cancelled:
-            throw CancellationError()
-        case .launchFailed(let reason):
-            throw RunError.launchFailed(reason)
-        }
-
-        if await isCancelled() {
-            throw CancellationError()
-        }
-
         let snapshot = state.withLock { current in
             (
                 outputs: current.outputs,
@@ -239,6 +229,18 @@ public actor CLISubprocessTransport {
                 failed: current.failed
             )
         }
+        let finishedFirst = { (exit: CLIProcessExit) in
+            completionOutlivesCancel && exit.succeeded && snapshot.failed == nil && !snapshot.outputs.isEmpty
+        }
+        let exit: CLIProcessExit
+        switch outcome {
+        case .exited(let finished): exit = finished
+        case .cancelled(let finished?) where finishedFirst(finished): exit = finished
+        case .cancelled: throw CancellationError()
+        case .launchFailed(let reason): throw RunError.launchFailed(reason)
+        }
+        if !finishedFirst(exit), await isCancelled() { throw CancellationError() }
+
         if let failed = snapshot.failed {
             throw RunError.failedEvent(message: failed.message, detail: failed.detail)
         }

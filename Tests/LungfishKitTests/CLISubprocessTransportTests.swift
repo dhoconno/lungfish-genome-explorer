@@ -588,6 +588,59 @@ final class CLISubprocessTransportTests: XCTestCase {
         XCTAssertFalse(fileExists(marker), "the default grace is zero, so the handler was cut off")
     }
 
+    /// Fix 8 of lane A46. A run that still exits 0 with its `complete` line after a cancel finished
+    /// first. The cancel wins by default, and a caller whose command converts SIGTERM passes
+    /// `completionOutlivesCancel` to keep the result. A cancelled run that names no output throws
+    /// either way.
+    func testACompletionAfterACancelThrowsUnlessTheCallerKeepsIt() async throws {
+        let complete = folder.appendingPathComponent("complete.ndjson")
+        try (try completeLine(outputs: ["/work/a.bam"]) + "\n").write(to: complete, atomically: true, encoding: .utf8)
+        let started = folder.appendingPathComponent("started")
+        let cli = try fakeCLI("""
+        #!/bin/sh
+        trap '/bin/cat "\(complete.path)"; exit 0' TERM
+        echo started > "\(started.path)"
+        while true; do /bin/sleep 1; done
+        """)
+
+        _ = try await cancelOnceStarted(cli, started: started) { transport in
+            try await transport.run(
+                arguments: [], terminationGracePeriod: .seconds(5), isCancelled: { false }, onEvent: { _ in }
+            )
+        }
+
+        try FileManager.default.removeItem(at: started)
+        let transport = CLISubprocessTransport(cliURLOverride: cli)
+        let task = Task {
+            try await transport.run(
+                arguments: [],
+                terminationGracePeriod: .seconds(5),
+                completionOutlivesCancel: true,
+                isCancelled: { false },
+                onEvent: { _ in }
+            )
+        }
+        let up = await waitUntil(timeout: .seconds(30)) { fileExists(started) }
+        XCTAssertTrue(up, "the stand-in CLI never started")
+        transport.cancel()
+        let result = try await wait(for: task).get()
+        XCTAssertEqual(result.outputs, ["/work/a.bam"], "the caller keeps what the finished run named")
+
+        let quietStarted = folder.appendingPathComponent("quiet-started")
+        let cleaned = folder.appendingPathComponent("cleaned")
+        let quiet = try cleaningCLI(cleanupSeconds: 0, hold: makeHold(), started: quietStarted, marker: cleaned)
+        _ = try await cancelOnceStarted(quiet, started: quietStarted) { transport in
+            try await transport.run(
+                arguments: [],
+                terminationGracePeriod: .seconds(5),
+                completionOutlivesCancel: true,
+                isCancelled: { false },
+                onEvent: { _ in }
+            )
+        }
+        XCTAssertTrue(fileExists(cleaned), "the CLI exited 0 by itself, with no complete line")
+    }
+
     /// After a cancel with a grace no descendant of the CLI is left. The CLI leaves on
     /// SIGTERM, and the tools it started stay behind in the states a real tool can be
     /// in. One stops on SIGTERM and runs in a process group of its own, which is where

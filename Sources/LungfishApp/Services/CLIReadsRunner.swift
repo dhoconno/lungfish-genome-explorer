@@ -20,9 +20,9 @@ import LungfishWorkflow
 ///
 /// Make one runner for each run. A cancel that comes between two runs stops the next one before
 /// it launches (`CLIRunCancellation`), so a batch route stops its own loop, as `runManagedMapping`
-/// does through `cancelBatch`, and gives each child a new runner. A cancel the row takes after
-/// the command exited 0 still throws `CancellationError`, as `CLISubprocessTransport` does, so a
-/// route removes nothing the command finished before it reads the command's record.
+/// does through `cancelBatch`, and gives each child a new runner. A run whose command exited 0
+/// with its `complete` line returns its result even after a late cancel. `OperationCenter.complete`
+/// ends the row cancelled, and the route keeps the result.
 struct CLIReadsRunner: Sendable {
     private let transport: CLISubprocessTransport
 
@@ -39,6 +39,7 @@ struct CLIReadsRunner: Sendable {
             arguments: arguments,
             terminationGracePeriod: CLIProcessLauncher.operationGrace,
             drainGracePeriod: CLIProcessLauncher.operationDrain,
+            completionOutlivesCancel: true,
             isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
             onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
         )
