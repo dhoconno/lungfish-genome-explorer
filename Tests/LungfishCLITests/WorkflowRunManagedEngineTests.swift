@@ -126,15 +126,13 @@ final class WorkflowRunManagedEngineTests: XCTestCase {
         let runBundleURL = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
         let results = root.appendingPathComponent("results", isDirectory: true)
 
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
-        RunSubcommand.nfCoreWorkflowProcessRunner = ProcessNFCoreWorkflowProcessRunner(
+        let runner = ProcessNFCoreWorkflowProcessRunner(
             homeDirectory: home,
             resolveLaunch: { [home = home!, pathDirectory = pathDirectory!] executableName, _ in
                 try WorkflowEngineLaunch.resolveManaged(
                     executableName: executableName, homeDirectory: home, appIdentity: .preview,
                     baseEnvironment: ["PATH": "\(pathDirectory.path):/usr/bin:/bin"])
             })
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         let command = try RunSubcommand.parse([
             "nf-core/viralrecon",
@@ -148,7 +146,7 @@ final class WorkflowRunManagedEngineTests: XCTestCase {
             "--quiet",
         ])
         do {
-            try await command.run()
+            try await command.run(nfCoreRunner: runner)
             XCTFail("a missing managed Nextflow must fail the run")
         } catch {
             XCTAssertTrue(error is WorkflowEngineNotInstalled, "\(error)")

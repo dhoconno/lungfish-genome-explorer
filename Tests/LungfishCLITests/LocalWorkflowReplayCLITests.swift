@@ -200,13 +200,10 @@ final class LocalWorkflowReplayCLITests: XCTestCase {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             try "invented output".write(to: expectedOutput, atomically: true, encoding: .utf8)
         }
-        let originalRunner = RunSubcommand.localWorkflowProcessRunner
-        RunSubcommand.localWorkflowProcessRunner = runner
-        defer { RunSubcommand.localWorkflowProcessRunner = originalRunner }
         let bundle = root.appendingPathComponent("attempt.lungfishrun")
         let command = try RunSubcommand.parse(Array(request.cliArguments(bundlePath: bundle).dropFirst(2)) + ["--quiet"])
         do {
-            try await command.run()
+            try await command.run(localRunner: runner)
             XCTAssertEqual(exitCode, 0)
         } catch {
             guard exitCode != 0 else { throw error }
@@ -222,11 +219,8 @@ final class LocalWorkflowReplayCLITests: XCTestCase {
     }
 
     private func run(_ request: LocalWorkflowRunRequest, bundle: URL, runner: CaptureRunner) async throws {
-        let originalRunner = RunSubcommand.localWorkflowProcessRunner
-        RunSubcommand.localWorkflowProcessRunner = runner
-        defer { RunSubcommand.localWorkflowProcessRunner = originalRunner }
         let command = try RunSubcommand.parse(Array(request.cliArguments(bundlePath: bundle).dropFirst(2)) + ["--quiet"])
-        try await command.run()
+        try await command.run(localRunner: runner)
     }
 
     private struct ReplayFixture {

@@ -115,9 +115,6 @@ final class ViralReconReferenceAnnotationStagingTests: XCTestCase {
     /// capturing the Nextflow launch.
     private func runThroughTheApp(_ request: ViralReconRunRequest, project: URL) async throws -> AppLaunch {
         let nextflow = CapturingNextflowRunner()
-        let originalNextflowRunner = RunSubcommand.nfCoreWorkflowProcessRunner
-        RunSubcommand.nfCoreWorkflowProcessRunner = nextflow
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalNextflowRunner }
 
         let cli = InProcessLungfishCLIRunner()
         let operationCenter = OperationCenter()
@@ -127,11 +124,13 @@ final class ViralReconReferenceAnnotationStagingTests: XCTestCase {
             referenceDownloader: { _, _ in XCTFail("the project already holds the reference bundle") },
             resultIngest: { _ in }
         )
-        let result = try await service.run(
-            request,
-            bundleRoot: project.appendingPathComponent("Analyses", isDirectory: true),
-            projectURL: project
-        )
+        let result = try await RunSubcommand.$nfCoreWorkflowProcessRunner.withValue(nextflow) {
+            try await service.run(
+                request,
+                bundleRoot: project.appendingPathComponent("Analyses", isDirectory: true),
+                projectURL: project
+            )
+        }
 
         let launch = try XCTUnwrap(nextflow.launches.first, "Nextflow was never launched")
         let gffIndex = try XCTUnwrap(launch.arguments.firstIndex(of: "--gff"), launch.arguments.joined(separator: " "))

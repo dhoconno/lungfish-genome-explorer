@@ -99,10 +99,7 @@ final class ViralReconReadSetCLITests: XCTestCase {
     /// Runs `lungfish-cli workflow run nf-core/viralrecon --input <input>`
     /// with the stand-in Nextflow.
     private func runViralRecon(input: URL, name: String = "viralrecon") async throws -> ViralReconRun {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = CapturingNextflowRunner()
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         let runBundleURL = root.appendingPathComponent("\(name).lungfishrun", isDirectory: true)
         let results = root.appendingPathComponent("\(name)-results", isDirectory: true)
@@ -116,7 +113,7 @@ final class ViralReconReadSetCLITests: XCTestCase {
             "--version", "3.0.0",
             "--param", "protocol=amplicon",
             "--quiet",
-        ]).run()
+        ]).run(nfCoreRunner: runner)
         let launch = try XCTUnwrap(runner.launches.first, "Nextflow was never launched")
         return ViralReconRun(runBundleURL: runBundleURL, rows: launch.rows, arguments: launch.arguments)
     }

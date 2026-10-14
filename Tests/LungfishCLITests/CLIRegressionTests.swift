@@ -1213,14 +1213,11 @@ final class WorkflowCommandRegressionTests: XCTestCase {
     }
 
     func testLocalExecutionRequiresExpectedOutputBeforeLaunchingWorkflow() async throws {
-        let originalRunner = RunSubcommand.localWorkflowProcessRunner
         let runner = StubLocalWorkflowProcessRunner(result: .init(
             exitCode: 0,
             standardOutput: "unexpected launch\n",
             standardError: ""
         ))
-        RunSubcommand.localWorkflowProcessRunner = runner
-        defer { RunSubcommand.localWorkflowProcessRunner = originalRunner }
 
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-missing-expected-output-\(UUID().uuidString)", isDirectory: true)
@@ -1241,7 +1238,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         ])
 
         do {
-            try await command.run()
+            try await command.run(localRunner: runner)
             XCTFail("Expected workflow run without --expected-output to fail before launching")
         } catch let error as CLIError {
             XCTAssertEqual(error.exitCode, .workflowError)
@@ -1252,14 +1249,11 @@ final class WorkflowCommandRegressionTests: XCTestCase {
     }
 
     func testLocalSnakemakeExecutionUsesInjectedRunnerAndUpdatesBundleStatusLogsAndProvenance() async throws {
-        let originalRunner = RunSubcommand.localWorkflowProcessRunner
         let runner = StubLocalWorkflowProcessRunner(result: .init(
             exitCode: 0,
             standardOutput: "building all\ncomplete\n",
             standardError: "snakemake warning\n"
         ))
-        RunSubcommand.localWorkflowProcessRunner = runner
-        defer { RunSubcommand.localWorkflowProcessRunner = originalRunner }
 
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-snakemake-cli-\(UUID().uuidString)", isDirectory: true)
@@ -1289,7 +1283,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             "--quiet",
         ])
 
-        try await command.run()
+        try await command.run(localRunner: runner)
 
         let invocation = try XCTUnwrap(runner.invocations.first)
         XCTAssertEqual(invocation.executableName, "snakemake")
@@ -1340,14 +1334,11 @@ final class WorkflowCommandRegressionTests: XCTestCase {
     }
 
     func testNFCoreExecutionRequiresExpectedOutputBeforeLaunchingWorkflow() async throws {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = StubNFCoreWorkflowProcessRunner(result: .init(
             exitCode: 0,
             standardOutput: "unexpected launch\n",
             standardError: ""
         ))
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("nfcore-missing-expected-output-\(UUID().uuidString)", isDirectory: true)
@@ -1371,7 +1362,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         ])
 
         do {
-            try await command.run()
+            try await command.run(nfCoreRunner: runner)
             XCTFail("Expected nf-core workflow run without --expected-output to fail before launching")
         } catch let error as CLIError {
             XCTAssertEqual(error.exitCode, .workflowError)
@@ -1382,14 +1373,11 @@ final class WorkflowCommandRegressionTests: XCTestCase {
     }
 
     func testNFCoreExecutionFailureReasonIncludesNextflowStderrTail() async throws {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = StubNFCoreWorkflowProcessRunner(result: .init(
             exitCode: 127,
             standardOutput: "",
             standardError: "env: nextflow: No such file or directory\n"
         ))
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("nfcore-launch-failure-\(UUID().uuidString)", isDirectory: true)
@@ -1416,7 +1404,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         ])
 
         do {
-            try await command.run()
+            try await command.run(nfCoreRunner: runner)
             XCTFail("Expected a non-zero Nextflow exit to fail the command")
         } catch let error as CLIError {
             XCTAssertEqual(error.exitCode, .workflowError)
@@ -1440,11 +1428,9 @@ final class WorkflowCommandRegressionTests: XCTestCase {
     }
 
     func testNFCoreExecutionWritesExpectedOutputProvenance() async throws {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("nfcore-cli-\(UUID().uuidString)", isDirectory: true)
         defer {
-            RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner
             try? FileManager.default.removeItem(at: tempDirectory)
         }
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -1471,7 +1457,6 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             )
             try "sample\tstatus\nS1\tok\n".write(to: expectedReportURL, atomically: true, encoding: .utf8)
         }
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
 
         let command = try RunSubcommand.parse([
             "nf-core/viralrecon",
@@ -1484,7 +1469,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             "--quiet",
         ])
 
-        try await command.run()
+        try await command.run(nfCoreRunner: runner)
 
         let invocation = try XCTUnwrap(runner.invocations.first)
         XCTAssertEqual(invocation.arguments.first, "run")

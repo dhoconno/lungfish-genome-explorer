@@ -125,29 +125,26 @@ final class ViralReconReadSetRoundTripTests: XCTestCase {
             (fixtures.mergeDerivative, [Row(sample: "merge", reads1: ["u1/1", "u1/2", "x1", "x2", "x3"], reads2: [])]),
             (fixtures.repairDerivative, [Row(sample: "repair", reads1: ["r1/1", "r2/1", "r1/2", "r2/2", "o1"], reads2: [])]),
         ]
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
-
         for (bundle, rows) in expected {
             let runner = CapturingNextflowRunner()
-            RunSubcommand.nfCoreWorkflowProcessRunner = runner
             let runBundle = root.appendingPathComponent("\(bundle.deletingPathExtension().lastPathComponent).lungfishrun", isDirectory: true)
             let request = try appRequest(for: bundle, runBundle: runBundle)
 
             // The app's run: the argv the execution service hands lungfish-cli.
-            var appCommand = try LungfishCLI.parseAsRoot(
-                LungfishCLI.normalizedArgumentsForParsing(request.cliArguments(bundlePath: runBundle))
-            )
-            if var asyncCommand = appCommand as? AsyncParsableCommand {
-                try await asyncCommand.run()
-            } else {
-                try appCommand.run()
+            let appArguments = LungfishCLI.normalizedArgumentsForParsing(request.cliArguments(bundlePath: runBundle))
+            try await RunSubcommand.$nfCoreWorkflowProcessRunner.withValue(runner) {
+                var appCommand = try LungfishCLI.parseAsRoot(appArguments)
+                if var asyncCommand = appCommand as? AsyncParsableCommand {
+                    try await asyncCommand.run()
+                } else {
+                    try appCommand.run()
+                }
             }
             let appRows = try XCTUnwrap(runner.launches.last, bundle.lastPathComponent)
 
             // The recorded command, parsed back from the Operations panel string.
             let recorded = ViralReconWorkflowExecutionService.cliCommandPreview(for: request, bundleURL: runBundle)
-            try await RecordedCLICommand.runInProcess(recorded)
+            try await RunSubcommand.$nfCoreWorkflowProcessRunner.withValue(runner) { try await RecordedCLICommand.runInProcess(recorded) }
             let replayRows = try XCTUnwrap(runner.launches.last, bundle.lastPathComponent)
 
             XCTAssertEqual(runner.launches.count, 2, bundle.lastPathComponent)

@@ -70,9 +70,6 @@ final class WorkflowRunLiveOutputTests: XCTestCase {
         let readDescriptor = pipe.fileHandleForReading.fileDescriptor
         _ = fcntl(readDescriptor, F_SETFL, fcntl(readDescriptor, F_GETFL) | O_NONBLOCK)
         let runner = PipeReadingNextflowRunner(readDescriptor: readDescriptor)
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         // stdout on the app's pipe starts with a block buffer, so this run does too.
         fflush(stdout)
@@ -94,7 +91,7 @@ final class WorkflowRunLiveOutputTests: XCTestCase {
             "--expected-output", results.path,
             "--bundle-path", root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true).path,
             "--param", "platform=illumina",
-        ]).run()
+        ]).run(nfCoreRunner: runner)
 
         let seen = try XCTUnwrap(runner.outputSeenWhileRunning, "the run never reached the engine")
         for line in [

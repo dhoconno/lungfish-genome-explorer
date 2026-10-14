@@ -99,10 +99,7 @@ final class ViralReconReadPairingCLITests: XCTestCase {
     // MARK: - Bundle input: the CLI builds the app's samplesheet and splits inside the run
 
     func testBundleInputIsSplitIntoFastq1AndFastq2InsideTheRunAndRecorded() async throws {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = CapturingNextflowRunner()
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         let bundle = try writeInterleavedIlluminaBundle(named: "patient", pairCount: 7)
         let runBundleURL = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
@@ -118,7 +115,7 @@ final class ViralReconReadPairingCLITests: XCTestCase {
             "--version", "3.0.0",
             "--param", "protocol=amplicon",
             "--quiet",
-        ]).run()
+        ]).run(nfCoreRunner: runner)
 
         // The caller-facing samplesheet is the one the app builds: one row, one file.
         let callerSamplesheet = runBundleURL.appendingPathComponent("inputs/samplesheet.csv")
@@ -166,10 +163,7 @@ final class ViralReconReadPairingCLITests: XCTestCase {
     // MARK: - Samplesheet input (what the app hands over) makes the same decision
 
     func testSamplesheetWithAnInterleavedFileIsSplitTheSameWay() async throws {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = CapturingNextflowRunner()
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         let bundle = try writeInterleavedIlluminaBundle(named: "sheet", pairCount: 4)
         let staging = root.appendingPathComponent("staging", isDirectory: true)
@@ -191,7 +185,7 @@ final class ViralReconReadPairingCLITests: XCTestCase {
             "--version", "3.0.0",
             "--param", "platform=illumina",
             "--quiet",
-        ]).run()
+        ]).run(nfCoreRunner: runner)
 
         let launch = try XCTUnwrap(runner.launches.first)
         let launched = rows(launch.samplesheetText)
@@ -205,10 +199,7 @@ final class ViralReconReadPairingCLITests: XCTestCase {
     }
 
     func testPairedRowsAndSingleEndRowsAreLaunchedUnchanged() async throws {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = CapturingNextflowRunner()
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         let solo = root.appendingPathComponent("solo.fastq")
         try (1...3).map { "@solo\($0)\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined().write(to: solo, atomically: true, encoding: .utf8)
@@ -229,7 +220,7 @@ final class ViralReconReadPairingCLITests: XCTestCase {
             "--version", "3.0.0",
             "--param", "platform=illumina",
             "--quiet",
-        ]).run()
+        ]).run(nfCoreRunner: runner)
 
         let launch = try XCTUnwrap(runner.launches.first)
         XCTAssertTrue(launch.arguments.contains(samplesheet.path), "no split, so the caller's samplesheet is launched")

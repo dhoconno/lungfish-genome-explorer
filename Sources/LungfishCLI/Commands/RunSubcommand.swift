@@ -29,11 +29,15 @@ struct RunSubcommand: AsyncParsableCommand {
             """
     )
 
-    nonisolated(unsafe) static var localWorkflowProcessRunner: LocalWorkflowProcessRunning = ProcessLocalWorkflowProcessRunner()
+    /// The runner of a local workflow's engine. A test binds its own for one run with
+    /// `$localWorkflowProcessRunner.withValue`, so nothing can assign it (SWIFT 1).
+    @TaskLocal static var localWorkflowProcessRunner: any LocalWorkflowProcessRunning = ProcessLocalWorkflowProcessRunner()
     nonisolated(unsafe) static var localWorkflowDirectoryReserver: @Sendable (URL) throws -> Void = {
         try LocalWorkflowReplayReservation.reserveDirectory(at: $0)
     }
-    nonisolated(unsafe) static var nfCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning = ProcessNFCoreWorkflowProcessRunner()
+    /// The runner of the managed Nextflow for nf-core/viralrecon. A test binds its own for one run with
+    /// `$nfCoreWorkflowProcessRunner.withValue`, so nothing can assign it (SWIFT 1).
+    @TaskLocal static var nfCoreWorkflowProcessRunner: any NFCoreWorkflowProcessRunning = ProcessNFCoreWorkflowProcessRunner()
 
     @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow: nf-core/viralrecon")
     var workflow: String

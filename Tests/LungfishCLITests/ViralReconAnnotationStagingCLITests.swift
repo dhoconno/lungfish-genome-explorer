@@ -95,11 +95,8 @@ final class ViralReconAnnotationStagingCLITests: XCTestCase {
     }
 
     private func run(_ arguments: [String]) async throws -> CapturingNextflowRunner {
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = CapturingNextflowRunner()
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
-        try await RunSubcommand.parse(arguments).run()
+        try await RunSubcommand.parse(arguments).run(nfCoreRunner: runner)
         return runner
     }
 
@@ -164,13 +161,10 @@ final class ViralReconAnnotationStagingCLITests: XCTestCase {
     func testMissingGFF3IsRefusedBeforeNextflowStarts() async throws {
         let missing = root.appendingPathComponent("annotations/absent.gff3")
         let runBundle = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
-        let originalRunner = RunSubcommand.nfCoreWorkflowProcessRunner
         let runner = CapturingNextflowRunner()
-        RunSubcommand.nfCoreWorkflowProcessRunner = runner
-        defer { RunSubcommand.nfCoreWorkflowProcessRunner = originalRunner }
 
         do {
-            try await RunSubcommand.parse(try arguments(gff: missing, runBundle: runBundle)).run()
+            try await RunSubcommand.parse(try arguments(gff: missing, runBundle: runBundle)).run(nfCoreRunner: runner)
             XCTFail("a missing annotation must be refused")
         } catch let error as CLIError {
             XCTAssertTrue(error.localizedDescription.contains(missing.path), error.localizedDescription)
