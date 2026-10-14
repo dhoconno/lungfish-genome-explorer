@@ -175,6 +175,71 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: input, encoding: .utf8), Self.reads)
     }
 
+    // MARK: - Where the output is staged (review A47 fix 6 (d), SWIFT 4)
+
+    /// Runs the leaf in this process on `input` and returns, at the moment the staged output is synced, the entries
+    /// of the project's `.tmp` folder that hold it (below `project`, nil for none) and the hidden stage folders
+    /// beside the input.
+    private func stagingSeen(running input: URL, project: URL?) async throws -> (underTmp: [String], besideInput: [String]) {
+        let underTmp = IngestLog()
+        let besideInput = IngestLog()
+        let folder = input.deletingLastPathComponent()
+        try await FastqIngestObservation.$observer.withValue({ step in
+            guard step == .stageSynced else { return }
+            if let project {
+                let tmp = project.appendingPathComponent(".tmp").path
+                for name in (try? FileManager.default.subpathsOfDirectory(atPath: tmp)) ?? [] where name.hasSuffix("/\(input.deletingPathExtension().lastPathComponent).fastq.gz") {
+                    underTmp.append(name)
+                }
+            }
+            for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [] where name.hasPrefix(".lungfish-ingest-") {
+                besideInput.append(name)
+            }
+        }) {
+            try await self.execute([input.path, "--skip-clumpify", "--delete-originals", "--quiet"])
+        }
+        return (underTmp.all, besideInput.all)
+    }
+
+    /// The input of the one real flow sits in a `.lungfishfastq` bundle of a project. SWIFT 4 keeps stage files out
+    /// of bundles, and a run that is killed outright leaves its folder where the project's cleanup finds it.
+    func testABundleInAProjectStagesUnderTheProjectTmp() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-project-tmp")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let bundle = project.appendingPathComponent("Imports/Sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let input = bundle.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+
+        let seen = try await stagingSeen(running: input, project: project)
+
+        XCTAssertEqual(seen.underTmp.count, 1, "the staged output sits under the project's .tmp folder: \(seen.underTmp)")
+        XCTAssertTrue(seen.underTmp.first?.hasPrefix("lungfish-ingest-") == true, "\(seen.underTmp)")
+        XCTAssertEqual(seen.besideInput, [], "the bundle holds no .lungfish-ingest-* folder")
+        XCTAssertEqual(try names(in: project.appendingPathComponent(".tmp")), [], "the work folder is gone when the run ends")
+        XCTAssertEqual(
+            try names(in: bundle).filter { !$0.hasPrefix(".lungfish-provenance") },
+            ["provenance", "reads.fastq.gz", "reads.fastq.gz.lungfish-meta.json", "reads.fastq.gz.lungfish-provenance.json"],
+            "the output is published into the bundle beside its records, and the original is gone"
+        )
+    }
+
+    /// Anywhere else the hidden folder sits beside the input, as it always did.
+    func testAFileOutsideAProjectStillStagesBesideTheInput() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-no-project")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+
+        let seen = try await stagingSeen(running: input, project: nil)
+
+        XCTAssertEqual(seen.besideInput.count, 1, "\(seen.besideInput)")
+        XCTAssertEqual(try names(in: root).filter { !$0.hasPrefix(".lungfish-provenance") }, ["reads.fastq.gz", "reads.fastq.gz.lungfish-meta.json", "reads.fastq.gz.lungfish-provenance.json"])
+    }
+
     // MARK: - Events
 
     func testItPrintsEventsOnFormatJSON() async throws {

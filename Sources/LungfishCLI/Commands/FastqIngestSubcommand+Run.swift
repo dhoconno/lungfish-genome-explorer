@@ -35,7 +35,8 @@ enum FastqIngestObservation {
 
 /// One in-place ingest, after its arguments are read. SWIFT's L6 order, stated once:
 ///
-/// 1. The pipeline writes its output into a hidden folder beside the input. It never deletes.
+/// 1. The pipeline writes its output into a hidden folder, under the project's `.tmp` folder when the input
+///    sits in a project and beside the input otherwise. It never deletes.
 /// 2. The digest of each original is read, so the record can name it.
 /// 3. The output is synced, then renamed into place with ``PortableRename``, then the folder is synced.
 /// 4. The metadata sidecar is written and synced.
@@ -84,8 +85,7 @@ struct FastqIngestRun {
         try checkInputs()
         let fileManager = FileManager.default
         let folder = inputs[0].deletingLastPathComponent()
-        let staging = folder.appendingPathComponent(".lungfish-ingest-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: staging, withIntermediateDirectories: false)
+        let staging = try Self.makeStagingFolder(for: inputs[0])
         defer { try? fileManager.removeItem(at: staging) }
         var published = false
         do {
@@ -101,6 +101,31 @@ struct FastqIngestRun {
             }
             throw error
         }
+    }
+
+    /// The hidden folder the pipeline writes into. An input that sits in a project stages under the project's
+    /// `.tmp` folder, so no stage file ever sits in a bundle (SWIFT 4) and the project's cleanup finds the folder
+    /// of a run that was killed outright. Anywhere else the folder sits beside the input. The rename into the
+    /// input's folder must stay on one volume, so a `.tmp` folder that cannot be made, or that sits on another
+    /// volume than the input's folder, gives way to the folder beside the input.
+    static func makeStagingFolder(for input: URL) throws -> URL {
+        let folder = input.deletingLastPathComponent()
+        if let project = ProjectTempDirectory.findProjectRoot(input),
+           let staging = try? ProjectTempDirectory.create(prefix: "lungfish-ingest-", in: project) {
+            if let stagingVolume = volume(of: staging), stagingVolume == volume(of: folder) {
+                return staging
+            }
+            try? FileManager.default.removeItem(at: staging)
+        }
+        let beside = folder.appendingPathComponent(".lungfish-ingest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: beside, withIntermediateDirectories: false)
+        return beside
+    }
+
+    /// The number of the volume that holds `url`, nil when it cannot be read.
+    private static func volume(of url: URL) -> Int? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
+        return attributes?[.systemNumber] as? Int
     }
 
     private func checkInputs() throws {
@@ -137,7 +162,7 @@ struct FastqIngestRun {
         // The pipeline names its output in the hidden folder. A skipped clumpify of one gzip file
         // writes nothing there and returns the input itself, which then stays as the output.
         let staged = result.outputFile
-        let isStaged = staged.deletingLastPathComponent().standardizedFileURL.path == staging.standardizedFileURL.path
+        let isStaged = staged.deletingLastPathComponent().resolvingSymlinksInPath().path == staging.resolvingSymlinksInPath().path
         let finalOutput = isStaged ? Self.finalOutputURL(folder: folder, inputs: inputs) : staged
 
         // Step 2. The digest is read from the original while it exists, and before anything
