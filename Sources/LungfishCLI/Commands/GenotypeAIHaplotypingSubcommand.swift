@@ -21,7 +21,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("input-table"), help: "Long-form CSV/TSV/JSON genotype rows for prompt preview testing.")
     var inputTable: String?
 
-    @Option(name: .customLong("input-format"), help: "Input table format: auto, csv, tsv, or json.")
+    @Option(name: .customLong("input-format"), help: "Input table format.")
     var inputFormat: AIHaplotypingInputTableFormatArgument = .auto
 
     @Flag(name: .customLong("preview-prompt"), help: "Render prompt/evidence JSON without contacting an AI provider or publishing a revision.")
@@ -33,10 +33,10 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("debug-output"), help: "Write validated AI haplotyping debug JSON without publishing a haplotype revision.")
     var debugOutput: String?
 
-    @Option(name: .customLong("mode"), help: "AI haplotyping mode: ai-discovery or ai-refinement.")
+    @Option(name: .customLong("mode"), help: "AI haplotyping mode.")
     var mode: AIHaplotypingModeArgument = .aiRefinement
 
-    @Option(name: .customLong("provider"), help: "AI provider: openai or anthropic.")
+    @Option(name: .customLong("provider"), help: "AI provider.")
     var provider: AIHaplotypingProviderArgument = .openAI
 
     @Option(name: .customLong("model"), help: "Provider model override. Defaults to the provider's app default.")
@@ -75,7 +75,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("compact-knowledge-pack"), help: "Retrieve only prompt-relevant knowledge-pack records before contacting the AI provider.")
     var compactKnowledgePack = false
 
-    @Option(name: .customLong("review-scope"), help: "AI refinement review scope: all or unresolved-only.")
+    @Option(name: .customLong("review-scope"), help: "AI refinement review scope.")
     var reviewScope: AIHaplotypingReviewScopeArgument = .all
 
     @Option(name: .customLong("chunk-start-index"), help: "1-based first evidence chunk to run for debug-output smoke runs.")

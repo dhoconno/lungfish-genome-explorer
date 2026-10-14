@@ -131,9 +131,9 @@ extension EsVirituCommand {
         @Option(
             name: .customLong("read-format"),
             help: ArgumentHelp(
-                "Read layout: auto, unpaired, paired, or interleaved.",
+                "Read layout.",
                 discussion: """
-                auto (default) plans a single input, a file or a .lungfishfastq \
+                auto plans a single input, a file or a .lungfishfastq \
                 bundle. Separate R1 and R2 files run as a pair, strictly \
                 alternating R1/R2 records run as interleaved, and single-end \
                 reads run as unpaired. A sample that mixes pairs with merged or \

@@ -212,7 +212,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("export-format"),
-        help: "Export container format: xlsx, csv, tsv (default: xlsx)."
+        help: "Export container format."
     )
     var format: ExportFormat = .xlsx
 

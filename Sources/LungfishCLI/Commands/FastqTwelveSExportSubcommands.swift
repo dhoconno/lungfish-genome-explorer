@@ -15,7 +15,7 @@ struct FastqTwelveSExportSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("bundle"), help: "Input .lungfish12s result bundle")
     var bundle: String
 
-    @Option(name: .customLong("export-format"), help: "Export format: csv, tsv, xlsx")
+    @Option(name: .customLong("export-format"), help: "Export format")
     var format: TwelveSResultExportFormat
 
     @Option(name: .customLong("output"), help: "Output report path")

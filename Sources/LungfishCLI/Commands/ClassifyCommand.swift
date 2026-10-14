@@ -55,7 +55,7 @@ struct ClassifyCommand: AsyncParsableCommand {
     )
     var databaseDigest: String?
 
-    @Option(name: .customLong("preset"), help: "Sensitivity preset: sensitive, balanced, precise")
+    @Option(name: .customLong("preset"), help: "Sensitivity preset")
     var preset: ClassificationPresetArgument = .balanced
 
     /// The help names the folder ``outputDirectoryURL`` computes, so change them together.
@@ -83,9 +83,9 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Option(
         name: .customLong("read-format"),
         help: ArgumentHelp(
-            "Read layout: auto, unpaired, paired, or interleaved.",
+            "Read layout.",
             discussion: """
-            auto (default) plans a single input, a file or a .lungfishfastq bundle. Its read \
+            auto plans a single input, a file or a .lungfishfastq bundle. Its read \
             pairs run as pairs with kraken2 --paired, and its merged or single reads run beside \
             them in the same kraken2 run. A strictly interleaved file is split into two mate \
             files. unpaired classifies every read on its own. Two separate files need --paired.

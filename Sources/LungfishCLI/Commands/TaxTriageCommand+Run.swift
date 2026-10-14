@@ -88,7 +88,7 @@ extension TaxTriageCommand {
         @Option(
             name: .customLong("platform"),
             help: ArgumentHelp(
-                "Sequencing platform: illumina, oxford, pacbio (default: illumina)",
+                "Sequencing platform",
                 discussion: "The platform of each sample whose reads record none. A bundle of Illumina, Oxford Nanopore or PacBio reads runs on the platform it records, and a --samplesheet row on its platform column. A plain --output runs every sample in one Nextflow run of one platform, so samples that record different platforms are refused there. Add --batch to run each alone."
             )
         )

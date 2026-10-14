@@ -45,7 +45,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var concurrency: Int = 4
 
     @Option(name: .customLong("storage-mode"),
-            help: "How to store ONT chunks inside each bundle: chunked or flattened (default: chunked)")
+            help: "How to store ONT chunks inside each bundle")
     var storageMode: ONTImportStorageMode = .chunked
 
     @Flag(name: .customLong("optimize-storage"),
@@ -53,7 +53,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var optimizeStorage: Bool = false
 
     @Option(name: .customLong("quality-binning"),
-            help: "Quality binning for --optimize-storage: none, illumina4 (7 quality levels), or eightLevel (~21 quality levels) (default: none)")
+            help: "Quality binning for --optimize-storage: none, illumina4 (7 quality levels), or eightLevel (~21 quality levels)")
     var qualityBinning: QualityBinningScheme = .none
 
     @OptionGroup var globalOptions: GlobalOptions

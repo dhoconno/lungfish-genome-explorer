@@ -28,7 +28,7 @@ struct FASTQPairingOptions: ParsableArguments {
     @Option(
         name: .customLong("pairing"),
         help: ArgumentHelp(
-            "How to treat the input's records: interleaved (adjacent records are mates and are kept or dropped together), single, or auto (default: auto)",
+            "How to treat the input's records: interleaved (adjacent records are mates and are kept or dropped together), single, or auto",
             discussion: "auto reads the pairingMode recorded by the enclosing .lungfishfastq bundle, then inspects read names. Mates with identical names, /1 /2 suffixes, or Casava descriptions are all recognised."
         )
     )
