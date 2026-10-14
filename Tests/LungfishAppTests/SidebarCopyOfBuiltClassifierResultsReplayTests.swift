@@ -58,14 +58,14 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
 
         let copy = try sidebarCopy(of: batch)
 
-        let records = try recordsOfTheTree(at: copy)
+        let records = try BuiltResultRecordChecks.recordsOfTheTree(at: copy)
         XCTAssertEqual(records.map(\.name), [
             ".lungfish-provenance.json",
             "S1/bams/S1.third.filt.sorted.bam.bai.lungfish-provenance.json", "S1/bams/S1.third.filt.sorted.bam.lungfish-provenance.json",
             "S2/bams/S2.third.filt.sorted.bam.bai.lungfish-provenance.json", "S2/bams/S2.third.filt.sorted.bam.lungfish-provenance.json",
             "esviritu.sqlite.lungfish-provenance.json",
         ], "the copy holds the records of the source")
-        XCTAssertEqual(problems(of: records), [])
+        XCTAssertEqual(BuiltResultRecordChecks.problems(of: records), [])
         try assertFilesWithASidecarRehydrate(
             in: batch, ["esviritu.sqlite", "S1/bams/S1.third.filt.sorted.bam", "S2/bams/S2.third.filt.sorted.bam"]
         )
@@ -89,10 +89,10 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
 
         let copy = try sidebarCopy(of: sample)
 
-        let records = try recordsOfTheTree(at: copy)
+        let records = try BuiltResultRecordChecks.recordsOfTheTree(at: copy)
         let classifier = try XCTUnwrap(records.first { $0.name == ".lungfish-provenance.json" }, "the sample's own record")
         XCTAssertEqual(classifier.envelope.workflowName, "Metagenomics Classification", "build-db leaves the classifier's record")
-        XCTAssertEqual(problems(of: records), [])
+        XCTAssertEqual(BuiltResultRecordChecks.problems(of: records), [])
         try assertFilesWithASidecarRehydrate(in: batch, ["kraken2.sqlite", "SRR35517703/classification-result.json"])
     }
 
@@ -124,81 +124,13 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
             )
             let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecar), "\(relativePath) was rehydrated at :948")
             XCTAssertEqual(record.steps.last?.toolName, "lungfish-app", "\(relativePath) ends in the import step")
-            let named = record.outputs.first { Self.resolved($0.path) == Self.resolved(copy.path) }
+            let named = record.outputs.first { BuiltResultRecordChecks.resolved($0.path) == BuiltResultRecordChecks.resolved(copy.path) }
             XCTAssertNotNil(named, "\(relativePath) names its copy")
             XCTAssertEqual(named?.checksumSHA256, ProvenanceRecorder.sha256(of: copy), "\(relativePath) names its copy with the digest the copy has")
             XCTAssertFalse(
                 FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: copy).path), "\(relativePath) took no fallback to a sidecar beside the copy"
             )
         }
-    }
-
-    // MARK: - The records of a copy
-
-    /// Every record in `folder` with its path below it, the folder's own records and each file's sidecar.
-    private func recordsOfTheTree(at folder: URL) throws -> [(name: String, envelope: ProvenanceEnvelope)] {
-        let urls = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)?
-            .compactMap { $0 as? URL }
-            .filter { $0.lastPathComponent.hasSuffix(ProvenanceRecorder.provenanceFilename) } ?? []
-        let prefix = Self.resolved(folder.path) + "/"
-        return try urls.map { url in
-            let envelope = url.lastPathComponent == ProvenanceRecorder.provenanceFilename
-                ? ProvenanceRecorder.loadEnvelope(from: url.deletingLastPathComponent())
-                : ProvenanceRecorder.loadEnvelope(fromSidecar: url)
-            return (String(Self.resolved(url.path).dropFirst(prefix.count)), try XCTUnwrap(envelope, url.path))
-        }
-        .sorted { $0.name < $1.name }
-    }
-
-    /// One line for each file that a record names and does not hold as the record states. The run level of a record
-    /// names only what is on disk (B3). A step keeps the file as it was when the step ran, so it may name a file that
-    /// is gone or holds other bytes only when a removal step of the same record names that path, and the bytes when
-    /// the file is still there (P1 of Phase 2.8).
-    private func problems(of records: [(name: String, envelope: ProvenanceEnvelope)]) -> [String] {
-        func digest(_ path: String) -> String?? {
-            FileManager.default.fileExists(atPath: path) ? .some(ProvenanceRecorder.sha256(of: URL(fileURLWithPath: path))) : .none
-        }
-        var lines: Set<String> = []
-        for (name, record) in records {
-            let removed = record.steps
-                .filter { $0.resolvedOptions["operation"] == .string(RecordedRemovalStep.operation) }
-                .flatMap(\.inputs)
-                .map { (path: Self.resolved($0.path), digest: $0.checksumSHA256) }
-            for file in record.files + record.outputs + [record.output].compactMap({ $0 }) {
-                guard let found = digest(file.path) else {
-                    lines.insert("\(name) run level names \(Self.resolved(file.path)), which does not exist")
-                    continue
-                }
-                if let stated = file.checksumSHA256, found != stated {
-                    lines.insert("\(name) run level names \(Self.resolved(file.path)) with a digest the file no longer has")
-                }
-            }
-            for step in record.steps {
-                for file in step.inputs + step.outputs {
-                    guard let stated = file.checksumSHA256 else { continue }
-                    let found = digest(file.path)
-                    if let found, found == stated { continue }
-                    let path = Self.resolved(file.path)
-                    let excused = removed.contains { $0.path == path && (found == nil || $0.digest == stated) }
-                    if !excused {
-                        lines.insert("\(name) step \(step.toolName) names \(path), \(found == nil ? "which does not exist" : "which holds other bytes")")
-                    }
-                }
-            }
-        }
-        return lines.sorted()
-    }
-
-    /// The path with its deepest existing folder resolved, since a removed file cannot be, so that /var/folders and
-    /// /private/var/folders are one place.
-    private static func resolved(_ path: String) -> String {
-        var existing = URL(fileURLWithPath: path).standardizedFileURL
-        var rest: [String] = []
-        while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
-            rest.insert(existing.lastPathComponent, at: 0)
-            existing.deleteLastPathComponent()
-        }
-        return rest.reduce(existing.resolvingSymlinksInPath()) { $0.appendingPathComponent($1) }.path
     }
 
     // MARK: - The stand-in EsViritu batch
