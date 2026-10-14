@@ -39,6 +39,13 @@ extension SRADownloadSubcommand {
 
     func validate() throws {
         try validateRunAccession()
+        if bundle {
+            guard let project, !project.trimmingCharacters(in: .whitespaces).isEmpty else {
+                throw ValidationError("--bundle needs --project, the project the bundle imports into.")
+            }
+        } else if project != nil {
+            throw ValidationError("--project applies with --bundle only.")
+        }
         if useToolkit, preferSource != nil {
             throw ValidationError("--use-toolkit fetches with the SRA Toolkit only, so it cannot be combined with --prefer-source.")
         }

@@ -1,0 +1,16 @@
+{"event":"start","message":"Started SRA download of ERR10019355 via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Downloading ERR10019355","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Downloading ERR10019355","progress":0.25,"schemaVersion":2}
+{"event":"progress","message":"Downloading ERR10019355","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Downloading ERR10019355","progress":0.5,"schemaVersion":2}
+{"event":"log","level":"info","message":"ERR10019355: Platform: Illumina, Illumina short reads (given with --platform).","schemaVersion":2}
+{"event":"progress","message":"Importing ERR10019355 (1\/1)","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"ERR10019355: Compress","progress":0.6799999999999999,"schemaVersion":2}
+{"event":"log","level":"info","message":"ERR10019355 — step 1\/2: Compress","schemaVersion":2}
+{"event":"log","level":"info","message":"ERR10019355 — Compress completed (0.1s)","schemaVersion":2}
+{"event":"progress","message":"ERR10019355: Compute statistics","progress":0.86,"schemaVersion":2}
+{"event":"log","level":"info","message":"ERR10019355 — step 2\/2: Compute statistics","schemaVersion":2}
+{"event":"log","level":"info","message":"ERR10019355 — Compute statistics completed (0.1s)","schemaVersion":2}
+{"event":"log","level":"info","message":"ERR10019355 — bundle created","schemaVersion":2}
+{"event":"log","level":"info","message":"Import complete — 1 done, 0 skipped, 0 failed (0.4s)","schemaVersion":2}
+{"artifacts":[{"kind":"fastq","path":"\/work\/Project.lungfish\/Imports\/ERR10019355.lungfishfastq","provenancePath":"\/work\/Project.lungfish\/Imports\/ERR10019355.lungfishfastq\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","message":"Imported ERR10019355","output":"\/work\/Project.lungfish\/Imports\/ERR10019355.lungfishfastq","outputs":["\/work\/Project.lungfish\/Imports\/ERR10019355.lungfishfastq"],"progress":1,"schemaVersion":2}

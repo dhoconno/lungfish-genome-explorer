@@ -40,6 +40,25 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     )
     var preferSource: SRADownloadSourcePreference?
 
+    @Flag(
+        name: .customLong("bundle"),
+        help: ArgumentHelp(
+            "Import the run into a .lungfishfastq bundle of --project, as the app's SRA row does",
+            discussion: "The run is downloaded, imported with the import settings below and published into "
+                + "<project>/Imports/ by a rename, with a provenance record. SIGTERM removes what the run staged and exits 125."
+        )
+    )
+    var bundle: Bool = false
+
+    @Option(
+        name: [.customLong("project"), .customShort("p")],
+        help: "Path to the .lungfish project directory the bundle imports into (with --bundle)"
+    )
+    var project: String?
+
+    /// The settings of the import, the ones `import fastq` takes. They apply with --bundle.
+    @OptionGroup var importOptions: ImportFastqOptions
+
     @OptionGroup var globalOptions: GlobalOptions
 
     /// Makes the service `run()` downloads with. A test binds one that
@@ -47,88 +66,43 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     @TaskLocal static var makeService: @Sendable () -> SRAService = { SRAService() }
 
     func run() async throws {
-        let runClock = ProvenanceRunClock()
-        let formatter = TerminalFormatter(useColors: globalOptions.useColors)
-        let trace = SRADownloadTraceCapture(
-            downloadSource: initialStrategy == "sra-toolkit" ? .sraToolkit : .ena
+        let reporter = SRADownloadReporter(
+            accession: accession,
+            eventsOn: globalOptions.outputFormat == .json,
+            quiet: globalOptions.quiet,
+            useColors: globalOptions.useColors,
+            downloadShare: bundle ? SRADownloadBundleRun.downloadShare : 1,
+            projectDirectory: URL(fileURLWithPath: project ?? outputDir)
         )
-        // With --format json, standard output holds the JSON result alone.
-        let statusToStandardError = globalOptions.outputFormat == .json
-
-        let outputURL = URL(fileURLWithPath: outputDir)
-
-        // Create output directory if needed
-        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-
-        if !globalOptions.quiet {
-            Self.printStatus(formatter.info("Downloading FASTQ for \(accession)..."), toStandardError: statusToStandardError)
-            if useToolkit || sourcePreference == .ncbi {
-                Self.printStatus(formatter.info("Using SRA Toolkit (prefetch + fasterq-dump)"), toStandardError: statusToStandardError)
-            } else {
-                Self.printStatus(formatter.info("Using ENA direct download"), toStandardError: statusToStandardError)
-            }
+        reporter.start()
+        if bundle {
+            try await runBundle(reporter: reporter)
+        } else {
+            try await runPlain(reporter: reporter)
         }
+    }
 
+    var request: SRADownloadRequest {
+        SRADownloadRequest(accession: accession, useToolkit: useToolkit, sourcePreference: sourcePreference)
+    }
+
+    /// The download alone, the run's FASTQ files in `--output-dir` with a record beside them.
+    private func runPlain(reporter: SRADownloadReporter) async throws {
+        let runClock = ProvenanceRunClock()
+        let trace = SRADownloadTraceCapture(downloadSource: initialStrategy == "sra-toolkit" ? .sraToolkit : .ena)
+        let outputURL = URL(fileURLWithPath: outputDir)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        reporter.info("Downloading FASTQ for \(accession)...")
+        reporter.info(
+            useToolkit || sourcePreference == .ncbi
+                ? "Using SRA Toolkit (prefetch + fasterq-dump)" : "Using ENA direct download"
+        )
         let service = Self.makeService()
-
         do {
-            let files: [URL]
-
-            if useToolkit {
-                files = try await service.downloadFASTQ(
-                    accession: accession,
-                    outputDir: outputURL
-                ) { progress in
-                    if !globalOptions.quiet {
-                        Self.printStatus(
-                            formatter.info("Download progress: \(Int(progress * 100))%"),
-                            toStandardError: statusToStandardError
-                        )
-                    }
-                } trace: { step in
-                    trace.recordStep(step)
-                }
-            } else {
-                let quiet = globalOptions.quiet
-                let useColors = globalOptions.useColors
-                files = try await service.downloadFASTQ(
-                    accession: accession,
-                    outputDir: outputURL,
-                    preferring: sourcePreference,
-                    progress: { progress in
-                        if !quiet {
-                            let formatter = TerminalFormatter(useColors: useColors)
-                            Self.printStatus(
-                                formatter.info("Download progress: \(Int(progress * 100))%"),
-                                toStandardError: statusToStandardError
-                            )
-                        }
-                    },
-                    onFallback: { message in
-                        trace.recordFallback(message)
-                        if !quiet {
-                            let formatter = TerminalFormatter(useColors: useColors)
-                            Self.printStatus(formatter.info(message), toStandardError: statusToStandardError)
-                        }
-                    },
-                    onSource: { source in
-                        trace.recordSource(source)
-                    },
-                    onRecord: { record in
-                        trace.recordENARecord(record)
-                    },
-                    trace: { step in
-                        trace.recordStep(step)
-                    }
-                )
-            }
-
+            let files = try await request.downloadFiles(service: service, into: outputURL, trace: trace, reporter: reporter)
             // The lone-mate rule the window applies, with ENA's layout or NCBI's.
-            let layoutWarning = try await checkRunReads(files, service: service, enaRecord: trace.enaRecord)
-            if let layoutWarning, !globalOptions.quiet {
-                Self.printStatus(formatter.warning(layoutWarning), toStandardError: statusToStandardError)
-            }
-
+            let layoutWarning = try await request.sortRunReads(files, service: service, enaRecord: trace.enaRecord).layoutWarning
+            if let layoutWarning { reporter.layoutWarning(layoutWarning) }
             try writeSRADownloadProvenance(
                 files: files,
                 outputURL: outputURL,
@@ -137,53 +111,92 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                 startedAt: runClock.startedAt,
                 completedAt: runClock.now
             )
-
-            if globalOptions.outputFormat == .json {
-                let result = SRADownloadResult(
-                    accession: accession,
-                    files: files.map { $0.path },
-                    outputDir: outputDir
-                )
-                let handler = JSONOutputHandler()
-                handler.writeData(result, label: nil)
-            } else {
-                print(formatter.success("Downloaded \(files.count) FASTQ file(s):"))
-                for file in files {
-                    print("  - \(file.lastPathComponent)")
-                }
-            }
+            reporter.completePlain(files: files)
         } catch let refusal as SRARunRefusal {
             reportFailedToolOutput(trace.steps)
+            reporter.failedEvent(refusal.reason)
             throw CLIError.workflowFailed(reason: refusal.reason)
         } catch is CancellationError {
+            reporter.failedEvent("Download cancelled")
             throw CLIError.cancelled
         } catch let error as SRAError {
             reportFailedToolOutput(trace.steps)
+            reporter.failedEvent(error.localizedDescription)
             throw CLIError.networkError(reason: error.localizedDescription)
         } catch {
             reportFailedToolOutput(trace.steps)
-            throw CLIError.networkError(reason: "Download failed: \(SRADownloadMessages.reason(of: error))")
+            let reason = "Download failed: \(SRADownloadMessages.reason(of: error))"
+            reporter.failedEvent(reason)
+            throw CLIError.networkError(reason: reason)
         }
     }
 
-    private func sraDownloadCommand() -> [String] {
-        var command = [
-            CLICommandIdentity.executableName,
-            "fetch",
-            "sra",
-            "download",
-            accession,
-            "--output-dir", outputDir,
-            "--format", globalOptions.outputFormat.rawValue
-        ]
+    /// The download and the import of one run into `--project` (``SRADownloadBundleRun``). SIGTERM,
+    /// which the Operations panel's Cancel sends, cancels the run, so the staging folder is removed
+    /// before the command exits 125. It listens before the task starts, and a SIGTERM caught before
+    /// then cancels the task as soon as it exists. A second SIGTERM ends the command at once.
+    private func runBundle(reporter: SRADownloadReporter) async throws {
+        let run = SRADownloadBundleRun(
+            request: request,
+            reporter: reporter,
+            trace: SRADownloadTraceCapture(downloadSource: initialStrategy == "sra-toolkit" ? .sraToolkit : .ena),
+            projectURL: URL(fileURLWithPath: project ?? "").standardizedFileURL,
+            settings: SRADownloadImportSettings(
+                platform: importOptions.platform,
+                pairing: importOptions.pairing,
+                qualityBinning: importOptions.qualityBinning,
+                compression: importOptions.compression,
+                recipe: importOptions.recipe,
+                noOptimizeStorage: importOptions.noOptimizeStorage,
+                clumpingTool: importOptions.clumpingTool,
+                threads: globalOptions.threads,
+                quiet: globalOptions.quiet,
+                useColors: globalOptions.useColors
+            ),
+            argv: sraDownloadCommand()
+        )
+        let pendingCancel = PendingTaskCancel<SRADownloadBundleRun.Outcome>()
+        let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+        let task = Task { await run.execute() }
+        pendingCancel.attach(task)
+        let outcome = await task.value
+        termination.end()
+        try SRADownloadBundleRun.finish(outcome, reporter: reporter)
+    }
+
+    /// The command that makes this run, which its record states.
+    func sraDownloadCommand() -> [String] {
+        var command = [CLICommandIdentity.executableName, "fetch", "sra", "download", accession]
+        if bundle {
+            command += ["--bundle", "--project", project ?? ""]
+        } else {
+            command += ["--output-dir", outputDir]
+        }
+        command += ["--format", globalOptions.outputFormat.rawValue]
         if useToolkit {
             command.append("--use-toolkit")
         }
         command += preferSourceArguments
+        if bundle {
+            command += importOptionArguments
+        }
         if globalOptions.quiet {
             command.append("--quiet")
         }
         return command
+    }
+
+    /// The import settings that differ from the defaults, as the flags that give them.
+    private var importOptionArguments: [String] {
+        var arguments: [String] = []
+        if importOptions.platform != "auto" { arguments += ["--platform", importOptions.platform] }
+        if importOptions.pairing != "auto" { arguments += ["--pairing", importOptions.pairing] }
+        if importOptions.qualityBinning != "none" { arguments += ["--quality-binning", importOptions.qualityBinning] }
+        if importOptions.compression != "balanced" { arguments += ["--compression", importOptions.compression] }
+        if importOptions.recipe != "none" { arguments += ["--recipe", importOptions.recipe] }
+        if importOptions.noOptimizeStorage { arguments.append("--no-optimize-storage") }
+        if let tool = importOptions.clumpingTool { arguments += ["--clumping-tool", tool] }
+        return arguments
     }
 
     private func sraDownloadProvenanceParameters(
@@ -222,30 +235,9 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         startedAt: Date,
         completedAt: Date
     ) throws {
-        let sraToolsVersion = try? ManagedToolLock.loadFromBundle().entry(id: ManagedToolID(rawValue: "sra-tools"))?.version
         let failedStepCount = trace.failedAttemptStepCount
-        let failedAttempt = SRAService.FASTQDownloadStepTrace.failedAttemptOption
-        var steps = trace.steps.enumerated().map { index, step in
-            StepExecution(
-                toolName: step.toolName,
-                toolVersion: step.recordedToolVersion(sraToolsVersion: sraToolsVersion),
-                command: step.command,
-                // The steps of an attempt that did not serve the run stay
-                // recorded, marked failed, as the window marks them.
-                resolvedOptions: index < failedStepCount ? [failedAttempt.key: .string(failedAttempt.value)] : nil,
-                inputs: step.inputs.map { input in
-                    FileRecord(path: input, format: detectSRAInputFormat(input), role: .input)
-                },
-                outputs: step.outputs.map {
-                    ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
-                },
-                exitCode: step.exitCode,
-                wallTime: step.wallTime,
-                stderr: step.stderr,
-                startTime: step.startedAt,
-                endTime: step.completedAt
-            )
-        }
+        // The steps of an attempt that did not serve the run stay recorded, marked failed, as the window marks them.
+        var steps = trace.stepExecutions()
         // The command depends only on the steps that served the run.
         let servingStepIDs = steps.dropFirst(failedStepCount).map(\.id)
         steps.append(
@@ -303,7 +295,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     }
 }
 
-private final class SRADownloadTraceCapture: @unchecked Sendable {
+final class SRADownloadTraceCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var _downloadSource: SRAFASTQDownloadSource
     private var _fallbackMessage: String?

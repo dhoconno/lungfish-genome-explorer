@@ -63,6 +63,10 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `fetch pathoplexus` builds with the same tools on the loopback Pathoplexus and NCBI stand-ins
         // (FetchPathoplexusEventTranscriptReplayTests, lane A45 of Phase 2.10).
         "fetch pathoplexus",
+        // `fetch sra download` runs the SRA Toolkit through its debug stand-in scripts and imports with the
+        // managed bgzip. Its transcripts are runs of the built CLI (FetchSRAEventTranscriptReplayTests, lane
+        // A45 of Phase 2.10).
+        "fetch sra download",
     ]
 
     static var transcriptsFolder: URL {

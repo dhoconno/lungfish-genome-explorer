@@ -1,0 +1,4 @@
+{"event":"start","message":"Started SRA download of SRR9000001 via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Downloading SRR9000001","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Downloading SRR9000001","progress":0.25,"schemaVersion":2}
+{"error":"FASTQ conversion failed: fasterq-dump exited with status 1. no recorded reads for SRR9000001","event":"failed","schemaVersion":2}

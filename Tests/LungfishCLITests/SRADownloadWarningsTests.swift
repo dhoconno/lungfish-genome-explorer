@@ -144,7 +144,9 @@ final class SRADownloadWarningsTests: XCTestCase {
         }
     }
 
-    func testWithJSONFormatStandardOutputIsTheResultAndTheWarningGoesToStandardError() async throws {
+    /// Since lane A45 M3 `fetch sra download` speaks events in every mode (ruling A45-M3 section 1), so
+    /// standard output holds the events and the warning is a `log` event and a line on standard error.
+    func testWithJSONFormatStandardOutputIsTheEventsAndTheWarningGoesToStandardError() async throws {
         let archives = SRAScriptedArchives()
         archives.listOnENA("SRR1", .init(files: Self.runWithAThirdFile))
 
@@ -152,8 +154,16 @@ final class SRADownloadWarningsTests: XCTestCase {
             try await self.run(["SRR1", "--output-dir", self.output.path, "--format", "json"], archives: archives)
         }
 
-        let result = try JSONSerialization.jsonObject(with: Data(printed.standardOutput.utf8)) as? [String: Any]
-        XCTAssertEqual(result?["accession"] as? String, "SRR1", printed.standardOutput)
+        let events = try printed.standardOutput.split(separator: "\n").map { line in
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], printed.standardOutput)
+        }
+        XCTAssertEqual(events.first?["event"] as? String, "start", printed.standardOutput)
+        let complete = try XCTUnwrap(events.last)
+        XCTAssertEqual(complete["event"] as? String, "complete", printed.standardOutput)
+        XCTAssertTrue((complete["outputs"] as? [String])?.contains { $0.hasSuffix("SRR1_1.fastq.gz") } == true, printed.standardOutput)
+        XCTAssertTrue(
+            events.contains { $0["event"] as? String == "log" && ($0["message"] as? String)?.contains(Self.thirdFileWarning) == true },
+            "the warning is a log event: \(printed.standardOutput)")
         XCTAssertTrue(printed.standardError.contains(Self.thirdFileWarning), printed.standardError)
     }
 
