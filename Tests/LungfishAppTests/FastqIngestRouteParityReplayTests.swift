@@ -248,6 +248,158 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - The records, verified (review A47 fix 6 (b), ARCH 3, B-5)
+
+    /// Where an ingest runs. The first is a loose file in a project folder, the second a bundle whose import
+    /// record is signed, and the third the same bundle when the ingest runs with no key to sign with.
+    private enum VerifyShape: String, CaseIterable {
+        case projectFolder
+        case bundleWithSignedImportRecord
+        case bundleWithSignedImportRecordAndNoKeyForTheRun
+
+        var folderName: String { self == .projectFolder ? "project" : "Sample.lungfishfastq" }
+        /// Whether a signing key is set while the ingest runs.
+        var runSigns: Bool { self != .bundleWithSignedImportRecordAndNoKeyForTheRun }
+
+        func original(in root: URL) -> URL {
+            root.appendingPathComponent(folderName, isDirectory: true).appendingPathComponent("SRR9_1.fastq")
+        }
+
+        func fixture(_ root: URL) throws {
+            if self == .projectFolder {
+                try FastqIngestRouteParityReplayTests.writeFixture(root)
+            } else {
+                try FastqIngestRouteParityReplayTests.writeBundleWithSignedImportRecord(root)
+            }
+        }
+    }
+
+    /// B-5 with a throwaway signing key in the environment, as `AlignmentWorkflowCLIGUIParityReplayTests` does it.
+    /// Sides C and C' run for a project folder and for a bundle that holds a signed import record. Each root gets
+    /// its own fixture, so the import record names that root's files. On each side every record the run wrote is
+    /// signed and passes `provenance verify`, each output a record names exists with the digest it states, and the
+    /// removed original is an input of the root record with its digest and an output of none. The last shape runs
+    /// with no key and shows that a merged root record keeps no stale signature, since the writer removes the
+    /// signature and key files of the record it replaces.
+    func testEachCLISidesRecordsPassProvenanceVerify() async throws {
+        let condaRoot = try installStandInClumpify(Self.copyingClumpify, at: scratch.appendingPathComponent("tools/conda"))
+        let environment = ["LUNGFISH_CONDA_ROOT": condaRoot.path, "LUNGFISH_CONDA_SHARED_PKGS": "0"]
+        await useEnvironment(environment)
+        let harness = RouteParityHarness(
+            cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120), environment: { _ in environment }
+        )
+        let keyName = ProvenanceSigningConfiguration.signingKeyEnvironmentKey
+        let keyFileName = ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey
+        for shape in VerifyShape.allCases {
+            let keyed = ProcessEnvironmentOverride(set: [keyName: "fx47-throwaway-signing-key"], unset: [keyFileName])
+            defer { keyed.restore() }
+            let caseRoot = scratch.appendingPathComponent("verify-\(shape.rawValue)", isDirectory: true)
+            try? FileManager.default.removeItem(at: caseRoot)
+            let roots = [RouteParitySide.c, .cPrime].map { RouteParityHarness.root(of: $0, in: caseRoot) }
+            for root in roots {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                try shape.fixture(root)
+            }
+            let input = shape.original(in: roots[0])
+            let originalDigest = try XCTUnwrap(ProvenanceRecorder.sha256(of: input))
+            let held = roots.map { Self.digests(under: $0) }
+            let unkeyed = shape.runSigns ? nil : ProcessEnvironmentOverride(set: [:], unset: [keyName, keyFileName])
+            defer { unkeyed?.restore() }
+
+            let runner = CLIReadsRunner(cliURLOverride: cliBinary)
+            let (_, item) = try await ReadsRouteParity.record(title: Self.title) {
+                FASTQIngestionService.startInPlaceIngestionThroughCLI(url: input, routeContext: nil, runner: runner)
+            }
+            let runC = RouteParitySideRun(
+                side: .c, root: roots[0], outcome: ReadsRouteParity.outcome(of: item, recordsCommand: true)
+            )
+            let runCPrime = await harness.replay(of: runC, in: roots[1])
+            for (run, before) in zip([runC, runCPrime], held) {
+                await assertRecordsVerify(of: run, shape: shape, before: before, originalDigest: originalDigest)
+            }
+        }
+    }
+
+    private func assertRecordsVerify(
+        of run: RouteParitySideRun, shape: VerifyShape, before: [String: String], originalDigest: String
+    ) async {
+        let label = "\(shape.rawValue) side \(run.side)"
+        XCTAssertEqual(run.outcome.end, .completed, "\(label): \(run.outcome.detail)")
+        let original = shape.original(in: run.root)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: original.path), "\(label): the original is removed")
+
+        let records = Self.newRecords(under: run.root, before: before)
+        XCTAssertGreaterThanOrEqual(records.count, 2, "\(label) wrote the folder's record and the output's: \(records.map(\.lastPathComponent))")
+        for record in records {
+            guard let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: record) else {
+                XCTFail("\(label): \(record.lastPathComponent) does not read")
+                continue
+            }
+            // Each output a record names exists with the digest it states.
+            let outputs = [envelope.output].compactMap { $0 } + envelope.outputs
+            XCTAssertFalse(outputs.isEmpty, "\(label): \(record.lastPathComponent) names no output")
+            for output in outputs {
+                let url = URL(fileURLWithPath: output.path)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "\(label): \(record.lastPathComponent) names \(output.path), which is gone")
+                XCTAssertNotNil(output.checksumSHA256, "\(label): \(output.path) has no digest")
+                XCTAssertEqual(ProvenanceRecorder.sha256(of: url), output.checksumSHA256, "\(label): \(output.path)")
+            }
+            let signature = ProvenanceSigningConfiguration.signatureURL(for: record)
+            if shape.runSigns {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: signature.path), "\(label): \(record.lastPathComponent) is unsigned, though a key is set")
+                let verify = await RouteParityHarness.runCLI(
+                    cliBinary, arguments: ["provenance", "verify", record.path], timeout: .seconds(60)
+                )
+                XCTAssertEqual(verify.status, 0, "\(label): \(record.lastPathComponent): \(verify.detail)")
+                XCTAssertTrue(verify.stdout.contains("Signature valid"), "\(label): \(record.lastPathComponent): \(verify.stdout)")
+            } else {
+                XCTAssertFalse(
+                    FileManager.default.fileExists(atPath: signature.path),
+                    "\(label): \(record.lastPathComponent) keeps a signature file the run did not write"
+                )
+            }
+        }
+
+        // The folder's record: the removed original is an input with its digest and no output.
+        let rootRecord = original.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        guard let root = try? ProvenanceEnvelopeReader.load(fromSidecar: rootRecord) else {
+            return XCTFail("\(label): the folder's record does not read")
+        }
+        XCTAssertEqual(
+            root.files.first { $0.role == .input && $0.path == original.path }?.checksumSHA256, originalDigest,
+            "\(label): the original is an input with its digest"
+        )
+        let everyOutput = [root.output].compactMap { $0 } + root.outputs
+            + root.files.filter { $0.role == .output } + root.steps.flatMap(\.outputs)
+        XCTAssertFalse(everyOutput.contains { $0.path == original.path }, "\(label): the removed original is named as an output")
+        XCTAssertTrue(root.outputs.contains { $0.path.hasSuffix("/SRR9.fastq.gz") }, "\(label): \(root.outputs.map(\.path))")
+    }
+
+    /// The SHA-256 of every file under `root` by its relative name.
+    private static func digests(under root: URL) -> [String: String] {
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return [:]
+        }
+        var result: [String: String] = [:]
+        while let url = walker.nextObject() as? URL {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let relative = String(url.resolvingSymlinksInPath().standardizedFileURL.path.dropFirst(base.count + 1))
+            result[relative] = ProvenanceRecorder.sha256(of: url)
+        }
+        return result
+    }
+
+    /// Every record under `root` that the run wrote or rewrote. A fixture record left as it was is not one.
+    private static func newRecords(under root: URL, before: [String: String]) -> [URL] {
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+        return digests(under: root).compactMap { relative, digest -> URL? in
+            guard relative.hasSuffix(".lungfish-provenance.json"), before[relative] != digest else { return nil }
+            return URL(fileURLWithPath: base).appendingPathComponent(relative)
+        }
+        .sorted { $0.path < $1.path }
+    }
 }
 
 // MARK: - Declared differences
@@ -315,6 +467,43 @@ extension FastqIngestRouteParityReplayTests {
         let folder = root.appendingPathComponent("Sample.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try reads.joined().write(to: folder.appendingPathComponent("SRR9_1.fastq"), atomically: true, encoding: .utf8)
+    }
+
+    /// A bundle that holds the file and the signed import record it came with, built as the app's copy
+    /// into a project builds one (`FASTQIngestionProvenanceTests`). A key must be set to sign the record.
+    nonisolated static func writeBundleWithSignedImportRecord(_ root: URL) throws {
+        let folder = root.appendingPathComponent("Sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let imported = folder.appendingPathComponent("SRR9_1.fastq")
+        try reads.joined().write(to: imported, atomically: true, encoding: .utf8)
+        let download = root.appendingPathComponent("cli-download.fastq")
+        try reads.joined().write(to: download, atomically: true, encoding: .utf8)
+        let argv = ["lungfish-cli", "fetch", "ncbi", "SRR9", "--output", download.path]
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Download", workflowVersion: "2026.05", toolName: "lungfish-cli", toolVersion: "2026.05"
+        )
+        .argv(argv)
+        .output(download, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli", toolVersion: "2026.05", argv: argv,
+                outputs: [try ProvenanceFileDescriptor.file(url: download, format: .fastq, role: .output)],
+                exitStatus: 0, wallTimeSeconds: 1
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(exitStatus: 0, startedAt: Date(timeIntervalSince1970: 10), endedAt: Date(timeIntervalSince1970: 11))
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: download))
+        try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(from: download, to: imported)
+        // The copy writes its record unsigned. A command that ran with a key signs the record it writes, so
+        // the bundle's record is written again through the default signer.
+        let rootRecord = folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let written = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: rootRecord))
+        try ProvenanceWriter().write(written, toSidecar: rootRecord)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: rootRecord).path),
+            "the bundle's import record is signed before the ingest runs"
+        )
     }
 
     nonisolated static func input(in root: URL) -> URL {
