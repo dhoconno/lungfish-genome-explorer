@@ -11,7 +11,7 @@ import LungfishWorkflow
 /// runner of decision C5 in Phase 2.10.
 ///
 /// Each leaf of the family writes `CLIEvent` lines on standard output under `--format json` and
-/// runs on ``CLISubprocessTransport`` through ``runEvents(arguments:operationID:)``. The runner gives
+/// runs on ``CLISubprocessTransport`` through ``runEvents(arguments:operationID:startAsLog:)``. The runner gives
 /// the command `operationGrace` between SIGTERM and SIGKILL and `operationDrain` for an output a
 /// descendant still holds (decision P2), hands each event and each line of standard error to the
 /// row through ``OperationCenterCLIBridge``, and stops on the nonisolated ``cancel()``. The runner
@@ -34,14 +34,26 @@ struct CLIReadsRunner: Sendable {
     /// Runs an events leaf with `arguments`, the full argv after the binary, and returns what its
     /// `complete` event named. A `failed` event or a non-zero exit throws, and a cancel throws
     /// `CancellationError`.
-    func runEvents(arguments: [String], operationID: UUID) async throws -> CLISubprocessTransport.Result {
-        try await transport.run(
+    ///
+    /// With `startAsLog` the command's `start` line reaches the row as an info log, so the row keeps
+    /// the first detail its begin helper showed (`ADDING-AN-OPERATION.md`, title and first detail).
+    /// Assembly passes it, since its in-process row never showed the `start` words (BIO's ruling D4
+    /// on Phase 2.10 lane A46 M3).
+    func runEvents(arguments: [String], operationID: UUID, startAsLog: Bool = false) async throws -> CLISubprocessTransport.Result {
+        let toRow = OperationCenterCLIBridge.onEvent(operationID: operationID)
+        return try await transport.run(
             arguments: arguments,
             terminationGracePeriod: CLIProcessLauncher.operationGrace,
             drainGracePeriod: CLIProcessLauncher.operationDrain,
             completionOutlivesCancel: true,
             isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
-            onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
+            onEvent: { event in
+                if startAsLog, case let .start(message) = event {
+                    toRow(.log(level: .info, message: message))
+                } else {
+                    toRow(event)
+                }
+            }
         )
     }
 

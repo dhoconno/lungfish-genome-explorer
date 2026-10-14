@@ -115,7 +115,12 @@ final class AssemblyRouteParityReplayTests: XCTestCase {
         ]
         let result = try harness.evaluate(Case.spadesReassemble, declared: declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.spadesReassemble)")
-        XCTAssertEqual(rows[.c]?.text, rows[.a]?.text, "the CLI route's row shows what the in-process row shows")
+        // BIO's ruling D4 on A46 M3. Both routes show the same words and end the same way, and C's bar
+        // only rises. The bar and the log change at a move on every route (ADDING-AN-OPERATION.md, What
+        // a CLI route's row shows), so A's drop from 0.01 to 0 and its log leave with the in-process route.
+        XCTAssertEqual(rows[.c]?.shown, rows[.a]?.shown, "the CLI route's row shows the in-process row's words")
+        XCTAssertEqual(rows[.c]?.end, rows[.a]?.end, "the CLI route's row ends as the in-process row ends")
+        XCTAssertEqual(rows[.c]?.bar, rows[.c]?.bar.sorted(), "the CLI route's bar only rises")
 
         // The record names the command the row recorded (CLI-EQUIVALENCE, provenance names the command).
         let folder = Self.assemblyFolder(in: runs.c.root)

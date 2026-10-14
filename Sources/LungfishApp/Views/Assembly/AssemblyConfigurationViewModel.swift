@@ -189,7 +189,7 @@ public enum AssemblyRunner {
         runner: CLIReadsRunner
     ) async {
         do {
-            let completion = try await runner.runEvents(arguments: arguments, operationID: opID)
+            let completion = try await runner.runEvents(arguments: arguments, operationID: opID, startAsLog: true)
             let folder = executionRequest.outputDirectory
             let result = try await Task.detached { try AssemblyResult.load(from: folder) }.value
             let bundles = completion.outputs.filter { $0.hasSuffix(".lungfishref") }.map { URL(fileURLWithPath: $0) }
