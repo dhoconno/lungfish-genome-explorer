@@ -203,6 +203,19 @@ final class TranslateCommandTests: XCTestCase {
             XCTAssertEqual(error.exitCode, .inputError)
         }
     }
+
+    /// Every example in the help of `translate` parses, so a person who copies one meets no unknown option.
+    func testEachHelpExampleParses() throws {
+        let examples = TranslateCommand.configuration.discussion
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("lungfish-cli translate ") }
+        XCTAssertGreaterThanOrEqual(examples.count, 4, "The help shows its examples")
+        for line in examples {
+            let arguments = line.split(separator: " ").dropFirst(2).map(String.init)
+            XCTAssertNoThrow(try TranslateCommand.parse(arguments), line)
+        }
+    }
 }
 
 // MARK: - SearchCommand Tests

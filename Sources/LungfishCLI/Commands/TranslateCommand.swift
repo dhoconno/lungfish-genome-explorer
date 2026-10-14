@@ -24,7 +24,7 @@ struct TranslateCommand: AsyncParsableCommand {
               lungfish-cli translate input.fasta
               lungfish-cli translate input.fasta --frame 1
               lungfish-cli translate input.fasta --frame 1 --table 2 -o proteins.fasta
-              lungfish-cli translate input.fasta --all-frames --stop-as-asterisk
+              lungfish-cli translate input.fasta --longest-orf --no-stop-asterisk
             """
     )
 
