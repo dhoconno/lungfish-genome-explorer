@@ -70,6 +70,30 @@ struct ProvenanceStderrTests {
         }
     }
 
+    @Test("a blank stderr over the bound is recorded as absent and not as the marker")
+    func blankStderrOverTheBoundIsNil() {
+        // The cut of a blank value keeps nothing of either window, and the marker it
+        // leaves is not blank, so the blank check has to come before the cut.
+        for repetitions in [Self.bound + 1, 20_000, 1_000_000] {
+            for blank in [" ", "\n", "\t", " \n", "\r\n", " \t\n"] {
+                let text = String(repeating: blank, count: repetitions)
+                #expect(text.count > Self.bound)
+                #expect(ProvenanceStderr.normalized(text) == nil, "\(text.count) characters of \(blank.debugDescription)")
+            }
+        }
+    }
+
+    @Test("a stderr with text in it is cut after the blank check, as the cut alone would")
+    func stderrWithTextIsStillCut() throws {
+        let log = Self.longStderr(lineCount: 600)
+        #expect(log.text.count > Self.bound)
+        let kept = try #require(ProvenanceStderr.normalized(log.text))
+        #expect(kept == ProvenanceStderr.truncated(log.text))
+        #expect(kept.hasPrefix(log.banner))
+        #expect(kept.hasSuffix(log.error + "\n"))
+        #expect(kept.contains(Self.marker))
+    }
+
     @Test("stderr over 10,240 characters keeps the whole lines of the first 2,048 and the last 8,192 around one marker")
     func longerStderrKeepsItsHeadAndItsTail() throws {
         // Lines of 100 characters with the line number at the start of each, so a wrong slice

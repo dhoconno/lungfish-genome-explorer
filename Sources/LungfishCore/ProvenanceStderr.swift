@@ -51,12 +51,15 @@ public enum ProvenanceStderr {
     }
 
     /// ``truncated(_:)`` of a stderr that holds more than whitespace, and nil
-    /// for a blank one.
+    /// for a blank one. A blank value is answered before the cut. The cut of a
+    /// blank value over `maxLength` keeps nothing of either window and leaves
+    /// the marker, which is not blank, so a check after the cut would record
+    /// the marker for a stderr that said nothing.
     public static func normalized(_ stderr: String?) -> String? {
-        guard let stderr = truncated(stderr) else {
+        guard let stderr, !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        return stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : stderr
+        return truncated(stderr)
     }
 
     /// The stderr of a capture that may have lost its start, as whole lines.
