@@ -465,6 +465,105 @@ final class ONTImportWorkflowTests: XCTestCase {
         }
     }
 
+    // MARK: - Which tools the import runs (Phase 2.10 lane A53 M1)
+    //
+    // The trace. `ONTImportWorkflow.importDirectory` reaches two kinds of launch. Counting the reads of
+    // a chunk starts the system `/usr/bin/gzcat` and `/usr/bin/wc` through a bare `Process`
+    // (`ONTDirectoryImporter.countReadsInFASTQ`), on every import, with no managed tool. Storage
+    // optimization starts bbtools `clumpify.sh` and its helpers through `FASTQIngestionPipeline`, and only
+    // when `--optimize-storage` is set, which needs flattened storage. `ONTBAMImportMaterializer`, the
+    // one place samtools could run, belongs to `FASTQBatchImporter` and is not on this path. The three
+    // tests pin that split at the workflow's optimization seam. The live form of the optimization step
+    // is `FastqImportONTOptimizeStorageConformanceTests`.
+
+    private final class OptimizationCalls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [(bundle: String, threads: Int, binning: QualityBinningScheme)] = []
+
+        func record(bundle: URL, config: ONTImportWorkflow.OptimizationConfig) {
+            lock.lock()
+            defer { lock.unlock() }
+            recorded.append((bundle.lastPathComponent, config.threads, config.qualityBinning))
+        }
+
+        var calls: [(bundle: String, threads: Int, binning: QualityBinningScheme)] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recorded
+        }
+    }
+
+    func testAPlainImportRunsNoStorageOptimizationInEitherStorageMode() async throws {
+        for mode in [ONTImportStorageMode.chunked, .flattened] {
+            let calls = OptimizationCalls()
+            let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+            let outputURL = tempDir.appendingPathComponent("plain-\(mode.rawValue)", isDirectory: true)
+
+            _ = try await ONTImportWorkflow(optimizationRunner: { bundle, config, _ in
+                calls.record(bundle: bundle, config: config)
+                return []
+            }).importDirectory(
+                config: ONTImportConfig(
+                    sourceDirectory: sourceURL,
+                    outputDirectory: outputURL,
+                    maxConcurrentBarcodes: 1,
+                    storageMode: mode
+                ),
+                context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+            ) { _, _ in }
+
+            XCTAssertTrue(calls.calls.isEmpty, "a \(mode.rawValue) import without --optimize-storage runs no optimization")
+            try FileManager.default.removeItem(at: sourceURL)
+        }
+    }
+
+    func testOptimizeStorageRunsOncePerBarcodeBundleWithTheThreadsAndBinningAsked() async throws {
+        let calls = OptimizationCalls()
+        let sourceURL = try makeONTSource(barcodeChunks: [
+            "barcode01": ["chunk_0.fastq"], "barcode02": ["chunk_0.fastq"],
+        ])
+        let outputURL = tempDir.appendingPathComponent("optimized", isDirectory: true)
+
+        _ = try await ONTImportWorkflow(optimizationRunner: { bundle, config, _ in
+            calls.record(bundle: bundle, config: config)
+            return []
+        }).importDirectory(
+            config: ONTImportConfig(
+                sourceDirectory: sourceURL,
+                outputDirectory: outputURL,
+                maxConcurrentBarcodes: 1,
+                storageMode: .flattened
+            ),
+            context: makeContext(sourceURL: sourceURL, outputURL: outputURL),
+            optimization: ONTImportWorkflow.OptimizationConfig(
+                optimizeStorage: true, qualityBinning: .illumina4, threads: 3
+            )
+        ) { _, _ in }
+
+        XCTAssertEqual(calls.calls.map(\.bundle), ["barcode01.lungfishfastq", "barcode02.lungfishfastq"])
+        XCTAssertEqual(calls.calls.map(\.threads), [3, 3])
+        XCTAssertEqual(calls.calls.map(\.binning), [.illumina4, .illumina4])
+    }
+
+    func testABAMFolderIsNotAnONTImportSoNoBAMConversionRunsOnThisRoute() async throws {
+        let sourceURL = tempDir.appendingPathComponent("bam_pass", isDirectory: true)
+        let barcodeURL = sourceURL.appendingPathComponent("barcode01", isDirectory: true)
+        try FileManager.default.createDirectory(at: barcodeURL, withIntermediateDirectories: true)
+        try Data("not a fastq".utf8).write(to: barcodeURL.appendingPathComponent("reads.bam"))
+        let outputURL = tempDir.appendingPathComponent("bam-project", isDirectory: true)
+
+        do {
+            _ = try await ONTImportWorkflow().importDirectory(
+                config: ONTImportConfig(sourceDirectory: sourceURL, outputDirectory: outputURL, maxConcurrentBarcodes: 1),
+                context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+            ) { _, _ in }
+            XCTFail("a folder with only a BAM is not an ONT run folder")
+        } catch let error as ONTImportError {
+            guard case .notONTDirectory = error else { return XCTFail("unexpected ONT import error: \(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path), "a refused folder writes nothing")
+    }
+
     private func makeContext(sourceURL: URL, outputURL: URL) -> ONTImportWorkflow.CommandContext {
         let argv = [
             "lungfish", "fastq", "import-ont",
