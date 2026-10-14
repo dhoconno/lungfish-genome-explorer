@@ -43,6 +43,7 @@ extension BAMCommand {
             guard FileManager.default.fileExists(atPath: baiURL.path) else {
                 throw ValidationError("Mapping result is missing BAM index at \(baiURL.path)")
             }
+            let sourceProvenance = try loadSourceMappingProvenance(from: mappingURL)
             let outputTrackID = trackIDOverride ?? "aln_\(UUID().uuidString.prefix(8))"
             let commandArgv = adoptMappingArgv(outputTrackID: String(outputTrackID))
             let inputRecords = adoptMappingInputRecords(mappingURL: mappingURL, bamURL: bamURL, baiURL: baiURL)
@@ -66,6 +67,7 @@ extension BAMCommand {
                 try writeAdoptMappingProvenance(
                     bundleURL: bundleURL,
                     mappingURL: mappingURL,
+                    sourceProvenance: sourceProvenance,
                     attachment: attachment,
                     commandArgv: commandArgv,
                     inputRecords: inputRecords,
@@ -140,6 +142,7 @@ extension BAMCommand {
         private func writeAdoptMappingProvenance(
             bundleURL: URL,
             mappingURL: URL,
+            sourceProvenance: MappingProvenance?,
             attachment: PreparedAlignmentAttachmentResult,
             commandArgv: [String],
             inputRecords: [FileRecord],
@@ -148,7 +151,7 @@ extension BAMCommand {
         ) throws {
             let finalDirectoryURL = attachment.bamURL.deletingLastPathComponent()
             let preservedMappingProvenanceURL = try preserveMappingProvenance(
-                from: mappingURL,
+                sourceProvenance,
                 to: finalDirectoryURL,
                 bundleURL: bundleURL
             )
@@ -232,26 +235,34 @@ extension BAMCommand {
             )
         }
 
-        private func preserveMappingProvenance(
-            from mappingURL: URL,
-            to finalDirectoryURL: URL,
-            bundleURL: URL
-        ) throws -> URL? {
+        /// The typed record the mapping folder holds, or nil when it holds none. A record that is there and does
+        /// not decode is refused here, before anything is attached. The attach moves the BAM out of the mapping
+        /// folder and the rollback deletes it, and the folder of the adopted tracks holds one record that a
+        /// rollback would take from an earlier track, so a refusal has to come first. The bundle keeps the
+        /// typed record and nothing it cannot read (2.8 P5).
+        private func loadSourceMappingProvenance(from mappingURL: URL) throws -> MappingProvenance? {
             let sourceURL = mappingURL.appendingPathComponent(MappingProvenance.filename)
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
                 return nil
             }
-
-            let destinationURL = finalDirectoryURL.appendingPathComponent(MappingProvenance.filename)
-            if let provenance = MappingProvenance.load(from: mappingURL) {
-                try provenance.withViewerBundleURL(bundleURL).save(to: finalDirectoryURL)
-            } else {
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    try FileManager.default.removeItem(at: destinationURL)
-                }
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            guard let provenance = MappingProvenance.load(from: mappingURL) else {
+                throw ValidationError("Mapping result has a \(MappingProvenance.filename) that cannot be read as a mapping record at \(sourceURL.path)")
             }
-            return destinationURL
+            return provenance
+        }
+
+        /// Saves the mapping folder's typed record again with the bundle as its viewer root, the one copy of the
+        /// run's record the bundle keeps.
+        private func preserveMappingProvenance(
+            _ provenance: MappingProvenance?,
+            to finalDirectoryURL: URL,
+            bundleURL: URL
+        ) throws -> URL? {
+            guard let provenance else {
+                return nil
+            }
+            try provenance.withViewerBundleURL(bundleURL).save(to: finalDirectoryURL)
+            return finalDirectoryURL.appendingPathComponent(MappingProvenance.filename)
         }
 
         private func rollbackAdoptedMappingArtifacts(

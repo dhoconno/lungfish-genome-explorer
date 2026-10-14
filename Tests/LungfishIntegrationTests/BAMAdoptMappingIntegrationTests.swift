@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Foundation
 import Testing
 import LungfishTestSupport
@@ -267,6 +268,82 @@ struct BAMAdoptMappingIntegrationTests {
         #expect(before.place == .resolvedDefaults)
         #expect(before.fields == plan)
         #expect(after == before, "the plan reads the same from the adopted bundle")
+    }
+
+    // MARK: A record the command cannot decode (2.10 A36)
+
+    /// The attach moves the BAM out of the mapping folder, so a record the command refuses has to be refused
+    /// before it, or the refusal would leave the folder without its BAM. Nothing else changes either.
+    @Test(
+        "refuses a mapping-provenance.json it cannot decode and changes nothing",
+        arguments: ["{}", "[]", "not json at all"]
+    )
+    func refusesUndecodableMappingRecord(content: String) async throws {
+        let scratch = try Self.makeScratch("adopt-refused")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let scene = try Self.makeScene(in: scratch)
+        let mappingDir = try scene.stageMappingFolder()
+        let recordURL = mappingDir.appendingPathComponent(MappingProvenance.filename)
+        try content.write(to: recordURL, atomically: true, encoding: .utf8)
+        let manifestBefore = try Data(contentsOf: scene.manifestURL)
+        let filesBefore = Self.files(under: scene.bundleURL)
+
+        await Self.expectRefusal(naming: recordURL) {
+            try await scene.adopt(mappingDir, name: "refused", trackID: "refused")
+        }
+
+        #expect(try Data(contentsOf: scene.manifestURL) == manifestBefore, "the manifest is as it was")
+        #expect(
+            try BundleManifest.load(from: scene.bundleURL).alignments.map(\.id) == [scene.fixture.sourceTrackID],
+            "the bundle gained no track"
+        )
+        #expect(Self.files(under: scene.bundleURL) == filesBefore, "the bundle gained no file")
+        for name in ["sorted.bam", "sorted.bam.bai"] {
+            #expect(
+                FileManager.default.fileExists(atPath: mappingDir.appendingPathComponent(name).path),
+                "the mapping folder keeps its \(name)"
+            )
+        }
+        #expect(try String(contentsOf: recordURL, encoding: .utf8) == content, "the record is left as it was")
+    }
+
+    /// The typed record of every adopted track sits in one folder of the bundle, so a refusal that cleaned up
+    /// after itself there would take the record of the track before it.
+    @Test("a refused adoption leaves the track and the record an earlier adoption wrote")
+    func refusalKeepsEarlierAdoption() async throws {
+        let scratch = try Self.makeScratch("adopt-refused-later")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let scene = try Self.makeScene(in: scratch)
+        let first = try scene.stageMappingFolder(named: "first")
+        try AdoptableMappingRecord.write(into: first)
+        try await scene.adopt(first, name: "first", trackID: "first")
+        let keptURL = scene.keptRecordFolder.appendingPathComponent(MappingProvenance.filename)
+        let keptBefore = try Data(contentsOf: keptURL)
+        let manifestBefore = try Data(contentsOf: scene.manifestURL)
+        let filesBefore = Self.files(under: scene.bundleURL)
+
+        let second = try scene.stageMappingFolder(named: "second")
+        let brokenURL = second.appendingPathComponent(MappingProvenance.filename)
+        try "{}".write(to: brokenURL, atomically: true, encoding: .utf8)
+        await Self.expectRefusal(naming: brokenURL) {
+            try await scene.adopt(second, name: "second", trackID: "second")
+        }
+
+        #expect(try Data(contentsOf: keptURL) == keptBefore, "the record of the first adoption is as it was")
+        #expect(try Data(contentsOf: scene.manifestURL) == manifestBefore, "the manifest is as it was")
+        #expect(Self.files(under: scene.bundleURL) == filesBefore, "the bundle gained and lost no file")
+    }
+
+    /// The command refuses with a `ValidationError` whose message holds the path of the record.
+    private static func expectRefusal(naming recordURL: URL, from operation: () async throws -> Void) async {
+        do {
+            try await operation()
+            Issue.record("the command adopted a mapping record it cannot decode")
+        } catch let error as ValidationError {
+            #expect(error.message.contains(recordURL.path), "the refusal names \(recordURL.path), not \(error.message)")
+        } catch {
+            Issue.record("expected a ValidationError that names \(recordURL.path), got \(error)")
+        }
     }
 
     // MARK: Helpers
