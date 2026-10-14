@@ -90,7 +90,7 @@ public enum AssemblyRunner {
             return
         }
 
-        if Bundle.main.bundleIdentifier != nil {
+        if runsInAppBundle {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, error in
                 if let error { logger.warning("Notification authorization error: \(error)") }
             }
@@ -693,10 +693,16 @@ public enum AssemblyRunner {
             trigger: nil
         )
 
-        // Guard against crash when running without a bundle identifier (CLI / swift build)
-        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard runsInAppBundle else { return }
         UNUserNotificationCenter.current().add(request) { error in
             if let error { logger.warning("Failed to post notification: \(error)") }
         }
+    }
+
+    /// Whether this process is an app, the only kind `UNUserNotificationCenter` serves. A test
+    /// runner has a bundle identifier but no app bundle, and the center throws there
+    /// (`bundleProxyForCurrentProcess is nil`).
+    private static var runsInAppBundle: Bool {
+        Bundle.main.bundleIdentifier != nil && Bundle.main.bundleURL.pathExtension == "app"
     }
 }
