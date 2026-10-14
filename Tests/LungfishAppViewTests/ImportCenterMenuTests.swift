@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class ImportCenterMenuTests: XCTestCase {
@@ -240,9 +241,7 @@ final class ImportCenterMenuTests: XCTestCase {
     }
 
     func testTwelveSCapabilityDrivesWorkflowOperationsButNotHaplotypeDefinitions() throws {
-        let suiteName = "WorkflowFeatureAvailability-12S-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "ImportCenterMenuTests").defaults
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
 
         // ONT genotyping (which declares `.haplotypeDefinitions`) is enabled by
@@ -258,9 +257,7 @@ final class ImportCenterMenuTests: XCTestCase {
     }
 
     func testONTGenotypingCapabilityDrivesBothWorkflowFeatures() throws {
-        let suiteName = "WorkflowFeatureAvailability-ONT-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "ImportCenterMenuTests").defaults
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
 
         // ONT genotyping declares both `.workflowOperations` and

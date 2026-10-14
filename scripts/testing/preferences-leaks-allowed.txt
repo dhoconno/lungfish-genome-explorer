@@ -16,8 +16,6 @@
 # One row per file: <prefix> <path from the repository root>.
 
 (none)                                  Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
-FeaturesYAMLMenuPath                    Tests/LungfishAppViewTests/FeaturesYAMLMenuPathTests.swift
-LungfishTypographyTests                 Tests/LungfishAppViewTests/MainMenuStructureTests.swift
 LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
 LungfishTypographyTests                 Tests/LungfishKitTests/BatchTableViewTests.swift
@@ -32,12 +30,6 @@ MetadataColumnPersistenceTests          Tests/LungfishKitTests/MetadataColumnPer
 NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 TaxTriageFilterAlignment                Tests/LungfishTaxTriageUITests/TaxTriageDatabaseModeTests.swift
 TaxTriageLayoutTests                    Tests/LungfishTaxTriageUITests/TaxTriageResultViewControllerSmokeTests.swift
-ToolsMenuLayout                         Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
-ToolsMenuSorting                        Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
-ToolsMenuWorkflows                      Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
-ToolsMenuWorkflowsDialog                Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
-WorkflowFeatureAvailability-12S         Tests/LungfishAppViewTests/ImportCenterMenuTests.swift
-WorkflowFeatureAvailability-ONT         Tests/LungfishAppViewTests/ImportCenterMenuTests.swift
 assembly-layout-pref                    Tests/LungfishAssemblyUITests/AssemblyLayoutPreferenceTests.swift
 lungfish-test                           Tests/LungfishCoreTests/SequenceAppearanceTests.swift
 org.example.storage-tests               Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift

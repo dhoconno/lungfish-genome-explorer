@@ -296,9 +296,7 @@ final class ToolsMenuStructureTests: XCTestCase {
 
     func testNotEnabledWorkflowsSortAfterEnabledOnesThenByTitle() throws {
         _ = NSApplication.shared
-        let suiteName = "ToolsMenuSorting-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "ToolsMenuStructureTests").defaults
         // A fresh store enables MiSeq amplicon genotyping alone, so Full-length is not enabled.
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let mainMenu = MainMenu.createMainMenu(
@@ -553,9 +551,7 @@ final class ToolsMenuStructureTests: XCTestCase {
         _ body: (NSMenu) throws -> Result
     ) throws -> Result {
         _ = NSApplication.shared
-        let suiteName = "ToolsMenuLayout-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "ToolsMenuStructureTests").defaults
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         for item in WorkflowLibraryCatalog.builtIn {
@@ -673,9 +669,7 @@ final class ToolsMenuStructureTests: XCTestCase {
 
     func testToolsMenuRebuildsWorkflowsSubmenuWhenPackageIsLinkedEnabledDisabledAndUnlinked() throws {
         _ = NSApplication.shared
-        let suiteName = "ToolsMenuWorkflows-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "ToolsMenuStructureTests").defaults
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         let root = try makeTemporaryRoot()
@@ -718,9 +712,7 @@ final class ToolsMenuStructureTests: XCTestCase {
     }
 
     func testWorkflowOperationsSelectsMenuRequestedPackageOnceRefreshListsIt() async throws {
-        let suiteName = "ToolsMenuWorkflowsDialog-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "ToolsMenuStructureTests").defaults
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let root = try makeTemporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

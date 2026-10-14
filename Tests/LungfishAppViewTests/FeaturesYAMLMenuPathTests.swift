@@ -214,9 +214,7 @@ final class FeaturesYAMLMenuPathTests: XCTestCase {
     /// application menu is the stable channel's, so its title never varies with the build.
     private func withMainMenu<Result>(_ body: (NSMenu) throws -> Result) throws -> Result {
         _ = NSApplication.shared
-        let suiteName = "FeaturesYAMLMenuPath-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "FeaturesYAMLMenuPathTests").defaults
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         for item in WorkflowLibraryCatalog.builtIn {
             enablementStore.setWorkflow(item, enabled: true)

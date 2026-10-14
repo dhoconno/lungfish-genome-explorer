@@ -3,6 +3,7 @@ import AppKit
 import LungfishKit
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class MainMenuStructureTests: XCTestCase {
@@ -301,13 +302,9 @@ final class MainMenuStructureTests: XCTestCase {
     }
 
     private func preservingAppSettings(_ body: () -> Void) {
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "MainMenuStructureTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         body()
     }
 }
