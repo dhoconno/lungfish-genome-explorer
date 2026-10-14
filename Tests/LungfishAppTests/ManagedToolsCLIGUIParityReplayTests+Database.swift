@@ -148,11 +148,13 @@ extension ManagedToolsCLIGUIParityReplayTests {
             CondaCommand.storageRootOverride = nil
             DbCommand.DbUpdateSubcommand.registryOverride = nil
         }
-        let command = try DbCommand.DbUpdateSubcommand.parse(["kraken2-viral", "--yes", "--format", "json"])
+        let command = try DbCommand.DbUpdateSubcommand.parse(CLIManagedToolsRunner.updateDatabase(catalogID: "kraken2-viral").arguments)
         let ignoreEvents: @Sendable (String) -> Void = { _ in }
         try await command.execute(eventsOn: true, quiet: true, emit: ignoreEvents)
 
         let updatedRowA = try await registryA.database(named: "Viral")
+        // The app reloads the manifest the command saved, so side C reads its row the same way.
+        try await registryC.reloadFromDisk()
         let updatedRowC = try await registryC.database(named: "Viral")
         let rowA = try XCTUnwrap(updatedRowA)
         let rowC = try XCTUnwrap(updatedRowC)
