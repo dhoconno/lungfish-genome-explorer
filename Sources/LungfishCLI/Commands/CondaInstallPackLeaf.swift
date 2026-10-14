@@ -79,12 +79,13 @@ extension CondaCommand.InstallSubcommand {
                             argv: ["lungfish-cli", "conda", "install", "--pack", pack.id] + (reinstall ? ["--reinstall"] : []),
                             explicit: ["pack": .string(pack.id), "reinstall": .boolean(reinstall)],
                             pluginPack: pack.id,
-                            // A failed or cancelled run says the requirements it never finished did not succeed.
-                            // A completed run has no failure text, so its requirements all read succeeded.
+                            // A failed or cancelled run rolls back the conda environments it attempted
+                            // (PluginPackStatusService.install), so only a database requirement that reached its
+                            // end stays. A completed run has no failure text, so its requirements all read succeeded.
                             steps: seen.all.map { id in
-                                ManagedToolLeaf.Step(
-                                    id: id, version: "unknown", failure: seen.finished.contains(id) ? nil : failure
-                                )
+                                let stays = seen.finished.contains(id)
+                                    && pack.toolRequirements.first(where: { $0.id == id })?.managedDatabaseID != nil
+                                return ManagedToolLeaf.Step(id: id, version: "unknown", failure: stays ? nil : failure)
                             },
                             status: status,
                             failure: failure,

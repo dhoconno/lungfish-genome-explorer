@@ -139,7 +139,9 @@ final class ManagedToolLeavesTests: XCTestCase {
         XCTAssertEqual(inFlight.stderr, message, "and it carries the run's failure")
     }
 
-    func testARequirementThatFinishedBeforeTheFailureStaysSucceededInTheRecord() async throws {
+    /// A failed pack run rolls back the conda environments it attempted, so a conda requirement that
+    /// finished before the failure does not read succeeded.
+    func testACondaRequirementThatFinishedBeforeTheFailureIsNotRecordedSucceeded() async throws {
         let pack = try Fixtures.pack()
         CondaCommand.packStatusServiceOverride = Fixtures.PackService(.failAfterOneFinished)
         let command = try CondaCommand.InstallSubcommand.parse(["--pack", pack.id, "--reinstall", "--format", "json"])
@@ -147,10 +149,11 @@ final class ManagedToolLeavesTests: XCTestCase {
 
         await assertExit(.dependency) { try await command.executePacks(eventsOn: true, quiet: true, emit: lines.append) }
 
+        guard case .failed(let message, _)? = lines.events.last else { return XCTFail("ends with failed: \(lines.events)") }
         let steps = try lastPackRecord().steps
         let finished = try XCTUnwrap(steps.first { $0.toolName == "done-tool" }, "the finished requirement is a step of the record")
-        XCTAssertEqual(finished.exitStatus, 0, "a requirement that reached its end stays succeeded")
-        XCTAssertNil(finished.stderr)
+        XCTAssertNotEqual(finished.exitStatus, 0, "the run rolled back the conda requirement it finished")
+        XCTAssertEqual(finished.stderr, message, "and it carries the run's failure")
         let inFlight = try XCTUnwrap(steps.first { $0.toolName == "first-tool" }, "the requirement in flight is a step of the record")
         XCTAssertNotEqual(inFlight.exitStatus, 0, "while the one that never reached its end is not")
     }
