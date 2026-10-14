@@ -285,6 +285,90 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         XCTAssertEqual(envelope.files.first { $0.role == .input && $0.path == input.path }?.checksumSHA256, digest)
     }
 
+    // MARK: - Where the app's route fails and the leaf does not (ruling on A47 M3, section 3)
+
+    /// Item (b). When `auto` resolves clumping to `none` (an input above half the Java heap), the
+    /// app's route compresses the file, removes the original, and then fails with "pipeline
+    /// completed without clumpifying reads", leaving no sidecar and no record. The leaf warns,
+    /// finishes, and records before it removes the original.
+    func testClumpingResolvedToNoneWarnsAndRecordsBeforeRemoval() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-none")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+        let digest = try ProvenanceFileHasher.sha256(of: input)
+        let output = root.appendingPathComponent("reads.fastq.gz")
+        let resolution = ClumpingTool.default.resolve(estimatedInputBytes: Int64.max / 4)
+        XCTAssertEqual(resolution.resolved, ClumpingTool.none, "an input far above the heap budget resolves to none")
+
+        let probe = IngestRemovalMomentProbe(watching: [input]) {
+            IngestPublishMoment.read(root: root, original: input, output: output)
+        }
+        FileManager.default.delegate = probe
+        defer { FileManager.default.delegate = nil }
+        let command = try FastqIngestSubcommand.parse([input.path, "--delete-originals", "--format", "json", "--quiet"])
+        let lines = IngestLog()
+        var run = FastqIngestRun(
+            inputs: command.inputURLs(),
+            options: command.runOptions(),
+            command: command.replayArgv(),
+            parameters: command.provenanceParameters(inputs: command.inputURLs()),
+            defaults: FastqIngestSubcommand.provenanceDefaults,
+            events: CLIEventEmitter(enabled: true, emit: { lines.append($0) }),
+            clock: ProvenanceRunClock()
+        )
+        run.clumpingResolution = resolution
+
+        let outcome = try await run.run()
+
+        XCTAssertTrue(outcome.message.hasPrefix("Compressed (saved "), outcome.message)
+        let events = try lines.all.map(object)
+        let warning = events.first { $0["event"] as? String == "log" && $0["level"] as? String == "warning" }
+        XCTAssertTrue((warning?["message"] as? String)?.contains("Clumping was skipped") == true, "\(lines.all)")
+        XCTAssertEqual(
+            probe.moments,
+            [IngestPublishMoment(output: true, sidecar: true, record: true, original: true, recordedOriginalDigest: digest)],
+            "the output, its sidecar and the record that names the original exist before it goes"
+        )
+        XCTAssertEqual(try XCTUnwrap(FASTQMetadataStore.load(for: output)?.ingestion).isClumpified, false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: input.path))
+    }
+
+    /// Item (c). The app's route saves the sidecar best-effort, logs a failed write and goes on to
+    /// remove the original, so a row can finish with no sidecar. The leaf writes it with the
+    /// throwing `write` before the record, so a sidecar that cannot be written stops the run with
+    /// the original in place, no record, and the output already published for a rerun.
+    func testAFailedSidecarWriteKeepsTheOriginal() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-sidecar-fails")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+        let output = root.appendingPathComponent("reads.fastq.gz")
+        // A folder holds the sidecar's name, so the write cannot replace it.
+        try FileManager.default.createDirectory(
+            at: FASTQMetadataStore.metadataURL(for: output), withIntermediateDirectories: true
+        )
+
+        let steps = IngestLog()
+        do {
+            try await FastqIngestObservation.$observer.withValue({ steps.append($0.rawValue) }) {
+                try await self.execute([input.path, "--skip-clumpify", "--delete-originals", "--format", "json", "--quiet"])
+            }
+            XCTFail("a sidecar that cannot be written must fail the run")
+        } catch {
+            // Expected.
+        }
+
+        XCTAssertEqual(steps.all, ["stageSynced", "renamed", "folderSynced"], "the run stops at the sidecar")
+        XCTAssertEqual(try String(contentsOf: input, encoding: .utf8), Self.reads, "the original is as it was")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: root.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path),
+            "no record is written for a run that did not finish"
+        )
+    }
+
     // MARK: - The record that stands
 
     /// A cancelled run leaves its own `cancelled` record where no other record stood (M2). A merge

@@ -67,6 +67,9 @@ struct FastqIngestRun {
     let defaults: [String: ParameterValue]
     let events: CLIEventEmitter
     let clock: ProvenanceRunClock
+    /// The clumping choice to run with, in place of the one the pipeline makes from the size of the
+    /// input. Only a test supplies it, to show what a run does when `auto` resolves to `none`.
+    var clumpingResolution: ClumpingToolResolution?
 
     /// The share of the progress bar that the pipeline's own fraction fills. The steps after it
     /// take the rest, so the bar does not reach 100% while the digest and the record are written.
@@ -115,7 +118,7 @@ struct FastqIngestRun {
             qualityBinning: options.binning,
             skipClumpify: options.skipClumpify
         )
-        let result = try await FASTQIngestionPipeline().run(config: config) { fraction, message in
+        let result = try await FASTQIngestionPipeline().run(config: config, clumpingResolution: clumpingResolution) { fraction, message in
             events.emitProgress(fraction * Self.pipelineShare, message: message)
         }
         try Task.checkCancellation()
