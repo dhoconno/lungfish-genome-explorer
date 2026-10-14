@@ -4,17 +4,17 @@ import LungfishWorkflow
 
 /// Coordinates SQLite recovery with all bundle provenance artifacts. Databases
 /// are restored through SQLite; their pathnames are never unlinked or replaced.
-final class VariantMutationPublication: @unchecked Sendable {
+package final class VariantMutationPublication: @unchecked Sendable {
     private let fileManager: FileManager
     private let witnessLock = NSLock()
     private var provenanceWitness: ProvenancePublicationRollbackWitness
     private let provenanceSnapshot: ProvenancePublicationSnapshot
-    let inputDirectory: URL
+    package let inputDirectory: URL
     private var databases: [String: VariantDatabase] = [:]
     private var snapshots: [String: URL] = [:]
     private var baselineVersions: [String: Int64] = [:]
 
-    init(databaseURLs: [URL], bundleURL: URL, fileManager: FileManager) throws {
+    package init(databaseURLs: [URL], bundleURL: URL, fileManager: FileManager) throws {
         self.fileManager = fileManager
         inputDirectory = bundleURL.appendingPathComponent(".mutation-inputs/\(UUID())", isDirectory: true)
         provenanceSnapshot = try ProvenancePublicationSnapshot(
@@ -44,31 +44,31 @@ final class VariantMutationPublication: @unchecked Sendable {
 
     /// Writer callbacks synchronously update only this lock-protected witness;
     /// SQLite handles and lifecycle state remain confined to the owning worker.
-    func observeProvenance(_ mutation: ProvenanceWriterMutation) throws {
+    package func observeProvenance(_ mutation: ProvenanceWriterMutation) throws {
         try witnessLock.withLock {
             provenanceWitness = try provenanceSnapshot.refreshingRollbackWitness(provenanceWitness, after: mutation)
         }
     }
 
-    func database(at url: URL) -> VariantDatabase { databases[url.path]! }
+    package func database(at url: URL) -> VariantDatabase { databases[url.path]! }
 
-    func inputDescriptor(for url: URL) throws -> ProvenanceFileDescriptor {
+    package func inputDescriptor(for url: URL) throws -> ProvenanceFileDescriptor {
         let snapshot = snapshots[url.path]!
         let record = try ProvenanceFileDescriptor.file(url: snapshot, format: .unknown, role: .input)
         return ProvenanceFileDescriptor(path: record.path, checksumSHA256: record.checksumSHA256,
             fileSize: record.fileSize, format: record.format, role: .input, originPath: url.path)
     }
 
-    func checkpoint() throws {
+    package func checkpoint() throws {
         for database in databases.values { try database.checkpointForPublication() }
     }
 
-    func commit(retainConsumedInputs: Bool = true) {
+    package func commit(retainConsumedInputs: Bool = true) {
         provenanceSnapshot.discard()
         if !retainConsumedInputs { try? fileManager.removeItem(at: inputDirectory) }
     }
 
-    func rollback(after originalError: Error) throws -> Never {
+    package func rollback(after originalError: Error) throws -> Never {
         var failures: [String] = []
         // Check every database before changing any of them. A later writer's
         // state and receipts must remain together for explicit recovery.
