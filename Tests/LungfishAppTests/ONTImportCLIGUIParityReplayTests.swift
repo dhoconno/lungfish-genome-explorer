@@ -7,10 +7,11 @@
 // runner. The parity class runs one import of the shared three-barcode run folder (ONTImportFreezeFixture)
 // on the three sides of RouteParityHarness.
 //
-// - Side A, the in-process route as ONTImportOperationCoordinator ran it before the move: begin the row,
-//   run ONTImportWorkflow in this process with the context the coordinator built (caller `gui`), and
-//   complete the row. The test holds its own copy, since the app no longer has the route.
-// - Side C, the CLI route, ONTImportOperationCoordinator on the built command.
+// - Side A, the in-process route, ONTImportOperationCoordinator under the `legacy` value of its hidden key
+//   `ReadsLaunchRoute.ontImport`: it begins the row, runs ONTImportWorkflow in this process with the
+//   caller `gui`, and completes the row. The app keeps the route behind the key for one release (C4, FX53).
+// - Side C, the CLI route, ONTImportOperationCoordinator on the built command under the key's `cli` value.
+//   Sides A and C run the same call, and only the key differs.
 // - Side C', the command side C's row recorded, rebased and run by the built CLI.
 //
 // BIO 1 reads the reads of each barcode from each side's manifest. The `caller` is the route's identity
@@ -96,27 +97,20 @@ final class ONTImportCLIGUIParityReplayTests: XCTestCase {
 
     private func assertParity(_ parityCase: Case, storageMode: ONTImportStorageMode) async throws {
         var rows: [RouteParitySide: MappingRouteRow] = [:]
+        let keys = makeKeys()
         let runs = try await harness.run(
             in: scratch.appendingPathComponent("parity-\(parityCase.rawValue)", isDirectory: true),
             fixture: Self.writeFixture,
             sideA: { root in
                 let (row, item) = try await ReadsRouteParity.record(title: Self.title) {
-                    Self.startInProcess(root, storageMode: storageMode)
+                    self.startImport(keys: keys.a, root: root, storageMode: storageMode)
                 }
                 rows[.a] = ReadsRouteParity.rooted(row, root)
                 return ReadsRouteParity.outcome(of: item)
             },
             sideC: { root in
-                let coordinator = ONTImportOperationCoordinator(
-                    operationCenter: OperationCenter.shared, runner: CLIReadsRunner(cliURLOverride: self.cliBinary)
-                )
                 let (row, item) = try await ReadsRouteParity.record(title: Self.title) {
-                    Task { @MainActor in
-                        _ = try? await coordinator.importDirectory(
-                            sourceURL: Self.source(in: root), projectURL: Self.project(in: root), includeUnclassified: true,
-                            concurrency: Self.concurrency, storageMode: storageMode, routeContext: nil
-                        )
-                    }
+                    self.startImport(keys: keys.c, root: root, storageMode: storageMode)
                 }
                 rows[.c] = ReadsRouteParity.rooted(row, root)
                 return ReadsRouteParity.outcome(of: item, recordsCommand: true)
@@ -173,17 +167,12 @@ final class ONTImportCLIGUIParityReplayTests: XCTestCase {
             for chunk in unreadable { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: chunk.path) }
         }
 
-        let (_, itemA) = try await ReadsRouteParity.record(title: Self.title) { Self.startInProcess(rootA, storageMode: .chunked) }
-        let coordinator = ONTImportOperationCoordinator(
-            operationCenter: OperationCenter.shared, runner: CLIReadsRunner(cliURLOverride: cliBinary)
-        )
+        let keys = makeKeys()
+        let (_, itemA) = try await ReadsRouteParity.record(title: Self.title) {
+            startImport(keys: keys.a, root: rootA, storageMode: .chunked)
+        }
         let (_, itemC) = try await ReadsRouteParity.record(title: Self.title) {
-            Task { @MainActor in
-                _ = try? await coordinator.importDirectory(
-                    sourceURL: Self.source(in: rootC), projectURL: Self.project(in: rootC), includeUnclassified: true,
-                    concurrency: Self.concurrency, routeContext: nil
-                )
-            }
+            startImport(keys: keys.c, root: rootC, storageMode: .chunked)
         }
 
         XCTAssertEqual(itemA.state, .failed, itemA.detail)
@@ -232,107 +221,30 @@ final class ONTImportCLIGUIParityReplayTests: XCTestCase {
             )
     }
 
-    /// Side A. The row and the run the coordinator made when the import ran in the app: begin the row with
-    /// the command that reproduces the run, run the workflow in this process, report each stage word as
-    /// it comes and complete the row.
-    static func startInProcess(_ root: URL, storageMode: ONTImportStorageMode) {
-        let sourceURL = source(in: root)
-        let reporter: any OperationReporting = OperationCenter.shared
-        do {
-            let outputURL = try ONTImportOperationCoordinator.resolvedOutputDirectory(
-                sourceURL: sourceURL, projectURL: project(in: root), includeUnclassified: true
-            )
-            let cliArgs = ONTImportOperationCoordinator.cliArgs(
-                sourceURL: sourceURL, outputURL: outputURL, includeUnclassified: true,
-                concurrency: concurrency, storageMode: storageMode
-            )
-            let cliCommand = OperationCenter.buildCLICommand(subcommand: "fastq import-ont", args: cliArgs)
-            let opID = try reporter.begin(
-                title: "ONT Import: \(sourceURL.lastPathComponent)", detail: "Detecting layout...",
-                operationType: .ingestion, cliCommand: cliCommand, routeContext: nil
-            ).requireStarted()
-            Task { @MainActor in
-                do {
-                    let result = try await ONTImportWorkflow().importDirectory(
-                        config: ONTImportConfig(
-                            sourceDirectory: sourceURL, outputDirectory: outputURL, maxConcurrentBarcodes: concurrency,
-                            includeUnclassified: true, storageMode: storageMode
-                        ),
-                        context: inProcessContext(
-                            sourceURL: sourceURL, outputURL: outputURL, storageMode: storageMode, cliArgs: cliArgs, cliCommand: cliCommand
-                        ),
-                        optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: false, qualityBinning: .none, threads: concurrency)
-                    ) { fraction, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated { _ = reporter.update(id: opID, progress: fraction, detail: message) }
-                        }
-                    }
-                    // The stage words reach the row through the main queue. The last of them lands before the end.
-                    await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
-                    let imported = result.importResult
-                    _ = reporter.complete(
-                        id: opID, detail: "\(imported.bundleURLs.count) barcode bundles, \(imported.totalReadCount) reads",
-                        bundleURLs: imported.bundleURLs
-                    )
-                } catch {
-                    _ = reporter.fail(
-                        id: opID, detail: error.localizedDescription, errorMessage: error.localizedDescription, errorDetail: "\(error)"
-                    )
-                }
-            }
-        } catch {
-            XCTFail("side A could not begin: \(error)")
-        }
+    /// The key suites of the two sides, side A holding `legacy` and side C holding `cli` at
+    /// `ReadsLaunchRoute.ontImport`. Each suite is removed when the test ends.
+    private func makeKeys() -> (a: TestDefaultsSuite, c: TestDefaultsSuite) {
+        let a = makeTestDefaultsSuite(prefix: "ont-import-parity-a")
+        a.defaults.set(ReadsLaunchRoute.legacy.rawValue, forKey: ReadsLaunchPath.ontImport.defaultsKey)
+        let c = makeTestDefaultsSuite(prefix: "ont-import-parity-c")
+        c.defaults.set(ReadsLaunchRoute.cli.rawValue, forKey: ReadsLaunchPath.ontImport.defaultsKey)
+        return (a, c)
     }
 
-    /// The context the coordinator gave the workflow before the move. The caller is `gui`, which the
-    /// contract masks, and the version is the release version both routes record (ruling A53-M3).
-    nonisolated static func inProcessContext(
-        sourceURL: URL,
-        outputURL: URL,
-        storageMode: ONTImportStorageMode,
-        cliArgs: [String],
-        cliCommand: String
-    ) -> ONTImportWorkflow.CommandContext {
-        let argv = [CLICommandIdentity.executableName, "fastq", "import-ont"] + cliArgs
-        return ONTImportWorkflow.CommandContext(
-            caller: .gui,
-            workflowName: "lungfish fastq import-ont",
-            workflowVersion: LungfishAppVersion.short,
-            toolName: "lungfish fastq import-ont",
-            toolVersion: LungfishAppVersion.short,
-            argv: argv,
-            durableReplayArgv: argv,
-            reproducibleCommand: cliCommand,
-            explicitOptions: [
-                "input": .file(sourceURL),
-                "output": .file(outputURL),
-                "includeUnclassified": .boolean(true),
-                "concurrency": .integer(concurrency),
-                "storageMode": .string(storageMode.rawValue),
-                "optimizeStorage": .boolean(false),
-                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
-            ],
-            defaultOptions: [
-                "includeUnclassified": .boolean(false),
-                "concurrency": .integer(4),
-                "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
-                "optimizeStorage": .boolean(false),
-                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
-                "useVirtualConcatenation": .boolean(true),
-            ],
-            resolvedOptions: [
-                "input": .file(sourceURL),
-                "output": .file(outputURL),
-                "includeUnclassified": .boolean(true),
-                "concurrency": .integer(concurrency),
-                "storageMode": .string(storageMode.rawValue),
-                "optimizeStorage": .boolean(false),
-                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
-                "useVirtualConcatenation": .boolean(storageMode.usesVirtualConcatenation),
-                "caller": .string("gui"),
-            ],
-            runtimeIdentity: ProvenanceRuntimeIdentity(appVersion: LungfishAppVersion.short)
+    /// Starts the import of the run folder under `root` on a coordinator that reads its route from
+    /// `keys`, and returns at once, as the window's task does. Sides A and C call it with their own
+    /// suite, so the key is the only difference between them.
+    private func startImport(keys: TestDefaultsSuite, root: URL, storageMode: ONTImportStorageMode) {
+        let coordinator = ONTImportOperationCoordinator(
+            operationCenter: OperationCenter.shared,
+            runner: CLIReadsRunner(cliURLOverride: cliBinary),
+            routeSettings: ReadsLaunchRouteSettings(defaults: keys.defaults)
         )
+        Task { @MainActor in
+            _ = try? await coordinator.importDirectory(
+                sourceURL: Self.source(in: root), projectURL: Self.project(in: root), includeUnclassified: true,
+                concurrency: Self.concurrency, storageMode: storageMode, routeContext: nil
+            )
+        }
     }
 }
