@@ -34,7 +34,7 @@ package struct VariantSampleMetadataImportService {
 
     package init(
         fileManager: FileManager = .default,
-        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter()
     ) {
         self.fileManager = fileManager
         self.writeProvenance = { envelope, bundleURL, publication in
