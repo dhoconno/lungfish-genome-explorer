@@ -11,9 +11,15 @@ import LungfishWorkflow
 /// (Phase 2.10 lane A54, decision P2). The command listens before the task starts, so a SIGTERM
 /// caught before then cancels the task as soon as it exists, and a second SIGTERM ends the command
 /// at once. This is the shape `bam remove-track` uses, for any result type.
+///
+/// The app signals the command's whole group at once, so a tool that got the same SIGTERM can end the
+/// work before this process has run its handler. A busy machine delays the thread the kernel must wake
+/// for the handler, and the command then read its own SIGTERM as a failure of the tool. The kernel notes a
+/// post at once, so a failure with a post behind it ends as the cancel it answers.
 func runCancellingOnSIGTERM<Value: Sendable>(
     _ work: @escaping @Sendable () async throws -> Value
 ) async -> Result<Value, any Error> {
+    let posts = SIGTERMPostWatch()
     let pendingCancel = PendingTaskCancel<Result<Value, any Error>>()
     let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
     defer { termination.end() }
@@ -25,7 +31,40 @@ func runCancellingOnSIGTERM<Value: Sendable>(
         }
     }
     pendingCancel.attach(task)
-    return await task.value
+    let ran = await task.value
+    if case .failure(let error) = ran, !(error is CancellationError), posts.occurred {
+        return .failure(CancellationError())
+    }
+    return ran
+}
+
+/// Notes every SIGTERM the kernel posts to this process, at the moment it posts it and whether or not a
+/// handler has run. A kqueue signal filter coexists with the handler of `SIGTERMCancellation` and records
+/// a signal even when its action is to ignore it.
+final class SIGTERMPostWatch {
+    private let queue: Int32
+
+    init() {
+        queue = kqueue()
+        guard queue >= 0 else { return }
+        _ = fcntl(queue, F_SETFD, FD_CLOEXEC) // the tools the command launches do not inherit it
+        var change = kevent(
+            ident: UInt(SIGTERM), filter: Int16(EVFILT_SIGNAL), flags: UInt16(EV_ADD | EV_CLEAR), fflags: 0, data: 0, udata: nil
+        )
+        _ = kevent(queue, &change, 1, nil, 0, nil)
+    }
+
+    deinit {
+        if queue >= 0 { close(queue) }
+    }
+
+    /// Whether a SIGTERM was posted to this process since the watch began.
+    var occurred: Bool {
+        guard queue >= 0 else { return false }
+        var event = kevent()
+        var immediately = timespec(tv_sec: 0, tv_nsec: 0)
+        return kevent(queue, nil, 0, &event, 1, &immediately) > 0
+    }
 }
 
 /// The service call of a duplicate leaf, handed the progress handler. A test passes a stand-in that
