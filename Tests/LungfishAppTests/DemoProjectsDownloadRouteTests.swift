@@ -1,4 +1,4 @@
-// DemoProjectsDownloadRouteTests.swift - The hidden key, the child's arguments and the bar of the window's CLI route
+// DemoProjectsDownloadRouteTests.swift - The child's arguments and the bar of the window's download through demo fetch
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -9,8 +9,9 @@ import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishCLI
 
-/// Phase 2.10 lane A45 M4, panel decisions C4 and C9. The pure parts of the Demo Projects window's route onto
-/// `lungfish-cli demo fetch`. The class that runs the built CLI is `DemoProjectsCLIRoutePinReplayTests`.
+/// Phase 2.10 lane A45 M4, panel decisions C4 and C9. The pure parts of the Demo Projects window's download through
+/// `lungfish-cli demo fetch`. The class that runs the built CLI is `DemoProjectsCLIRoutePinReplayTests`. The hidden
+/// key that chose between this route and the in-process install went with the flip (C4).
 @MainActor
 final class DemoProjectsDownloadRouteTests: XCTestCase {
     private let directory = URL(fileURLWithPath: "/Users/me/Documents/LGE Demo Projects")
@@ -26,28 +27,6 @@ final class DemoProjectsDownloadRouteTests: XCTestCase {
             .verifying, .extracting, .installing,
         ]
     }()
-
-    func testTheHiddenKeyPicksTheRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "demo-download-route")
-        let settings = DemoProjectsDownloadRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(settings.route, DemoProjectsDownloadRouteSettings.defaultRoute, "an unset key")
-        let cases: [(Any, DemoProjectsDownloadRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), ("Cli", .cli), (true, .cli), (false, .legacy),
-            ("NO", DemoProjectsDownloadRouteSettings.defaultRoute),
-        ]
-        for (value, route) in cases {
-            suite.defaults.set(value, forKey: DemoProjectsDownloadRouteSettings.defaultsKey)
-            XCTAssertEqual(settings.route, route, "\(value)")
-        }
-    }
-
-    func testTheKeyIsNotTheOtherRowsKeys() {
-        let others = [
-            PathoplexusRowDownloadRouteSettings.defaultsKey, NucleotideRowDownloadRouteSettings.defaultsKey,
-            GenomeRowDownloadRouteSettings.defaultsKey, SRARowDownloadRouteSettings.defaultsKey,
-        ]
-        XCTAssertFalse(others.contains(DemoProjectsDownloadRouteSettings.defaultsKey))
-    }
 
     /// The child gets the command the row records, with `--format json`, and the shipped parser reads it as the
     /// project, the folder and the replace choice the window has.

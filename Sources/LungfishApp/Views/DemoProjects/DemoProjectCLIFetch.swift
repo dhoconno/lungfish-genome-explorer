@@ -1,4 +1,4 @@
-// DemoProjectsDownloadRoute.swift - The Demo Projects window's download, in process or one lungfish-cli demo fetch child
+// DemoProjectCLIFetch.swift - The Demo Projects window's download as one lungfish-cli demo fetch child
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -6,41 +6,6 @@ import Foundation
 import LungfishKit
 import LungfishWorkflow
 import os
-
-/// The route the Demo Projects window's download takes (Phase 2.10 lane A45 M4, panel decision C4).
-enum DemoProjectsDownloadRoute: String, Sendable, Equatable, CaseIterable {
-    /// The route before lane A45, kept for one release as the escape the hidden key names (C4). The window
-    /// downloads, verifies, unpacks and installs in the app process with `DemoProjectInstaller`, and its
-    /// Cancel cancels that task. It goes in 2.11 with the key.
-    case legacy
-    /// One `lungfish-cli demo fetch <id> --dest <folder> [--force] --format json` child, which downloads,
-    /// verifies, unpacks and installs in its own process. The window shows its `progress` lines as the bar,
-    /// opens the project its `complete` line names, and cancels it with SIGTERM.
-    case cli
-}
-
-/// Reads the route of the window's download from the defaults it is given, so a test passes its own suite
-/// and never touches the user's defaults.
-struct DemoProjectsDownloadRouteSettings {
-    /// The hidden key. It holds `cli` or `legacy`, or a Boolean that is true for the CLI route, for example
-    /// `defaults write <app id> DemoProjectsDownloadRoute legacy`.
-    static let defaultsKey = "DemoProjectsDownloadRoute"
-    /// The route of a key that is unset or holds a value this reader does not know.
-    static let defaultRoute: DemoProjectsDownloadRoute = .legacy
-
-    let defaults: UserDefaults
-
-    var route: DemoProjectsDownloadRoute {
-        switch defaults.object(forKey: Self.defaultsKey) {
-        case let name as String:
-            return DemoProjectsDownloadRoute(rawValue: name.lowercased()) ?? Self.defaultRoute
-        case let usesCLI as Bool:
-            return usesCLI ? .cli : .legacy
-        default:
-            return Self.defaultRoute
-        }
-    }
-}
 
 /// Reads a `progress` line of `demo fetch` back into the phase the window shows. The command writes the
 /// download as the share of the bytes received from 0 to ``downloadShare`` of the bar and each later phase

@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A45 M4, panel decision C9. DemoProjectsViewModelTests pins the replace of an existing project
-// (SWIFT) and the row's progress, cancel and opening (UX) on the in-process install, the hidden key's `legacy`
-// value. This class runs the same cases with the key at `cli`, so the window starts one `lungfish-cli demo fetch`
-// child through `CLISubprocessTransport` and the window behaves as it did.
+// Phase 2.10 lane A45 M4, panel decision C9. The replace of an existing project (SWIFT) and the row's progress,
+// cancel and opening (UX) were pinned on the in-process install, in DemoProjectsViewModelTests, before the flip
+// (C4) took that install out. This class holds the same seven cases on the window's one route, which starts one
+// `lungfish-cli demo fetch` child through `CLISubprocessTransport`, and the window behaves as it did.
 //
 // The archive comes from the loopback stand-in (`DemoArchiveStandIn`) to the child, and the child names the
 // project's list, the stand-in origin and the Trash folder through the process environment, so no test reaches
@@ -262,7 +262,6 @@ final class DemoProjectsCLIRoutePinReplayTests: XCTestCase {
             revealInFinder: { _ in },
             openURL: { _ in },
             isProjectOpen: { _ in false },
-            route: { .cli },
             cliURL: cli
         )
         let model = DemoProjectsViewModel(environment: environment)

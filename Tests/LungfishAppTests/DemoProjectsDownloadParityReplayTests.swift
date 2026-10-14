@@ -5,10 +5,11 @@
 // Phase 2.10 lane A45 M4, panel decisions C4, C9 and G5, on lane Q30's harness. One demo project downloads into
 // the folder of the window on three sides that start as copies of one empty folder.
 //
-// - Side A is the route before lane A45, the hidden key's `legacy` value. The window downloads, verifies,
-//   unpacks and installs the archive in the app process with `DemoProjectInstaller`.
-// - Side C is the CLI route, `lungfish-cli demo fetch <id> --dest <folder> --format json` launched through
-//   `CLISubprocessTransport`, with the line the row recorded.
+// - Side A is the install the app ran in its own process before lane A45, `DemoProjectInstaller` called directly
+//   on the folder of the root. The window's in-process path and its hidden key went with the flip (C4), so the
+//   installer is what is left of it.
+// - Side C is the window's download, `lungfish-cli demo fetch <id> --dest <folder> --format json` launched
+//   through `CLISubprocessTransport`, with the line the row recorded.
 // - Side C' is the harness's replay of the row's recorded command.
 //
 // Both routes read one loopback server (`DemoArchiveStandIn`). The window names the project in its list with the
@@ -61,8 +62,8 @@ final class DemoProjectsDownloadParityReplayTests: XCTestCase {
         let runs = try await harness.run(
             in: root.appendingPathComponent("case", isDirectory: true),
             fixture: { try FileManager.default.createDirectory(at: Self.installed(in: $0), withIntermediateDirectories: true) },
-            sideA: { await Self.window(in: $0, standIn: standIn, route: .legacy, cli: cli, defaults: defaults) },
-            sideC: { await Self.window(in: $0, standIn: standIn, route: .cli, cli: cli, defaults: defaults) }
+            sideA: { await Self.installDirectly(in: $0, standIn: standIn) },
+            sideC: { await Self.window(in: $0, standIn: standIn, cli: cli, defaults: defaults) }
         )
         let result = try harness.evaluate(parityCase, declared: Self.declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
@@ -82,10 +83,22 @@ final class DemoProjectsDownloadParityReplayTests: XCTestCase {
         root.appendingPathComponent("Installed", isDirectory: true)
     }
 
-    /// One download of the project into the folder of `root`, by the route the window is given, and how it ended.
-    /// The row records the command, which side C' replays.
+    /// Side A. The installer the window used in the app process, called on the folder of `root` with the project
+    /// the window would name, and how it ended. It records no command.
+    static func installDirectly(in root: URL, standIn: DemoArchiveStandIn) async -> RouteParitySideOutcome {
+        do {
+            _ = try await DemoProjectInstaller(appVersion: "2026.9.44")
+                .install(standIn.project, into: installed(in: root), replaceExisting: false) { _ in }
+            return RouteParitySideOutcome(end: .completed, detail: "DemoProjectInstaller installed the project", recordedCommand: nil)
+        } catch {
+            return RouteParitySideOutcome(end: .failed, detail: "\(error)", recordedCommand: nil)
+        }
+    }
+
+    /// Side C. One download of the project into the folder of `root` through the window, and how it ended. The row
+    /// records the command, which side C' replays.
     static func window(
-        in root: URL, standIn: DemoArchiveStandIn, route: DemoProjectsDownloadRoute, cli: URL, defaults: UserDefaults
+        in root: URL, standIn: DemoArchiveStandIn, cli: URL, defaults: UserDefaults
     ) async -> RouteParitySideOutcome {
         let store = DemoProjectLocationStore(defaults: defaults, homeDirectory: root)
         store.directory = installed(in: root)
@@ -100,7 +113,6 @@ final class DemoProjectsDownloadParityReplayTests: XCTestCase {
             revealInFinder: { _ in },
             openURL: { _ in },
             isProjectOpen: { _ in false },
-            route: { route },
             cliURL: cli
         )
         let model = DemoProjectsViewModel(environment: environment)

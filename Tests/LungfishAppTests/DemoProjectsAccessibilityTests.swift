@@ -39,8 +39,10 @@ final class DemoProjectsAccessibilityTests: XCTestCase {
 
         XCTAssertEqual(harness.reporter.begun.count, 1, "the press must start the download")
         XCTAssertTrue(harness.reporter.begun.first?.hasPrefix("lungfish-cli demo fetch genes-and-sequences") == true)
-        waitUntil { harness.loader.requests == [Self.genes.archive.url] }
-        XCTAssertEqual(harness.loader.requests, [Self.genes.archive.url], "the fake loader, never the network, gets the request")
+        waitUntil { !harness.reporter.failures.isEmpty }
+        XCTAssertTrue(
+            harness.reporter.failures.first?.contains("lungfish-cli") == true,
+            "the download goes to the CLI child, which cannot launch from here, and never to the network: \(harness.reporter.failures)")
     }
 
     func testInstalledRowButtonsAndChapterLinksArePressableThroughAccessibility() throws {
@@ -148,7 +150,6 @@ final class DemoProjectsAccessibilityTests: XCTestCase {
     private struct Harness {
         let model: DemoProjectsViewModel
         let reporter: AccessibilityRecordingReporter
-        let loader: RecordingLoader
         let openedURLs: AccessibilityBox<[URL]>
         let revealed: AccessibilityBox<[URL]>
         let doneCount: AccessibilityBox<Int>
@@ -177,23 +178,23 @@ final class DemoProjectsAccessibilityTests: XCTestCase {
         store.directory = installDirectory
 
         let reporter = AccessibilityRecordingReporter()
-        let loader = RecordingLoader()
         let openedURLs = AccessibilityBox<[URL]>([])
         let revealed = AccessibilityBox<[URL]>([])
         let environment = DemoProjectsEnvironment(
             loadManifest: { DemoProjectManifest(projects: projects) },
-            installer: DemoProjectInstaller(loader: loader, appVersion: "2026.9.44", trash: { _ in nil }),
+            installer: DemoProjectInstaller(appVersion: "2026.9.44", trash: { _ in nil }),
             locationStore: store,
             operations: reporter,
             openProject: { _ in },
             revealInFinder: { revealed.value.append($0) },
             openURL: { openedURLs.value.append($0) },
-            isProjectOpen: { _ in false }
+            isProjectOpen: { _ in false },
+            // A binary that is not there, so a press starts a child that cannot launch and nothing reaches the network.
+            cliURL: root.appendingPathComponent("no-such-lungfish-cli")
         )
         return Harness(
             model: DemoProjectsViewModel(environment: environment),
             reporter: reporter,
-            loader: loader,
             openedURLs: openedURLs,
             revealed: revealed,
             doneCount: AccessibilityBox(0),
@@ -292,6 +293,7 @@ private final class AccessibilityBox<Value> {
 @MainActor
 private final class AccessibilityRecordingReporter: DemoProjectOperationReporting {
     private(set) var begun: [String] = []
+    private(set) var failures: [String] = []
     func begin(title: String, detail: String, cliCommand: String) -> UUID? {
         begun.append(cliCommand)
         return UUID()
@@ -299,18 +301,6 @@ private final class AccessibilityRecordingReporter: DemoProjectOperationReportin
     func setCancelHandler(id: UUID, handler: @escaping @Sendable () -> Void) {}
     func report(id: UUID, phase: DemoProjectInstallPhase) {}
     func complete(id: UUID, projectURL: URL) {}
-    func fail(id: UUID, message: String) {}
+    func fail(id: UUID, message: String) { failures.append(message) }
     func acknowledgeCancellation(id: UUID) {}
-}
-
-/// Records the download request and fails it, so nothing touches the network.
-private final class RecordingLoader: DemoProjectArchiveLoading, @unchecked Sendable {
-    private let lock = NSLock()
-    private var recorded: [URL] = []
-    var requests: [URL] { lock.withLock { recorded } }
-
-    func download(from url: URL, to destination: URL, progress: @escaping @Sendable (Int64, Int64?) -> Void) async throws {
-        lock.withLock { recorded.append(url) }
-        throw DemoProjectError.notFound(url)
-    }
 }

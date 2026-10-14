@@ -1,4 +1,5 @@
-// DemoProjectsViewModelTests.swift - Help > Demo Projects… state, folder store and download flow
+// DemoProjectsViewModelTests.swift - Help > Demo Projects… state, folder store and the download's guards
+// The download itself, its replace, progress, cancel and opening, is pinned in DemoProjectsCLIRoutePinReplayTests.
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -114,49 +115,6 @@ final class DemoProjectsViewModelTests: XCTestCase {
         XCTAssertTrue(harness.model.alert?.message.contains("Close that window") == true)
     }
 
-    func testDownloadRunsThroughOperationsThenOpensTheProject() async throws {
-        let fixture = try makeFixture()
-        let opened = expectation(description: "project opened")
-        let harness = makeHarness(project: fixture.project, archiveURL: fixture.archiveURL, onOpen: { _ in opened.fulfill() })
-
-        harness.model.performPrimaryAction(for: fixture.project)
-        XCTAssertEqual(harness.reporter.begun.count, 1)
-        XCTAssertTrue(harness.reporter.begun[0].cliCommand.hasPrefix("lungfish-cli demo fetch demo-fixture --dest "))
-        XCTAssertTrue(harness.model.isDownloading(fixture.project))
-
-        await fulfillment(of: [opened], timeout: 30)
-
-        let target = harness.model.projectURL(for: fixture.project)
-        XCTAssertEqual(harness.projectOpens.value, [target])
-        XCTAssertEqual(harness.reporter.completed, [target])
-        XCTAssertTrue(harness.reporter.failures.isEmpty)
-        XCTAssertEqual(harness.dismissCount.value, 1)
-        XCTAssertFalse(harness.model.isDownloading(fixture.project))
-        XCTAssertEqual(harness.model.status(for: fixture.project), .downloaded(version: fixture.project.version))
-        XCTAssertEqual(DemoProjectInstaller.readRecord(inProjectAt: target)?.id, "demo-fixture")
-    }
-
-    func testChecksumFailureIsReportedToOperationsAndTheSheet() async throws {
-        let fixture = try makeFixture()
-        let bad = DemoProject(
-            id: fixture.project.id, title: fixture.project.title, summary: fixture.project.summary,
-            chapters: fixture.project.chapters, projectFolderName: fixture.project.projectFolderName,
-            archive: .init(url: fixture.project.archive.url, sha256: String(repeating: "ab", count: 32), bytes: fixture.project.archive.bytes),
-            version: fixture.project.version, minimumAppVersion: nil
-        )
-        let failed = expectation(description: "failure reported")
-        let harness = makeHarness(project: bad, archiveURL: fixture.archiveURL)
-        harness.reporter.onFail = { failed.fulfill() }
-
-        harness.model.download(bad, replaceExisting: false)
-        await fulfillment(of: [failed], timeout: 30)
-
-        XCTAssertTrue(harness.reporter.failures.first?.contains("SHA-256") == true)
-        XCTAssertTrue(harness.model.alert?.message.contains("SHA-256") == true)
-        XCTAssertTrue(harness.projectOpens.value.isEmpty)
-        XCTAssertEqual(harness.model.status(for: bad), .notDownloaded)
-    }
-
     func testCLICommandQuotesTheFolder() throws {
         let fixture = try makeFixture()
         let command = DemoProjectsViewModel.cliCommand(
@@ -183,150 +141,6 @@ final class DemoProjectsViewModelTests: XCTestCase {
             XCTAssertEqual(parsed.location.destination, "/Users/me/Documents/LGE Demo Projects")
             XCTAssertEqual(parsed.force, replaceExisting)
         }
-    }
-
-    // MARK: - Pins at the base (Phase 2.10 lane A45 M4, panel decision C9)
-    //
-    // The window installs in process today. M4 moves the install onto `lungfish-cli demo fetch`, so the
-    // replace of an existing project (SWIFT) and the row's progress, cancel and opening (UX) are fixed first.
-
-    /// A replace downloads and verifies the new copy before it touches the old one, then moves the old copy
-    /// to the Trash, puts the new one in its place and opens it.
-    func testReplacingAClosedProjectTrashesTheOldCopyOnceTheNewOneIsVerifiedThenOpensTheNewOne() async throws {
-        let fixture = try makeFixture()
-        let trashFolder = tempDir.appendingPathComponent("Trash", isDirectory: true)
-        let opened = expectation(description: "project opened")
-        let harness = makeHarness(
-            project: fixture.project, archiveURL: fixture.archiveURL,
-            trash: { url in
-                try FileManager.default.createDirectory(at: trashFolder, withIntermediateDirectories: true)
-                let moved = trashFolder.appendingPathComponent(url.lastPathComponent)
-                try FileManager.default.moveItem(at: url, to: moved)
-                return moved
-            },
-            onOpen: { _ in opened.fulfill() })
-        try writeInstalledCopy(of: fixture.project, version: "2026.1.1")
-        let target = harness.model.projectURL(for: fixture.project)
-        try Data("old".utf8).write(to: target.appendingPathComponent("old-marker.txt"))
-        harness.model.refreshStatuses()
-
-        harness.model.download(fixture.project, replaceExisting: true)
-        XCTAssertTrue(harness.reporter.begun[0].cliCommand.hasSuffix(" --force"), "the row's command replaces the copy")
-        await fulfillment(of: [opened], timeout: 30)
-
-        XCTAssertEqual(harness.projectOpens.value, [target])
-        XCTAssertEqual(harness.reporter.completed, [target])
-        XCTAssertTrue(harness.reporter.failures.isEmpty)
-        XCTAssertEqual(DemoProjectInstaller.readRecord(inProjectAt: target)?.version, fixture.project.version)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: target.appendingPathComponent("old-marker.txt").path), "the old files are not in the new copy")
-        XCTAssertEqual(
-            try String(contentsOf: trashFolder.appendingPathComponent(target.lastPathComponent).appendingPathComponent("old-marker.txt"), encoding: .utf8),
-            "old", "the old copy went to the Trash whole")
-        let beside = try FileManager.default.contentsOfDirectory(atPath: target.deletingLastPathComponent().path)
-        XCTAssertEqual(beside, [target.lastPathComponent], "no staging folder is left beside the project")
-    }
-
-    /// A replace whose archive fails its checksum leaves the existing copy where it is and trashes nothing.
-    func testAFailedReplaceLeavesTheExistingCopyAndTrashesNothing() async throws {
-        let fixture = try makeFixture()
-        let bad = DemoProject(
-            id: fixture.project.id, title: fixture.project.title, summary: fixture.project.summary,
-            chapters: fixture.project.chapters, projectFolderName: fixture.project.projectFolderName,
-            archive: .init(url: fixture.project.archive.url, sha256: String(repeating: "cd", count: 32), bytes: fixture.project.archive.bytes),
-            version: fixture.project.version, minimumAppVersion: nil)
-        let trashed = StartedFlag()
-        let failed = expectation(description: "failure reported")
-        let harness = makeHarness(project: bad, archiveURL: fixture.archiveURL, trash: { _ in trashed.set(); return nil })
-        harness.reporter.onFail = { failed.fulfill() }
-        try writeInstalledCopy(of: bad, version: "2026.1.1")
-        let target = harness.model.projectURL(for: bad)
-        try Data("old".utf8).write(to: target.appendingPathComponent("old-marker.txt"))
-
-        harness.model.download(bad, replaceExisting: true)
-        await fulfillment(of: [failed], timeout: 30)
-
-        XCTAssertFalse(trashed.isSet, "the old copy is not touched before the new one verifies")
-        XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("old-marker.txt"), encoding: .utf8), "old")
-        XCTAssertEqual(DemoProjectInstaller.readRecord(inProjectAt: target)?.version, "2026.1.1")
-        XCTAssertTrue(harness.model.alert?.message.contains("SHA-256") == true)
-        XCTAssertTrue(harness.projectOpens.value.isEmpty)
-    }
-
-    /// The byte reports reach Operations in order, the first from zero, and the install phases follow.
-    func testTheByteProgressReachesOperationsInOrderBeforeTheProjectOpens() async throws {
-        let fixture = try makeFixture()
-        let opened = expectation(description: "project opened")
-        let harness = makeHarness(
-            project: fixture.project, archiveURL: nil,
-            loader: SteppedFileLoader(fileURL: fixture.archiveURL, steps: 20), onOpen: { _ in opened.fulfill() })
-        harness.model.download(fixture.project, replaceExisting: false)
-        await fulfillment(of: [opened], timeout: 30)
-
-        let received = harness.reporter.phases.compactMap { phase -> Int64? in
-            if case let .downloading(bytes, _) = phase { return bytes }
-            return nil
-        }
-        XCTAssertEqual(received.first, 0, "the first report is the start of the transfer")
-        XCTAssertGreaterThan(received.count, 2, "the bar moves while the transfer runs: \(received)")
-        XCTAssertEqual(received, received.sorted(), "the bytes never step back")
-        let totals = harness.reporter.phases.compactMap { phase -> Int64? in
-            if case let .downloading(_, total) = phase { return total }
-            return nil
-        }
-        XCTAssertTrue(totals.allSatisfy { $0 == fixture.project.archive.bytes }, "\(totals)")
-    }
-
-    /// Cancel on the row stops the transfer. The row reads Cancelled with no alert and no failure, nothing
-    /// opens, and no project or staging folder is left.
-    func testCancellingTheRowEndsCancelledWithNoAlertAndLeavesNoFolder() async throws {
-        let fixture = try makeFixture()
-        let started = StartedFlag()
-        let acknowledged = expectation(description: "cancel acknowledged")
-        let harness = makeHarness(project: fixture.project, archiveURL: nil, loader: HangingLoader(started: started))
-        harness.reporter.onAcknowledge = { acknowledged.fulfill() }
-        harness.model.download(fixture.project, replaceExisting: false)
-        let reached = await waitUntil(timeout: .seconds(30)) { started.isSet }
-        XCTAssertTrue(reached, "the transfer started")
-
-        let cancel = try XCTUnwrap(harness.reporter.cancelHandler, "the row has a Cancel")
-        cancel()
-        await fulfillment(of: [acknowledged], timeout: 30)
-
-        XCTAssertEqual(harness.reporter.acknowledgedCancellations, 1)
-        XCTAssertNil(harness.model.alert, "a cancel raises no alert")
-        XCTAssertTrue(harness.reporter.failures.isEmpty)
-        XCTAssertTrue(harness.reporter.completed.isEmpty)
-        XCTAssertTrue(harness.projectOpens.value.isEmpty)
-        XCTAssertFalse(harness.model.isDownloading(fixture.project))
-        XCTAssertEqual(harness.model.status(for: fixture.project), .notDownloaded)
-        let left = (try? FileManager.default.contentsOfDirectory(atPath: tempDir.appendingPathComponent("Installed").path)) ?? []
-        XCTAssertEqual(left, [], "no staging folder or project is left")
-    }
-
-    /// A cancelled replace never touches the copy the user has.
-    func testCancellingAReplaceKeepsTheExistingCopy() async throws {
-        let fixture = try makeFixture()
-        let started = StartedFlag()
-        let trashed = StartedFlag()
-        let acknowledged = expectation(description: "cancel acknowledged")
-        let harness = makeHarness(
-            project: fixture.project, archiveURL: nil, loader: HangingLoader(started: started), trash: { _ in trashed.set(); return nil })
-        harness.reporter.onAcknowledge = { acknowledged.fulfill() }
-        try writeInstalledCopy(of: fixture.project, version: "2026.1.1")
-        let target = harness.model.projectURL(for: fixture.project)
-        try Data("old".utf8).write(to: target.appendingPathComponent("old-marker.txt"))
-
-        harness.model.download(fixture.project, replaceExisting: true)
-        let reached = await waitUntil(timeout: .seconds(30)) { started.isSet }
-        XCTAssertTrue(reached)
-        try XCTUnwrap(harness.reporter.cancelHandler)()
-        await fulfillment(of: [acknowledged], timeout: 30)
-
-        XCTAssertFalse(trashed.isSet)
-        XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("old-marker.txt"), encoding: .utf8), "old")
-        XCTAssertEqual(DemoProjectInstaller.readRecord(inProjectAt: target)?.version, "2026.1.1")
-        XCTAssertNil(harness.model.alert)
-        XCTAssertTrue(harness.projectOpens.value.isEmpty)
     }
 
     // MARK: - Harness
@@ -377,8 +191,6 @@ final class DemoProjectsViewModelTests: XCTestCase {
         project: DemoProject,
         archiveURL: URL?,
         openProjects: Bool = false,
-        loader: (any DemoProjectArchiveLoading)? = nil,
-        trash: @escaping DemoProjectInstaller.TrashHandler = { _ in nil },
         onOpen: @escaping (URL) -> Void = { _ in }
     ) -> Harness {
         let store = DemoProjectLocationStore(defaults: defaults, homeDirectory: tempDir)
@@ -390,11 +202,7 @@ final class DemoProjectsViewModelTests: XCTestCase {
         let dismissCount = Box(0)
         let environment = DemoProjectsEnvironment(
             loadManifest: { DemoProjectManifest(projects: [project]) },
-            installer: DemoProjectInstaller(
-                loader: loader ?? LocalFileLoader(fileURL: archiveURL),
-                appVersion: "2026.9.44",
-                trash: trash
-            ),
+            installer: DemoProjectInstaller(loader: LocalFileLoader(fileURL: archiveURL), appVersion: "2026.9.44", trash: { _ in nil }),
             locationStore: store,
             operations: reporter,
             openProject: { url in
@@ -457,35 +265,6 @@ private final class RecordingReporter: DemoProjectOperationReporting {
         acknowledgedCancellations += 1
         onAcknowledge?()
     }
-}
-
-/// Copies a local file in `steps` reports of growing byte counts, as a transfer that reports as it goes.
-private struct SteppedFileLoader: DemoProjectArchiveLoading {
-    let fileURL: URL
-    let steps: Int
-
-    func download(from url: URL, to destination: URL, progress: @escaping @Sendable (Int64, Int64?) -> Void) async throws {
-        let total = (try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
-        for step in 1...steps { progress(total * Int64(step) / Int64(steps), total) }
-        try FileManager.default.copyItem(at: fileURL, to: destination)
-    }
-}
-
-/// A transfer that never ends until its task is cancelled, and says when it started.
-private struct HangingLoader: DemoProjectArchiveLoading {
-    let started: StartedFlag
-
-    func download(from url: URL, to destination: URL, progress: @escaping @Sendable (Int64, Int64?) -> Void) async throws {
-        progress(10, 100)
-        started.set()
-        try await Task.sleep(for: .seconds(600))
-    }
-}
-
-private final class StartedFlag: Sendable {
-    private let value = OSAllocatedUnfairLock(initialState: false)
-    var isSet: Bool { value.withLock { $0 } }
-    func set() { value.withLock { $0 = true } }
 }
 
 /// Copies a local file instead of downloading.

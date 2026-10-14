@@ -81,10 +81,7 @@ struct DemoProjectsEnvironment {
     var revealInFinder: (URL) -> Void
     var openURL: (URL) -> Void
     var isProjectOpen: (URL) -> Bool
-    /// The route of a download, read when one starts (Phase 2.10 lane A45 M4, panel decision C4). A test names
-    /// its own, and the app reads the hidden key.
-    var route: () -> DemoProjectsDownloadRoute = { DemoProjectsDownloadRouteSettings(defaults: .standard).route }
-    /// The `lungfish-cli` the CLI route launches, nil for the app's own. A test names the built one.
+    /// The `lungfish-cli` a download launches, nil for the app's own. A test names the built one.
     var cliURL: URL?
 }
 
@@ -320,40 +317,13 @@ final class DemoProjectsViewModel {
         }
         downloads[project.id] = DownloadState(fraction: 0, detail: "Starting download…")
 
-        switch environment.route() {
-        case .legacy:
-            installInProcess(project, directory: directory, replaceExisting: replaceExisting, operationID: operationID)
-        case .cli:
-            installThroughCLI(project, directory: directory, replaceExisting: replaceExisting, operationID: operationID)
-        }
+        installThroughCLI(project, directory: directory, replaceExisting: replaceExisting, operationID: operationID)
     }
 
-    /// The route before lane A45: the app downloads, verifies, unpacks and installs in its own process.
-    private func installInProcess(_ project: DemoProject, directory: URL, replaceExisting: Bool, operationID: UUID) {
-        let installer = environment.installer
-        let throttle = DemoProjectProgressThrottle()
-        let projectID = project.id
-        let worker = Task.detached {
-            try await installer.install(project, into: directory, replaceExisting: replaceExisting) { [weak self] phase in
-                guard throttle.shouldReport(phase) else { return }
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        self?.apply(phase, projectID: projectID, operationID: operationID)
-                    }
-                }
-            }
-        }
-        environment.operations.setCancelHandler(id: operationID) { worker.cancel() }
-
-        // Held strongly so a download finishes (and opens) even after the sheet closes.
-        Task { @MainActor in
-            let result = await worker.result
-            self.finish(project, result: result.map(\.projectURL), operationID: operationID)
-        }
-    }
-
-    /// One `lungfish-cli demo fetch` child downloads, verifies, unpacks and installs. Its `progress` lines move the
-    /// bar, its `log` lines reach the operation log, and Cancel sends it SIGTERM through the transport.
+    /// One `lungfish-cli demo fetch` child downloads, verifies, unpacks and installs (Phase 2.10 lane A45 M4, panel
+    /// decision C9). Its `progress` lines move the bar, its `log` lines reach the operation log, and Cancel sends it
+    /// SIGTERM through the transport. The app installed in its own process before this, and the parity of the two
+    /// routes was empty, so the in-process install and its hidden key went (C4).
     private func installThroughCLI(_ project: DemoProject, directory: URL, replaceExisting: Bool, operationID: UUID) {
         let fetch = DemoProjectCLIFetch(
             projectID: project.id, directory: directory, replaceExisting: replaceExisting,
