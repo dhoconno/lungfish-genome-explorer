@@ -285,6 +285,38 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertEqual(evidence["attempts"][1]["role"], "diagnostic-retry")
         self.assertNotEqual(evidence["attempts"][0]["files"], evidence["attempts"][1]["files"])
 
+    def test_swift_testing_assertion_failure_retry_remains_diagnostic(self):
+        # G2 tier 3 of Phase 2.10 failed on one swift-testing issue and got no retry, because the retry
+        # read only XCTest failures. A green retry says only that the class does not fail alone.
+        result, evidence = self.run_gate("swift_assertion_retry")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(evidence["attempts"]), 2, "a swift-testing failure gets one diagnostic retry")
+        primary, retry = evidence["attempts"]
+        self.assertEqual(primary["exitStatus"], 1)
+        self.assertEqual(primary["harnesses"]["xctest"]["failedTests"], [])
+        self.assertEqual(primary["harnesses"]["swift-testing"]["failedTests"], ["LungfishIntegrationTests.MixedTests/testB()"])
+        self.assertEqual(retry["exitStatus"], 0)
+        self.assertEqual(retry["role"], "diagnostic-retry")
+        self.assertEqual(retry["argv"][retry["argv"].index("--filter") + 1], r"^LungfishIntegrationTests\.MixedTests(/|$)")
+        self.assertNotIn("--skip", retry["argv"], "a gate with no skip pattern passes none to the retry")
+        self.assertFalse(evidence["authorized"])
+
+    def test_a_retry_carries_the_tier_skip_so_that_it_runs_only_tier_tests(self):
+        # The retry selects a whole class. Without the tier's skip pattern it would also run the class's
+        # tests that the tier leaves out, and the evidence would count them as unexpected.
+        result, evidence = self.run_gate("swift_assertion_retry", "--tier", "unit",
+                                         env={"STUB_SWIFT_MODULE": "LungfishWorkflowTests"})
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(evidence["attempts"]), 2, "a swift-testing failure gets one diagnostic retry")
+        primary, retry = evidence["attempts"]
+        skip = _legacy_selection("unit")["skip"]
+        self.assertEqual(primary["argv"][primary["argv"].index("--skip") + 1], skip)
+        self.assertIn("--skip", retry["argv"], "the retry must pass the tier's skip pattern")
+        self.assertEqual(retry["argv"][retry["argv"].index("--skip") + 1], skip)
+        self.assertEqual(retry["argv"][retry["argv"].index("--filter") + 1], r"^LungfishWorkflowTests\.MixedTests(/|$)")
+        self.assertEqual(retry["role"], "diagnostic-retry")
+        self.assertFalse(evidence["authorized"])
+
     # Test hygiene (Phase 2.9 decision H1). gate_evidence.py runs scripts/testing/preferences-leaks.py
     # around the tests, so a leak is an error in gate.result.json and the evidence is never green.
     def test_a_leak_during_the_tests_leaves_unauthorized_evidence(self):
@@ -346,7 +378,8 @@ def events(records):
         pathlib.Path(output).write_text("".join(json.dumps({"version": 0, **r}) + "\n" for r in records))
 def event(kind, **kw):
     return {"kind": "event", "payload": {"kind": kind, **kw}}
-test_id = "LungfishIntegrationTests.MixedTests/testB()/Fixture.swift:1:1"
+# STUB_SWIFT_MODULE moves the swift-testing function out of the integration tier, so that a unit tier run selects it.
+test_id = os.environ.get("STUB_SWIFT_MODULE", "LungfishIntegrationTests") + ".MixedTests/testB()/Fixture.swift:1:1"
 metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
 if args == ["--version"]:
     print("Apple Swift version 6.4 (fixture)")
@@ -361,15 +394,15 @@ if "list" in args:
         if scenario == "missing_case":
             print("LungfishCoreTests.ExampleTests/testMissing")
     else:
-        if scenario in ("mixed", "swift_partial"):
+        if scenario in ("mixed", "swift_partial", "swift_assertion_retry"):
             print(test_id.rsplit("/", 1)[0])
-        events([metadata] if scenario in ("mixed", "swift_partial") else [])
+        events([metadata] if scenario in ("mixed", "swift_partial", "swift_assertion_retry") else [])
     sys.exit(0)
 for name in filter(None, os.environ.get("STUB_WRITES", "").split(",")):
     pathlib.Path(os.environ["LUNGFISH_PREFERENCES_DIR"], name).write_text("{}")
 if scenario == "empty":
     sys.exit(0)
-is_retry = "--filter" in args and "^LungfishCoreTests" in option("--filter")
+is_retry = "--filter" in args and option("--filter").startswith("^Lungfish")
 if scenario == "crash_retry" and not is_retry:
     print("Test Case '-[LungfishCoreTests.ExampleTests testA]' failed (0.1 seconds).")
     print("Segmentation fault: 11")
@@ -377,15 +410,19 @@ if scenario == "crash_retry" and not is_retry:
 if scenario == "killed":
     os.kill(os.getpid(), signal.SIGKILL)
 failed = scenario == "tool_failure" or (scenario == "assertion_retry" and not is_retry)
+# swift_assertion_retry fails one swift-testing function in the primary run, and its retry selects only that
+# function's suite, so the retry runs no XCTest case.
+swift_failed = scenario == "swift_assertion_retry" and not is_retry
+swift_only_retry = scenario == "swift_assertion_retry" and is_retry
 skipped = scenario == "tool_skip"
 status = "failed" if failed else "skipped" if skipped else "passed"
 if scenario == "source_changed":
     pathlib.Path("changed-source.txt").write_text("changed")
-if scenario != "parallel_empty_child":
+if scenario != "parallel_empty_child" and not swift_only_retry:
     print("Test Case '-[LungfishCoreTests.ExampleTests testA]' " + status + " (0.1 seconds).")
 if scenario != "partial":
     print("Test Suite 'Selected tests' " + ("failed" if failed else "passed") + " at 2026-09-05")
-    print("Executed 1 test, with " + ("1" if failed else "0") + " failures (0 unexpected) in 0.1 seconds")
+    print("Executed " + ("0 tests" if swift_only_retry else "1 test") + ", with " + ("1" if failed else "0") + " failures (0 unexpected) in 0.1 seconds")
 xml = option("--xunit-output")
 if xml and "--parallel" in args:
     pathlib.Path(xml).write_text("<testsuites><testsuite tests='1'><testcase classname='LungfishCoreTests.ExampleTests' name='testA'/>" + ("" if scenario == "bad_xml" else "</testsuite></testsuites>"))
@@ -396,11 +433,20 @@ if scenario == "swift_run_issue":
     records += [event("issueRecorded", issue={"isKnown": False, "isFailure": True})]
 if scenario in ("mixed", "swift_partial"):
     records += [metadata, event("testStarted", testID=test_id), event("testEnded", testID=test_id)]
+if scenario == "swift_assertion_retry":
+    records += [metadata, event("testStarted", testID=test_id)]
+    if swift_failed:
+        records += [event("issueRecorded", testID=test_id, issue={"isKnown": False, "isFailure": True})]
+    records += [event("testEnded", testID=test_id)]
 if scenario != "swift_partial":
     records += [event("runEnded")]
 events(records)
-print("✔ Test run with 0 tests passed after 0.001 seconds.")
-sys.exit(1 if failed else 0)
+if swift_failed:
+    print("✘ Test testB() recorded an issue at Fixture.swift:1:1: Expectation failed")
+    print("✘ Test run with 1 test failed after 0.001 seconds.")
+else:
+    print("✔ Test run with 0 tests passed after 0.001 seconds.")
+sys.exit(1 if failed or swift_failed else 0)
 '''
 
 if __name__ == "__main__":

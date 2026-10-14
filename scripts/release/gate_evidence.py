@@ -612,15 +612,17 @@ def run_swift_gate(args):
             attempts.append(result)
             return result
         primary = attempt("primary", args.filter, args.skip, args.parallel, "authoritative", selection)
-        # Assertion-only failures from complete runs can be diagnosed in
-        # isolation. Neither a clean diagnostic nor any retry changes primary.
-        xctest = primary["harnesses"]["xctest"]
-        classes = sorted({t.split("/")[0] for t in xctest["failedTests"]})
-        if primary["exitStatus"] == 1 and all(h["completed"] for h in primary["harnesses"].values()) and not primary["harnesses"]["swift-testing"]["failures"] and 1 <= len(classes) <= 12:
+        # Assertion-only failures from complete runs, in XCTest or swift-testing, can be diagnosed in
+        # isolation. Neither a clean diagnostic nor any retry changes primary. A retry cannot tell a
+        # flake from a defect, because a class that fails only beside other tests passes alone, so a
+        # green retry means only that the class does not fail alone.
+        failed = [t for h in primary["harnesses"].values() for t in h["failedTests"] if t != "<run>"]
+        classes = sorted({t.split("/")[0] for t in failed})
+        if primary["exitStatus"] == 1 and all(h["completed"] for h in primary["harnesses"].values()) and 1 <= len(classes) <= 12:
             for index, suite in enumerate(classes):
                 include = "^" + re.escape(suite) + "(/|$)"
                 chosen = {h: selected(tests, include, "") for h, tests in selection.items()}
-                attempt(f"retry-{index}", include, "", False, "diagnostic-retry", chosen)
+                attempt(f"retry-{index}", include, args.skip, False, "diagnostic-retry", chosen)
     if preferences_before.is_file():
         errors += preferences_leaks(root, directory, "check", "--before", str(preferences_before))
     if source_identity(root) != source:
