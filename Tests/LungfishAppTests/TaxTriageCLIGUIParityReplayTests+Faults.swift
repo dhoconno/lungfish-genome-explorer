@@ -254,9 +254,10 @@ extension TaxTriageParityHarness {
 
     /// X7 on every side, today's rebuild after the cleanup (2.8 row 258). The cleanup deleted
     /// `top/`, where the sample's only rows came from, so the `--force` rebuild of the single
-    /// result fails and keeps the database it had. On a side whose run keeps `top/` (sides C and
-    /// C', the executor's finalize of 2.8 T5), the run built the database and the rebuild
-    /// completes.
+    /// result fails and keeps the database it had. On a side whose result keeps `top/`
+    /// (`keepsTop(on:)`, sides B, C and C'), the run builds the database, and its cleanup keeps
+    /// `top/` and the rebuild completes, each fact under its own id. Side B's plain `--output`
+    /// run builds none, which it declares.
     func rebuildViolations(run: TaxTriageParitySideRun, keepsTop: Bool, violate: (String, String) -> Void) {
         guard let rebuild = run.rebuild else {
             violate("the result is rebuilt after the cleanup", "no rebuild ran")
@@ -266,8 +267,12 @@ extension TaxTriageParityHarness {
             violate("the app's build-db builds the database first", "\(firstBuild)")
         }
         if keepsTop {
-            if rebuild.firstBuild != nil || !rebuild.topBefore || rebuild.outcome != .completed {
-                violate("the run builds the database, its cleanup keeps top/ and the --force rebuild completes", "\(rebuild)")
+            // One id per fact, so a side that declares the first is still held to the second.
+            if rebuild.firstBuild != nil {
+                violate("the run builds the database", "\(rebuild)")
+            }
+            if !rebuild.topBefore || rebuild.outcome != .completed {
+                violate("its cleanup keeps top/ and the --force rebuild completes", "\(rebuild)")
             }
             return
         }

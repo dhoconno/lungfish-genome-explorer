@@ -229,7 +229,7 @@ enum TaxTriageParityKnownDifferences {
         TaxTriageParityKnownDifference(
             counts: [.x7: 1],
             scope: .side(.b),
-            id: "fact: the run builds the database, its cleanup keeps top/ and the --force rebuild completes",
+            id: "fact: the run builds the database",
             reason: "Side B's one-sample row records a plain --output, whose run builds no database, so X7 runs the app's build-db on side B first. Since B30's review fix 8 that build runs the executor's cleanup, which keeps top/ and records the build in the root record, and the --force rebuild completes",
             closedBy: rowSpelling
         ),
