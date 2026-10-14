@@ -279,9 +279,10 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
                     )
                 )
                 if !globalOptions.quiet {
-                    print(formatter.success(
-                        "Extracted \(result.nucleotideSequence.count) bp to \(bundleURL.path)"
-                    ))
+                    printHumanLine(
+                        formatter.success("Extracted \(result.nucleotideSequence.count) bp to \(bundleURL.path)"),
+                        eventsOn: globalOptions.outputFormat == .json
+                    )
                 }
             } else {
                 try fastaOutput.write(
@@ -311,16 +312,22 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
                     outputDirectory: outputURL.deletingLastPathComponent()
                 )
                 if !globalOptions.quiet {
-                    print(formatter.success(
-                        "Extracted \(result.nucleotideSequence.count) bp to \(outputPath)"
-                    ))
+                    printHumanLine(
+                        formatter.success("Extracted \(result.nucleotideSequence.count) bp to \(outputPath)"),
+                        eventsOn: globalOptions.outputFormat == .json
+                    )
                 }
             }
         } else {
             if !globalOptions.quiet && globalOptions.outputFormat == .text {
                 printStatusLine(formatter.info("Extracted \(result.nucleotideSequence.count) bp:"))
             }
-            print(fastaOutput, terminator: "")
+            if globalOptions.outputFormat == .json {
+                // Standard output holds the JSON result alone (2.6 row 213), so the FASTA goes to standard error.
+                FileHandle.standardError.write(Data(fastaOutput.utf8))
+            } else {
+                print(fastaOutput, terminator: "")
+            }
         }
 
         // JSON output

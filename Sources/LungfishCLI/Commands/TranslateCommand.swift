@@ -216,10 +216,16 @@ struct TranslateCommand: AsyncParsableCommand {
                 outputDirectory: outputURL.deletingLastPathComponent()
             )
             if !globalOptions.quiet {
-                print(formatter.success(
-                    "Wrote \(translationCount) translation(s) from \(sequences.count) sequence(s) to \(outputPath)"
-                ))
+                printHumanLine(
+                    formatter.success(
+                        "Wrote \(translationCount) translation(s) from \(sequences.count) sequence(s) to \(outputPath)"
+                    ),
+                    eventsOn: globalOptions.outputFormat == .json
+                )
             }
+        } else if globalOptions.outputFormat == .json {
+            // Standard output holds the JSON result alone (2.6 row 213), so the FASTA goes to standard error.
+            FileHandle.standardError.write(Data(outputText.utf8))
         } else {
             print(outputText, terminator: "")
         }

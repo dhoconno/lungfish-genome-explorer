@@ -82,9 +82,13 @@ struct ConvertCommand: AsyncParsableCommand {
                 reason: "Input and output must be different files. In-place, symlink and hard-link aliases are not supported.")
         }
 
-        // Show progress
+        // Show progress. Under `--format json` the text goes to standard error, so standard output
+        // holds the JSON result alone (2.6 row 213).
         if !globalOptions.quiet {
-            print(formatter.info("Converting \(inputURL.lastPathComponent) to \(toFormat.uppercased())..."))
+            printHumanLine(
+                formatter.info("Converting \(inputURL.lastPathComponent) to \(toFormat.uppercased())..."),
+                eventsOn: globalOptions.outputFormat == .json
+            )
         }
 
         // Detect input format and read - strip .gz extension for format detection
@@ -265,9 +269,12 @@ struct ConvertCommand: AsyncParsableCommand {
             try publication.rollback(after: error)
         }
 
-        // Success message
+        // Success message, on standard error under `--format json`
         if !globalOptions.quiet {
-            print(formatter.success("Converted \(sequences.count) sequence(s) to \(outputURL.lastPathComponent)"))
+            printHumanLine(
+                formatter.success("Converted \(sequences.count) sequence(s) to \(outputURL.lastPathComponent)"),
+                eventsOn: globalOptions.outputFormat == .json
+            )
         }
 
         // JSON output
