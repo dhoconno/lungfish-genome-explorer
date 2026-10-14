@@ -37,7 +37,7 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
     var threads: Int { globalOptions.threads ?? 1 }
 
-    @Option(name: .customLong("chunk-jobs"), help: "Compatibility option for legacy chunked demux paths")
+    @Option(name: .customLong("chunk-jobs"), help: "Compatibility option for legacy chunked demux paths (default: active cores)")
     var chunkJobs: Int = ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs
 
     @Option(name: .customLong("max-reads-per-slice"), help: "Compatibility option for legacy chunked demux paths; 0 disables sub-slicing")
