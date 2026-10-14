@@ -130,6 +130,8 @@ final class ManagedToolLeavesTests: XCTestCase {
         CondaCommand.packStatusServiceOverride = Fixtures.PackService(.stall, atWork: atWork)
         let command = try CondaCommand.InstallSubcommand.parse(["--pack", pack.id, "--reinstall", "--format", "json"])
         let lines = Fixtures.Lines()
+        let previousSIGTERM = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previousSIGTERM) }
         let run = Task { try await command.executePacks(eventsOn: true, quiet: true, emit: lines.append) }
 
         let started = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) { atWork.isSet }
@@ -231,6 +233,8 @@ final class ManagedToolLeavesTests: XCTestCase {
         ToolsCommand.servicesOverride = Fixtures.services(behaviour: .stall, atWork: atWork)
         let lines = Fixtures.Lines()
         let command = try toolsCommand()
+        let previousSIGTERM = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previousSIGTERM) }
         let run = Task { try await command.execute(emit: lines.append) }
 
         let started = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) { atWork.isSet }
@@ -279,6 +283,8 @@ final class ManagedToolLeavesTests: XCTestCase {
         DbCommand.DbUpdateSubcommand.registryOverride = try await Fixtures.registry(in: base, stalling: true, atWork: atWork)
         let lines = Fixtures.Lines()
         let command = try dbCommand()
+        let previousSIGTERM = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previousSIGTERM) }
         let run = Task { try await command.execute(eventsOn: true, quiet: true, emit: lines.append) }
 
         let started = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) { atWork.isSet }
