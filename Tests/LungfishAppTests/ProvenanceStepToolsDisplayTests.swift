@@ -138,15 +138,68 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         XCTAssertTrue(model.copyableText.contains("\nTool: taxtriage \(commit)\n"), model.copyableText)
     }
 
-    /// Row 273. A record the command line wrote lists the helper steps LGE ran itself when their names do not
-    /// start with `lungfish` or `LGE `, such as the `URLSession` step of a database download.
-    func testALungfishCLIRecordListsAURLSessionStepInStepTools() async throws {
+    // MARK: - Helper steps LGE records for its own calls (Phase 2.10 lane U35, M2 item 1)
+
+    /// Row 273. A step LGE records for a library or system call it makes itself names no program a scientist ran, so
+    /// the row leaves it out although its name does not start with `lungfish` or `LGE `. The Lineage still lists it.
+    /// `helper` is a step of a real writer with the version that writer records.
+    private func assertTheRowLeavesOut(
+        _ helper: (tool: String, version: String), file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let model = try await loadedModel(try commandLineRecord(steps: [helper, ("kraken2", "2.17.1")]))
+
+        XCTAssertEqual(model.stepToolsText, "kraken2 v2.17.1", file: file, line: line)
+        XCTAssertTrue(
+            model.copyableText.contains("Step Tools: kraken2 v2.17.1\n"), model.copyableText, file: file, line: line
+        )
+        XCTAssertEqual(model.lineageRuns.last?.steps.map(\.toolName), [helper.tool, "kraken2"], file: file, line: line)
+    }
+
+    /// `DatabaseRegistry` records the download of a database, and its checksum, as `URLSession` and `CryptoKit` steps.
+    func testTheURLSessionStepOfADatabaseDownloadIsLeftOutOfTheRow() async throws {
+        try await assertTheRowLeavesOut(("URLSession", "Foundation"))
+    }
+
+    func testTheCryptoKitStepOfAChecksumIsLeftOutOfTheRow() async throws {
+        try await assertTheRowLeavesOut(("CryptoKit", "Insecure.MD5"))
+    }
+
+    func testTheClonefileStepOfAnAPFSCopyIsLeftOutOfTheRow() async throws {
+        try await assertTheRowLeavesOut(("clonefile", "APFS"))
+    }
+
+    func testTheProjectTempDirectoryStepIsLeftOutOfTheRow() async throws {
+        try await assertTheRowLeavesOut(("ProjectTempDirectory", "2026.10.14"))
+    }
+
+    func testTheNCBIEFetchStepOfAFetchIsLeftOutOfTheRow() async throws {
+        try await assertTheRowLeavesOut(("ncbi-efetch", "NCBI E-utilities API"))
+    }
+
+    /// `ena-fetch-fasta` is the ENA twin of `ncbi-efetch`, recorded by the same command with the same kind of version.
+    func testTheENAFetchStepOfAFetchIsLeftOutOfTheRow() async throws {
+        try await assertTheRowLeavesOut(("ena-fetch-fasta", "ENA Browser API"))
+    }
+
+    func testTheHTTPSDownloadStepOfAReadDownloadIsLeftOutOfTheRow() async throws {
+        try await assertTheRowLeavesOut(("https-download", "URLSession"))
+    }
+
+    /// A record whose every step is one of these helpers names no program, so the row does not show.
+    func testARecordWhoseStepsAreAllHelpersShowsNoRow() async throws {
         let model = try await loadedModel(
-            try commandLineRecord(steps: [("URLSession", "Foundation"), ("kraken2", "2.17.1")])
+            try commandLineRecord(steps: [("URLSession", "Foundation"), ("CryptoKit", "Insecure.MD5")])
         )
 
-        XCTAssertEqual(model.stepToolsText, "URLSession Foundation, kraken2 v2.17.1")
-        XCTAssertTrue(model.copyableText.contains("Step Tools: URLSession Foundation, kraken2 v2.17.1\n"), model.copyableText)
+        XCTAssertNil(model.stepToolsText)
+        XCTAssertFalse(model.copyableText.contains("Step Tools"), model.copyableText)
+    }
+
+    /// The set names whole steps. A program whose name only contains a helper's name still shows.
+    func testAProgramWhoseNameOnlyContainsAHelperNameStillShows() async throws {
+        let model = try await loadedModel(try commandLineRecord(steps: [("URLSession-proxy", "1.0"), ("kraken2", "2.17.1")]))
+
+        XCTAssertEqual(model.stepToolsText, "URLSession-proxy v1.0, kraken2 v2.17.1")
     }
 
     /// Row 273. The reader resolves `@/` inside the stored command and adds no quotes, so the full command of a

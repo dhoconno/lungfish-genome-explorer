@@ -63,11 +63,21 @@ extension ProvenanceInspectorViewModel {
         text.isEmpty || text.lowercased() == "unknown"
     }
 
+    /// The helper steps LGE records for a library or system call it makes itself, whose names do not start with
+    /// `lungfish` or `LGE ` (Phase 2.10 lane U35, row 273 of Phase 2.8). They are lower case, and a name matches
+    /// whole, so a program whose name only contains one of them still shows. The writers are `DatabaseRegistry`
+    /// (`URLSession`, `CryptoKit`, `clonefile`), `ProjectTempDirectory`, `FetchCommand` (`ncbi-efetch` and
+    /// `ena-fetch-fasta`) and the SRA read download (`https-download`).
+    private static let lgeHelperSteps: Set<String> = [
+        "urlsession", "cryptokit", "clonefile", "projecttempdirectory", "ncbi-efetch", "ena-fetch-fasta", "https-download",
+    ]
+
     /// True for a step LGE ran itself, such as `lungfish-cli fastq materialize`, `lungfish-kraken2-index`,
-    /// `Lungfish Classification Result Sidecar` or `LGE primer ordering`. Lineage lists such a step, and the
-    /// row keeps to the programs LGE ran.
+    /// `Lungfish Classification Result Sidecar`, `LGE primer ordering` or a named helper such as `URLSession`.
+    /// Lineage lists such a step, and the row keeps to the programs LGE ran. LGE names its own steps `lungfish...`
+    /// or `LGE ...` in an open family of names, so the prefix test stays beside the named set.
     private static func isLGEsOwnStep(_ name: String) -> Bool {
         let lowered = name.lowercased()
-        return lowered.hasPrefix("lungfish") || lowered.hasPrefix("lge ")
+        return lowered.hasPrefix("lungfish") || lowered.hasPrefix("lge ") || lgeHelperSteps.contains(lowered)
     }
 }
