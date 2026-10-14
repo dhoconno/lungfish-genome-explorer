@@ -44,7 +44,7 @@ final class KrakenCompactionOrderTests: XCTestCase {
         let removal = try step(ClassificationPipeline.kraken2OutputRemovalToolName)
         XCTAssertEqual(index.dependsOn, [kraken2])
         XCTAssertEqual(gzip.dependsOn, [kraken2])
-        XCTAssertEqual(Set(removal.dependsOn), [index.id, gzip.id], "the removal waits for both readers of the file")
+        XCTAssertEqual(removal.dependsOn, [index.id, gzip.id], "the removal waits for both readers of the file")
         XCTAssertEqual(removal.inputs.map(\.path), [raw.path])
         XCTAssertEqual(steps.map(\.toolName), ["kraken2", "lungfish-kraken2-index", "gzip", ClassificationPipeline.kraken2OutputRemovalToolName])
     }
@@ -64,8 +64,8 @@ final class KrakenCompactionOrderTests: XCTestCase {
         let gzip = try KrakenRecordRemoval.step("gzip", in: envelope)
         let removal = try KrakenRecordRemoval.step(ClassificationPipeline.kraken2OutputRemovalToolName, in: envelope)
         let sidecar = try KrakenRecordRemoval.step("Lungfish Classification Result Sidecar", in: envelope)
-        XCTAssertEqual(Set(removal.dependsOn), [index.id, gzip.id])
-        XCTAssertEqual(Set(sidecar.dependsOn), [kraken.id, index.id, gzip.id])
+        XCTAssertEqual(removal.dependsOn, [index.id, gzip.id])
+        XCTAssertEqual(sidecar.dependsOn, [kraken.id, index.id, gzip.id])
         XCTAssertEqual(sidecar.dependsOn.count, 3, "each step once")
         XCTAssertEqual(KrakenRecordRemoval.problems(in: envelope), [])
     }
@@ -84,7 +84,7 @@ final class KrakenCompactionOrderTests: XCTestCase {
         let gzip = try KrakenRecordRemoval.step("gzip", in: envelope)
         let removal = try KrakenRecordRemoval.step(ClassificationPipeline.kraken2OutputRemovalToolName, in: envelope)
         let sidecar = try KrakenRecordRemoval.step("Lungfish Classification Result Sidecar", in: envelope)
-        XCTAssertEqual(Set(removal.dependsOn), [index.id, gzip.id])
-        XCTAssertEqual(Set(sidecar.dependsOn), [bracken.id, index.id, gzip.id])
+        XCTAssertEqual(removal.dependsOn, [index.id, gzip.id])
+        XCTAssertEqual(sidecar.dependsOn, [bracken.id, index.id, gzip.id])
     }
 }
