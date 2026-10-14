@@ -19,8 +19,14 @@ enum NCBIGenomeStandIn {
     static let assemblyAccession = "GCF_000000001.1"
     static let unknownAccession = "GCF_000000009.9"
 
-    /// Starts the stand-in. `served` is a scratch folder for the gzip files it serves.
-    static func start(servingIn served: URL) async throws -> LoopbackHTTPStandIn {
+    /// The FTP path of the assembly's genomic FASTA.
+    static let assemblyFASTAPath = NCBIDownloadPinFixtures.assemblyFTPPath + "/"
+        + NCBIDownloadPinFixtures.assemblyDirectory + "_genomic.fna.gz"
+
+    /// Starts the stand-in. `served` is a scratch folder for the gzip files it serves. With `hold`,
+    /// a GET of an assembly's genomic FASTA waits until the test releases it, so a test can cancel
+    /// a run while it downloads.
+    static func start(servingIn served: URL, holding hold: StandInHold? = nil) async throws -> LoopbackHTTPStandIn {
         try FileManager.default.createDirectory(at: served, withIntermediateDirectories: true)
         let folder = NCBIDownloadPinFixtures.assemblyFTPPath + "/" + NCBIDownloadPinFixtures.assemblyDirectory
         let routes: [String: LoopbackHTTPResponse] = [
@@ -47,6 +53,9 @@ enum NCBIGenomeStandIn {
                 default: return .notFound
                 }
             default:
+                if let hold, request.method == "GET", request.path.hasSuffix("_genomic.fna.gz") {
+                    hold.waitForRelease()
+                }
                 return routes[request.path] ?? .notFound
             }
         }
@@ -62,6 +71,21 @@ enum NCBIGenomeStandIn {
         XCTAssertTrue(result.isSuccess, result.combinedOutput)
         let compressed = try Data(contentsOf: plain.appendingPathExtension("gz"))
         return LoopbackHTTPResponse(contentType: "application/x-gzip", body: compressed)
+    }
+}
+
+/// Holds the stand-in's answer to a genomic FASTA until the test releases it, or for 30 seconds.
+final class StandInHold: Sendable {
+    private let released = DispatchSemaphore(value: 0)
+
+    func waitForRelease() {
+        if released.wait(timeout: .now() + 30) == .success {
+            released.signal() // The next held request passes too.
+        }
+    }
+
+    func release() {
+        released.signal()
     }
 }
 
