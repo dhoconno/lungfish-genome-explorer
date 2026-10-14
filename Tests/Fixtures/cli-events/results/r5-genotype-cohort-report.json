@@ -1,0 +1,19 @@
+{
+  "assignedUniqueRetainedReads" : 5120,
+  "mappingBAIPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq.md.sorted.bam.bai",
+  "mappingBAMPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq.md.sorted.bam",
+  "outputDirectory" : "\/work\/Analyses\/miseq.lungfishgenotype",
+  "provenancePath" : "\/work\/Analyses\/miseq.lungfishgenotype\/retained-demux-genotyping-provenance.json",
+  "referenceFASTAPath" : "\/work\/ref.lungfishref\/genome\/sequence.fa.gz",
+  "reportCSVPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq.retained-demux-genotypes.csv",
+  "retainedBAIPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq.retained.demuxed.bam.bai",
+  "retainedBAMPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq.retained.demuxed.bam",
+  "retainedUniquePercentOfTotalReads" : 31.25,
+  "retainedUniqueReads" : 5200,
+  "sampleSummaryCSVPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq.retained-demux-samples.csv",
+  "sourceReferenceBundlePath" : "\/work\/ref.lungfishref",
+  "statsJSONPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq.retained-demux-stats.json",
+  "totalInputReads" : 16640,
+  "unassignedUniqueRetainedReads" : 80,
+  "workbookPath" : "\/work\/Analyses\/miseq.lungfishgenotype\/miseq_miSeq.xlsx"
+}

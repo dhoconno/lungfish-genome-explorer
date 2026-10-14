@@ -1,0 +1,29 @@
+{
+  "candidateAllelesFASTAPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/sequences\/candidate-alleles.fasta",
+  "candidateAllelesGenBankPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/sequences\/candidate-alleles.gb",
+  "candidateAllelesJSONPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/sequences\/candidate-alleles.json",
+  "cdnaClustersFASTAPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/cdna_clusters.fasta",
+  "cleanupWarnings" : [
+
+  ],
+  "deduplicatedUnmatchedClustersFASTAPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/unmatched_clusters.deduplicated.fasta",
+  "genotypingEvidenceBAIPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/alignments\/genotyping-evidence.bam.bai",
+  "genotypingEvidenceBAMPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/alignments\/genotyping-evidence.bam",
+  "haplotypeAnalysisPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/nb13.haplotype-analysis.json",
+  "manifestPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/lungfish-genotype-result.json",
+  "outputDirectory" : "\/work\/Analyses\/nb13.lungfishgenotype",
+  "provenancePath" : "\/work\/Analyses\/nb13.lungfishgenotype\/full-length-ont-mhc-genotyping-provenance.json",
+  "reciprocalEvidenceBAIPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/alignments\/reciprocal-evidence.bam.bai",
+  "reciprocalEvidenceBAMPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/alignments\/reciprocal-evidence.bam",
+  "referenceCatalogJSONPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/reference\/mhc-reference-catalog.json",
+  "referenceFASTAPath" : "\/work\/Mamu-class-I.lungfishmhcref\/reference.fa",
+  "reportCSVPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/nb13.full-length-ont-mhc-genotypes.csv",
+  "sampleSummaryCSVPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/nb13.full-length-ont-mhc-samples.csv",
+  "statsJSONPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/nb13.full-length-ont-mhc-stats.json",
+  "unmatchedClustersFASTAPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/unmatched_clusters.fasta",
+  "unnameableClustersFASTAPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/sequences\/unnameable-clusters.fasta",
+  "unnameableClustersGenBankPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/sequences\/unnameable-clusters.gb",
+  "unnameableClustersJSONPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/sequences\/unnameable-clusters.json",
+  "workbookPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/nb13.full-length-ont-mhc-genotypes.xlsx",
+  "workbookProjectionInputJSONPath" : "\/work\/Analyses\/nb13.lungfishgenotype\/artifacts\/projections\/mhc-workbook-projection-input.json"
+}

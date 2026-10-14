@@ -1,0 +1,19 @@
+{
+  "assignedUniqueRetainedReads" : 413,
+  "mappingBAIPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont.md.sorted.bam.bai",
+  "mappingBAMPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont.md.sorted.bam",
+  "outputDirectory" : "\/work\/Analyses\/reads-ont.lungfishgenotype",
+  "provenancePath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/retained-demux-genotyping-provenance.json",
+  "referenceFASTAPath" : "\/work\/ref.lungfishref\/genome\/sequence.fa.gz",
+  "reportCSVPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont.retained-demux-genotypes.csv",
+  "retainedBAIPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont.retained.demuxed.bam.bai",
+  "retainedBAMPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont.retained.demuxed.bam",
+  "retainedUniquePercentOfTotalReads" : 42.5,
+  "retainedUniqueReads" : 425,
+  "sampleSummaryCSVPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont.retained-demux-samples.csv",
+  "sourceReferenceBundlePath" : "\/work\/ref.lungfishref",
+  "statsJSONPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont.retained-demux-stats.json",
+  "totalInputReads" : 1000,
+  "unassignedUniqueRetainedReads" : 12,
+  "workbookPath" : "\/work\/Analyses\/reads-ont.lungfishgenotype\/reads-ont_ONT08.xlsx"
+}

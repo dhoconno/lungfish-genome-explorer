@@ -434,7 +434,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
     /// `fastq genotype`, `fastq genotype-cohort` and the deprecated `fastq ont-barcode-genotype` print, which
     /// the inventory counted as two schemas. The tests run the service against a stub CLI that prints the
     /// payload, and they do not fail when a key of it goes missing, because the service falls back to the
-    /// paths of the request. No test pins the shape of the payloads, and sub-phase 2.8 moves the types into Workflow.
+    /// paths of the request. `GenotypingCLIPayloadFixtureTests` decodes a fixture of each document with
+    /// `JSONDecoder` and no fallback, and the fixtures sit in the results folder with the others.
     private static let schemasThatDecodeInApp: [(schemaID: String, decoder: String, test: String)] = [
         ("r1-ont-barcode-genotyping", "ONTGenotypingCLIPayload", "testONTGenotypingRunsThroughSampleBundleCLIAndReportsWorkbookOutput"),
         ("r5-genotype-cohort-report", "ONTGenotypingCLIPayload", "testONTGenotypingRunsThroughSampleBundleCLIAndReportsWorkbookOutput"),
@@ -563,10 +564,11 @@ final class CLIEventContractCoverageTests: XCTestCase {
     func testResultFixturesAreTheFilesOfTheDecodedSchemasAndHoldNoPersonalPath() throws {
         let files = try FileManager.default.contentsOfDirectory(atPath: Self.resultsFolder.path)
             .filter { $0.hasSuffix(".json") }
+        let fixtureSchemas = Set(Self.decodedFixtures.keys).union(Self.schemasThatDecodeInApp.map(\.schemaID))
         XCTAssertEqual(
             Set(files),
-            Set(Self.decodedFixtures.keys.map { "\($0).json" }),
-            "The results folder holds one fixture for each decoded schema and nothing else"
+            Set(fixtureSchemas.map { "\($0).json" }),
+            "The results folder holds one fixture for each schema decoded here or in the app and nothing else"
         )
         for file in files {
             let text = try String(contentsOf: Self.resultsFolder.appendingPathComponent(file), encoding: .utf8)
