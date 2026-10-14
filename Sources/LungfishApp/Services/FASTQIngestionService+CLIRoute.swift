@@ -110,40 +110,32 @@ extension FASTQIngestionService {
         operationID opID: UUID,
         runner: CLIReadsRunner
     ) async {
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                _ = OperationCenter.shared.updateWithLog(
-                    id: opID,
-                    progress: 0,
-                    detail: "Waiting for available import slot\u{2026}"
-                )
-            }
+        // Each row change hops to the main actor and waits for it, so the end of the row never races
+        // the events the bridge handed over before it (`concurrency-hatches` stays flat).
+        await MainActor.run {
+            _ = OperationCenter.shared.updateWithLog(
+                id: opID,
+                progress: 0,
+                detail: "Waiting for available import slot\u{2026}"
+            )
         }
         do {
             let completion = try await withImportSlot {
                 try await runner.runEvents(arguments: arguments, operationID: opID, startAsLog: true)
             }
             let detail = completion.message ?? "Clumpified and compressed"
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
-                }
-            }
+            await OperationCenterCLIBridge.completeOperation(opID, detail: detail, bundleURLs: [])
         } catch is CancellationError {
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
-                }
+            await MainActor.run {
+                _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled")
             }
         } catch {
             logger.error("Ingestion failed: \(error)")
             // The row takes the user-facing message and keeps the raw text for diagnostics.
             let message = error.localizedDescription
             let raw = "\(error)"
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: message, errorMessage: message, errorDetail: raw)
-                }
+            await MainActor.run {
+                _ = OperationCenter.shared.fail(id: opID, detail: message, errorMessage: message, errorDetail: raw)
             }
         }
     }
