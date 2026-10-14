@@ -23,6 +23,21 @@ extension RunSubcommand {
         )
     }
 
+    /// The step's resolved options: `pipelineSource`, the `nextflowVersion` the engine's own debug log or the probe of
+    /// the launched executable named (N3, absent otherwise), and, for a revision that is not itself a full commit, the
+    /// `resolvedCommit` Nextflow's `Launching` line names (2.9 R2, B20). A run that never launched has no engine facts.
+    static func viralReconResolvedOptions(
+        _ facts: NextflowRecordFacts,
+        engine: ViralReconEngineFacts?
+    ) -> [String: ParameterValue] {
+        var options = facts.resolvedOptions(nextflowVersion: engine?.nextflowVersion)
+        let namesFullCommit = facts.toolVersion.range(of: #"^[0-9a-f]{40}$"#, options: .regularExpression) != nil
+        if !namesFullCommit, let commit = engine?.launchedCommit {
+            options["resolvedCommit"] = .string(commit)
+        }
+        return options
+    }
+
     /// The run's options, split by 2.7 E12 into what the caller chose and what the command applied unasked.
     ///
     /// A pipeline parameter is explicit when the caller passed it with the value that ran, and `input` and `outdir`

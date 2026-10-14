@@ -78,6 +78,51 @@ package struct NextflowRecordFacts: Sendable, Equatable {
         }
         return text[line].split(whereSeparator: \.isWhitespace).last.map(String.init)
     }
+
+    /// The step's resolved options for a writer that found the Nextflow version itself (Phase 2.10 N3),
+    /// `pipelineSource` and, when it is known, `nextflowVersion`.
+    package func resolvedOptions(nextflowVersion: String?) -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = ["pipelineSource": .string(pipelineSource.rawValue)]
+        if let nextflowVersion {
+            options["nextflowVersion"] = .string(nextflowVersion)
+        }
+        return options
+    }
+
+    /// The version of the Nextflow that ran, from its own debug log `.nextflow.log` in the launch folder, or nil (N3).
+    ///
+    /// Nextflow 26.04.6 logs `<date> <time> [main] INFO  nextflow.cli.CmdRun - N E X T F L O W  ~  version 26.04.6` as the
+    /// second line of that log (Q35's real run V1, `warm-meta/nextflow.log`). Only that logger's line counts, so the
+    /// argv the launcher logs on the first line never stands in for it.
+    package static func nextflowVersion(inDebugLog text: String) -> String? {
+        firstCapture(
+            #"(?m)^[A-Z][a-z]{2}-[0-9]{2} [0-9:.]+ \[main\] INFO +nextflow\.cli\.CmdRun - N E X T F L O W[ \t]+~[ \t]+version[ \t]+([0-9][0-9A-Za-z.\-]*)"#,
+            in: text)
+    }
+
+    /// The version `nextflow -version` printed, or nil (N3). Nextflow 26.04.6 prints `version 26.04.6 build 12646` as a
+    /// line of its banner, and the one-line form `nextflow version 26.04.6.12646` that `-v` prints ends with the build.
+    package static func nextflowVersion(inVersionOutput text: String) -> String? {
+        firstCapture(#"(?m)^[ \t]*version[ \t]+([0-9][0-9A-Za-z.\-]*)[ \t]+build[ \t]+[0-9]+"#, in: text)
+            ?? firstCapture(#"(?m)^nextflow version ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+)?)\.[0-9]+[ \t]*$"#, in: text)
+    }
+
+    /// The commit Nextflow resolved, as the first `Launching` line of `text` names it, or nil (2.9 R2). Nextflow 26.04.6
+    /// names its first ten characters, as in `Launching `https://github.com/nf-core/viralrecon` [fervent_ochoa] -
+    /// revision: 395079f1d2 [3.0.0]`, after the logger's name in its debug log and at the start of a console line.
+    package static func launchedCommit(inLog text: String) -> String? {
+        firstCapture(#"(?m)(?:^|nextflow\.cli\.CmdRun - )Launching `[^`]+` \[[^\]]+\] - revision: ([0-9a-f]{7,40})\b"#, in: text)
+    }
+
+    private static func firstCapture(_ pattern: String, in text: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text)
+        else {
+            return nil
+        }
+        return String(text[range])
+    }
 }
 
 /// Where the code a Nextflow step launched came from (decision T6 (c)). LGE patches neither, so both hold the code of

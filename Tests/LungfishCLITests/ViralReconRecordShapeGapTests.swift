@@ -95,7 +95,9 @@ final class ViralReconRecordShapeGapTests: XCTestCase {
         XCTAssertEqual(step.startedAt, manifest.startedAt)
         XCTAssertEqual(step.completedAt, manifest.completedAt)
         XCTAssertEqual(record.createdAt, manifest.startedAt)
-        XCTAssertNil(step.resolvedOptions["nextflowVersion"], "gap, the engine's debug log names 26.04.6")
+        // N3 and 2.9 R2. The engine's own debug log names the version that ran and the commit tag 3.0.0 resolved to.
+        XCTAssertEqual(step.resolvedOptions["nextflowVersion"], .string("26.04.6"))
+        XCTAssertEqual(step.resolvedOptions["resolvedCommit"], .string("395079f1d2"))
         XCTAssertEqual(step.inputs.map(\.path), [run.samplesheet.path] + run.reads.map(\.path) + [run.primerBED.path])
         for input in step.inputs {
             let bytes = try Data(contentsOf: URL(fileURLWithPath: input.path))
@@ -145,7 +147,8 @@ struct ViralReconLaunchedRun {
 
     /// Runs one paired Illumina amplicon sample with two CPUs and 4 GB, as the app's wizard asks, in `root`.
     static func run(
-        in root: URL, debugLog: [String]? = debugLogLines, extraArguments: [String] = []
+        in root: URL, debugLog: [String]? = debugLogLines, extraArguments: [String] = [],
+        using other: (any NFCoreWorkflowProcessRunning)? = nil
     ) async throws -> ViralReconLaunchedRun {
         let reads = ["S1_R1.fastq", "S1_R2.fastq"].map { root.appendingPathComponent("reads/\($0)") }
         try FileManager.default.createDirectory(at: reads[0].deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -175,7 +178,7 @@ struct ViralReconLaunchedRun {
             "--param", "max_cpus=2",
             "--param", "max_memory=4.GB",
             "--quiet",
-        ] + extraArguments).run(nfCoreRunner: runner)
+        ] + extraArguments).run(nfCoreRunner: other ?? runner)
         return ViralReconLaunchedRun(
             bundle: bundle, results: results, samplesheet: samplesheet, reads: reads, primerBED: primerBED, runner: runner)
     }

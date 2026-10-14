@@ -300,6 +300,9 @@ extension RunSubcommand {
             for: plannedRequest.viralReconLaunch(samplesheet: engineSamplesheetURL, configFiles: resourcePlan.configFiles))
         // From here the manifest records the command the engine got, never the request's preview (Q33 fix 8).
         let launchCommand = NFCoreRunCommandBuilder.commandPreview(nextflowArguments: launchArguments)
+        // N3. The Nextflow the launch starts is asked its version before the launch, never inside a cancel.
+        let versionProbe = await (Self.nfCoreWorkflowProcessRunner as? any NFCoreEngineVersionProbing)?.probeEngineVersion()
+        let logFile = runBundleURL.appendingPathComponent("logs/nextflow.log")
         // The engine streams its output into logs/nextflow.log as it runs (2.9 N8).
         let processResult: NFCoreWorkflowProcessResult
         do {
@@ -309,7 +312,7 @@ extension RunSubcommand {
                 workingDirectory: launchScratch,
                 workDirectory: plannedRequest.workDirectory ?? scratchWorkDirectory,
                 environment: plannedRequest.launchEnvironment,
-                logFile: runBundleURL.appendingPathComponent("logs/nextflow.log")
+                logFile: logFile
             ))
         } catch is CancellationError {
             // The run is recorded as cancelled before its scratch is left for the sweep (SWIFT 3, P3).
@@ -322,7 +325,8 @@ extension RunSubcommand {
                 readPairing: pairingDecisions,
                 effectiveSamplesheetURL: effectiveSamplesheetURL,
                 stagedAnnotation: stagedAnnotation,
-                launchCommand: launchCommand
+                launchCommand: launchCommand,
+                engine: ViralReconEngineFacts.read(launchFolder: launchScratch, consoleLog: logFile, probe: versionProbe)
             )
             throw CancellationError()
         }
@@ -352,7 +356,8 @@ extension RunSubcommand {
             stderr: processResult.standardError,
             readPairing: pairingDecisions,
             effectiveSamplesheetURL: effectiveSamplesheetURL,
-            stagedAnnotation: stagedAnnotation
+            stagedAnnotation: stagedAnnotation,
+            engine: ViralReconEngineFacts.read(launchFolder: launchScratch, consoleLog: logFile, probe: versionProbe)
         )
         if processResult.exitCode != 0 {
             throw CLIError.workflowFailed(
@@ -437,7 +442,8 @@ extension RunSubcommand {
         readPairing: [ViralReconReadPairingDecision],
         effectiveSamplesheetURL: URL?,
         stagedAnnotation: ViralReconStagedAnnotation?,
-        launchCommand: String? = nil
+        launchCommand: String? = nil,
+        engine: ViralReconEngineFacts? = nil
     ) {
         let message = "Workflow cancelled"
         let exitCode = CLIExitCode.cancelled.rawValue
@@ -467,7 +473,8 @@ extension RunSubcommand {
                 stderr: message,
                 readPairing: readPairing,
                 effectiveSamplesheetURL: effectiveSamplesheetURL,
-                stagedAnnotation: stagedAnnotation
+                stagedAnnotation: stagedAnnotation,
+                engine: engine
             )
         } catch {
             FileHandle.standardError.write(Data("Could not record the cancelled run: \(error.localizedDescription)\n".utf8))
@@ -490,7 +497,8 @@ extension RunSubcommand {
         stderr: String?,
         readPairing: [ViralReconReadPairingDecision] = [],
         effectiveSamplesheetURL: URL? = nil,
-        stagedAnnotation: ViralReconStagedAnnotation? = nil
+        stagedAnnotation: ViralReconStagedAnnotation? = nil,
+        engine: ViralReconEngineFacts? = nil
     ) throws {
         let command = [CLICommandIdentity.executableName] + request.cliArguments(
             bundlePath: bundleURL,
@@ -534,7 +542,7 @@ extension RunSubcommand {
             toolVersion: facts.toolVersion,
             githubReleaseVersion: facts.githubReleaseVersion,
             command: command,
-            resolvedOptions: facts.resolvedOptions(logFile: nil),
+            resolvedOptions: Self.viralReconResolvedOptions(facts, engine: engine),
             inputs: inputs,
             outputs: outputs,
             exitCode: exitCode,

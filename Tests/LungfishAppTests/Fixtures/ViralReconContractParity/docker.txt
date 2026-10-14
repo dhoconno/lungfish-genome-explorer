@@ -500,9 +500,17 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
+        "nextflowVersion" : {
+          "type" : "string",
+          "value" : "25.04.6"
+        },
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
+        },
+        "resolvedCommit" : {
+          "type" : "string",
+          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
@@ -951,9 +959,17 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
+        "nextflowVersion" : {
+          "type" : "string",
+          "value" : "25.04.6"
+        },
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
+        },
+        "resolvedCommit" : {
+          "type" : "string",
+          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
@@ -1400,9 +1416,17 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
+        "nextflowVersion" : {
+          "type" : "string",
+          "value" : "25.04.6"
+        },
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
+        },
+        "resolvedCommit" : {
+          "type" : "string",
+          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
@@ -1787,9 +1811,17 @@ records:
       ],
       "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
+        "nextflowVersion" : {
+          "type" : "string",
+          "value" : "25.04.6"
+        },
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
+        },
+        "resolvedCommit" : {
+          "type" : "string",
+          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
