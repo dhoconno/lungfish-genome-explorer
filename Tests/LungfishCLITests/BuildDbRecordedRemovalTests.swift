@@ -47,17 +47,25 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
 
         let removal = try step(ClassificationPipeline.kraken2OutputRemovalToolName)
         XCTAssertEqual(removal.resolvedOptions["operation"], .string(RecordedRemovalStep.operation))
-        // kraken2-mini keeps the raw per-read output of each of its three samples.
+        // kraken2-mini keeps the raw per-read output of each of its three samples. The files that are gone come
+        // first. The sidecar of each sample follows, which the compaction rewrote in place (2.10 B34 review fix 5).
         XCTAssertEqual(removal.inputs.map { "\(URL(fileURLWithPath: $0.path).deletingLastPathComponent().lastPathComponent)/"
             + URL(fileURLWithPath: $0.path).lastPathComponent }, [
             "SRR35517702/classification.kraken", "SRR35517702/classification.kraken.idx.sqlite",
             "SRR35517703/classification.kraken", "SRR35517705/classification.kraken",
+            "SRR35517702/classification-result.json", "SRR35517703/classification-result.json",
+            "SRR35517705/classification-result.json",
         ])
         XCTAssertEqual(removal.inputs.first, gzip.inputs.first, "The removal names the bytes the compaction read")
         XCTAssertNotNil(removal.inputs[1].checksumSHA256, "The old index is named with its digest")
         XCTAssertEqual(removal.outputs, [])
-        for path in removal.inputs.map(\.path) {
-            XCTAssertFalse(FileManager.default.fileExists(atPath: path), "\(path) is gone")
+        for named in removal.inputs {
+            let rewritten = URL(fileURLWithPath: named.path).lastPathComponent == ClassificationResult.sidecarFilename
+            XCTAssertNotNil(named.checksumSHA256, "\(named.path) is named with the digest it had")
+            XCTAssertEqual(
+                FileManager.default.fileExists(atPath: named.path), rewritten,
+                rewritten ? "\(named.path) was rewritten in place" : "\(named.path) is gone"
+            )
         }
         XCTAssertEqual(record.steps.last?.toolName, "lungfish build-db kraken2", "The run's own step comes last")
     }
@@ -98,7 +106,8 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
             )
         }
         XCTAssertFalse(
-            record.outputs.contains { removed.contains(resolved($0.path)) }, "an output the run removed is not an output of the record"
+            record.outputs.contains { removed.contains(resolved($0.path)) && !FileManager.default.fileExists(atPath: $0.path) },
+            "an output the run removed is not an output of the record, unless the run rewrote it in place"
         )
     }
 
@@ -157,5 +166,54 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
         XCTAssertEqual(after.outputURL.pathExtension, "gz", "the rewrite names the gzip copy")
         XCTAssertEqual(after.fragmentComposition, before.fragmentComposition, "the rewrite keeps the fragment composition")
         XCTAssertEqual(after.readPairingContract, before.readPairingContract, "and the read pairing contract")
+    }
+
+    /// Phase 2.10 lane B34, review fix 5 item 2. The cleanup rewrites `classification-result.json` in place to name the
+    /// gzip copy, so the digest this record states for it from before the run is not the one the file has now. Every
+    /// digest the record states for a file that is still there equals the file's, or a removal step names those old
+    /// bytes, as `RecordedRemovalStep` says of a file that a run rewrote in place.
+    func testKraken2CleanupNamesTheBytesItReplacedInTheSidecar() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalRewrite")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
+        let result = root.appendingPathComponent("kraken2", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: result)
+        let sample = result.appendingPathComponent("SRR35517702", isDirectory: true)
+        let sidecar = sample.appendingPathComponent(ClassificationResult.sidecarFilename)
+        let replacedDigest = try XCTUnwrap(ProvenanceRecorder.sha256(of: sidecar))
+
+        try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
+
+        XCTAssertNotEqual(ProvenanceRecorder.sha256(of: sidecar), replacedDigest, "the cleanup rewrote the sidecar in place")
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result))
+        // A removed file cannot be resolved, so its folder is, and /var/folders and /private/var/folders are one place.
+        func resolved(_ path: String) -> String {
+            let url = URL(fileURLWithPath: path)
+            return url.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(url.lastPathComponent).path
+        }
+        let removals = record.steps.filter { $0.resolvedOptions["operation"] == .string(RecordedRemovalStep.operation) }
+        let namedByARemoval = Set(removals.flatMap(\.inputs).compactMap { named in
+            named.checksumSHA256.map { "\(resolved(named.path)) \($0)" }
+        })
+        XCTAssertTrue(
+            namedByARemoval.contains("\(resolved(sidecar.path)) \(replacedDigest)"),
+            "a removal step names the bytes the rewrite replaced"
+        )
+
+        let stated = record.steps.flatMap { $0.inputs + $0.outputs } + record.files + record.outputs
+            + [record.output].compactMap { $0 }
+        var compared = 0
+        for named in stated {
+            guard let digest = named.checksumSHA256, FileManager.default.fileExists(atPath: named.path) else { continue }
+            compared += 1
+            XCTAssertTrue(
+                digest == ProvenanceRecorder.sha256(of: URL(fileURLWithPath: named.path))
+                    || namedByARemoval.contains("\(resolved(named.path)) \(digest)"),
+                "\(named.path) is stated with a digest it no longer has, and no removal step names those bytes"
+            )
+        }
+        XCTAssertGreaterThan(compared, 0, "the record states digests of files that are there")
     }
 }

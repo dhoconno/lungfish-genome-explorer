@@ -425,7 +425,9 @@ extension BuildDbCommand {
         ///
         /// Returns the steps of the run's record, the index and gzip of each compacted output and
         /// one removal step that names every removed file with the digest it had, because the
-        /// classifier's record names the per-read output it wrote (P1 of Phase 2.8, row 423).
+        /// classifier's record names the per-read output it wrote (P1 of Phase 2.8, row 423). The removal step also
+        /// names the sidecar of each folder it compacted, with the digest it had before the rewrite, since that
+        /// file is still there while this run's inputs and the classifier's record state the old digest (2.10 B34).
         ///
         /// Throws `CancellationError` before it starts on a folder when the caller's task is cancelled, so a
         /// folder is compacted whole or not at all. The folders it compacted before the cancel stay compacted,
@@ -437,6 +439,9 @@ extension BuildDbCommand {
             var freedBytes: Int64 = 0
             var steps: [ProvenanceStep] = []
             var removed: [ProvenanceFileDescriptor] = []
+            // The result sidecars a compaction rewrote in place, as they were before. Each is still there, so the
+            // filter on `removed` below would drop it.
+            var replaced: [ProvenanceFileDescriptor] = []
             let removalClock = ProvenanceRunClock()
 
             let cleanupDirs: [URL]
@@ -484,7 +489,9 @@ extension BuildDbCommand {
                         )
                         steps += compactionSteps(raw: raw, compressed: compressedOutput, clock: clock)
                         removed.append(raw)
-                        updateClassificationResultSidecar(in: dir, outputURL: compressedOutput, events: events)
+                        if let before = updateClassificationResultSidecar(in: dir, outputURL: compressedOutput, events: events) {
+                            replaced.append(before)
+                        }
                         let compressedSize = fileSize(compressedOutput) ?? 0
                         freedBytes += max(0, originalSize - compressedSize)
                     } catch {
@@ -507,7 +514,7 @@ extension BuildDbCommand {
             let removal = RecordedRemovalStep.step(
                 toolName: ClassificationPipeline.kraken2OutputRemovalToolName,
                 api: "BuildDbCommand.Kraken2Subcommand.performCleanup(resultURL:sampleDirectories:events:)",
-                removing: removed.filter { !fm.fileExists(atPath: $0.path) },
+                removing: removed.filter { !fm.fileExists(atPath: $0.path) } + replaced,
                 clock: removalClock
             )
             return steps + (removal.map { [$0] } ?? [])
@@ -542,11 +549,19 @@ extension BuildDbCommand {
             return Int64(size)
         }
 
-        private static func updateClassificationResultSidecar(in directory: URL, outputURL: URL, events: BuildDbEventSink) {
-            guard ClassificationResult.exists(in: directory) else { return }
+        /// Rewrites `classification-result.json` in `directory` to name `outputURL` as the per-read output and keeps every
+        /// other fact of the result. Returns the sidecar as it was, hashed before the save replaced it, so that the
+        /// removal step can name the bytes that are gone (`RecordedRemovalStep`). Nil when nothing was rewritten.
+        private static func updateClassificationResultSidecar(
+            in directory: URL, outputURL: URL, events: BuildDbEventSink
+        ) -> ProvenanceFileDescriptor? {
+            guard ClassificationResult.exists(in: directory) else { return nil }
 
             do {
                 let current = try ClassificationResult.load(from: directory)
+                let replaced = try ProvenanceFileDescriptor.file(
+                    url: directory.appendingPathComponent(ClassificationResult.sidecarFilename), format: .json, role: .input
+                )
                 let updated = ClassificationResult(
                     config: current.config,
                     tree: current.tree,
@@ -561,10 +576,12 @@ extension BuildDbCommand {
                     readPairingContract: current.readPairingContract
                 )
                 try updated.save(to: directory)
+                return replaced
             } catch {
                 events.warning(
                     "Warning: could not update \(directory.appendingPathComponent("classification-result.json").path): \(error.localizedDescription)"
                 )
+                return nil
             }
         }
     }
