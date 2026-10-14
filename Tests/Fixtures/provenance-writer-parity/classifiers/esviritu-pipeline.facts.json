@@ -82,10 +82,6 @@
       "type" : "boolean",
       "value" : true
     },
-    "readFormat" : {
-      "type" : "string",
-      "value" : "unpaired"
-    },
     "sample" : {
       "type" : "string",
       "value" : "sample"
@@ -133,10 +129,6 @@
     "qualityFilter" : {
       "type" : "boolean",
       "value" : true
-    },
-    "readFormat" : {
-      "type" : "string",
-      "value" : "unpaired"
     },
     "sample" : {
       "type" : "string",
@@ -219,7 +211,10 @@
   },
   "reproducibleCommand" : "EsViritu -r <project>/inputs/sample.fastq -s sample -o <project>/Analyses/esviritu-batch/sample -p unpaired -t 4 -q True --db <project>/esviritu-db --keep True",
   "resolvedDefaultOptions" : {
-
+    "readFormat" : {
+      "type" : "string",
+      "value" : "unpaired"
+    }
   },
   "status" : "completed",
   "steps" : [
