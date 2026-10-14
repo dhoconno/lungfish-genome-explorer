@@ -114,7 +114,7 @@ features:
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Services/DownloadCenter.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
-      - Sources/LungfishApp/Views/DatabaseBrowser/SRAWindowImportProvenance.swift
+      - Sources/LungfishWorkflow/Provenance/SRAWindowImportProvenance.swift
       - Sources/LungfishCore/Services/SRA/SRADownloadProvenanceValues.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+FileRecords.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+SidecarLookup.swift
