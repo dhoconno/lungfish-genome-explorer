@@ -153,12 +153,15 @@ final class SIGTERMCancellationTests: XCTestCase {
         struct ToolDied: Error {}
         // The post below is aimed at the process, and the kernel hands it to a thread that can take it later than
         // the pool thread that sent it. SIGTERM is ignored around the run so that no case can end this process
-        // (review A54 fix 2), and `end()` drops a post that is still pending.
+        // (review A54 fix 2), and `end()` drops a post that is still pending. SIGTERM is ignored again inside
+        // the work, so the kernel drops the post and only its note remains, since a post another thread is
+        // still taking when end() switches the action can call the address of SIG_IGN (FX47 (a2)).
         let previous = signal(SIGTERM, SIG_IGN)
         defer { signal(SIGTERM, previous) }
         let ran = await runCancellingOnSIGTERM { () async throws -> Int in
             // The group's SIGTERM reaches the leaf and its tool together, and the tool's death is the first
             // thing the leaf sees.
+            signal(SIGTERM, SIG_IGN) // the handler is out of reach from here on
             XCTAssertEqual(kill(getpid(), SIGTERM), 0)
             throw ToolDied()
         }
