@@ -51,6 +51,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
     enum Case: String, Sendable {
         case copiedIn
         case cancel
+        case failure
     }
 
     override func setUp() async throws {
@@ -247,6 +248,63 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
                 "side \(run.side) leaves the original as it was"
             )
         }
+    }
+
+    // MARK: - A failed clumpify (review A47 fix 6 (c), QC-2, UX 1)
+
+    /// The stand-in clumpify answers the version probe and otherwise exits 1 with one line on standard error. Every
+    /// side ends failed with the original as it was, and no output, sidecar, record or `.lungfish-ingest-*` folder
+    /// stays. C's row words equal A's, and C against C' declares nothing, so the whole tree of each side is the
+    /// original alone.
+    func testAFailedClumpifyFailsOnEverySideAndKeepsTheOriginal() async throws {
+        let condaRoot = try installStandInClumpify(Self.failingClumpify, at: scratch.appendingPathComponent("tools/conda"))
+        let environment = ["LUNGFISH_CONDA_ROOT": condaRoot.path, "LUNGFISH_CONDA_SHARED_PKGS": "0"]
+        await useEnvironment(environment)
+        let harness = RouteParityHarness(
+            cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120), environment: { _ in environment }
+        )
+        var rows: [RouteParitySide: MappingRouteRow] = [:]
+        let runs = try await harness.run(
+            in: scratch.appendingPathComponent("failure", isDirectory: true),
+            fixture: Self.writeFixture,
+            sideA: { root in
+                let input = Self.input(in: root)
+                let (row, item) = try await ReadsRouteParity.record(title: Self.title) {
+                    FASTQIngestionService.startInPlaceIngestionInProcess(url: input, routeContext: nil)
+                }
+                rows[.a] = ReadsRouteParity.rooted(row, root)
+                return ReadsRouteParity.outcome(of: item)
+            },
+            sideC: { root in
+                let input = Self.input(in: root)
+                let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
+                let (row, item) = try await ReadsRouteParity.record(title: Self.title) {
+                    FASTQIngestionService.startInPlaceIngestionThroughCLI(url: input, routeContext: nil, runner: runner)
+                }
+                rows[.c] = ReadsRouteParity.rooted(row, root)
+                return ReadsRouteParity.outcome(of: item, recordsCommand: true)
+            }
+        )
+
+        let result = try harness.evaluate(Case.failure, declared: [], runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.failure)")
+        for run in runs.all {
+            XCTAssertEqual(run.outcome.end, .failed, "side \(run.side): \(run.outcome.detail)")
+            XCTAssertEqual(
+                try Data(contentsOf: Self.input(in: run.root)), Data(Self.reads.joined().utf8),
+                "side \(run.side) leaves the original byte for byte as it was"
+            )
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(atPath: Self.input(in: run.root).deletingLastPathComponent().path),
+                ["SRR9_1.fastq"],
+                "side \(run.side) leaves no output, sidecar, record or .lungfish-ingest-* folder"
+            )
+        }
+        let rowA = try XCTUnwrap(rows[.a])
+        let rowC = try XCTUnwrap(rows[.c])
+        XCTAssertEqual(rowC.shown, rowA.shown, "C's words are A's")
+        XCTAssertEqual(rowC.end, rowA.end, "both rows end with the same words")
+        XCTAssertTrue(runs.a.outcome.detail.contains("simulated failure"), "the tool's line reaches the row: \(runs.a.outcome.detail)")
     }
 
     // MARK: - The records, verified (review A47 fix 6 (b), ARCH 3, B-5)
@@ -562,6 +620,22 @@ extension FastqIngestRouteParityReplayTests {
         done
         if [ -z "$in" ] || [ -z "$out" ]; then echo "BBMap version 39.00"; exit 0; fi
         gzip -n -c < "$in" > "$out"
+        """
+
+    /// Answers a version probe, and otherwise writes one line to standard error and exits 1.
+    nonisolated static let failingClumpify = """
+        #!/bin/sh
+        in=""
+        out=""
+        for argument in "$@"; do
+          case "$argument" in
+            in=*) in="${argument#in=}" ;;
+            out=*) out="${argument#out=}" ;;
+          esac
+        done
+        if [ -z "$in" ] || [ -z "$out" ]; then echo "BBMap version 39.00"; exit 0; fi
+        echo "clumpify: simulated failure" >&2
+        exit 1
         """
 
     /// Records its process ID, writes half an output where `out=` says, and waits.
