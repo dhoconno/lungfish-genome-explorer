@@ -121,6 +121,17 @@ extension RunSubcommand {
             // Desktop that cannot be started fails the run at once (2.9 N9).
             try await Self.nfCoreWorkflowProcessRunner.waitForDocker(profile: request.executor.rawValue)
         } catch is CancellationError {
+            // A cancel during the Docker wait is recorded as one during the engine's run is (SWIFT 3).
+            recordCancelledRun(
+                request: request,
+                runBundleURL: runBundleURL,
+                createdAt: bundleClock.startedAt,
+                startedAt: processClock.startedAt,
+                endedAt: processClock.now,
+                readPairing: pairingDecisions,
+                effectiveSamplesheetURL: nil,
+                stagedAnnotation: stagedAnnotation
+            )
             throw CancellationError()
         } catch {
             let dockerUnavailable = error is NextflowEngineError
@@ -244,6 +255,19 @@ extension RunSubcommand {
                     stagedAnnotation: stagedAnnotation
                 )
                 throw CLIError.workflowFailed(reason: error.localizedDescription)
+            } catch is CancellationError {
+                // Recorded here, before the scratch's defers leave it for the sweep (SWIFT 3, P3).
+                recordCancelledRun(
+                    request: request,
+                    runBundleURL: runBundleURL,
+                    createdAt: bundleClock.startedAt,
+                    startedAt: processClock.startedAt,
+                    endedAt: processClock.now,
+                    readPairing: pairingDecisions,
+                    effectiveSamplesheetURL: nil,
+                    stagedAnnotation: stagedAnnotation
+                )
+                throw CancellationError()
             }
             pairingDecisions = prepared.decisions
             try ViralReconReadPairing.writeDecisions(pairingDecisions, to: decisionsURL)
@@ -365,9 +389,10 @@ extension RunSubcommand {
         }
     }
 
-    /// Records a cancelled run, the manifest and then the provenance, with the command's own exit code, 125. The
-    /// engine's tree is gone and the whole output is in `logs/nextflow.log`. A record that cannot be written is
-    /// reported on standard error and leaves the cancel as it is.
+    /// Records a cancelled run, the manifest and then the provenance, with the command's own exit code, 125, for a
+    /// cancel during the Docker wait, the read split or the engine's run. After the engine's run its tree is gone and
+    /// its whole output is in `logs/nextflow.log`. A record that cannot be written is reported on standard error and
+    /// leaves the cancel as it is.
     private func recordCancelledRun(
         request: NFCoreRunRequest,
         runBundleURL: URL,
