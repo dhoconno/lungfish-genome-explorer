@@ -51,6 +51,13 @@ enum ReadWriterFixtures {
         return String(decoding: decoded, as: UTF8.self)
     }
 
+    /// One record per name, with `base` as its sequence and quality IIII.
+    static func mates(_ names: [String], base: Character, finalLineBreak: Bool = true) -> Data {
+        var text = names.map { "@\($0)\n\(base)\(base)\(base)\(base)\n+\nIIII\n" }.joined()
+        if !finalLineBreak { text.removeLast() }
+        return Data(text.utf8)
+    }
+
     /// Writes `data` as `name` in `directory` and returns its URL.
     @discardableResult
     static func write(_ data: Data, named name: String, in directory: URL) throws -> URL {
@@ -174,10 +181,15 @@ enum ReadWriterFixtures {
 
     // MARK: - Faults
 
-    /// `ENOSPC` on every write into a stage file after the first `allowed` ones.
-    static func fullDisk(afterWrites allowed: Int, tally: Tally) -> DurableReplace.Operations {
+    /// `ENOSPC` on every write into a stage file after the first `allowed`
+    /// ones. With `matching`, only a stage file whose path holds that text
+    /// counts, such as `.kraken2-pairs.fastq.lungfish-stage-`, so a test can
+    /// fail one writer of a route that publishes several files.
+    static func fullDisk(afterWrites allowed: Int, matching: String? = nil, tally: Tally) -> DurableReplace.Operations {
         DurableReplace.Operations(writeBytes: { descriptor, bytes, count in
-            if path(of: descriptor).contains(DurableReplace.stageInfix), tally.add("stageWrites") > allowed {
+            let stagePath = path(of: descriptor)
+            if stagePath.contains(DurableReplace.stageInfix), matching.map({ stagePath.contains($0) }) ?? true,
+               tally.add("stageWrites") > allowed {
                 errno = ENOSPC
                 return -1
             }

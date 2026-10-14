@@ -153,11 +153,8 @@ final class ReadWriterBytePinTests: XCTestCase {
 
     // MARK: - Interleaving mates
 
-    /// One record per name, with `base` as its sequence and quality II.
     private func mates(_ names: [String], base: Character, finalLineBreak: Bool = true) -> Data {
-        var text = names.map { "@\($0)\n\(base)\(base)\(base)\(base)\n+\nIIII\n" }.joined()
-        if !finalLineBreak { text.removeLast() }
-        return Data(text.utf8)
+        Fixtures.mates(names, base: base, finalLineBreak: finalLineBreak)
     }
 
     private func interleave(_ r1: Data, _ r2: Data, gzipped: Bool = false) throws -> String {
