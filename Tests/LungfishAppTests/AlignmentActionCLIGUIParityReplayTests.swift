@@ -92,13 +92,13 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
     // MARK: - Sides
 
     /// The derived statistics database, the file the cancel case makes large.
-    nonisolated private static func slowFile(in root: URL) -> URL {
+    nonisolated static func slowFile(in root: URL) -> URL {
         DerivedAlignmentTrackFixture.existing(in: root).bundleURL
             .appendingPathComponent(DerivedAlignmentTrackFixture.derivedArtifactPaths[2])
     }
 
     /// The fixture with real alignments, which the bundle comparison reads with samtools.
-    nonisolated private static func makeFixture(in root: URL, slowFileSize: UInt64? = nil) throws {
+    nonisolated static func makeFixture(in root: URL, slowFileSize: UInt64? = nil) throws {
         let fixture = try DerivedAlignmentTrackFixture.make(in: root)
         try fixture.useAlignment(
             ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
@@ -106,7 +106,7 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
         if let slowFileSize { try fixture.makeDerivedDatabaseSparse(size: slowFileSize) }
     }
 
-    nonisolated private static func recordStatus(in root: URL) throws -> String? {
+    nonisolated static func recordStatus(in root: URL) throws -> String? {
         let url = BundleAlignmentTrackRemovalRecord.recordURL(
             bundleURL: DerivedAlignmentTrackFixture.existing(in: root).bundleURL,
             trackID: DerivedAlignmentTrackFixture.derivedTrackID
@@ -116,7 +116,7 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
 
     /// Side A, the in-process route: the service the Inspector's task awaited. With `cancelAtWork`
     /// the task is cancelled once this process holds the derived BAM open to hash it.
-    private static func sideA(_ root: URL, trackID: String, cancelAtWork: Bool = false) async -> RouteParitySideOutcome {
+    static func sideA(_ root: URL, trackID: String, cancelAtWork: Bool = false) async -> RouteParitySideOutcome {
         let bundleURL = DerivedAlignmentTrackFixture.existing(in: root).bundleURL
         let task = Task.detached {
             try await BundleAlignmentTrackRemovalService().removeDerivedAlignmentTrack(bundleURL: bundleURL, trackID: trackID)
@@ -180,7 +180,7 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
 
     /// The sarscov2 BAM and its index, the evidence the viewer shows, copied into the root, and
     /// the folder the user chose in the save panel.
-    nonisolated private static func makeConsensusFixture(in root: URL) throws {
+    nonisolated static func makeConsensusFixture(in root: URL) throws {
         let fileManager = FileManager.default
         let bam = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
         let evidence = root.appendingPathComponent("evidence", isDirectory: true)
@@ -192,7 +192,7 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
 
     /// What the viewer holds for root `root` and builds for Generate Consensus over the whole
     /// contig, every filter off but the depth, as `presentAlignmentConsensusGeneration` does.
-    private static func consensusRequest(
+    static func consensusRequest(
         in root: URL,
         minimumDepth: Int
     ) throws -> (context: AlignmentActionContext, export: MappingConsensusExportRequest) {
@@ -219,7 +219,7 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
 
     /// Side A, today's in-process route: the consensus call and, after the second check of the
     /// evidence, the publication service, with the user's answer to an all-N result.
-    private static func consensusSideA(_ root: URL, output: String, minimumDepth: Int) async -> RouteParitySideOutcome {
+    static func consensusSideA(_ root: URL, output: String, minimumDepth: Int) async -> RouteParitySideOutcome {
         do {
             let (context, export) = try consensusRequest(in: root, minimumDepth: minimumDepth)
             let result = try await AlignmentDataProvider(
@@ -282,17 +282,17 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
     // MARK: - Read sides (M3, census row 22)
 
     /// The names the selected-reads case selects, in the file the route writes before its row begins.
-    nonisolated private static let selectedNames = ["ERR5069949.114870", "ERR5069949.29668"]
+    nonisolated static let selectedNames = ["ERR5069949.114870", "ERR5069949.29668"]
 
     /// The consensus evidence, with the names file beside the bundle the selected-reads case publishes.
-    nonisolated private static func makeReadsFixture(in root: URL) throws {
+    nonisolated static func makeReadsFixture(in root: URL) throws {
         try makeConsensusFixture(in: root)
         try AlignmentReadExtractionInvocation.writeReadNames(selectedNames, to: root.appendingPathComponent("out/S1.read-names.txt"))
     }
 
     /// The run the route chooses for `root`: the region MT192765.1:1-3000, or the two selected reads,
     /// one of whose records held no sequence.
-    private static func readsRequest(in root: URL, selected: Bool) throws -> (context: AlignmentActionContext, invocation: AlignmentReadExtractionInvocation) {
+    static func readsRequest(in root: URL, selected: Bool) throws -> (context: AlignmentActionContext, invocation: AlignmentReadExtractionInvocation) {
         let (context, _) = try consensusRequest(in: root, minimumDepth: 1)
         guard selected else {
             return (context, ViewerViewController.alignmentRegionExtractionInvocation(
@@ -311,7 +311,7 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
 
     /// Side A, today's in-process route: what the coordinator ran in the app, the stager and the
     /// publisher between two checks of the evidence, with the record the row's command names.
-    private static func readsSideA(_ root: URL, selected: Bool) async -> RouteParitySideOutcome {
+    static func readsSideA(_ root: URL, selected: Bool) async -> RouteParitySideOutcome {
         do {
             let (context, invocation) = try readsRequest(in: root, selected: selected)
             let folder = invocation.outputURL.deletingLastPathComponent()

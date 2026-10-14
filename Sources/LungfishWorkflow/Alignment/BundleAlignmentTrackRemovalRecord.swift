@@ -52,9 +52,9 @@ public struct BundleAlignmentTrackRemovalRecord: Sendable {
         ]
     }
 
-    /// Writes `envelope` to `url` unsigned, as `bam filter` writes its record.
+    /// Writes `envelope` to `url`, signed when a signing key is set, as `bam filter` writes its record.
     public static func write(_ envelope: ProvenanceEnvelope, to url: URL) throws {
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: url)
+        try ProvenanceWriter().write(envelope, toSidecar: url)
     }
 
     /// The descriptor of a file the removal will remove, with the digest and size of its bytes from
