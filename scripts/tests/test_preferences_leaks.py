@@ -26,7 +26,7 @@ SCRIPT = ROOT / "scripts/testing/preferences-leaks.py"
 ALLOWED = ROOT / "scripts/testing/preferences-leaks-allowed.txt"
 
 # The allowed list may only shrink. Lower this number with it, never raise it.
-SEEDED_ROWS = 73
+SEEDED_ROWS = 1
 
 # The eleven classes the owner named, moved onto TestDefaultsSuite by the first milestone of Q10.
 ELEVEN = {
