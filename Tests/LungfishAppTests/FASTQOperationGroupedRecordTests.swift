@@ -126,7 +126,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         XCTAssertEqual(record.status, .completed)
         XCTAssertEqual(record.exitStatus, 0)
 
-        // One step for each command, in the order they ran, with its real argv and no file.
+        // One step for each command, in the order they ran, with its real argv.
         XCTAssertEqual(record.steps.map(\.argv), run.commands)
         XCTAssertEqual(
             record.steps.map(\.reproducibleCommand),
@@ -134,9 +134,15 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         )
         XCTAssertEqual(record.steps.map(\.exitStatus), [0, 0])
         XCTAssertTrue(record.steps.allSatisfy { $0.toolName == "lungfish gui grouped FASTQ operation" })
-        XCTAssertTrue(record.steps.allSatisfy { $0.inputs.isEmpty && $0.outputs.isEmpty })
+        // Each step lists the files its own command made. The record is not told which command read which
+        // file, so a step lists no input.
+        XCTAssertEqual(record.steps.map { $0.outputs.map { tail($0.path, 2) } }, [
+            ["filtered-sequences.\(FASTQBundle.directoryExtension)/reads.fastq"],
+            ["filtered-reads.\(FASTQBundle.directoryExtension)/reads.fastq"],
+        ])
+        XCTAssertTrue(record.steps.allSatisfy { $0.outputs.allSatisfy { $0.role == .output } && $0.inputs.isEmpty })
 
-        // The run lists every file, because the record is not told which command read or wrote which.
+        // The run lists every file, as it did before the steps listed theirs.
         XCTAssertEqual(
             record.files.filter { $0.role == .input }.map { tail($0.path, 1) },
             ["sequences.fasta", "reads.fastq"]
@@ -175,6 +181,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
             originalRequest: run.request,
             resolvedRequest: run.request,
             invocations: invocations,
+            invocationOutputs: run.invocationOutputs,
             outputURLs: run.outputs,
             outputDirectory: run.group
         )
@@ -204,12 +211,19 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         XCTAssertFalse(words.contains("gui"))
         XCTAssertFalse(words.contains("fastq-grouped-result"))
 
-        // Known until the dispatcher passes each invocation's outputs (Phase 2.9). The reading adds the
-        // run's outputs to the last step and gives no step an input.
-        XCTAssertEqual(reading.steps.map(\.outputs.count), [0, 2])
-        XCTAssertEqual(reading.steps[1].outputs.map { tail($0.path, 2) }, [
+        // Each step lists the files its own command made, so the reading gives the first step its own output
+        // and the last step its own first. The reading still adds the first step's output to the last step,
+        // because `mergeFallbackOutputsIntoFinalStep` (ProvenanceRecord.swift) appends every run output that
+        // the last step does not list, where it should skip those that any step lists. That reader is not
+        // this record's to change. It gives no step an input, because the record is not told which command
+        // read which file.
+        XCTAssertEqual(reading.steps.map(\.outputs.count), [1, 2])
+        XCTAssertEqual(reading.steps[0].outputs.map { tail($0.path, 2) }, [
             "filtered-sequences.\(FASTQBundle.directoryExtension)/reads.fastq",
+        ])
+        XCTAssertEqual(reading.steps[1].outputs.map { tail($0.path, 2) }, [
             "filtered-reads.\(FASTQBundle.directoryExtension)/reads.fastq",
+            "filtered-sequences.\(FASTQBundle.directoryExtension)/reads.fastq",
         ])
         XCTAssertTrue(reading.steps.allSatisfy { $0.inputs.isEmpty })
     }
@@ -224,6 +238,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
                 originalRequest: run.request,
                 resolvedRequest: run.request,
                 invocations: [],
+                invocationOutputs: [],
                 outputURLs: run.outputs,
                 outputDirectory: run.group
             )
@@ -257,6 +272,8 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         let request: FASTQOperationLaunchRequest
         let group: URL
         let outputs: [URL]
+        /// The outputs each invocation made, in the order they ran, as the dispatcher takes them from each plan.
+        let invocationOutputs: [[URL]]
         /// One `lungfish-cli` argv for each invocation, in the order they ran.
         let commands: [[String]]
 
@@ -277,6 +294,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
             request: groupedLengthFilter(inputs: [reads]),
             group: group,
             outputs: outputs,
+            invocationOutputs: [outputs],
             commands: [lengthFilterCommand(input: reads, output: group.appendingPathComponent("length-filter.fastq"))]
         )
     }
@@ -296,6 +314,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
             request: groupedLengthFilter(inputs: [sequences, reads]),
             group: group,
             outputs: outputs,
+            invocationOutputs: outputs.map { [$0] },
             commands: [
                 lengthFilterCommand(input: sequences, output: group.appendingPathComponent("sequences/length-filter.fastq")),
                 lengthFilterCommand(input: reads, output: group.appendingPathComponent("reads/length-filter.fastq")),
@@ -367,6 +386,7 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
             originalRequest: run.request,
             resolvedRequest: run.request,
             invocations: run.invocations,
+            invocationOutputs: run.invocationOutputs,
             outputURLs: run.outputs,
             outputDirectory: run.group
         )

@@ -26,10 +26,15 @@ extension FASTQOperationPlanner {
     /// (`docs/contracts/RECORDING-PROVENANCE.md`) in the form a reader gives a record that holds only a
     /// command line, and the reproducible command is the same script. A call with no invocation writes
     /// nothing, because a record of a finished result must name the command that made it.
+    ///
+    /// `invocationOutputs` holds the outputs each invocation made, in the order the invocations ran, and
+    /// `outputURLs` holds all of them. With several invocations each step lists its own, and an invocation
+    /// with no entry has a step without files.
     func ensureGroupedResultProvenance(
         originalRequest: FASTQOperationLaunchRequest,
         resolvedRequest: FASTQOperationLaunchRequest,
         invocations: [FASTQCLIInvocation],
+        invocationOutputs: [[URL]],
         outputURLs: [URL],
         outputDirectory: URL
     ) throws {
@@ -92,15 +97,22 @@ extension FASTQOperationPlanner {
             let outputs = try outputPayloadURLs.map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
             builder = builder.step(Self.groupedStep(argv: commandLines[0], inputs: inputs, outputs: outputs))
         } else {
-            // This call is not told which command read or wrote which file, and a step that listed
-            // them all would claim files its command never touched. The run lists the files and
-            // each step names only its command. A reader that converts the record to a WorkflowRun
-            // (`legacyWorkflowRun`, which script export and `lungfish-cli provenance` use) still adds
-            // the run's outputs to the last step, until the dispatcher passes each invocation's
-            // outputs here (Phase 2.9).
+            // The run lists every file, and each step lists the files its own command made, from the
+            // outputs the dispatcher took from each invocation. A step that listed them all would claim
+            // files its command never touched. This call is not told which command read which file, so
+            // a step lists no input. A reader that converts the record to a WorkflowRun
+            // (`legacyWorkflowRun`, which script export and `lungfish-cli provenance` use) adds the run
+            // outputs that the last step does not list to the last step. Each step listing its own keeps
+            // the other steps from being left without files, and the descriptor of a local file cannot be
+            // added to the run verbatim, so a file is read once for the run and once for its step.
             for url in inputPayloadURLs { builder = try builder.input(url, role: .input) }
             for url in outputPayloadURLs { builder = try builder.output(url, role: .output) }
-            for argv in commandLines { builder = builder.step(Self.groupedStep(argv: argv)) }
+            for (index, argv) in commandLines.enumerated() {
+                let ownOutputs = invocationOutputs.indices.contains(index) ? invocationOutputs[index] : []
+                let outputs = try uniqueExistingRegularPayloadURLs(from: ownOutputs)
+                    .map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
+                builder = builder.step(Self.groupedStep(argv: argv, outputs: outputs))
+            }
         }
         let now = Date()
         let envelope = try builder.complete(exitStatus: 0, startedAt: now, endedAt: now)

@@ -373,6 +373,7 @@ struct FASTQOperationExecutionService {
             }
 
             var invocations: [FASTQCLIInvocation] = []
+            var invocationOutputs: [[URL]] = []
             var outputURLs: [URL] = []
             var outputSourceInputs: [URL] = []
 
@@ -443,10 +444,7 @@ struct FASTQOperationExecutionService {
                     // generic CLI runner also discovers pre-existing FASTQ bundles in the shared
                     // Analyses directory; those are unrelated inputs or older results and must
                     // never be attributed to this clustering run.
-                    outputURLs.append(contentsOf: planner.discoverOutputs(
-                        for: executionPlan,
-                        in: executionDirectory
-                    ))
+                    outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
                 } else if result.outputURLs.isEmpty {
                     outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
                 } else {
@@ -475,6 +473,7 @@ struct FASTQOperationExecutionService {
                         outputSourceInputs.append(contentsOf: inputs)
                     }
                 }
+                invocationOutputs.append(Array(outputURLs[firstOutputIndex...]))
             }
 
             if outputURLs.isEmpty, case .savont = resolvedRequest {
@@ -495,6 +494,7 @@ struct FASTQOperationExecutionService {
                     originalRequest: request,
                     resolvedRequest: resolvedRequest,
                     invocations: invocations,
+                    invocationOutputs: invocationOutputs,
                     outputURLs: outputURLs,
                     outputDirectory: outputDirectory
                 )
