@@ -27,13 +27,13 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("entropy"), help: "Entropy threshold, 0.3-0.9 (default: 0.6)")
+    @Option(name: .customLong("entropy"), help: "Entropy threshold, 0.3-0.9")
     var entropy: Double = FASTQEntropyFilterDefaults.entropy
 
-    @Option(name: .customLong("window"), help: "Entropy sliding window in bases (default: 50)")
+    @Option(name: .customLong("window"), help: "Entropy sliding window in bases")
     var window: Int = FASTQEntropyFilterDefaults.window
 
-    @Option(name: .customLong("kmer"), help: "K-mer length for entropy estimation (default: 5)")
+    @Option(name: .customLong("kmer"), help: "K-mer length for entropy estimation")
     var kmer: Int = FASTQEntropyFilterDefaults.kmer
 
     @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions

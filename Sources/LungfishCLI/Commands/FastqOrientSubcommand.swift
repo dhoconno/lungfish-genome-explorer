@@ -22,10 +22,10 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("reference"), help: "Reference FASTA file path")
     var reference: String
 
-    @Option(name: .customLong("word-length"), help: "Word length for orientation matching (default: 12)")
+    @Option(name: .customLong("word-length"), help: "Word length for orientation matching")
     var wordLength: Int = 12
 
-    @Option(name: .customLong("db-mask"), help: "Database masking method (default: dust)")
+    @Option(name: .customLong("db-mask"), help: "Database masking method")
     var dbMask: String = "dust"
 
     @Option(

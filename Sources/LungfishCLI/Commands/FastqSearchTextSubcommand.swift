@@ -21,7 +21,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("query"), help: "Search query string")
     var query: String
 
-    @Option(name: .customLong("field"), help: "Field to search: \"id\" or \"description\" (default: id)")
+    @Option(name: .customLong("field"), help: "Field to search: \"id\" or \"description\"")
     var field: String = "id"
 
     @Flag(name: .customLong("regex"), help: "Treat query as a regular expression")

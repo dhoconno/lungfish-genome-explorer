@@ -30,7 +30,7 @@ struct MetadataExportBioSampleSubcommand: AsyncParsableCommand {
     @Argument(help: "Path to the folder containing .lungfishfastq bundles")
     var folderPath: String
 
-    @Option(name: .long, help: "BioSample package: clinical (default) or environmental")
+    @Option(name: .long, help: "BioSample package: clinical or environmental")
     var package: String = "clinical"
 
     @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions

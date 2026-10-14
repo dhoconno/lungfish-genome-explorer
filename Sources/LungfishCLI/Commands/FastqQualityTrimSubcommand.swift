@@ -19,13 +19,13 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("threshold"), help: "Quality threshold (default: 20)")
+    @Option(name: .customLong("threshold"), help: "Quality threshold")
     var threshold: Int = 20
 
-    @Option(name: .customLong("window"), help: "Sliding window size (default: 4)")
+    @Option(name: .customLong("window"), help: "Sliding window size")
     var windowSize: Int = 4
 
-    @Option(name: .customLong("mode"), help: "Trim mode: cut-right, cut-front, cut-tail, cut-both (default: cut-right)")
+    @Option(name: .customLong("mode"), help: "Trim mode: cut-right, cut-front, cut-tail, cut-both")
     var mode: String = "cut-right"
 
     @Option(

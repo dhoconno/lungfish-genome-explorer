@@ -41,7 +41,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var includeUnclassified: Bool = false
 
     @Option(name: .customLong("concurrency"),
-            help: "Max concurrent barcode imports (default: 4)")
+            help: "Max concurrent barcode imports")
     var concurrency: Int = 4
 
     @Option(name: .customLong("storage-mode"),

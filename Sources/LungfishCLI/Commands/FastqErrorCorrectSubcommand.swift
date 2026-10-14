@@ -19,7 +19,7 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("kmer"), help: "K-mer size for correction (default: 50, max: 62)")
+    @Option(name: .customLong("kmer"), help: "K-mer size for correction (max: 62)")
     var kmerSize: Int = 50
 
     @OptionGroup var output: OutputOptions

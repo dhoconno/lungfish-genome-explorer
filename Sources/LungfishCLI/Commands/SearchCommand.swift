@@ -50,7 +50,7 @@ struct SearchCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("max-mismatches"),
-        help: "Allow up to N mismatches for exact matching (default: 0)"
+        help: "Allow up to N mismatches for exact matching"
     )
     var maxMismatches: Int = 0
 

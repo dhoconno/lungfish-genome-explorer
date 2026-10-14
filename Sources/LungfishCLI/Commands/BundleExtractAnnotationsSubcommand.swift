@@ -25,7 +25,7 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("output-bundle"), help: "Output .lungfishref bundle path")
     var outputBundlePath: String
 
-    @Option(name: .customLong("feature-type"), help: "Feature type to extract (default: gene)")
+    @Option(name: .customLong("feature-type"), help: "Feature type to extract")
     var featureType: String = "gene"
 
     @Option(name: .customLong("name-prefix"), help: "Only extract features whose name or gene name starts with this prefix")

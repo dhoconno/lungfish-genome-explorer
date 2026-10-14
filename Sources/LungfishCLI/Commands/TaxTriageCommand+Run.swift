@@ -138,19 +138,19 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("confidence"),
-            help: "Kraken2 confidence threshold (default: 0.2)"
+            help: "Kraken2 confidence threshold"
         )
         var confidence: Double = 0.2
 
         @Option(
             name: .customLong("top-hits"),
-            help: "Number of top hits to report (default: 10)"
+            help: "Number of top hits to report"
         )
         var topHits: Int = 10
 
         @Option(
             name: .customLong("rank"),
-            help: "Taxonomic rank: D,P,C,O,F,G,S (default: S)"
+            help: "Taxonomic rank: D,P,C,O,F,G,S"
         )
         var rank: String = "S"
 
@@ -183,7 +183,7 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("max-memory"),
-            help: "Maximum memory (Nextflow format, default: 16.GB)"
+            help: "Maximum memory (Nextflow format)"
         )
         var maxMemory: String = "16.GB"
 
@@ -197,7 +197,7 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("nf-profile"),
-            help: "Nextflow execution profile (default: docker)"
+            help: "Nextflow execution profile"
         )
         var nfProfile: String = "docker"
 

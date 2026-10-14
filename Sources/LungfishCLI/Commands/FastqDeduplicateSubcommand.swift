@@ -25,7 +25,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("optical"), help: "Optical duplicate mode (patterned flowcells)")
     var optical: Bool = false
 
-    @Option(name: .customLong("dupedist"), help: "Pixel distance for optical duplicates (default: 40)")
+    @Option(name: .customLong("dupedist"), help: "Pixel distance for optical duplicates")
     var opticalDistance: Int = 40
 
     @OptionGroup var pairing: FASTQPairingOptions

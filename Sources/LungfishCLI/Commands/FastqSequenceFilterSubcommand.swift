@@ -24,13 +24,13 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("fasta-path"), help: "Path to FASTA file containing sequences to match")
     var fastaPath: String?
 
-    @Option(name: .customLong("search-end"), help: "Which end to search: \"left\", \"right\", or \"both\" (default: both)")
+    @Option(name: .customLong("search-end"), help: "Which end to search: \"left\", \"right\", or \"both\"")
     var searchEnd: String = "both"
 
-    @Option(name: .customLong("min-overlap"), help: "Minimum overlap length (default: 8)")
+    @Option(name: .customLong("min-overlap"), help: "Minimum overlap length")
     var minOverlap: Int = 8
 
-    @Option(name: .customLong("error-rate"), help: "Allowed error rate as fraction (default: 0.1)")
+    @Option(name: .customLong("error-rate"), help: "Allowed error rate as fraction")
     var errorRate: Double = 0.1
 
     @Flag(name: .customLong("keep-matched"), help: "Keep matched reads instead of discarding them")

@@ -42,7 +42,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("matching-mode"),
-        help: "12S matching mode: 'illumina-exact' (exact embedded reference matches only; default) or 'ont-indel' (allow indel-only fallback)."
+        help: "12S matching mode: 'illumina-exact' (exact embedded reference matches only) or 'ont-indel' (allow indel-only fallback)."
     )
     var matchingMode: String = TwelveSAmpliconMatchingMode.illuminaExact.rawValue
 
@@ -58,7 +58,7 @@ struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("ambiguity-resolution"),
-        help: "How cross-species identical-sequence reads are resolved: 'strict' (any nonzero abundance lead wins; default) or 'conservative' (winner must have >=2x the runner-up and >=10 reads)."
+        help: "How cross-species identical-sequence reads are resolved: 'strict' (any nonzero abundance lead wins) or 'conservative' (winner must have >=2x the runner-up and >=10 reads)."
     )
     var ambiguityResolution: String = "strict"
 

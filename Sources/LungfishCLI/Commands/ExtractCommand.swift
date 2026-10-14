@@ -91,7 +91,7 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("line-width"),
-        help: "FASTA line width (default: 70)"
+        help: "FASTA line width"
     )
     var lineWidth: Int = 70
 

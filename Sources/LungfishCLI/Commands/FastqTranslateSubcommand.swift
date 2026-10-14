@@ -19,10 +19,10 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("frame"), help: "Reading frame: 1-3 forward, 4-6 reverse (default: 1)")
+    @Option(name: .customLong("frame"), help: "Reading frame: 1-3 forward, 4-6 reverse")
     var frame: Int = 1
 
-    @Option(name: .customLong("table"), help: "Genetic code table ID (default: 1)")
+    @Option(name: .customLong("table"), help: "Genetic code table ID")
     var table: Int = 1
 
     @OptionGroup var output: OutputOptions

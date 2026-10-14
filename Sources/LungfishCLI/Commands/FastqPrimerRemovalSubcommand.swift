@@ -47,13 +47,13 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
     /// every bundled scheme (L5, ruling on concern 3).
     static let defaultKmerSize = 15
 
-    @Option(name: .customLong("kmer"), help: "K-mer size (default: 15)")
+    @Option(name: .customLong("kmer"), help: "K-mer size")
     var kmerSize: Int = FastqPrimerRemovalSubcommand.defaultKmerSize
 
-    @Option(name: .customLong("mink"), help: "Minimum k-mer size (default: 11)")
+    @Option(name: .customLong("mink"), help: "Minimum k-mer size")
     var minKmer: Int = 11
 
-    @Option(name: .customLong("hdist"), help: "Hamming distance tolerance (default: 1)")
+    @Option(name: .customLong("hdist"), help: "Hamming distance tolerance")
     var hammingDistance: Int = 1
 
     @Option(name: .customLong("engine"), help: "Primer trimming engine: bbduk or cutadapt-linked")

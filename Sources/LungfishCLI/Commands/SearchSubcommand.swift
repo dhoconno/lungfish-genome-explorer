@@ -30,13 +30,13 @@ struct SearchSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("db"),
-        help: "Database: nucleotide, protein, genome (default: nucleotide)"
+        help: "Database: nucleotide, protein, genome"
     )
     var database: String = "nucleotide"
 
     @Option(
         name: .customLong("limit"),
-        help: "Maximum results (default: 20)"
+        help: "Maximum results"
     )
     var limit: Int = 20
 

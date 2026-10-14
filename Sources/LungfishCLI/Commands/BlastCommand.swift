@@ -100,18 +100,18 @@ extension BlastCommand {
         @Option(name: .customLong("taxid"), help: "Taxonomy ID to verify")
         var taxId: Int
 
-        @Option(name: .customLong("reads"), help: "Number of reads to submit (default: 20)")
+        @Option(name: .customLong("reads"), help: "Number of reads to submit")
         var readCount: Int = 20
 
         @Option(
             name: .customLong("seed"),
-            help: "Random seed for choosing which fragments to submit (default: 0)"
+            help: "Random seed for choosing which fragments to submit"
         )
         var seed: UInt64 = 0
 
         @Option(
             name: .customLong("max-concurrent"),
-            help: "Maximum in-flight BLAST submissions for this process (default: 1)"
+            help: "Maximum in-flight BLAST submissions for this process"
         )
         var maxConcurrent: Int = 1
 

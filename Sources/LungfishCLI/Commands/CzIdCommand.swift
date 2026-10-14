@@ -95,7 +95,7 @@ struct CzIdCommand: AsyncParsableCommand {
         @Argument(help: "Path to a CZ-ID taxon report TSV")
         var inputPath: String
 
-        @Option(name: .customLong("top"), help: "Number of top taxa to display (default: 20)")
+        @Option(name: .customLong("top"), help: "Number of top taxa to display")
         var topN: Int = 20
 
         func run() async throws {

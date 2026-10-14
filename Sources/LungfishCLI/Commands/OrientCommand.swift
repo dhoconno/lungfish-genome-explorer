@@ -46,10 +46,10 @@ struct OrientCommand: AsyncParsableCommand {
     @Option(name: .customLong("reference"), help: "Reference FASTA file")
     var reference: String
 
-    @Option(name: .customLong("word-length"), help: "K-mer word length for matching (3-15, default: 12)")
+    @Option(name: .customLong("word-length"), help: "K-mer word length for matching (3-15)")
     var wordLength: Int = 12
 
-    @Option(name: .customLong("mask"), help: "Low-complexity masking mode: dust, none (default: dust)")
+    @Option(name: .customLong("mask"), help: "Low-complexity masking mode: dust, none")
     var mask: String = "dust"
 
     @Flag(name: .customLong("save-unoriented"), help: "Save unoriented reads to a separate file")

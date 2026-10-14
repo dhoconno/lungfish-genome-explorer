@@ -43,7 +43,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("project-root"), help: "Project root directory for --bundle mode")
     var projectRoot: String?
 
-    @Option(name: .customLong("line-width"), help: "FASTA line width (default: 60)")
+    @Option(name: .customLong("line-width"), help: "FASTA line width")
     var lineWidth: Int = 60
 
     @OptionGroup var globalOptions: GlobalOptions

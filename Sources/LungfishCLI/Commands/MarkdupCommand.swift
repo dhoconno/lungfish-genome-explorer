@@ -78,7 +78,7 @@ struct MarkdupCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Re-run markdup even if already marked")
     var force: Bool = false
 
-    @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort (default 4)")
+    @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort")
     var sortThreads: Int = 4
 
     @Option(

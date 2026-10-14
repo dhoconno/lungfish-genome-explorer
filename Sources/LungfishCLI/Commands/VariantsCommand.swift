@@ -828,13 +828,13 @@ extension VariantsCommand {
         @Option(name: .customLong("platform"), help: "Sequencing platform for Medaka and Clair3: ont, hifi or ilmn. Defaults to the platform recorded in the alignment's read groups (@RG PL).")
         var platform: String?
 
-        @Option(name: .customLong("ivar-consensus-af"), help: "Allele frequency threshold above which an iVar haplotype counts as consensus (default 0.75)")
+        @Option(name: .customLong("ivar-consensus-af"), help: "Allele frequency threshold above which an iVar haplotype counts as consensus")
         var ivarConsensusAF: Double = 0.75
 
-        @Option(name: .customLong("ivar-merge-af-threshold"), help: "Maximum allele frequency distance for merging adjacent iVar SNPs (default 0.25)")
+        @Option(name: .customLong("ivar-merge-af-threshold"), help: "Maximum allele frequency distance for merging adjacent iVar SNPs")
         var ivarMergeAFThreshold: Double = 0.25
 
-        @Option(name: .customLong("ivar-bad-quality-threshold"), help: "iVar ALT_QUAL below this fails the bq filter (default 20)")
+        @Option(name: .customLong("ivar-bad-quality-threshold"), help: "iVar ALT_QUAL below this fails the bq filter")
         var ivarBadQualityThreshold: Int = 20
 
         @Flag(name: .customLong("ivar-no-ignore-strand-bias"), help: "Apply iVar strand-bias filter (off by default for amplicon data)")

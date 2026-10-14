@@ -65,7 +65,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("output-dir"),
-        help: "Output directory for the bundles (default: current directory)"
+        help: "Output directory for the bundles"
     )
     var outputDir: String = "."
 

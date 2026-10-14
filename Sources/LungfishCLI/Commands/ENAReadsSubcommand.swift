@@ -21,7 +21,7 @@ struct ENAReadsSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("limit"),
-        help: "Maximum results (default: 20)"
+        help: "Maximum results"
     )
     var limit: Int = 20
 

@@ -209,27 +209,27 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var output: String
 
     @Option(name: .customLong("location"),
-            help: "Cutadapt barcode location: 5prime, 3prime, bothends (default: bothends)")
+            help: "Cutadapt barcode location: 5prime, 3prime, bothends")
     var location: String = "bothends"
 
     @Option(name: .customLong("max-distance-5prime"),
-            help: "Cutadapt max bases from 5' terminus where barcodes may start (default: 0)")
+            help: "Cutadapt max bases from 5' terminus where barcodes may start")
     var maxDistanceFrom5Prime: Int = 0
 
     @Option(name: .customLong("max-distance-3prime"),
-            help: "Cutadapt max bases from 3' terminus where barcodes may end (default: 0)")
+            help: "Cutadapt max bases from 3' terminus where barcodes may end")
     var maxDistanceFrom3Prime: Int = 0
 
     @Option(name: .customLong("error-rate"),
-            help: "Cutadapt maximum error rate for barcode matching (default: 0.15)")
+            help: "Cutadapt maximum error rate for barcode matching")
     var errorRate: Double = 0.15
 
     @Option(name: .customLong("overlap"),
-            help: "Cutadapt minimum overlap length (default: 3)")
+            help: "Cutadapt minimum overlap length")
     var overlap: Int = 3
 
     @Option(name: .customLong("engine"),
-            help: "Demultiplexing engine: cutadapt or exact-bare (default: cutadapt)")
+            help: "Demultiplexing engine: cutadapt or exact-bare")
     var engine: String = DemultiplexEngine.cutadapt.rawValue
 
     @Flag(name: .customLong("no-trim"),
@@ -625,13 +625,13 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
     @Option(name: [.customLong("output"), .customShort("o")], help: "Output scout-result.json path")
     var output: String
 
-    @Option(name: .customLong("read-limit"), help: "Maximum reads to scan (default: 10000)")
+    @Option(name: .customLong("read-limit"), help: "Maximum reads to scan")
     var readLimit: Int = 10_000
 
-    @Option(name: .customLong("accept-threshold"), help: "Minimum hits to auto-accept a barcode (default: 10)")
+    @Option(name: .customLong("accept-threshold"), help: "Minimum hits to auto-accept a barcode")
     var acceptThreshold: Int = 10
 
-    @Option(name: .customLong("reject-threshold"), help: "Maximum hits to auto-reject a barcode (default: 3)")
+    @Option(name: .customLong("reject-threshold"), help: "Maximum hits to auto-reject a barcode")
     var rejectThreshold: Int = 3
 
     @Option(name: .customLong("error-rate"), help: "Override barcode matching error rate")

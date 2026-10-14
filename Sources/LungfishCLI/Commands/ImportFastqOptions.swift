@@ -31,7 +31,7 @@ struct ImportFastqOptions: ParsableArguments {
     @Option(
         name: .customLong("pairing"),
         help: ArgumentHelp(
-            "Read pairing: auto, single, paired, interleaved (default: auto)",
+            "Read pairing: auto, single, paired, interleaved",
             discussion: """
             auto and paired match R1/R2 files by name, inside one folder first. \
             Mates in two folders pair only when no other listed file has either \
@@ -55,13 +55,13 @@ struct ImportFastqOptions: ParsableArguments {
 
     @Option(
         name: .customLong("quality-binning"),
-        help: "Quality binning: illumina4 (7 quality levels), eightLevel (~21 quality levels), none (default: none). Binning is lossy and irreversible once originals are removed — opt in explicitly."
+        help: "Quality binning: illumina4 (7 quality levels), eightLevel (~21 quality levels), none. Binning is lossy and irreversible once originals are removed — opt in explicitly."
     )
     var qualityBinning: String = "none"
 
     @Option(
         name: .customLong("compression"),
-        help: "Compression level: fast, balanced, maximum (default: balanced)"
+        help: "Compression level: fast, balanced, maximum"
     )
     var compression: String = "balanced"
 

@@ -19,10 +19,10 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("front"), help: "Bases to trim from 5' end (default: 0)")
+    @Option(name: .customLong("front"), help: "Bases to trim from 5' end")
     var front: Int = 0
 
-    @Option(name: .customLong("tail"), help: "Bases to trim from 3' end (default: 0)")
+    @Option(name: .customLong("tail"), help: "Bases to trim from 3' end")
     var tail: Int = 0
 
     @OptionGroup var pairing: FASTQPairingOptions

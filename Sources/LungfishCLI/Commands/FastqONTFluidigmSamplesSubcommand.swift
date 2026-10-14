@@ -35,16 +35,16 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
     var threads: Int { globalOptions.threads ?? 1 }
 
-    @Option(name: .customLong("primer-mismatches"), help: "Maximum mismatches allowed when detecting CS1/CS2 primer boundaries (default: 2)")
+    @Option(name: .customLong("primer-mismatches"), help: "Maximum mismatches allowed when detecting CS1/CS2 primer boundaries")
     var primerMismatches: Int = 2
 
-    @Option(name: .customLong("minimum-insert-length"), help: "Minimum CS1-CS2 insert length to retain (default: 20)")
+    @Option(name: .customLong("minimum-insert-length"), help: "Minimum CS1-CS2 insert length to retain")
     var minimumInsertLength: Int = 20
 
     @Flag(
         name: .customLong("canonicalize-reverse-complements"),
         inversion: .prefixedNo,
-        help: "Canonicalize exact reverse-complement insert duplicates after orienting CS1-CS2 reads (default: disabled)"
+        help: "Canonicalize exact reverse-complement insert duplicates after orienting CS1-CS2 reads"
     )
     var canonicalizeReverseComplements: Bool = false
 

@@ -31,7 +31,7 @@ struct UniversalSearchCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Universal search query text")
     var query: String = ""
 
-    @Option(name: .long, help: "Maximum number of results (default: 200)")
+    @Option(name: .long, help: "Maximum number of results")
     var limit: Int = 200
 
     @Flag(name: .long, help: "Force index rebuild before querying")

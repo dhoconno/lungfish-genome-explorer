@@ -174,7 +174,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     // already declares `--format` for the report-output format (text/json/tsv).
     // The classifier strategy uses `--read-format` for the FASTQ vs FASTA
     // distinction on the extracted read file itself.
-    @Option(name: .customLong("read-format"), help: "Output read format: fastq or fasta (for --by-classifier; default fastq)")
+    @Option(name: .customLong("read-format"), help: "Output read format: fastq or fasta (for --by-classifier)")
     var classifierFormat: String = "fastq"
 
     @Flag(name: .customLong("include-unmapped-mates"), help: "Include unmapped mates of mapped pairs (for --by-classifier, non-kraken2)")

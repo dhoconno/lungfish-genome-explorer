@@ -71,7 +71,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
 
         @Option(
             name: .customLong("min-bitscore"),
-            help: "Minimum bit score filter (default: 0)"
+            help: "Minimum bit score filter"
         )
         var minBitScore: Double = 0
 
@@ -364,7 +364,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
 
         @Option(
             name: .customLong("top"),
-            help: "Number of top taxa to display (default: 20)"
+            help: "Number of top taxa to display"
         )
         var topN: Int = 20
 

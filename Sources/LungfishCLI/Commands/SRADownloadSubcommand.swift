@@ -21,7 +21,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("output-dir"),
-        help: "Output directory for FASTQ files (default: current directory)"
+        help: "Output directory for FASTQ files"
     )
     var outputDir: String = "."
 

@@ -19,7 +19,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
     @Argument(help: "Input interleaved FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("min-overlap"), help: "Minimum overlap (default: 12)")
+    @Option(name: .customLong("min-overlap"), help: "Minimum overlap")
     var minOverlap: Int = 12
 
     @Flag(name: .customLong("strict"), help: "Use strict merge mode")

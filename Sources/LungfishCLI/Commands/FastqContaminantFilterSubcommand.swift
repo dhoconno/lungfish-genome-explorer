@@ -19,16 +19,16 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("mode"), help: "Filter mode: phix, custom (default: phix)")
+    @Option(name: .customLong("mode"), help: "Filter mode: phix, custom")
     var mode: String = "phix"
 
     @Option(name: .customLong("ref"), help: "Reference FASTA for custom mode")
     var reference: String?
 
-    @Option(name: .customLong("kmer"), help: "K-mer size (default: 31)")
+    @Option(name: .customLong("kmer"), help: "K-mer size")
     var kmerSize: Int = 31
 
-    @Option(name: .customLong("hdist"), help: "Hamming distance tolerance (default: 1)")
+    @Option(name: .customLong("hdist"), help: "Hamming distance tolerance")
     var hammingDistance: Int = 1
 
     @OptionGroup var pairing: FASTQPairingOptions

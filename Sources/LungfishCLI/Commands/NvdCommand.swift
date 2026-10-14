@@ -160,7 +160,7 @@ struct NvdCommand: AsyncParsableCommand {
 
         @Option(
             name: .customLong("top"),
-            help: "Number of top contigs to display (default: 20)"
+            help: "Number of top contigs to display"
         )
         var topN: Int = 20
 

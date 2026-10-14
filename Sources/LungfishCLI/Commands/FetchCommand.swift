@@ -60,13 +60,13 @@ struct NCBISubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("db"),
-        help: "Database: nucleotide, protein (default: nucleotide)"
+        help: "Database: nucleotide, protein"
     )
     var database: String = "nucleotide"
 
     @Option(
         name: .customLong("fetch-format"),
-        help: "Fetch format: genbank, fasta, gff3, xml (default: genbank)"
+        help: "Fetch format: genbank, fasta, gff3, xml"
     )
     var fetchFormat: String = "genbank"
 

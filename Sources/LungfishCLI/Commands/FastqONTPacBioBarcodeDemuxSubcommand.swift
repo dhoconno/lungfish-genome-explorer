@@ -37,13 +37,13 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
     var threads: Int { globalOptions.threads ?? 1 }
 
-    @Option(name: .customLong("chunk-jobs"), help: "Compatibility option for legacy chunked demux paths (default: active cores)")
+    @Option(name: .customLong("chunk-jobs"), help: "Compatibility option for legacy chunked demux paths")
     var chunkJobs: Int = ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs
 
-    @Option(name: .customLong("max-reads-per-slice"), help: "Compatibility option for legacy chunked demux paths; 0 disables sub-slicing (default: 100000)")
+    @Option(name: .customLong("max-reads-per-slice"), help: "Compatibility option for legacy chunked demux paths; 0 disables sub-slicing")
     var maxReadsPerSlice: Int = 100_000
 
-    @Option(name: .customLong("max-bytes-per-cutadapt"), help: "Compatibility option for legacy chunked demux paths (default: 536870912)")
+    @Option(name: .customLong("max-bytes-per-cutadapt"), help: "Compatibility option for legacy chunked demux paths")
     var maxBytesPerCutadapt: Int64 = 512 * 1024 * 1024
 
     @Flag(name: .customLong("force"), help: "Replace an existing output directory")

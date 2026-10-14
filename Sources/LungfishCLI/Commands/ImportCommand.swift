@@ -2097,7 +2097,7 @@ extension ImportCommand {
         @Flag(
             name: .customLong("fetch-references"),
             inversion: .prefixedNo,
-            help: "Fetch NCBI reference FASTA files into references/ (default: enabled)"
+            help: "Fetch NCBI reference FASTA files into references/"
         )
         var fetchReferences: Bool = true
 
