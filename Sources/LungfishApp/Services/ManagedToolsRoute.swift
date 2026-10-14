@@ -25,9 +25,11 @@ struct ManagedToolsRouteSettings {
     /// The hidden key. It holds `cli` or `legacy`, or a Boolean that is true for the CLI route,
     /// for example `defaults write <app id> ManagedToolsRoute legacy`.
     static let defaultsKey = "ManagedToolsRoute"
-    /// The route of a key that is unset or holds a value this reader does not know. The last
-    /// commit of lane A52 sets it to `.cli`.
-    static let defaultRoute: ManagedToolsRoute = .legacy
+    /// The route of a key that is unset or holds a value this reader does not know. Lane A52's
+    /// last commit set it to `.cli`, once side A against side C held only declared differences
+    /// (ManagedToolsCLIGUIParityReplayTests). `defaults write <app id> ManagedToolsRoute legacy`
+    /// keeps the in-process route for one release.
+    static let defaultRoute: ManagedToolsRoute = .cli
 
     let defaults: UserDefaults
 

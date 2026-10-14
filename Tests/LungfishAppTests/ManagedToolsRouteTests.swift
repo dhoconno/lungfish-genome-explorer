@@ -34,6 +34,17 @@ final class ManagedToolsRouteTests: XCTestCase {
         XCTAssertEqual(ManagedToolsRoute.allCases.count, 2)
     }
 
+    /// Lane A52's last commit (panel decision C4). Side A against C holds only declared differences
+    /// (ManagedToolsCLIGUIParityReplayTests), so the three launches take the CLI route unless the
+    /// key names the in-process route, which stays for one release.
+    func testTheDefaultRouteIsTheCLIAndTheKeyStillKeepsTheInProcessRoute() {
+        XCTAssertEqual(ManagedToolsRouteSettings.defaultRoute, .cli)
+        XCTAssertEqual(route(holding: nil), .cli, "an unset key takes the CLI route")
+        XCTAssertEqual(route(holding: "in-process"), .cli, "a value nothing reads takes the CLI route")
+        XCTAssertEqual(route(holding: "legacy"), .legacy, "the key keeps the in-process route")
+        XCTAssertEqual(route(holding: false), .legacy)
+    }
+
     func testAnOverrideWinsOverTheKeyAndClearsAfterwards() {
         defer { ManagedToolsRouteSettings.testOverride = nil }
         ManagedToolsRouteSettings.testOverride = .legacy
