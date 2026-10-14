@@ -56,6 +56,43 @@ final class MappingRouteRowConformanceTests: XCTestCase {
         XCTAssertTrue(row.shown.contains("Validating alignment file..."), row.text)
         try MappingRouteRow.assertFrozen(row, name: "lungfishref", scratch: scratch)
     }
+
+    /// Fix 2 of the whole-lane review of lane A46. With a `.lungfishref` the CLI route's `map` publishes
+    /// the reference viewer, so its row shows the viewer's steps, and the file the in-process route froze
+    /// holds them too. The details, the lines logged and the end are the frozen ones. The CLI row's bar
+    /// is held (decision W2), so both bars read through `heldBar` and the viewer's step back to 0.9300
+    /// and climb to 1.0000 after the first 1.0000 are left to the in-process row. The route finds its CLI through
+    /// LUNGFISH_CLI_PATH, which names the built one here, since the lookup through SwiftPM waits on the
+    /// lock that the running `swift test` holds.
+    func testTheCLIRowOnALungfishrefShowsTheInProcessWords() async throws {
+        _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
+        _ = try await ToolAvailability.require("samtools", environment: "samtools")
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so the CLI route cannot run"
+        )
+        let saved = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        defer {
+            if let saved { setenv("LUNGFISH_CLI_PATH", saved, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
+        }
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        let fixture = try MappingRouteGolden.Fixture(in: scratch)
+        let bundle = try MappingRouteRow.referenceBundle(from: fixture.reference, in: fixture.project)
+        let request = fixture.windowRequest(referenceFASTA: bundle.appendingPathComponent("genome/sequence.fa"))
+        let row = try await MappingRouteRow.recordInProcess(request) { appDelegate, plan in
+            let keys = TestDefaultsSuite(prefix: "MappingRouteRowConformanceTests")
+            defer { keys.tearDown() }
+            keys.defaults.set(ReadsLaunchRoute.cli.rawValue, forKey: ReadsLaunchPath.mapping.defaultsKey)
+            appDelegate.runManagedMapping(plan: plan, routeSettings: ReadsLaunchRouteSettings(defaults: keys.defaults))
+        }
+        XCTAssertTrue(row.shown.contains("Validating alignment file..."), row.text)
+        // The in-process row steps back after 1.0000, so a bar that only rises shows the CLI route ran.
+        XCTAssertEqual(row.bar, MappingRouteRow.heldBar(row.bar), "the CLI route holds the bar")
+        try MappingRouteRow.assertFrozen(
+            row, name: "lungfishref", scratch: scratch, recapturing: false, bar: MappingRouteRow.heldBar
+        )
+    }
 }
 
 /// The row of one Map Reads run as the Operations panel shows it. The details and the bar are kept
@@ -85,13 +122,27 @@ struct MappingRouteRow: Equatable {
         return Array(bar.dropLast(2))
     }
 
-    /// `text`, a row in its frozen form, with its bar read through ``comparableBar(_:)``.
-    static func comparableText(_ text: String) -> String {
+    /// The bar as the CLI route's row shows it (decision W2, `OperationCenterCLIBridge`). The row holds
+    /// the bar and moves it only to a higher fraction, so a step below the highest one so far is left
+    /// out. The viewer's step back to 0.93 and up to 1 that the in-process row froze after the bar
+    /// reached 1 never reaches it, and a bar that only rises reads as itself.
+    static func heldBar(_ bar: [String]) -> [String] {
+        var highest = -Double.infinity
+        return bar.filter { step in
+            guard let value = Double(step), value > highest else { return false }
+            highest = value
+            return true
+        }
+    }
+
+    /// `text`, a row in its frozen form, with its bar read through `read`, ``comparableBar(_:)`` unless
+    /// a case names another.
+    static func comparableText(_ text: String, bar read: ([String]) -> [String] = comparableBar) -> String {
         var lines = text.components(separatedBy: "\n")
         guard let start = lines.firstIndex(of: "# bar"), let end = lines.firstIndex(of: "# logged"), start < end else {
             return text
         }
-        lines.replaceSubrange((start + 1)..<end, with: comparableBar(Array(lines[(start + 1)..<end])))
+        lines.replaceSubrange((start + 1)..<end, with: read(Array(lines[(start + 1)..<end])))
         return lines.joined(separator: "\n")
     }
 
@@ -131,20 +182,26 @@ struct MappingRouteRow: Equatable {
         return row
     }
 
-    /// Holds `row` to its frozen file, with `scratch` read as `/work`.
-    static func assertFrozen(_ row: MappingRouteRow, name: String, scratch: URL, file: StaticString = #filePath, line: UInt = #line) throws {
+    /// Holds `row` to its frozen file, with `scratch` read as `/work` and both bars read through `read`.
+    /// LUNGFISH_RECAPTURE_MAPPING_ROW writes the file from `row` only when `recapturing`, which a case
+    /// that holds the CLI route's row to the in-process file leaves off, since the file is that route's.
+    static func assertFrozen(
+        _ row: MappingRouteRow, name: String, scratch: URL,
+        recapturing: Bool = true, bar read: ([String]) -> [String] = comparableBar,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
         var text = row.text
         for root in [scratch.resolvingSymlinksInPath().path, scratch.path] {
             text = text.replacingOccurrences(of: root, with: "/work")
         }
         let url = frozenFolder.appendingPathComponent("\(name).txt")
-        if ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_MAPPING_ROW"] == "1" {
+        if recapturing, ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_MAPPING_ROW"] == "1" {
             try FileManager.default.createDirectory(at: frozenFolder, withIntermediateDirectories: true)
             try text.write(to: url, atomically: true, encoding: .utf8)
             return
         }
         XCTAssertEqual(
-            comparableText(text), comparableText(try String(contentsOf: url, encoding: .utf8)),
+            comparableText(text, bar: read), comparableText(try String(contentsOf: url, encoding: .utf8), bar: read),
             "the row differs from \(name).txt", file: file, line: line
         )
     }
