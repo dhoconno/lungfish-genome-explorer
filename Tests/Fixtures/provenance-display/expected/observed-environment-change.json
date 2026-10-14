@@ -1,0 +1,111 @@
+{
+  "auditIsBlocking" : false,
+  "auditStatus" : "present",
+  "files" : [
+    {
+      "checksumSHA256" : "e0a99d7a0a08729c2190dbaf004e3cfaf50043a3a094f33a26a6d6f9920ae84e",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Inputs/reads.fastq",
+      "fileSize" : 4096,
+      "format" : "FASTQ",
+      "role" : "Input",
+      "sizeLabel" : "4 KB"
+    },
+    {
+      "checksumSHA256" : "83fc9ccdbcdbd83a337f320b6ac9ac601eb003a7da36740efbd117eb3a94ab22",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/observed-environment-change/esviritu.out",
+      "fileSize" : 2048,
+      "format" : "text",
+      "role" : "Output",
+      "sizeLabel" : "2 KB"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "EsViritu -r Inputs/reads.fastq -o Analyses/observed-environment-change/esviritu.out",
+          "exitStatus" : 0,
+          "inputs" : [
+            "Inputs/reads.fastq (intermediate file, not kept)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "Analyses/observed-environment-change/esviritu.out (intermediate file, not kept)"
+          ],
+          "stderr" : "",
+          "toolName" : "EsViritu",
+          "toolVersion" : "v1.3.3",
+          "wallTimeSeconds" : 41.7
+        }
+      ],
+      "subtitle" : "EsViritu v1.3.3",
+      "title" : "lungfish esviritu detect"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "2",
+      "kind" : "Explicit",
+      "name" : "threads"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Default",
+      "name" : "minimumHitGroups"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Resolved Default",
+      "name" : "minimumHitGroups"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Resolved Default",
+      "name" : "threads"
+    }
+  ],
+  "runtime" : [
+    {
+      "label" : "App Version",
+      "value" : "Lungfish 2026.10.14 (4701)"
+    },
+    {
+      "label" : "Executable",
+      "value" : "<external>/lungfish-cli"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS 26.7.1 (arm64)"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "arm64"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "2026.2"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1791709512000,
+    "createdAtUTC" : "2026-10-11T09:05:12.000Z",
+    "exitStatus" : 0,
+    "inputCount" : 1,
+    "outputCount" : 1,
+    "runStatus" : "Completed",
+    "sidecarDisplayPath" : "Analyses/observed-environment-change/.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Complete record",
+    "stepCount" : 1,
+    "toolName" : "EsViritu",
+    "toolVersion" : "v1.3.3",
+    "wallTimeSeconds" : 41.7,
+    "workflowName" : "lungfish esviritu detect",
+    "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+  },
+  "warnings" : [
+
+  ]
+}

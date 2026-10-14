@@ -1,0 +1,184 @@
+{
+  "argv" : [
+    "bracken",
+    "-d",
+    "Viral",
+    "-i",
+    "@/Inputs/kraken2.kreport",
+    "-o",
+    "@/Analyses/observed-launch-failure/bracken.out",
+    "-l",
+    "S"
+  ],
+  "createdAt" : "2026-10-11T08:52:30Z",
+  "durableReplayArgv" : [
+    "bracken",
+    "-d",
+    "Viral",
+    "-i",
+    "@/Inputs/kraken2.kreport",
+    "-o",
+    "@/Analyses/observed-launch-failure/bracken.out",
+    "-l",
+    "S"
+  ],
+  "exitStatus" : 127,
+  "files" : [
+    {
+      "checksumSHA256" : "4fc1f099a1ec218309162670496c83c7cea51573e9d706126ead8dc05548f3e2",
+      "fileSize" : 1024,
+      "format" : "text",
+      "path" : "@/Inputs/kraken2.kreport",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "3ce1500717b4a900edb1d2f2e950945a39beeb5c2eae8ddd084034010fac70eb",
+      "fileSize" : 1024,
+      "format" : "text",
+      "path" : "@/Analyses/observed-launch-failure/bracken.out",
+      "role" : "output"
+    }
+  ],
+  "id" : "FC668E92-D8C7-596D-BB0D-F1616BF52E82",
+  "options" : {
+    "defaults" : {
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "explicit" : {
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "resolvedDefaults" : {
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "3ce1500717b4a900edb1d2f2e950945a39beeb5c2eae8ddd084034010fac70eb",
+    "fileSize" : 1024,
+    "format" : "text",
+    "path" : "@/Analyses/observed-launch-failure/bracken.out",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "3ce1500717b4a900edb1d2f2e950945a39beeb5c2eae8ddd084034010fac70eb",
+      "fileSize" : 1024,
+      "format" : "text",
+      "path" : "@/Analyses/observed-launch-failure/bracken.out",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "bracken -d Viral -i @/Inputs/kraken2.kreport -o @/Analyses/observed-launch-failure/bracken.out -l S",
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.14 (4701)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "8b13cc295989263905cf09083675a1e3007aa2db8948d877f067e3b7a4e008b4",
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "failed",
+  "stderr" : "bracken could not be started.",
+  "steps" : [
+    {
+      "argv" : [
+        "bracken",
+        "-d",
+        "Viral",
+        "-i",
+        "@/Inputs/kraken2.kreport",
+        "-o",
+        "@/Analyses/observed-launch-failure/bracken.out",
+        "-l",
+        "S"
+      ],
+      "completedAt" : "2026-10-11T08:52:31Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 127,
+      "id" : "3FFCC9A8-6511-5C42-B44C-5F5749815DC8",
+      "inputs" : [
+        {
+          "checksumSHA256" : "4fc1f099a1ec218309162670496c83c7cea51573e9d706126ead8dc05548f3e2",
+          "fileSize" : 1024,
+          "format" : "text",
+          "path" : "@/Inputs/kraken2.kreport",
+          "role" : "input"
+        }
+      ],
+      "observation" : {
+        "environment" : {
+          "base" : "hermetic",
+          "changed" : [
+            "HOME",
+            "MAMBA_ROOT_PREFIX",
+            "PATH",
+            "TMPDIR"
+          ],
+          "pathPrefix" : [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+          ],
+          "values" : {
+            "MAMBA_ROOT_PREFIX" : "<tool-root>"
+          }
+        },
+        "stage" : {
+          "count" : 1,
+          "index" : 0
+        },
+        "termination" : {
+          "kind" : "launchFailed",
+          "reason" : "posix_spawn failed, no such file or directory"
+        }
+      },
+      "outputs" : [
+        {
+          "checksumSHA256" : "3ce1500717b4a900edb1d2f2e950945a39beeb5c2eae8ddd084034010fac70eb",
+          "fileSize" : 1024,
+          "format" : "text",
+          "path" : "@/Analyses/observed-launch-failure/bracken.out",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "bracken -d Viral -i @/Inputs/kraken2.kreport -o @/Analyses/observed-launch-failure/bracken.out -l S",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-11T08:52:30Z",
+      "stderr" : "bracken could not be started.",
+      "toolName" : "bracken",
+      "toolVersion" : "3.0",
+      "wallTimeSeconds" : 0.1
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "bracken",
+    "version" : "3.0"
+  },
+  "toolName" : "bracken",
+  "toolVersion" : "3.0",
+  "wallTimeSeconds" : 0.1,
+  "workflowName" : "lungfish bracken profile",
+  "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+}

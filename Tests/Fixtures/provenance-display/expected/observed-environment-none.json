@@ -1,0 +1,111 @@
+{
+  "auditIsBlocking" : false,
+  "auditStatus" : "present",
+  "files" : [
+    {
+      "checksumSHA256" : "e0a99d7a0a08729c2190dbaf004e3cfaf50043a3a094f33a26a6d6f9920ae84e",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Inputs/reads.fastq",
+      "fileSize" : 4096,
+      "format" : "FASTQ",
+      "role" : "Input",
+      "sizeLabel" : "4 KB"
+    },
+    {
+      "checksumSHA256" : "7f2dfdbeca9a147d06646058fc29d5e150994a4d7711b6df63e6f91383b6bd48",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/observed-environment-none/kraken2.kreport",
+      "fileSize" : 2048,
+      "format" : "text",
+      "role" : "Output",
+      "sizeLabel" : "2 KB"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "kraken2 --db Viral --threads 2 --report Analyses/observed-environment-none/kraken2.kreport Inputs/reads.fastq",
+          "exitStatus" : 0,
+          "inputs" : [
+            "Inputs/reads.fastq (intermediate file, not kept)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "Analyses/observed-environment-none/kraken2.kreport (intermediate file, not kept)"
+          ],
+          "stderr" : "Loading database information... done.",
+          "toolName" : "kraken2",
+          "toolVersion" : "v2.1.3",
+          "wallTimeSeconds" : 14.2
+        }
+      ],
+      "subtitle" : "kraken2 v2.1.3",
+      "title" : "lungfish kraken2 classify"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "2",
+      "kind" : "Explicit",
+      "name" : "threads"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Default",
+      "name" : "minimumHitGroups"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Resolved Default",
+      "name" : "minimumHitGroups"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Resolved Default",
+      "name" : "threads"
+    }
+  ],
+  "runtime" : [
+    {
+      "label" : "App Version",
+      "value" : "Lungfish 2026.10.14 (4701)"
+    },
+    {
+      "label" : "Executable",
+      "value" : "<external>/lungfish-cli"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS 26.7.1 (arm64)"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "arm64"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "2026.2"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1791710448000,
+    "createdAtUTC" : "2026-10-11T09:20:48.000Z",
+    "exitStatus" : 0,
+    "inputCount" : 1,
+    "outputCount" : 1,
+    "runStatus" : "Completed",
+    "sidecarDisplayPath" : "Analyses/observed-environment-none/.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Complete record",
+    "stepCount" : 1,
+    "toolName" : "kraken2",
+    "toolVersion" : "v2.1.3",
+    "wallTimeSeconds" : 14.2,
+    "workflowName" : "lungfish kraken2 classify",
+    "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+  },
+  "warnings" : [
+
+  ]
+}

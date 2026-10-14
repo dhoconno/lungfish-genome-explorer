@@ -1,0 +1,153 @@
+{
+  "argv" : [
+    "kraken2",
+    "--db",
+    "Viral",
+    "--threads",
+    "2",
+    "--report",
+    "@/Analyses/observed-older-record/kraken2.kreport",
+    "@/Inputs/reads.fastq"
+  ],
+  "createdAt" : "2026-10-11T09:31:09Z",
+  "durableReplayArgv" : [
+    "kraken2",
+    "--db",
+    "Viral",
+    "--threads",
+    "2",
+    "--report",
+    "@/Analyses/observed-older-record/kraken2.kreport",
+    "@/Inputs/reads.fastq"
+  ],
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "e0a99d7a0a08729c2190dbaf004e3cfaf50043a3a094f33a26a6d6f9920ae84e",
+      "fileSize" : 4096,
+      "format" : "fastq",
+      "path" : "@/Inputs/reads.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0ae509e2f1abf3c7e678a85b62f0c3a1a0c1e1cd3382ecfa6c7b1dbd4a21b318",
+      "fileSize" : 2048,
+      "format" : "text",
+      "path" : "@/Analyses/observed-older-record/kraken2.kreport",
+      "role" : "output"
+    }
+  ],
+  "id" : "D40F4C6B-0111-54B4-B281-4A42EDB9A77F",
+  "options" : {
+    "defaults" : {
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "explicit" : {
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "resolvedDefaults" : {
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "0ae509e2f1abf3c7e678a85b62f0c3a1a0c1e1cd3382ecfa6c7b1dbd4a21b318",
+    "fileSize" : 2048,
+    "format" : "text",
+    "path" : "@/Analyses/observed-older-record/kraken2.kreport",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "0ae509e2f1abf3c7e678a85b62f0c3a1a0c1e1cd3382ecfa6c7b1dbd4a21b318",
+      "fileSize" : 2048,
+      "format" : "text",
+      "path" : "@/Analyses/observed-older-record/kraken2.kreport",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "kraken2 --db Viral --threads 2 --report @/Analyses/observed-older-record/kraken2.kreport @/Inputs/reads.fastq",
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.14 (4701)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "8b13cc295989263905cf09083675a1e3007aa2db8948d877f067e3b7a4e008b4",
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "stderr" : "Loading database information... done.",
+  "steps" : [
+    {
+      "argv" : [
+        "kraken2",
+        "--db",
+        "Viral",
+        "--threads",
+        "2",
+        "--report",
+        "@/Analyses/observed-older-record/kraken2.kreport",
+        "@/Inputs/reads.fastq"
+      ],
+      "completedAt" : "2026-10-11T09:31:23Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 0,
+      "id" : "ED0A3A1D-C608-5C27-B023-20D437E7C375",
+      "inputs" : [
+        {
+          "checksumSHA256" : "e0a99d7a0a08729c2190dbaf004e3cfaf50043a3a094f33a26a6d6f9920ae84e",
+          "fileSize" : 4096,
+          "format" : "fastq",
+          "path" : "@/Inputs/reads.fastq",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0ae509e2f1abf3c7e678a85b62f0c3a1a0c1e1cd3382ecfa6c7b1dbd4a21b318",
+          "fileSize" : 2048,
+          "format" : "text",
+          "path" : "@/Analyses/observed-older-record/kraken2.kreport",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "kraken2 --db Viral --threads 2 --report @/Analyses/observed-older-record/kraken2.kreport @/Inputs/reads.fastq",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-11T09:31:09Z",
+      "stderr" : "Loading database information... done.",
+      "toolName" : "kraken2",
+      "toolVersion" : "2.1.3",
+      "wallTimeSeconds" : 14.2
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "kraken2",
+    "version" : "2.1.3"
+  },
+  "toolName" : "kraken2",
+  "toolVersion" : "2.1.3",
+  "wallTimeSeconds" : 14.2,
+  "workflowName" : "lungfish kraken2 classify",
+  "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+}

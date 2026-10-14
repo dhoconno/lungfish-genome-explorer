@@ -1,0 +1,114 @@
+{
+  "auditIsBlocking" : false,
+  "auditStatus" : "present",
+  "files" : [
+    {
+      "checksumSHA256" : "4fc1f099a1ec218309162670496c83c7cea51573e9d706126ead8dc05548f3e2",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Inputs/kraken2.kreport",
+      "fileSize" : 1024,
+      "format" : "text",
+      "role" : "Input",
+      "sizeLabel" : "1 KB"
+    },
+    {
+      "checksumSHA256" : "bfaec4c5ad3868664de035fa4704f47bf0b80d3950cccde05f588ff974a51e7e",
+      "detail" : "intermediate file, not kept",
+      "displayPath" : "Analyses/observed-cancelled/bracken.out",
+      "fileSize" : 1024,
+      "format" : "text",
+      "role" : "Output",
+      "sizeLabel" : "1 KB"
+    }
+  ],
+  "lineage" : [
+    {
+      "steps" : [
+        {
+          "displayCommand" : "bracken -d Viral -i Inputs/kraken2.kreport -o Analyses/observed-cancelled/bracken.out -l S",
+          "exitStatus" : 15,
+          "inputs" : [
+            "Inputs/kraken2.kreport (intermediate file, not kept)"
+          ],
+          "ordinal" : 1,
+          "outputs" : [
+            "Analyses/observed-cancelled/bracken.out (intermediate file, not kept)"
+          ],
+          "stderr" : "",
+          "toolName" : "bracken",
+          "toolVersion" : "v3.0",
+          "wallTimeSeconds" : 6.3
+        }
+      ],
+      "subtitle" : "bracken v3.0",
+      "title" : "lungfish bracken profile"
+    }
+  ],
+  "options" : [
+    {
+      "displayValue" : "2",
+      "kind" : "Explicit",
+      "name" : "threads"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Default",
+      "name" : "minimumHitGroups"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Resolved Default",
+      "name" : "minimumHitGroups"
+    },
+    {
+      "displayValue" : "2",
+      "kind" : "Resolved Default",
+      "name" : "threads"
+    }
+  ],
+  "runtime" : [
+    {
+      "label" : "App Version",
+      "value" : "Lungfish 2026.10.14 (4701)"
+    },
+    {
+      "label" : "Executable",
+      "value" : "<external>/lungfish-cli"
+    },
+    {
+      "label" : "OS",
+      "value" : "macOS 26.7.1 (arm64)"
+    },
+    {
+      "label" : "Architecture",
+      "value" : "arm64"
+    },
+    {
+      "label" : "Dependency Set",
+      "value" : "2026.2"
+    }
+  ],
+  "summary" : {
+    "createdAtMilliseconds" : 1791708005000,
+    "createdAtUTC" : "2026-10-11T08:40:05.000Z",
+    "exitStatus" : 15,
+    "inputCount" : 1,
+    "outputCount" : 1,
+    "runStatus" : "Cancelled",
+    "sidecarDisplayPath" : "Analyses/observed-cancelled/.lungfish-provenance.json",
+    "signatureCount" : 0,
+    "statusLabel" : "Complete record",
+    "stepCount" : 1,
+    "toolName" : "bracken",
+    "toolVersion" : "v3.0",
+    "wallTimeSeconds" : 6.3,
+    "workflowName" : "lungfish bracken profile",
+    "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+  },
+  "warnings" : [
+    {
+      "message" : "bracken exited with status 15; see stderr in Lineage for details.",
+      "title" : "Step exited non-zero"
+    }
+  ]
+}

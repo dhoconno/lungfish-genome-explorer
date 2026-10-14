@@ -1,0 +1,184 @@
+{
+  "argv" : [
+    "bracken",
+    "-d",
+    "Viral",
+    "-i",
+    "@/Inputs/kraken2.kreport",
+    "-o",
+    "@/Analyses/observed-nonzero-exit/bracken.out",
+    "-l",
+    "S"
+  ],
+  "createdAt" : "2026-10-11T08:20:10Z",
+  "durableReplayArgv" : [
+    "bracken",
+    "-d",
+    "Viral",
+    "-i",
+    "@/Inputs/kraken2.kreport",
+    "-o",
+    "@/Analyses/observed-nonzero-exit/bracken.out",
+    "-l",
+    "S"
+  ],
+  "exitStatus" : 2,
+  "files" : [
+    {
+      "checksumSHA256" : "4fc1f099a1ec218309162670496c83c7cea51573e9d706126ead8dc05548f3e2",
+      "fileSize" : 1024,
+      "format" : "text",
+      "path" : "@/Inputs/kraken2.kreport",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "313ccd0f413b451cbd99dc4dc1ff7aa9ee66036c72b6f05ef51e96c9396e4466",
+      "fileSize" : 1024,
+      "format" : "text",
+      "path" : "@/Analyses/observed-nonzero-exit/bracken.out",
+      "role" : "output"
+    }
+  ],
+  "id" : "1B76FC99-74FA-5546-AEF8-2E617FE58E66",
+  "options" : {
+    "defaults" : {
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "explicit" : {
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    },
+    "resolvedDefaults" : {
+      "minimumHitGroups" : {
+        "type" : "integer",
+        "value" : 2
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 2
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "313ccd0f413b451cbd99dc4dc1ff7aa9ee66036c72b6f05ef51e96c9396e4466",
+    "fileSize" : 1024,
+    "format" : "text",
+    "path" : "@/Analyses/observed-nonzero-exit/bracken.out",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "313ccd0f413b451cbd99dc4dc1ff7aa9ee66036c72b6f05ef51e96c9396e4466",
+      "fileSize" : 1024,
+      "format" : "text",
+      "path" : "@/Analyses/observed-nonzero-exit/bracken.out",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "bracken -d Viral -i @/Inputs/kraken2.kreport -o @/Analyses/observed-nonzero-exit/bracken.out -l S",
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.14 (4701)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "8b13cc295989263905cf09083675a1e3007aa2db8948d877f067e3b7a4e008b4",
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "failed",
+  "stderr" : "Error: the Kraken2 report holds no reads at the requested level.",
+  "steps" : [
+    {
+      "argv" : [
+        "bracken",
+        "-d",
+        "Viral",
+        "-i",
+        "@/Inputs/kraken2.kreport",
+        "-o",
+        "@/Analyses/observed-nonzero-exit/bracken.out",
+        "-l",
+        "S"
+      ],
+      "completedAt" : "2026-10-11T08:20:11Z",
+      "dependsOn" : [
+
+      ],
+      "exitStatus" : 2,
+      "id" : "FAE4001A-66E4-52E2-BEE6-58F219282CC3",
+      "inputs" : [
+        {
+          "checksumSHA256" : "4fc1f099a1ec218309162670496c83c7cea51573e9d706126ead8dc05548f3e2",
+          "fileSize" : 1024,
+          "format" : "text",
+          "path" : "@/Inputs/kraken2.kreport",
+          "role" : "input"
+        }
+      ],
+      "observation" : {
+        "environment" : {
+          "base" : "hermetic",
+          "changed" : [
+            "HOME",
+            "MAMBA_ROOT_PREFIX",
+            "PATH",
+            "TMPDIR"
+          ],
+          "pathPrefix" : [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+          ],
+          "values" : {
+            "MAMBA_ROOT_PREFIX" : "<tool-root>"
+          }
+        },
+        "stage" : {
+          "count" : 1,
+          "index" : 0
+        },
+        "termination" : {
+          "code" : 2,
+          "kind" : "exited"
+        }
+      },
+      "outputs" : [
+        {
+          "checksumSHA256" : "313ccd0f413b451cbd99dc4dc1ff7aa9ee66036c72b6f05ef51e96c9396e4466",
+          "fileSize" : 1024,
+          "format" : "text",
+          "path" : "@/Analyses/observed-nonzero-exit/bracken.out",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "bracken -d Viral -i @/Inputs/kraken2.kreport -o @/Analyses/observed-nonzero-exit/bracken.out -l S",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-11T08:20:10Z",
+      "stderr" : "Error: the Kraken2 report holds no reads at the requested level.",
+      "toolName" : "bracken",
+      "toolVersion" : "3.0",
+      "wallTimeSeconds" : 0.8
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "bracken",
+    "version" : "3.0"
+  },
+  "toolName" : "bracken",
+  "toolVersion" : "3.0",
+  "wallTimeSeconds" : 0.8,
+  "workflowName" : "lungfish bracken profile",
+  "workflowVersion" : "Lungfish 2026.10.14 (4701)"
+}

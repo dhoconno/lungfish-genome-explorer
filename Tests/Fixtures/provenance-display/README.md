@@ -49,6 +49,23 @@ The format of a record decides whether it has a Process ID row, not a version th
 
 A bare run or primitive record is the Older record format. Its status is `legacy` when nothing it could hold is missing, and `incomplete` when something is, with an Older record format warning after the gaps. An envelope of any version and a typed record never are.
 
+## Observed records
+
+Eight more records pin what the tab shows of a step's `observation`, the facts ToolProcess saw when it launched the step (Phase 2.10, lane U37). They sit under `Analyses/observed-*`, and `ProvenanceStepTerminationDisplayTests` loads them. Each is a version 2 envelope of one step, written by hand in the layout of the version 2 encoder, and its values are invented. Each lists an output, so the audit reads Complete record and the observation is the only thing that differs between the cases. A record with no output descriptor reads Incomplete record, which is the audit's business and not the observation's.
+
+| Record | Step | What it observed |
+|---|---|---|
+| `observed-clean-exit` | kraken2 | Exited 0, output read whole, an environment the adapter started empty |
+| `observed-nonzero-exit` | bracken | Exited 2, nothing said about the output, an environment started empty |
+| `observed-signal` | kraken2 | Ended by signal 9, output cut short |
+| `observed-cancelled` | bracken | Stopped because the run was cancelled, ended by signal 15 |
+| `observed-launch-failure` | bracken | The process could not start |
+| `observed-environment-change` | EsViritu | Exited 0 in the inherited environment, with two variables set and one removed |
+| `observed-environment-none` | kraken2 | Exited 0 in the inherited environment, with nothing changed |
+| `observed-older-record` | kraken2 | The record of `observed-environment-none` without an `observation`, the shape of a record written before a step could carry one |
+
+The expected files sit beside the others. The first commit of the lane pinned them at the base, where the tab shows no line from an observation, and the commit that added the lines changed the display of the cases that gain a line and no other expected file of the folder. The other eight expected files are byte for byte what they were.
+
 ## Reviewing a difference
 
 When a display changes, the failure names the expected file and writes the actual one under the temporary directory. Run `diff` between the two. Replace the expected file only in a commit that says why the display changed. A test never writes into this folder.
