@@ -194,6 +194,8 @@ While the switch is on, the warnings about the mapper's settings and the notes g
 
 `assemble` assembles the reads of one sample with a managed assembler. With `--format json` a run is one `start` line once the assembler is known, a `progress` line for each stage the pipeline reports, a `log` line at level `info` for each line the assembler prints, and one `complete` line that names the output folder, or one `failed` line. A refusal, such as an input that is missing or a read layout the assembler cannot take, prints its words for a person on standard error and ends with a `failed` line that holds the same words. A run that finds no contigs logs a warning before `complete`.
 
+With `--reference-bundle` the run then publishes a `.lungfishref` bundle of the contigs beside `--output`, named after the project, the bundle the app's Reassemble route opens. Each step of the bundle prints a `progress` line, from `Creating reference bundle...` at 0.92 to `Bundle created successfully` at 1, the words and fractions the Reassemble row shows. The `complete` line then names the output folder and the bundle, in that order. A bundle that is already there ends the run with a `failed` line and exit 3 before the assembler starts.
+
 Before 2.10 the command printed the same lines on standard error behind `--json-events`, and the Reassemble and FASTQ operation rows recorded that switch. It stays as a hidden alias of `--format json`, so a recorded command still replays, and its events now go to standard output too. The summary tables go to standard error while the switch is on.
 
 ## The contract table

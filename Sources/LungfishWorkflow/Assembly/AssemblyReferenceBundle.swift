@@ -73,4 +73,25 @@ public enum AssemblyReferenceBundle {
             progress(startFraction + fraction * 0.08, message)
         }
     }
+
+    /// The step a run record names a published bundle with, the `Assembly Bundle Wrapping` that the
+    /// bundle's own record names. Its outputs are the bundle and each of its files with its SHA-256,
+    /// and its inputs are `inputs`, the assembler's outputs that the bundle wraps.
+    public static func wrappingStep(
+        bundleURL: URL,
+        inputs: [ProvenanceFileDescriptor],
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> ProvenanceStep {
+        ProvenanceStep(
+            toolName: "Assembly Bundle Wrapping",
+            toolVersion: WorkflowRun.currentAppVersion,
+            inputs: inputs,
+            outputs: try AssemblyBundleBuilder().assemblyBundleOutputDescriptors(bundleURL: bundleURL),
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
 }

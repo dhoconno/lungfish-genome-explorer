@@ -55,6 +55,8 @@ OPTIONS:
                           Additional assembler options, written exactly as they
                           should be passed to the underlying tool
   --extra-arg <extra-arg> Additional assembler argument (repeatable)
+  --reference-bundle      Also publish a .lungfishref bundle of the contigs
+                          beside --output, named after the project
   --format <format>       Output format: text, json, tsv (default: text)
                           (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,

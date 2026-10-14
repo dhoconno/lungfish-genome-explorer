@@ -86,8 +86,8 @@ final class AssembleCommandRecordedCommandLineTests: XCTestCase {
 }
 
 /// A conda root whose stand-in micromamba answers the version probes and runs a stand-in SPAdes
-/// that writes one contig.
-private struct StandInSPAdesConda {
+/// that writes one contig. `AssembleCommandReferenceBundleTests` runs it too.
+struct StandInSPAdesConda {
     let condaManager: CondaManager
 
     init(root: URL) throws {

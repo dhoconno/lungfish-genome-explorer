@@ -32,6 +32,7 @@ extension AssembleCommand {
         if !extraArgs.isEmpty { arguments += ["--extra-args", extraArgs] }
         for argument in extraArg { arguments += ["--extra-arg", argument] }
         if !advancedOptions.isEmpty { arguments += ["--advanced-options", advancedOptions] }
+        if referenceBundle { arguments.append("--reference-bundle") }
         if globalOptions.outputFormat == .json { arguments += ["--format", "json"] }
         return arguments
     }

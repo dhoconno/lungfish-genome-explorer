@@ -108,6 +108,9 @@ struct AssembleCommand: AsyncParsableCommand {
     @Flag(name: .customLong("json-events"), help: .hidden)
     var jsonEvents = false
 
+    @Flag(name: .customLong("reference-bundle"), help: "Also publish a .lungfishref bundle of the contigs beside --output, named after the project")
+    var referenceBundle = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
     /// Assembles so that SIGTERM cancels the run (decision P2, ``runCancellingOnSIGTERM(pipeline:)``).
@@ -133,6 +136,7 @@ struct AssembleCommand: AsyncParsableCommand {
         reporter.start("Launching \(tool.displayName)")
         let projectName = resolvedProjectName(from: inputURLs)
         let outputDirectory = resolvedOutputDirectory(projectName: projectName)
+        let referenceBundleURL = try refusingAnExistingReferenceBundle(outputDirectory: outputDirectory, projectName: projectName, reporter: reporter)
 
         if pairedEnd && inputURLs.count != 2 {
             throw reporter.refusal("Paired-end assembly requires exactly two sequence inputs.", exit: .inputError)
@@ -304,6 +308,10 @@ struct AssembleCommand: AsyncParsableCommand {
             if Task.isCancelled { throw CancellationError() }
             throw reporter.refusal(error.localizedDescription, exit: .workflowError)
         }
+        let bundle = try await publishReferenceBundle(
+            at: referenceBundleURL, result: result, request: executionRequest, requestedInputURLs: inputURLs,
+            readSets: readSets, projectName: projectName, reporter: reporter, showHumanOutput: showHumanOutput
+        )
         do {
             _ = try Self.writeProvenance(
                 request: executionRequest,
@@ -316,16 +324,18 @@ struct AssembleCommand: AsyncParsableCommand {
                 materializationStartedAt: resolvedInputs.materializationStartedAt,
                 materializationEndedAt: resolvedInputs.materializationEndedAt,
                 layoutResolution: layoutResolution,
-                readSets: readSets
+                readSets: readSets,
+                referenceBundle: bundle
             )
         } catch {
+            if let bundle { try? FileManager.default.removeItem(at: bundle.url) }
             reporter.failed(error.localizedDescription)
             throw error
         }
         if result.outcome == .completedWithNoContigs {
             reporter.log(.warning, "Assembly completed, but no contigs were generated.")
         }
-        reporter.complete(outputs: [result.outputDirectory.path], message: "Assembly completed")
+        reporter.complete(outputs: [result.outputDirectory.path] + [bundle?.url.path].compactMap { $0 }, message: "Assembly completed")
 
         if !globalOptions.quiet {
             reporter.text("")
@@ -518,6 +528,7 @@ struct AssembleCommand: AsyncParsableCommand {
         stderr: String? = nil,
         layoutResolution: FASTQInputLayoutResolution? = nil,
         readSets: AssemblyResolvedInputs? = nil,
+        referenceBundle: PublishedReferenceBundle? = nil,
         writer: ProvenanceWriter = ProvenanceWriter()
     ) throws -> URL {
         let toolVersion = result.assemblerVersion ?? "unknown"
@@ -645,6 +656,9 @@ struct AssembleCommand: AsyncParsableCommand {
                 completedAt: endedAt
             )
         )
+        if let referenceBundle {
+            builder = builder.step(try referenceBundle.wrappingStep(inputs: outputDescriptors))
+        }
 
         let envelope = try builder.complete(
             exitStatus: 0,

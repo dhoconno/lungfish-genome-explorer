@@ -382,7 +382,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         }
     }
 
-    private func assemblyBundleOutputDescriptors(bundleURL: URL) throws -> [ProvenanceFileDescriptor] {
+    func assemblyBundleOutputDescriptors(bundleURL: URL) throws -> [ProvenanceFileDescriptor] {
         var descriptors = [try directoryDescriptor(url: bundleURL, role: .output)]
         guard let enumerator = FileManager.default.enumerator(
             at: bundleURL,
