@@ -16,7 +16,8 @@ enum ReadFileWriterError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unreadableSource(let path, let reason):
-            return "Cannot read \(path): \(reason). Nothing was written."
+            let cause = reason.hasSuffix(".") ? String(reason.dropLast()) : reason
+            return "Cannot read \(path): \(cause). Nothing was written."
         }
     }
 }

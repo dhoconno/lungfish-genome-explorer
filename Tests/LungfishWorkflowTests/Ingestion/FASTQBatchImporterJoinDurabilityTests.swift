@@ -51,6 +51,7 @@ final class FASTQBatchImporterJoinDurabilityTests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertFalse((error?.localizedDescription ?? "").contains(".."), "the reason ends with one period", file: file, line: line)
     }
 
     // MARK: - A source that cannot be read
