@@ -2334,7 +2334,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         ),
                         onImport: { [downloadCenterTaskID, totalCount, detectedPlatform] importConfig in
                             // User confirmed — start the actual download with captured config
-                            self.startENADownloadTask(
+                            self.startSRADownloadTask(
                                 records: recordsToDownload,
                                 importConfig: importConfig.namingArchivePlatform(detectedPlatform),
                                 downloadCenterTaskID: downloadCenterTaskID,
