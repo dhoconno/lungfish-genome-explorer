@@ -834,7 +834,7 @@ public actor BlastService {
         let resultData: Data
         if data.count >= 4, data[0] == 0x50, data[1] == 0x4B, data[2] == 0x03, data[3] == 0x04 {
             logger.info("getResults: response is a ZIP archive, decompressing")
-            resultData = try decompressZIPResponse(data)
+            resultData = try await decompressZIPResponse(data)
         } else {
             resultData = data
         }
@@ -1280,7 +1280,7 @@ public actor BlastService {
     /// - Parameter zipData: Raw ZIP archive data
     /// - Returns: Combined JSON data with all query results
     /// - Throws: ``BlastServiceError/resultParsingFailed`` if extraction fails
-    private func decompressZIPResponse(_ zipData: Data) throws -> Data {
+    func decompressZIPResponse(_ zipData: Data) async throws -> Data {
         let tempBase = FileManager.default.temporaryDirectory
         let extractDir = tempBase.appendingPathComponent("blast-zip-\(UUID().uuidString)")
         let tempZIP = tempBase.appendingPathComponent("blast-\(UUID().uuidString).zip")
@@ -1294,23 +1294,27 @@ public actor BlastService {
         try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
 
         // Extract ZIP to a temp directory (not -p which concatenates)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-o", "-q", tempZIP.path, "-d", extractDir.path]
-        process.standardError = FileHandle.nullDevice
-
+        let unzip = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/unzip"),
+            arguments: ["-o", "-q", tempZIP.path, "-d", extractDir.path],
+            environment: ["PATH": "/usr/bin:/bin"],
+            stdout: .discard,
+            stderr: .discard,
+            label: "unzip"
+        )
+        let result: ToolProcessResult
         do {
-            try process.run()
-        } catch {
+            result = try await ToolProcess.run(unzip)
+        } catch let error as ToolProcessError {
+            if case .cancelled = error { throw CancellationError() }
             throw BlastServiceError.resultParsingFailed(
                 message: "Failed to launch unzip: \(error.localizedDescription)"
             )
         }
-        process.waitUntilExit()
 
-        guard process.terminationStatus == 0 else {
+        guard result.isSuccess else {
             throw BlastServiceError.resultParsingFailed(
-                message: "ZIP extraction failed (exit \(process.terminationStatus))"
+                message: "ZIP extraction failed (exit \(result.status))"
             )
         }
 
