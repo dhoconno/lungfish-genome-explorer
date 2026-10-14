@@ -171,4 +171,37 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         XCTAssertNil(launch.environment["NXF_ANSI_LOG"])
         XCTAssertNil(launch.environment["NXF_HOME"])
     }
+
+    /// Phase 2.10 V3-BIO 4. Nextflow 26.04 reads `NXF_AGENT_MODE` and `CLAUDECODE` (`nextflow.SysEnv`) and then prints its
+    /// agent log, which has no banner, no `Launching` line and none of the task lines the progress reader reads. A coding
+    /// agent's shell sets `CLAUDECODE`, and a launch copies its parent's environment, so a run started from one lost the
+    /// record's `resolvedCommit` and its progress. The Nextflow launch drops both switches, the managed copy's and the
+    /// `PATH` lookup's alike, and keeps every other variable of the base.
+    func testTheNextflowLaunchDropsTheAgentModeSwitches() throws {
+        let home = try makeTemporaryHome("agent-mode")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let managedBin = home.appendingPathComponent(".lungfish/conda/envs/nextflow/bin", isDirectory: true)
+        _ = try installStubExecutable(named: "nextflow", in: managedBin)
+        let base = [
+            "PATH": "/usr/bin:/bin", "CLAUDECODE": "1", "NXF_AGENT_MODE": "true", "NXF_OPTS": "-Xmx1g", "NO_COLOR": "1",
+        ]
+
+        let managed = try WorkflowEngineLaunch.resolveManaged(
+            executableName: "nextflow", homeDirectory: home, appIdentity: .preview, baseEnvironment: base)
+        XCTAssertTrue(managed.usesManagedExecutable)
+        XCTAssertNil(managed.environment["CLAUDECODE"], "the managed launch kept the agent switch")
+        XCTAssertNil(managed.environment["NXF_AGENT_MODE"], "the managed launch kept the agent switch")
+        XCTAssertEqual(managed.environment["NXF_OPTS"], "-Xmx1g", "only the two switches are dropped")
+        XCTAssertEqual(managed.environment["NO_COLOR"], "1", "only the two switches are dropped")
+        XCTAssertEqual(managed.environment["NXF_ANSI_LOG"], "false")
+
+        let lookupHome = try makeTemporaryHome("agent-mode-lookup")
+        defer { try? FileManager.default.removeItem(at: lookupHome) }
+        let lookup = WorkflowEngineLaunch.resolve(
+            executableName: "nextflow", homeDirectory: lookupHome, appIdentity: .preview, baseEnvironment: base)
+        XCTAssertFalse(lookup.usesManagedExecutable)
+        XCTAssertNil(lookup.environment["CLAUDECODE"], "the PATH lookup kept the agent switch")
+        XCTAssertNil(lookup.environment["NXF_AGENT_MODE"], "the PATH lookup kept the agent switch")
+        XCTAssertEqual(lookup.environment["NXF_OPTS"], "-Xmx1g")
+    }
 }
