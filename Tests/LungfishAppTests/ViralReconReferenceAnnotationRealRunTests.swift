@@ -23,7 +23,13 @@ import XCTest
 ///
 /// The reads are Tests/Fixtures/sarscov2 test_1/test_2 as one paired sample
 /// and the scheme is the bundled ARTIC nCoV-2019 V3, staged as the wizard
-/// stages it.
+/// stages it. The request's version is the lock's pin, the full commit, as the
+/// wizard sends it (`ViralReconWizardSheet`), so the record names that commit
+/// and the engine's own log names its first ten characters (Phase 2.10, V3-BIO
+/// 2.5). The run goes through the shell's environment, and a coding agent's
+/// shell sets `CLAUDECODE`, which made Nextflow print an agent log with no
+/// banner and no `Launching` line (V3-BIO 2.4), so a green run from such a
+/// shell also shows that the launch drops that switch.
 @MainActor
 final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
     func testAppLaunchPathCompletesOnAReferenceBundleThatCarriesGFF3() async throws {
@@ -55,6 +61,7 @@ final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
             barcode: nil,
             sequencingSummaryURL: nil
         )
+        let pin = try NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()
         let request = try ViralReconRunRequest(
             samples: [sample],
             platform: .illumina,
@@ -62,7 +69,7 @@ final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
             samplesheetURL: try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: [sample], in: staging),
             outputDirectory: analyses.appendingPathComponent("viralrecon-results-\(token)", isDirectory: true),
             executor: .docker,
-            version: "3.0.0",
+            version: pin.revision,
             reference: .genome(ViralReconReferenceCatalog.canonicalAccession),
             primer: try ViralReconWizardPrimerStaging.stageForCanonicalReference(
                 primerBundleURL: repository.appendingPathComponent(
@@ -94,6 +101,7 @@ final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
         }
         XCTAssertEqual(item.state, .completed, item.errorDetail ?? item.detail)
         XCTAssertTrue(item.cliCommand?.contains("gff=\(bundleGFF3.path)") == true, "the recorded command names the bundle's genes.gff3")
+        XCTAssertTrue(item.cliCommand?.contains("--version \(pin.revision)") == true, "the run sends the lock's pin as the wizard does")
 
         let manifest = try NFCoreRunBundleStore.read(from: result.bundleURL)
         print("REAL RUN manifest executionStatus=\(manifest.executionStatus) exitCode=\(manifest.exitCode.map(String.init) ?? "nil")")
@@ -116,6 +124,19 @@ final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
         // The copy kept with the run holds the bundle's bytes. The launched
         // path can be a whitespace-free scratch copy that is gone by now.
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: result.bundleURL))
+
+        // B31 check 1 on the GUI route (V3-BIO 2.5). The step's tool version is the full commit the wizard sent, and the
+        // engine's own words in logs/stdout.log name its first ten characters on the `Launching` line, after the banner.
+        let step = try XCTUnwrap(provenance.steps.first)
+        XCTAssertEqual(step.toolVersion, pin.revision, "the record names the commit that was sent")
+        XCTAssertNotNil(step.toolVersion.range(of: #"^[0-9a-f]{40}$"#, options: .regularExpression), step.toolVersion)
+        let stdoutLog = try String(contentsOf: result.bundleURL.appendingPathComponent("logs/stdout.log"), encoding: .utf8)
+        XCTAssertTrue(stdoutLog.contains("N E X T F L O W"), "logs/stdout.log holds no Nextflow banner, as in agent mode")
+        XCTAssertTrue(
+            stdoutLog.contains("revision: \(step.toolVersion.prefix(10))"),
+            "logs/stdout.log names no Launching revision \(step.toolVersion.prefix(10))"
+        )
+
         guard case .dictionary(let staging)? = provenance.options.explicit[ViralReconAnnotationStaging.provenanceKey] else {
             return XCTFail("no staged annotation in provenance")
         }
