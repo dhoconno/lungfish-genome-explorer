@@ -421,4 +421,49 @@ final class ProcessTreeTerminatorTests: XCTestCase {
             "terminateAll should run roots concurrently, not serially"
         )
     }
+
+    // MARK: - The liveness oracle
+
+    /// `processExists` is the liveness oracle of the process tests, so a child that has exited
+    /// but is not reaped yet must read as gone. `kill(pid, 0)` still reaches such a zombie and
+    /// libproc does not read its row, so a wrong answer here makes `XCTAssertTrue(processExists)`
+    /// pass falsely and a wait for "gone" run to its timeout.
+    func testAnUnreapedZombieDoesNotExist() async throws {
+        let pid = try spawnTrue()
+
+        // WNOWAIT leaves the exited child in the process table, unreaped. WNOHANG with a poll
+        // keeps the wait bounded at 30 s, and the poll ends as soon as the child has exited.
+        let exited = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(10)) {
+            var info = siginfo_t()
+            return waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0 && info.si_pid == pid
+        }
+        // A child that never exited is killed so the reap below cannot block.
+        if !exited { kill(pid, SIGKILL) }
+        XCTAssertTrue(exited, "/usr/bin/true must exit within 30 s")
+
+        XCTAssertEqual(kill(pid, 0), 0, "the zombie must still take a signal, which is the case under test")
+        XCTAssertFalse(ProcessTreeTerminator.processExists(pid: pid), "an unreaped zombie must not exist")
+        XCTAssertTrue(ProcessTreeTerminator.processExists(pid: getpid()), "a live process must exist")
+
+        XCTAssertEqual(waitpid(pid, nil, 0), pid, "the zombie must be reaped, so the test leaves no process")
+        XCTAssertFalse(ProcessTreeTerminator.processExists(pid: pid), "a reaped process must not exist")
+    }
+
+    /// Starts `/usr/bin/true` with `posix_spawn` and returns its pid. The caller reaps it.
+    private func spawnTrue() throws -> pid_t {
+        var pid: pid_t = 0
+        let path = "/usr/bin/true"
+        let arguments: [UnsafeMutablePointer<CChar>?] = [strdup(path), nil]
+        defer { arguments.forEach { free($0) } }
+        let environment: [UnsafeMutablePointer<CChar>?] = [nil]
+        let status = posix_spawn(&pid, path, nil, nil, arguments, environment)
+        guard status == 0 else {
+            throw NSError(
+                domain: "ProcessTreeTerminatorTests",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "posix_spawn \(path) failed with errno \(status)"]
+            )
+        }
+        return pid
+    }
 }
