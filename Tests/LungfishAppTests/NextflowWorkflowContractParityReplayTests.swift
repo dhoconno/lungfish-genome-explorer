@@ -65,25 +65,6 @@ final class NextflowWorkflowContractParityReplayTests: XCTestCase {
         }
     }
 
-    /// Fit difference 1. `workflow run` always passes one samplesheet, so the builder it launches with shows the
-    /// difference only on a request with no input or with two.
-    func testTheRouteBuilderAgainstTheDescriptorOnRequestsWorkflowRunNeverMakes() throws {
-        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
-        let output = root.appendingPathComponent("results", isDirectory: true)
-        let sheets = ["a.csv", "b.csv"].map { root.appendingPathComponent($0) }
-        var found: [String] = []
-        for (label, inputs) in [("no input", [URL]()), ("two inputs", sheets)] {
-            let request = NFCoreRunRequest(workflow: workflow, version: "", executor: .docker, inputURLs: inputs, outputDirectory: output)
-            let words = Self.routeBuilderArguments(request)
-            let written = words.indices.filter { words[$0] == "--input" }.map { words[$0 + 1] }
-            if written.count != 1 || written.first?.contains(",") == true {
-                found.append("builder: \(label) writes --input \(written.isEmpty ? "nowhere" : written.joined(separator: " "))"
-                    .replacingOccurrences(of: root.path, with: "<root>"))
-            }
-        }
-        assertDeclared(found, .builder)
-    }
-
     /// Fit difference 3. A bare `workflow run` call, with no `--version`, on a built CLI whose lock holds no Viral
     /// Recon pin still launches release 3.0.0, where the descriptor refuses the run with 126 (N4).
     func testALockWithoutThePinStillLaunchesTheFallbackRelease() throws {
@@ -105,12 +86,6 @@ final class NextflowWorkflowContractParityReplayTests: XCTestCase {
         if !failures.isEmpty {
             XCTFail("\(parityCase.rawValue):\n" + failures.joined(separator: "\n"), file: file, line: line)
         }
-    }
-
-    /// The builder today's route launches with. The commit that moves the launch onto the descriptor points this at
-    /// the route's new builder, or deletes the probe with fit difference 1.
-    private static func routeBuilderArguments(_ request: NFCoreRunRequest) -> [String] {
-        request.nextflowArguments
     }
 
     /// The launch's argv against the descriptor's argv for the same launch, built from the argv's own facts (the `-c`

@@ -50,7 +50,8 @@ final class NFCoreResourceLimitsTests: XCTestCase {
         XCTAssertNil(plan.request.params["max_memory"])
         XCTAssertEqual(plan.request.params["platform"], "illumina")
 
-        XCTAssertEqual(plan.nextflowArguments(base: ["run", "x"]), ["-c", configURL.path, "run", "x"])
+        // The launch passes the config with -c, which the Viral Recon descriptor writes before run.
+        XCTAssertEqual(plan.configFiles, [configURL])
     }
 
     func testConfigCarriesRetryPolicyWithoutResourceLimitsWhenNoCapsRequested() throws {
@@ -90,6 +91,7 @@ final class NFCoreResourceLimitsTests: XCTestCase {
         let plan = try NFCoreResourceLimits.plan(for: request, in: tempRoot)
 
         XCTAssertNil(plan.configURL, "2.6.0 still understands --max_cpus/--max_memory")
+        XCTAssertEqual(plan.configFiles, [], "no -c file")
         XCTAssertEqual(plan.request.params["max_cpus"], "8")
         XCTAssertEqual(plan.request.params["max_memory"], "8.GB")
     }

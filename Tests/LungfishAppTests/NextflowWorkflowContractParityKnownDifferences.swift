@@ -15,8 +15,6 @@ import Foundation
 enum ViralReconContractCase: String, CaseIterable, Sendable {
     /// Today's route on the stand-in with the docker executor, the one executor it runs.
     case docker
-    /// The argument builder the route launches with, on the requests `workflow run` never makes.
-    case builder
     /// A bare `workflow run` call on a built CLI whose lock holds no Viral Recon pin.
     case lockWithoutPin
 }
@@ -36,17 +34,7 @@ struct ViralReconContractKnownDifference: Sendable {
 }
 
 enum ViralReconContractKnownDifferences {
-    /// The commit of A30 M2 that takes the descriptor's argv as the launch (N1).
-    static let descriptorArgv = "A30 M2, the descriptor's argv as the launch (N1)"
-
     static let all: [ViralReconContractKnownDifference] = [
-        // Fit difference 1 of the contract (section 1).
-        ViralReconContractKnownDifference(
-            counts: [.builder: 2],
-            id: "builder: *--input*",
-            reason: "The request writes no --input when it has no input and joins several inputs with commas (NFCoreRunRequest.effectiveParams), where the descriptor writes the one samplesheet. workflow run always passes one samplesheet, so only the builder shows it",
-            closedBy: "A30 M2, no --input without input (fit difference 1)"
-        ),
         // Fit difference 3 of the contract (section 1).
         ViralReconContractKnownDifference(
             counts: [.lockWithoutPin: 1],

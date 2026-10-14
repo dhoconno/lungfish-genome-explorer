@@ -264,7 +264,13 @@ extension RunSubcommand {
         // process.resourceLimits instead of --max_cpus / --max_memory.
         let resourcePlan = try NFCoreResourceLimits.plan(for: stagedRequest, in: launchScratch)
         let plannedRequest = resourcePlan.request
-        let launchArguments = resourcePlan.nextflowArguments(base: plannedRequest.nextflowArguments)
+        // The Viral Recon descriptor writes the launch's argv, the one samplesheet as --input and the
+        // -c files before run (N1). The request holds the one samplesheet this route built above.
+        guard let engineSamplesheetURL = plannedRequest.inputURLs.first else {
+            throw CLIError.workflowFailed(reason: "nf-core/viralrecon launches with one samplesheet")
+        }
+        let launchArguments = NextflowWorkflowDescriptor.viralRecon.nextflowArguments(
+            for: plannedRequest.viralReconLaunch(samplesheet: engineSamplesheetURL, configFiles: resourcePlan.configFiles))
         // The engine streams its output into logs/nextflow.log as it runs (2.9 N8).
         let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(NFCoreWorkflowLaunch(
             arguments: launchArguments,

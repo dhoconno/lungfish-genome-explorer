@@ -2,15 +2,15 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.9, lane A16 (panel N12, API brief risk 6). Viral Recon still launches through `NFCoreRunRequest`, and
-// nothing moves in 2.9. These tests show that its descriptor fits, by building the same arguments and the same
-// environment as the request for the pinned release. The request writes the work folder before the profile and
-// sorts every parameter by name, `--input` and `--outdir` among them, which TaxTriage's order does not fit, so the
-// descriptor names that order as its argument layout and the launch request can resume. What still differs is
-// left to the move. The request writes no `--input` when it has no input and joins several with commas, while
-// `lungfish-cli workflow run` always passes one samplesheet (`RunSubcommand.swift:463-467`). The command adds its
-// resource-limit config with `-c` after the parameters (`NFCoreResourceLimits.swift`), outside the request.
-// Pure, so it runs in the unit tier.
+// Phase 2.9, lane A16 (panel N12, API brief risk 6), and Phase 2.10 lane A30 M2 (N1). `lungfish-cli workflow run`
+// launches Viral Recon with this descriptor's argv, from the launch `NFCoreRunRequest.viralReconLaunch(samplesheet:
+// configFiles:)` builds for the run's request. These tests show that the launch fits, by building the same arguments
+// and the same environment as the request for the pinned release and a picked one. The request writes the work
+// folder before the profile and sorts every parameter by name, `--input` and `--outdir` among them, which TaxTriage's
+// order does not fit, so the descriptor names that order as its argument layout and the launch request can resume.
+// The launch takes one samplesheet by type, so it writes one `--input` where the request writes none without input
+// and joins several with commas (fit difference 1), and it writes the resource-limit config with `-c` before `run`
+// (fit difference 2). Pure, so it runs in the unit tier.
 
 import XCTest
 import LungfishIO
@@ -34,24 +34,10 @@ final class NextflowViralReconFitTests: XCTestCase {
         try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
     }
 
-    /// The launch a caller would build for `request`. The target is `pin`, the samplesheet is the one input the
-    /// command passes, and the workflow's options are the request's other parameters that have a value, as
-    /// `--name value` pairs in the dictionary's order, with the forced Freyja skips among them.
-    private func launch(
-        for request: NFCoreRunRequest, pin: NextflowPipelinePin, profile: String?
-    ) throws -> NextflowLaunchRequest {
+    /// The launch `workflow run` builds for `request`, whose one input is the samplesheet the command passes.
+    private func launch(for request: NFCoreRunRequest) throws -> NextflowLaunchRequest {
         XCTAssertEqual(request.inputURLs.count, 1, "workflow run passes one samplesheet")
-        let options = request.effectiveParams
-            .filter { $0.key != "input" && $0.key != "outdir" && !$0.value.isEmpty }
-            .flatMap { ["--\($0.key)", $0.value] }
-        return NextflowLaunchRequest(
-            target: .pinned(pin),
-            samplesheet: try XCTUnwrap(request.inputURLs.first),
-            outputDirectory: request.outputDirectory,
-            workDirectory: request.workDirectory,
-            profile: profile,
-            resume: request.resume,
-            pipelineArguments: options)
+        return request.viralReconLaunch(samplesheet: try XCTUnwrap(request.inputURLs.first))
     }
 
     func testTheDescriptorBuildsTheRequestsArgumentsForThePinnedRelease() throws {
@@ -65,8 +51,9 @@ final class NextflowViralReconFitTests: XCTestCase {
                         workflow: workflow, version: version, executor: .docker, inputURLs: [samplesheet],
                         outputDirectory: output, params: params, resume: resume, workDirectory: workDirectory)
                     XCTAssertEqual(request.version, pin.revision, "an empty version is the pinned release")
+                    XCTAssertEqual(try launch(for: request).target, .pinned(pin), "the lock's pin")
                     XCTAssertEqual(
-                        descriptor.nextflowArguments(for: try launch(for: request, pin: pin, profile: nil)),
+                        descriptor.nextflowArguments(for: try launch(for: request)),
                         request.nextflowArguments,
                         "version '\(version)', resume \(resume), work \(workDirectory?.path ?? "none")")
                     cases += 1
@@ -80,7 +67,6 @@ final class NextflowViralReconFitTests: XCTestCase {
     /// workflow's options sorted as the request sorts them, so Viral Recon's descriptor names a layout of its own.
     func testTaxTriagesOrderGivesTheRequestsWordsInAnotherOrder() throws {
         let workflow = try viralRecon()
-        let pin = try descriptor.resolveBundledPin()
         let inTaxTriagesOrder = NextflowWorkflowDescriptor(
             toolID: descriptor.toolID, lockPipelineID: descriptor.lockPipelineID, profile: descriptor.profile,
             containerRuntime: descriptor.containerRuntime, releaseEnvironment: descriptor.releaseEnvironment,
@@ -93,7 +79,7 @@ final class NextflowViralReconFitTests: XCTestCase {
         let request = NFCoreRunRequest(
             workflow: workflow, version: "", executor: .docker, inputURLs: [samplesheet],
             outputDirectory: output, params: params, workDirectory: work)
-        var sortedLaunch = try launch(for: request, pin: pin, profile: nil)
+        var sortedLaunch = try launch(for: request)
         sortedLaunch.pipelineArguments = request.effectiveParams.keys
             .filter { $0 != "input" && $0 != "outdir" }
             .sorted()
@@ -138,11 +124,32 @@ final class NextflowViralReconFitTests: XCTestCase {
             let request = NFCoreRunRequest(
                 workflow: workflow, version: "3.0.1", executor: executor, inputURLs: [samplesheet],
                 outputDirectory: output, params: params, workDirectory: work)
-            let profile = executor == .docker ? nil : executor.rawValue
-            XCTAssertEqual(
-                descriptor.nextflowArguments(for: try launch(for: request, pin: picked, profile: profile)),
-                request.nextflowArguments,
-                executor.rawValue)
+            let built = try launch(for: request)
+            XCTAssertEqual(built.target, .pinned(picked), executor.rawValue)
+            XCTAssertEqual(built.profile, executor.rawValue)
+            XCTAssertEqual(descriptor.nextflowArguments(for: built), request.nextflowArguments, executor.rawValue)
+        }
+    }
+
+    /// Fit differences 1 and 2 closed (Phase 2.10 N1). The launch writes the one samplesheet it is given as
+    /// `--input` whatever inputs the request holds, and its `-c` files before `run`. Given the request's one
+    /// samplesheet, the words after the `-c` files are the request's own.
+    func testTheLaunchWritesOneSamplesheetAndItsConfigFilesBeforeRun() throws {
+        let workflow = try viralRecon()
+        let config = work.deletingLastPathComponent().appendingPathComponent("lungfish-resource-limits.config")
+        let other = URL(fileURLWithPath: "/Volumes/Lab Drive/other.lungfishrun/inputs/samplesheet.csv")
+        for inputs in [[], [samplesheet], [samplesheet, other]] {
+            let request = NFCoreRunRequest(
+                workflow: workflow, version: "", executor: .docker, inputURLs: inputs,
+                outputDirectory: output, params: params, resume: true, workDirectory: work)
+            let arguments = descriptor.nextflowArguments(
+                for: request.viralReconLaunch(samplesheet: samplesheet, configFiles: [config]))
+            let written = arguments.indices.filter { arguments[$0] == "--input" }.map { arguments[$0 + 1] }
+            XCTAssertEqual(written, [samplesheet.path], "\(inputs.count) inputs")
+            XCTAssertEqual(Array(arguments.prefix(4)), ["-c", config.path, "run", workflow.fullName])
+            if inputs == [samplesheet] {
+                XCTAssertEqual(Array(arguments.dropFirst(2)), request.nextflowArguments)
+            }
         }
     }
 

@@ -23,11 +23,10 @@ package enum NFCoreResourceLimits {
         /// Config file carrying `process.resourceLimits`, when one is needed.
         let configURL: URL?
 
-        /// Puts the `-c` flag for the generated config, if any, before `base`, which starts with `run`, as the
-        /// Nextflow workflow descriptor writes every `-c` file before `run` (Phase 2.10 N1, fit difference 2).
-        package func nextflowArguments(base: [String]) -> [String] {
-            guard let configURL else { return base }
-            return ["-c", configURL.path] + base
+        /// The launch's `-c` files, the generated config when there is one, which the Nextflow workflow
+        /// descriptor writes before `run` (Phase 2.10 N1, fit differences 1 and 2).
+        package var configFiles: [URL] {
+            configURL.map { [$0] } ?? []
         }
     }
 
