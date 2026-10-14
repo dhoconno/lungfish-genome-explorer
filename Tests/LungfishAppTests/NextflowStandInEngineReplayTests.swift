@@ -261,6 +261,13 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
         XCTAssertEqual(tasks.count, 59, "29 tasks for each sample and MultiQC")
         XCTAssertEqual(tasks.filter { $0.hasSuffix(":FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (S2)") }.count, 1)
         XCTAssertEqual(tasks.last.map(Self.shape), "[PROCESS <hash>] NFCORE_VIRALRECON:VIRALRECON:MULTIQC")
+        // Q35's V1 trace: CAT_FASTQ (<sample>) is the first task each sample submits.
+        XCTAssertEqual(
+            ["S1", "S2"].map { sample in tasks.first { $0.hasSuffix(" (\(sample))") }.map(Self.shape) },
+            ["S1", "S2"].map { "[PROCESS <hash>] NFCORE_VIRALRECON:VIRALRECON:CAT_FASTQ (\($0))" }
+        )
+        // Q35's V1b: the app passes no Nextclade dataset, so the release never starts NEXTCLADE_RUN.
+        XCTAssertEqual(tasks.filter { $0.contains(":NEXTCLADE_RUN") }, [])
         XCTAssertEqual(Array(lines.suffix(2)), [
             "-\u{1B}[0;35m[nf-core/viralrecon]\u{1B}[0;32m Pipeline completed successfully\u{1B}[0m-",
             "[SUCCESS] completed=59 failed=0 cached=0",

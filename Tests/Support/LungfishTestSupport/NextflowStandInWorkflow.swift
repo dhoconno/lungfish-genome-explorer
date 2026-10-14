@@ -17,6 +17,10 @@
 // includes, its output paths the `publishDir` folders of `conf/modules_illumina.config`, and its
 // banner is the logo `subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf` prints
 // (`before_text`). The output bytes are the nf-core/test-datasets files of Tests/Fixtures/sarscov2.
+// Q35's V1 then ran that release for real (Phase 2.10, Nextflow 26.04.6, two samples that have no iVar
+// variant) and showed `CAT_FASTQ (<sample>)` as the first task of each sample, which the list had missed.
+// V1b, a sample that has variants, then showed that `NEXTCLADE_RUN` never starts with the app's argv, which
+// gives no Nextclade dataset, and confirmed the other nine tasks that follow `IVAR_VARIANTS`.
 
 import Foundation
 
@@ -169,8 +173,10 @@ extension NextflowStandInWorkflow {
     /// options a new run in the app starts with (iVar variants, a BCFtools consensus, no assembly,
     /// no Kraken 2 and no Freyja). Each sample runs 29 tasks of its reads, alignment, primer
     /// trimming, coverage, variants and consensus in the order `workflows/viralrecon.nf` calls
-    /// them, and the run ends with MultiQC. That is a subset of what such a run starts, to be
-    /// checked against Q35's V1 trace. Genome preparation is left out, because its task tags name
+    /// them (a real run submits them in parallel), and the run ends with MultiQC. A sample with
+    /// no iVar variant stops after `IVAR_VARIANTS` (Q35's V1), and `NEXTCLADE_RUN` never starts,
+    /// since the app's argv gives no Nextclade dataset (Q35's V1b). That is a subset of what such a
+    /// run starts. Genome preparation is left out, because its task tags name
     /// the genome's own files, and so are `VARIANTS_QC` (SnpEff), the low-coverage mask of the
     /// consensus (`MAKE_BED_MASK`, `BEDTOOLS_MERGE`, `BEDTOOLS_MASKFASTA`), `PLOT_BASE_DENSITY`,
     /// `QUAST`, `PANGOLIN_UPDATEDATA`, the Mosdepth plots and `VARIANTS_LONG_TABLE`. Each sample
@@ -180,7 +186,7 @@ extension NextflowStandInWorkflow {
     /// index, and `variants/ivar/consensus/bcftools/<sample>.consensus.fa`, whose header the
     /// pipeline's RENAME_FASTA_HEADER prefixes with the sample. A sample of `.failsSamples` fails
     /// at its Bowtie 2 alignment. The pinned modules carry no `error_ignore` label, so no task of
-    /// the real release ignores a failure, and `.reportsErroredTasks` fails Nextclade only so that
+    /// the real release ignores a failure, and `.reportsErroredTasks` fails Pangolin only so that
     /// the behaviour has a task to report.
     public static let viralRecon: NextflowStandInWorkflow = {
         let sarscov2 = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2", isDirectory: true)
@@ -188,6 +194,7 @@ extension NextflowStandInWorkflow {
         let samtools = ["SAMTOOLS_SORT", "SAMTOOLS_INDEX"].map { "BAM_SORT_STATS_SAMTOOLS:\($0) (@SAMPLE@)" }
             + ["SAMTOOLS_STATS", "SAMTOOLS_FLAGSTAT", "SAMTOOLS_IDXSTATS"].map { "BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:\($0) (@SAMPLE@)" }
         let sampleTasks = [
+            "CAT_FASTQ (@SAMPLE@)",
             "FASTQ_TRIM_FASTP_FASTQC:FASTQC_RAW (@SAMPLE@)",
             "FASTQ_TRIM_FASTP_FASTQC:FASTP (@SAMPLE@)",
             "FASTQ_TRIM_FASTP_FASTQC:FASTQC_TRIM (@SAMPLE@)",
@@ -208,7 +215,6 @@ extension NextflowStandInWorkflow {
             "CONSENSUS_BCFTOOLS:BCFTOOLS_CONSENSUS (@SAMPLE@)",
             "CONSENSUS_BCFTOOLS:RENAME_FASTA_HEADER (@SAMPLE@)",
             "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN (@SAMPLE@)",
-            "CONSENSUS_BCFTOOLS:CONSENSUS_QC:NEXTCLADE_RUN (@SAMPLE@)",
         ]
         return NextflowStandInWorkflow(
             name: "nf-core/viralrecon",
@@ -217,7 +223,7 @@ extension NextflowStandInWorkflow {
             leadingProcessNames: [],
             trailingProcessNames: [prefix + "MULTIQC"],
             failingProcessName: prefix + "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (@SAMPLE@)",
-            ignoredFailureProcessName: prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:NEXTCLADE_RUN (@SAMPLE@)",
+            ignoredFailureProcessName: prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN (@SAMPLE@)",
             fixtures: [
                 Fixture(name: "sorted.bam", source: sarscov2.appendingPathComponent("test.paired_end.sorted.bam")),
                 Fixture(name: "sorted.bam.bai", source: sarscov2.appendingPathComponent("test.paired_end.sorted.bam.bai")),
@@ -226,7 +232,7 @@ extension NextflowStandInWorkflow {
                 Fixture(name: "genome.fasta", source: sarscov2.appendingPathComponent("genome.fasta")),
             ],
             progressLinesProcessName: prefix + "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN",
-            progressLinesIgnoredProcessName: prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:NEXTCLADE_RUN",
+            progressLinesIgnoredProcessName: prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN",
             progressLinesRepository: "nf-core/viralrecon",
             shellFunctions: NextflowStandInWorkflow.viralReconShellFunctions
         )
