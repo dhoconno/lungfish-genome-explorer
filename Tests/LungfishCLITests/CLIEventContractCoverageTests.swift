@@ -409,8 +409,16 @@ final class CLIEventContractCoverageTests: XCTestCase {
         }
     }
 
+    /// For a type that only decodes. Decodes a document as `T` and describes what the type read, so that two
+    /// decodes compare.
+    private static func decodedOnly<T: Decodable>(_ type: T.Type) -> @Sendable (Data) throws -> Data {
+        { data in Data(String(reflecting: try JSONDecoder().decode(T.self, from: data)).utf8) }
+    }
+
     /// The `.result` schemas that a type in CLI, Workflow, IO or Core decodes and whose document a
     /// real run of the built `lungfish-cli` gave a fixture under `Tests/Fixtures/cli-events/results`.
+    /// The genotype cohort document is the exception. A real run needs a reference and reads, so its fixture
+    /// holds the keys of the payload that `fastq genotype-cohort` encodes.
     private static let decodedFixtures: [String: @Sendable (Data) throws -> Data] = [
         "analyze-stats": decodedAgain(SequenceStats.self),
         "analyze-composition": decodedAgain(CompositionData.self),
@@ -425,21 +433,19 @@ final class CLIEventContractCoverageTests: XCTestCase {
         "msa-actions": decodedAgain(MSACommand.ActionsPayload.self),
         "msa-describe": decodedAgain(MultipleSequenceAlignmentActionDescriptor.self),
         "r5-map-report": decodedAgain(MapCommand.Report.self),
+        "r5-genotype-cohort-report": decodedOnly(ONTGenotypingCLIPayload.self),
     ]
 
-    /// The schemas whose decoder lives in the app, where a CLI test cannot reach it, the decoder, and the
-    /// test that covers each today. Architecture correction 8 is why the table names a schema and not a
-    /// Swift type. All three decode through `WorkflowOperationExecutionService`, which reads the standard
-    /// output of the genotyping commands. `ONTGenotypingCLIPayload` reads the one payload that
-    /// `fastq genotype`, `fastq genotype-cohort` and the deprecated `fastq ont-barcode-genotype` print, which
-    /// the inventory counted as two schemas. The tests run the service against a stub CLI that prints the
-    /// payload, and they do not fail when a key of it goes missing, because the service falls back to the
-    /// paths of the request. `GenotypingCLIPayloadFixtureTests` decodes a fixture of each document with
-    /// `JSONDecoder` and no fallback, and the fixtures sit in the results folder with the others.
-    private static let schemasThatDecodeInApp: [(schemaID: String, decoder: String, test: String)] = [
-        ("r1-ont-barcode-genotyping", "ONTGenotypingCLIPayload", "testONTGenotypingRunsThroughSampleBundleCLIAndReportsWorkbookOutput"),
-        ("r5-genotype-cohort-report", "ONTGenotypingCLIPayload", "testONTGenotypingRunsThroughSampleBundleCLIAndReportsWorkbookOutput"),
-        ("r2-full-length-ont-mhc", "FullLengthONTMHCGenotypingCLIPayload", "testFullLengthONTMHCGenotypingRunsCLIWithSavontAndPrimerArguments"),
+    /// The `.legacy` shapes whose document a Workflow type decodes, with a fixture of it in the results
+    /// folder. `WorkflowOperationExecutionService` reads the standard output of the genotyping commands
+    /// through these types, and `ONTGenotypingCLIPayload` reads the one payload that `fastq genotype`,
+    /// `fastq genotype-cohort` and the deprecated `fastq ont-barcode-genotype` print. The service falls
+    /// back to the paths of its request when a key goes missing, so its tests do not fail on one, and this
+    /// decode with `JSONDecoder` does. The shapes leave the table of `shapesLeft` when their commands
+    /// become `.result` rows, and these entries move to `decodedFixtures` with them.
+    private static let decodedLegacyFixtures: [String: @Sendable (Data) throws -> Data] = [
+        "r1-ont-barcode-genotyping": decodedOnly(ONTGenotypingCLIPayload.self),
+        "r2-full-length-ont-mhc": decodedOnly(FullLengthONTMHCGenotypingCLIPayload.self),
     ]
 
     /// The `.result` schemas that A4 does not decode here, and why. A new `.result` row has to join
@@ -498,7 +504,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
     }
 
     func testEveryResultFixtureDecodesWithOneExtraKey() throws {
-        for (schema, decode) in Self.decodedFixtures.sorted(by: { $0.key < $1.key }) {
+        let everyFixture = Self.decodedFixtures.merging(Self.decodedLegacyFixtures) { result, _ in result }
+        for (schema, decode) in everyFixture.sorted(by: { $0.key < $1.key }) {
             let data = try Data(contentsOf: Self.resultsFolder.appendingPathComponent("\(schema).json"))
             let baseline = try decode(data)
             XCTAssertEqual(
@@ -538,37 +545,45 @@ final class CLIEventContractCoverageTests: XCTestCase {
 
     func testEveryResultSchemaIsDecodedHereOrNamedWithItsReason() {
         let decoded = Set(Self.decodedFixtures.keys)
-        let inApp = Set(Self.schemasThatDecodeInApp.map(\.schemaID))
         let listed = Self.resultsNotDecodedHere.flatMap(\.schemas)
         XCTAssertEqual(listed.count, Set(listed).count, "A schema is listed under two reasons")
 
-        let accounted = decoded.union(inApp).union(listed)
+        let accounted = decoded.union(listed)
         let results = resultSchemaIDs
         XCTAssertEqual(
             results.subtracting(accounted).sorted(),
             [],
             "These .result schemas have no fixture check and no reason. Add a fixture or name the reason"
         )
-        // The app-decoded ids may be legacy rows, and every other listed id must still be a result row.
         XCTAssertEqual(
-            decoded.union(listed).subtracting(results).sorted(),
+            accounted.subtracting(results).sorted(),
             [],
             "These names are not .result schemas of the table any more"
         )
         XCTAssertTrue(decoded.isDisjoint(with: Set(listed)))
-        XCTAssertTrue(decoded.isDisjoint(with: inApp))
-        XCTAssertTrue(inApp.isDisjoint(with: Set(listed)))
-        XCTAssertEqual(decoded.count, 13)
+        XCTAssertEqual(decoded.count, 14)
+    }
+
+    func testTheLegacyDocumentsDecodedHereAreShapesLeft() {
+        XCTAssertEqual(
+            Set(Self.decodedLegacyFixtures.keys).subtracting(Self.shapesLeft.keys).sorted(),
+            [],
+            "These fixtures name a shape that is no longer left. Move the entry to decodedFixtures"
+        )
+        XCTAssertTrue(
+            Set(Self.decodedLegacyFixtures.keys).isDisjoint(with: Set(Self.decodedFixtures.keys)),
+            "A schema is decoded under one table"
+        )
     }
 
     func testResultFixturesAreTheFilesOfTheDecodedSchemasAndHoldNoPersonalPath() throws {
         let files = try FileManager.default.contentsOfDirectory(atPath: Self.resultsFolder.path)
             .filter { $0.hasSuffix(".json") }
-        let fixtureSchemas = Set(Self.decodedFixtures.keys).union(Self.schemasThatDecodeInApp.map(\.schemaID))
+        let fixtureSchemas = Set(Self.decodedFixtures.keys).union(Self.decodedLegacyFixtures.keys)
         XCTAssertEqual(
             Set(files),
             Set(fixtureSchemas.map { "\($0).json" }),
-            "The results folder holds one fixture for each schema decoded here or in the app and nothing else"
+            "The results folder holds one fixture for each decoded schema and nothing else"
         )
         for file in files {
             let text = try String(contentsOf: Self.resultsFolder.appendingPathComponent(file), encoding: .utf8)
@@ -576,23 +591,6 @@ final class CLIEventContractCoverageTests: XCTestCase {
             for marker in ["/Users/", "/private/", "/var/folders", "/Volumes/"] {
                 XCTAssertFalse(text.contains(marker), "\(file) names a path outside /work ('\(marker)')")
             }
-        }
-    }
-
-    func testTheSchemasThatDecodeInAppAreRowsOfTheTable() {
-        // The decoder and the covering test are named by hand. Reading the app sources to check them
-        // would make this a source-text test, which the source-text-assertions ratchet counts, so a
-        // lane that renames either one updates this list.
-        for entry in Self.schemasThatDecodeInApp {
-            let isRow = CLIEventContractTable.entries.values.contains { contract in
-                switch contract {
-                case let .result(schemaID), let .legacy(schemaID, _): return schemaID == entry.schemaID
-                case .events, .text: return false
-                }
-            }
-            XCTAssertTrue(isRow, "\(entry.schemaID) is no row of the table")
-            XCTAssertFalse(entry.decoder.isEmpty)
-            XCTAssertTrue(entry.test.hasPrefix("test"), "\(entry.test) names a test method")
         }
     }
 
