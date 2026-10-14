@@ -1,0 +1,2 @@
+{"event":"start","message":"Creating deduplicated bundle...","progress":0,"schemaVersion":2}
+{"error":"No alignment tracks are loaded in this bundle.","event":"failed","schemaVersion":2}

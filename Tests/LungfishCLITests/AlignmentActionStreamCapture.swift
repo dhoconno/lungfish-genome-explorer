@@ -59,6 +59,10 @@ enum AlignmentActionStreamCapture {
             ImportStreamCapture.Case(leaf: "bundle deduplicate-alignments", name: "complete") { scratch in
                 try await deduplicate(in: scratch, failing: nil)
             },
+            // A bundle with no alignment tracks is refused before anything is copied, with exit 3.
+            ImportStreamCapture.Case(leaf: "bundle deduplicate-alignments", name: "failed") { scratch in
+                try await deduplicate(in: scratch, failing: AlignmentDuplicateError.noAlignmentTracks)
+            },
         ]
     }
 

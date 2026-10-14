@@ -84,7 +84,8 @@ struct CancelledAlignmentWorkflowRecord {
 }
 
 /// The output side of an alignment workflow leaf. With `--format json` standard output holds only
-/// `CLIEvent` lines and the human text goes to standard error. Otherwise the text goes to `emit`.
+/// `CLIEvent` lines and standard error stays empty, because `say` prints nothing then. Otherwise the
+/// text goes to `emit`.
 struct AlignmentWorkflowLeafOutput {
     let eventsOn: Bool
     let quiet: Bool
@@ -125,11 +126,14 @@ struct AlignmentWorkflowLeafOutput {
         return CLIExitCode.inputError.exitCode
     }
 
-    /// Ends a run that SIGTERM cancelled: the record, the `failed` event, the text, and exit 125.
+    /// Ends a run that SIGTERM cancelled: the record, the `failed` event, the text, and exit 125. A
+    /// record that cannot be written is a warning in either mode. It is a `log` event at warning level
+    /// under `--format json`, where `say` prints nothing, and a line of text otherwise.
     func cancelled(_ message: String, record: CancelledAlignmentWorkflowRecord) -> ExitCode {
         do {
             try record.write()
         } catch {
+            events.emitLog(.warning, "Could not write the cancelled record: \(error.localizedDescription)")
             say("Warning: could not write the cancelled record: \(error.localizedDescription)")
         }
         events.emitFailed(message)
