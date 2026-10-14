@@ -65,9 +65,8 @@ public enum Kraken2RunRecordOptions {
 
     /// The options of a batch sample's pipeline record, converged on the root record's rules.
     /// Every default the command's table also names takes the command's value and a preset nobody
-    /// gave goes (E12, D8), and the read-set plan moves from the pipeline's legacy home, the
-    /// explicit options, to the resolved options (E13). The app's legacy route writes the same
-    /// pipeline record unchanged until 2.9.
+    /// gave goes (E12, D8). The pipeline writes the read-set plan under the resolved options
+    /// itself (E13, B16), so the explicit and resolved options pass unchanged.
     public static func convergedSampleOptions(_ options: ProvenanceOptions) -> ProvenanceOptions {
         let table = commandDefaults
         var defaults = options.defaults
@@ -75,12 +74,7 @@ public enum Kraken2RunRecordOptions {
             if let value = table[key] { defaults[key] = value }
         }
         defaults["preset"] = nil
-        var explicit = options.explicit
-        var resolved = options.resolvedDefaults
-        if let plan = explicit.removeValue(forKey: AnalysisRootRecordOptions.readSetPlanKey) {
-            resolved[AnalysisRootRecordOptions.readSetPlanKey] = plan
-        }
-        return ProvenanceOptions(explicit: explicit, defaults: defaults, resolvedDefaults: resolved)
+        return ProvenanceOptions(explicit: options.explicit, defaults: defaults, resolvedDefaults: options.resolvedDefaults)
     }
 
     /// The options given on the command line, each with the value the run used.

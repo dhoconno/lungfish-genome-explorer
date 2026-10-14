@@ -326,20 +326,20 @@ extension Kraken2AnalysisRunToolTests {
 
     /// The pipeline's record of a run whose kraken2 step failed, as the pipeline leaves it, with
     /// the pipeline's own defaults (confidence 0, read format unpaired, the balanced preset) and a
-    /// read-set plan in its legacy home, the explicit options.
+    /// read-set plan in its one home, the resolved options, where the pipeline writes it (B16).
     static func writeFailedPipelineRecord(in directory: URL, readSetPlan: ParameterValue? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let now = Date()
-        var explicit: [String: ParameterValue] = ["databaseName": .string("Viral")]
-        explicit[AnalysisRootRecordOptions.readSetPlanKey] = readSetPlan
+        var resolved: [String: ParameterValue] = ["profileState": .string("failed")]
+        resolved[AnalysisRootRecordOptions.readSetPlanKey] = readSetPlan
         let envelope = ProvenanceEnvelope(
             workflowName: "Metagenomics Classification",
             toolName: "kraken2",
             toolVersion: "2.1.3",
             options: ProvenanceOptions(
-                explicit: explicit,
+                explicit: ["databaseName": .string("Viral")],
                 defaults: ["confidence": .number(0), "readFormat": .string("unpaired"), "preset": .string("balanced")],
-                resolvedDefaults: ["profileState": .string("failed")]
+                resolvedDefaults: resolved
             ),
             steps: [ProvenanceStep(
                 toolName: "kraken2", toolVersion: "2.1.3", argv: ["kraken2", "--db", "viral"], exitStatus: 2,

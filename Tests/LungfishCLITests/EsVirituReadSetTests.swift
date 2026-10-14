@@ -187,13 +187,14 @@ final class EsVirituReadSetTests: XCTestCase {
     }
 
     /// The pipeline's own record of a planned sample, the one a batch or `--project` run keeps in the
-    /// sample's folder, files the resolved format under the resolved defaults (B8). The plan stays among the
-    /// explicit options until B16.
-    func testThePipelineRecordOfAPlannedSampleFilesTheFormatUnderResolvedDefaultsAndThePlanAmongTheExplicitOptions() async throws {
+    /// sample's folder, files the resolved format (B8) and the plan (B16) under the resolved defaults and
+    /// neither among the explicit options.
+    func testThePipelineRecordOfAPlannedSampleFilesTheFormatAndThePlanUnderResolvedDefaults() async throws {
         let record = try await pipelineRecord(of: fixtures.subsetOfMerge)
         XCTAssertNil(record.options.explicit["readFormat"])
         XCTAssertEqual(record.options.resolvedDefaults["readFormat"], .string("unpaired"))
-        XCTAssertEqual(record.readSetPlan?.place, .explicitOptions)
+        XCTAssertEqual(record.readSetPlan?.place, .resolvedDefaults, "the plan's one home (E13)")
+        XCTAssertNil(record.options.explicit[AnalysisRootRecordOptions.readSetPlanKey])
         XCTAssertNotNil(record.readSetPlan?.fields["singleReadReason"])
     }
 

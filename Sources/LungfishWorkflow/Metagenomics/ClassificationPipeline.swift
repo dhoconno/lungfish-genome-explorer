@@ -2173,7 +2173,6 @@ public actor ClassificationPipeline {
             "reportMinimizerData": .boolean(true),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
         ]
-        parameters.merge(config.readSetPlan?.provenanceParameters ?? [:]) { current, _ in current }
         if let resolution {
             parameters["brackenRankRequest"] = .string(resolution.request.provenanceValue)
             parameters["brackenRequestedReadLength"] = .integer(
@@ -2248,6 +2247,7 @@ public actor ClassificationPipeline {
             "databaseCoreFileSizes": databaseCoreFileSizesOption(at: effectiveConfig.databasePath),
             "profileState": .string(profileState ?? outcome.state.rawValue),
         ]
+        resolvedDefaults.merge(requestedConfig.readSetPlan?.provenanceParameters ?? [:]) { current, _ in current }
         if let resolution {
             let request = requestedConfig.brackenProfileRequest ?? .automaticDefault
             explicit["brackenRankRequest"] = .string(request.rank.provenanceValue)

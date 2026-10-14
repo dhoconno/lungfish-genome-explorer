@@ -325,9 +325,10 @@ final class ClassifierLegacyRecordPinTests: XCTestCase {
             materializer: fixtures.materializer
         )
 
-        guard case .dictionary(let plan)? = run.pipelineEnvelope?.options.explicit["readSetPlan"] else {
-            return XCTFail("the pipeline records the read-set plan")
+        guard case .dictionary(let plan)? = run.pipelineEnvelope?.options.resolvedDefaults["readSetPlan"] else {
+            return XCTFail("the pipeline records the read-set plan under its resolved defaults (B16)")
         }
+        XCTAssertNil(run.pipelineEnvelope?.options.explicit["readSetPlan"], "the pipeline writes the plan once")
         XCTAssertEqual(plan["pairedFragments"], .integer(1))
         XCTAssertEqual(plan["mergedReads"], .integer(3))
         let recorded = try XCTUnwrap(run.wrapperEnvelope.readSetPlan, "the root record holds the plan")

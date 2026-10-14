@@ -82,6 +82,32 @@ final class Kraken2RunRecordOptionsTests: XCTestCase {
         XCTAssertNil(options.readSetPlan, "single reads record no read-set plan")
     }
 
+    /// B16. The pipeline writes the read-set plan under the resolved options itself, so the convergence changes
+    /// the defaults and moves no plan. A plan that an earlier build filed among the explicit options stays there,
+    /// and the one reader still finds it.
+    func testConvergingASampleLeavesTheReadSetPlanWhereTheRecordHoldsIt() {
+        let key = AnalysisRootRecordOptions.readSetPlanKey
+        let plan = ParameterValue.dictionary(["capability": .string("pairsOrSinglesPerRun"), "runs": .integer(2)])
+
+        let current = Kraken2RunRecordOptions.convergedSampleOptions(ProvenanceOptions(
+            explicit: ["databaseName": .string("Viral")],
+            defaults: ["readFormat": .string("unpaired"), "preset": .string("balanced")],
+            resolvedDefaults: [key: plan]
+        ))
+        XCTAssertEqual(current.resolvedDefaults[key], plan)
+        XCTAssertNil(current.explicit[key])
+        XCTAssertEqual(current.defaults["readFormat"], .string("auto"), "the defaults still converge")
+        XCTAssertNil(current.defaults["preset"])
+
+        let earlier = Kraken2RunRecordOptions.convergedSampleOptions(ProvenanceOptions(explicit: [key: plan]))
+        XCTAssertEqual(earlier.explicit[key], plan, "an earlier layout keeps its home")
+        XCTAssertNil(earlier.resolvedDefaults[key])
+        XCTAssertEqual(
+            ProvenanceEnvelope(workflowName: "fixture", toolName: "kraken2", toolVersion: "2.1.3", options: earlier).readSetPlan?.place,
+            .explicitOptions
+        )
+    }
+
     // MARK: - Helpers
 
     private func result(withBracken: Bool) throws -> (result: ClassificationResult, brackenURL: URL) {

@@ -21,10 +21,10 @@ extension EsVirituPipeline {
     /// materialize` command that rebuilds each materialized file
     /// (`inputMaterializationCommands`), or the `cat` command that joined
     /// several files. A run on files as given gets none, so it records exactly
-    /// what it recorded before (R3). A planned run adds its read-set plan.
+    /// what it recorded before (R3). The read-set plan is no run parameter, since the pipeline writes it
+    /// under the resolved defaults (``resolvedRunOptions(for:)``).
     static func inputLineageParameters(for config: EsVirituConfig) -> [String: ParameterValue] {
-        let planParameters = config.readSetPlan?.provenanceParameters ?? [:]
-        guard let originals = config.originalInputFiles else { return planParameters }
+        guard let originals = config.originalInputFiles else { return [:] }
         var uniqueOriginals: [URL] = []
         for url in originals where !uniqueOriginals.contains(url) {
             uniqueOriginals.append(url)
@@ -38,18 +38,20 @@ extension EsVirituPipeline {
                 executionURL: pair.executionURL
             ).map(shellEscape).joined(separator: " ")
         }
-        return planParameters.merging([
+        return [
             "originalInputs": .array(uniqueOriginals.map { .file($0) }),
             "inputMaterializationCommands": .array(commands.map { .string($0) }),
-        ]) { current, _ in current }
+        ]
     }
 
     /// The options the pipeline's record holds besides its run parameters, which are explicit. The read
     /// format is the one the run used, a resolved default. A configuration cannot tell a format the user
     /// chose from one the planner chose, so the executor adds the user's own `--read-format` to the explicit
-    /// options (2.7 E12, B8).
+    /// options (2.7 E12, B8). A planned run adds its read-set plan here, its one home (E13, B16).
     static func resolvedRunOptions(for config: EsVirituConfig) -> ProvenanceOptions {
-        ProvenanceOptions(resolvedDefaults: ["readFormat": .string(config.readFormat.rawValue)])
+        var resolved: [String: ParameterValue] = ["readFormat": .string(config.readFormat.rawValue)]
+        resolved.merge(config.readSetPlan?.provenanceParameters ?? [:]) { current, _ in current }
+        return ProvenanceOptions(resolvedDefaults: resolved)
     }
 
     /// The EsViritu step's input records with the bundle behind each file,

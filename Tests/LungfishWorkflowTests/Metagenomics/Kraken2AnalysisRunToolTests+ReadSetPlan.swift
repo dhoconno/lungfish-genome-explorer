@@ -9,11 +9,10 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 extension Kraken2AnalysisRunToolTests {
-    /// Lane B33 of Phase 2.10 (2.7 row 444, B16), a pin that passes at the base (QA 1). A batch sample of a
-    /// mixed bundle keeps the pipeline's record in its folder. The pipeline files the plan under the explicit
-    /// options, its legacy home, and the unit moves it into the resolved defaults after the pipeline wrote
-    /// the record (E13). The plan is the same plan at both times, and the one reader finds it in both homes.
-    func testABatchSamplePipelineRecordFilesThePlanUnderExplicitUntilTheUnitMovesIt() async throws {
+    /// Lane B33 of Phase 2.10 (2.7 row 444, B16). A batch sample of a mixed bundle keeps the pipeline's record
+    /// in its folder. The pipeline writes the plan once, under the resolved defaults, the one home (E13), and
+    /// the unit's convergence leaves it there. The plan is the same plan at both times.
+    func testABatchSamplePipelineRecordFilesThePlanUnderResolvedDefaultsAndTheUnitLeavesItThere() async throws {
         let inputs = [fixtures.singleRoot.path, fixtures.mixedRoot.path]
         let pipeline = ClassificationPipeline(condaManager: kraken2.condaManager)
         let written = Kraken2Captured<(folder: String, record: ProvenanceEnvelope)>()
@@ -39,12 +38,12 @@ extension Kraken2AnalysisRunToolTests {
         let producer = try XCTUnwrap(written.values.first { $0.folder == mixed.resultDirectory }?.record, "the pipeline wrote its record")
         let converged = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batchRoot.appendingPathComponent(mixed.resultDirectory)))
 
-        XCTAssertEqual(producer.readSetPlan?.place, .explicitOptions, "the pipeline writes the plan to its legacy home")
-        XCTAssertNotNil(producer.options.explicit[AnalysisRootRecordOptions.readSetPlanKey])
-        XCTAssertEqual(converged.readSetPlan?.place, .resolvedDefaults, "the unit moves it to the one home (E13)")
+        XCTAssertEqual(producer.readSetPlan?.place, .resolvedDefaults, "the pipeline writes the plan once, in the one home (E13)")
+        XCTAssertNil(producer.options.explicit[AnalysisRootRecordOptions.readSetPlanKey])
+        XCTAssertEqual(converged.readSetPlan?.place, .resolvedDefaults)
         XCTAssertNil(converged.options.explicit[AnalysisRootRecordOptions.readSetPlanKey])
         XCTAssertNotNil(converged.readSetPlan?.fields["capability"])
-        XCTAssertEqual(converged.readSetPlan?.fields, producer.readSetPlan?.fields, "the move changes the home and no field")
+        XCTAssertEqual(converged.readSetPlan?.fields, producer.readSetPlan?.fields, "the unit changes no plan field")
         let singleRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batchRoot.appendingPathComponent(single.resultDirectory)))
         XCTAssertNil(singleRecord.readSetPlan, "a sample of single reads records no plan")
     }

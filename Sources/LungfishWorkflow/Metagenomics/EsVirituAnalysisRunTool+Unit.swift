@@ -184,24 +184,19 @@ extension EsVirituAnalysisRunTool {
     /// as given and the commands that made each materialized or joined file, with the read-set plan
     /// in its one home.
     static func lineageOptions(of config: EsVirituConfig) -> AnalysisRootRecordOptions {
-        var explicit = EsVirituPipeline.inputLineageParameters(for: config)
-        explicit[AnalysisRootRecordOptions.readSetPlanKey] = nil
-        return AnalysisRootRecordOptions(
-            explicit: explicit,
+        AnalysisRootRecordOptions(
+            explicit: EsVirituPipeline.inputLineageParameters(for: config),
             readSetPlan: AnalysisRootRecordOptions.readSetPlanValue(of: config.readSetPlan)
         )
     }
 
-    /// The run parameters of the pipeline's record, which a one-folder root record takes over, with
-    /// the read-set plan moved to its one home (E13).
+    /// The options of the pipeline's record, which a one-folder root record takes over. The pipeline
+    /// writes the read-set plan under the resolved options itself (E13, B16), so nothing moves.
     static func pipelineOptions(of envelope: ProvenanceEnvelope) -> AnalysisRootRecordOptions {
-        var explicit = envelope.options.explicit
-        let plan = explicit.removeValue(forKey: AnalysisRootRecordOptions.readSetPlanKey)
-        return AnalysisRootRecordOptions(
-            explicit: explicit,
+        AnalysisRootRecordOptions(
+            explicit: envelope.options.explicit,
             defaults: envelope.options.defaults,
-            resolved: envelope.options.resolvedDefaults,
-            readSetPlan: envelope.readSetPlan.map { .dictionary($0.fields) } ?? plan
+            resolved: envelope.options.resolvedDefaults
         )
     }
 }
