@@ -683,6 +683,16 @@ final class EsVirituPipelineErrorTests: XCTestCase {
         XCTAssertTrue(error.localizedDescription.contains("database error"))
     }
 
+    func testEsVirituKilledDescription() {
+        let stderr = "\u{1B}[93m2026-10-13 14:28:05,600 - INFO - Starting assembly_read_sharing_table...\u{1B}[0m"
+        let error = EsVirituPipelineError.esVirituFailed(exitCode: 137, stderr: stderr)
+        XCTAssertTrue(error.localizedDescription.contains("ran out of memory"))
+        XCTAssertTrue(error.localizedDescription.contains("137"))
+        XCTAssertFalse(error.localizedDescription.contains("assembly_read_sharing_table"))
+        XCTAssertEqual(error.logTail, "2026-10-13 14:28:05,600 - INFO - Starting assembly_read_sharing_table...")
+        XCTAssertNil(EsVirituPipelineError.esVirituFailed(exitCode: 1, stderr: stderr).logTail)
+    }
+
     func testEsVirituNotInstalledDescription() {
         let error = EsVirituPipelineError.esVirituNotInstalled
         XCTAssertTrue(error.localizedDescription.contains("not installed"))

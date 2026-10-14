@@ -236,3 +236,28 @@ public struct EsVirituFailureDiagnosis: Sendable, Equatable {
         )
     }
 }
+
+// MARK: - Killed runs
+
+extension EsVirituPipelineError {
+    /// The exit code `micromamba run` reports when EsViritu is ended by SIGKILL (128 + 9).
+    /// macOS ends a process this way when the Mac runs out of memory. EsViritu 1.3.x holds the
+    /// read names of all alignments in memory while it compares the reads that references share
+    /// (`esv_funcs.py`, `assembly_read_sharing_table`), so a large sample rich in viral reads can
+    /// need more memory than the Mac has.
+    static let killedExitCode: Int32 = 137
+
+    /// The reason shown for a killed run in place of EsViritu's whole stderr, or `nil` for any
+    /// other error.
+    var killedReason: String? {
+        guard case .esVirituFailed(let code, _) = self, code == Self.killedExitCode else { return nil }
+        return "EsViritu was stopped before it finished, most likely because the Mac ran out of memory (exit code \(code)). Deduplicate or subsample the reads, or run the sample on a Mac with more memory."
+    }
+
+    /// The last lines of a killed run's stderr, which name the step it stopped in, or `nil` for
+    /// any other error.
+    var killedStderrTail: String? {
+        guard case .esVirituFailed(let code, let stderr) = self, code == Self.killedExitCode else { return nil }
+        return EsVirituFailureDiagnosis.tail(ofLog: stderr)
+    }
+}

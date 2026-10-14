@@ -36,7 +36,7 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .esVirituFailed(let code, let stderr):
-            return "EsViritu failed with exit code \(code): \(stderr)"
+            return killedReason ?? "EsViritu failed with exit code \(code): \(stderr)"
         case .esVirituNotInstalled:
             return "EsViritu is not installed. Run: lungfish-cli conda install --pack metagenomics"
         case .detectionOutputNotProduced(let url, let diagnosis):
@@ -62,13 +62,13 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
         }
     }
 
-    /// The last lines of EsViritu's log, for failure reports. `nil` for
-    /// errors that carry no log.
+    /// The last lines of EsViritu's log, or of its stderr when the run was killed, for failure
+    /// reports. `nil` for errors that carry no log.
     public var logTail: String? {
         if case .detectionOutputNotProduced(_, let diagnosis) = self {
             return diagnosis?.logTail
         }
-        return nil
+        return killedStderrTail
     }
 }
 
