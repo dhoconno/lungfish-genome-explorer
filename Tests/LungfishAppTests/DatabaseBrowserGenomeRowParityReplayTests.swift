@@ -36,22 +36,26 @@ import LungfishTestSupport
 final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
     enum Case: String, Sendable {
         case oneAssemblyInAProject
+        /// Two rows of one batch, whose row records one `fetch genome` command with both
+        /// accessions (review fix F7).
+        case twoAssembliesInAProject
     }
 
     static let closer = "2.11, which deletes the in-process genome row with its key (C4)"
 
-    /// What side C writes that side A does not, and the reverse, with BIO's reason.
+    /// What side C writes that side A does not, and the reverse, with BIO's reason. The batch
+    /// folder's name holds a UUID, numbered by its place in the tree.
     static let declared: [RouteParityDeclaredDifference<Case>] = [
         RouteParityDeclaredDifference(
-            [.oneAssemblyInAProject: 1],
-            "only in A: Project.lungfish/.tmp/batch-<UUID>/.lungfish-owned-work-directory.json",
+            [.oneAssemblyInAProject: 1, .twoAssembliesInAProject: 1],
+            "only in A: Project.lungfish/.tmp/batch-<UUID-<ANY>>/.lungfish-owned-work-directory.json",
             reason: "The in-process route builds the bundle in a batch folder under the project's .tmp folder, and the "
                 + "import copies the bundle out and leaves the folder with its owner marker. The CLI route stages in a "
                 + "folder of its own under .tmp and removes it.",
             closedBy: closer
         ),
         RouteParityDeclaredDifference(
-            [.oneAssemblyInAProject: 14],
+            [.oneAssemblyInAProject: 14, .twoAssembliesInAProject: 28],
             "only in C: Project.lungfish/Downloads/<ANY>.lungfishref/<ANY>lungfish-provenance.json",
             reason: "fetch genome writes the bundle's provenance record, which names each fetched file with its source "
                 + "URL, digest and size (B-3), a sidecar beside each output and a copy of each in provenance/. The "
@@ -65,9 +69,21 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
     /// map entry.
     static let digestGap: [String] = []
 
-    /// The genome row of the stand-in's one assembly.
+    /// The genome row of the stand-in's first assembly.
     static let record = SearchResultRecord(
         id: "9900001", accession: NCBIGenomeStandIn.assemblyAccession, title: "StandInAsm1", source: .ncbi)
+    /// The genome row of the stand-in's second assembly.
+    static let secondRecord = SearchResultRecord(
+        id: NCBIGenomeStandIn.secondAssemblyUID, accession: NCBIGenomeStandIn.secondAssemblyAccession,
+        title: "StandInAsm2", source: .ncbi)
+
+    /// The genome rows of one batch of `parityCase`.
+    static func records(of parityCase: Case) -> [SearchResultRecord] {
+        switch parityCase {
+        case .oneAssemblyInAProject: [record]
+        case .twoAssembliesInAProject: [record, secondRecord]
+        }
+    }
 
     /// Stopped under the coordinator rule on two differences that are neither declared nor a digest
     /// gap, which await a ruling (lane A44 M2c report, findings P1 and P2). C against C': each
@@ -80,6 +96,18 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["LUNGFISH_A44_PARITY_FINDINGS"] == "1" else {
             throw XCTSkip("Stopped on findings P1 and P2 of lane A44 M2c, which await a ruling")
         }
+        try await assertParity(.oneAssemblyInAProject)
+    }
+
+    /// Review fix F7. A batch row of two genome rows runs one single-accession child for each
+    /// row and records one `fetch genome <A> <B>` command, which side C' replays. Each bundle's
+    /// record names its own accession, so the replay builds the same two bundles.
+    func testTwoGenomeRowsReplayAsTheBatchRowsOneCommand() async throws {
+        try await assertParity(.twoAssembliesInAProject)
+    }
+
+    /// Runs `parityCase` on its three sides and checks C against C' and A against C.
+    func assertParity(_ parityCase: Case) async throws {
         let (cli, root) = try await prepare()
         defer { TestTempDirectory.cleanup(root) }
         let server = try await NCBIGenomeStandIn.start(servingIn: root.appendingPathComponent("served", isDirectory: true))
@@ -88,26 +116,38 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
             set: [NCBIServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString], unset: ["NCBI_API_KEY"])
         defer { saved.restore() }
 
+        let records = Self.records(of: parityCase)
         let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(120))
         let runs = try await harness.run(
             in: root.appendingPathComponent("case", isDirectory: true),
             fixture: Self.makeProject,
-            sideA: { try await Self.sideA($0) },
-            sideC: { try await Self.sideC($0, cli: cli) }
+            sideA: { try await Self.sideA($0, records: records) },
+            sideC: { try await Self.sideC($0, cli: cli, records: records) }
         )
-        let result = try harness.evaluate(Case.oneAssemblyInAProject, declared: Self.declared, runs: runs)
+        let result = try harness.evaluate(parityCase, declared: Self.declared, runs: runs)
         // digest gap, Q30 finding 1
         let gap = result.failures.filter { Self.digestGap.contains($0) }
         XCTAssertEqual(gap, Self.digestGap, "the digest gap moved")
-        RouteParityHarness.assertNoFailures(
-            result.failures.filter { !Self.digestGap.contains($0) }, in: "\(Case.oneAssemblyInAProject)")
+        RouteParityHarness.assertNoFailures(result.failures.filter { !Self.digestGap.contains($0) }, in: "\(parityCase)")
 
         for run in runs.all {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
         }
-        XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: try Self.onlyBundle(in: runs.a.root)), "side A writes no record")
+        XCTAssertEqual(
+            runs.cPrime.replayedArguments.map { Array($0.prefix(2 + records.count)) },
+            [["fetch", "genome"] + records.map(\.accession)])
+        for bundle in try Self.bundles(in: runs.a.root, count: records.count) {
+            XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: bundle), "side A writes no record")
+        }
         for run in [runs.c, runs.cPrime] {
-            try Self.assertRecordNamesEachOutputWithItsDigest(try Self.onlyBundle(in: run.root), side: run.side)
+            let bundles = try Self.bundles(in: run.root, count: records.count)
+            for (bundle, record) in zip(bundles, records) {
+                try Self.assertRecordNamesEachOutputWithItsDigest(bundle, side: run.side)
+                let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))
+                XCTAssertTrue(
+                    envelope.argv.contains(record.accession),
+                    "side \(run.side): \(bundle.lastPathComponent) names \(envelope.argv)")
+            }
         }
     }
 
@@ -131,7 +171,7 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         let rootCPrime = RouteParityHarness.root(of: .cPrime, in: root)
         try Self.makeProject(rootC)
         try Self.makeProject(rootCPrime)
-        let c = RouteParitySideRun(side: .c, root: rootC, outcome: try await Self.sideC(rootC, cli: cli))
+        let c = RouteParitySideRun(side: .c, root: rootC, outcome: try await Self.sideC(rootC, cli: cli, records: [Self.record]))
         let cPrime = await harness.replay(of: c, in: rootCPrime)
         for run in [c, cPrime] {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
@@ -154,32 +194,45 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         root.appendingPathComponent("Project.lungfish", isDirectory: true)
     }
 
-    /// Side A. The in-process route into a batch folder, then the import's copy into Downloads.
-    static func sideA(_ root: URL) async throws -> RouteParitySideOutcome {
+    /// Side A. The in-process route of each row into one batch folder, as the batch loop runs
+    /// them, then the import's copy of each bundle into Downloads.
+    static func sideA(_ root: URL, records: [SearchResultRecord]) async throws -> RouteParitySideOutcome {
         let project = project(in: root)
         let service = NCBIService()
-        let built = try await DatabaseBrowserViewModel.downloadGenomeRow(
-            record, index: 0, totalCount: 1, operationID: UUID(), route: .legacy,
-            ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
-            batchFolder: BatchDownloadFolder(projectURL: project), projectURL: project)
+        let genomeVM = GenomeDownloadViewModel(ncbiService: service)
+        let batchFolder = BatchDownloadFolder(projectURL: project)
+        let operationID = UUID()
+        var built: [URL] = []
+        for (index, record) in records.enumerated() {
+            built.append(try await DatabaseBrowserViewModel.downloadGenomeRow(
+                record, index: index, totalCount: records.count, operationID: operationID, route: .legacy,
+                ncbi: service, genomeVM: genomeVM, batchFolder: batchFolder, projectURL: project))
+        }
         let downloads = project.appendingPathComponent("Downloads", isDirectory: true)
         try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: built, to: downloads.appendingPathComponent(built.lastPathComponent))
-        try FileManager.default.removeItem(at: built)
+        for bundle in built {
+            try FileManager.default.copyItem(at: bundle, to: downloads.appendingPathComponent(bundle.lastPathComponent))
+            try FileManager.default.removeItem(at: bundle)
+        }
         return RouteParitySideOutcome(end: .completed, detail: "in process")
     }
 
-    /// Side C. The CLI route of the row, which records the command its row shows.
-    static func sideC(_ root: URL, cli: URL) async throws -> RouteParitySideOutcome {
+    /// Side C. The CLI route of each row, as the batch loop runs them, and the one command the
+    /// batch row records.
+    static func sideC(_ root: URL, cli: URL, records: [SearchResultRecord]) async throws -> RouteParitySideOutcome {
         let project = project(in: root)
         let service = NCBIService()
+        let genomeVM = GenomeDownloadViewModel(ncbiService: service)
+        let batchFolder = BatchDownloadFolder(projectURL: project)
+        let operationID = UUID()
         let command = DatabaseBrowserViewModel.batchDownloadCLICommand(
-            source: .ncbi, searchType: .genome, accessions: [record.accession], projectURL: project)
+            source: .ncbi, searchType: .genome, accessions: records.map(\.accession), projectURL: project)
         do {
-            _ = try await DatabaseBrowserViewModel.downloadGenomeRow(
-                record, index: 0, totalCount: 1, operationID: UUID(), route: .cli,
-                ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
-                batchFolder: BatchDownloadFolder(projectURL: project), projectURL: project, cliURLOverride: cli)
+            for (index, record) in records.enumerated() {
+                _ = try await DatabaseBrowserViewModel.downloadGenomeRow(
+                    record, index: index, totalCount: records.count, operationID: operationID, route: .cli,
+                    ncbi: service, genomeVM: genomeVM, batchFolder: batchFolder, projectURL: project, cliURLOverride: cli)
+            }
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)", recordedCommand: command)
         }
@@ -204,10 +257,15 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
 
     /// The one bundle in the project's Downloads folder of a side root.
     static func onlyBundle(in root: URL) throws -> URL {
+        try XCTUnwrap(try bundles(in: root, count: 1).first)
+    }
+
+    /// The `count` bundles in the project's Downloads folder of a side root, by name.
+    static func bundles(in root: URL, count: Int) throws -> [URL] {
         let downloads = project(in: root).appendingPathComponent("Downloads", isDirectory: true)
         let names = try FileManager.default.contentsOfDirectory(atPath: downloads.path).filter { $0.hasSuffix(".lungfishref") }
-        XCTAssertEqual(names.count, 1, "\(names)")
-        return downloads.appendingPathComponent(try XCTUnwrap(names.first), isDirectory: true)
+        XCTAssertEqual(names.count, count, "\(names)")
+        return names.sorted().map { downloads.appendingPathComponent($0, isDirectory: true) }
     }
 
     /// B-5. The bundle's record lists outputs, each of which exists with the digest it states.

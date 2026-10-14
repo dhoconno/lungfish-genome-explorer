@@ -11,13 +11,26 @@ import LungfishTestSupport
 /// The loopback stand-in for NCBI that `fetch genome` reads in the CLI pins, the genome parity
 /// class and the event transcripts (Phase 2.10 lane A44, panel decision G5). It answers the
 /// assembly's ESearch, ESummary, FTP files and assembly report, and the GenBank record's EFetch
-/// answers, from `NCBIDownloadPinFixtures`. An ESearch for any other term finds nothing, and an
+/// answers, from `NCBIDownloadPinFixtures`, and the same for a second assembly that differs only
+/// in its accession, uid and name. An ESearch for any other term finds nothing, and an
 /// EFetch for any other id is not found, so a test can make an accession fail. It holds no secret,
 /// and a run reaches it only through `NCBIServiceEndpoints.standInOriginVariable`, which makes the
 /// service send no key.
 enum NCBIGenomeStandIn {
     static let assemblyAccession = "GCF_000000001.1"
+    /// A second assembly, the first under another accession, uid and name, for a batch of two.
+    static let secondAssemblyAccession = "GCF_000000002.1"
+    static let secondAssemblyUID = "9900002"
     static let unknownAccession = "GCF_000000009.9"
+
+    /// `text` about the first assembly, made about the second. Its FTP folder keeps the first's
+    /// parent folder, which the JSON answers spell with escaped slashes.
+    static func aboutSecondAssembly(_ text: String) -> String {
+        text.replacingOccurrences(of: assemblyAccession, with: secondAssemblyAccession)
+            .replacingOccurrences(of: "GCA_000000001.1", with: "GCA_000000002.1")
+            .replacingOccurrences(of: "StandInAsm1", with: "StandInAsm2")
+            .replacingOccurrences(of: "9900001", with: secondAssemblyUID)
+    }
 
     /// The FTP path of the assembly's genomic FASTA.
     static let assemblyFASTAPath = NCBIDownloadPinFixtures.assemblyFTPPath + "/"
@@ -29,21 +42,28 @@ enum NCBIGenomeStandIn {
     static func start(servingIn served: URL, holding hold: StandInHold? = nil) async throws -> LoopbackHTTPStandIn {
         try FileManager.default.createDirectory(at: served, withIntermediateDirectories: true)
         let folder = NCBIDownloadPinFixtures.assemblyFTPPath + "/" + NCBIDownloadPinFixtures.assemblyDirectory
-        let routes: [String: LoopbackHTTPResponse] = [
-            folder + "_genomic.fna.gz": try await gzipped(NCBIDownloadPinFixtures.assemblyFASTA, as: "genomic.fna", in: served),
-            folder + "_genomic.gff.gz": try await gzipped(NCBIDownloadPinFixtures.assemblyGFF3, as: "genomic.gff", in: served),
-            folder + "_assembly_report.txt": .text(NCBIDownloadPinFixtures.assemblyReport),
-        ]
+        let fasta = try await gzipped(NCBIDownloadPinFixtures.assemblyFASTA, as: "genomic.fna", in: served)
+        let gff = try await gzipped(NCBIDownloadPinFixtures.assemblyGFF3, as: "genomic.gff", in: served)
+        var routes: [String: LoopbackHTTPResponse] = [:]
+        let assemblies: [(String) -> String] = [{ $0 }, aboutSecondAssembly]
+        for about in assemblies {
+            routes[about(folder) + "_genomic.fna.gz"] = fasta
+            routes[about(folder) + "_genomic.gff.gz"] = gff
+            routes[about(folder) + "_assembly_report.txt"] = .text(about(NCBIDownloadPinFixtures.assemblyReport))
+        }
         let summary = StandInText()
-        let server = try LoopbackHTTPStandIn.start { request in
+        let server = try LoopbackHTTPStandIn.start { [routes] request in
             func value(_ name: String) -> String? { request.queryItems.first { $0.name == name }?.value }
             switch request.path {
             case "/entrez/eutils/esearch.fcgi":
-                return .text(value("term")?.contains(assemblyAccession) == true
-                    ? NCBIDownloadPinFixtures.assemblyESearchJSON
-                    : #"{"esearchresult":{"count":"0","retmax":"0","retstart":"0","idlist":[]}}"#)
+                let term = value("term") ?? ""
+                if term.contains(assemblyAccession) { return .text(NCBIDownloadPinFixtures.assemblyESearchJSON) }
+                if term.contains(secondAssemblyAccession) {
+                    return .text(aboutSecondAssembly(NCBIDownloadPinFixtures.assemblyESearchJSON))
+                }
+                return .text(#"{"esearchresult":{"count":"0","retmax":"0","retstart":"0","idlist":[]}}"#)
             case "/entrez/eutils/esummary.fcgi":
-                return .text(summary.value)
+                return .text(value("id") == secondAssemblyUID ? aboutSecondAssembly(summary.value) : summary.value)
             case "/entrez/eutils/efetch.fcgi":
                 guard value("id") == NCBIDownloadPinFixtures.genBankAccession else { return .notFound }
                 switch value("rettype") {
