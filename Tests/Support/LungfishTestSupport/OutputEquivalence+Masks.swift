@@ -146,10 +146,13 @@ extension OutputEquivalence {
         /// workflow, which is the route's identity like the executable path
         /// (ruling A53-M3, Phase 2.10). It masks these two values only, since
         /// the same key holds the variant caller of a call, such as `lofreq`.
+        /// An envelope writes an option as a `ParameterValue`, an object with a
+        /// `type` and a `value`, so the pattern reads the value inside that
+        /// object as well as a bare string.
         public static let provenanceRuntime = Mask(name: "provenanceRuntime") { text, _ in
             var result = replaceKeyValues(["executablePath"], in: text, token: "<EXECUTABLE>")
             result = result.replacingOccurrences(
-                of: #"("caller"\s*:\s*)"(?:gui|cli)""#, with: "$1\"<CALLER>\"", options: .regularExpression
+                of: #"("caller"\s*:\s*(?:\{[^{}]*?"value"\s*:\s*)?)"(?:gui|cli)""#, with: "$1\"<CALLER>\"", options: .regularExpression
             )
             result = replaceKeyValues(["host", "hostName", "hostname"], in: result, token: "<HOST>")
             result = replaceKeyValues(["processIdentifier", "pid"], in: result, token: "<PID>")
