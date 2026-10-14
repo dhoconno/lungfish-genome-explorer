@@ -176,6 +176,16 @@ private actor OperationReportingPluginPackStatusProvider: PluginPackStatusProvid
 @MainActor
 final class PluginPackVisibilityTests: XCTestCase {
 
+    override func setUpWithError() throws {
+        // The install cases inject a pack status provider, the in-process route. The default route runs
+        // `lungfish-cli conda install --pack` (lane A52), which an injected provider never reaches.
+        ManagedToolsRouteSettings.testOverride = .legacy
+    }
+
+    override func tearDownWithError() throws {
+        ManagedToolsRouteSettings.testOverride = nil
+    }
+
     func testMetagenomicsPackHealthIsNotReadyWhenDatabaseBuildExecutableIsMissing() throws {
         let pack = try XCTUnwrap(PluginPack.builtInPack(id: "metagenomics"))
         let cases = [

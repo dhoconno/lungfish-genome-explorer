@@ -32,9 +32,13 @@ final class DatabasesTabTests: XCTestCase {
 
     override func setUpWithError() throws {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        // The update cases inject `updateDatabaseAction`, the in-process route. The default route runs
+        // `lungfish-cli conda db update` (lane A52), which an injected action never reaches.
+        ManagedToolsRouteSettings.testOverride = .legacy
     }
 
     override func tearDownWithError() throws {
+        ManagedToolsRouteSettings.testOverride = nil
         try? FileManager.default.removeItem(at: tempDir)
         MainActor.assumeIsolated {
             ManagedStorageConfigStore.overrideSharedForTesting(nil)

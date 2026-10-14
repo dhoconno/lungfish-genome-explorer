@@ -35,6 +35,16 @@ private actor StubManagedResourcePackStatusProvider: PluginPackStatusProviding {
 
 @MainActor
 final class ManagedResourceRefreshTests: XCTestCase {
+    override func setUpWithError() throws {
+        // The test injects a pack status provider, the in-process route. The default route runs
+        // `lungfish-cli conda install --pack` (lane A52), which an injected provider never reaches.
+        ManagedToolsRouteSettings.testOverride = .legacy
+    }
+
+    override func tearDownWithError() throws {
+        ManagedToolsRouteSettings.testOverride = nil
+    }
+
     func testInstallPackPostsManagedResourcesDidChange() async {
         let center = NotificationCenter()
         let required = PluginPackStatus(
