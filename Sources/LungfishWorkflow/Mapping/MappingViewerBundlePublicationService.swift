@@ -745,8 +745,7 @@ public enum MappingViewerBundlePublicationService {
                 viewerPublicationPlan: viewerPublicationPlan,
                 beforePlannedPayloadHash: beforePlannedPayloadHash,
                 writer: ProvenanceWriter(
-                    publicationMutationDidOccur: tracker.observe,
-                    signingProvider: nil
+                    publicationMutationDidOccur: tracker.observe
                 )
             )
             try afterCanonicalRewrite?()
