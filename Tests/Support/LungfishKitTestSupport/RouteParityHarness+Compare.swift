@@ -17,6 +17,9 @@
 // one side holds more often than the other, and one more, `line order`, when the lines both sides
 // hold come in another order. A binary file, or one with more than `explainedLimit` differences,
 // stays one whole-file difference, which no entry may declare (RouteParityHarness+Declared.swift).
+// A provenance envelope, which holds the argument vectors and the paths of every step of a run,
+// is explained up to `provenanceExplainedLimit` values, each with its own difference and so its
+// own exact count (lane A45 M1 ruling, section 3).
 //
 // Ids are stable from run to run. A UUID, run ID or timestamp that no mask hid is masked in an id,
 // and the number the comparison gave a UUID or run ID across its tree stays, so a changed link
@@ -27,12 +30,26 @@
 
 import CryptoKit
 import Foundation
-import LungfishTestSupport
+// Testable, so that the role of a file is the one the comparison read it under (`OutputEquivalence.role`).
+@testable import LungfishTestSupport
 
 extension RouteParityHarness {
     /// The most differences one file is explained as. A file that differs in more is one
     /// whole-file difference.
     static let explainedLimit = 50
+
+    /// The most differences a provenance envelope is explained as. A record of a run lists the
+    /// argument vector of its host and of each step, with the paths and digests of their files, so
+    /// one record legitimately differs in hundreds of values. It still gives one difference for
+    /// each value, with an exact count (panel G5), and a record past this many is a different
+    /// record, which stays one whole-file difference.
+    static let provenanceExplainedLimit = 1_000
+
+    /// Whether the comparison read the file called `name` as a provenance envelope, a JSON file
+    /// whose own name contains `provenance` (`OutputEquivalence.role(ofFileNamed:)`).
+    static func isProvenanceEnvelope(_ name: String) -> Bool {
+        OutputEquivalence.role(ofFileNamed: (name as NSString).lastPathComponent) == .provenance
+    }
 
     /// Every difference of the case, by scope. Each side's own facts, A against C, and C against
     /// C' or, when side C recorded no command, that fact of side C.
@@ -101,7 +118,8 @@ extension RouteParityHarness {
     // MARK: - Explaining a file that differs
 
     /// One difference for each value or line of `file` that differs, one whole-file difference
-    /// when more than `explainedLimit` do, or nil for a binary file.
+    /// when more than `explainedLimit` do (`provenanceExplainedLimit` for a provenance envelope),
+    /// or nil for a binary file.
     func explained(
         _ file: OutputEquivalence.DifferingFile,
         _ sideA: RouteParitySide,
@@ -133,7 +151,8 @@ extension RouteParityHarness {
             }
         }
         guard !found.isEmpty else { return nil }
-        guard found.count <= Self.explainedLimit else {
+        let limit = Self.isProvenanceEnvelope(file.name) ? Self.provenanceExplainedLimit : Self.explainedLimit
+        guard found.count <= limit else {
             return [RouteParityDifference(
                 id: "differs: \(label)",
                 detail: "\(found.count) values or lines differ, the first \(found[0])",

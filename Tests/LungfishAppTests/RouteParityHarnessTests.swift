@@ -151,6 +151,51 @@ final class RouteParityHarnessTests: XCTestCase {
         ])
     }
 
+    /// A provenance envelope holds the host's and the tools' argument vectors and the paths of every
+    /// step, so one record legitimately differs in more than `explainedLimit` values. The harness
+    /// explains it up to 1,000 values, and each value keeps its own difference with an exact count
+    /// (lane A45 M1 ruling, section 3). A JSON payload that is no envelope keeps the limit of 50.
+    func testAProvenanceEnvelopeIsExplainedPastFiftyValues() throws {
+        func record(_ value: String) -> String {
+            "{" + (0..<60).map { #""option\#(String(format: "%02d", $0))":"\#(value)""# }.joined(separator: ",") + "}"
+        }
+        let (a, c) = try sides(
+            ["run.lungfish-provenance.json": record("a"), "payload.json": record("a")],
+            ["run.lungfish-provenance.json": record("c"), "payload.json": record("c")]
+        )
+        let found = try harness.differences(a, c)
+        let envelope = found.filter { $0.id.hasPrefix("differs: run.lungfish-provenance.json") }
+        XCTAssertEqual(envelope.count, 60, "one difference for each value")
+        XCTAssertEqual(envelope.filter(\.wholeFile).count, 0, "none of them stands for a whole file")
+        XCTAssertEqual(envelope.first?.id, "differs: run.lungfish-provenance.json at option00")
+        XCTAssertEqual(
+            found.filter { $0.id == "differs: payload.json" }.map(\.wholeFile), [true],
+            "a JSON file that is no provenance envelope stays one whole-file difference past 50 values")
+
+        // An entry declares the envelope's values with an exact count, so one more or one fewer fails.
+        func entry(_ count: Int) -> RouteParityDeclaredDifference<String> {
+            RouteParityDeclaredDifference(
+                ["case": count], "differs: run.lungfish-provenance.json at <ANY>", reason: "every option of the record", closedBy: "Q30")
+        }
+        XCTAssertEqual(
+            RouteParityHarness.failures(found: [.aAgainstC: envelope], parityCase: "case", declared: [entry(60)]), [])
+        XCTAssertEqual(
+            RouteParityHarness.failures(found: [.aAgainstC: envelope], parityCase: "case", declared: [entry(59)])
+                .map { $0.components(separatedBy: "\n")[0] },
+            ["A against C: 60 differences match, 59 declared for case (closed by Q30): differs: run.lungfish-provenance.json at <ANY>"])
+    }
+
+    /// Past 1,000 values a provenance envelope is a different record, and stays one whole-file difference.
+    func testAProvenanceEnvelopePastAThousandValuesStaysOneWholeFileDifference() throws {
+        func record(_ value: String) -> String {
+            "{" + (0..<1_001).map { #""option\#($0)":"\#(value)""# }.joined(separator: ",") + "}"
+        }
+        let (a, c) = try sides(["run.lungfish-provenance.json": record("a")], ["run.lungfish-provenance.json": record("c")])
+        let found = try harness.differences(a, c)
+        XCTAssertEqual(found.map(\.id), ["differs: run.lungfish-provenance.json"])
+        XCTAssertEqual(found.map(\.wholeFile), [true])
+    }
+
     // MARK: - Each side's own facts
 
     /// A file a side wrote that names another side's root is a fact of that side, which no entry
