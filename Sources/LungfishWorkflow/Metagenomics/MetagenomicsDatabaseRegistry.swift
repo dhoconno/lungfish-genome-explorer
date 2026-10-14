@@ -162,7 +162,7 @@ public actor MetagenomicsDatabaseRegistry {
     let storageConfigStore: ManagedStorageConfigStore?
 
     /// In-memory database entries, keyed by name.
-    private var databases: [String: MetagenomicsDatabaseInfo] = [:]
+    var databases: [String: MetagenomicsDatabaseInfo] = [:]
 
     /// Catalog entries supplied by this build. Persisted rows may retain a
     /// historical recipe, so installation must resolve against this catalog.
