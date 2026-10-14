@@ -161,6 +161,10 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         try Self.reads.write(to: input, atomically: true, encoding: .utf8)
 
         let earlier = SIGTERMCancellation {}
+        // The handler is out of reach from here on, as in SIGTERMCancellationTests, so the kernel drops the post and
+        // only the note of it remains. A SIGTERM delivered to the main thread while end() switches the action can
+        // call the handler address of SIG_IGN and end the unit process (SIGBUS at pc 1, seen once in a large run).
+        signal(SIGTERM, SIG_IGN)
         kill(getpid(), SIGTERM)
         XCTAssertTrue(SIGTERMCancellation.signalCaught, "an earlier instance caught a SIGTERM")
         earlier.end()
