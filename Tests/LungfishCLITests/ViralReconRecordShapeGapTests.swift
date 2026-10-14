@@ -69,4 +69,97 @@ final class ViralReconRecordShapeGapTests: XCTestCase {
         XCTAssertEqual(record.options.resolvedDefaults, [:], "gap, every value is an explicit option, with no home for what LGE passed unasked")
         XCTAssertEqual(step.inputs.count, 1, "gap, the samplesheet is the one input with a digest, and the FASTQs it names are not inputs")
     }
+
+    /// Phase 2.10 lane B31 M1, the pin of a launched run's record before the writer moves. The engine's own debug log in
+    /// the launch folder names Nextflow 26.04.6 and the commit of tag 3.0.0 in the lines of Q35's real run V1, and the
+    /// record names neither. The step starts and ends at the moment the record is written, not when the engine started,
+    /// and the samplesheet is its one input.
+    func testALaunchedRunRecordsStartEqualToEndAndNothingFromTheEnginesOwnLog() async throws {
+        let run = try await ViralReconLaunchedRun.run(in: root)
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: run.bundle))
+        let step = try XCTUnwrap(record.steps.first)
+        let manifest = try NFCoreRunBundleStore.read(from: run.bundle)
+        XCTAssertEqual(manifest.executionStatus, .completed)
+        XCTAssertNotNil(manifest.startedAt, "the engine's start is in the manifest")
+        XCTAssertEqual(step.startedAt, step.completedAt, "gap, the step starts when the record is written")
+        XCTAssertNil(step.resolvedOptions["nextflowVersion"], "gap, the engine's debug log names 26.04.6")
+        XCTAssertEqual(step.inputs.map(\.path), [run.samplesheet.path], "gap, the FASTQs and the primer BED are not inputs")
+    }
+}
+
+/// One `workflow run nf-core/viralrecon` launched in process on a runner that writes no outputs but the results folder and,
+/// in the launch folder, the first lines Nextflow 26.04.6 wrote to its own debug log `.nextflow.log` in Q35's real run V1
+/// (`SCR/realrun/V1/warm-meta/nextflow.log` lines 1, 2 and 32, with its paths shortened).
+struct ViralReconLaunchedRun {
+    let bundle: URL
+    let results: URL
+    let samplesheet: URL
+    let reads: [URL]
+    let primerBED: URL
+    let runner: Runner
+
+    static let debugLogLines = [
+        "Oct-13 19:21:52.275 [main] DEBUG nextflow.cli.Launcher - $> nextflow run nf-core/viralrecon -r 3.0.0 -profile docker",
+        "Oct-13 19:21:52.335 [main] INFO  nextflow.cli.CmdRun - N E X T F L O W  ~  version 26.04.6",
+        "Oct-13 19:21:55.928 [main] INFO  nextflow.cli.CmdRun - Launching `https://github.com/nf-core/viralrecon` [fervent_ochoa] - revision: 395079f1d2 [3.0.0]",
+    ]
+
+    /// Records each launch, writes `debugLog` as `.nextflow.log` in its launch folder and creates the results folder.
+    final class Runner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
+        let debugLog: [String]?
+        private(set) var launches: [NFCoreWorkflowLaunch] = []
+
+        init(debugLog: [String]?) { self.debugLog = debugLog }
+
+        func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            launches.append(launch)
+            if let debugLog {
+                try FileManager.default.createDirectory(at: launch.workingDirectory, withIntermediateDirectories: true)
+                try (debugLog.joined(separator: "\n") + "\n")
+                    .write(to: launch.workingDirectory.appendingPathComponent(".nextflow.log"), atomically: true, encoding: .utf8)
+            }
+            if let index = launch.arguments.firstIndex(of: "--outdir"), index + 1 < launch.arguments.count {
+                try FileManager.default.createDirectory(
+                    at: URL(fileURLWithPath: launch.arguments[index + 1]), withIntermediateDirectories: true)
+            }
+            return NFCoreWorkflowProcessResult(exitCode: 0, standardOutput: "done\n", standardError: "")
+        }
+    }
+
+    /// Runs one paired Illumina amplicon sample with two CPUs and 4 GB, as the app's wizard asks, in `root`.
+    static func run(
+        in root: URL, debugLog: [String]? = debugLogLines, extraArguments: [String] = []
+    ) async throws -> ViralReconLaunchedRun {
+        let reads = ["S1_R1.fastq", "S1_R2.fastq"].map { root.appendingPathComponent("reads/\($0)") }
+        try FileManager.default.createDirectory(at: reads[0].deletingLastPathComponent(), withIntermediateDirectories: true)
+        for (index, url) in reads.enumerated() {
+            try "@r1/\(index + 1)\nACGT\n+\nIIII\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+        let primerBED = root.appendingPathComponent("primers/primers.bed")
+        try FileManager.default.createDirectory(at: primerBED.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "MN908947.3\t30\t54\tnCoV-2019_1_LEFT\t1\t+\n".write(to: primerBED, atomically: true, encoding: .utf8)
+        let samplesheet = root.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,\(reads[0].path),\(reads[1].path)\n".write(to: samplesheet, atomically: true, encoding: .utf8)
+        let bundle = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+        let results = root.appendingPathComponent("results", isDirectory: true)
+        let runner = Runner(debugLog: debugLog)
+        try await RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--executor", "docker",
+            "--input", samplesheet.path,
+            "--results-dir", results.path,
+            "--expected-output", results.path,
+            "--bundle-path", bundle.path,
+            "--version", "3.0.0",
+            "--param", "platform=illumina",
+            "--param", "protocol=amplicon",
+            "--param", "genome=MN908947.3",
+            "--param", "primer_bed=\(primerBED.path)",
+            "--param", "max_cpus=2",
+            "--param", "max_memory=4.GB",
+            "--quiet",
+        ] + extraArguments).run(nfCoreRunner: runner)
+        return ViralReconLaunchedRun(
+            bundle: bundle, results: results, samplesheet: samplesheet, reads: reads, primerBED: primerBED, runner: runner)
+    }
 }
