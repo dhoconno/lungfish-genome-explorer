@@ -352,6 +352,55 @@ final class OutputEquivalenceTests: XCTestCase {
         }
     }
 
+    /// An assembly bundle's manifest lists the run's parameters as display items, a label and a value
+    /// in a metadata group, and one of them is `Wall Time`. Two runs never take the same time, so the
+    /// contract masks that item's value in a manifest. Every other item, the item's place, any other
+    /// label and the same pair in a payload are still compared (lane A46 M3, D3 of its QA ruling).
+    func testAManifestWallTimeItemIsMaskedAndNothingBesideIt() throws {
+        let (a, b) = try makeRoots()
+        let item = { (label: String, value: String) in #"{"label":"\#(label)","value":"\#(value)"}"# }
+        let manifest = { (items: [String]) in #"{"metadata":[{"items":["# + items.joined(separator: ",") + "]}]}" }
+        let found = { try OutputEquivalence.differences(a, b, kind: .files) }
+        try write(manifest([item("Threads", "1"), item("Wall Time", "1s")]), to: a, "manifest.json")
+        try write(manifest([item("Threads", "1"), item("Wall Time", "0s")]), to: b, "manifest.json")
+        XCTAssertEqual(try found(), [])
+
+        // The shape LGE writes, each group and item with a random id, and a time with minutes.
+        let written = { (wall: String) in
+            #"{"metadata":[{"id":"\#(UUID().uuidString)","name":"Assembly Parameters","items":["#
+                + #"{"id":"\#(UUID().uuidString)","label":"Threads","value":"1"},"#
+                + #"{"id":"\#(UUID().uuidString)","label":"Wall Time","value":"\#(wall)"}]}]}"#
+        }
+        try write(written("2m 5s"), to: a, "manifest.json")
+        try write(written("0s"), to: b, "manifest.json")
+        XCTAssertEqual(try found(), [])
+
+        // Every other item is compared.
+        try write(manifest([item("Threads", "1"), item("Wall Time", "1s")]), to: a, "manifest.json")
+        try write(manifest([item("Threads", "2"), item("Wall Time", "0s")]), to: b, "manifest.json")
+        XCTAssertEqual(try found().count, 1, "Threads differs")
+
+        // The item's place is compared, and so is its absence.
+        try write(manifest([item("Wall Time", "0s"), item("Threads", "1")]), to: b, "manifest.json")
+        XCTAssertEqual(try found().count, 1, "the item moved")
+        try write(manifest([item("Threads", "1")]), to: b, "manifest.json")
+        XCTAssertEqual(try found().count, 1, "the item is gone")
+
+        // The label is matched whole and as written, so any other label keeps its value.
+        for label in ["Wall time", "wall time", "WallTime", "Wall Time (s)", "Wall Time ", "Runtime"] {
+            try write(manifest([item("Threads", "1"), item(label, "1s")]), to: a, "manifest.json")
+            try write(manifest([item("Threads", "1"), item(label, "0s")]), to: b, "manifest.json")
+            XCTAssertEqual(try found().count, 1, "the label \(label)")
+        }
+
+        // The same pair in a payload is compared as written.
+        try empty(a, b)
+        try write(manifest([item("Threads", "1"), item("Wall Time", "1s")]), to: a, "assembly-result.json")
+        try write(manifest([item("Threads", "1"), item("Wall Time", "0s")]), to: b, "assembly-result.json")
+        XCTAssertEqual(try found().count, 1, "a payload")
+        XCTAssertTrue(try found().first?.hasPrefix("differs: assembly-result.json\n") == true)
+    }
+
     func testRecordedDigestsAreMaskedOnlyForFilesComparedByContent() throws {
         let (a, b) = try makeRoots()
         let record = { (path: String, checksum: String, size: Int) in

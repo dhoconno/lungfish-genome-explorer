@@ -32,10 +32,11 @@ extension OutputEquivalence {
 
         /// The contract's masks. A provenance envelope gets all of them. A
         /// record gets all but the executable path, host, process ID and wall
-        /// time, which the contract masks in provenance alone. A file name
-        /// gets the UUID and run ID masks. Payload text, request bodies and
-        /// plans get the roots and run wall time masks alone, so a date, a
-        /// host or a read ID in data is compared as written.
+        /// time keys, which the contract masks in provenance alone, so its
+        /// only wall time mask is the value of a manifest's Wall Time item.
+        /// A file name gets the UUID and run ID masks. Payload text, request
+        /// bodies and plans get the roots and run wall time masks alone, so a
+        /// date, a host or a read ID in data is compared as written.
         public static var standard: MaskPolicy {
             let records = [
                 Masks.contentComparedDigests,
@@ -44,6 +45,7 @@ extension OutputEquivalence {
                 Masks.runIDs,
                 Masks.isoTimestamps,
                 Masks.epochValues,
+                Masks.manifestWallTime,
             ]
             return MaskPolicy(
                 provenance: records + [Masks.provenanceRuntime],
@@ -152,6 +154,50 @@ extension OutputEquivalence {
         /// Three keys only.
         public static let runWallTime = Mask(name: "runWallTime") { text, _ in
             replaceKeyValues(["wallTimeSeconds", "wall_time_seconds", "wallClockSeconds"], in: text, token: "<DURATION>")
+        }
+
+        /// Sets the `value` of a display item labelled exactly `Wall Time` to `<DURATION>`, the wall time
+        /// AssemblyBundleBuilder lists in a bundle manifest's metadata. A display item is a JSON object with
+        /// a `label` and a `value`. The item stays where it is, so its place, its absence, every other item
+        /// and every other label are compared as written.
+        public static let manifestWallTime = Mask(name: "manifestWallTime") { text, _ in
+            rewritingJSON(text) { value, changed in maskWallTimeItems(in: value, changed: &changed) }
+        }
+
+        static let wallTimeLabel = "Wall Time"
+
+        /// Sets `value` to `<DURATION>` in each JSON object whose `label` is exactly `Wall Time`.
+        static func maskWallTimeItems(in value: Any, changed: inout Bool) -> Any {
+            if let array = value as? [Any] {
+                return array.map { maskWallTimeItems(in: $0, changed: &changed) }
+            }
+            guard var object = value as? [String: Any] else { return value }
+            for (key, item) in object {
+                object[key] = maskWallTimeItems(in: item, changed: &changed)
+            }
+            if object["label"] as? String == wallTimeLabel, object["value"] != nil {
+                object["value"] = "<DURATION>"
+                changed = true
+            }
+            return object
+        }
+
+        /// `text` re-encoded after `transform` rewrote its JSON value, the way `contentComparedDigests`
+        /// encodes a record. Text that is not JSON, or that `transform` leaves alone, comes back as written.
+        static func rewritingJSON(_ text: String, _ transform: (Any, inout Bool) -> Any) -> String {
+            guard let data = text.data(using: .utf8),
+                  let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            else { return text }
+            var changed = false
+            let rewritten = transform(value, &changed)
+            guard changed,
+                  let encoded = try? JSONSerialization.data(
+                      withJSONObject: rewritten,
+                      options: [.sortedKeys, .prettyPrinted, .fragmentsAllowed, .withoutEscapingSlashes]
+                  ),
+                  let result = String(data: encoded, encoding: .utf8)
+            else { return text }
+            return result
         }
 
         /// In a JSON record that names a file present in both trees and
