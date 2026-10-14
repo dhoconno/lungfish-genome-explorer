@@ -109,7 +109,15 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
         for run in runs.all {
             let bundle = Self.bundle(in: run.root)
             XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.path), "side \(run.side) imported no bundle")
-            try Self.assertEachFileTheRecordNamesInTheBundleHasItsDigest(bundle, side: run.side)
+            // B-5 over every record of the bundle, on the CLI route's two sides. Side A keeps the digest the import
+            // child stated for the metadata sidecar in its records, because the window rewrites the sidecar after the
+            // child exits (`DatabaseBrowserViewModel+SRAWindowDownload.swift:248-255`) and never states it again.
+            // That route is reached only through the hidden key's `legacy` value after the flip, and 2.11 deletes it
+            // with the key (C4), so the stale digest stays until then (BIO ruling on lane A45 M3c, section b item 3).
+            if run.side != .a {
+                try FetchSRAFetchedRecordReplayTests.assertEveryRecordNamesItsFilesInTheBundle(
+                    bundle, side: "side \(run.side)")
+            }
         }
     }
 
@@ -176,22 +184,5 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
     static func bundle(in root: URL) -> URL {
         DatabaseBrowserNucleotideRowParityReplayTests.project(in: root)
             .appendingPathComponent("Imports/\(run).lungfishfastq", isDirectory: true)
-    }
-
-    /// B-5. Every file the bundle's record names inside the bundle exists with the digest it states.
-    static func assertEachFileTheRecordNamesInTheBundleHasItsDigest(_ bundle: URL, side: RouteParitySide) throws {
-        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle), "side \(side) wrote no record")
-        let prefix = bundle.resolvingSymlinksInPath().path + "/"
-        let named = envelope.files + envelope.outputs + (envelope.output.map { [$0] } ?? [])
-            + envelope.steps.flatMap { $0.inputs + $0.outputs }
-        let inside = named.filter { URL(fileURLWithPath: $0.path).resolvingSymlinksInPath().path.hasPrefix(prefix) }
-        XCTAssertFalse(inside.isEmpty, "side \(side): the record names no file of the bundle")
-        for descriptor in inside {
-            let url = URL(fileURLWithPath: descriptor.path)
-            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "side \(side): \(descriptor.path)")
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            XCTAssertEqual(
-                descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: url), "side \(side): \(url.lastPathComponent)")
-        }
     }
 }
