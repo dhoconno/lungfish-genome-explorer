@@ -228,13 +228,9 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
 
     func testAppearanceSettingsExposeAccessibleContentTextSizePicker() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "SettingsAndImportXCUIReadinessTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
 
         let inspected = try AppearanceSettingsTab().inspect()
 

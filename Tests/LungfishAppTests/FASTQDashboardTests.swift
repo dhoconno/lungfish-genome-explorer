@@ -892,12 +892,10 @@ final class FASTQDashboardTests: XCTestCase {
     @MainActor
     func testFASTQSummaryHostAdaptsForScaleAndLateStatisticsWithoutLosingAccessibility() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "FASTQDashboardTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(
                 name: .contentTextSizeDidChange,
                 object: nil

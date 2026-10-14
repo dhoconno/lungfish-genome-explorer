@@ -17,14 +17,8 @@
 
 (none)                                  Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
 FeaturesYAMLMenuPath                    Tests/LungfishAppViewTests/FeaturesYAMLMenuPathTests.swift
-GenotypeInspectorPresentationTests      Tests/LungfishAppTests/GenotypeInspectorPresentationTests.swift
 LungfishGenotypeMatrixFontCacheTests    Tests/LungfishGenotypeUITests/GenotypeMatrixCellFontCacheRegressionTests.swift
 LungfishTypographyTests                 Tests/LungfishAlignmentUITests/AlignmentResultViewControllerTests.swift
-LungfishTypographyTests                 Tests/LungfishAppTests/FASTQDashboardTests.swift
-LungfishTypographyTests                 Tests/LungfishAppTests/GenotypeCohortSummaryPanelViewTests.swift
-LungfishTypographyTests                 Tests/LungfishAppTests/GenotypeQuickFilterBarViewTests.swift
-LungfishTypographyTests                 Tests/LungfishAppTests/GenotypeResultDisplaySectionTests.swift
-LungfishTypographyTests                 Tests/LungfishAppTests/SettingsAndImportXCUIReadinessTests.swift
 LungfishTypographyTests                 Tests/LungfishAppViewTests/MainMenuStructureTests.swift
 LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift

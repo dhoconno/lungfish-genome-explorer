@@ -7,6 +7,7 @@ import SwiftUI
 import XCTest
 import ViewInspector
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeInspectorPresentationTests: XCTestCase {
@@ -90,13 +91,9 @@ final class GenotypeInspectorPresentationTests: XCTestCase {
         let output = URL(fileURLWithPath: path, isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 
-        let suiteName = "GenotypeInspectorPresentationTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = makeTestDefaultsSuite(prefix: "GenotypeInspectorPresentationTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: defaults)
-        defer {
-            restoreSettings()
-            defaults.removePersistentDomain(forName: suiteName)
-        }
+        defer { restoreSettings() }
 
         for percentage in [100, 200] {
             AppSettings.shared.contentTextSizePreference = .custom(percentage)

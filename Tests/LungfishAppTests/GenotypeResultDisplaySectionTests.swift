@@ -416,13 +416,9 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
     func testContentTextSizeActionsUseGlobalPreferenceWithoutPublishingDisplayState() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultDisplaySectionTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
 
@@ -457,13 +453,9 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
     func testContentTextSizeActionsRespectSupportedBoundsAndDoNotAnnounceNoOp() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultDisplaySectionTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         let announcements = RecordingContentTextSizeAnnouncements()
         let viewModel = GenotypeResultDisplaySectionViewModel(
             contentTextSizeAnnouncementPoster: announcements
@@ -486,13 +478,9 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
 
     func testContentTextSizeInspectorUsesStableAccessibleControls() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultDisplaySectionTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
 
