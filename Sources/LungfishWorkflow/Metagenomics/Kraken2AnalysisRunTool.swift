@@ -54,6 +54,15 @@ public struct Kraken2AnalysisRunTool: AnalysisRunTool {
         guard !inputURLs.isEmpty else {
             throw Kraken2RunRefusal.input("No eligible FASTQ or FASTA inputs found.")
         }
+        // A demultiplexed group bundle is a container with no reads of its own. It is refused
+        // before the read format, the database and the output are looked at, with the input
+        // error code and in the words `esviritu detect` uses, so no folder or record is touched
+        // (2.7 row 421).
+        for url in inputURLs {
+            if let message = CLISequenceInputMaterialization.unsupportedSequenceInputMessage(for: url, operationName: "classification") {
+                throw Kraken2RunRefusal.input(message)
+            }
+        }
         let samples = try Self.samples(of: inputURLs, request: request, batch: runRequest.groupsSamples)
         let inputFormat = try Kraken2RunRequest.inferInputFormat(from: inputURLs)
         let (database, databasePath, recordInputs) = try await resolveDatabase()
@@ -64,9 +73,6 @@ public struct Kraken2AnalysisRunTool: AnalysisRunTool {
             throw Kraken2RunRefusal.input(error.localizedDescription)
         }
         for url in inputURLs {
-            if let message = CLISequenceInputMaterialization.unsupportedSequenceInputMessage(for: url, operationName: "classification") {
-                throw CLISequenceInputMaterializationError.unsupportedSequenceInput(message)
-            }
             if !CLISequenceInputMaterialization.requiresMaterialization(url),
                SequenceInputResolver.resolvePrimarySequenceURL(for: url) == nil {
                 throw CLISequenceInputMaterializationError.unreadableSequenceInput(url.path)

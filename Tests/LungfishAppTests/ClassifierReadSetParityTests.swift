@@ -545,18 +545,12 @@ enum ClassifierReadSetParityTable {
         let lane: String
     }
 
-    /// The differences the table still has. The two of the legacy `gui` column (D9 of the 2.7
+    /// The differences the table still has, none. The two of the legacy `gui` column (D9 of the 2.7
     /// inventory, a demultiplex group the GUI resolver tried to materialize) went with that column.
-    static let knownDifferences: [KnownDifference] = [
-        // Lane F3 found it when it added the Kraken2 executor column. `esviritu detect` refuses the
-        // group in its plan with exit 3 before any folder exists, as the frozen CLI value does, and
-        // `kraken2 classify` checks it after its plan, so the run fails with exit 64.
-        KnownDifference(
-            tool: .kraken2, row: "L6e demultiplex group", route: "executor",
-            value: "exit 64: Demultiplexed group bundles are container-only; select an individual demultiplexed FASTQ bundle for classification.",
-            lane: "2.8, the Kraken2 plan refuses a demultiplexed group before its folder exists, as A9 did for EsViritu"
-        ),
-    ]
+    /// The last, `kraken2 classify` refusing the L6e group with exit 64 where `esviritu detect`
+    /// refuses it with exit 3, closed in Phase 2.10 lane U41, when the Kraken2 plan began to refuse
+    /// a group first with the input error code (2.7 row 421).
+    static let knownDifferences: [KnownDifference] = []
 
     /// The value the executor route gives for a row whose frozen value is `frozen`, the same
     /// handoff in the terms of a command run. A record holds a read-set plan only when the plan

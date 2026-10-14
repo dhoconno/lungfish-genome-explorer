@@ -19,10 +19,8 @@ import XCTest
 /// database, so no test reads or writes the real storage and the refusal comes from the command's
 /// own order of checks.
 final class Kraken2DemuxGroupRefusalTests: XCTestCase {
-    private static let sentenceStem = "Demultiplexed group bundles are container-only; "
-        + "select an individual demultiplexed FASTQ bundle for "
-    private static let kraken2Sentence = sentenceStem + "classification."
-    private static let esVirituSentence = sentenceStem + "EsViritu detection."
+    private static let kraken2Sentence = GroupRefusalCLI.kraken2Sentence
+    private static let esVirituSentence = GroupRefusalCLI.esVirituSentence
 
     private var root: URL!
     private var fixtures: ReadSetFixtures!
@@ -72,76 +70,74 @@ final class Kraken2DemuxGroupRefusalTests: XCTestCase {
         XCTAssertEqual(try snapshot(of: fixtures.projectURL), before, "the earlier result keeps every byte")
     }
 
-    // MARK: - kraken2 classify at the base
+    // MARK: - kraken2 classify
 
-    func testKraken2TodayRefusesTheGroupWithExit64WithNoFolderInAProject() throws {
+    func testKraken2RefusesTheGroupWithExit3BeforeAnyFolderInAProject() throws {
         let before = try snapshot(of: fixtures.projectURL)
         let result = try runCLI([
             "kraken2", "classify", fixtures.demuxGroup.path, "--db", "FixtureDB",
             "--project", fixtures.projectURL.path,
         ])
-        XCTAssertEqual(result.exitCode, CLIExitCode.workflowError.rawValue, result.output)
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, result.output)
         XCTAssertTrue(result.output.contains(Self.kraken2Sentence), result.output)
         XCTAssertEqual(try snapshot(of: fixtures.projectURL), before, "no folder exists after the refusal")
     }
 
-    func testKraken2TodayRefusesTheGroupWithExit64AndLeavesAnEarlierResultAlone() throws {
+    func testKraken2RefusesTheGroupAndLeavesAnEarlierResultAlone() throws {
         let earlier = try makeEarlierResult(named: "kraken2-earlier")
         let before = try snapshot(of: fixtures.projectURL)
         let result = try runCLI([
             "kraken2", "classify", fixtures.demuxGroup.path, "--db", "FixtureDB",
             "--output-dir", earlier.path,
         ])
-        XCTAssertEqual(result.exitCode, CLIExitCode.workflowError.rawValue, result.output)
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, result.output)
         XCTAssertTrue(result.output.contains(Self.kraken2Sentence), result.output)
         XCTAssertEqual(try snapshot(of: fixtures.projectURL), before, "the earlier result keeps every byte")
     }
 
-    func testKraken2TodayChecksTheDatabaseBeforeTheGroup() throws {
+    func testKraken2RefusesTheGroupBeforeItChecksTheDatabase() throws {
+        let before = try snapshot(of: fixtures.projectURL)
         let result = try runCLI([
             "kraken2", "classify", fixtures.demuxGroup.path, "--db", "NoSuchDatabase",
             "--project", fixtures.projectURL.path,
         ])
         XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, result.output)
-        XCTAssertTrue(result.output.contains("Database 'NoSuchDatabase' not found in registry."), result.output)
-        XCTAssertFalse(result.output.contains(Self.kraken2Sentence), result.output)
+        XCTAssertTrue(result.output.contains(Self.kraken2Sentence), result.output)
+        XCTAssertFalse(result.output.contains("not found in registry"), "the database is not asked about first")
+        XCTAssertEqual(try snapshot(of: fixtures.projectURL), before)
+    }
+
+    func testKraken2RefusesTheGroupInABatchAndThroughCondaClassify() throws {
+        let before = try snapshot(of: fixtures.projectURL)
+        let batch = try runCLI([
+            "kraken2", "classify", fixtures.demuxGroup.path, "--db", "FixtureDB", "--batch",
+            "--project", fixtures.projectURL.path,
+        ])
+        XCTAssertEqual(batch.exitCode, CLIExitCode.inputError.rawValue, batch.output)
+        XCTAssertTrue(batch.output.contains(Self.kraken2Sentence), batch.output)
+        let conda = try runCLI([
+            "conda", "classify", fixtures.demuxGroup.path, "--db", "FixtureDB",
+            "--project", fixtures.projectURL.path,
+        ])
+        XCTAssertEqual(conda.exitCode, CLIExitCode.inputError.rawValue, conda.output)
+        XCTAssertTrue(conda.output.contains(Self.kraken2Sentence), conda.output)
+        XCTAssertEqual(try snapshot(of: fixtures.projectURL), before)
+    }
+
+    func testKraken2StillRefusesAGroupAmongOtherInputsWithTheSameSentence() throws {
+        let result = try runCLI([
+            "kraken2", "classify", fixtures.singleRoot.path, fixtures.demuxGroup.path, "--db", "FixtureDB",
+            "--project", fixtures.projectURL.path,
+        ])
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, result.output)
+        XCTAssertTrue(result.output.contains(Self.kraken2Sentence), result.output)
     }
 
     // MARK: - Helpers
 
-    private struct Outcome {
-        let exitCode: Int32
-        /// Standard output, then standard error.
-        let output: String
-    }
-
-    /// Runs the built `lungfish-cli` with the storage root of this test and waits up to a minute.
-    private func runCLI(_ arguments: [String]) throws -> Outcome {
-        let binary = try XCTUnwrap(
-            CLITestBinaryResolver.cliBinaryURL(
-                buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
-            ),
-            "Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle"
-        )
-        let process = Process()
-        process.executableURL = binary
-        process.arguments = arguments
-        process.environment = CLISIGTERMHarness.childEnvironment(overriding: [
-            "LUNGFISH_STORAGE_ROOT": storage.path,
-            "LUNGFISH_CONDA_ROOT": storage.appendingPathComponent("conda", isDirectory: true).path,
-        ])
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
-            if process.isRunning { process.terminate() }
-        }
-        process.waitUntilExit()
-        let out = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return Outcome(exitCode: process.terminationStatus, output: out + err)
+    /// Runs the built `lungfish-cli` with the storage root of this test.
+    private func runCLI(_ arguments: [String]) throws -> GroupRefusalCLI.Outcome {
+        try GroupRefusalCLI.run(arguments, storage: storage, testClass: Self.self)
     }
 
     /// A finished run's folder in the project's `Analyses`, with the files a result holds, so a
@@ -160,9 +156,97 @@ final class Kraken2DemuxGroupRefusalTests: XCTestCase {
         return folder
     }
 
+    private func snapshot(of folder: URL) throws -> [String: String] {
+        try GroupRefusalCLI.snapshot(of: folder)
+    }
+}
+
+/// The live form of the refusal (the 2.9 O5 ruling), the built `lungfish-cli` on the L6e group with
+/// this Mac's own managed storage and its installed Kraken2 Viral database. The refusal comes from
+/// the plan, so no tool runs and nothing is written, and the test skips without the database. Its
+/// name holds `Conformance`, so it never runs in the unit tier. Set `LUNGFISH_REQUIRE_TOOLS=1` to run it.
+final class Kraken2DemuxGroupRefusalLiveConformanceTests: XCTestCase {
+    func testTheRealCommandRefusesAGroupWithTheInstalledViralDatabase() async throws {
+        guard ToolAvailability.requireTools else {
+            throw XCTSkip("Set LUNGFISH_REQUIRE_TOOLS=1 to run kraken2 classify on a group with the installed Viral database")
+        }
+        guard Self.hasReadyViralDatabase() else {
+            try ToolAvailability.skipOrFail("The Kraken2 Viral database is not installed on this Mac")
+        }
+        let root = try TestTempDirectory.make(prefix: "kraken2-demux-group-live")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixtures = try ReadSetFixtures(in: root)
+        let before = try GroupRefusalCLI.snapshot(of: fixtures.projectURL)
+        let result = try GroupRefusalCLI.run(
+            ["kraken2", "classify", fixtures.demuxGroup.path, "--db", "Viral", "--project", fixtures.projectURL.path],
+            storage: nil,
+            testClass: Self.self
+        )
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, result.output)
+        XCTAssertTrue(result.output.contains(GroupRefusalCLI.kraken2Sentence), result.output)
+        XCTAssertEqual(try GroupRefusalCLI.snapshot(of: fixtures.projectURL), before, "no folder exists after the refusal")
+    }
+
+    /// Whether this Mac's registry lists a ready database named Viral, read from the manifest
+    /// alone, so the test process writes nothing to the managed storage.
+    private static func hasReadyViralDatabase() -> Bool {
+        let manifest = ManagedStorageConfigStore().currentLocation().databaseRootURL
+            .appendingPathComponent("metagenomics-db-registry.json")
+        guard let data = try? Data(contentsOf: manifest),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let databases = object["databases"] as? [[String: Any]] else { return false }
+        return databases.contains { $0["name"] as? String == "Viral" && $0["status"] as? String == "ready" }
+    }
+}
+
+/// The built `lungfish-cli` on a group bundle, for the stand-in class and the live class.
+private enum GroupRefusalCLI {
+    static let sentenceStem = "Demultiplexed group bundles are container-only; "
+        + "select an individual demultiplexed FASTQ bundle for "
+    static let kraken2Sentence = sentenceStem + "classification."
+    static let esVirituSentence = sentenceStem + "EsViritu detection."
+
+    struct Outcome {
+        let exitCode: Int32
+        /// Standard output, then standard error.
+        let output: String
+    }
+
+    /// Runs the built `lungfish-cli` and waits up to a minute. With `storage` the managed storage
+    /// root and the conda root are folders of the test, and without it the run uses this Mac's own.
+    static func run(_ arguments: [String], storage: URL?, testClass: AnyClass) throws -> Outcome {
+        let binary = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(
+                buildProductsDirectory: Bundle(for: testClass).bundleURL.deletingLastPathComponent()
+            ),
+            "Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle"
+        )
+        let process = Process()
+        process.executableURL = binary
+        process.arguments = arguments
+        process.environment = CLISIGTERMHarness.childEnvironment(overriding: storage.map { storage in
+            [
+                "LUNGFISH_STORAGE_ROOT": storage.path,
+                "LUNGFISH_CONDA_ROOT": storage.appendingPathComponent("conda", isDirectory: true).path,
+            ]
+        } ?? [:])
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
+            if process.isRunning { process.terminate() }
+        }
+        process.waitUntilExit()
+        let out = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return Outcome(exitCode: process.terminationStatus, output: out + err)
+    }
+
     /// Every file and folder below `folder` by its path inside it, a file with the SHA-256 of its
     /// bytes and a folder with a marker, so equal snapshots mean no entry was made, removed or changed.
-    private func snapshot(of folder: URL) throws -> [String: String] {
+    static func snapshot(of folder: URL) throws -> [String: String] {
         var entries: [String: String] = [:]
         let walker = try XCTUnwrap(FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey]))
         for case let url as URL in walker {
