@@ -311,7 +311,7 @@ final class OutputEquivalenceTests: XCTestCase {
         }
     }
 
-    /// The mask knows two keys and matches each whole. A fact a run records beside its wall time, in
+    /// The mask knows three keys and matches each whole. A fact a run records beside its wall time, in
     /// a provenance envelope or in a payload, still fails the comparison when the routes disagree on
     /// it, including a key that holds the name of a wall time key, and a payload keeps the other
     /// wall-clock keys that only a provenance envelope masks.
@@ -325,15 +325,15 @@ final class OutputEquivalenceTests: XCTestCase {
             ("runtime", #""4s""#, #""5s""#),
             ("total_wall_time_seconds", "4", "5"),
             ("wallTimeSecondsTotal", "4", "5"),
+            ("wallClockSecondsTotal", "4", "5"),
         ]
         let payloadOnly: [(key: String, a: String, b: String)] = [
             ("wallTime", "4", "5"),
-            ("wallClockSeconds", "4", "5"),
             ("durationSeconds", "4", "5"),
             ("elapsedSeconds", "4", "5"),
         ]
         for file in ["provenance.json", "assembly-result.json"] {
-            for wallKey in ["wallTimeSeconds", "wall_time_seconds"] {
+            for wallKey in ["wallTimeSeconds", "wall_time_seconds", "wallClockSeconds"] {
                 let facts = file == "provenance.json" ? beside : beside + payloadOnly
                 for fact in facts {
                     let label = "\(file) with \(wallKey) beside \(fact.key)"

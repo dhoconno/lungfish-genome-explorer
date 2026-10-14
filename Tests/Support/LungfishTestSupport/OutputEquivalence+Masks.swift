@@ -148,9 +148,10 @@ extension OutputEquivalence {
             )
         }
 
-        /// The wall time a run writes beside its outputs, as in assembly-result.json. Two keys only.
+        /// The wall time a run writes beside its outputs, as in assembly-result.json and mapping-result.json.
+        /// Three keys only.
         public static let runWallTime = Mask(name: "runWallTime") { text, _ in
-            replaceKeyValues(["wallTimeSeconds", "wall_time_seconds"], in: text, token: "<DURATION>")
+            replaceKeyValues(["wallTimeSeconds", "wall_time_seconds", "wallClockSeconds"], in: text, token: "<DURATION>")
         }
 
         /// In a JSON record that names a file present in both trees and
