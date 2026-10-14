@@ -54,10 +54,11 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
         let ids = "A record's id and the ids of its steps are UUIDs numbered by their first place in the tree. The two trees "
             + "hold other ids ahead of these, because the per-output records are other runs' records and the leaf adds a "
             + "step, so the numbers differ (ruling A45-M3 section 1, the ids)."
-        let files = "The window writes its record after the import child wrote its own and lists the import's files a second "
-            + "time, two more in the ENA mirror case and four more in the toolkit case, where the leaf writes one record "
-            + "that lists each file once. The files after the sixth hold other entries, and the staged paths differ "
-            + "(ruling A45-M3 section 1, one record per child, written last)."
+        let files = "The window writes its record after the import child wrote its own, and lists a file again for each "
+            + "step that names it, the sidecar once more in the ENA mirror case and the staged FASTQ, the bundle's FASTQ "
+            + "and the sidecar once more in the toolkit case. The leaf writes one record that lists each file once. The "
+            + "files after the sixth hold other entries, and the staged paths differ (ruling A45-M3 section 1, one record "
+            + "per child, written last, and A36 ruling 1, which keeps the import's FASTQ off the last step)."
         let removal = "The leaf's record names the removal of the staged FASTQ files as a last step (2.8 P1), which the window's "
             + "record lacks, so every field of that step exists only on side C: its tool, its times, its dependency list, "
             + "its inputs with their digests and sizes, and its options (ruling A45-M3 section 1, the step the child adds)."
@@ -91,7 +92,7 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
             entry(root, "id", 1, 0, ids),
             entry(root, "options.explicit.preservedCLIProvenanceID.<ANY>", 1, 0, ids),
             entry(root, "steps[<ANY>].id", 1, 1, ids),
-            entry(root, "files[<ANY>", 30, 12, files),
+            entry(root, "files[<ANY>", 25, 7, files),
             entry(root, "steps[<ANY>].toolName", 1, 1, removal),
             entry(root, "steps[<ANY>].toolVersion", 1, 1, removal),
             entry(root, "steps[<ANY>].dependsOn", 1, 1, removal),
@@ -106,12 +107,12 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
             entry(root, "steps[<ANY>].resolvedOptions.<ANY>", 4, 4, removal),
             entry(perOutput, "argv[<ANY>", 54, 54, focused),
             entry(perOutput, "durableReplayArgv[<ANY>", 57, 57, focused),
-            entry(perOutput, "files[<ANY>", 32, 24, focused),
+            entry(perOutput, "files[<ANY>", 27, 19, focused),
             entry(perOutput, "id", 3, 3, focused),
             entry(perOutput, "options.<ANY>", 534, 525, focused),
             entry(perOutput, "output.<ANY>", 2, 2, focused),
             entry(perOutput, "reproducibleCommand", 3, 3, focused),
-            entry(perOutput, "steps[<ANY>", 373, 285, focused),
+            entry(perOutput, "steps[<ANY>", 331, 243, focused),
             entry(perOutput, "tool.<ANY>", 6, 6, focused),
             entry(perOutput, "toolName", 3, 3, focused),
             entry(perOutput, "toolVersion", 3, 3, focused),
