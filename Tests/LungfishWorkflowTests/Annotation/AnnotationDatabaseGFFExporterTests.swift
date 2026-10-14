@@ -155,4 +155,179 @@ struct AnnotationDatabaseGFFExporterTests {
         let contents = try String(contentsOf: outURL, encoding: .utf8)
         #expect(contents.hasPrefix("##gff-version 3"))
     }
+
+    // MARK: - Parent-first order
+
+    /// One feature line of an exported GFF3, with the `ID` and `Parent` it carries.
+    private struct ExportedFeature {
+        let id: String?
+        let parent: String?
+    }
+
+    /// The feature lines of a GFF3 document in file order, comment and directive lines skipped.
+    private func featureLines(in gff3: String) -> [ExportedFeature] {
+        gff3.split(separator: "\n").filter { !$0.hasPrefix("#") }.map { line in
+            let columns = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            let attributes = AnnotationDatabase.parseAttributes(columns[8])
+            return ExportedFeature(id: attributes["ID"], parent: attributes["Parent"])
+        }
+    }
+
+    /// Imports `gff3` by `createFromGFF3`, as a downloaded reference is, then exports the database.
+    private func exportedFeatures(
+        ofGFF3 gff3: String,
+        chromosomeSizes: [(String, Int64)]
+    ) async throws -> [ExportedFeature] {
+        let directory = FileManager.default.temporaryDirectory
+        let gffURL = directory.appendingPathComponent("\(UUID().uuidString).gff3")
+        let dbURL = directory.appendingPathComponent("\(UUID().uuidString).db")
+        let outURL = directory.appendingPathComponent("\(UUID().uuidString).gff3")
+        defer {
+            for url in [gffURL, dbURL, outURL] { try? FileManager.default.removeItem(at: url) }
+        }
+        try gff3.write(to: gffURL, atomically: true, encoding: .utf8)
+        _ = try await AnnotationDatabase.createFromGFF3(
+            gffURL: gffURL,
+            outputURL: dbURL,
+            chromosomeSizes: chromosomeSizes
+        )
+        try AnnotationDatabaseGFFExporter.export(database: try AnnotationDatabase(url: dbURL), to: outURL)
+        return featureLines(in: try String(contentsOf: outURL, encoding: .utf8))
+    }
+
+    /// The `ID`s of `features` in file order. Records a failure for every `Parent` that names an `ID`
+    /// no earlier line defines, which is what SnpEff 5.0e needs to build the gene before its CDS.
+    private func identifiers(of features: [ExportedFeature]) -> [String] {
+        var defined = Set<String>()
+        for feature in features {
+            if let parent = feature.parent {
+                #expect(
+                    defined.contains(parent),
+                    "\(feature.id ?? "a line") names Parent \(parent) before a line defines it"
+                )
+            }
+            if let id = feature.id { defined.insert(id) }
+        }
+        return features.compactMap(\.id)
+    }
+
+    @Test("writes every Parent after the line that defines it, genes before their CDS")
+    func writesParentsBeforeChildren() async throws {
+        // NCBI's lines for the S and N genes of MN908947.3 with Name and Parent kept. In name order the
+        // S CDS (Name=QHD43416.1) came before gene S, and SnpEff 5.0e then named the spike gene after its CDS.
+        let features = try await exportedFeatures(
+            ofGFF3: """
+            ##gff-version 3
+            MN908947.3\tGenbank\tgene\t21563\t25384\t.\t+\t.\tID=gene-S;Name=S;gbkey=Gene;gene=S;gene_biotype=protein_coding
+            MN908947.3\tGenbank\tCDS\t21563\t25384\t.\t+\t0\tID=cds-QHD43416.1;Parent=gene-S;Dbxref=NCBI_GP:QHD43416.1;Name=QHD43416.1;Note=structural protein;gbkey=CDS;gene=S;product=surface glycoprotein;protein_id=QHD43416.1
+            MN908947.3\tGenbank\tgene\t28274\t29533\t.\t+\t.\tID=gene-N;Name=N;gbkey=Gene;gene=N;gene_biotype=protein_coding
+            MN908947.3\tGenbank\tCDS\t28274\t29533\t.\t+\t0\tID=cds-QHD43423.2;Parent=gene-N;Dbxref=NCBI_GP:QHD43423.2;Name=QHD43423.2;Note=structural protein;gbkey=CDS;gene=N;product=nucleocapsid phosphoprotein;protein_id=QHD43423.2
+            """,
+            chromosomeSizes: [("MN908947.3", 29_903)]
+        )
+        #expect(identifiers(of: features) == ["gene-S", "cds-QHD43416.1", "gene-N", "cds-QHD43423.2"])
+    }
+
+    @Test("exports the NCBI MN908947.3 annotation in NCBI's order")
+    func exportsMN908947InNCBIOrder() async throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // Annotation/
+            .deletingLastPathComponent()  // LungfishWorkflowTests/
+            .deletingLastPathComponent()  // Tests/
+            .appendingPathComponent("Fixtures/sarscov2-srr36291587/MN908947.3.gff3")
+        let ncbi = try String(contentsOf: fixture, encoding: .utf8)
+        let ncbiIDs = featureLines(in: ncbi).compactMap(\.id)
+        #expect(!ncbiIDs.isEmpty)
+
+        let features = try await exportedFeatures(ofGFF3: ncbi, chromosomeSizes: [("MN908947.3", 29_903)])
+        #expect(identifiers(of: features) == ncbiIDs)
+    }
+
+    @Test("orders by chromosome, start, longer span first, then Parent depth, whatever the names sort to")
+    func ordersByChromosomeStartEndAndParentDepth() async throws {
+        // Every key runs against the name order. chr2 is listed first, gene-first has the later name, gene-long
+        // the later name of the two genes that start at 100, and the four features that share 500..600 are
+        // listed child first. cds-d and exon-d tie at depth 2, so the order the file listed them in decides.
+        let features = try await exportedFeatures(
+            ofGFF3: """
+            ##gff-version 3
+            chr2\tt\tgene\t5\t50\t.\t+\t.\tID=gene-on-chr2;Name=Aon-chr2
+            chr1\tt\tCDS\t500\t600\t.\t+\t0\tID=cds-d;Parent=mrna-d;Name=Acds
+            chr1\tt\texon\t500\t600\t.\t+\t.\tID=exon-d;Parent=mrna-d;Name=Aexon
+            chr1\tt\tmRNA\t500\t600\t.\t+\t.\tID=mrna-d;Parent=gene-d;Name=Bmrna
+            chr1\tt\tgene\t500\t600\t.\t+\t.\tID=gene-d;Name=Cgene
+            chr1\tt\tgene\t100\t200\t.\t+\t.\tID=gene-short;Name=Ashort
+            chr1\tt\tgene\t100\t300\t.\t+\t.\tID=gene-long;Name=Clong
+            chr1\tt\tgene\t30\t40\t.\t+\t.\tID=gene-second;Name=Asecond
+            chr1\tt\tgene\t10\t20\t.\t+\t.\tID=gene-first;Name=Cfirst
+            """,
+            chromosomeSizes: [("chr1", 1_000), ("chr2", 1_000)]
+        )
+        #expect(identifiers(of: features) == [
+            "gene-first", "gene-second", "gene-long", "gene-short",
+            "gene-d", "mrna-d", "cds-d", "exon-d",
+            "gene-on-chr2",
+        ])
+    }
+
+    @Test("keeps the lines of a multi-block CDS together")
+    func keepsTheLinesOfOneRecordTogether() async throws {
+        // gene-in-intron starts inside the gap between the two CDS blocks, so ordering lines instead of
+        // records would put it between the two cds-split lines.
+        let features = try await exportedFeatures(
+            ofGFF3: """
+            ##gff-version 3
+            chr1\tt\tgene\t15\t18\t.\t+\t.\tID=gene-in-intron;Name=Aintron
+            chr1\tt\tCDS\t21\t30\t.\t+\t0\tID=cds-split;Parent=gene-split;Name=Bsplit
+            chr1\tt\tCDS\t1\t10\t.\t+\t0\tID=cds-split;Parent=gene-split;Name=Bsplit
+            chr1\tt\tgene\t1\t30\t.\t+\t.\tID=gene-split;Name=Csplit
+            """,
+            chromosomeSizes: [("chr1", 1_000)]
+        )
+        #expect(identifiers(of: features) == ["gene-split", "cds-split", "cds-split", "gene-in-intron"])
+    }
+
+    @Test("a Parent that no record defines leaves the record at depth 0")
+    func parentThatNoRecordDefinesIsDepthZero() async throws {
+        // Both records span 10..20. gene-orphan names a Parent the file never defines, so it ties with
+        // gene-root at depth 0 and the file order decides, where a depth of 1 would put gene-root first.
+        let features = try await exportedFeatures(
+            ofGFF3: """
+            ##gff-version 3
+            chr1\tt\tgene\t10\t20\t.\t+\t.\tID=gene-orphan;Parent=gene-missing;Name=Zorphan
+            chr1\tt\tgene\t10\t20\t.\t+\t.\tID=gene-root;Name=Aroot
+            """,
+            chromosomeSizes: [("chr1", 1_000)]
+        )
+        #expect(features.compactMap(\.id) == ["gene-orphan", "gene-root"])
+    }
+
+    @Test("moves a Parent ahead of a child that starts before it")
+    func movesAParentAheadOfAChildThatStartsBeforeIt() async throws {
+        // The exon lies outside its mRNA, so start order alone writes the exon first.
+        let features = try await exportedFeatures(
+            ofGFF3: """
+            ##gff-version 3
+            chr1\tt\texon\t1\t50\t.\t+\t.\tID=exon-early;Parent=mrna-late;Name=Aexon
+            chr1\tt\tmRNA\t10\t100\t.\t+\t.\tID=mrna-late;Name=Bmrna
+            """,
+            chromosomeSizes: [("chr1", 1_000)]
+        )
+        #expect(identifiers(of: features) == ["mrna-late", "exon-early"])
+    }
+
+    @Test("a Parent cycle or a record that names itself still exports every line")
+    func parentCyclesStillExportEveryLine() async throws {
+        let features = try await exportedFeatures(
+            ofGFF3: """
+            ##gff-version 3
+            chr1\tt\tgene\t1\t10\t.\t+\t.\tID=cycle-a;Parent=cycle-b;Name=A
+            chr1\tt\tgene\t1\t10\t.\t+\t.\tID=cycle-b;Parent=cycle-a;Name=B
+            chr1\tt\tgene\t1\t10\t.\t+\t.\tID=self-parent;Parent=self-parent;Name=C
+            """,
+            chromosomeSizes: [("chr1", 1_000)]
+        )
+        #expect(features.count == 3)
+        #expect(Set(features.compactMap(\.id)) == ["cycle-a", "cycle-b", "self-parent"])
+    }
 }
