@@ -8,6 +8,8 @@ run
 nf-core/viralrecon
 -r
 3.0.0
+-work-dir
+<scratch>/work
 -profile
 docker
 --consensus_caller
@@ -42,8 +44,6 @@ true
 ivar
 -c
 <scratch>/lungfish-resource-limits.config
--work-dir
-<scratch>/work
 
 environment:
 HOME=<root>/engine/home

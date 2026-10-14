@@ -202,4 +202,20 @@ extension NFCoreRunRequest {
             presentationMode: presentationMode
         )
     }
+
+    /// The same run with the engine's work folder at `workDirectory`.
+    package func replacing(workDirectory: URL) -> NFCoreRunRequest {
+        NFCoreRunRequest(
+            workflow: workflow,
+            version: version,
+            executor: executor,
+            inputURLs: inputURLs,
+            outputDirectory: outputDirectory,
+            expectedOutputURLs: expectedOutputURLs,
+            params: params,
+            resume: resume,
+            workDirectory: workDirectory,
+            presentationMode: presentationMode
+        )
+    }
 }

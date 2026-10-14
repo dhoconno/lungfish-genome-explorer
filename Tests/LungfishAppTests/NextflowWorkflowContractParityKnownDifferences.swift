@@ -61,14 +61,6 @@ enum ViralReconContractKnownDifferences {
             reason: "NFCoreSupportedWorkflowCatalog falls back to 3.0.0 when the lock holds no nf-core-viralrecon pin, where the descriptor refuses the run (N4)",
             closedBy: "B31, the commit that retires the four 3.0.0 homes (N2)"
         ),
-        // Not among the contract's three. The fit test passes a work folder in the request, which the request
-        // writes ahead of the profile, but workflow run passes none and appends the scratch's.
-        ViralReconContractKnownDifference(
-            counts: [.docker: 1],
-            id: "argv: -work-dir after the parameters, the contract writes it after -r",
-            reason: "Without --workdir, workflow run appends -work-dir with the scratch's work folder after the parameters and the -c file (RunSubcommand+NFCore.swift), where the descriptor writes the work folder ahead of the profile",
-            closedBy: descriptorArgv
-        ),
     ]
 
     /// One line per found difference no entry declares, and per entry of `parityCase` that matches another number

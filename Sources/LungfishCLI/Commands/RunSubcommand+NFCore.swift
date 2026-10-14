@@ -253,15 +253,18 @@ extension RunSubcommand {
             launchRequest = launchRequest.replacing(inputURLs: [pairedSamplesheetURL])
         }
 
+        // Without --workdir the engine's request names the scratch's work
+        // folder, so the launch writes it after -r as the descriptor does
+        // (fit difference 4). The records keep the caller's request.
+        if launchRequest.workDirectory == nil {
+            launchRequest = launchRequest.replacing(workDirectory: scratchWorkDirectory)
+        }
         let stagedRequest = try NFCoreLaunchStaging.stage(launchRequest, in: stagingRoot.root)
         // Newer nf-core releases express resource caps as Nextflow's
         // process.resourceLimits instead of --max_cpus / --max_memory.
         let resourcePlan = try NFCoreResourceLimits.plan(for: stagedRequest, in: launchScratch)
         let plannedRequest = resourcePlan.request
-        var launchArguments = resourcePlan.nextflowArguments(base: plannedRequest.nextflowArguments)
-        if plannedRequest.workDirectory == nil {
-            launchArguments += ["-work-dir", scratchWorkDirectory.path]
-        }
+        let launchArguments = resourcePlan.nextflowArguments(base: plannedRequest.nextflowArguments)
         // The engine streams its output into logs/nextflow.log as it runs (2.9 N8).
         let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(NFCoreWorkflowLaunch(
             arguments: launchArguments,
