@@ -28,6 +28,7 @@ extension MainSplitViewController {
 
         Self.beginNakedBundleReferenceDownloadOperation(
             assemblyName: assemblyName,
+            bundleURL: bundleURL,
             routeContext: operationRouteContext
         ) { downloadID in
             Task.detached { [weak self] in

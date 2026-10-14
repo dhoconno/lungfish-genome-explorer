@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: MIT
 //
 // The genomics display launches register two kinds of Operations panel rows
-// through static begin helpers (R4). Neither declares a bundle lock, so a
-// real center never refuses them, and a recording reporter that holds a lock
-// stands in for the refusal. The reference download has no lungfish-cli
+// through static begin helpers (R4). The reference download locks the
+// variant-only bundle it merges into, so a fresh center in which another
+// operation holds that bundle refuses it. The FASTQ dialog row declares no
+// lock, and a recording reporter that holds a lock stands in for its
+// refusal. The reference download has no lungfish-cli
 // equivalent, so its tests pin the missing command. The FASTQ operations
 // dialog row records the `lungfish-cli fastq` command
 // FASTQOperationCLIInvocationBuilder builds for the request (R3), which the
@@ -34,6 +36,11 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         fileURLWithPath: "/tmp/lane 1a2h/Project.lungfish/Imports/Sample 1.lungfishfastq",
         isDirectory: true
     )
+    /// A bundle a VCF import with no reference made, which the reference download merges into.
+    private let variantOnlyBundle = URL(
+        fileURLWithPath: "/tmp/lane 1a2h/Project.lungfish/Cohort calls.lungfishref",
+        isDirectory: true
+    )
 
     // MARK: - Reference download (site 40)
 
@@ -43,6 +50,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
 
         let result = MainSplitViewController.beginNakedBundleReferenceDownloadOperation(
             assemblyName: "Wuhan-Hu-1",
+            bundleURL: variantOnlyBundle,
             routeContext: routeContext,
             reporter: reporter
         ) { launchedID = $0 }
@@ -54,7 +62,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertEqual(item.title, "Wuhan-Hu-1 Reference")
         XCTAssertEqual(item.initialDetail, "Searching NCBI\u{2026}")
         XCTAssertEqual(item.operationType, .download)
-        XCTAssertNil(item.targetBundleURL)
+        XCTAssertEqual(item.targetBundleURL, variantOnlyBundle, "the row locks the bundle it merges into (ruling M3-3)")
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
         // CLI parity gap. No lungfish-cli command adds a downloaded reference to
@@ -71,6 +79,7 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
 
         let naked = MainSplitViewController.beginNakedBundleReferenceDownloadOperation(
             assemblyName: "Wuhan-Hu-1",
+            bundleURL: variantOnlyBundle,
             routeContext: routeContext,
             reporter: reporter
         ) { _ in launched = true }
@@ -78,6 +87,34 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertNil(naked.startedID)
         XCTAssertFalse(launched)
         XCTAssertEqual(reporter.items.map(\.state), [.refused])
+    }
+
+    /// Ruling M3-3 of the A44 M2d review. The run replaces the variant-only bundle's genome,
+    /// annotations and manifest, so the row declares the bundle as its lock target, and while
+    /// another operation holds that bundle a real center refuses the row, which launches nothing.
+    func testAHeldLockOnTheVariantOnlyBundleRefusesTheReferenceDownload() throws {
+        let center = OperationCenter()
+        _ = try XCTUnwrap(center.begin(
+            title: "Calling variants with LoFreq",
+            detail: "Running",
+            operationType: .variantCalling,
+            targetBundleURL: variantOnlyBundle,
+            cliCommand: "lungfish-cli variants call"
+        ).startedID)
+        var launched = false
+
+        let result = MainSplitViewController.beginNakedBundleReferenceDownloadOperation(
+            assemblyName: "StandInAsm1",
+            bundleURL: variantOnlyBundle,
+            routeContext: routeContext,
+            reporter: center
+        ) { _ in launched = true }
+
+        guard case .refused(let refusal) = result else {
+            return XCTFail("a held lock on the variant-only bundle must refuse the reference download")
+        }
+        XCTAssertFalse(launched, "a refused row must launch no download")
+        XCTAssertEqual(refusal.blockingOperationTitle, "Calling variants with LoFreq")
     }
 
     // MARK: - Requests no lungfish-cli option expresses

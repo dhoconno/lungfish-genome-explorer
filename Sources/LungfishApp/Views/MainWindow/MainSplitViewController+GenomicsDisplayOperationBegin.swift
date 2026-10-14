@@ -7,26 +7,28 @@ import LungfishKit
 import LungfishWorkflow
 
 /// The begin helpers for the launches in MainSplitViewController+GenomicsDisplay.swift
-/// (finding R4). They live here, not beside their launch sites, so the baselined
-/// launch-site file does not grow (scripts/ratchets/file-size.sh). Each helper
-/// registers its row through `OperationReporting`, so a test can check the row,
-/// its lock and its command without touching `OperationCenter.shared`.
+/// and MainSplitViewController+NakedBundleReference.swift (finding R4). They live
+/// here, not beside their launch sites, so the baselined launch-site file does not
+/// grow (scripts/ratchets/file-size.sh). Each helper registers its row through
+/// `OperationReporting`, so a test can check the row, its lock and its command
+/// without touching `OperationCenter.shared`.
 ///
-/// Neither launch declares a bundle lock, so `begin` cannot refuse either one
-/// on a real `OperationCenter` today. Each launch still switches on the
-/// result and runs nothing on a refusal, which keeps it correct if a lock is
-/// added later.
+/// The reference download locks the variant-only bundle it merges into, so
+/// `begin` refuses it while another operation holds that bundle. The FASTQ
+/// operations launch declares no bundle lock. Each launch switches on the
+/// result and runs nothing on a refusal.
 extension MainSplitViewController {
     // MARK: - Reference download
 
-    /// Registers the reference download row for a variant-only (naked) bundle
-    /// and, only when it starts, calls `launch` with the operation ID. The row
-    /// is a download row, locks no bundle and records no command.
+    /// Registers the reference download row for the variant-only (naked) bundle
+    /// at `bundleURL` and, only when it starts, calls `launch` with the
+    /// operation ID. The row is a download row and records no command.
     ///
-    /// The run merges the downloaded genome and annotations into the existing
-    /// bundle without declaring a bundle lock. That is how the site behaved
-    /// before this migration, and the helper keeps it. Adding a lock target is
-    /// a separate decision (Rule 3 in docs/contracts/ADDING-AN-OPERATION.md).
+    /// The row locks `bundleURL`, the bundle the run writes, since the run
+    /// replaces its `genome/` and `annotations/` folders and its manifest (Rule 3
+    /// in docs/contracts/ADDING-AN-OPERATION.md, Phase 2.10 lane A44 M3, review
+    /// ruling M3-3). Another operation that declares the bundle then waits, and a
+    /// row refused because one holds it launches nothing.
     ///
     /// cli-parity-gap: variant-only-reference-download. No lungfish-cli
     /// command adds a downloaded reference to an existing bundle. The closest is `lungfish-cli fetch genome`, which
@@ -36,6 +38,7 @@ extension MainSplitViewController {
     @discardableResult
     static func beginNakedBundleReferenceDownloadOperation(
         assemblyName: String,
+        bundleURL: URL,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
@@ -44,6 +47,7 @@ extension MainSplitViewController {
             title: "\(assemblyName) Reference",
             detail: "Searching NCBI\u{2026}",
             operationType: .download,
+            targetBundleURL: bundleURL,
             cliCommand: nil,
             routeContext: routeContext
         )
