@@ -70,6 +70,11 @@ struct FastqIngestRun {
     /// The clumping choice to run with, in place of the one the pipeline makes from the size of the
     /// input. Only a test supplies it, to show what a run does when `auto` resolves to `none`.
     var clumpingResolution: ClumpingToolResolution?
+    /// Whether the command was sent SIGTERM, read when a run fails. `run()` of the command passes the
+    /// flag of its own ``SIGTERMCancellation`` scope. The flag stays set after an instance ends and
+    /// until the next begins, so a caller with no scope passes nothing and a failure stays a failure
+    /// (review A47 fix 6 (a)).
+    var signalled: @Sendable () -> Bool = { false }
 
     /// The share of the progress bar that the pipeline's own fraction fills. The steps after it
     /// take the rest, so the bar does not reach 100% while the digest and the record are written.
@@ -91,7 +96,7 @@ struct FastqIngestRun {
             // of that SIGTERM before the leaf's handler cancels the task, which a busy machine makes
             // likely. The flag the handler sets says the signal came. Once the output is published the
             // run is no longer cancellable.
-            if !published, Task.isCancelled || error is CancellationError || SIGTERMCancellation.signalCaught {
+            if !published, Task.isCancelled || error is CancellationError || signalled() {
                 throw CancellationError()
             }
             throw error

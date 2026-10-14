@@ -108,13 +108,9 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         XCTAssertLessThan(sidecarFlush, try XCTUnwrap(entries.firstIndex(of: "step:sidecarWritten")))
     }
 
-    func testAFailedSyncPublishesNothingAndLeavesTheOriginal() async throws {
-        try await requireCompressor()
-        let root = try TestTempDirectory.make(prefix: "fastq-ingest-sync-fails")
-        defer { TestTempDirectory.cleanup(root) }
-        let input = root.appendingPathComponent("reads.fastq")
-        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
-
+    /// Runs the leaf in this process on `input` with every sync failing. Returns the error the run ended
+    /// with, nil when it did not fail, and the steps that ran.
+    private func executeWithFailingSyncs(on input: URL) async -> (error: (any Error)?, steps: [String]) {
         var operations = DurableReplace.Operations()
         operations.fullFlush = { _ in errno = EIO; return -1 }
         operations.syncFile = { _ in errno = EIO; return -1 }
@@ -125,13 +121,57 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
                     try await self.execute([input.path, "--skip-clumpify", "--delete-originals", "--format", "json", "--quiet"])
                 }
             }
-            XCTFail("a sync that fails must fail the run")
+            return (nil, steps.all)
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("sync"), "\(error.localizedDescription)")
+            return (error, steps.all)
         }
+    }
 
-        XCTAssertEqual(steps.all, [], "no step after the failed sync ran")
+    func testAFailedSyncPublishesNothingAndLeavesTheOriginal() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-sync-fails")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+
+        let outcome = await executeWithFailingSyncs(on: input)
+
+        let error = try XCTUnwrap(outcome.error, "a sync that fails must fail the run")
+        XCTAssertTrue(error.localizedDescription.contains("sync"), "\(error.localizedDescription)")
+        XCTAssertEqual(outcome.steps, [], "no step after the failed sync ran")
         XCTAssertEqual(try names(in: root), ["reads.fastq"], "the original stays, with no output, record, sidecar or hidden folder")
+        XCTAssertEqual(try String(contentsOf: input, encoding: .utf8), Self.reads)
+    }
+
+    /// Review A47 fix 6 (a). `SIGTERMCancellation.signalCaught` stays true after `end()` until the next
+    /// instance begins, and `execute(emit:)` runs with no scope of its own. A test process that caught a
+    /// SIGTERM in an earlier class must not read a later failure as a cancel, which would turn the error
+    /// into a cancelled run and write a `cancelled` record into the folder. The test posts its own SIGTERM,
+    /// so it ignores SIGTERM first (review A54 fix 2) and puts the earlier action back last, and a post
+    /// that outlives `end()` cannot end the unit process.
+    func testAFailureAfterAnEarlierSIGTERMStaysAFailure() async throws {
+        try await requireCompressor()
+        let previous = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previous) }
+        // Begins a new instance and ends it, so the flag reads false for the tests after this one.
+        defer { SIGTERMCancellation {}.end() }
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-sigterm-earlier")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+
+        let earlier = SIGTERMCancellation {}
+        kill(getpid(), SIGTERM)
+        XCTAssertTrue(SIGTERMCancellation.signalCaught, "an earlier instance caught a SIGTERM")
+        earlier.end()
+        XCTAssertTrue(SIGTERMCancellation.signalCaught, "the flag stays set after the instance ended")
+
+        let outcome = await executeWithFailingSyncs(on: input)
+
+        let error = try XCTUnwrap(outcome.error, "a sync that fails must fail the run")
+        XCTAssertFalse(error is CancellationError, "the earlier SIGTERM did not cancel this run")
+        XCTAssertTrue(error.localizedDescription.contains("sync"), "\(error.localizedDescription)")
+        XCTAssertEqual(try names(in: root), ["reads.fastq"], "the original stays, with no output, no cancelled record, no sidecar and no hidden folder")
         XCTAssertEqual(try String(contentsOf: input, encoding: .utf8), Self.reads)
     }
 

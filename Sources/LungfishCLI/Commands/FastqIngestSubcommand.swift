@@ -82,7 +82,7 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
         defer { termination.end() }
         let task = Task { () -> (any Error)? in
             do {
-                try await self.execute(emit: { printEventLine($0) })
+                try await self.execute(emit: { printEventLine($0) }, signalled: { SIGTERMCancellation.signalCaught })
                 return nil
             } catch {
                 return error
@@ -97,8 +97,10 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
         throw error
     }
 
-    /// The run, with each event line handed to `emit`.
-    func execute(emit: @escaping (String) -> Void) async throws {
+    /// The run, with each event line handed to `emit`. `signalled` says whether the command was sent
+    /// SIGTERM, which the command's `run()` reads from its own scope. A caller with no scope, such as a
+    /// test, passes nothing, so a SIGTERM an earlier instance caught cannot turn a failure into a cancel.
+    func execute(emit: @escaping (String) -> Void, signalled: @escaping @Sendable () -> Bool = { false }) async throws {
         let eventsOn = globalOptions.outputFormat == .json
         let events = CLIEventEmitter(enabled: eventsOn, emit: emit)
         let clock = ProvenanceRunClock()
@@ -112,7 +114,8 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
                 parameters: provenanceParameters(inputs: inputs),
                 defaults: Self.provenanceDefaults,
                 events: events,
-                clock: clock
+                clock: clock,
+                signalled: signalled
             ).run()
             events.emitComplete(output: outcome.output.path, message: outcome.message)
             if !globalOptions.quiet {
