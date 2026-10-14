@@ -1,4 +1,5 @@
-{"event":"start","message":"Preparing workflow: nf-core\/viralrecon","progress":0,"schemaVersion":2}
+{"event":"start","message":"","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Preparing workflow: nf-core\/viralrecon","schemaVersion":2}
 {"event":"log","level":"info","message":"Read pairing: S1: paired R1\/R2 files, runs paired-end","schemaVersion":2}
 {"event":"log","level":"info","message":"Read pairing: S2: paired R1\/R2 files, runs paired-end","schemaVersion":2}
 {"event":"log","level":"info","message":"Created run bundle: \/work\/viralrecon.lungfishrun","schemaVersion":2}

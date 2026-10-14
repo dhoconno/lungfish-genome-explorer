@@ -170,7 +170,10 @@ struct RunSubcommand: AsyncParsableCommand {
             eventsOn: globalOptions.outputFormat == .json
         )
         // Under --format json the first line is `start` and the last `complete` or `failed` (ARCH's ruling on A30 M3).
-        output.events?.emitStart("Preparing workflow: \(workflow)")
+        // The start has no words, because the bridge shows a start message as the row's detail for the whole run.
+        // The words come next, as an info event (A30 M3 review, fix 3).
+        output.events?.emitStart("")
+        output.events?.emitLog(.info, "Preparing workflow: \(workflow)")
         do {
             try await execute(output: output)
         } catch {

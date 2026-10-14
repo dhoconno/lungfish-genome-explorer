@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A30 M3, ARCH's ruling on M3 (commit 5). `workflow run` is an events leaf. Under --format json its
-// standard output holds only `CLIEvent` lines: `start`, the lines text mode prints as info events, the Docker wait's
-// two lines as progress at 0.01 and 0.02, the outcome lines as warning log events, and `complete` with the run bundle
-// and the results folder, or `failed`. The missing annotation notice is an info event with its words unchanged. Each
-// case runs the command in this process on the stand-in runners of WorkflowRunCapture.swift.
+// standard output holds only `CLIEvent` lines: an empty `start`, the lines text mode prints as info events, the Docker
+// wait's two lines as progress at 0.01 and 0.02, the outcome lines as warning log events, and `complete` with the run
+// bundle and the results folder, or `failed`. The empty `start` leaves a row's first detail alone, and the words
+// `Preparing workflow` come as the first info event (A30 M3 review, fix 3). The missing annotation notice is an info
+// event with its words unchanged. Each case runs the command in this process on the stand-in runners of
+// WorkflowRunCapture.swift.
 //
 // The three Viral Recon cases are the transcripts of the leaf, `Tests/Fixtures/cli-events/commands/workflow-run`, with
 // the case's folder written as `/work`. A case fails when its lines differ from its transcript, and
@@ -38,7 +40,8 @@ final class WorkflowRunEventsTests: XCTestCase {
         let run = try await viralRecon(ViralReconStandInRunner(results: results, called: ["S1", "S2"]))
 
         XCTAssertNil(run.captured.error)
-        XCTAssertEqual(run.events.first, .start(message: "Preparing workflow: nf-core/viralrecon"))
+        XCTAssertEqual(run.events.first, .start(message: ""), "a start with words would replace the row's first detail for the whole run")
+        XCTAssertEqual(run.events.dropFirst().first, .log(level: .info, message: "Preparing workflow: nf-core/viralrecon"))
         XCTAssertTrue(run.events.contains(.progress(fraction: 0.01, message: "Docker daemon unavailable. Launching Docker Desktop...")))
         XCTAssertTrue(run.events.contains(.progress(fraction: 0.02, message: "Docker daemon ready")))
         XCTAssertTrue(run.events.contains(.log(level: .info, message: "Created run bundle: \(bundle.path)")))
@@ -95,7 +98,8 @@ final class WorkflowRunEventsTests: XCTestCase {
 
         XCTAssertNil(captured.error)
         let events = try Self.decode(Self.lines(of: captured.standardOutput))
-        XCTAssertEqual(events.first, .start(message: "Preparing workflow: \(workflow.path)"))
+        XCTAssertEqual(events.first, .start(message: ""))
+        XCTAssertEqual(events.dropFirst().first, .log(level: .info, message: "Preparing workflow: \(workflow.path)"))
         XCTAssertTrue(events.contains(.log(level: .info, message: "Detected workflow engine: Nextflow")))
         XCTAssertEqual(events.last, .complete(outputs: [localBundle.path, results.path], message: nil))
     }
