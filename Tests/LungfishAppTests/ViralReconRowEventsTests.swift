@@ -73,9 +73,9 @@ final class ViralReconRowEventsTests: XCTestCase {
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
     }
 
-    /// The bundle's `logs/stdout.log` holds the words of each event, not its JSON. The empty `start` that opens the
-    /// CLI's stream has no words, so it adds no line and the log opens with the first line that has some (A30 M3
-    /// review, fix 3).
+    /// The bundle's `logs/lungfish-cli.stdout.log` holds the words of each event, not its JSON. The empty `start`
+    /// that opens the CLI's stream has no words, so it adds no line and the log opens with the first line that has
+    /// some (A30 M3 review, fix 3).
     func testTheEmptyStartLeavesNoBlankLineAtTheTopOfTheBundlesStdoutLog() async throws {
         let stdout = [
             Self.line(.start(message: "")),
@@ -86,7 +86,7 @@ final class ViralReconRowEventsTests: XCTestCase {
 
         let result = try await runRoute(standardOutput: stdout)
 
-        let log = try String(contentsOf: result.bundleURL.appendingPathComponent("logs/stdout.log"), encoding: .utf8)
+        let log = try String(contentsOf: result.bundleURL.appendingPathComponent("logs/lungfish-cli.stdout.log"), encoding: .utf8)
         XCTAssertEqual(
             log,
             "Preparing workflow: nf-core/viralrecon\nCreated run bundle: /work/viralrecon.lungfishrun\n/work/viralrecon.lungfishrun\n/work/results"

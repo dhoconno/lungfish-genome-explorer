@@ -1412,9 +1412,9 @@ final class WorkflowCommandRegressionTests: XCTestCase {
                 error.localizedDescription.contains("exited with status 127"),
                 error.localizedDescription
             )
-            // The GUI overwrites logs/stderr.log with the CLI's own stderr, so the
-            // engine's stderr tail must ride along in the failure reason or the
-            // operation report only ever says "see stderr.log".
+            // The GUI keeps the CLI's own stderr in logs/lungfish-cli.stderr.log, and the
+            // engine's stderr tail rides along in the failure reason, or the operation
+            // report only ever says "see stderr.log".
             XCTAssertTrue(
                 error.localizedDescription.contains("env: nextflow: No such file or directory"),
                 error.localizedDescription

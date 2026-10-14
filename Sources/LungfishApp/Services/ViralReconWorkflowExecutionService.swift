@@ -571,9 +571,16 @@ final class ViralReconWorkflowExecutionService {
         throw ViralReconWorkflowExecutionError.missingWorkflowDefinition
     }
 
+    /// Writes what the CLI itself printed, which is not what the engine printed. `workflow run` leaves the engine's tails
+    /// in `logs/stdout.log` and `logs/stderr.log` and names them in the manifest, so the CLI's own words go to files of
+    /// their own and each log the manifest names keeps its one writer (B31 review fix 3).
     private func writeProcessLogs(_ result: ViralReconWorkflowProcessResult, to logsURL: URL) throws {
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
-        for (text, name) in [(result.standardOutput, "stdout.log"), (result.standardError, "stderr.log")] {
+        let logs = [
+            (result.standardOutput, "lungfish-cli.stdout.log"),
+            (result.standardError, "lungfish-cli.stderr.log"),
+        ]
+        for (text, name) in logs {
             let url = logsURL.appendingPathComponent(name)
             try PortablePath.sanitize(text: text, forFileAt: url).write(to: url, atomically: true, encoding: .utf8)
         }

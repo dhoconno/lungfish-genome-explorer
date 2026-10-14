@@ -188,11 +188,11 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertEqual(manifest.params["primer_fasta"], persistedPrimerFASTA.path)
 
         XCTAssertEqual(
-            try readRepositorySource(result.bundleURL.appendingPathComponent("logs/stdout.log")),
+            try readRepositorySource(result.bundleURL.appendingPathComponent("logs/lungfish-cli.stdout.log")),
             "nextflow progress\ncompleted sample SARS2_A"
         )
         XCTAssertEqual(
-            try readRepositorySource(result.bundleURL.appendingPathComponent("logs/stderr.log")),
+            try readRepositorySource(result.bundleURL.appendingPathComponent("logs/lungfish-cli.stderr.log")),
             "nextflow warning"
         )
 
