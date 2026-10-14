@@ -101,7 +101,8 @@ extension BuildDbCommand {
         /// each file it removes with the descriptor that the record of the file's folder, `recordedFiles`
         /// or the build's own record holds for it, in that order.
         ///
-        /// A cancel of the caller's task ends the build with `CancellationError` at its next check, before
+        /// A cancel of the caller's task, or one the sink's `cancelRequested` reports (2.8 row 266), ends the
+        /// build with `CancellationError` at its next check, before
         /// each sample folder is read or cleaned up, before the database is written, after the samtools pass
         /// and before the record. The database of an earlier build is put back and no record of a failed
         /// build is written (plan decision E5 of Phase 2.7). A folder the cleanup finished stays cleaned.
@@ -147,7 +148,7 @@ extension BuildDbCommand {
                     TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
                 ]
 
-                try Task.checkCancellation()
+                try events.checkCancellation()
                 try TaxTriageDatabase.create(
                     at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata, progress: events.progress
                 )
@@ -171,13 +172,13 @@ extension BuildDbCommand {
                     events: events,
                     provenance: samtoolsProvenance
                 )
-                try Task.checkCancellation()
+                try events.checkCancellation()
 
                 if !options.noCleanup, cleanup == .legacy {
                     try core.performCleanup(resultURL: resultURL, events: events)
                 }
 
-                try Task.checkCancellation()
+                try events.checkCancellation()
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .taxTriage,
                     resultURL: resultURL,
@@ -200,7 +201,7 @@ extension BuildDbCommand {
                     events.warning("Warning: could not restore previous TaxTriage database: \(error.localizedDescription)")
                 }
                 // A cancelled build is not a failed one, so it leaves no record of a failure (SWIFT X2).
-                guard !Task.isCancelled else { throw error }
+                guard !events.isCancelled else { throw error }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .taxTriage,
                     resultURL: resultURL,
@@ -326,7 +327,7 @@ extension BuildDbCommand {
 
             let cleanupRoots = [resultURL] + serialTaxTriageResultDirectories(in: resultURL)
             for cleanupRoot in cleanupRoots {
-                try Task.checkCancellation()
+                try events.checkCancellation()
                 freedBytes += performCleanupForSingleResult(resultURL: cleanupRoot)
             }
 
@@ -353,7 +354,7 @@ extension BuildDbCommand {
             var freedBytes: Int64 = 0
 
             for cleanupRoot in [resultURL] + serialTaxTriageResultDirectories(in: resultURL) {
-                try Task.checkCancellation()
+                try events.checkCancellation()
                 guard !Self.isSymbolicLink(cleanupRoot) else { continue }
                 let folderNamed = Self.byResolvedPath(
                     ProvenanceRecorder.loadEnvelope(from: cleanupRoot).map(Self.fileDescriptors(of:)) ?? []

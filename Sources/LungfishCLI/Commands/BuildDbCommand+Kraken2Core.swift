@@ -61,8 +61,8 @@ extension BuildDbCommand {
         /// `options.noCleanup`, records the run beside the database and returns what it built. A database that
         /// exists is kept unless `options.force`.
         ///
-        /// A cancel of the caller's task ends the build with `CancellationError` at its next check. The checks
-        /// come before each sample folder is read or compacted and before the database and the record are
+        /// A cancel of the caller's task, or one the sink's `cancelRequested` reports (2.8 row 266), ends the build
+        /// with `CancellationError` at its next check. The checks come before each sample folder is read or compacted and before the database and the record are
         /// written, so a folder whose compaction has started is finished first. The database of an earlier
         /// build is put back and no record of a failed build is written, so a cancelled build leaves no
         /// database and no record (plan decision E5 of Phase 2.7). The folders compacted before the cancel stay
@@ -113,7 +113,7 @@ extension BuildDbCommand {
                     metadata[key] = value
                 }
 
-                try Task.checkCancellation()
+                try events.checkCancellation()
                 try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata, progress: events.progress)
 
                 events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
@@ -122,7 +122,7 @@ extension BuildDbCommand {
                     cleanupSteps = try performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
                 }
 
-                try Task.checkCancellation()
+                try events.checkCancellation()
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
                     tool: .kraken2,
                     resultURL: resultURL,
@@ -147,7 +147,7 @@ extension BuildDbCommand {
                 }
                 // A cancelled build is not a failed one, so it leaves no record of a failure. The cancel
                 // request decides, never the error that the cancel caused (SWIFT X2).
-                guard !Task.isCancelled else { throw error }
+                guard !events.isCancelled else { throw error }
                 await BuildDbCommand.recordBuildDbFailureProvenanceIfNeeded(
                     tool: .kraken2,
                     resultURL: resultURL,
@@ -436,7 +436,8 @@ extension BuildDbCommand {
         /// names the sidecar of each folder it compacted, with the digest it had before the rewrite, since that
         /// file is still there while this run's inputs and the classifier's record state the old digest (2.10 B34).
         ///
-        /// Throws `CancellationError` before it starts on a folder when the caller's task is cancelled, so a
+        /// Throws `CancellationError` before it starts on a folder when the caller's task is cancelled or the
+        /// sink reports a cancel, so a
         /// folder is compacted whole or not at all. The folders it compacted before the cancel stay compacted,
         /// and a cancelled build records no step for them.
         private static func performCleanup(
@@ -476,7 +477,7 @@ extension BuildDbCommand {
 
             for dir in cleanupDirs {
                 // Outside the `do` below, which turns a failed compaction into a warning.
-                try Task.checkCancellation()
+                try events.checkCancellation()
                 let name = dir.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
 
