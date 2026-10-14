@@ -93,7 +93,7 @@ extension SequenceCommand {
                     printHumanLine("Added annotation \(name) to \(result.track.name).", eventsOn: eventsOn)
                 }
             } catch {
-                events.emitFailed(error.localizedDescription)
+                events.emitFailed((error as? ValidationError)?.message ?? error.localizedDescription)
                 throw error
             }
         }
@@ -192,7 +192,7 @@ extension SequenceCommand {
                 // A cancel is not a failure. The app's transport reports it from the exit.
                 throw CancellationError()
             } catch {
-                events.emitFailed(error.localizedDescription)
+                events.emitFailed((error as? ValidationError)?.message ?? error.localizedDescription)
                 throw error
             }
         }

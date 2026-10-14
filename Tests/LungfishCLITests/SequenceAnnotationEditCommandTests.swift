@@ -115,7 +115,45 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
         XCTAssertEqual(lines, [], "events are off without --format json")
     }
 
+    /// A refusal is an ArgumentParser `ValidationError`, which has no localized text, so the `failed`
+    /// event used to say "The operation couldn't be completed. (ArgumentParser.ValidationError error
+    /// 1.)". The app alerts with the event's message, so the event has to hold the refusal itself
+    /// (2.10 A43 review, fix F2).
+    func testAttachTrackFailedEventCarriesTheRefusal() async throws {
+        let bundle = try SequenceEditFixture.referenceBundle(in: scratch)
+        let command = try SequenceCommand.AttachTrack.parse([
+            bundle.path, scratch.appendingPathComponent("missing.gff3").path, "--format", "json",
+        ])
+        let lines = try await CLIEventTranscriptCoverageTests.eventLines(expectingFailure: true) {
+            try await command.execute(emit: $0)
+        }
+        let message = try Self.failedMessage(in: lines)
+        XCTAssertTrue(message.hasPrefix("No annotation file at"), message)
+    }
+
+    func testAddAnnotationFailedEventCarriesTheRefusal() async throws {
+        let bundle = try SequenceEditFixture.referenceBundle(in: scratch)
+        let command = try SequenceCommand.AddAnnotation.parse([
+            bundle.path, "--chromosome", "nope", "--start", "2", "--end", "9",
+            "--name", "refused", "--type", "gene", "--strand", "+", "--format", "json",
+        ])
+        let lines = try await CLIEventTranscriptCoverageTests.eventLines(expectingFailure: true) {
+            try await command.execute(emit: $0)
+        }
+        let message = try Self.failedMessage(in: lines)
+        XCTAssertTrue(message.hasPrefix("The bundle holds no sequence named 'nope'"), message)
+    }
+
     // MARK: Helpers
+
+    /// The `error` text of the last `failed` event among the event lines.
+    private static func failedMessage(in lines: [String]) throws -> String {
+        let events = try lines.map {
+            try XCTUnwrap(try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any], $0)
+        }
+        let failed = try XCTUnwrap(events.last { $0["event"] as? String == "failed" }, "no failed event in \(lines)")
+        return try XCTUnwrap(failed["error"] as? String, "\(failed)")
+    }
 
     /// Each row as `name|type|chromosome|start|end|strand|attributes`, with the feature's random
     /// `ID=` attribute left out.
