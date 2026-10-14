@@ -1174,7 +1174,7 @@ final class MarkdupCommandTests: XCTestCase {
 
     func testMarkdupHelpOmitsUnsupportedTSVFormat() {
         let help = MarkdupCommand.helpMessage()
-        XCTAssertTrue(help.contains("Output format: text, json"))
+        XCTAssertTrue(help.contains("values: text, json"))
         XCTAssertFalse(help.contains("tsv"))
     }
 

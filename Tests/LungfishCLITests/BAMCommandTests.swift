@@ -15,12 +15,12 @@ final class BAMCommandTests: XCTestCase {
         XCTAssertTrue(BAMCommand.helpMessage().contains("\(CLICommandIdentity.executableName) bam filter"))
         XCTAssertTrue(BAMCommand.helpMessage().contains("\(CLICommandIdentity.executableName) bam annotate"))
         XCTAssertTrue(BAMCommand.FilterSubcommand.helpMessage().contains("mapping analysis directory"))
-        XCTAssertTrue(BAMCommand.FilterSubcommand.helpMessage().contains("Output format: text, json"))
+        XCTAssertTrue(BAMCommand.FilterSubcommand.helpMessage().contains("values: text, json"))
         XCTAssertFalse(BAMCommand.FilterSubcommand.helpMessage().contains("tsv"))
         XCTAssertTrue(BAMCommand.AnnotateSubcommand.helpMessage().contains("Convert mapped reads to annotations"))
-        XCTAssertTrue(BAMCommand.AnnotateSubcommand.helpMessage().contains("Output format: text, json"))
+        XCTAssertTrue(BAMCommand.AnnotateSubcommand.helpMessage().contains("values: text, json"))
         XCTAssertFalse(BAMCommand.AnnotateSubcommand.helpMessage().contains("tsv"))
-        XCTAssertTrue(BAMCommand.MarkdupSubcommand.helpMessage().contains("Output format: text, json"))
+        XCTAssertTrue(BAMCommand.MarkdupSubcommand.helpMessage().contains("values: text, json"))
         XCTAssertFalse(BAMCommand.MarkdupSubcommand.helpMessage().contains("tsv"))
     }
 

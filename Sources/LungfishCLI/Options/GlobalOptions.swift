@@ -12,7 +12,7 @@ struct GlobalOptions: ParsableArguments {
 
     @Option(
         name: .customLong("format"),
-        help: "Output format: text, json, tsv (default: text)"
+        help: "Output format"
     )
     var outputFormat: OutputFormat = .text
 
@@ -120,7 +120,7 @@ struct TextAndJSONGlobalOptions: ParsableArguments {
 
     @Option(
         name: .customLong("format"),
-        help: "Output format: text, json (default: text)"
+        help: "Output format"
     )
     private var selectedOutputFormat: TextAndJSONOutputFormat = .text
 
