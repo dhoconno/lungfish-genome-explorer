@@ -74,6 +74,11 @@ public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
         public var recorded: [String: String]
         public var inputs: [FileFact]
         public var outputs: [FileFact]
+        /// The step's `observation` object as its bytes hold it, with the strings normalized, or nil when the
+        /// step carries none (Phase 2.10 S36). A facts file captured before the key existed decodes with nil,
+        /// and a step with no observation leaves the key out of the file. The legacy step views have no such
+        /// field.
+        public var observation: Value?
     }
 
     /// One step of the `WorkflowRun` that `legacyWorkflowRun()` returns, which is what Copy
@@ -294,8 +299,20 @@ public struct ProvenanceCompatFacts: Codable, Equatable, Sendable {
             resolvedOptions: typedValue(of: step.resolvedOptions, normalize: normalize),
             recorded: stepRecordedValues(in: rawStep, normalize: normalize),
             inputs: step.inputs.map { fileFact($0, normalize: normalize) },
-            outputs: step.outputs.map { fileFact($0, normalize: normalize) }
+            outputs: step.outputs.map { fileFact($0, normalize: normalize) },
+            observation: stepObservation(in: rawStep, normalize: normalize)
         )
+    }
+
+    /// The `observation` object of a raw step as a JSON value, or nil when the step holds none or holds one
+    /// that is not an object.
+    private static func stepObservation(in rawStep: [String: Any]?, normalize: PathNormalizer) -> Value? {
+        guard let object = rawStep?["observation"] as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let value = try? JSONDecoder().decode(Value.self, from: data) else {
+            return nil
+        }
+        return value.mappingStrings { normalize($0) }
     }
 
     private static func legacyStepFacts(_ steps: [StepExecution], normalize: PathNormalizer) -> [LegacyStepFact] {

@@ -147,6 +147,38 @@ final class ClassifierWriterFactsTests: XCTestCase {
         XCTAssertEqual(try Self.maskingPeakMemory(captured), captured, "facts without a peak do not change")
     }
 
+    // MARK: - The temporary folder mask
+
+    /// A launch lists `TMPDIR` only when its process has one, so the facts leave the name out of the
+    /// environment list of every step observation and keep every other name, and the other steps and
+    /// the other facts do not change.
+    func testTheTemporaryFolderNameLeavesTheEnvironmentListOfAStepObservation() throws {
+        typealias Value = ProvenanceCompatFacts.Value
+        func observation(changed: [String]) -> Value {
+            .object([
+                "environment": .object([
+                    "base": .string("hermetic"),
+                    "changed": .array(changed.map { Value.string($0) }),
+                ]),
+                "stage": .object(["count": .integer(1), "index": .integer(0)]),
+            ])
+        }
+        var facts = try ProvenanceCompatFacts.decode(
+            Data(contentsOf: Self.folder.appendingPathComponent(BareRunWriterParity.Scenario.kraken2Pipeline.id + Self.suffix))
+        )
+        XCTAssertGreaterThan(facts.steps.count, 1)
+        facts.steps[0].observation = observation(changed: ["HOME", "MAMBA_ROOT_PREFIX", "PATH", "TMPDIR"])
+        facts.steps[1].observation = observation(changed: ["HOME", "MAMBA_ROOT_PREFIX", "PATH"])
+        let masked = try Self.maskingTemporaryFolderName(facts)
+        XCTAssertEqual(masked.steps[0].observation, observation(changed: ["HOME", "MAMBA_ROOT_PREFIX", "PATH"]))
+        XCTAssertEqual(masked.steps[1].observation, observation(changed: ["HOME", "MAMBA_ROOT_PREFIX", "PATH"]))
+        XCTAssertEqual(try Self.maskingTemporaryFolderName(masked), masked, "facts without the name do not change")
+        var unmasked = masked
+        unmasked.steps[0].observation = facts.steps[0].observation
+        XCTAssertNotEqual(unmasked, masked, "the mask is the only thing that took the name out")
+        XCTAssertEqual(masked.steps.dropFirst(2), facts.steps.dropFirst(2), "a step with no observation does not change")
+    }
+
     // MARK: - Capture and compare
 
     private static let suffix = ".facts.json"
@@ -177,11 +209,11 @@ final class ClassifierWriterFactsTests: XCTestCase {
         line: UInt = #line
     ) throws {
         let sidecar = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let facts = try Self.maskingPeakMemory(BareRunWriterParity.normalized(
+        let facts = try Self.maskingTemporaryFolderName(Self.maskingPeakMemory(BareRunWriterParity.normalized(
             try ProvenanceCompatFacts.project(sidecar: sidecar, projectRoot: projectRoot),
             scenario: scenario,
             replacing: Self.cliVersionReplacement
-        ))
+        )))
         let url = Self.folder.appendingPathComponent(scenario.id + Self.suffix)
         guard let data = try? Data(contentsOf: url) else {
             guard ProvenanceCompatCorpus.captureFactsRequested else {
@@ -218,6 +250,35 @@ final class ClassifierWriterFactsTests: XCTestCase {
                 var masked: [String: ProvenanceCompatFacts.Value] = [:]
                 for (key, member) in members {
                     masked[key] = key == "peakMemoryBytes" ? .integer(Self.peakMemoryMask) : mask(member)
+                }
+                return .object(masked)
+            case .array(let items):
+                return .array(items.map(mask))
+            default:
+                return value
+            }
+        }
+        let tree = try JSONDecoder().decode(ProvenanceCompatFacts.Value.self, from: JSONEncoder().encode(facts))
+        return try JSONDecoder().decode(ProvenanceCompatFacts.self, from: JSONEncoder().encode(mask(tree)))
+    }
+
+    /// The facts with `TMPDIR` taken out of the `changed` names of every step observation's environment.
+    /// A launch lists `TMPDIR` among the variables it set only when the process that ran it has one
+    /// (`CondaManager.hermeticToolEnvironment`), so the list would differ between hosts that run this
+    /// test. `ClassifierStepObservationTests` checks the name where the host has it. Every other name stays.
+    private static func maskingTemporaryFolderName(_ facts: ProvenanceCompatFacts) throws -> ProvenanceCompatFacts {
+        func mask(_ value: ProvenanceCompatFacts.Value) -> ProvenanceCompatFacts.Value {
+            switch value {
+            case .object(let members):
+                var masked: [String: ProvenanceCompatFacts.Value] = [:]
+                for (key, member) in members {
+                    if key == "environment", case .object(var environment) = member,
+                       case .array(let names)? = environment["changed"] {
+                        environment["changed"] = .array(names.filter { $0 != .string("TMPDIR") })
+                        masked[key] = .object(environment)
+                    } else {
+                        masked[key] = mask(member)
+                    }
                 }
                 return .object(masked)
             case .array(let items):
