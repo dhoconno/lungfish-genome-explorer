@@ -48,7 +48,7 @@ extension OutputEquivalence {
                 Masks.manifestWallTime,
             ]
             return MaskPolicy(
-                provenance: records + [Masks.provenanceRuntime],
+                provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
                 payloads: [Masks.roots, Masks.runWallTime]
@@ -181,6 +181,59 @@ extension OutputEquivalence {
             }
             return object
         }
+
+        /// Replaces the run times minimap2 prints in the `stderr` of a provenance envelope. They are the
+        /// seconds and the CPU ratio of each `[M::<function>::<seconds>*<ratio>]` stamp and the three
+        /// figures of its `Real time: <n> sec; CPU: <n> sec; Peak RSS: <n> GB` line, as in
+        /// scripts/golden/normalize.py. It reads the string value of each `stderr` key and nothing else,
+        /// so the version, the command, the index statistics, the reads mapped, the function names, a line
+        /// added or lost and the same text under another key are compared as written.
+        public static let minimap2RunTimes = Mask(name: "minimap2RunTimes") { text, _ in
+            rewritingJSON(text) { value, changed in maskStderr(in: value, changed: &changed) }
+        }
+
+        /// Masks the minimap2 run times in each string value of a `stderr` key.
+        static func maskStderr(in value: Any, changed: inout Bool) -> Any {
+            if let array = value as? [Any] {
+                return array.map { maskStderr(in: $0, changed: &changed) }
+            }
+            guard var object = value as? [String: Any] else { return value }
+            for (key, item) in object {
+                if key == "stderr", let stderr = item as? String {
+                    let masked = maskMinimap2RunTimes(in: stderr)
+                    if masked != stderr {
+                        object[key] = masked
+                        changed = true
+                    }
+                } else {
+                    object[key] = maskStderr(in: item, changed: &changed)
+                }
+            }
+            return object
+        }
+
+        static func maskMinimap2RunTimes(in stderr: String) -> String {
+            let stamped = minimap2StampPattern.stringByReplacingMatches(
+                in: stderr,
+                range: NSRange(location: 0, length: (stderr as NSString).length),
+                withTemplate: "$1<DURATION>*<CPU-RATIO>$2"
+            )
+            return minimap2RealTimePattern.stringByReplacingMatches(
+                in: stamped,
+                range: NSRange(location: 0, length: (stamped as NSString).length),
+                withTemplate: "$1<DURATION>$2<CPU-SECONDS>$3<PEAK-RSS>$4"
+            )
+        }
+
+        static let numberPattern = "-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+\\-]?[0-9]+)?"
+
+        static var minimap2StampPattern: NSRegularExpression { try! NSRegularExpression(
+            pattern: "(\\[M::[A-Za-z0-9_]+::)\(numberPattern)\\*\(numberPattern)(\\])"
+        ) }
+
+        static var minimap2RealTimePattern: NSRegularExpression { try! NSRegularExpression(
+            pattern: "(Real time: )\(numberPattern)( sec; CPU: )\(numberPattern)( sec; Peak RSS: )\(numberPattern)( GB)"
+        ) }
 
         /// `text` re-encoded after `transform` rewrote its JSON value, the way `contentComparedDigests`
         /// encodes a record. Text that is not JSON, or that `transform` leaves alone, comes back as written.

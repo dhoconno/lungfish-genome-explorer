@@ -401,6 +401,85 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertTrue(try found().first?.hasPrefix("differs: assembly-result.json\n") == true)
     }
 
+    /// A provenance envelope keeps each step's stderr, and minimap2 prints its run times there, so two
+    /// runs never print the same figures. The contract masks the figures of the `[M::<function>::<seconds>*<ratio>]`
+    /// stamps and of the `Real time` line in a provenance `stderr`. The version, the command, the index
+    /// statistics, the reads mapped, a function name, a line added or lost and the same text anywhere else
+    /// are still compared (lane A46 M3, D5 of its QA ruling).
+    func testMinimap2RunTimesInAStderrAreMaskedAndNothingBesideThem() throws {
+        let (a, b) = try makeRoots()
+        let found = { try OutputEquivalence.differences(a, b, kind: .files) }
+        let record = "x.lungfish-provenance.json"
+        // The ruling's text, with the figures of one run on A and of another on B.
+        try write(
+            #"{"stderr":"[M::mm_idx_gen::0.001*10.53] mapped 200 sequences\n"#
+                + #"[M::main] Real time: 0.006 sec; CPU: 0.018 sec; Peak RSS: 0.004 GB\n"}"#,
+            to: a, record
+        )
+        try write(
+            #"{"stderr":"[M::mm_idx_gen::0.002*7.25] mapped 200 sequences\n"#
+                + #"[M::main] Real time: 0.011 sec; CPU: 0.031 sec; Peak RSS: 0.005 GB\n"}"#,
+            to: b, record
+        )
+        XCTAssertEqual(try found(), [])
+
+        // minimap2's lines in order, with the figures of run 0 or of run 1.
+        let lines = { (run: Int) -> [String] in
+            let s = run == 0 ? ("0.001", "10.53", "0.006", "0.018", "0.004") : ("0.002", "7.25", "0.011", "0.031", "0.005")
+            return [
+                "[M::mm_idx_gen::\(s.0)*\(s.1)] collected minimizers",
+                "[M::mm_idx_stat] kmer size: 15; skip: 10; is_hpc: 0; #seq: 1",
+                "[M::mm_idx_stat::\(s.0)*\(s.1)] distinct minimizers: 5005 (100.00% are singletons); average spacing: 5.997",
+                "[M::worker_pipeline::\(s.0)*\(s.1)] mapped 200 sequences",
+                "[M::main] Version: 2.28-r1209",
+                "[M::main] CMD: minimap2 -a -x sr ref.fa reads.fq",
+                "[M::main] Real time: \(s.2) sec; CPU: \(s.3) sec; Peak RSS: \(s.4) GB",
+            ]
+        }
+        let text = { (lines: [String]) in lines.joined(separator: "\n") + "\n" }
+        let json = { (object: Any) throws in String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self) }
+        try write(try json(["stderr": text(lines(0))]), to: a, record)
+        try write(try json(["stderr": text(lines(1))]), to: b, record)
+        XCTAssertEqual(try found(), [], "only the figures differ")
+
+        // A step's stderr, where the envelope keeps it.
+        let step = { (run: Int) throws in try json(["steps": [["name": "minimap2", "stderr": text(lines(run))]]]) }
+        try write(try step(0), to: a, record)
+        try write(try step(1), to: b, record)
+        XCTAssertEqual(try found(), [], "a step's stderr")
+
+        // Everything else in the text is compared, with the figures masked on both sides.
+        let edits: [(name: String, apply: ([String]) -> [String])] = [
+            ("the version", { $0.map { $0.replacingOccurrences(of: "2.28-r1209", with: "2.30-r1287") } }),
+            ("the command", { $0.map { $0.replacingOccurrences(of: "-x sr", with: "-x map-ont") } }),
+            ("the index statistics", { $0.map { $0.replacingOccurrences(of: "5005", with: "5006") } }),
+            ("the reads mapped", { $0.map { $0.replacingOccurrences(of: "mapped 200", with: "mapped 201") } }),
+            ("a function name", { $0.map { $0.replacingOccurrences(of: "mm_idx_gen", with: "mm_idx_stat") } }),
+            ("a line added", { $0 + ["[M::main] Extra line"] }),
+            ("a line lost", { Array($0.dropFirst()) }),
+        ]
+        for edit in edits {
+            try write(try json(["stderr": text(edit.apply(lines(1)))]), to: b, record)
+            try write(try json(["stderr": text(lines(0))]), to: a, record)
+            XCTAssertEqual(try found().count, 1, edit.name)
+        }
+
+        // The same text under another key of the envelope, and the same text in a payload.
+        for key in ["stdout", "message"] {
+            try write(try json([key: text(lines(0))]), to: a, record)
+            try write(try json([key: text(lines(1))]), to: b, record)
+            XCTAssertEqual(try found().count, 1, "under \(key)")
+        }
+        try empty(a, b)
+        try write(text(lines(0)), to: a, "minimap2.log")
+        try write(text(lines(1)), to: b, "minimap2.log")
+        XCTAssertEqual(try found().count, 1, "minimap2.log")
+        try empty(a, b)
+        try write(try json(["stderr": text(lines(0))]), to: a, "result.json")
+        try write(try json(["stderr": text(lines(1))]), to: b, "result.json")
+        XCTAssertEqual(try found().count, 1, "a payload that holds a stderr")
+    }
+
     func testRecordedDigestsAreMaskedOnlyForFilesComparedByContent() throws {
         let (a, b) = try makeRoots()
         let record = { (path: String, checksum: String, size: Int) in
