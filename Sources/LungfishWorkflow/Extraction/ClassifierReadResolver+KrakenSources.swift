@@ -185,8 +185,8 @@ extension ClassifierReadResolver {
         }
 
         // The pairs of every sample go into one file and the other reads into
-        // the other, in sample order. The two are named together, with one
-        // full flush for the volume.
+        // the other, in sample order. Each is named once it is whole and
+        // synced, the reads file first, and the two share one full flush.
         try DurableReplace.transaction {
             try ReadFileWriters.publish(pairsFile) { pairsStage in
                 try ReadFileWriters.publish(readsFile) { readsStage in
