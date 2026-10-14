@@ -73,6 +73,104 @@ enum ReadWriterFixtures {
         return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
     }
 
+    // MARK: - Joins
+
+    /// One join whose bytes are pinned for every writer that concatenates files.
+    struct JoinCase {
+        let name: String
+        let members: [Data]
+        let expected: Data
+        /// The text the joined bytes decode to when the members are gzip.
+        var decoded: String?
+    }
+
+    static func joinCases() throws -> [JoinCase] {
+        let plainTwo = Data("@a1\nACGT\n+\nIIII\n@a2\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII\n".utf8)
+        let plainThree = Data("@a1\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII\n@c1\nACGT\n+\nIIII\n".utf8)
+        let gzipped = [
+            try gzip(fastq("g1", "g2")),
+            try gzip(fastq("g3")),
+            try gzip(fastq("g4")),
+        ]
+        // The resolver reads in 1 MiB chunks and the materializer in 4 MiB chunks.
+        let large = [
+            Data(repeating: UInt8(ascii: "A"), count: (4 << 20) + 3),
+            Data(repeating: UInt8(ascii: "C"), count: 1 << 20),
+            Data(repeating: UInt8(ascii: "G"), count: (1 << 20) - 1),
+        ]
+        return [
+            JoinCase(
+                name: "two plain members, final line breaks",
+                members: [fastq("a1", "a2"), fastq("b1")],
+                expected: plainTwo
+            ),
+            JoinCase(
+                name: "three plain members, final line breaks",
+                members: [fastq("a1"), fastq("b1"), fastq("c1")],
+                expected: plainThree
+            ),
+            JoinCase(
+                name: "two plain members, the first lacks its final line break",
+                members: [fastq("a1", finalLineBreak: false), fastq("b1")],
+                expected: Data("@a1\nACGT\n+\nIIII@b1\nACGT\n+\nIIII\n".utf8)
+            ),
+            JoinCase(
+                name: "three plain members, the last lacks its final line break",
+                members: [fastq("a1"), fastq("b1"), fastq("c1", finalLineBreak: false)],
+                expected: plainThree.dropLast()
+            ),
+            JoinCase(
+                name: "three plain members, the middle one lacks its final line break",
+                members: [fastq("a1"), fastq("b1", finalLineBreak: false), fastq("c1")],
+                expected: Data("@a1\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII@c1\nACGT\n+\nIIII\n".utf8)
+            ),
+            JoinCase(
+                name: "an empty member adds nothing",
+                members: [fastq("a1"), Data(), fastq("c1")],
+                expected: fastq("a1") + fastq("c1")
+            ),
+            JoinCase(
+                name: "two gzip members",
+                members: Array(gzipped[0..<2]),
+                expected: gzipped[0] + gzipped[1],
+                decoded: "@g1\nACGT\n+\nIIII\n@g2\nACGT\n+\nIIII\n@g3\nACGT\n+\nIIII\n"
+            ),
+            JoinCase(
+                name: "three gzip members",
+                members: gzipped,
+                expected: gzipped[0] + gzipped[1] + gzipped[2],
+                decoded: "@g1\nACGT\n+\nIIII\n@g2\nACGT\n+\nIIII\n@g3\nACGT\n+\nIIII\n@g4\nACGT\n+\nIIII\n"
+            ),
+            JoinCase(
+                name: "members that end on and cross the chunk sizes",
+                members: large,
+                expected: large[0] + large[1] + large[2]
+            ),
+        ]
+    }
+
+    /// Writes the members of `joinCase` into `folder` and returns them with
+    /// the destination they join into.
+    static func stage(_ joinCase: JoinCase, in folder: URL) throws -> (sources: [URL], destination: URL) {
+        let gzipped = joinCase.decoded != nil
+        let sources = try joinCase.members.enumerated().map { index, data in
+            try write(data, named: "m\(index).fastq" + (gzipped ? ".gz" : ""), in: folder)
+        }
+        return (sources, folder.appendingPathComponent("joined.fastq" + (gzipped ? ".gz" : "")))
+    }
+
+    static func check(
+        _ joinCase: JoinCase,
+        destination: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(try Data(contentsOf: destination), joinCase.expected, joinCase.name, file: file, line: line)
+        if let decoded = joinCase.decoded {
+            XCTAssertEqual(try gunzip(destination), decoded, joinCase.name, file: file, line: line)
+        }
+    }
+
     struct Refusal: Error {}
 
     /// Counts named events safely across the threads a seam closure can run on.

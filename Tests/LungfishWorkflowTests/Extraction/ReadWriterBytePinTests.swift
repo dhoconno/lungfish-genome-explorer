@@ -29,115 +29,21 @@ final class ReadWriterBytePinTests: XCTestCase {
 
     // MARK: - Joins
 
-    private struct JoinCase {
-        let name: String
-        let members: [Data]
-        let expected: Data
-        /// The text the joined bytes decode to when the members are gzip.
-        var decoded: String?
-    }
-
-    private func joinCases() throws -> [JoinCase] {
-        let plainTwo = Data("@a1\nACGT\n+\nIIII\n@a2\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII\n".utf8)
-        let plainThree = Data("@a1\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII\n@c1\nACGT\n+\nIIII\n".utf8)
-        let gzipped = [
-            try Fixtures.gzip(Fixtures.fastq("g1", "g2")),
-            try Fixtures.gzip(Fixtures.fastq("g3")),
-            try Fixtures.gzip(Fixtures.fastq("g4")),
-        ]
-        // The resolver reads in 1 MiB chunks and the materializer in 4 MiB chunks.
-        let large = [
-            Data(repeating: UInt8(ascii: "A"), count: (4 << 20) + 3),
-            Data(repeating: UInt8(ascii: "C"), count: 1 << 20),
-            Data(repeating: UInt8(ascii: "G"), count: (1 << 20) - 1),
-        ]
-        return [
-            JoinCase(
-                name: "two plain members, final line breaks",
-                members: [Fixtures.fastq("a1", "a2"), Fixtures.fastq("b1")],
-                expected: plainTwo
-            ),
-            JoinCase(
-                name: "three plain members, final line breaks",
-                members: [Fixtures.fastq("a1"), Fixtures.fastq("b1"), Fixtures.fastq("c1")],
-                expected: plainThree
-            ),
-            JoinCase(
-                name: "two plain members, the first lacks its final line break",
-                members: [Fixtures.fastq("a1", finalLineBreak: false), Fixtures.fastq("b1")],
-                expected: Data("@a1\nACGT\n+\nIIII@b1\nACGT\n+\nIIII\n".utf8)
-            ),
-            JoinCase(
-                name: "three plain members, the last lacks its final line break",
-                members: [Fixtures.fastq("a1"), Fixtures.fastq("b1"), Fixtures.fastq("c1", finalLineBreak: false)],
-                expected: plainThree.dropLast()
-            ),
-            JoinCase(
-                name: "three plain members, the middle one lacks its final line break",
-                members: [Fixtures.fastq("a1"), Fixtures.fastq("b1", finalLineBreak: false), Fixtures.fastq("c1")],
-                expected: Data("@a1\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII@c1\nACGT\n+\nIIII\n".utf8)
-            ),
-            JoinCase(
-                name: "an empty member adds nothing",
-                members: [Fixtures.fastq("a1"), Data(), Fixtures.fastq("c1")],
-                expected: Fixtures.fastq("a1") + Fixtures.fastq("c1")
-            ),
-            JoinCase(
-                name: "two gzip members",
-                members: Array(gzipped[0..<2]),
-                expected: gzipped[0] + gzipped[1],
-                decoded: "@g1\nACGT\n+\nIIII\n@g2\nACGT\n+\nIIII\n@g3\nACGT\n+\nIIII\n"
-            ),
-            JoinCase(
-                name: "three gzip members",
-                members: gzipped,
-                expected: gzipped[0] + gzipped[1] + gzipped[2],
-                decoded: "@g1\nACGT\n+\nIIII\n@g2\nACGT\n+\nIIII\n@g3\nACGT\n+\nIIII\n@g4\nACGT\n+\nIIII\n"
-            ),
-            JoinCase(
-                name: "members that end on and cross the chunk sizes",
-                members: large,
-                expected: large[0] + large[1] + large[2]
-            ),
-        ]
-    }
-
-    private func stage(_ joinCase: JoinCase, index: Int) throws -> (sources: [URL], destination: URL, folder: URL) {
-        let folder = root.appendingPathComponent("join-\(index)", isDirectory: true)
-        let gzipped = joinCase.decoded != nil
-        let sources = try joinCase.members.enumerated().map { memberIndex, data in
-            try Fixtures.write(data, named: "m\(memberIndex).fastq" + (gzipped ? ".gz" : ""), in: folder)
-        }
-        return (sources, folder.appendingPathComponent("joined.fastq" + (gzipped ? ".gz" : "")), folder)
-    }
-
-    private func checkJoin(
-        _ joinCase: JoinCase,
-        destination: URL,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        XCTAssertEqual(try Data(contentsOf: destination), joinCase.expected, joinCase.name, file: file, line: line)
-        if let decoded = joinCase.decoded {
-            XCTAssertEqual(try Fixtures.gunzip(destination), decoded, joinCase.name, file: file, line: line)
-        }
-    }
-
     func testTheResolverJoinsByteForByte() async throws {
         let resolver = ClassifierReadResolver()
-        for (index, joinCase) in try joinCases().enumerated() {
-            let staged = try stage(joinCase, index: index)
+        for (index, joinCase) in try Fixtures.joinCases().enumerated() {
+            let staged = try Fixtures.stage(joinCase, in: root.appendingPathComponent("join-\(index)", isDirectory: true))
             try await resolver.concatenateFiles(staged.sources, into: staged.destination)
-            try checkJoin(joinCase, destination: staged.destination)
+            try Fixtures.check(joinCase, destination: staged.destination)
         }
     }
 
     func testTheMaterializerJoinsByteForByte() throws {
         let materializer = FASTQCLIMaterializer(runner: .shared)
-        for (index, joinCase) in try joinCases().enumerated() {
-            let staged = try stage(joinCase, index: index)
+        for (index, joinCase) in try Fixtures.joinCases().enumerated() {
+            let staged = try Fixtures.stage(joinCase, in: root.appendingPathComponent("join-\(index)", isDirectory: true))
             try materializer.concatenateFiles(staged.sources, to: staged.destination)
-            try checkJoin(joinCase, destination: staged.destination)
+            try Fixtures.check(joinCase, destination: staged.destination)
         }
     }
 
