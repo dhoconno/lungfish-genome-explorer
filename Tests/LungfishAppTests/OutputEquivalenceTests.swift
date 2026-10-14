@@ -686,6 +686,79 @@ final class OutputEquivalenceTests: XCTestCase {
         )
     }
 
+    /// Map Reads writes a raw SAM and a filtered BAM in its analysis folder and deletes them at the end of the
+    /// run. A SAM or BAM in the folder that holds the record, which one step wrote, a later step read and the
+    /// run deleted, has the digest and size the record states for it masked. Nothing beside it is (lane A46 M3c,
+    /// its QA ruling on D6b).
+    func testADeletedStepIntermediateInTheRunFolderIsMaskedAndNothingBesideIt() throws {
+        let (a, b) = try makeRoots()
+        let run = "Project.lungfish/Analyses/run"
+        let (sam, bam) = ("@/Analyses/run/x.raw.sam", "@/Analyses/run/x.filtered.bam")
+        let sides = [(a, String(repeating: "a", count: 64), 1), (b, String(repeating: "b", count: 64), 2)]
+        // Each step reads some files and writes some. The record states a checksum and size at every use of a
+        // file, `a` and 1 in A and `b` and 2 in B.
+        func put(_ steps: [(reads: [String], writes: [String])], at path: String? = nil) throws {
+            for (root, digest, size) in sides {
+                let file = { (name: String) in #"{"path":"\#(name)","checksumSHA256":"\#(digest)","fileSize":\#(size)}"# }
+                let items = steps.map { step -> String in
+                    let reads = step.reads.map(file).joined(separator: ",")
+                    let writes = step.writes.map(file).joined(separator: ",")
+                    return #"{"toolName":"tool","inputs":[\#(reads)],"outputs":[\#(writes)]}"#
+                }
+                let joined = items.joined(separator: ",")
+                try write(#"{"steps":[\#(joined)]}"#, to: root, path ?? "\(run)/.lungfish-provenance.json")
+            }
+        }
+        let found = { try OutputEquivalence.differences(a, b, kind: .bundle) }
+        let firstLines = { try found().map { $0.components(separatedBy: "\n")[0] } }
+        let recordDiffers = "differs: \(run)/.lungfish-provenance.json"
+        let samBody = "@HD\tVN:1.6\n"
+
+        // The first step writes the SAM, the second reads it and writes the BAM, the third reads the BAM.
+        // Neither tree holds either file, so the run deleted both and their digests are masked.
+        let chain: [(reads: [String], writes: [String])] = [([], [sam]), ([sam], [bam]), ([bam], [])]
+        try put(chain)
+        XCTAssertEqual(try found(), [])
+
+        // A alone holds the SAM, so A's record keeps its digests and B's are masked.
+        try write(samBody, to: a, "\(run)/x.raw.sam")
+        XCTAssertEqual(try firstLines(), ["only in A: \(run)/x.raw.sam", recordDiffers])
+
+        // Both hold the same SAM, so the run did not delete it and the digests are compared.
+        try write(samBody, to: b, "\(run)/x.raw.sam")
+        XCTAssertEqual(try firstLines(), [recordDiffers])
+
+        // A SAM outside the run's folder keeps its digests, whether both trees hold it or neither does.
+        try empty(a, b)
+        for root in [a, b] {
+            try write(samBody, to: root, "Project.lungfish/inputs/input.sam")
+        }
+        let input = "@/inputs/input.sam"
+        try put([([], [input]), ([input], [bam]), ([bam], [])])
+        XCTAssertEqual(try firstLines(), [recordDiffers])
+        try empty(a, b)
+        let outsideRun = "@/inputs/x.raw.sam"
+        try put([([], [outsideRun]), ([outsideRun], [bam]), ([bam], [])])
+        XCTAssertEqual(try firstLines(), [recordDiffers])
+
+        // No step reads the SAM, so it is no intermediate.
+        try put([([], [sam]), ([], [bam]), ([bam], [])])
+        XCTAssertEqual(try firstLines(), [recordDiffers])
+
+        // Beside the ruled cases. A file that is neither a SAM nor a BAM, a SAM that a step reads before
+        // another writes it, and a path outside both trees, in a record at the root that has no folder to
+        // read it from, each keep their digests.
+        let fastq = "@/Analyses/run/x.reads.fastq"
+        try put([([], [fastq]), ([fastq], [])])
+        XCTAssertEqual(try firstLines(), [recordDiffers])
+        try put([([sam], []), ([], [sam])])
+        XCTAssertEqual(try firstLines(), [recordDiffers])
+        try empty(a, b)
+        let outsideTrees = "/Users/someone/Project.lungfish/Analyses/run/x.raw.sam"
+        try put([([], [outsideTrees]), ([outsideTrees], [])], at: ".lungfish-provenance.json")
+        XCTAssertEqual(try firstLines(), ["differs: .lungfish-provenance.json"])
+    }
+
     // MARK: - Fixture helpers
 
     private func makeRoots() throws -> (URL, URL) {

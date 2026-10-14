@@ -276,8 +276,8 @@ extension OutputEquivalence {
             var changed = false
             let roots = rootSpellings(context.rootA) + rootSpellings(context.rootB)
             let masked = maskDigests(
-                in: value, paths: context.contentComparedPaths, roots: roots, folder: context.recordFolder,
-                project: context.recordProject, changed: &changed
+                in: value, paths: context.contentComparedPaths, intermediates: runIntermediates(in: value),
+                roots: roots, folder: context.recordFolder, project: context.recordProject, changed: &changed
             )
             guard changed,
                   let encoded = try? JSONSerialization.data(
@@ -308,6 +308,32 @@ extension OutputEquivalence {
             return !FileManager.default.fileExists(atPath: path)
         }
 
+        /// A SAM or BAM that no longer exists, which `relative`, its path from a tree's root, puts in the
+        /// record's `folder` ("" at the root, which holds any). A path outside both trees is never one.
+        static func isDeletedRunIntermediate(_ path: String, relative: String, folder: String) -> Bool {
+            let lowered = path.lowercased()
+            guard lowered.hasSuffix(".sam") || lowered.hasSuffix(".bam"), relative != path,
+                  folder.isEmpty || relative.hasPrefix(folder + "/")
+            else { return false }
+            return !FileManager.default.fileExists(atPath: path)
+        }
+
+        /// Each `path` that a step's `outputs` and a later step's `inputs` both name, in a record whose
+        /// top-level `steps` array lists the steps of a run. A record of another shape has none.
+        static func runIntermediates(in value: Any) -> Set<String> {
+            guard let steps = (value as? [String: Any])?["steps"] as? [Any] else { return [] }
+            func paths(_ step: [String: Any], _ key: String) -> [String] {
+                (step[key] as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["path"] as? String }
+            }
+            var written: Set<String> = []
+            var intermediates: Set<String> = []
+            for case let step as [String: Any] in steps {
+                intermediates.formUnion(paths(step, "inputs").filter { written.contains($0) })
+                written.formUnion(paths(step, "outputs"))
+            }
+            return intermediates
+        }
+
         static let digestKeys: Set<String> = ["checksumSHA256", "sha256", "checksum"]
         static let sizeKeys: Set<String> = ["fileSize", "sizeBytes", "size_bytes", "file_size_bytes"]
         /// A record's maps from a path, read from the record's folder, to a
@@ -323,12 +349,19 @@ extension OutputEquivalence {
         /// and a `<bundle>/` or `<workspace>/` path is never read, so the
         /// digest a record states beside it is kept. A `@/` path lies inside
         /// the project, so it is never read as a deleted scratch intermediate.
+        /// A SAM or BAM in the record's folder that one step wrote, a later
+        /// step read and the run deleted is masked by `isDeletedRunIntermediate`.
+        /// `intermediates` holds the paths that a step wrote and a later step read.
         static func maskDigests(
-            in value: Any, paths: Set<String>, roots: [String], folder: String, project: String?, changed: inout Bool
+            in value: Any, paths: Set<String>, intermediates: Set<String>, roots: [String], folder: String,
+            project: String?, changed: inout Bool
         ) -> Any {
             if let array = value as? [Any] {
                 return array.map {
-                    maskDigests(in: $0, paths: paths, roots: roots, folder: folder, project: project, changed: &changed)
+                    maskDigests(
+                        in: $0, paths: paths, intermediates: intermediates, roots: roots, folder: folder,
+                        project: project, changed: &changed
+                    )
                 }
             }
             guard var object = value as? [String: Any] else { return value }
@@ -340,6 +373,8 @@ extension OutputEquivalence {
                     relative = String(path.dropFirst(root.count + 1))
                 }
                 return paths.contains(relative) || isDeletedScratchIntermediate(written)
+                    || intermediates.contains(written)
+                    && isDeletedRunIntermediate(path, relative: relative, folder: folder)
             }
             for (key, item) in object {
                 if namesContentComparedFile, digestKeys.contains(key) {
@@ -359,7 +394,8 @@ extension OutputEquivalence {
                     object[key] = map
                 } else {
                     object[key] = maskDigests(
-                        in: item, paths: paths, roots: roots, folder: folder, project: project, changed: &changed
+                        in: item, paths: paths, intermediates: intermediates, roots: roots, folder: folder,
+                        project: project, changed: &changed
                     )
                 }
             }
