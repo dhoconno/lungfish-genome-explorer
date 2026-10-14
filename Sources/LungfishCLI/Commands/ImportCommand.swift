@@ -1076,7 +1076,7 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("import-profile"),
-            help: "Variant database import profile when attaching to a .lungfishref bundle"
+            help: "Variant database import profile when attaching to a .lungfishref bundle (default: auto)"
         )
         var importProfile: VCFImportProfile?
 

@@ -60,6 +60,11 @@ final class SRADownloadPreferSourceTests: XCTestCase {
         XCTAssertTrue(help.contains("no fallback"), help)
     }
 
+    func testHelpNamesENAAsTheDefault() {
+        let help = SRADownloadSubcommand.helpMessage(columns: 200)
+        XCTAssertTrue(help.contains("Archive to try first (default: ena)."), help)
+    }
+
     // MARK: - Running
 
     func testPreferringNCBIFetchesWithTheToolkitAndRecordsThePreference() async throws {

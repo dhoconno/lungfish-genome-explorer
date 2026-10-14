@@ -34,7 +34,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     @Option(
         name: .customLong("prefer-source"),
         help: ArgumentHelp(
-            "Archive to try first. \(SRADownloadSourcePreference.tradeOff)",
+            "Archive to try first (default: ena). \(SRADownloadSourcePreference.tradeOff)",
             valueName: "source"
         )
     )

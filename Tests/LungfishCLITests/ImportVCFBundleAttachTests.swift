@@ -321,6 +321,11 @@ final class ImportVCFBundleAttachTests: XCTestCase {
         XCTAssertThrowsError(try ImportCommand.VCFSubcommand.parse(["x.vcf", "--import-profile", "turbo"]))
     }
 
+    func testImportProfileHelpNamesAutoAsTheDefault() {
+        let help = ImportCommand.VCFSubcommand.helpMessage(columns: 200)
+        XCTAssertTrue(help.contains(".lungfishref bundle (default: auto)"), help)
+    }
+
     // MARK: - Fixtures
 
     private func fixtureVCF() throws -> URL {
