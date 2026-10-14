@@ -138,6 +138,20 @@ private enum SIGTERMPipe {
     }
 }
 
+#if DEBUG
+/// A test seam, compiled into debug builds only. While a task binds these, ``SIGTERMCancellation/end()`` reports what
+/// it does. They read nothing from the signal and change nothing, so a test can see which writes `end()` makes, and
+/// hold its wait open, without a kernel race to catch them.
+enum SIGTERMEndTrace {
+    /// Called with the address of each action `end()` gives SIGTERM, just before it writes it (0 is SIG_DFL and 1
+    /// is SIG_IGN).
+    @TaskLocal static var action: (@Sendable (UInt) -> Void)?
+
+    /// Called at each poll of the wait for the handler to run, before `end()` sleeps. A test runs the handler here.
+    @TaskLocal static var wait: (@Sendable () -> Void)?
+}
+#endif
+
 /// While it is active, SIGTERM cancels one task instead of ending the
 /// process, so the task's own cleanup (its `defer` blocks) runs before the
 /// command exits.
@@ -232,20 +246,67 @@ final class SIGTERMCancellation {
 
     /// Gives SIGTERM back the handler it had before, or its default action.
     ///
-    /// SIGTERM is ignored for a moment first. A post that is still pending was sent while this instance
-    /// listened, and the thread that takes it can run after the earlier action is back. In the CLI that
-    /// action is the one of `CLITerminationSignals`, which ends the process by signal 15, so the command
-    /// would die on a SIGTERM it had already answered. Ignoring a signal drops a pending one. A post the
-    /// kernel noted is kept by ``signalCaught``.
+    /// The kernel delivers a signal in two steps. A thread finds the signal pending, and a moment later it reads
+    /// the action to call. An action changed in between is the one called, and SIG_IGN read there is a call to
+    /// address 1, which ends the process by SIGBUS (FX47 (a2)). So `end()` never writes SIG_IGN while a thread
+    /// may be taking a post.
+    ///
+    /// A post that is still pending when the instance ends must not reach the action put back either. In the CLI
+    /// that action is the one of `CLITerminationSignals`, which ends the process by signal 15, so the command
+    /// would die on a SIGTERM it had already answered. So `end()` first lets every post the kernel noted run this
+    /// handler, polling each millisecond for at most 250 ms. A handler that has run proves that its delivery is
+    /// over. The usual cancel, one post that the handler took long before the end, finds the count whole and
+    /// writes no SIG_IGN at all. Only a post that no thread takes in that time is dropped, by ignoring SIGTERM for
+    /// the moment between the two writes. That is a post the kernel merged with another, one sent while SIGTERM was
+    /// ignored, or one blocked on a thread. A post parked on the calling thread is dropped the same way, since the
+    /// kernel's note does not cover a signal raised at a thread. A fresh SIGTERM that lands in that moment can still
+    /// meet the race, and only after a post went untaken for the whole bound. A post the kernel noted is kept by
+    /// ``signalCaught``.
     func end() {
         guard !ended else { return }
         ended = true
-        signal(SIGTERM, SIG_IGN)
-        signal(SIGTERM, previousHandler ?? SIG_DFL)
-        sigtermPosts.finish()
-        secondSIGTERMEndsProcess.store(false, ordering: .sequentiallyConsistent)
+        // A handler that runs from here on only counts. It writes no byte, and a second SIGTERM no longer ends
+        // the process.
         sigtermPipeWriteEnd.store(-1, ordering: .sequentiallyConsistent)
+        secondSIGTERMEndsProcess.store(false, ordering: .sequentiallyConsistent)
+        let everyPostRanTheHandler = Self.waitForEveryPostToRunTheHandler()
+        if !everyPostRanTheHandler || Self.sigtermIsPendingOnThisThread() {
+            Self.setAction(SIG_IGN)
+        }
+        Self.setAction(previousHandler ?? SIG_DFL)
+        sigtermPosts.finish()
         source.cancel()
+    }
+
+    /// Waits until the handler has run once for each SIGTERM the kernel noted, polling each millisecond for at
+    /// most 250 ms. Returns whether it has. The bound is a time, not a count of polls, because a sleep can run
+    /// long on a busy machine.
+    private static func waitForEveryPostToRunTheHandler() -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(250))
+        while caughtSIGTERMs.load(ordering: .sequentiallyConsistent) < sigtermPosts.posts {
+            guard ContinuousClock.now < deadline else { return false }
+            #if DEBUG
+            SIGTERMEndTrace.wait?()
+            #endif
+            usleep(1_000)
+        }
+        return true
+    }
+
+    /// Whether a SIGTERM is pending on this thread, which can only be one that is blocked here.
+    private static func sigtermIsPendingOnThisThread() -> Bool {
+        var pending = sigset_t()
+        sigemptyset(&pending)
+        guard sigpending(&pending) == 0 else { return false }
+        return sigismember(&pending, SIGTERM) == 1
+    }
+
+    /// Gives SIGTERM `action`. A debug build first tells ``SIGTERMEndTrace`` what it is about to write.
+    private static func setAction(_ action: sig_t?) {
+        #if DEBUG
+        SIGTERMEndTrace.action?(unsafeBitCast(action, to: UInt.self))
+        #endif
+        signal(SIGTERM, action)
     }
 
     deinit {

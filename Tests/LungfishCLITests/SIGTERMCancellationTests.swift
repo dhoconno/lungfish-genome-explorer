@@ -121,7 +121,9 @@ final class SIGTERMCancellationTests: XCTestCase {
     /// action `end()` puts back, which in the CLI is the handler of `CLITerminationSignals`, and that ends the
     /// process by signal 15. SIGTERM is blocked on this thread and raised at this thread, so the post stays
     /// pending here whichever thread would otherwise take it, and a counting handler stands in for the CLI-wide
-    /// one. The kernel drops a pending post when the action becomes SIG_IGN, which `end()` sets first.
+    /// one. The kernel drops a pending post when the action becomes SIG_IGN, which `end()` sets when it finds a
+    /// post parked on its own thread. The kernel's note of a post does not cover this one, since a kqueue signal
+    /// filter notes a signal sent to the process and not one raised at a thread (FXS2).
     func testEndDropsAPostThatIsStillPending() {
         sigtermsCountedForTest.store(0, ordering: .sequentiallyConsistent)
         let original = signal(SIGTERM, countSIGTERMForTest)
@@ -141,6 +143,106 @@ final class SIGTERMCancellationTests: XCTestCase {
             sigtermsCountedForTest.load(ordering: .sequentiallyConsistent), 0,
             "a pending post reached the action `end()` put back"
         )
+    }
+
+    // MARK: - The writes `end()` makes (FXS2, Fix 3 of review FX47)
+
+    /// The CLI's usual cancel, one post that the handler took long before the end. `end()` goes from the
+    /// instance's handler to the earlier one and writes no SIG_IGN at all. A delivery that the kernel began under
+    /// one action and finishes under SIG_IGN calls address 1 and ends the process by SIGBUS (FX47 (a2)). The
+    /// earlier action is a handler, as in the CLI, so a write of SIG_IGN shows in the list.
+    func testEndPutsTheActionBackWithNoIgnoreOnceEveryPostRanTheHandler() async {
+        let original = signal(SIGTERM, recordSIGTERMForTest) // stands in for the CLI-wide handler
+        defer { signal(SIGTERM, original) }
+        let task = Task<Bool, Never> {
+            try? await Task.sleep(for: .seconds(30))
+            return Task.isCancelled
+        }
+        defer { task.cancel() }
+        let termination = SIGTERMCancellation(cancelling: task)
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+        let cancelled = await waitUntil(timeout: .seconds(30)) { task.isCancelled }
+        XCTAssertTrue(cancelled, "the handler took the post")
+
+        let ended = ending(termination)
+
+        XCTAssertEqual(ended.actions, [address(of: recordSIGTERMForTest)], "end() wrote an action other than the earlier one")
+        XCTAssertEqual(ended.polls, 0, "the count was whole, so end() had nothing to wait for")
+    }
+
+    /// The geometry that crashed FX47's run: a post the kernel noted that no thread has run the handler for yet,
+    /// while the instance ends. A real thread takes such a post within microseconds, which no test can hold still, so
+    /// the test holds it still. The handler is out of reach when the post is sent, so the kernel notes it and drops
+    /// it, and `end()` finds the count short. At its first poll the test puts the handler back in reach and raises a
+    /// SIGTERM at the waiting thread, which runs the handler once, as a thread that took the post would. `end()`
+    /// leaves its wait at once, writes no SIG_IGN, and the earlier action never sees a post.
+    func testEndWaitsForAPostThatIsStillBeingTakenAndWritesNoIgnore() {
+        sigtermsCountedForTest.store(0, ordering: .sequentiallyConsistent)
+        let original = signal(SIGTERM, countSIGTERMForTest)
+        defer { signal(SIGTERM, original) }
+        let termination = SIGTERMCancellation { }
+        let handler = signal(SIGTERM, SIG_IGN) // the instance's handler, out of reach while the post is sent
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+
+        let ended = ending(termination) { poll in
+            guard poll == 1 else { return }
+            signal(SIGTERM, handler) // the handler is back in reach
+            raise(SIGTERM) // and the waiting thread runs it
+        }
+
+        XCTAssertEqual(ended.actions, [address(of: countSIGTERMForTest)], "end() wrote an action other than the earlier one")
+        XCTAssertGreaterThanOrEqual(ended.polls, 1, "end() waited for the handler to run")
+        XCTAssertLessThan(ended.polls, 100, "end() left its wait once the handler had run")
+        XCTAssertEqual(
+            sigtermsCountedForTest.load(ordering: .sequentiallyConsistent), 0,
+            "a post reached the action `end()` put back"
+        )
+    }
+
+    /// A post the kernel noted and no thread takes, such as one sent while SIGTERM was ignored. `end()` waits for it up
+    /// to its bound. Then it ignores SIGTERM for the moment between its two writes, to drop whatever may still be
+    /// pending, since no thread is taking the post. The wait is bounded by time, not by a count of polls.
+    func testEndWaitsAtMostItsBoundForAPostNoThreadTakes() {
+        let original = signal(SIGTERM, recordSIGTERMForTest)
+        defer { signal(SIGTERM, original) }
+        let termination = SIGTERMCancellation { }
+        signal(SIGTERM, SIG_IGN) // the handler is out of reach: the kernel drops the post and only its note remains
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+
+        let started = ContinuousClock.now
+        let ended = ending(termination)
+        let waited = started.duration(to: .now)
+
+        XCTAssertEqual(ended.actions, [address(of: SIG_IGN), address(of: recordSIGTERMForTest)])
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(200), "end() gave the noted post time to run the handler")
+        // The bound is 250 ms. The margin is wide because a sleep can run long when every core is busy.
+        XCTAssertLessThan(waited, .seconds(5), "end() waits at most its bound")
+    }
+
+    /// The latch counts posts and does not only flag one. The handler took the first post. The second was sent with
+    /// the handler out of reach, so the kernel noted two posts and the handler ran once, and `end()` finds the count
+    /// short.
+    func testEveryNotedPostCountsAgainstTheRunsOfTheHandler() async {
+        let original = signal(SIGTERM, recordSIGTERMForTest)
+        defer { signal(SIGTERM, original) }
+        let task = Task<Bool, Never> {
+            try? await Task.sleep(for: .seconds(30))
+            return Task.isCancelled
+        }
+        defer { task.cancel() }
+        let termination = SIGTERMCancellation(cancelling: task)
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+        let cancelled = await waitUntil(timeout: .seconds(30)) { task.isCancelled }
+        XCTAssertTrue(cancelled, "the handler took the first post")
+        signal(SIGTERM, SIG_IGN) // the handler is out of reach from here on
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+
+        let started = ContinuousClock.now
+        let ended = ending(termination)
+        let waited = started.duration(to: .now)
+
+        XCTAssertEqual(ended.actions, [address(of: SIG_IGN), address(of: recordSIGTERMForTest)], "two posts, one run of the handler")
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(200), "end() waited for the second post")
     }
 
     // MARK: - The leaves' read of the flag (`runCancellingOnSIGTERM`)
@@ -220,4 +322,43 @@ private let sigtermsCountedForTest = Atomic<Int>(0)
 /// Stands in for the CLI-wide SIGTERM handler where a test needs to know whether a post reached it.
 private func countSIGTERMForTest(_ signalNumber: Int32) {
     sigtermsCountedForTest.add(1, ordering: .sequentiallyConsistent)
+}
+
+/// The address a SIGTERM action is reported by (0 is SIG_DFL and 1 is SIG_IGN).
+private func address(of action: sig_t) -> UInt {
+    unsafeBitCast(action, to: UInt.self)
+}
+
+/// What `SIGTERMCancellation.end()` did, as the seam reports it.
+private struct SIGTERMEndRecord {
+    /// The actions it gave SIGTERM, in order, as addresses (0 is SIG_DFL and 1 is SIG_IGN).
+    var actions: [UInt] = []
+    /// How many times it polled for the handler to run.
+    var polls = 0
+}
+
+private final class SIGTERMEndLog: Sendable {
+    private let record = Mutex(SIGTERMEndRecord())
+
+    func note(action: UInt) { record.withLock { $0.actions.append(action) } }
+
+    /// Counts a poll and returns its number, from 1.
+    func notePoll() -> Int { record.withLock { state in state.polls += 1; return state.polls } }
+
+    var value: SIGTERMEndRecord { record.withLock { $0 } }
+}
+
+/// Ends `termination` and returns what it did. `onPoll` runs at each poll of the wait, with the poll's number, on
+/// the thread that waits, and may change the signal state the wait is watching.
+private func ending(
+    _ termination: SIGTERMCancellation,
+    onPoll: @escaping @Sendable (Int) -> Void = { _ in }
+) -> SIGTERMEndRecord {
+    let log = SIGTERMEndLog()
+    SIGTERMEndTrace.$action.withValue({ log.note(action: $0) }) {
+        SIGTERMEndTrace.$wait.withValue({ onPoll(log.notePoll()) }) {
+            termination.end()
+        }
+    }
+    return log.value
 }
