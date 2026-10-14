@@ -234,8 +234,8 @@ public actor BlastService {
         )
     }
 
-    /// Starts `gzip -dc` on `url` through ``ToolProcess`` with its stdout streamed, so cancelling
-    /// the reading task stops the gzip tree and no thread waits for the child.
+    /// Starts `gzip -dc` on `url` through ``ToolProcess`` with its stdout streamed. A reader that stops
+    /// early stops the gzip tree in its `defer`, and one that reaches the end waits in `waitBlocking()`.
     private func launchGzipDecompression(for url: URL) throws -> ToolProcessRun {
         try ToolProcess.start(ToolProcessSpec(
             executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
@@ -246,8 +246,8 @@ public actor BlastService {
         ))
     }
 
-    /// The next `count` bytes of a plain file or of `gzip -dc`, fewer at the end. A cancelled
-    /// task ends the read, and the caller's `defer` stops the gzip tree.
+    /// The next `count` bytes of a plain file or of `gzip -dc`, fewer at the end. A cancelled task
+    /// ends a gzip read before its next piece, so a gzip that writes nothing sees the cancel late.
     private nonisolated static func nextChunk(_ file: FileHandle?, _ gzip: ToolProcessRun?, count: Int) throws -> Data {
         guard let gzip else { return file?.readData(ofLength: count) ?? Data() }
         var data = Data()
