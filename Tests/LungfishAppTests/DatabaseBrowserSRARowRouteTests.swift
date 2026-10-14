@@ -21,7 +21,8 @@ final class DatabaseBrowserSRARowRouteTests: XCTestCase {
     func testTheHiddenKeyPicksTheRoute() {
         let suite = makeTestDefaultsSuite(prefix: "sra-row-route")
         let settings = SRARowDownloadRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(settings.route, SRARowDownloadRouteSettings.defaultRoute, "an unset key")
+        XCTAssertEqual(SRARowDownloadRouteSettings.defaultRoute, .cli, "the flip: the CLI route is the default")
+        XCTAssertEqual(settings.route, .cli, "an unset key")
         let cases: [(Any, SRARowDownloadRoute)] = [
             ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), ("Cli", .cli), (true, .cli), (false, .legacy),
             ("NO", SRARowDownloadRouteSettings.defaultRoute),

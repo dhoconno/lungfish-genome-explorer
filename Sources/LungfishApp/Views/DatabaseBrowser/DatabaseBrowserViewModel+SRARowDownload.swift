@@ -18,12 +18,15 @@ enum SRARowDownloadRoute: String, Sendable, Equatable, CaseIterable {
     /// The route before lane A45, kept for one release as the escape the hidden key names (C4). The app
     /// downloads the run, runs the SRA Toolkit through `Process` when ENA cannot serve it, imports on
     /// `CLIImportRunner` and writes the record after the import child exits
-    /// (`startENADownloadTask`). A row with no project takes it whatever the key holds, because the
-    /// child publishes into the project's `Imports` folder.
+    /// (`startENADownloadTask`). The records it writes differ from the CLI route's in the kinds the
+    /// parity class declares (`DatabaseBrowserSRARowParityReplayTests.declared`), and it states the
+    /// metadata sidecar's digest as the import child saw it, not as it stands (BIO ruling on lane A45
+    /// M3c, section b item 3). It goes in 2.11 with the key. A row with no project takes it whatever
+    /// the key holds, because the child publishes into the project's `Imports` folder.
     case legacy
-    /// One `lungfish-cli fetch sra download <run> --bundle --project <project> <the sheet's flags>
-    /// --format json` child for each run, in order, which downloads, imports, writes the record and
-    /// publishes the bundle in its own process.
+    /// The default. One `lungfish-cli fetch sra download <run> --bundle --project <project> <the
+    /// sheet's flags> --format json` child for each run, in order, which downloads, imports, writes
+    /// the record and publishes the bundle in its own process.
     case cli
 }
 
@@ -34,7 +37,7 @@ struct SRARowDownloadRouteSettings {
     /// example `defaults write <app id> DatabaseBrowserSRARowRoute legacy`.
     static let defaultsKey = "DatabaseBrowserSRARowRoute"
     /// The route of a key that is unset or holds a value this reader does not know.
-    static let defaultRoute: SRARowDownloadRoute = .legacy
+    static let defaultRoute: SRARowDownloadRoute = .cli
 
     let defaults: UserDefaults
 

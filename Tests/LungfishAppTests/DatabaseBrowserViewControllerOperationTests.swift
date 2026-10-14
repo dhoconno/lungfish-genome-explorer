@@ -66,15 +66,17 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
 
     // MARK: - SRA runs
 
-    func testSRARunsRecordNoCommandAsAParityGap() throws {
-        // `fetch sra download` downloads one run and stops. The run then
-        // imports the FASTQ files into the project with the settings the user
-        // confirmed in the import sheet, which no command does, so no SRA row
-        // records a command, for one run or several.
+    func testSRARunsBeginWithNoCommandBecauseTheRouteSetsOneForEachRun() throws {
+        // The import sheet comes after the row, and its settings are flags of
+        // `fetch sra download`, so the row begins with no command, for one run
+        // or several. That is no longer a parity gap (the ratchet carries no
+        // `download-sra` id and no test pins one). `startSRADownloadTask` sets
+        // one line for each run when the sheet is confirmed, which
+        // DatabaseBrowserSRARowRouteTests and DatabaseBrowserSRARowRouteReplayTests
+        // parse and replay.
         for accessions in [["SRR11140748"], ["SRR11140748", "SRR11140749", "SRR11140750"]] {
             let item = try recordedRow(title: accessions.joined(separator: ", "), accessions: accessions, source: .ena)
             XCTAssertNil(item.cliCommand, "\(accessions)")
-            assertCLIParityGap(item.cliCommand, id: "download-sra")
         }
     }
 

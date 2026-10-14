@@ -21,15 +21,16 @@ extension DatabaseBrowserViewModel {
     ///
     /// The command comes from `batchDownloadCLICommand`. NCBI genome
     /// assemblies, nucleotide and virus records and Pathoplexus records with
-    /// a project in the route context record one. Every other download
-    /// records no command until a command covers it, as that function
-    /// describes.
+    /// a project in the route context record one. An SRA run row begins with
+    /// no command, because the import sheet comes after the row, and the CLI
+    /// route sets one `fetch sra download` line for each run when the sheet
+    /// is confirmed (`startSRADownloadTask`). Every other download records
+    /// no command until a command covers it, as that function describes.
     ///
-    /// - cli-parity-gap: download-sra. Every SRA run download.
     /// - cli-parity-gap: download-genome-no-project. NCBI genome assemblies,
-    ///   nucleotide records, virus records and Pathoplexus records with no
-    ///   project in the route context (lane A45 widened it from genome
-    ///   assemblies).
+    ///   nucleotide records, virus records, Pathoplexus records and SRA runs
+    ///   with no project in the route context (lane A45 widened it from
+    ///   genome assemblies).
     @discardableResult
     static func beginBatchDownloadOperation(
         title: String,
@@ -81,9 +82,13 @@ extension DatabaseBrowserViewModel {
     ///   (AppDelegate+Classification.swift). The in-process route behind the
     ///   hidden key builds the same bundles with no record, a difference the
     ///   parity class declares.
-    /// - SRA runs record nil. `fetch sra download` downloads one run, and the
-    ///   run then imports the FASTQ files into the project with the settings
-    ///   the user confirmed in the import sheet, which no command does.
+    /// - SRA runs begin with no command. The import sheet comes after the
+    ///   row, and its settings are flags of the command, so
+    ///   `startSRADownloadTask` (DatabaseBrowserViewModel+SRARowDownload.swift)
+    ///   sets one `fetch sra download <run> --bundle --project <project> <the
+    ///   sheet's flags> --format json` line for each run when the sheet is
+    ///   confirmed (lane A45 M3). A batch with no project keeps the in-process
+    ///   task and records none.
     /// - NCBI nucleotide and virus records, with a project, record `fetch ncbi
     ///   <accessions> --bundle --output-dir <folder> [--no-gff3] --format
     ///   json` (lane A45). The run launches it for each row in turn into the
