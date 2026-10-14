@@ -32,6 +32,7 @@ final class AssembleCommandReferenceBundleTests: XCTestCase {
     }
 
     func testTheFlagBuildsTheBundleTheRecordNames() async throws {
+        _ = try await ToolAvailability.require("bgzip", environment: "htslib")
         let run = try await assemble(in: root.appendingPathComponent("side", isDirectory: true))
         XCTAssertNil(run.error)
 
@@ -81,6 +82,7 @@ final class AssembleCommandReferenceBundleTests: XCTestCase {
     }
 
     func testTheRecordedCommandRebuildsTheBundle() async throws {
+        _ = try await ToolAvailability.require("bgzip", environment: "htslib")
         let sideA = root.appendingPathComponent("A", isDirectory: true)
         let first = try await assemble(in: sideA)
         XCTAssertNil(first.error)

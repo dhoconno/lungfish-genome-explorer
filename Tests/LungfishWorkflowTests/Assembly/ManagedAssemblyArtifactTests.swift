@@ -425,6 +425,7 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
     }
 
     func testManagedBundleBuilderCreatesReferenceBundleFromMegahitArtifacts() async throws {
+        _ = try await ToolAvailability.require("bgzip", environment: "htslib")
         let tempDir = try makeTempDirectory(prefix: "managed-assembly-bundle")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 

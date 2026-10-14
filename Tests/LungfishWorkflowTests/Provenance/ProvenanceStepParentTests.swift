@@ -15,6 +15,7 @@
 
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ProvenanceStepParentTests: XCTestCase {
@@ -545,6 +546,7 @@ final class ProvenanceStepParentTests: XCTestCase {
     /// CLI step and none of them in a staging folder, so the builder sets no parent and the export
     /// keeps every step it records.
     func testAssemblyBundleRecordHoldsNoStagingPathAndNoSubStep() async throws {
+        _ = try await ToolAvailability.require("bgzip", environment: "htslib")
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("step-parent-assembly-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)

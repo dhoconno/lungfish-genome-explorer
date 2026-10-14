@@ -44,6 +44,7 @@ final class AssemblyRouteConformanceTests: XCTestCase {
 
     func testTheInProcessRouteOnTheSarscov2Reads() async throws {
         _ = try await ToolAvailability.require("megahit", environment: "megahit")
+        _ = try await ToolAvailability.require("bgzip", environment: "htslib")
         let fixture = try AssemblyRoute.Fixture(in: scratch)
         let row = try await AssemblyRoute.record(fixture.request) { AssemblyRoute.startInProcess($0) }
         try AssemblyRoute.assertFrozen(AssemblyRoute.rowText(row), name: "megahit-row", scratch: scratch)

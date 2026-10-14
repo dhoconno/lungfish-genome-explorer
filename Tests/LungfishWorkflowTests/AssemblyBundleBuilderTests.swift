@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class AssemblyBundleBuilderTests: XCTestCase {
 
@@ -254,6 +255,7 @@ final class AssemblyBundleBuilderTests: XCTestCase {
     /// throws `CancellationError` and leaves no bundle and no staging folder, so a cancelled
     /// `lungfish-cli assemble --reference-bundle` leaves nothing the record does not name.
     func testACancelBeforePublishLeavesNoBundle() async throws {
+        _ = try await ToolAvailability.require("bgzip", environment: "htslib")
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("assembly-cancel-publish-\(UUID().uuidString.prefix(8))", isDirectory: true)
         let outputDir = tempDir.appendingPathComponent("megahit-output", isDirectory: true)
