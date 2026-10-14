@@ -236,6 +236,46 @@ final class ViralReconRunRecordTests: XCTestCase {
         return fasta
     }
 
+    /// Q35 V3, BIO 2.3. The line a launched run prints is the command its engine got, `manifest.commandPreview`, and not
+    /// the request's own preview, `nextflow run nf-core/viralrecon ...`. That one passes a `.gff3` the schema refuses,
+    /// drops `--gff` for a fetched reference and names the interleaved sheet, so a reader who copies it runs a different
+    /// analysis or none. It prints once the launch is known, after the Docker wait. A `--prepare-only` run launches
+    /// nothing, so the request's preview is the only command there is and its manifest holds the same string.
+    func testTheRunPrintsTheCommandTheEngineLaunched() async throws {
+        var launched: ViralReconLaunchedRun?
+        let captured = try await WorkflowRunCapture.run(in: root) {
+            launched = try await ViralReconLaunchedRun.run(in: root, extraArguments: ["--format", "json"])
+        }
+        XCTAssertNil(captured.error)
+        let run = try XCTUnwrap(launched)
+        let manifest = try NFCoreRunBundleStore.read(from: run.bundle)
+        let messages = try Self.infoMessages(in: captured.standardOutput)
+        XCTAssertEqual(messages.filter { $0 == manifest.commandPreview }.count, 1, "the run printed no launch line: \(messages)")
+        XCTAssertEqual(messages.filter { $0.hasPrefix("nextflow run") }, [], "the run printed the request's preview")
+        let created = try XCTUnwrap(messages.firstIndex { $0.hasPrefix("Created run bundle: ") })
+        XCTAssertGreaterThan(try XCTUnwrap(messages.firstIndex(of: manifest.commandPreview)), created)
+
+        let prepareRoot = root.appendingPathComponent("prepare", isDirectory: true)
+        try FileManager.default.createDirectory(at: prepareRoot, withIntermediateDirectories: true)
+        var prepared: ViralReconLaunchedRun?
+        let preparedOutput = try await WorkflowRunCapture.run(in: root) {
+            prepared = try await ViralReconLaunchedRun.run(in: prepareRoot, extraArguments: ["--prepare-only", "--format", "json"])
+        }
+        XCTAssertNil(preparedOutput.error)
+        let preparedManifest = try NFCoreRunBundleStore.read(from: try XCTUnwrap(prepared).bundle)
+        XCTAssertTrue(preparedManifest.commandPreview.hasPrefix("nextflow run nf-core/viralrecon"), preparedManifest.commandPreview)
+        XCTAssertEqual(try Self.infoMessages(in: preparedOutput.standardOutput).filter { $0 == preparedManifest.commandPreview }.count, 1)
+    }
+
+    /// The `message` of every `log` event at `info` in standard output under `--format json`, in order.
+    private static func infoMessages(in standardOutput: String) throws -> [String] {
+        try standardOutput.split(separator: "\n").compactMap { line -> String? in
+            let event = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], String(line))
+            guard event["event"] as? String == "log", event["level"] as? String == "info" else { return nil }
+            return event["message"] as? String
+        }
+    }
+
     /// The A30 seam ruling, deviation 1. Once the engine launched, the manifest names the engine's own log beside its
     /// tails, and each log it names holds what its key says: `nextflowLogPath` the command that ran and the engine's
     /// output as the engine streamed it, `stdoutLogPath` the tail of that output and `stderrLogPath` of its errors.

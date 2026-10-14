@@ -3,7 +3,7 @@
 {"event":"log","level":"info","message":"Read pairing: S1: paired R1\/R2 files, runs paired-end","schemaVersion":2}
 {"event":"log","level":"info","message":"Read pairing: S2: paired R1\/R2 files, runs paired-end","schemaVersion":2}
 {"event":"log","level":"info","message":"Created run bundle: \/work\/viralrecon.lungfishrun","schemaVersion":2}
-{"event":"log","level":"info","message":"nextflow run nf-core\/viralrecon -r 3.0.0 -profile docker --input \/work\/samplesheet.csv --outdir \/work\/results --platform illumina --protocol amplicon --skip_freyja true --skip_freyja_boot true","schemaVersion":2}
 {"event":"progress","message":"Docker daemon unavailable. Launching Docker Desktop...","progress":0.01,"schemaVersion":2}
 {"event":"progress","message":"Docker daemon ready","progress":0.02,"schemaVersion":2}
+{"event":"log","level":"info","message":"nextflow -c \/scratch\/lungfish-resource-limits.config run nf-core\/viralrecon -r 3.0.0 -work-dir \/scratch\/work -profile docker --input \/work\/samplesheet.csv --outdir \/work\/results --platform illumina --protocol amplicon --skip_freyja true --skip_freyja_boot true","schemaVersion":2}
 {"event":"complete","output":"\/work\/viralrecon.lungfishrun","outputs":["\/work\/viralrecon.lungfishrun","\/work\/results"],"progress":1,"schemaVersion":2}

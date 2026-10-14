@@ -97,8 +97,11 @@ extension RunSubcommand {
         )
 
         output.info("Created run bundle: \(runBundleURL.path)")
-        output.info(request.commandPreview)
         if prepareOnly {
+            // Nothing launches, so the request's preview is the only command there is. A launched run prints the command
+            // the engine got once it is known, below, because this one passes a `.gff3` the schema refuses, drops
+            // `--gff` for a fetched reference and names the interleaved sheet (V3-BIO 2.3).
+            output.info(request.commandPreview)
             try writeRunBundleProvenance(
                 request: request,
                 bundleURL: runBundleURL,
@@ -307,6 +310,7 @@ extension RunSubcommand {
             for: plannedRequest.viralReconLaunch(samplesheet: engineSamplesheetURL, configFiles: resourcePlan.configFiles))
         // From here the manifest records the command the engine got, never the request's preview (Q33 fix 8).
         let launchCommand = NFCoreRunCommandBuilder.commandPreview(nextflowArguments: launchArguments)
+        output.info(launchCommand)
         // N3. The Nextflow the launch starts is asked its version before the launch, never inside a cancel.
         let versionProbe = await (Self.nfCoreWorkflowProcessRunner as? any NFCoreEngineVersionProbing)?.probeEngineVersion()
         let logFile = runBundleURL.appendingPathComponent("logs/nextflow.log")

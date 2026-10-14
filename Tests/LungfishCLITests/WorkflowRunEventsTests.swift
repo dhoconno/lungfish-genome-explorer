@@ -154,6 +154,16 @@ final class WorkflowRunEventsTests: XCTestCase {
         return Run(captured: captured, lines: lines, events: try Self.decode(lines))
     }
 
+    /// `line` with each path through the run's scratch, a folder `nfcore-run-<UUID>` made anew for every run, written as
+    /// `scratch`, in the slash-escaped spelling a JSON line uses. The launch line a run prints names it twice.
+    private static func scratchWritten(as scratch: String, in line: String) -> String {
+        guard let path = try? NSRegularExpression(pattern: #"[^ "]*nfcore-run-[0-9A-Fa-f-]{36}"#) else { return line }
+        let escaped = scratch.replacingOccurrences(of: "/", with: "\\/")
+        return path.stringByReplacingMatches(
+            in: line, range: NSRange(line.startIndex..., in: line),
+            withTemplate: NSRegularExpression.escapedTemplate(for: escaped))
+    }
+
     private static func lines(of text: String) -> [String] {
         text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
     }
@@ -167,7 +177,7 @@ final class WorkflowRunEventsTests: XCTestCase {
     private func assertTranscript(_ name: String, _ lines: [String], file: StaticString = #filePath, line: UInt = #line) throws {
         let escapedRoot = root.path.replacingOccurrences(of: "/", with: "\\/")
         let normalized = lines.map {
-            $0.replacingOccurrences(of: escapedRoot, with: "\\/work").replacingOccurrences(of: root.path, with: "/work")
+            Self.scratchWritten(as: "/scratch", in: $0.replacingOccurrences(of: escapedRoot, with: "\\/work").replacingOccurrences(of: root.path, with: "/work"))
         }
         let url = CLIEventTranscriptCoverageTests.transcriptURL(leaf: "workflow run", name: name)
         if ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_CLI_EVENTS"] == "1" {
