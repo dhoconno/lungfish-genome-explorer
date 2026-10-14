@@ -1003,6 +1003,8 @@ records:
   "adapterIDs" : [
     "viralrecon"
   ],
+  "appBuildVersion" : "dev",
+  "appVersion" : "<appversion>",
   "commandPreview" : "nextflow -c <scratch>/lungfish-resource-limits.config run nf-core/viralrecon -r 395079f1d24dce731ac22e03d7a5e71f110103fc -work-dir <scratch>/work -profile docker --consensus_caller bcftools --genome MN908947.3 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --min_mapped_reads 1 --outdir <root>/Project/Analyses/viralrecon-results --platform illumina --primer_bed <repository>/Tests/Fixtures/sarscov2/test.bed --primer_left_suffix _LEFT --primer_right_suffix _RIGHT --protocol amplicon --skip_assembly true --skip_freyja true --skip_freyja_boot true --skip_kraken2 true --variant_caller ivar",
   "completedAt" : "<time>",
   "createdAt" : "<time>",
