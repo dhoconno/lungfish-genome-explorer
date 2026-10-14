@@ -50,7 +50,7 @@ struct AboutAcknowledgements {
             Entry(
                 id: "nf-core-\(workflow.name)",
                 displayName: workflow.fullName,
-                detail: "Pinned \(workflow.pinnedVersion)",
+                detail: pinnedDetail(of: workflow),
                 secondaryDetail: "\(workflow.difficulty.displayName) Nextflow workflow",
                 sourceURL: workflow.documentationURL.absoluteString
             )
@@ -60,6 +60,16 @@ struct AboutAcknowledgements {
         }
 
         return sections
+    }
+
+    /// The pin a workflow credit names, the release tag the lock records and then the first ten characters of the commit
+    /// it pins, as `Pinned 3.0.0 (395079f1d2)` (Phase 2.10 N2). A lock entry whose revision is its tag names it once.
+    private static func pinnedDetail(of workflow: NFCoreSupportedWorkflow) -> String {
+        guard let spec = ManagedToolLock.bundled.pipeline(id: "nf-core-\(workflow.name)"),
+              !spec.releaseVersion.isEmpty, spec.releaseVersion != spec.revision else {
+            return "Pinned \(workflow.pinnedVersion)"
+        }
+        return "Pinned \(spec.releaseVersion) (\(spec.revision.prefix(10)))"
     }
 
     private static func packEntries(for pack: PluginPack) -> [Entry] {

@@ -99,7 +99,9 @@ final class AboutAcknowledgementsTests: XCTestCase {
         let viralrecon = try XCTUnwrap(workflowCredits.entries.first(where: { $0.id == "nf-core-viralrecon" }))
         let spec = try XCTUnwrap(ManagedToolLock.bundled.pipeline(id: "nf-core-viralrecon"))
         XCTAssertEqual(viralrecon.displayName, "nf-core/viralrecon")
-        XCTAssertEqual(viralrecon.detail, "Pinned \(spec.revision)")
+        // Phase 2.10 N2. The lock pins a commit, so the credit names the release tag first and then the commit's first
+        // ten characters, as `Pinned 3.0.0 (395079f1d2)`, both from the lock.
+        XCTAssertEqual(viralrecon.detail, "Pinned \(spec.releaseVersion) (\(spec.revision.prefix(10)))")
         XCTAssertEqual(viralrecon.secondaryDetail, "Easy Nextflow workflow")
         XCTAssertEqual(viralrecon.sourceURL, "https://nf-co.re/viralrecon")
     }
