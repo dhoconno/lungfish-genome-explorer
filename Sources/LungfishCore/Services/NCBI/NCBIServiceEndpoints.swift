@@ -18,23 +18,23 @@ import Foundation
 /// the service resolves no API key, so no key reaches a stand-in, its recorded requests or a log.
 /// It moves the EUtils base and the Datasets origin and nothing else. A download from an assembly's
 /// FTP folder keeps following the path its summary names.
-public struct NCBIServiceEndpoints: Sendable, Equatable {
+package struct NCBIServiceEndpoints: Sendable, Equatable {
     /// The variable a debug build reads.
-    public static let standInOriginVariable = "LUNGFISH_NCBI_STAND_IN_ORIGIN"
+    package static let standInOriginVariable = "LUNGFISH_NCBI_STAND_IN_ORIGIN"
 
     /// NCBI's own hosts.
-    public static let ncbi = NCBIServiceEndpoints(
+    package static let ncbi = NCBIServiceEndpoints(
         eutilsBase: URL(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/")!,
         datasetsOrigin: "https://api.ncbi.nlm.nih.gov",
         isStandIn: false
     )
 
     /// The EUtils base, with its trailing slash.
-    public let eutilsBase: URL
+    package let eutilsBase: URL
     /// The scheme, host and port the Datasets API paths go under, with no trailing slash.
-    public let datasetsOrigin: String
+    package let datasetsOrigin: String
     /// True when a debug build's environment named a stand-in origin, valid or not.
-    public let isStandIn: Bool
+    package let isStandIn: Bool
 
     private init(eutilsBase: URL, datasetsOrigin: String, isStandIn: Bool) {
         self.eutilsBase = eutilsBase
@@ -44,7 +44,7 @@ public struct NCBIServiceEndpoints: Sendable, Equatable {
 
     /// The endpoints `environment` names. A release build reads nothing from it, and an empty
     /// value counts as no value.
-    public init(environment: [String: String]) {
+    package init(environment: [String: String]) {
         #if DEBUG
         if let value = environment[Self.standInOriginVariable], !value.isEmpty {
             let origin = Self.loopbackOrigin(value) ?? Self.unansweredOrigin

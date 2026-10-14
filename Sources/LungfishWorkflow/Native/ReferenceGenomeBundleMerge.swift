@@ -16,8 +16,8 @@ import LungfishCore
 /// Each folder is copied in under a hidden name first and swapped in only once every copy is
 /// complete, and the manifest is written last (SWIFT 4), so a failure leaves the target's old
 /// manifest in place.
-public enum ReferenceGenomeBundleMerge {
-    public static func merge(sourceBundleURL: URL, into targetBundleURL: URL) throws {
+package enum ReferenceGenomeBundleMerge {
+    package static func merge(sourceBundleURL: URL, into targetBundleURL: URL) throws {
         let fileManager = FileManager.default
         let sourceManifest = try BundleManifest.load(from: sourceBundleURL)
         let targetManifest = try BundleManifest.load(from: targetBundleURL)

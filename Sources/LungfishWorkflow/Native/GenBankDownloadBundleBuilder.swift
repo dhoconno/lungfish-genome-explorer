@@ -304,7 +304,7 @@ public final class GenBankDownloadBundleBuilder: Sendable {
 
     /// The NCBI EFetch URL of `accession`'s record as `format`, the URL a bundle's record names
     /// whatever host served the run.
-    public static func recordURL(accession: String, format: String = "gb") -> URL {
+    package static func recordURL(accession: String, format: String = "gb") -> URL {
         var components = URLComponents(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi")!
         components.queryItems = [
             URLQueryItem(name: "db", value: "nuccore"),

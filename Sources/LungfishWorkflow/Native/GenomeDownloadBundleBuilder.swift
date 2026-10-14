@@ -85,21 +85,21 @@ public final class GenomeDownloadBundleBuilder: Sendable {
     /// One file the pipeline fetched, described as it arrived, before the pipeline decompressed,
     /// moved or deleted it. A record written once the bundle is in its final place names each one
     /// with its source URL, digest and size (BIO B-3), since the pipeline keeps no download.
-    public struct FetchedSource: Sendable, Equatable {
-        public enum Kind: String, Sendable {
+    package struct FetchedSource: Sendable, Equatable {
+        package enum Kind: String, Sendable {
             case fasta
             case gff3
             case genBank = "genbank"
             case assemblyReport = "assembly-report"
         }
 
-        public let kind: Kind
+        package let kind: Kind
         /// Where the file came from. The files of a Datasets archive name the archive's URL.
-        public let url: URL
-        public let sha256: String?
-        public let sizeBytes: UInt64?
+        package let url: URL
+        package let sha256: String?
+        package let sizeBytes: UInt64?
 
-        public init(kind: Kind, url: URL, sha256: String?, sizeBytes: UInt64?) {
+        package init(kind: Kind, url: URL, sha256: String?, sizeBytes: UInt64?) {
             self.kind = kind
             self.url = url
             self.sha256 = sha256
@@ -107,16 +107,16 @@ public final class GenomeDownloadBundleBuilder: Sendable {
         }
 
         /// The source `url` fetched into `file`, with the digest and size of `file` as it is now.
-        public static func describing(_ kind: Kind, from url: URL, file: URL) -> FetchedSource {
+        package static func describing(_ kind: Kind, from url: URL, file: URL) -> FetchedSource {
             let record = ProvenanceRecorder.fileRecord(url: file)
             return FetchedSource(kind: kind, url: url, sha256: record.sha256, sizeBytes: record.sizeBytes)
         }
     }
 
     /// The bundle the pipeline built and every file it fetched for it, in the order fetched.
-    public struct BuildResult: Sendable {
-        public let bundleURL: URL
-        public let sources: [FetchedSource]
+    package struct BuildResult: Sendable {
+        package let bundleURL: URL
+        package let sources: [FetchedSource]
     }
 
     /// The pipeline of ``downloadAndBuild(assembly:outputDirectory:progressHandler:)``, which also
@@ -124,7 +124,7 @@ public final class GenomeDownloadBundleBuilder: Sendable {
     /// the bundle folder and its manifest. The pipeline stops with `CancellationError` at the check
     /// between two stages after its task is cancelled, and leaves what it built in `outputDirectory`
     /// for the caller to remove.
-    public func downloadAndBuildRecordingSources(
+    package func downloadAndBuildRecordingSources(
         assembly: NCBIAssemblySummary,
         outputDirectory: URL,
         bundleName requestedName: String? = nil,
