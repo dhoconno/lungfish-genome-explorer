@@ -65,6 +65,11 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
     /// variables, so a name in both ends up set. The executable and arguments
     /// are unchanged. TaxTriage states its profile settings this way, on top of
     /// the shared environment rather than in a copy of it.
+    ///
+    /// A name in `unset` stays unset only where the child gets this environment
+    /// as it is, as `NextflowEngineProcess` and a `ToolProcessSpec` give it.
+    /// `ProcessManager.spawn` and `runAndWait` lay it over the parent's own, so
+    /// a value the parent holds comes back there (Phase 2.10 FXE).
     public func overridingEnvironment(
         set values: [String: String] = [:],
         unset names: Set<String> = []
