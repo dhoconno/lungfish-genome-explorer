@@ -135,10 +135,31 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
 
     func testI3_clickWiring_esviritu_firesPresent() {
         let table = ViralDetectionTableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        // Since 336e91dc3 the table acts on the clicked row of a context menu or on the
+        // selection, so the click needs one of them. Like I2, this one selects row 0.
+        table.setTestingSelection(indices: [0])
         var fired = 0
         table.onExtractReadsRequested = { fired += 1 }
         table.simulateContextMenuExtractReads()
         XCTAssertEqual(fired, 1, "EsViritu menu click must fire onExtractReadsRequested exactly once")
+    }
+
+    /// The other half of the wiring above: a click with neither a clicked row nor a selection has
+    /// nothing to extract, so it fires nothing. That holds for a table with no rows and for a
+    /// table with rows and none selected.
+    func testI3_clickWiring_esviritu_withoutSelection_firesNothing() {
+        let withoutRows = ViralDetectionTableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var firedWithoutRows = 0
+        withoutRows.onExtractReadsRequested = { firedWithoutRows += 1 }
+        withoutRows.simulateContextMenuExtractReads()
+        XCTAssertEqual(firedWithoutRows, 0, "EsViritu menu click on a table with no rows must not fire onExtractReadsRequested")
+
+        let nothingSelected = ViralDetectionTableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        nothingSelected.setTestingSelection(indices: [])
+        var firedNothingSelected = 0
+        nothingSelected.onExtractReadsRequested = { firedNothingSelected += 1 }
+        nothingSelected.simulateContextMenuExtractReads()
+        XCTAssertEqual(firedNothingSelected, 0, "EsViritu menu click with no row selected must not fire onExtractReadsRequested")
     }
 
     func testI3_clickWiring_kraken2_firesPresent() {
