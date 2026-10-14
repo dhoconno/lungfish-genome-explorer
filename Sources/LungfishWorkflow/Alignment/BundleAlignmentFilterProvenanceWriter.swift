@@ -146,7 +146,7 @@ enum BundleAlignmentFilterProvenanceWriter {
             startedAt: startedAt,
             endedAt: completedAt
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private static func descriptor(_ source: DescriptorSource) throws -> ProvenanceFileDescriptor {

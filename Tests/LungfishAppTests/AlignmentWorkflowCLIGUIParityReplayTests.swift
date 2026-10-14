@@ -354,13 +354,6 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
         return source.deletingLastPathComponent().appendingPathComponent("Sample-deduplicated.lungfishref", isDirectory: true)
     }
 
-    /// The cases whose bundle record a Workflow service writes with no signer, `ProvenanceWriter(signingProvider: nil)`
-    /// in `BundleAlignmentFilterProvenanceWriter` and `MappedReadsAnnotationProvenanceWriter`. A signing key in the
-    /// environment leaves those records unsigned, and `provenance verify` has no signature to check, so the first run
-    /// of this test failed for these two cases on both sides (`Signature artifact is missing`). A record that is
-    /// signed must verify, so the two cases verify as soon as their services sign.
-    private static let unsignedServiceRecords: Set<Case> = [.filterAlignment, .convertMappedReads]
-
     /// B-5. The bundle's record lists outputs, and each one that is not run scratch exists with the digest it states.
     /// A filter's record also lists the intermediates of its steps as `<workspace>/` paths, which the run deleted.
     /// With `namesBAM` the record must name a BAM, whose byte digest the contract's masks keep out of the comparison.
@@ -402,7 +395,9 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
     /// The contract's masks keep the byte digest of a BAM out of the comparison, because samtools writes the paths of
     /// a run into its `@PG` line, so nothing else checks that a side's record states the BAM that side holds. Each
     /// completing case runs on side C and side C'. The bundle's record names each output with the digest of the file
-    /// that side holds, and every record the run wrote that carries a signature passes `provenance verify`.
+    /// that side holds, and every record the run wrote is signed and passes `provenance verify`, the bundle's record
+    /// among them. All four cases verify: `bam filter` and `bam annotate` only call services, and the two writers that
+    /// record a filter and an annotation take the default signer, which signs when a key is set.
     func testEachCLISidesRecordsPassProvenanceVerify() async throws {
         let saved = ProcessEnvironmentOverride(
             set: [ProvenanceSigningConfiguration.signingKeyEnvironmentKey: "lane-a54-parity-signing-key"],
@@ -419,16 +414,15 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
             for run in [runs.c, runs.cPrime] {
                 let label = "\(parityCase) side \(run.side)"
                 XCTAssertEqual(run.outcome.end, .completed, "\(label): \(run.outcome.detail)")
-                Self.assertRecordNamesEachOutputWithItsDigest(
-                    Self.resultBundle(of: parityCase, in: run.root), label: label, namesBAM: parityCase != .convertMappedReads
-                )
+                let bundle = Self.resultBundle(of: parityCase, in: run.root)
+                Self.assertRecordNamesEachOutputWithItsDigest(bundle, label: label, namesBAM: parityCase != .convertMappedReads)
                 let records = Self.newRecords(under: run.root, fixture: runs.fixture)
                 XCTAssertFalse(records.isEmpty, "\(label) wrote no record")
-                var verified = 0
+                var verified: Set<String> = []
                 for record in records {
                     let signature = ProvenanceSigningConfiguration.signatureURL(for: record)
                     guard FileManager.default.fileExists(atPath: signature.path) else {
-                        XCTAssertTrue(Self.unsignedServiceRecords.contains(parityCase), "\(label): \(record.path) is unsigned")
+                        XCTFail("\(label): \(record.path) is unsigned, though a signing key is set")
                         continue
                     }
                     let verify = await RouteParityHarness.runCLI(
@@ -436,11 +430,14 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
                     )
                     XCTAssertEqual(verify.status, 0, "\(label): \(record.lastPathComponent): \(verify.detail)")
                     XCTAssertTrue(verify.stdout.contains("Signature valid"), "\(label): \(record.lastPathComponent): \(verify.stdout)")
-                    verified += 1
+                    verified.insert(record.resolvingSymlinksInPath().standardizedFileURL.path)
                 }
-                if !Self.unsignedServiceRecords.contains(parityCase) {
-                    XCTAssertGreaterThan(verified, 0, "\(label): no signed record was verified among \(records.count)")
-                }
+                let bundleRecord = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+                    .resolvingSymlinksInPath().standardizedFileURL.path
+                XCTAssertTrue(
+                    verified.contains(bundleRecord),
+                    "\(label): the bundle's record \(bundleRecord) is not among the verified records \(verified.sorted())"
+                )
             }
         }
     }

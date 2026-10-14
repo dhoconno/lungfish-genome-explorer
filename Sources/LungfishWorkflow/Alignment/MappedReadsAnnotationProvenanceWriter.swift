@@ -306,7 +306,7 @@ enum MappedReadsAnnotationProvenanceWriter {
         if resetExistingBundleProvenance {
             try removeExistingBundleProvenance(at: outputBundleURL)
         }
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: outputBundleURL)
+        try ProvenanceWriter().write(envelope, to: outputBundleURL)
     }
 
     private static func descriptor(_ source: DescriptorSource) throws -> ProvenanceFileDescriptor {
