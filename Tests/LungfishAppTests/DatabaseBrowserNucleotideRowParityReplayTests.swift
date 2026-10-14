@@ -98,6 +98,14 @@ final class DatabaseBrowserNucleotideRowParityReplayTests: XCTestCase {
                 [.recordWithGFF3: 27, .recordWithoutGFF3: 27], "differs: \(bundle)<ANY>lungfish-provenance.json at <ANY>fileSize",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
+                [.recordWithGFF3: 80, .recordWithoutGFF3: 72],
+                "differs: \(bundle)<ANY>lungfish-provenance.json at options.resolvedDefaults.fetchedRecord<ANY>",
+                reason: "A record fetched from NCBI on the day of the run is a live snapshot (2.9 R3). The CLI route names it "
+                    + "in each record file as a fetchedRecord entry in the shape of a Nextflow database entry, with the status, "
+                    + "the date of the fetch and the kept sources/record.gb (A45 ruling K7). The in-process route keeps the "
+                    + "record it wrote before 2.10, so side A holds none of the eight values in any of its record files.",
+                closedBy: closer),
+            RouteParityDeclaredDifference(
                 [.recordWithGFF3: 3, .recordWithoutGFF3: 6],
                 "differs: \(bundle)<ANY>lungfish-provenance.json at steps[<ANY>].resolvedOptions.<ANY>",
                 reason: naming, closedBy: closer),

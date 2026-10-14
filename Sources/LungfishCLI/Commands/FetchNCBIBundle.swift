@@ -113,6 +113,7 @@ struct FetchNCBIBundleRun: Sendable {
             outputDirectory: staging,
             includeGFF3Annotations: request.includeGFF3Annotations,
             sequenceNaming: .accessionVersion,
+            namesFetchedRecord: true,
             progressHandler: progress
         )
         try Task.checkCancellation()

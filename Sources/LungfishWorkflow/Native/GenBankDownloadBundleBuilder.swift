@@ -46,11 +46,16 @@ public final class GenBankDownloadBundleBuilder: Sendable {
         case accessionVersion
     }
 
+    /// - Parameter namesFetchedRecord: Whether the record names the fetched GenBank record as a
+    ///   `liveSnapshot` with the date of the fetch and the kept `sources/record.gb`, in the shape of
+    ///   a Nextflow database entry (2.9 R3, A45 K7). The CLI routes pass true. The in-process route
+    ///   keeps the record it wrote before 2.10.
     public func downloadAndBuild(
         accession: String,
         outputDirectory: URL,
         includeGFF3Annotations: Bool = true,
         sequenceNaming: SequenceNaming = .locusName,
+        namesFetchedRecord: Bool = false,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
@@ -320,7 +325,9 @@ public final class GenBankDownloadBundleBuilder: Sendable {
         try Self.writeDownloadProvenance(
             bundleURL: bundleURL, requestedAccession: accession, resolvedAccession: resolvedAccession,
             includeGFF3Annotations: includeGFF3Annotations, steps: provenanceSteps,
-            runClock: runClock, stderr: warnings.joined(separator: "\n"))
+            runClock: runClock, stderr: warnings.joined(separator: "\n"),
+            fetchedRecord: namesFetchedRecord ? NextflowDatabaseEntry(
+                role: "fetchedRecord", status: .liveSnapshot, fetchedAt: fetchCompletedAt, listingFiles: [durableGenBankURL]) : nil)
         completed = true
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         genBankDownloadLogger.info("downloadAndBuild: Bundle complete at \(bundleURL.path, privacy: .public)")
@@ -403,7 +410,8 @@ public final class GenBankDownloadBundleBuilder: Sendable {
     /// project-copy importer rehydrates these paths when it relocates the bundle.
     static func writeDownloadProvenance(
         bundleURL: URL, requestedAccession: String, resolvedAccession: String,
-        includeGFF3Annotations: Bool, steps: [ProvenanceStep], runClock: ProvenanceRunClock, stderr: String
+        includeGFF3Annotations: Bool, steps: [ProvenanceStep], runClock: ProvenanceRunClock, stderr: String,
+        fetchedRecord: NextflowDatabaseEntry? = nil
     ) throws {
         let options: [String: ParameterValue] = [
             "requestedAccession": .string(requestedAccession),
@@ -419,7 +427,9 @@ public final class GenBankDownloadBundleBuilder: Sendable {
             workflowName: "gui-genbank-download", workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "Lungfish", toolVersion: WorkflowRun.currentAppVersion)
             .argv(ProcessInfo.processInfo.arguments)
-            .options(explicit: options, defaults: ["includeGFF3Annotations": .boolean(true)], resolved: options)
+            .options(
+                explicit: options, defaults: ["includeGFF3Annotations": .boolean(true)],
+                resolved: options.merging(fetchedRecord?.resolvedDefaults ?? [:]) { _, entry in entry })
             .runtime(ProvenanceRuntimeIdentity())
         for step in steps { builder = builder.step(step) }
         // Preserve the bundle root's path spelling. URL enumeration canonicalizes
