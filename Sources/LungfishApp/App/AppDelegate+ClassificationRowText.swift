@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishWorkflow
 
 /// The alert titles, the batch sample prefix and the database warning line of the Kraken2 and
 /// EsViritu launches in AppDelegate+Classification.swift. They sit here so one place holds the
@@ -32,8 +33,10 @@ extension AppDelegate {
         "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
     }
 
-    /// The warning line a run logs when the viewer database could not be built after the run.
+    /// The warning line a run logs when the viewer database could not be built after the run. It is the
+    /// sentence the commands write too (``ClassificationCompletionDetail/viewerIndexWarning(_:)``), so the
+    /// row reads the command's warning with ``CLIClassifierRowEvents/databaseBuildError(in:)``.
     nonisolated static func classificationDatabaseBuildWarning(_ dbError: String) -> String {
-        "Database build failed: \(dbError) \u{2014} batch will rebuild lazily on open"
+        ClassificationCompletionDetail.viewerIndexWarning(dbError)
     }
 }

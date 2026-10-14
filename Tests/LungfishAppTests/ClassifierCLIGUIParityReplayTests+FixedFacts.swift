@@ -367,7 +367,9 @@ extension ClassifierCLIGUIParityReplayTests {
         }
         // X1 review fix 1. While the viewer database builds, the detail reads today's words and the
         // overlay keeps the sample's last line, so neither the detail nor the log line shows there.
-        // A single Kraken2 row builds no database at its end today (D19).
+        // A single Kraken2 row built no database at its end before Phase 2.10 U34 (D19). A `--project` run of
+        // one sample now says it builds one, as the batch does, and `Kraken2AnalysisRunToolTests` and
+        // `CLIClassifierRowEventsTests` pin that line, so this fact still reads the batch and EsViritu rows.
         if parityCase.tool == .esViritu || parityCase.isBatch {
             let buildDetail = parityCase.tool == .kraken2 ? "Building Kraken2 database\u{2026}" : "Building EsViritu database\u{2026}"
             if !row.details.contains(buildDetail) {

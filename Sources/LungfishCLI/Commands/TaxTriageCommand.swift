@@ -81,7 +81,7 @@ extension TaxTriageCommand {
             let detail = status.containerRuntimeDetail
                 ?? "\(PipelineContainerRuntimeStatus.runtimeName) is not available"
             return [
-                formatter.error("Container runtime: NOT AVAILABLE (\(detail))"),
+                formatter.error("Container runtime: not available (\(detail))"),
                 formatter.info("  Install and start Docker Desktop, then run `lungfish-cli debug container`"),
             ]
         }
@@ -100,7 +100,7 @@ extension TaxTriageCommand {
                 let version = status.nextflowVersion ?? "unknown"
                 print(formatter.success("Nextflow: installed (v\(version))"))
             } else {
-                print(formatter.error("Nextflow: NOT INSTALLED"))
+                print(formatter.error("Nextflow: not installed"))
                 // Nextflow is a managed Required Setup tool, not a
                 // hand-installed one; point at the managed install.
                 print(formatter.info(

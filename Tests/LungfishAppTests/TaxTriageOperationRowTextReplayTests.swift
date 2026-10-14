@@ -527,7 +527,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         let lines = Self.loggedLines(of: item)
         XCTAssertEqual(
             lines.filter { $0.hasPrefix("warning:") },
-            ["warning: Database build failed: lungfish-cli exited with status 3: no space left \u{2014} batch will rebuild lazily on open"]
+            ["warning: The viewer index could not be built (lungfish-cli exited with status 3: no space left). LGE builds it when the result opens."]
         )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [], "\(run.trace.bars)")
         let analysis = try analysisFolder(in: project)

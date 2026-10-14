@@ -125,7 +125,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(run.item.displayStateLabel, "Completed with Warnings")
         XCTAssertEqual(run.item.detail, detail)
         XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("warning:") }, [
-            "warning: Database build failed: disk full \u{2014} batch will rebuild lazily on open",
+            "warning: The viewer index could not be built (disk full). LGE builds it when the result opens.",
             "warning: \(detail)",
         ])
         XCTAssertTrue(loggedLines(of: run.item).contains("info: Building kraken2.sqlite from 2 sample(s)"))

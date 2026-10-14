@@ -1604,15 +1604,15 @@ public struct PrerequisiteStatus: Sendable {
         if nextflowInstalled {
             lines.append("Nextflow: installed (v\(nextflowVersion ?? "unknown"))")
         } else {
-            lines.append("Nextflow: NOT INSTALLED")
+            lines.append("Nextflow: not installed")
         }
 
         if containerRuntimeAvailable {
             lines.append("Container runtime: \(containerRuntimeName ?? "available")")
         } else if let containerRuntimeDetail {
-            lines.append("Container runtime: NOT AVAILABLE (\(containerRuntimeDetail))")
+            lines.append("Container runtime: not available (\(containerRuntimeDetail))")
         } else {
-            lines.append("Container runtime: NOT AVAILABLE")
+            lines.append("Container runtime: not available")
         }
 
         if allSatisfied {

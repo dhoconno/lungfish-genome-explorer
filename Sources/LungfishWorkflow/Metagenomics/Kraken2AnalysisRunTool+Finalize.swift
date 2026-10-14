@@ -27,14 +27,15 @@ extension Kraken2AnalysisRunTool {
     /// The batch summary table's name, as the app has always written it.
     public static let batchSummaryFilename = "classification-batch-summary.tsv"
 
-    /// The warning of a batch whose viewer index could not be built, as the app has always
-    /// logged it (`AppDelegate.classificationDatabaseBuildWarning`).
+    /// The warning of a result whose viewer index could not be built, the sentence the app logs
+    /// (`AppDelegate.classificationDatabaseBuildWarning`) and every other route writes (Phase 2.10 W4).
     public static func batchIndexWarning(_ detail: String) -> String {
-        "Database build failed: \(detail) \u{2014} batch will rebuild lazily on open"
+        ClassificationCompletionDetail.viewerIndexWarning(detail)
     }
 
-    /// The batch row's detail while the viewer index builds, as EsViritu's finalize reports
-    /// `Building EsViritu database…`. The app's row logs today's `Building kraken2.sqlite from N
+    /// The row's detail while the viewer index builds, as EsViritu's finalize reports
+    /// `Building EsViritu database…`. A batch root says it, and so does a `--project` run of one
+    /// sample (Phase 2.10 W4). The app's row logs today's `Building kraken2.sqlite from N
     /// sample(s)` line itself.
     public static let batchIndexMessage = "Building Kraken2 database\u{2026}"
 
@@ -69,12 +70,11 @@ extension Kraken2AnalysisRunTool {
             completionDetail: metadata.completionDetail
         )
         guard unitResult.destinationIsProject else { return finalization }
+        context.progress(Self.batchIndexMessage)
         do {
             try await add(context.buildIndex(), to: &finalization)
         } catch {
-            finalization.warnings.append(
-                "The viewer index could not be built: \(error.localizedDescription). The viewer builds it when the result opens."
-            )
+            finalization.warnings.append(Self.batchIndexWarning(error.localizedDescription))
         }
         if let bundle = unitResult.sourceBundle {
             finalization.sourceRecords = [AnalysisManifestSourceRecord(

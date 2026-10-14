@@ -61,4 +61,13 @@ public enum ClassificationCompletionDetail {
 
     /// The detail of a batch the user cancelled.
     public static let batchCancelled = "Batch cancelled"
+
+    /// The warning of a result whose viewer index could not be built. It is one sentence on every route, the
+    /// app's row, the Kraken2, EsViritu and TaxTriage commands, with the error in brackets, and the result
+    /// stays since the viewer builds the index when it opens (Phase 2.10 W4). It once read
+    /// `Database build failed: <error>`, a dash and `batch will rebuild lazily on open`, or on the executors
+    /// `The viewer index could not be built: <error>. The viewer builds it when the result opens.`
+    public static func viewerIndexWarning(_ error: String) -> String {
+        "The viewer index could not be built (\(error)). LGE builds it when the result opens."
+    }
 }

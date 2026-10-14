@@ -65,9 +65,7 @@ extension TaxTriageAnalysisRunTool {
             finalization.outputs += index.outputs
             finalization.warnings += index.warnings
         } catch {
-            finalization.warnings.append(
-                "The viewer index could not be built: \(error.localizedDescription). The viewer builds it when the result opens."
-            )
+            finalization.warnings.append(ClassificationCompletionDetail.viewerIndexWarning(error.localizedDescription))
         }
         if aggregate != nil, Task.isCancelled {
             // 2.9 T10. A cancelled batch keeps no aggregate result, as the app's serial batch writes none, and the

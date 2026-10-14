@@ -297,6 +297,64 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         XCTAssertEqual(manifest.samples.map(\.resultDirectory), ["reads-2"])
     }
 
+    // MARK: - The viewer index
+
+    /// Phase 2.10 U34, W4. A `--project` run of one sample builds its viewer index at the end, as a batch
+    /// root does, and says so with the batch's words before the builder's lines, where it said nothing and the
+    /// row's detail stayed `Classification complete`. A plain `--output` run builds no index and says nothing
+    /// of one.
+    func testAProjectRunOfOneSampleSaysItBuildsTheViewerIndex() async throws {
+        let indexer = StubKraken2Indexer()
+        let argv = command([fixtures.singleRoot.path, "--project", fixtures.projectURL.path])
+
+        let run = await execute(request([fixtures.singleRoot.path]), .project(fixtures.projectURL), argv: argv, indexing: indexer)
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        XCTAssertEqual(indexer.requests.count, 1, "the index is built once")
+        let building = run.events.firstIndex { buildsTheIndex($0) }
+        let completed = run.events.firstIndex { kind(of: $0.event) == "complete" }
+        XCTAssertNotNil(building, "a project run of one sample says it builds the viewer index")
+        XCTAssertLessThan(building ?? .max, completed ?? .min)
+
+        let plain = root.appendingPathComponent("plain-out", isDirectory: true)
+        let outside = await execute(
+            request([fixtures.singleRoot.path]), .directory(plain),
+            argv: command([fixtures.singleRoot.path, "--output-dir", plain.path]), indexing: indexer
+        )
+        XCTAssertEqual(outside.report.status, .completed, outside.report.message)
+        XCTAssertFalse(outside.events.contains { buildsTheIndex($0) }, "a plain folder builds no index and says nothing of one")
+        XCTAssertEqual(indexer.requests.count, 1, "and asks for none")
+    }
+
+    /// W4. An index that cannot be built is one sentence on every layout, the sentence the app's row logs, and
+    /// the run still completes with that warning. A one-folder run once wrote `The viewer index could not be
+    /// built: <error>. The viewer builds it when the result opens.` and a batch root `Database build failed:
+    /// <error>`, a dash and `batch will rebuild lazily on open`.
+    func testAnIndexThatCannotBeBuiltIsOneSentenceOnEveryLayout() async throws {
+        let sentence = "The viewer index could not be built (disk full). LGE builds it when the result opens."
+        XCTAssertEqual(Kraken2AnalysisRunTool.batchIndexWarning("disk full"), sentence)
+
+        let single = await execute(
+            request([fixtures.singleRoot.path]), .project(fixtures.projectURL),
+            argv: command([fixtures.singleRoot.path, "--project", fixtures.projectURL.path]), indexing: FailingKraken2Indexer()
+        )
+        XCTAssertEqual(single.report.status, .completed, single.report.message)
+        XCTAssertEqual(single.report.warnings, [sentence], "one sample in a project")
+
+        let inputs = [fixtures.singleRoot.path, fixtures.interleavedRoot.path]
+        let batch = await execute(
+            request(inputs), .project(fixtures.projectURL), batch: true,
+            argv: command(inputs + ["--batch", "--project", fixtures.projectURL.path]), indexing: FailingKraken2Indexer()
+        )
+        XCTAssertEqual(batch.report.status, .completed, batch.report.message)
+        XCTAssertEqual(batch.report.warnings, [sentence], "a batch root")
+    }
+
+    private func buildsTheIndex(_ line: CLIEventLine) -> Bool {
+        if case .progress(_, let message)? = line.event { return message == Kraken2AnalysisRunTool.batchIndexMessage }
+        return false
+    }
+
     // MARK: - Refusals
 
     func testEveryRefusalComesBeforeAnyFolderWithItsExitCode() async throws {
@@ -459,6 +517,17 @@ final class Kraken2EventCollector: @unchecked Sendable {
 
     func append(_ line: CLIEventLine) {
         lock.withLock { stored.append(line) }
+    }
+}
+
+/// An index builder that cannot build, as a full disk stops the `build-db kraken2` core.
+struct FailingKraken2Indexer: AnalysisResultIndexing {
+    struct Failure: LocalizedError {
+        var errorDescription: String? { "disk full" }
+    }
+
+    func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
+        throw Failure()
     }
 }
 

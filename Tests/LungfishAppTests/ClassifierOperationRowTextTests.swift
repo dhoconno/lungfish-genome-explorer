@@ -35,10 +35,17 @@ final class ClassifierOperationRowTextTests: XCTestCase {
         XCTAssertEqual("\(prefix): Running Kraken2", "Sample 2/4 (S2): Running Kraken2")
     }
 
-    func testDatabaseBuildWarningNamesTheErrorAndTheLazyRebuild() {
+    /// Phase 2.10 U34, W4. The warning is one sentence with the error in brackets, the sentence the executors
+    /// write too. It read `Database build failed: <error> \u{2014} batch will rebuild lazily on open`.
+    func testDatabaseBuildWarningNamesTheErrorAndWhenTheIndexIsBuilt() {
         XCTAssertEqual(
             AppDelegate.classificationDatabaseBuildWarning("disk is full"),
-            "Database build failed: disk is full \u{2014} batch will rebuild lazily on open"
+            "The viewer index could not be built (disk is full). LGE builds it when the result opens."
+        )
+        XCTAssertEqual(
+            AppDelegate.classificationDatabaseBuildWarning("disk is full"),
+            Kraken2AnalysisRunTool.batchIndexWarning("disk is full"),
+            "the app's line and the command's are one sentence"
         )
     }
 

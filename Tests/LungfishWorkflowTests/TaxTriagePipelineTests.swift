@@ -854,8 +854,8 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
 
         XCTAssertFalse(status.allSatisfied)
-        XCTAssertTrue(status.summary.contains("NOT INSTALLED"))
-        XCTAssertTrue(status.summary.contains("NOT AVAILABLE"))
+        XCTAssertTrue(status.summary.contains("Nextflow: not installed"), status.summary)
+        XCTAssertTrue(status.summary.contains("Container runtime: not available"), status.summary)
         XCTAssertTrue(status.summary.contains("MISSING PREREQUISITES"))
     }
 
@@ -1489,7 +1489,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(down.containerRuntimeDetail, "Docker Desktop is not running")
         XCTAssertFalse(down.allSatisfied)
         XCTAssertEqual(daemonDownAppleReady.recorder.appleCallCount, 0, "Apple runtime must not be consulted")
-        XCTAssertTrue(down.summary.contains("Container runtime: NOT AVAILABLE (Docker Desktop is not running)"))
+        XCTAssertTrue(down.summary.contains("Container runtime: not available (Docker Desktop is not running)"))
 
         let noDocker = PrerequisiteProbeStub(
             dockerPath: nil,

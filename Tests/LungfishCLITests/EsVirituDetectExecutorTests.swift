@@ -465,7 +465,65 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         XCTAssertEqual(reported.all, ["Writing the reads to a FASTQ file\u{2026}"])
     }
 
+    /// W4 (U34). An index that cannot be built is the one sentence the app's row logs, where the batch root wrote
+    /// `Database build failed: <error>`, a dash and `batch will rebuild lazily on open`. The run completes with
+    /// that warning.
+    func testAnIndexThatCannotBeBuiltIsOneSentence() async throws {
+        let run = try await executeInProject(groupsSamples: false, indexing: FailingIndexer())
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        XCTAssertEqual(
+            run.report.warnings,
+            ["The viewer index could not be built (disk full). LGE builds it when the result opens."]
+        )
+    }
+
     // MARK: - Helpers
+
+    /// An index builder that cannot build, as a full disk stops the `build-db esviritu` core.
+    private struct FailingIndexer: AnalysisResultIndexing {
+        struct Failure: LocalizedError {
+            var errorDescription: String? { "disk full" }
+        }
+
+        func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
+            throw Failure()
+        }
+    }
+
+    /// Runs the tool on the one sample of `shapes.single` into a project, as `esviritu detect --project` does,
+    /// or as `--batch` does when `groupsSamples`, with `indexing` as the executor's index builder.
+    private func executeInProject(
+        groupsSamples: Bool,
+        indexing: any AnalysisResultIndexing
+    ) async throws -> (report: AnalysisRunReport, events: [CLIEvent]) {
+        let project = try makeProject()
+        let shapes = try BundleShapeFixtures(in: project.appendingPathComponent("Imports", isDirectory: true))
+        let esviritu = try StandInEsViritu(
+            root: root.appendingPathComponent("tool-\(UUID().uuidString)"), tables: Self.fixtureTables
+        )
+        let lines = LineSink()
+        let tool = EsVirituAnalysisRunTool(
+            options: EsVirituAnalysisRunOptions(
+                sampleName: "S1", readFormat: .unpaired, databasePath: esviritu.databaseURL, threads: 2
+            ),
+            groupsSamples: groupsSamples,
+            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+            materializer: FASTQCLIMaterializer(runner: .shared),
+            installedDatabase: { [databaseURL = esviritu.databaseURL] in databaseURL }
+        )
+        let report = await AnalysisRunExecutor(services: AnalysisRunServices(indexing: indexing)).execute(
+            tool,
+            AnalysisRunRequest(
+                inputs: [shapes.single],
+                destination: .project(project),
+                groupsSamples: groupsSamples,
+                commandLine: ["lungfish-cli", "esviritu", "detect", "--project", project.path]
+            ),
+            events: AnalysisRunEvents { lines.append($0) }
+        )
+        return (report, lines.all.compactMap(\.event))
+    }
 
     /// The progress lines a materializer reported, in order.
     private final class ProgressLines: @unchecked Sendable {

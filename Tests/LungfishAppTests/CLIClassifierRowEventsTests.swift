@@ -156,6 +156,10 @@ final class CLIClassifierRowEventsTests: XCTestCase {
             XCTAssertEqual(fractions, fractions.sorted(), "\(run): the bar never moves back")
             XCTAssertEqual(effects.compactMap(\.trackedFolder), [try XCTUnwrap(transcript.folder)], run)
             XCTAssertEqual(rows.failedUnitReasons, [], run)
+            // Phase 2.10 U34, W4. A `--project` run of one sample says it builds the viewer index, so the row logs
+            // the line a batch logs, and a plain run builds none.
+            let buildsTheIndex = ["complete-project", "complete-profile", "complete-with-warning"].contains(run)
+            XCTAssertEqual(logged.contains("info: Building kraken2.sqlite from single-sample result"), buildsTheIndex, run)
             if run == "complete-with-warning" {
                 XCTAssertTrue(logged.contains { $0.hasPrefix("info: Kraken classification completed, but Bracken profiling did not complete") })
             }
@@ -302,7 +306,7 @@ final class CLIClassifierRowEventsTests: XCTestCase {
 
         XCTAssertEqual(run.report.warnings.count, 2, "the command warns for the degraded sample and the database")
         XCTAssertEqual(logLines(effects).filter { $0.hasPrefix("warning:") }, [
-            "warning: Database build failed: disk full \u{2014} batch will rebuild lazily on open",
+            "warning: The viewer index could not be built (disk full). LGE builds it when the result opens.",
         ])
         XCTAssertTrue(logLines(effects).contains("info: Sample 1/2 (A): \(degraded)"))
         XCTAssertTrue(logLines(effects).contains("info: Building kraken2.sqlite from 2 sample(s)"))
@@ -401,7 +405,15 @@ final class CLIClassifierRowEventsTests: XCTestCase {
         XCTAssertNil(CLIClassifierRowEvents.singleUnitLabel("Running EsViritu..."))
         XCTAssertNil(CLIClassifierRowEvents.singleUnitLabel("Running A (1 of 2)."))
         XCTAssertEqual(CLIClassifierRowEvents.databaseBuildError(in: AppDelegate.classificationDatabaseBuildWarning("x: y")), "x: y")
-        XCTAssertNil(CLIClassifierRowEvents.databaseBuildError(in: "The viewer index could not be built: x."))
+        // Phase 2.10 U34, W4. The executors write the app's sentence, so the row reads their warning as the
+        // database failure too. The sentence of the single-folder runs read `The viewer index could not be built: x.`
+        XCTAssertEqual(
+            CLIClassifierRowEvents.databaseBuildError(
+                in: "The viewer index could not be built (disk full). LGE builds it when the result opens."
+            ),
+            "disk full"
+        )
+        XCTAssertNil(CLIClassifierRowEvents.databaseBuildError(in: "Bracken found no reads at species rank"))
     }
 
     // MARK: - Helpers

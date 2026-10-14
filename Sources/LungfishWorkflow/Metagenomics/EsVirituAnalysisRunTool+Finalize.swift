@@ -93,7 +93,7 @@ extension EsVirituAnalysisRunTool {
                 }
             } catch {
                 // The words of the app's row, whose batch view builds the database when it opens.
-                warnings.append("Database build failed: \(error.localizedDescription) \u{2014} batch will rebuild lazily on open")
+                warnings.append(ClassificationCompletionDetail.viewerIndexWarning(error.localizedDescription))
             }
         }
 
