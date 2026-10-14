@@ -190,7 +190,12 @@ enum DownloadedBundleSnapshot {
         return "\(file.path) sha256=\(digest)"
     }
 
-    private static func render(_ value: ParameterValue?) -> String {
+    /// An option value as text that repeats from run to run. A dictionary prints its keys in sorted
+    /// order and an array its values in sorted order, since a `Dictionary` iterates in another order
+    /// in each process, and an ISO 8601 date inside either prints as `<date>`, since a record such
+    /// as the `fetchedRecord` entry of a live snapshot names the day of the run (lane A45, grant 4).
+    /// Every other value prints as it did before.
+    static func render(_ value: ParameterValue?) -> String {
         guard let value else { return "-" }
         switch value {
         case .string(let text): return "\"\(escaped(text))\""
@@ -198,8 +203,30 @@ enum DownloadedBundleSnapshot {
         case .number(let number): return String(number)
         case .boolean(let flag): return String(flag)
         case .file(let url): return "file:\(url.path)"
+        case .dictionary, .array: return maskingDates(in: structured(value))
         default: return "\(value)"
         }
+    }
+
+    private static func structured(_ value: ParameterValue) -> String {
+        switch value {
+        case .dictionary(let entries):
+            return "{" + entries.keys.sorted().map { "\($0)=\(structured(entries[$0] ?? .null))" }.joined(separator: ", ") + "}"
+        case .array(let items):
+            return "[" + items.map(structured).sorted().joined(separator: ", ") + "]"
+        default:
+            return render(value)
+        }
+    }
+
+    /// `text` with each ISO 8601 date and time of day, with or without fractional seconds and a zone,
+    /// written as `<date>`.
+    private static func maskingDates(in text: String) -> String {
+        guard let pattern = try? NSRegularExpression(
+            pattern: #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?"#)
+        else { return text }
+        return pattern.stringByReplacingMatches(
+            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "<date>")
     }
 
     private static func escaped(_ text: String) -> String {
