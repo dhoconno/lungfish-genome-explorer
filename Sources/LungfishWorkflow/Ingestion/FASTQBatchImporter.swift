@@ -2643,21 +2643,6 @@ public enum FASTQBatchImporter {
         return total
     }
 
-    /// Concatenates multiple FASTQ files into a single destination file.
-    private static func concatenateFiles(_ sources: [URL], to destination: URL) throws {
-        let fm = FileManager.default
-        fm.createFile(atPath: destination.path, contents: nil)
-        guard let output = FileHandle(forWritingAtPath: destination.path) else {
-            throw BatchImportError.unknownRecipe("Cannot open destination for concatenation: \(destination.path)")
-        }
-        defer { output.closeFile() }
-        for source in sources {
-            if let data = fm.contents(atPath: source.path) {
-                output.write(data)
-            }
-        }
-    }
-
     /// Writes a per-sample JSON log to the specified log directory.
     private static func writePerSampleLog(pair: SamplePair, bundleURL: URL, logDir: URL) {
         do {
