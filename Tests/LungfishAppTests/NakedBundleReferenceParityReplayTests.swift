@@ -8,19 +8,16 @@
 // sides that start as copies of one project holding such a bundle.
 //
 // - Side A is the in-process route the hidden key keeps for one release. The app finds the
-//   assembly, builds its bundle in the project's `.tmp` folder and merges the genome and
-//   annotations in.
-// - Side C is the CLI route. The app finds the assembly the same way, records the command and
-//   launches `fetch genome <accession> --into-bundle <bundle> --format json` through
-//   `CLISubprocessTransport`.
+//   assembly and builds its bundle in the project's `.tmp` folder, or with no assembly builds the
+//   GenBank record of the VCF's accession, and merges the genome and annotations in.
+// - Side C is the CLI route. The app finds the assembly the same way, or falls back to the VCF's
+//   accession, records the command and launches `fetch genome <accession> --into-bundle <bundle>
+//   --format json` through `CLISubprocessTransport`.
 // - Side C' is the harness's replay of the command side C recorded.
 //
 // Both routes read the loopback NCBI stand-in, which the process environment names. The record
 // side C writes in the bundle's `genome/` folder must name each output it lists with that file's
-// digest (B-5), and no other record may reach the bundle.
-//
-// The GenBank fallback has no case yet. It stays in process on both routes, because `fetch genome`
-// builds the record's bundle with differences BIO has not signed (ruling M3-2, lane A44 M3 report).
+// digest (B-5), and no other record may reach the bundle. Both routes record the same command.
 //
 // It launches the built lungfish-cli and the managed bgzip and samtools, so its name ends in
 // ReplayTests, which sends it to the integration tier.
@@ -43,6 +40,9 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
         case assemblyByAccession
         /// The VCF names an assembly the app finds by organism and assembly name (ruling M3-1).
         case assemblyByName
+        /// No assembly. The fallback fetches the GenBank record of the VCF's versioned accession
+        /// (ruling M3-2, BIO's T1).
+        case genBankFallback
     }
 
     static let closer = "2.11, which deletes the in-process reference download with its key (C4)"
@@ -50,14 +50,14 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
     /// What side C writes that side A does not, and the reverse, with BIO's reason.
     static let declared: [RouteParityDeclaredDifference<Case>] = [
         RouteParityDeclaredDifference(
-            [.assemblyByAccession: 1, .assemblyByName: 1],
+            [.assemblyByAccession: 1, .assemblyByName: 1, .genBankFallback: 1],
             "only in C: Project.lungfish/Cohort calls.lungfishref/genome/.lungfish-provenance.json",
             reason: "fetch genome --into-bundle writes the record of what it fetched, each file with its source URL, "
                 + "digest and size (B-3), in the genome folder it merged. The in-process route writes no record, the "
                 + "declared difference that keeps its key (C4).",
             closedBy: closer
         ),
-    ]
+    ] + genBankFallbackDeclared
 
     /// What the import found in the VCF, the input of a case.
     struct Input: Sendable {
@@ -70,6 +70,7 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
     }
 
     static func input(of parityCase: Case) -> Input {
+        let genBank = NCBIDownloadPinFixtures.genBankAccession
         switch parityCase {
         case .assemblyByAccession:
             return Input(
@@ -79,16 +80,21 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
             return Input(
                 inferredRef: reference(assembly: "StandInAsm1", accession: nil),
                 ncbiAccessions: ["NC_000001.1"], chromosome: "NC_000001.1", fetched: NCBIGenomeStandIn.assemblyAccession)
+        case .genBankFallback:
+            // The stand-in's accession fails the RefSeq pattern of the import, so it is passed in.
+            return Input(
+                inferredRef: reference(assembly: nil, accession: nil),
+                ncbiAccessions: [genBank], chromosome: genBank, fetched: genBank)
         }
     }
 
-    static func reference(assembly: String, accession: String?) -> ReferenceInference.Result {
+    static func reference(assembly: String?, accession: String?) -> ReferenceInference.Result {
         ReferenceInference.Result(
             assembly: assembly,
-            organism: "Lungfish stand-in organism",
+            organism: assembly == nil ? nil : "Lungfish stand-in organism",
             accession: accession,
             namingConvention: "RefSeq",
-            confidence: .high,
+            confidence: assembly == nil ? .none : .high,
             sequenceCount: 1,
             totalLength: 150
         )
@@ -112,6 +118,45 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
         defer { TestTempDirectory.cleanup(root) }
         let runs = try await runParity(.assemblyByName, cli: cli, root: root)
         try Self.assertRecordedMerge(runs, of: .assemblyByName)
+    }
+
+    /// Ruling M3-2 with BIO's T1 and T2, T1 as BIO corrected it (A44-M3-BIO-2, ruling 7). No
+    /// assembly, so the fallback fetches the GenBank record of the VCF's versioned accession. On the
+    /// CLI route the fai, the manifest's chromosome and every annotation row name the sequence
+    /// exactly as the VCF's CHROM, which matches with no alias. The in-process route names the
+    /// sequence by the record's LOCUS name and reaches it through its alias. Its annotation rows come
+    /// from NCBI's GFF3, which it prefers to the record's FEATURES, so they keep the versioned name,
+    /// and both tracks hold the same rows. Both sides read the same bases through their own fai,
+    /// which the declared FASTA layout needs (BIO's second ruling, 1).
+    func testGenBankFallbackVariantReachesTheSequenceOnBothRoutes() async throws {
+        let (cli, root) = try await prepare()
+        defer { TestTempDirectory.cleanup(root) }
+        let runs = try await runParity(.genBankFallback, cli: cli, root: root)
+        try Self.assertRecordedMerge(runs, of: .genBankFallback)
+
+        let chrom = Self.input(of: .genBankFallback).chromosome
+        for run in [runs.c, runs.cPrime] {
+            let bundle = Self.bundle(in: run.root)
+            XCTAssertEqual(try Self.faiNames(of: bundle), [chrom], "side \(run.side)")
+            XCTAssertEqual(try BundleManifest.load(from: bundle).genome?.chromosomes.map(\.name), [chrom], "side \(run.side)")
+            XCTAssertEqual(Set(try Self.annotationRows(of: bundle).map(\.chromosome)), [chrom], "side \(run.side)")
+        }
+        let bundleA = Self.bundle(in: runs.a.root)
+        let bundleC = Self.bundle(in: runs.c.root)
+        XCTAssertEqual(try Self.faiNames(of: bundleA), ["ZZ000001"], "side A names the sequence by the LOCUS name")
+        let rowsA = try Self.annotationRows(of: bundleA).map(Self.describe).sorted()
+        XCTAssertEqual(rowsA.count, 5)
+        XCTAssertEqual(rowsA, try Self.annotationRows(of: bundleC).map(Self.describe).sorted(),
+                       "side A's rows come from NCBI's GFF3 too, on the versioned name")
+        let basesA = try await Self.bases(of: bundleA, chromosome: "ZZ000001")
+        XCTAssertEqual(basesA.count, 150)
+        let basesC = try await Self.bases(of: bundleC, chromosome: chrom)
+        XCTAssertEqual(basesA, basesC, "both sides read the same bases through their own fai")
+
+        let chromosomesC = try XCTUnwrap(BundleManifest.load(from: bundleC).genome?.chromosomes)
+        XCTAssertEqual(mapVCFChromosomes([chrom], toBundleChromosomes: chromosomesC), [:])
+        let chromosomesA = try XCTUnwrap(BundleManifest.load(from: bundleA).genome?.chromosomes)
+        XCTAssertEqual(mapVCFChromosomes([chrom], toBundleChromosomes: chromosomesA), [chrom: "ZZ000001"])
     }
 
     // MARK: - Running a case
@@ -167,10 +212,17 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
 
     /// B-5 and the merge's own record. On each CLI side the one record in the bundle is the run's,
     /// in `genome/`, which names the accession fetched and each output with the digest it has, so
-    /// no record of the builder's staging reached the bundle. Side A writes none.
+    /// no record of the builder's staging reached the bundle. Side A writes none. The row of each
+    /// route records the `fetch genome` command of the accession found, for its own bundle.
     static func assertRecordedMerge(_ runs: RouteParityRuns, of parityCase: Case) throws {
         let fetched = input(of: parityCase).fetched
         XCTAssertEqual(try recordPaths(in: bundle(in: runs.a.root)), [], "side A writes no record")
+        for run in [runs.a, runs.c] {
+            XCTAssertEqual(
+                try RecordedCLICommand.arguments(of: run.outcome.recordedCommand),
+                MainSplitViewController.nakedBundleReferenceFetchArguments(accession: fetched, bundleURL: bundle(in: run.root)),
+                "side \(run.side) records the command of the accession found")
+        }
         for run in [runs.c, runs.cPrime] {
             let target = bundle(in: run.root)
             XCTAssertEqual(try recordPaths(in: target), ["genome/.lungfish-provenance.json"], "side \(run.side)")
@@ -222,6 +274,117 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
         let names = FileManager.default.enumerator(atPath: bundle.path)?.compactMap { $0 as? String } ?? []
         return names.filter { $0.hasSuffix(ProvenanceRecorder.provenanceFilename) }.sorted()
     }
+
+    /// The sequence names of the bundle's FASTA index.
+    static func faiNames(of bundle: URL) throws -> [String] {
+        let manifest = try BundleManifest.load(from: bundle)
+        let index = try XCTUnwrap(manifest.genome?.indexPath)
+        let text = try String(contentsOf: bundle.appendingPathComponent(index), encoding: .utf8)
+        return text.split(separator: "\n").compactMap { $0.split(separator: "\t").first.map(String.init) }
+    }
+
+    /// Every row of every annotation track of the bundle.
+    static func annotationRows(of bundle: URL) throws -> [AnnotationDatabaseRecord] {
+        let manifest = try BundleManifest.load(from: bundle)
+        XCTAssertFalse(manifest.annotations.isEmpty, "\(bundle.lastPathComponent) has no annotation track")
+        return try manifest.annotations.flatMap { track in
+            let database = try AnnotationDatabase(url: bundle.appendingPathComponent(track.databasePath ?? track.path))
+            return database.query(nameFilter: "", types: [], limit: 5000)
+        }
+    }
+
+    /// A row as its place, strand, type and name, to compare the rows of two tracks.
+    static func describe(_ row: AnnotationDatabaseRecord) -> String {
+        "\(row.chromosome):\(row.start)-\(row.end) \(row.strand) \(row.type) \(row.name)"
+    }
+
+    /// The whole of the bundle's 150-base sequence `chromosome`, read through its fai.
+    static func bases(of bundle: URL, chromosome: String) async throws -> String {
+        let reference = try await ReferenceBundle(url: bundle)
+        return try await reference.fetchSequence(region: GenomicRegion(chromosome: chromosome, start: 0, end: 150))
+    }
+}
+
+// MARK: - The GenBank fallback's signed lines
+
+extension NakedBundleReferenceParityReplayTests {
+    /// BIO's reasons for the lines the GenBank fallback lists A against C. T1 to T3 are BIO's first
+    /// ruling on M3-2 (A44-M3-BIO), T1 as the second corrects it, and rulings 1 to 6 are BIO's
+    /// second ruling (A44-M3-BIO-2), which signed the rest of the table with no change on side C.
+    enum FallbackReason {
+        static let name = "T1 and T3. C names the sequence from the record's FASTA header, the VCF's CHROM with its "
+            + "version, so a variant matches it with no alias. A names it by the LOCUS name, which drops the version, "
+            + "and lists the CHROM as its alias. C lists the bare accession as its alias, so A's name still resolves."
+        static let index = "T1 and ruling 1. The fai names the sequence as the manifest does, and its offset and line "
+            + "fields follow each side's FASTA layout. Every reader takes the layout from the fai."
+        static let layout = "Ruling 1. C keeps the FASTA lines NCBI serves, one 150-base line from the stand-in, where A "
+            + "rewraps them at 60 bases. Every reader takes offset, line_bases and line_width from the fai, none "
+            + "assumes 60, and both sides read the same bases."
+        static let title = "T1 and ruling 2. The FASTA header names the sequence as the manifest does, and past the name "
+            + "the title differs only by DEFINITION's final period. No reader parses the defline, the app reads "
+            + "fasta_description."
+        static let plainFASTA = "Ruling 3. The plain FASTA is the bgzip input the in-process GenBank builder keeps and "
+            + "the merge copies in. The manifest names sequence.fa.gz on both sides, and no reader depends on it."
+        static let description = "Ruling 4, a gain on C. The track header and navigator show the sequence with its "
+            + "title, the record table's search finds it and exports write it into the defline. Name matching reads it "
+            + "only after the exact and alias steps."
+        static let source = "Ruling 5. organism is the record's title on both sides, A's with DEFINITION's period, "
+            + "which ploidy's word match ignores. assembly is each side's sequence name. A's assembly_accession is a "
+            + "nucleotide accession that lineage reads only without a source_url, which both sides hold the same. No "
+            + "code reads notes, and C's provenance record says more."
+        static let track = "T1 and ruling 6. Both tracks hold the same rows of NCBI's GFF3 for the revision fetched, "
+            + "under the id, path, name, type, description and source each builder gives its track. No reader branches "
+            + "on a track's type."
+    }
+
+    /// Every line the GenBank fallback lists A against C, each declared once with its measured
+    /// count, so M3's key keeps the in-process fallback for one release (C4).
+    static let genBankFallbackDeclared: [RouteParityDeclaredDifference<Case>] = {
+        let bundle = "Project.lungfish/Cohort calls.lungfishref"
+        let manifest = "differs: \(bundle)/manifest.json at "
+        let fasta = "differs: \(bundle)/genome/sequence.fa.gz: only in "
+        let fai = "differs: \(bundle)/genome/sequence.fa.gz.fai: only in "
+        let linesA = [
+            "ATGTCTACGAACCCAAAACCTCAAAGAAAAACCAAACGTAACACCAACCGTCGCCCACAG",
+            "GACGTCAAGTTCCCGGGCGGTGGTCAGATCGTTGGTGGAGTTTACTTGTTGCCGCGCAGG",
+            "GGCCCTAGATTGGGTGTGCGCGCGACGTAA",
+        ]
+        let title = " Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+        var lines: [(id: String, reason: String)] = [
+            (manifest + "genome.chromosomes[0].name", FallbackReason.name),
+            (manifest + "genome.chromosomes[0].aliases[0]", FallbackReason.name),
+            (manifest + "browser_summary.sequences[0].name", FallbackReason.name),
+            (manifest + "browser_summary.sequences[0].aliases[0]", FallbackReason.name),
+            (fai + "A: ZZ000001\t150\t78\t60\t61", FallbackReason.index),
+            (fai + "C: ZZ000001.1\t150\t79\t150\t151", FallbackReason.index),
+            (manifest + "genome.chromosomes[0].offset", FallbackReason.layout),
+            (manifest + "genome.chromosomes[0].line_bases", FallbackReason.layout),
+            (manifest + "genome.chromosomes[0].line_width", FallbackReason.layout),
+        ]
+        lines += linesA.map { (id: fasta + "A: " + $0, reason: FallbackReason.layout) }
+        lines += [
+            (fasta + "C: " + linesA.joined(), FallbackReason.layout),
+            (fasta + "A: >ZZ000001" + title + ".", FallbackReason.title),
+            (fasta + "C: >ZZ000001.1" + title, FallbackReason.title),
+            ("only in A: \(bundle)/genome/sequence.fa", FallbackReason.plainFASTA),
+            (manifest + "genome.chromosomes[0].fasta_description", FallbackReason.description),
+            (manifest + "browser_summary.sequences[0].displayDescription", FallbackReason.description),
+            (manifest + "source.organism", FallbackReason.source),
+            (manifest + "source.assembly", FallbackReason.source),
+            (manifest + "source.assembly_accession", FallbackReason.source),
+            (manifest + "source.notes", FallbackReason.source),
+            (manifest + "annotations[0].id", FallbackReason.track),
+            (manifest + "annotations[0].path", FallbackReason.track),
+            (manifest + "annotations[0].database_path", FallbackReason.track),
+            (manifest + "annotations[0].name", FallbackReason.track),
+            (manifest + "annotations[0].annotation_type", FallbackReason.track),
+            (manifest + "annotations[0].description", FallbackReason.track),
+            (manifest + "annotations[0].source", FallbackReason.track),
+            ("only in A: \(bundle)/annotations/ncbi_gff3_annotations.db", FallbackReason.track),
+            ("only in C: \(bundle)/annotations/annotations.db", FallbackReason.track),
+        ]
+        return lines.map { RouteParityDeclaredDifference([.genBankFallback: 1], $0.id, reason: $0.reason, closedBy: closer) }
+    }()
 }
 
 /// The command a side's row recorded, set from the download's task.

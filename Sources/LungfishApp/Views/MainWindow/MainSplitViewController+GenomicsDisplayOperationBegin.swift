@@ -22,8 +22,7 @@ extension MainSplitViewController {
 
     /// Registers the reference download row for the variant-only (naked) bundle
     /// at `bundleURL` and, only when it starts, calls `launch` with the
-    /// operation ID. The row is a download row and begins with no command,
-    /// since the app finds the reference's accession first.
+    /// operation ID. The row is a download row.
     ///
     /// The row locks `bundleURL`, the bundle the run writes, since the run
     /// replaces its `genome/` and `annotations/` folders and its manifest (Rule 3
@@ -31,14 +30,14 @@ extension MainSplitViewController {
     /// ruling M3-3). Another operation that declares the bundle then waits, and a
     /// row refused because one holds it launches nothing.
     ///
-    /// cli-parity-gap: variant-only-reference-genbank-fallback. Once the app has
-    /// found an assembly, the run records `lungfish-cli fetch genome <accession>
-    /// --into-bundle <bundle> --format json` with `setCommand` before it merges
-    /// (Phase 2.10 lane A44 M3, review ruling M3-1). The GenBank fallback, the
-    /// record of the VCF's versioned accession when no assembly is found, still
-    /// builds in process and records no command, because that command builds the
-    /// record's bundle with names, a FASTA layout and source fields BIO has not
-    /// signed (ruling M3-2, lane A44 M3 report). It is the closest command.
+    /// The app finds the accession during the run, an assembly's or else the
+    /// GenBank record of the VCF's versioned accession, so the row begins with
+    /// `lungfish-cli fetch genome <derived> --into-bundle <bundle> --format json`,
+    /// the placeholder the FASTQ rows of docs/contracts/CLI-EQUIVALENCE.md record
+    /// for a value resolved after `begin`. Before it merges, the run refines it
+    /// with `setCommand` to the command of the accession found (Phase 2.10 lane
+    /// A44 M3, review ruling M3-1 and the manager's ruling on note 4). A run that
+    /// finds no reference keeps the placeholder.
     @discardableResult
     static func beginNakedBundleReferenceDownloadOperation(
         assemblyName: String,
@@ -52,7 +51,7 @@ extension MainSplitViewController {
             detail: "Searching NCBI\u{2026}",
             operationType: .download,
             targetBundleURL: bundleURL,
-            cliCommand: nil,
+            cliCommand: nakedBundleReferencePlaceholderCommand(bundleURL: bundleURL),
             routeContext: routeContext
         )
         switch result {

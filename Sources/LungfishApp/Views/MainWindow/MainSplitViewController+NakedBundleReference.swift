@@ -13,13 +13,14 @@ import os.log
 /// decision C4). The app finds the reference on both routes (review ruling M3-1).
 enum NakedBundleReferenceRoute: String, Sendable, Equatable, CaseIterable {
     /// The route before lane A44 M3, kept for one release as the escape the hidden key names (C4).
-    /// The app builds the assembly's bundle in process in the project's `.tmp` folder and merges its
-    /// genome and annotations into the variant-only bundle. It writes no provenance record, the
-    /// declared difference that keeps the key, and goes in 2.11.
+    /// The app builds the assembly's bundle, or with no assembly the GenBank record's, in process in
+    /// the project's `.tmp` folder and merges its genome and annotations into the variant-only
+    /// bundle. It writes no provenance record, the declared difference that keeps the key, and goes
+    /// in 2.11.
     case legacy
     /// One `lungfish-cli fetch genome <accession> --into-bundle <bundle> --format json` child for
-    /// the assembly the app found, which merges the reference into the bundle and records what it
-    /// fetched. The GenBank fallback stays in process on both routes for now.
+    /// the assembly the app found, or with no assembly for the VCF's GenBank accession, which merges
+    /// the reference into the bundle and records what it fetched.
     case cli
 }
 
@@ -122,9 +123,10 @@ extension MainSplitViewController {
     /// for the row `operationID`, and returns false when no reference was found. Both routes search
     /// NCBI in the app as before Phase 2.10 (review ruling M3-1), so the search by organism and
     /// assembly name stays a read of the app's, and the record names the accession fetched. Once
-    /// an assembly's accession is known, `recordCommand` gets the `fetch genome` command that
-    /// reproduces the run, before the CLI route launches it. `cliURLOverride` names the CLI a test
-    /// launches.
+    /// the accession is known, an assembly's or the GenBank record's, `recordCommand` gets the
+    /// `fetch genome` command that reproduces the run, which refines the row's placeholder
+    /// (``nakedBundleReferencePlaceholderCommand(bundleURL:)``), before the CLI route launches it.
+    /// `cliURLOverride` names the CLI a test launches.
     nonisolated static func downloadNakedBundleReference(
         inferredRef: ReferenceInference.Result,
         ncbiAccessions: [String],
@@ -155,15 +157,23 @@ extension MainSplitViewController {
             }
         }
 
-        // Strategy 2: the GenBank record of the VCF's first versioned RefSeq accession. It runs in
-        // process on both routes and records no command, because `fetch genome <accession>
-        // --into-bundle` builds the record's bundle with differences BIO has not signed
-        // (cli-parity-gap variant-only-reference-genbank-fallback).
+        // Strategy 2: the GenBank record of the VCF's first versioned RefSeq accession, on the
+        // route the key names. BIO signed how `fetch genome <accession> --into-bundle` builds the
+        // record's bundle against the in-process build (lane A44 M3, BIO's second ruling), the
+        // differences NakedBundleReferenceParityReplayTests declares under C4.
         guard let firstAccession = ncbiAccessions.first else { return false }
         mainSplitPerformOnMainRunLoop {
             _ = DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Fetching \(firstAccession) from GenBank\u{2026}")
         }
-        try await mergeGenBankRecordInProcess(firstAccession, into: bundleURL, downloadID: downloadID)
+        switch route {
+        case .legacy:
+            await recordCommand(nakedBundleReferenceCommand(accession: firstAccession, bundleURL: bundleURL))
+            try await mergeGenBankRecordInProcess(firstAccession, into: bundleURL, downloadID: downloadID)
+        case .cli:
+            try await fetchIntoBundle(
+                firstAccession, bundleURL: bundleURL, downloadID: downloadID,
+                cliURLOverride: cliURLOverride, recordCommand: recordCommand)
+        }
         return true
     }
 
@@ -178,6 +188,14 @@ extension MainSplitViewController {
     nonisolated static func nakedBundleReferenceCommand(accession: String, bundleURL: URL) -> String {
         let arguments = nakedBundleReferenceFetchArguments(accession: accession, bundleURL: bundleURL)
         return OperationCenter.buildCLICommand(subcommand: "fetch genome", args: Array(arguments.dropFirst(2)))
+    }
+
+    /// The command the row begins with, the run's command with `<derived>` for the accession the
+    /// run finds, the placeholder the FASTQ rows of docs/contracts/CLI-EQUIVALENCE.md record for a
+    /// value resolved after `begin`. The run refines it with `setCommand` (the manager's ruling on
+    /// note 4 of lane A44 M3), and a run that finds no reference keeps it.
+    nonisolated static func nakedBundleReferencePlaceholderCommand(bundleURL: URL) -> String {
+        nakedBundleReferenceCommand(accession: "<derived>", bundleURL: bundleURL)
     }
 
     /// The CLI route. Records the child's command on the row, then runs `fetch genome <accession>

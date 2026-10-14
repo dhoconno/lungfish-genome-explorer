@@ -7,9 +7,9 @@
 // variant-only bundle it merges into, so a fresh center in which another
 // operation holds that bundle refuses it. The FASTQ dialog row declares no
 // lock, and a recording reporter that holds a lock stands in for its
-// refusal. The reference download records the `fetch genome --into-bundle`
-// command of an assembly once the app found it, and its tests parse that
-// command and pin the GenBank fallback's missing one. The FASTQ operations
+// refusal. The reference download begins with the `fetch genome --into-bundle`
+// command with `<derived>` for the accession, and refines it once the app has
+// found the accession, and its tests parse both commands. The FASTQ operations
 // dialog row records the `lungfish-cli fastq` command
 // FASTQOperationCLIInvocationBuilder builds for the request (R3), which the
 // tests parse with the real CLI parser and compare with the request's values.
@@ -45,7 +45,13 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
 
     // MARK: - Reference download (site 40)
 
-    func testNakedBundleReferenceDownloadRecordsADownloadRowWithNoCommandAsAParityGap() throws {
+    /// The manager's ruling on note 4 of lane A44 M3. The app finds the accession during the run,
+    /// an assembly's or else the VCF's GenBank record's, so the row begins with the `fetch genome`
+    /// command with `<derived>` in its place, the placeholder the FASTQ rows of
+    /// docs/contracts/CLI-EQUIVALENCE.md record for a value resolved after `begin`, and
+    /// `setCommand` refines it (testNakedBundleReferenceCommandIsTheChildsArgvAndParses). The
+    /// placeholder command parses.
+    func testNakedBundleReferenceDownloadBeginsWithThePlaceholderFetchCommand() throws {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
 
@@ -66,13 +72,13 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertEqual(item.targetBundleURL, variantOnlyBundle, "the row locks the bundle it merges into (ruling M3-3)")
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. The row begins with no command, and an assembly's run
-        // records its `fetch genome --into-bundle` command once the app found the
-        // accession (testNakedBundleReferenceCommandIsTheChildsArgvAndParses). The
-        // GenBank fallback still builds in process and keeps no command until BIO
-        // rules on how `fetch genome` builds that record's bundle (lane A44 M3).
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "variant-only-reference-genbank-fallback")
+        XCTAssertEqual(
+            try RecordedCLICommand.arguments(of: item.cliCommand),
+            ["fetch", "genome", "<derived>", "--into-bundle", variantOnlyBundle.path, "--format", "json"])
+        let parsed = try RecordedCLICommand.parse(item.cliCommand, as: GenomeSubcommand.self)
+        XCTAssertEqual(parsed.accessions, ["<derived>"])
+        XCTAssertEqual(parsed.intoBundle, variantOnlyBundle.path)
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .json)
     }
 
     /// Ruling M3-1 of the A44 M2d review. Once the app has found the assembly, the run records
@@ -88,7 +94,9 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
             routeContext: routeContext,
             reporter: reporter
         ) { _ in }.startedID)
-        XCTAssertNil(reporter.item(id)?.cliCommand, "the row begins with no command")
+        XCTAssertEqual(
+            try RecordedCLICommand.arguments(of: reporter.item(id)?.cliCommand).prefix(3), ["fetch", "genome", "<derived>"],
+            "the row begins with the placeholder")
 
         reporter.setCommand(
             id: id,
