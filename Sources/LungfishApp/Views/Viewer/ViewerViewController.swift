@@ -112,10 +112,6 @@ public class ViewerViewController: NSViewController {
         _ initialToolID: FASTQOperationToolID?
     ) -> Void
 
-    typealias OverlappingReadsExtractionRunner = @Sendable (
-        _ config: BAMRegionExtractionConfig
-    ) async throws -> LungfishWorkflow.ExtractionResult
-
     /// Presents an extraction-failure alert. `nil` (the default) uses the real
     /// `NSAlert` presentation; tests inject a recording no-op to avoid a live sheet.
     typealias ExtractionFailureAlertPresenter = @MainActor (
@@ -189,12 +185,6 @@ public class ViewerViewController: NSViewController {
     private var activeFASTABlastRunID: UUID?
     private var lastFASTABlastRequest: (sourceLabel: String, fastaRecords: [String])?
 
-    /// Runs `ReadExtractionService.extractByBAMRegion` for the "Extract Overlapping
-    /// Reads" annotation action. Overridable in tests to inject failures without a
-    /// real BAM/samtools environment.
-    var overlappingReadsExtractionRunner: OverlappingReadsExtractionRunner = { config in
-        try await ReadExtractionService().extractByBAMRegion(config: config)
-    }
     var activeOverlappingReadsExtractionTask: Task<Void, Never>?
 
     /// Presents an extraction-failure alert (title + message). Defaults to the
