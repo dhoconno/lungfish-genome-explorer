@@ -44,13 +44,9 @@ final class GenotypeMatrixCellFontCacheRegressionTests: XCTestCase {
         // Isolated persistence, following the pattern in GenotypeResultDisplaySectionTests:
         // exercises the real `.contentTextSizeDidChange` notification path without touching
         // production UserDefaults.
-        let typographySuiteName = "LungfishGenotypeMatrixFontCacheTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeMatrixCellFontCacheRegressionTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
 
         let matrix = try makeMatrix(sampleCount: 8, alleleCount: 10)
 

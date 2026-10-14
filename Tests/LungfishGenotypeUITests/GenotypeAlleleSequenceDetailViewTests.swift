@@ -2,18 +2,15 @@ import AppKit
 import XCTest
 @testable import LungfishCore
 @testable import LungfishGenotypeUI
+import LungfishTestSupport
 
 @MainActor
 final class GenotypeAlleleSequenceDetailViewTests: XCTestCase {
     func testContentTypographyScalesSequenceReaderWithoutRerenderingOrLosingSelection() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeAlleleSequenceDetailViewTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
         let view = GenotypeAlleleSequenceDetailView(

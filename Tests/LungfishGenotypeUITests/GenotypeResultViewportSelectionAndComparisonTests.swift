@@ -433,13 +433,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testGeneratedDetailTypographyUpdatesWithoutRebuildingSelectionOrChangingState() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultViewportSelectionAndComparisonTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
         let controller = makeMatrixAnnotationGuardedController()
@@ -498,13 +494,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testLateGeneratedContentRebuildsUseCurrentTypographyWithoutTypographySideEffects() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultViewportSelectionAndComparisonTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(200)
         settings.save()
         let root = try TestTempDirectory.make(prefix: "LateGeneratedTypography")
@@ -629,13 +621,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testComparisonMatrixTypographyUpdatesInPlaceAndRecoversWithoutChangingViewState() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultViewportSelectionAndComparisonTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
 
@@ -708,13 +696,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testResultTableSampleFontUsesCanonicalBaselineAtCustomAndSystemSizes() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultViewportSelectionAndComparisonTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         let provider = MutableGenotypePreferredFonts(pointSize: 13)
         settings.contentTextSizePreference = .custom(100)
         settings.save()
@@ -1761,13 +1745,9 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
     func testHaplotypeDefinitionMatrixTypographyUpdatesAndRecoversWithoutReconfiguration() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultViewportSelectionAndComparisonTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
         let view = GenotypeHaplotypeDefinitionMatrixView()

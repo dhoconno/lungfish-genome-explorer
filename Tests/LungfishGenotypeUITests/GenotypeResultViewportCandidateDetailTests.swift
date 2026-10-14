@@ -1350,13 +1350,9 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
 
     func testRepeatedCandidateRowSelectionsPreserveSequenceDetailConstraintsAtConfiguredContentSizes() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultViewportCandidateDetailTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         let result = makeCandidateResult(
             calls: [],
             candidates: [

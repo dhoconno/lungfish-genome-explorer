@@ -3,6 +3,7 @@ import AppKit
 @testable import LungfishCore
 import LungfishIO
 @testable import LungfishGenotypeUI
+import LungfishTestSupport
 
 /// The genotype outline list must virtualize rows so a large cohort does not
 /// eagerly build one full view-tree per sample. These tests pin the
@@ -39,13 +40,9 @@ final class GenotypeOutlineVirtualizationTests: XCTestCase {
 
     func testContentTypographyGrowsOutlineTextAndComfortableTapeTargets() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeOutlineVirtualizationTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
-        defer {
-            restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
-        }
+        defer { restoreSettings() }
         settings.contentTextSizePreference = .custom(100)
         settings.save()
         let view = GenotypeOutlineView()

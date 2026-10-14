@@ -17,19 +17,10 @@
 
 (none)                                  Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
 FeaturesYAMLMenuPath                    Tests/LungfishAppViewTests/FeaturesYAMLMenuPathTests.swift
-LungfishGenotypeMatrixFontCacheTests    Tests/LungfishGenotypeUITests/GenotypeMatrixCellFontCacheRegressionTests.swift
 LungfishTypographyTests                 Tests/LungfishAlignmentUITests/AlignmentResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishAppViewTests/MainMenuStructureTests.swift
 LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeAlleleSequenceDetailViewTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeCandidateAlleleDetailViewTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeKnownAlleleDetailViewTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeOutlineVirtualizationTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportArtifactsAndOutlineTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportCandidateDetailTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportLensAndManualHaplotypeTests.swift
-LungfishTypographyTests                 Tests/LungfishGenotypeUITests/GenotypeResultViewportSelectionAndComparisonTests.swift
 LungfishTypographyTests                 Tests/LungfishKitTests/BatchTableViewTests.swift
 LungfishTypographyTests                 Tests/LungfishKitTests/ContentTypographyTests.swift
 LungfishTypographyTests                 Tests/LungfishNaoMgsUITests/NaoMgsResultViewControllerSmokeTests.swift
