@@ -397,12 +397,11 @@ private func sourceRemovingDebugConditionalBlocks(_ source: String) -> String {
 private func preservingPhylogeneticContentTextSizePreference(
     _ body: () throws -> Void
 ) rethrows {
-    let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-    let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
-    let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
+    let typographySuite = TestDefaultsSuite(prefix: "LungfishPhylogeneticsUISmokeTests")
+    let restoreSettings = AppSettings.isolateForTesting(defaults: typographySuite.defaults)
     defer {
         restoreSettings()
-        typographyDefaults.removePersistentDomain(forName: typographySuiteName)
+        typographySuite.tearDown()
     }
     try body()
 }
