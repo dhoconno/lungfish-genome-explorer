@@ -303,7 +303,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
             startedAt: startedAt,
             endedAt: endedAt
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private func addCanonicalInput(
