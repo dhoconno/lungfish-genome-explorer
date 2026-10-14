@@ -683,7 +683,7 @@ final class OperationRoutingTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Services/FASTQIngestionService.swift")
         let source = try readRepositorySource(serviceURL)
         let body = try sourceFunctionBody(
-            named: "nonisolated private static func withImportSlot",
+            named: "nonisolated static func withImportSlot",
             endingBefore: "    /// Runs the ingestion pipeline off the main actor.",
             in: source
         )
