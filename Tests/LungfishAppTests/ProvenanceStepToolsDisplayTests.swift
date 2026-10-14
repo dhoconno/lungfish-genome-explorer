@@ -202,10 +202,11 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         XCTAssertEqual(model.stepToolsText, "URLSession-proxy v1.0, kraken2 v2.17.1")
     }
 
-    /// Row 273. The reader resolves `@/` inside the stored command and adds no quotes, so the full command of a
-    /// step holds the project folder's path as it was spelt, white space and all, when the folder's name has a space.
-    /// The shortened command the view shows reads the path as one word.
-    func testAProjectFolderNamedWithASpaceShowsTheFullCommandUnquoted() async throws {
+    /// Row 273. The reader resolves `@/` inside the stored command and adds no quotes, so a project folder whose name
+    /// has a space reached the full command of a step as two words (the M1 pin held that unquoted form). The full
+    /// command, which the Copy text, the tooltip and VoiceOver carry whole, now quotes each project path as one word, and
+    /// the shortened command the view shows reads the same as before.
+    func testAProjectFolderNamedWithASpaceShowsTheFullCommandQuoted() async throws {
         let model = try await loadedModel(
             try commandLineRecord(steps: [("kraken2", "2.17.1")]), projectName: "Spaced Runs.lungfish"
         )
@@ -215,11 +216,11 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         let folder = sidecar.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         XCTAssertEqual(folder.lastPathComponent, "Spaced Runs.lungfish")
         let spellings = Set([folder.path, folder.standardizedFileURL.path, folder.resolvingSymlinksInPath().path])
-        let unquoted = spellings.map {
-            "lungfish-cli fastq trim \($0)/Inputs/reads.fastq --output \($0)/Analyses/fastq-trim-cancelled/trimmed.fastq"
+        let quoted = spellings.map {
+            "lungfish-cli fastq trim '\($0)/Inputs/reads.fastq' --output '\($0)/Analyses/fastq-trim-cancelled/trimmed.fastq'"
         }
-        XCTAssertTrue(unquoted.contains(step.command), "the full command was \(step.command)")
-        XCTAssertFalse(step.command.contains("'"), step.command)
+        XCTAssertTrue(quoted.contains(step.command), "the full command was \(step.command)")
+        XCTAssertEqual(step.command.filter { $0 == "'" }.count, 4, step.command)
         XCTAssertEqual(
             step.displayCommand,
             "lungfish-cli fastq trim Inputs/reads.fastq --output Analyses/fastq-trim-cancelled/trimmed.fastq"

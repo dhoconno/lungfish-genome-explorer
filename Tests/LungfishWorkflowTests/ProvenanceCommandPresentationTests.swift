@@ -62,6 +62,52 @@ struct ProvenanceCommandPresentationTests {
             == "lungfish-cli kraken2 classify --project '/Users/someone/Desktop/HG002 chr20.lungfish' --batch")
     }
 
+    // MARK: - The full command, quoted (Phase 2.10 lane U35, M2 item 3)
+
+    private func quoted(_ command: String) -> String {
+        ProvenanceCommandPresentation.quotingProjectPath(command, projectURL: project)
+    }
+
+    @Test("An unquoted project path with a space is quoted as one word in the full command and shortens as before")
+    func anUnquotedProjectPathIsQuotedInTheFullCommand() {
+        let root = "/Users/someone/Desktop/HG002 chr20.lungfish"
+        let command = "lungfish-cli fastq trim \(root)/Inputs/reads.fastq --output \(root)/Analyses/trim-1/trimmed.fastq"
+
+        #expect(quoted(command)
+            == "lungfish-cli fastq trim '\(root)/Inputs/reads.fastq' --output '\(root)/Analyses/trim-1/trimmed.fastq'")
+        #expect(display(quoted(command)) == display(command))
+        #expect(quoted(quoted(command)) == quoted(command), "a quoted command quotes no further")
+    }
+
+    @Test("The quotes go round the whole word, and an operator stays outside them")
+    func quotesGoRoundTheWordAndOperatorsStayOutside() {
+        let root = "/Users/someone/Desktop/HG002 chr20.lungfish"
+
+        #expect(quoted("tool --ref=\(root)/ref.fa") == "tool '--ref=\(root)/ref.fa'")
+        #expect(quoted("tool 2>\(root)/err.txt") == "tool 2>'\(root)/err.txt'")
+        #expect(quoted("tool > \(root)/log.txt") == "tool > '\(root)/log.txt'")
+        #expect(quoted("tool \(root)") == "tool '\(root)'")
+        #expect(quoted("tool  -x   \(root)/a.fa") == "tool  -x   '\(root)/a.fa'")
+    }
+
+    @Test("A command that needs no quoting is returned as recorded")
+    func aCommandThatNeedsNoQuotingIsReturnedAsRecorded() {
+        let root = "/Users/someone/Desktop/HG002 chr20.lungfish"
+        let alreadyQuoted = "samtools faidx '\(root)/Inputs/ref.fa' \"\(root)/Inputs/b.fa\" \(root.replacingOccurrences(of: " ", with: "\\ "))/c.fa"
+        let plain = #"tool -t 14 -R '@RG\tID:x' --url=https://example.org/a/b sub/dir/file.txt | sort && echo "a  b" -"#
+
+        #expect(quoted(alreadyQuoted) == alreadyQuoted)
+        #expect(quoted(plain) == plain)
+        #expect(quoted("cat /Users/someone/Desktop/HG002 chr20.lungfish-copy/x.fa") == "cat /Users/someone/Desktop/HG002 chr20.lungfish-copy/x.fa")
+        #expect(quoted("cat '\(root)/Inputs/reads.fq") == "cat '\(root)/Inputs/reads.fq", "an unterminated quote")
+        #expect(quoted("") == "")
+        let command = "tool \(root)/x.fa"
+        #expect(ProvenanceCommandPresentation.quotingProjectPath(command, projectURL: nil) == command)
+        let noSpace = URL(fileURLWithPath: "/Users/someone/Desktop/HG002.lungfish", isDirectory: true)
+        let unspaced = "tool /Users/someone/Desktop/HG002.lungfish/x.fa"
+        #expect(ProvenanceCommandPresentation.quotingProjectPath(unspaced, projectURL: noSpace) == unspaced)
+    }
+
     @Test("A folder whose name only starts like the project's is not joined")
     func aSiblingFolderIsNotJoined() {
         let command = "cat /Users/someone/Desktop/HG002 chr20.lungfish-copy/x.fa"

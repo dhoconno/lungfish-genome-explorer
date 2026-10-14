@@ -722,7 +722,7 @@ final class ProvenanceInspectorViewModel {
                     ordinal: index + 1,
                     toolName: step.toolName,
                     toolVersion: stepIdentity.displayVersion,
-                    command: step.reproducibleCommand,
+                    command: ProvenanceCommandPresentation.quotingProjectPath(step.reproducibleCommand, projectURL: projectURL),
                     commandLabel: ProvenanceCommandPresentation.display(step.reproducibleCommand, projectURL: projectURL),
                     inputPaths: inputs,
                     outputPaths: outputs,

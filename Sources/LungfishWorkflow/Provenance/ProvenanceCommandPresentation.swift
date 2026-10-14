@@ -71,6 +71,26 @@ public enum ProvenanceCommandPresentation {
         }
     }
 
+    /// The full command with each run of the project's path that holds white space, which the reader resolved from
+    /// a recorded `@/Inputs/x` without quotes, quoted as one shell word (Phase 2.10 lane U35, row 273 of Phase 2.8).
+    /// A redirection operator or a `key=` prefix stays outside the quotes. A command whose project path holds no white
+    /// space, one read outside any project, and one that cannot be split into shell words are returned as recorded,
+    /// and so is every word that is not such a path, with its own quotes and escapes.
+    public static func quotingProjectPath(_ command: String, projectURL: URL?) -> String {
+        guard let projectURL else { return command }
+        let spaced = spacedPaths(of: projectURL)
+        guard !spaced.isEmpty, let pieces = split(command, keeping: spaced) else { return command }
+        return pieces.map { piece -> String in
+            switch piece {
+            case .separator(let text):
+                return text
+            case .word(let word):
+                guard word.joinedProjectPath, let part = pathPart(of: word.value) else { return word.raw }
+                return part.isRedirect ? part.prefix + shellEscape(part.path) : shellEscape(part.prefix + part.path)
+            }
+        }.joined()
+    }
+
     // MARK: - Words
 
     private static func present(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool) -> String {
