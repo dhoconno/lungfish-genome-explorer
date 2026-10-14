@@ -120,10 +120,12 @@ final class VariantEditInvocationTests: XCTestCase {
 
     // MARK: - A cancel
 
-    /// The service asks `shouldCancel` after the publication is built, before each target's import
-    /// and before the record is written. Two targets give four asks. A true answer at any of them
-    /// throws `CancellationError` and leaves every database, file and record as it was. A fifth
-    /// run, where no ask is true, completes, so the four asks are all of them.
+    /// The service asks `shouldCancel` after the publication is built, before each chunk of the
+    /// copy's hash, before each target's import and before the record is written. The hash asks
+    /// before every read, the one that finds the end of the file included, so a file of one chunk
+    /// gives two asks. Two targets and that file give six asks. A true answer at any of them throws
+    /// `CancellationError` and leaves every database, file and record as it was. A seventh run,
+    /// where no ask is true, completes, so the six asks are all of them.
     func testACancelAtAnyAskLeavesTheBundleAsItWas() throws {
         let fixture = try VariantEditFixture.make(in: root)
         let second = try fixture.addDatabase(named: "second.db")
@@ -131,7 +133,7 @@ final class VariantEditInvocationTests: XCTestCase {
         let targets = [fixture.databaseURL, second].map { VariantSampleMetadataImportTarget(databaseURL: $0, trackName: "t") }
         let before = try snapshot(of: fixture, databases: [fixture.databaseURL, second])
 
-        for cancelAt in 1...4 {
+        for cancelAt in 1...6 {
             var asks = 0
             XCTAssertThrowsError(
                 try VariantSampleMetadataImportService().importMetadata(
@@ -152,7 +154,10 @@ final class VariantEditInvocationTests: XCTestCase {
             from: metadata, format: .tsv, bundleURL: fixture.bundleURL, targets: targets,
             shouldCancel: { asks += 1; return false }
         )
-        XCTAssertEqual(asks, 4, "after the publication, before each of two targets, and before the record")
+        XCTAssertEqual(
+            asks, 6,
+            "after the publication, before each of two chunk reads of the hash, before each of two targets, and before the record"
+        )
         XCTAssertEqual(result.totalUpdated, 4)
     }
 

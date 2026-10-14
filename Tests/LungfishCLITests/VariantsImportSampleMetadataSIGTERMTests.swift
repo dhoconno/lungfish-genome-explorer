@@ -9,14 +9,14 @@
 // reads the bundle where `CLISIGTERMHarness.assertSIGTERMCancels` would read a record's status.
 //
 // What holds the command. The attach test holds its command on a FIFO, and this import cannot be
-// held that way: the service describes its copy of the metadata file with
-// `ProvenanceFileDescriptor.file`, which opens the copy twice, once to hash it and once for its
-// size, and a FIFO that no writer holds never opens a second time. The metadata file is a sparse
-// file of 3 GiB instead. The service copies it (a clone on APFS, so the copy is instant and takes
-// no space) and hashes the copy, about a second of work that no cancel interrupts. The copy
-// appears in the bundle's `.mutation-inputs` folder just before the hash starts, so a SIGTERM
-// sent when it appears lands while the import runs. The service takes the cancel at its next ask,
-// before it imports anything (`VariantEditInvocationTests` covers every ask), and rolls back.
+// held that way: the service describes its copy of the metadata file by hashing it and then
+// reading its size, which opens the copy twice, and a FIFO that no writer holds never opens a
+// second time. The metadata file is a sparse file of 3 GiB instead. The service copies it (a clone
+// on APFS, so the copy is instant and takes no space) and hashes the copy, about a second of work.
+// The copy appears in the bundle's `.mutation-inputs` folder just before the hash starts, so a
+// SIGTERM sent when it appears lands while the import hashes. The service takes the cancel at the
+// hash's next chunk, before it imports anything (`VariantEditInvocationTests` covers every ask),
+// and rolls back, which deletes the copy.
 
 import Darwin
 import Foundation
@@ -69,6 +69,11 @@ final class VariantsImportSampleMetadataSIGTERMTests: XCTestCase {
         CLISIGTERMHarness.assertNoProcessLeft(stop)
         XCTAssertTrue(errors.contains("Cancelling the import"), "Its standard error file holds: \(errors)")
         XCTAssertTrue(errors.contains("Import cancelled"), "Its standard error file holds: \(errors)")
+        // A kept clone would make the snapshot below read 3 GiB, so this fails first and says why.
+        XCTAssertFalse(
+            Self.retainedCopyExists(in: fixture.bundleURL),
+            "a cancelled import leaves no copy of the metadata file in .mutation-inputs"
+        )
         XCTAssertEqual(
             try VariantEditDump.snapshot(ofBundleAt: fixture.bundleURL, databases: [fixture.databaseURL]), before,
             "a cancelled import leaves every database, file and record of the bundle as it was"
@@ -78,14 +83,20 @@ final class VariantsImportSampleMetadataSIGTERMTests: XCTestCase {
     /// Waits up to the harness's process wait until a copy of the metadata file stands in the
     /// bundle's `.mutation-inputs` folder, checking every 10 ms.
     private static func waitForRetainedCopy(in bundle: URL) async -> Bool {
-        let inputs = bundle.appendingPathComponent(".mutation-inputs", isDirectory: true)
         let deadline = ContinuousClock.now + CLISIGTERMHarness.processWait
         while ContinuousClock.now < deadline {
-            let enumerator = FileManager.default.enumerator(atPath: inputs.path)
-            while let name = enumerator?.nextObject() as? String {
-                if (name as NSString).lastPathComponent.hasPrefix("metadata-") { return true }
-            }
+            if retainedCopyExists(in: bundle) { return true }
             try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
+    }
+
+    /// Whether a copy of the metadata file stands in the bundle's `.mutation-inputs` folder.
+    private static func retainedCopyExists(in bundle: URL) -> Bool {
+        let inputs = bundle.appendingPathComponent(".mutation-inputs", isDirectory: true)
+        let enumerator = FileManager.default.enumerator(atPath: inputs.path)
+        while let name = enumerator?.nextObject() as? String {
+            if (name as NSString).lastPathComponent.hasPrefix("metadata-") { return true }
         }
         return false
     }

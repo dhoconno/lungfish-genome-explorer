@@ -64,9 +64,9 @@ package struct VariantSampleMetadataImportService {
     /// step. `invocationArgv` is the command that made the edit, such as `lungfish-cli variants
     /// import-sample-metadata`. With none it records the `lungfish-gui` form, as it always has.
     ///
-    /// `shouldCancel` is asked after the publication is built, before each target's import and
-    /// before the record is written. A true answer throws `CancellationError` there, and the
-    /// rollback leaves every database and record as it was.
+    /// `shouldCancel` is asked after the publication is built, before each chunk of the copy's
+    /// hash, before each target's import and before the record is written. A true answer throws
+    /// `CancellationError` there, and the rollback leaves every database and record as it was.
     package func importMetadata(
         from metadataURL: URL,
         format: MetadataFormat,
@@ -94,9 +94,14 @@ package struct VariantSampleMetadataImportService {
             try Self.throwIfCancelled(shouldCancel)
             let retainedMetadataURL = publication.inputDirectory.appendingPathComponent("metadata-" + metadataURL.lastPathComponent)
             try fileManager.copyItem(at: metadataURL, to: retainedMetadataURL)
-            let retained = try ProvenanceFileDescriptor.file(url: retainedMetadataURL, format: .text, role: .input)
-            let metadataInput = ProvenanceFileDescriptor(path: retained.path, checksumSHA256: retained.checksumSHA256,
-                fileSize: retained.fileSize, format: .text, role: .input, originPath: metadataURL.path)
+            let metadataInput = ProvenanceFileDescriptor(
+                path: retainedMetadataURL.path,
+                checksumSHA256: try ProvenanceFileHasher.sha256(
+                    of: retainedMetadataURL, cancellationCheck: { try Self.throwIfCancelled(shouldCancel) }
+                ),
+                fileSize: try ProvenanceFileHasher.fileSize(of: retainedMetadataURL),
+                format: .text, role: .input, originPath: metadataURL.path
+            )
             let contextInputs = try contextInputDescriptors(bundleURL: bundleURL, targets: targets)
             let databaseInputs = try targets.map { try publication.inputDescriptor(for: $0.databaseURL) }
             var updatedCounts: [String: Int] = [:]
