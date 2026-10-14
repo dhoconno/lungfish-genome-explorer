@@ -154,10 +154,50 @@ extension NextflowWorkflowContractParityReplayTests {
     /// Runs `workflow run nf-core/viralrecon` with `executor` through the built CLI, or `cli`, on a stand-in of its
     /// own in `root/<case>`. The command is the one the app records for one paired Illumina amplicon sample of the
     /// nf-core/test-datasets reads, with the wizard's default skips and two CPUs.
-    func runRoute(_ executor: NFCoreExecutor, case name: String, cli: URL? = nil, passesVersion: Bool = true) throws -> ViralReconRouteRun {
+    func runRoute(
+        _ executor: NFCoreExecutor, case name: String, cli: URL? = nil, passesVersion: Bool = true,
+        behaviour: NextflowStandInEngine.Behaviour = .completes
+    ) throws -> ViralReconRouteRun {
         let cli = try cli ?? builtCLI()
         let caseRoot = root.appendingPathComponent(name, isDirectory: true)
-        let engine = try NextflowStandInEngine(root: caseRoot.appendingPathComponent("engine", isDirectory: true), workflow: .viralRecon)
+        let (engine, arguments, environment) = try routeCommand(executor, caseRoot: caseRoot, passesVersion: passesVersion, behaviour: behaviour)
+        let result = try ProcessRunner.run(cli, arguments, environment: environment, cwd: caseRoot.appendingPathComponent("Project"), timeout: 120)
+        let launches = try engine.launches()
+        var spawn = ProcessInfo.processInfo.environment
+        spawn["PATH"] = cli.deletingLastPathComponent().path + ":" + (spawn["PATH"] ?? "/usr/bin:/bin")
+        spawn.merge(environment) { _, new in new }
+        let version = (try? ProcessRunner.run(cli, ["--version"], timeout: 60).stdout)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizer = ViralReconRouteNormalizer(
+            caseRoot: caseRoot,
+            scratch: launches.first?.workDirectory.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path },
+            cliVersion: version)
+        let read = try ViralReconRouteRecords.read(
+            project: caseRoot.appendingPathComponent("Project", isDirectory: true), normalizer: normalizer,
+            digestGap: Set(Self.digestGap.map { "\($0.record) \($0.key)" }))
+        var run = ViralReconRouteRun(
+            status: result.status, stderr: result.stderr, launches: launches, tree: read.tree, records: read.records,
+            digestGapCandidates: read.candidates, spawnEnvironment: spawn, cliFolder: cli.deletingLastPathComponent().path,
+            normalizer: normalizer)
+        run.observed = [
+            "status \(run.status)", "stderr:\n" + run.normalize(run.stderr),
+            "argv:\n" + launches.map { run.normalize($0.arguments.joined(separator: "\n")) }.joined(separator: "\n--\n"),
+            "environment:\n" + launches.map(run.addedEnvironment).joined(separator: "\n--\n"),
+            "tree:\n" + run.tree.joined(separator: "\n"), "digest gap:\n" + run.digestGapCandidates.joined(separator: "\n"),
+            "records:\n" + run.records,
+        ].joined(separator: "\n\n") + "\n"
+        dump(run.observed, as: name)
+        return run
+    }
+
+    /// The stand-in of a case in `caseRoot/engine` with `behaviour`, and the command and environment of the run the
+    /// app records for one paired Illumina amplicon sample, which `runRoute` and a cancel case start in
+    /// `caseRoot/Project`.
+    func routeCommand(
+        _ executor: NFCoreExecutor, caseRoot: URL, passesVersion: Bool = true,
+        behaviour: NextflowStandInEngine.Behaviour = .completes
+    ) throws -> (engine: NextflowStandInEngine, arguments: [String], environment: [String: String]) {
+        let engine = try NextflowStandInEngine(
+            root: caseRoot.appendingPathComponent("engine", isDirectory: true), workflow: .viralRecon, behaviour: behaviour)
         engines.append(engine)
         let analyses = caseRoot.appendingPathComponent("Project/Analyses", isDirectory: true)
         let reads = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2", isDirectory: true)
@@ -187,32 +227,7 @@ extension NextflowWorkflowContractParityReplayTests {
             "LUNGFISH_CONDA_SHARED_PKGS": "0",
             "CFFIXED_USER_HOME": engine.home.path,
         ]
-        let result = try ProcessRunner.run(cli, arguments, environment: environment, cwd: caseRoot.appendingPathComponent("Project"), timeout: 120)
-        let launches = try engine.launches()
-        var spawn = ProcessInfo.processInfo.environment
-        spawn["PATH"] = cli.deletingLastPathComponent().path + ":" + (spawn["PATH"] ?? "/usr/bin:/bin")
-        spawn.merge(environment) { _, new in new }
-        let version = (try? ProcessRunner.run(cli, ["--version"], timeout: 60).stdout)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalizer = ViralReconRouteNormalizer(
-            caseRoot: caseRoot,
-            scratch: launches.first?.workDirectory.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path },
-            cliVersion: version)
-        let read = try ViralReconRouteRecords.read(
-            project: caseRoot.appendingPathComponent("Project", isDirectory: true), normalizer: normalizer,
-            digestGap: Set(Self.digestGap.map { "\($0.record) \($0.key)" }))
-        var run = ViralReconRouteRun(
-            status: result.status, stderr: result.stderr, launches: launches, tree: read.tree, records: read.records,
-            digestGapCandidates: read.candidates, spawnEnvironment: spawn, cliFolder: cli.deletingLastPathComponent().path,
-            normalizer: normalizer)
-        run.observed = [
-            "status \(run.status)", "stderr:\n" + run.normalize(run.stderr),
-            "argv:\n" + launches.map { run.normalize($0.arguments.joined(separator: "\n")) }.joined(separator: "\n--\n"),
-            "environment:\n" + launches.map(run.addedEnvironment).joined(separator: "\n--\n"),
-            "tree:\n" + run.tree.joined(separator: "\n"), "digest gap:\n" + run.digestGapCandidates.joined(separator: "\n"),
-            "records:\n" + run.records,
-        ].joined(separator: "\n\n") + "\n"
-        dump(run.observed, as: name)
-        return run
+        return (engine, arguments, environment)
     }
 
     /// The built `lungfish-cli` beside the test bundle, or the one LUNGFISH_CLI_PATH names.
