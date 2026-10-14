@@ -226,8 +226,11 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
     }
 
     /// The SHA-256 of the sorted-key JSON of `normalizedOutputs`, taken at the commit before the
-    /// move to `CLIEvent` lines. A change to what either command writes changes it.
-    private static let fluidigmOutputsDigest = "5425eeeb0838ec6cd7f63b60f590ef00b84e25854f6c1f52317a48961a47de9c"
+    /// move to `CLIEvent` lines. A change to what either command writes changes it. The Fluidigm
+    /// digest was taken again when each recorded app version became `<app version>`, because the
+    /// base's output held the version of the xctest host that wrote it. That output, with the
+    /// placeholder, has this digest.
+    private static let fluidigmOutputsDigest = "bfcb23bf159327d830c6cf1e4825f391141fc944738f8ebbe5a702413052a6d6"
     private static let pacBioOutputsDigest = "1a40f6d943f137cf2392bcaea7f12652fc7612cfff8da43df3d48112701eb3b3"
 
     private func assertDigest(
@@ -280,10 +283,16 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
 
     // MARK: Normalizing outputs
 
+    /// The app version a tool records, `Lungfish <version> (<build>)`. A bare CLI run records
+    /// `Lungfish <LungfishAppVersion.short> (dev)` and an xctest host its own bundle's version
+    /// and build, so the digest must not hold either.
+    private static let recordedAppVersionPattern = #"Lungfish [0-9][^ ]* \([^)]*\)"#
+
     /// Every file under `output` by relative path. A `.gz` file is its gunzipped text, a `.json`
     /// file is its parsed content with the scratch folder rewritten and the values that change
     /// from run to run removed (an id, a checksum of a compressed payload, a time that ends in
-    /// `At`, a duration that ends in `Seconds`), and a provenance record is a marker.
+    /// `At`, a duration that ends in `Seconds`) or replaced (each recorded app version), and a
+    /// provenance record is a marker.
     private func normalizedOutputs(of output: URL) throws -> [String: String] {
         let spellings = [root.path, root.path.replacingOccurrences(of: "/private", with: "")]
             .sorted { $0.count > $1.count }
@@ -294,7 +303,8 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
                 if let key, key.hasSuffix("At") { return "<time>" }
                 var result = text
                 for spelling in spellings { result = result.replacingOccurrences(of: spelling, with: "/work") }
-                return result
+                return result.replacingOccurrences(
+                    of: Self.recordedAppVersionPattern, with: "<app version>", options: .regularExpression)
             }
             if let dictionary = value as? [String: Any] {
                 var result: [String: Any] = [:]
