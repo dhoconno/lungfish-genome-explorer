@@ -129,9 +129,9 @@ public struct ProvenanceStepObservation: Codable, Sendable, Equatable {
     public let termination: Termination
     /// Nil when ToolProcess did not stop the step itself.
     public let stop: Stop?
-    /// Whether every output of the step was read or written whole. Nil, and shown as Not recorded, for
-    /// a stage that streamed its stdout, whose reader is judged after the run, and for a stage that
-    /// never launched (Phase 2.7 decision P3).
+    /// Whether every output of the step was read or written whole. Nil for a stage that streamed its
+    /// stdout, whose reader is judged after the run, and for a stage that never launched (Phase 2.7
+    /// decision P3). The Provenance tab reads nil as Not recorded only for a step that ran and did not exit 0.
     public let outputComplete: Bool?
     /// Nil when the adapter did not say what it changed.
     public let environment: Environment?
