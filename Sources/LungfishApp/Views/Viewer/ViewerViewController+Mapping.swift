@@ -36,7 +36,7 @@ extension ViewerViewController {
             return
         }
         let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: selection.contig, start: selection.start, end: selection.end)
-        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: alignmentOperationRouteContext())
+        let routeContext = alignmentOperationRouteContext()
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -44,12 +44,12 @@ extension ViewerViewController {
                     context: context,
                     outputBaseName: "selected-region"
                 )
-                activeSelectedReadsExtractionTask = AlignmentScientificActionCoordinator().launchRegion(
+                launchAlignmentRegionExtraction(
                     context: context,
                     region: region,
                     destination: destination,
                     outputBaseName: "selected-region",
-                    reporter: reporter
+                    routeContext: routeContext
                 )
             } catch AlignmentScientificActionError.destinationCancelled {
                 return
@@ -366,7 +366,7 @@ extension ViewerViewController {
             return
         }
         let outputBaseName = "\(ExtractionBundleNaming.sanitizeFilename(context.presentationLabel))_selected_\(Set(reads.map(\.name)).count)reads"
-        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: alignmentOperationRouteContext())
+        let routeContext = alignmentOperationRouteContext()
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -374,12 +374,12 @@ extension ViewerViewController {
                     context: context,
                     outputBaseName: outputBaseName
                 )
-                activeSelectedReadsExtractionTask = AlignmentScientificActionCoordinator().launchSelectedReads(
+                launchSelectedReadsExtraction(
                     context: context,
                     records: reads,
                     destination: destination,
                     outputBaseName: outputBaseName,
-                    reporter: reporter
+                    routeContext: routeContext
                 )
             } catch AlignmentScientificActionError.destinationCancelled {
                 return

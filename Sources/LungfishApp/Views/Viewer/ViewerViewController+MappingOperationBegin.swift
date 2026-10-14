@@ -137,6 +137,210 @@ extension ViewerViewController {
         ].joined(separator: "\n")
     }
 
+    // MARK: - Reads of alignment evidence on the CLI (Phase 2.10 lane A51 M3)
+
+    /// The argv after the binary that runs `invocation`, `extract reads` with its events on. The row
+    /// records it and the L3 runner runs it.
+    static func alignmentReadExtractionCLIArguments(_ invocation: AlignmentReadExtractionInvocation) -> [String] {
+        invocation.arguments + ["--format", "json"]
+    }
+
+    /// The region run of `context`, as Extract Reads in Selected Region chose it.
+    static func alignmentRegionExtractionInvocation(
+        context: AlignmentActionContext,
+        region: ResolvedAlignmentRegion,
+        destination: AlignmentReadExtractionPublicationDestination,
+        outputBaseName: String
+    ) -> AlignmentReadExtractionInvocation {
+        AlignmentReadExtractionInvocation(
+            alignmentURL: context.alignmentURL,
+            indexURL: context.indexURL,
+            decodingReferenceURL: context.decodingReferenceURL,
+            selection: .regions(
+                ["\(region.contig):\(region.start + 1)-\(region.end)"],
+                minimumMapQ: context.filters.minimumMapQ,
+                excludedFlags: Int(context.filters.excludedFlags),
+                readGroups: Array(context.filters.readGroups)
+            ),
+            readsName: outputBaseName,
+            outputURL: destination.finalURL
+        )
+    }
+
+    /// The selected-read run of `context` for `records`, whose names are in `namesFile`.
+    static func selectedReadsExtractionInvocation(
+        context: AlignmentActionContext,
+        records: [AlignedRead],
+        namesFile: URL,
+        destination: AlignmentReadExtractionPublicationDestination,
+        outputBaseName: String
+    ) -> AlignmentReadExtractionInvocation {
+        var sources: [URL] = []
+        if case .sourceFASTQs(let urls) = context.sourceReads { sources = urls }
+        return AlignmentReadExtractionInvocation(
+            alignmentURL: context.alignmentURL,
+            indexURL: context.indexURL,
+            decodingReferenceURL: context.decodingReferenceURL,
+            selection: .readNames(.init(
+                file: namesFile,
+                sourceFASTQs: sources,
+                keepReadPairs: true,
+                recordsWithoutSequence: records.filter { $0.sequence.isEmpty || $0.sequence == "*" }.count
+            )),
+            readsName: outputBaseName,
+            outputURL: destination.finalURL
+        )
+    }
+
+    /// Registers the row of a read extraction on alignment evidence and, only when it starts, calls
+    /// `launch` with the operation ID. The row locks no bundle, records the `lungfish-cli extract
+    /// reads` command of `invocation`, which names the chosen bundle in `--output`, and logs the
+    /// evidence it reads, as the coordinator's row did.
+    @discardableResult
+    static func beginAlignmentReadExtractionOperation(
+        title: String,
+        detail: String,
+        invocation: AlignmentReadExtractionInvocation,
+        evidence: AlignmentEvidenceIdentity,
+        routeContext: OperationRouteContext?,
+        reporter: any OperationReporting = OperationCenter.shared,
+        launch: (UUID) -> Void
+    ) -> OperationStartResult {
+        let arguments = alignmentReadExtractionCLIArguments(invocation)
+        let result = reporter.begin(
+            title: title,
+            detail: detail,
+            operationType: .taxonomyExtraction,
+            cliCommand: OperationCenter.buildCLICommand(subcommand: "extract reads", args: Array(arguments.dropFirst(2))),
+            routeContext: routeContext
+        )
+        guard case .started(let operationID) = result else {
+            return result // The panel already shows the refused row. Nothing was launched.
+        }
+        reporter.log(
+            id: operationID,
+            level: .info,
+            message: "alignment evidence: workflow=\(evidence.workflow);resultID=\(evidence.resultID);sampleID=\(evidence.sampleID);evidenceID=\(evidence.evidenceID)"
+        )
+        launch(operationID)
+        return result
+    }
+
+    /// Runs `arguments`, an `extract reads` argv, on the L3 runner for the row and hands how it ended
+    /// to `finish` on the main actor. The row keeps its first detail, which names its action. The
+    /// leaf wrote the bundle and its record before it exited, so the app writes nothing. The row's
+    /// Cancel reaches the runner's `cancel()`, and a cancelled run ends the row Cancelled with no
+    /// sheet and no `finish`.
+    @discardableResult
+    static func runReadExtractionThroughCLI(
+        arguments: [String],
+        operationID: UUID,
+        runner: CLIAlignmentActionRunner = CLIAlignmentActionRunner(),
+        finish: @escaping @MainActor (Result<CLIAlignmentActionRunner.Completion, any Error>) -> Void
+    ) -> Task<Void, Never> {
+        let task = Task(priority: .userInitiated) { @MainActor in
+            do {
+                finish(.success(try await runner.run(arguments: arguments, operationID: operationID, keepsFirstDetail: true)))
+            } catch is CancellationError {
+                OperationCenterCLIBridge.acknowledgeCancellation(operationID)
+            } catch {
+                finish(.failure(error))
+            }
+        }
+        OperationCenter.shared.setCancelCallback(for: operationID) {
+            task.cancel()
+            runner.cancel()
+        }
+        return task
+    }
+
+    /// Ends a region or selected-read row with the details the coordinator's row ended with.
+    static func finishAlignmentReadExtraction(
+        _ outcome: Result<CLIAlignmentActionRunner.Completion, any Error>,
+        operationID: UUID
+    ) {
+        switch outcome {
+        case .success(let completion):
+            _ = OperationCenter.shared.complete(
+                id: operationID,
+                detail: "Alignment read extraction published",
+                bundleURLs: completion.outputs.map { URL(fileURLWithPath: $0) }
+            )
+        case .failure(let error):
+            _ = OperationCenter.shared.fail(
+                id: operationID,
+                detail: "Alignment read extraction failed",
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    /// Extract Reads in Selected Region, published at the chosen `destination` by `extract reads`.
+    func launchAlignmentRegionExtraction(
+        context: AlignmentActionContext,
+        region: ResolvedAlignmentRegion,
+        destination: AlignmentReadExtractionPublicationDestination,
+        outputBaseName: String,
+        routeContext: OperationRouteContext
+    ) {
+        launchAlignmentReadExtraction(
+            title: "Extract Reads in Selected Region",
+            detail: "Preparing alignment read extraction…",
+            invocation: Self.alignmentRegionExtractionInvocation(
+                context: context, region: region, destination: destination, outputBaseName: outputBaseName
+            ),
+            evidence: context.identity,
+            routeContext: routeContext
+        )
+    }
+
+    /// Extract Selected Reads. The sorted names go into a durable file beside the chosen bundle
+    /// before the row begins, so the command the row records names no scratch file and replays.
+    func launchSelectedReadsExtraction(
+        context: AlignmentActionContext,
+        records: [AlignedRead],
+        destination: AlignmentReadExtractionPublicationDestination,
+        outputBaseName: String,
+        routeContext: OperationRouteContext
+    ) {
+        let namesFile = AlignmentReadExtractionInvocation.readNamesFileURL(forBundle: destination.finalURL)
+        do {
+            try AlignmentReadExtractionInvocation.writeReadNames(records.map(\.name), to: namesFile)
+        } catch {
+            presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: error.localizedDescription)
+            return
+        }
+        launchAlignmentReadExtraction(
+            title: "Extract Selected Reads",
+            detail: "Preparing selected-read extraction…",
+            invocation: Self.selectedReadsExtractionInvocation(
+                context: context, records: records, namesFile: namesFile,
+                destination: destination, outputBaseName: outputBaseName
+            ),
+            evidence: context.identity,
+            routeContext: routeContext
+        )
+    }
+
+    private func launchAlignmentReadExtraction(
+        title: String,
+        detail: String,
+        invocation: AlignmentReadExtractionInvocation,
+        evidence: AlignmentEvidenceIdentity,
+        routeContext: OperationRouteContext
+    ) {
+        Self.beginAlignmentReadExtractionOperation(
+            title: title, detail: detail, invocation: invocation, evidence: evidence, routeContext: routeContext
+        ) { operationID in
+            activeSelectedReadsExtractionTask = Self.runReadExtractionThroughCLI(
+                arguments: Self.alignmentReadExtractionCLIArguments(invocation),
+                operationID: operationID
+            ) { outcome in
+                Self.finishAlignmentReadExtraction(outcome, operationID: operationID)
+            }
+        }
+    }
+
     /// Registers the overlapping-reads row and, only when it starts, calls
     /// `launch` with the operation ID. The row locks no bundle and records the
     /// `lungfish-cli extract reads --by-region` command for the configuration

@@ -43,6 +43,8 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
         case consensusFASTA
         case consensusBundle
         case consensusAcceptedAllN
+        case regionReads
+        case selectedReads
     }
 
     /// Every difference A against C declares, none (C4). Both routes write the removal's record
@@ -269,7 +271,127 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
         )
     }
 
+    // MARK: - Read sides (M3, census row 22)
+
+    /// The names the selected-reads case selects, in the file the route writes before its row begins.
+    nonisolated private static let selectedNames = ["ERR5069949.114870", "ERR5069949.29668"]
+
+    /// The consensus evidence, with the names file beside the bundle the selected-reads case publishes.
+    nonisolated private static func makeReadsFixture(in root: URL) throws {
+        try makeConsensusFixture(in: root)
+        try AlignmentReadExtractionInvocation.writeReadNames(selectedNames, to: root.appendingPathComponent("out/S1.read-names.txt"))
+    }
+
+    /// The run the route chooses for `root`: the region MT192765.1:1-3000, or the two selected reads,
+    /// one of whose records held no sequence.
+    private static func readsRequest(in root: URL, selected: Bool) throws -> (context: AlignmentActionContext, invocation: AlignmentReadExtractionInvocation) {
+        let (context, _) = try consensusRequest(in: root, minimumDepth: 1)
+        guard selected else {
+            return (context, ViewerViewController.alignmentRegionExtractionInvocation(
+                context: context, region: ResolvedAlignmentRegion(scope: .selectedRegion, contig: contig, start: 0, end: 3000),
+                destination: .bundle(root.appendingPathComponent("out/region.lungfishfastq")), outputBaseName: "selected-region"
+            ))
+        }
+        let records = selectedNames.map {
+            AlignedRead(name: $0, flag: 0, chromosome: contig, position: 0, mapq: 60, cigar: [], sequence: "ACGT", qualities: [30, 30, 30, 30])
+        } + [AlignedRead(name: selectedNames[0], flag: 256, chromosome: contig, position: 0, mapq: 0, cigar: [], sequence: "*", qualities: [])]
+        return (context, ViewerViewController.selectedReadsExtractionInvocation(
+            context: context, records: records, namesFile: root.appendingPathComponent("out/S1.read-names.txt"),
+            destination: .bundle(root.appendingPathComponent("out/S1.lungfishfastq")), outputBaseName: "S1_selected_2reads"
+        ))
+    }
+
+    /// Side A, today's in-process route: what the coordinator ran in the app, the stager and the
+    /// publisher between two checks of the evidence, with the record the row's command names.
+    private static func readsSideA(_ root: URL, selected: Bool) async -> RouteParitySideOutcome {
+        do {
+            let (context, invocation) = try readsRequest(in: root, selected: selected)
+            let folder = invocation.outputURL.deletingLastPathComponent()
+            try await context.validateCurrentSnapshots()
+            let transaction: AlignmentReadExtractionTransaction
+            if selected {
+                transaction = try await AlignmentReadExtractionStager().stageReadIDsFromBAM(
+                    config: ReadIDBAMExtractionConfig(
+                        bamURL: context.alignmentURL, readIDs: Set(selectedNames), includeSecondary: false, excludeDuplicates: false,
+                        outputDirectory: folder, outputBaseName: "S1_selected_2reads"
+                    ),
+                    recordsWithoutSequence: 1,
+                    missingSequenceMessage: "1 selected alignment record(s) did not contain sequence."
+                )
+            } else {
+                transaction = try await AlignmentReadExtractionStager().stageRegion(config: BAMRegionExtractionConfig(
+                    bamURL: context.alignmentURL, indexURL: context.indexURL, decodingReferenceURL: nil,
+                    regions: ["\(contig):1-3000"], fallbackToAll: false, minMapQ: 0, excludedFlags: 0x904, readGroups: [],
+                    outputDirectory: folder, outputBaseName: "selected-region", deduplicateReads: false
+                ))
+            }
+            try await context.validateCurrentSnapshots()
+            _ = try AlignmentReadExtractionPublisher().publish(.init(
+                transaction: transaction, destination: .bundle(invocation.outputURL), provenance: invocation.provenance
+            ))
+            return RouteParitySideOutcome(end: .completed, detail: "Alignment read extraction published")
+        } catch {
+            return RouteParitySideOutcome(end: .failed, detail: error.localizedDescription)
+        }
+    }
+
+    /// Side C, the CLI route. The viewer's begin helper records `extract reads` and its run helper
+    /// runs it on the L3 runner.
+    private func readsSideC(_ root: URL, selected: Bool) async throws -> RouteParitySideOutcome {
+        let (context, invocation) = try Self.readsRequest(in: root, selected: selected)
+        let reporter = RecordingOperationReporter()
+        var launched: UUID?
+        ViewerViewController.beginAlignmentReadExtractionOperation(
+            title: selected ? "Extract Selected Reads" : "Extract Reads in Selected Region", detail: "Preparing…",
+            invocation: invocation, evidence: context.identity, routeContext: nil, reporter: reporter
+        ) { launched = $0 }
+        let id = try XCTUnwrap(launched, "the row started")
+        let command = reporter.items.first?.cliCommand
+        let outcome = await withCheckedContinuation { continuation in
+            ViewerViewController.runReadExtractionThroughCLI(
+                arguments: ViewerViewController.alignmentReadExtractionCLIArguments(invocation),
+                operationID: id,
+                runner: CLIAlignmentActionRunner(cliURLOverride: cli)
+            ) { continuation.resume(returning: $0) }
+        }
+        switch outcome {
+        case .success:
+            return RouteParitySideOutcome(end: .completed, detail: "Alignment read extraction published", recordedCommand: command)
+        case .failure(let error):
+            return RouteParitySideOutcome(end: .failed, detail: error.localizedDescription, recordedCommand: command)
+        }
+    }
+
+    private func assertReadsParity(_ parityCase: Case, selected: Bool) async throws -> RouteParityResult {
+        try await harness.assertParity(
+            parityCase, declared: Self.declared,
+            in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
+            fixture: { try Self.makeReadsFixture(in: $0) },
+            sideA: { await Self.readsSideA($0, selected: selected) },
+            sideC: { try await self.readsSideC($0, selected: selected) }
+        )
+    }
+
     // MARK: - Cases
+
+    func testARegionsReadsAreTheSameBundleAndRecordOnEveryRoute() async throws {
+        let result = try await assertReadsParity(.regionReads, selected: false)
+        for run in result.runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
+        }
+    }
+
+    func testSelectedReadsAreTheSameBundleAndRecordOnEveryRoute() async throws {
+        let result = try await assertReadsParity(.selectedReads, selected: true)
+        for run in result.runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
+            let record = try XCTUnwrap(try ProvenanceEnvelopeReader.load(
+                fromSidecar: run.root.appendingPathComponent("out/S1.lungfishfastq/.lungfish-provenance.json")
+            ))
+            let names = run.root.appendingPathComponent("out/S1.read-names.txt").standardizedFileURL.path
+            XCTAssertTrue(record.files.contains { $0.role == .input && $0.path == names }, "side \(run.side) names the names file")
+        }
+    }
 
     func testAConsensusFASTAIsTheSameFileAndRecordOnEveryRoute() async throws {
         let result = try await assertConsensusParity(.consensusFASTA, output: "out/S1.fasta")

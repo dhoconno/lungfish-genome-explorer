@@ -33,14 +33,25 @@ struct CLIAlignmentActionRunner: Sendable {
     /// Runs `arguments`, the argv after the binary, for the row `operationID`, in
     /// `workingDirectory` when one is given, where a relative `--output` resolves. It throws
     /// `CancellationError` when the row was cancelled and `CLISubprocessTransport.RunError` when the
-    /// leaf failed, whose description is the leaf's own failure message.
-    func run(arguments: [String], operationID: UUID, workingDirectory: URL? = nil) async throws -> Completion {
+    /// leaf failed, whose description is the leaf's own failure message. With `keepsFirstDetail` the
+    /// leaf's `start` event is dropped, so the row keeps the first detail its begin gave it, as a
+    /// route does whose leaf's start message does not name the row's action (ADDING-AN-OPERATION.md).
+    func run(
+        arguments: [String],
+        operationID: UUID,
+        workingDirectory: URL? = nil,
+        keepsFirstDetail: Bool = false
+    ) async throws -> Completion {
+        let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
         let result = try await transport.run(
             arguments: arguments,
             terminationGracePeriod: Self.terminationGracePeriod,
             drainGracePeriod: Self.drainGracePeriod,
             isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
-            onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID),
+            onEvent: { event in
+                if keepsFirstDetail, case .start = event { return }
+                bridge(event)
+            },
             workingDirectory: workingDirectory
         )
         return Completion(outputs: result.outputs, message: result.message)

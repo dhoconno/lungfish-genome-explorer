@@ -14,6 +14,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 import LungfishCore
 import LungfishIO
 import LungfishKit
@@ -159,46 +160,59 @@ final class AlignmentScientificActionCoordinatorOperationTests: XCTestCase {
         XCTAssertEqual(finished.bundleURLs, [finalURL])
     }
 
-    // MARK: - CLI parity gap
+    // MARK: - The recorded command (Phase 2.10 A51, gaps alignment-region-reads and alignment-selected-reads closed)
 
-    func testExtractionRowsRecordNoCommandAsAParityGap() async throws {
-        let recorder = RecordingOperationReporter()
-        let transaction = try makeTransaction()
-        let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in },
-            regionStager: { _ in transaction },
-            bamStager: { _, _, _ in transaction },
-            publisher: { request in self.publicationResult(for: request.transaction) }
-        )
-        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: routeContext, center: recorder)
-
-        let regionTask = try XCTUnwrap(coordinator.launchRegion(
-            context: try makeContext(), region: region, destination: .bundle(finalURL),
-            outputBaseName: "selected-region", reporter: reporter
-        ))
-        let readsTask = try XCTUnwrap(coordinator.launchSelectedReads(
-            context: try makeContext(), records: [makeRead()], destination: .bundle(finalURL),
-            outputBaseName: "evidence_selected_1reads", reporter: reporter
-        ))
-        _ = await regionTask.result
-        _ = await readsTask.result
-
-        // CLI parity gap. The closest commands are `extract reads --by-region`
-        // for a region and `extract reads --by-id --bam` for selected reads.
-        // The region run applies the evidence's minimum map quality, excluded
-        // flags and read groups, reads its explicit index and publishes a
-        // `.lungfishfastq` bundle with provenance, and the command has no
-        // option for these. The selected reads reach the run as read names in
-        // memory, and `--by-id` reads them from a file. When a command can
-        // express either run, record it and replace this pin with a parse test.
-        XCTAssertEqual(recorder.items.count, 2)
-        for item in recorder.items {
-            XCTAssertNil(item.cliCommand, item.title)
+    /// Each row records the `extract reads` command the L3 runner runs, with the evidence's index and
+    /// filters for a region and the durable names file for selected reads.
+    func testExtractionRowsRecordTheExtractReadsCommandTheRunnerRuns() throws {
+        let context = try makeContext()
+        let names = URL(fileURLWithPath: "/out/final.read-names.txt")
+        let invocations = [
+            ViewerViewController.alignmentRegionExtractionInvocation(
+                context: context, region: region, destination: .bundle(finalURL), outputBaseName: "selected-region"
+            ),
+            ViewerViewController.selectedReadsExtractionInvocation(
+                context: context, records: [makeRead()], namesFile: names, destination: .bundle(finalURL),
+                outputBaseName: "evidence_selected_1reads"
+            ),
+        ]
+        for invocation in invocations {
+            let recorder = RecordingOperationReporter()
+            var launched: UUID?
+            ViewerViewController.beginAlignmentReadExtractionOperation(
+                title: "Extract", detail: "Preparing…", invocation: invocation, evidence: context.identity,
+                routeContext: routeContext, reporter: recorder
+            ) { launched = $0 }
+            let item = try XCTUnwrap(recorder.items.first)
+            XCTAssertEqual(launched, item.id)
+            XCTAssertEqual(item.operationType, .taxonomyExtraction)
+            XCTAssertNil(item.targetBundleURL)
+            XCTAssertEqual(item.routeContext, routeContext)
+            XCTAssertTrue(item.logs.contains { $0.message.contains("workflow=map;resultID=r;sampleID=s;evidenceID=e") })
+            XCTAssertEqual(
+                try RecordedCLICommand.arguments(of: item.cliCommand),
+                ViewerViewController.alignmentReadExtractionCLIArguments(invocation),
+                "the row records the argv the runner runs"
+            )
+            let command = try RecordedCLICommand.parse(item.cliCommand, as: ExtractReadsSubcommand.self)
+            XCTAssertEqual(command.bamFile, "/evidence/a.bam")
+            XCTAssertEqual(command.indexFile, "/evidence/a.bam.bai")
+            XCTAssertEqual(command.output, finalURL.path)
         }
-        let regionRow = try XCTUnwrap(recorder.items.first { $0.title == "Extract Reads in Selected Region" })
-        let readsRow = try XCTUnwrap(recorder.items.first { $0.title == "Extract Selected Reads" })
-        assertCLIParityGap(regionRow.cliCommand, id: "alignment-region-reads")
-        assertCLIParityGap(readsRow.cliCommand, id: "alignment-selected-reads")
+        let region = try RecordedCLICommand.parse(
+            OperationCenter.buildCLICommand(subcommand: "extract reads", args: Array(ViewerViewController.alignmentReadExtractionCLIArguments(invocations[0]).dropFirst(2))),
+            as: ExtractReadsSubcommand.self
+        )
+        XCTAssertEqual(region.regions, ["chrSynthetic:5-9"])
+        XCTAssertEqual(region.minimumMapQ, 30)
+        XCTAssertEqual(region.excludedFlags, 0x904)
+        XCTAssertEqual(region.readGroups, ["rg"])
+        let selected = try RecordedCLICommand.parse(
+            OperationCenter.buildCLICommand(subcommand: "extract reads", args: Array(ViewerViewController.alignmentReadExtractionCLIArguments(invocations[1]).dropFirst(2))),
+            as: ExtractReadsSubcommand.self
+        )
+        XCTAssertEqual(selected.idsFile, names.path)
+        XCTAssertEqual(selected.recordsWithoutSequence, 0)
     }
 
     // MARK: - Refused begin

@@ -43,21 +43,9 @@ struct AlignmentScientificActionReporter {
     static let operationCenter = operationCenter(routeContext: nil)
 
     /// The reporter that sends every report to `center`. Its `begin` locks no
-    /// bundle and records no command.
-    ///
-    /// cli-parity-gap: alignment-region-reads (the region row) and
-    /// cli-parity-gap: alignment-selected-reads (the selected-reads row). The
-    /// closest commands are `extract reads --by-region` for a region and
-    /// `extract reads --by-id --bam` for selected reads, and neither
-    /// reproduces the run. The region run applies the evidence's
-    /// minimum map quality, excluded flags and read groups, reads its
-    /// explicit index and publishes a `.lungfishfastq` bundle at the chosen
-    /// destination with provenance. `extract reads --by-region` has no option
-    /// for the filters or the index, picks its own flag filter (0x400 or
-    /// 0x404) and cannot publish to that destination with that provenance.
-    /// The selected reads reach the run as read names in memory, and `--by-id`
-    /// reads them from a file. The row keeps recording no command until a
-    /// command can express them.
+    /// bundle and records no command. The viewer's two rows no longer use it,
+    /// since they run `lungfish-cli extract reads` with `--index` on the L3
+    /// runner (ViewerViewController+MappingOperationBegin.swift, Phase 2.10 A51).
     static func operationCenter(routeContext: OperationRouteContext?, center: any OperationReporting = OperationCenter.shared) -> Self {
         Self(
         begin: { title, detail in
