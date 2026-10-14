@@ -88,6 +88,7 @@ extension PluginManagerViewModel {
         reinstall: Bool,
         operationID: UUID,
         provider: any PluginPackStatusProviding,
+        cliURLOverride: URL? = nil,
         progress: @escaping @Sendable (PluginPackInstallProgress) -> Void
     ) async throws {
         switch ManagedToolsRouteSettings.currentRoute {
@@ -101,7 +102,8 @@ extension PluginManagerViewModel {
                 _ = try await CLIManagedToolsRunner.launch(
                     CLIManagedToolsRunner.installPack(packID: packID, reinstall: reinstall),
                     operationID: operationID,
-                    overlay: { [weak self] message in self?.packProgressMessage[packID] = message }
+                    overlay: { [weak self] message in self?.packProgressMessage[packID] = message },
+                    cliURLOverride: cliURLOverride
                 )
             } catch is CancellationError {
                 await provider.invalidateVisibleStatusesCache()
@@ -124,6 +126,8 @@ extension PluginManagerViewModel {
         catalogID: String,
         operationID: UUID,
         legacy: @Sendable (String, @escaping @Sendable (Double, String) -> Void) async throws -> Void,
+        registry: MetagenomicsDatabaseRegistry = .shared,
+        cliURLOverride: URL? = nil,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws {
         switch ManagedToolsRouteSettings.currentRoute {
@@ -133,9 +137,10 @@ extension PluginManagerViewModel {
             _ = try await CLIManagedToolsRunner.launch(
                 CLIManagedToolsRunner.updateDatabase(catalogID: catalogID),
                 operationID: operationID,
-                progress: progress
+                progress: progress,
+                cliURLOverride: cliURLOverride
             )
-            try await MetagenomicsDatabaseRegistry.shared.reloadFromDisk()
+            try await registry.reloadFromDisk()
         }
     }
 }

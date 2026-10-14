@@ -11,10 +11,12 @@
 // command exits 125 inside `CLIProcessLauncher.operationGrace`, its record reads cancelled and no
 // process of its tree is left. The record of the run is the part of the plan the harness reads.
 //
-// Side A, the in-process route, is not run here. `CondaManager` runs micromamba to its end when its
-// caller is cancelled, so the old route cannot be cancelled at this point at all, which is the
-// difference between the routes that keeps the hidden key (decision C4). The database update has no
-// stand-in on the built CLI, so its cancel is `ManagedToolLeavesLiveConformanceTests`.
+// Side A, the in-process route, is not cancelled here. `CondaManager` runs micromamba to its end when
+// its caller is cancelled, so the old route cannot be cancelled at this point at all, which is the
+// difference between the routes that keeps the hidden key (decision C4). The cases that run every
+// side to its end, side A included, are in ManagedToolsCLIGUIParityReplayTests+Completed.swift. The
+// database update has no stand-in on the built CLI, so its cancel is
+// `ManagedToolLeavesLiveConformanceTests`.
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the
 // integration tier.
