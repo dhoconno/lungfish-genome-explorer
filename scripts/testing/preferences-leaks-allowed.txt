@@ -51,7 +51,6 @@ MSADistanceMatrixThirdReviewFixTests    Tests/LungfishAlignmentUITests/MSADistan
 MetadataColumnPersistenceTests          Tests/LungfishKitTests/MetadataColumnPersistenceTests.swift
 NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 TaxTriageFilterAlignment                Tests/LungfishTaxTriageUITests/TaxTriageDatabaseModeTests.swift
-TaxTriageFilterPane                     Tests/LungfishAppTests/TaxTriageSampleFilterAlignmentPaneTests.swift
 TaxTriageLayoutTests                    Tests/LungfishTaxTriageUITests/TaxTriageResultViewControllerSmokeTests.swift
 ToolsMenuLayout                         Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
 ToolsMenuSorting                        Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
@@ -59,17 +58,10 @@ ToolsMenuWorkflows                      Tests/LungfishAppViewTests/ToolsMenuStru
 ToolsMenuWorkflowsDialog                Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
 WorkflowFeatureAvailability-12S         Tests/LungfishAppViewTests/ImportCenterMenuTests.swift
 WorkflowFeatureAvailability-ONT         Tests/LungfishAppViewTests/ImportCenterMenuTests.swift
-WorkflowRunAgainStateTests              Tests/LungfishAppTests/WorkflowRunAgainControllerTests.swift
 assembly-layout-pref                    Tests/LungfishAssemblyUITests/AssemblyLayoutPreferenceTests.swift
-layout-pref                             Tests/LungfishAppTests/MetagenomicsLayoutPreferenceTests.swift
-lungfish-test                           Tests/LungfishAppTests/AnnotationDrawerSizingTests.swift
-lungfish-test                           Tests/LungfishAppTests/BundleViewerTests.swift
 lungfish-test                           Tests/LungfishCoreTests/SequenceAppearanceTests.swift
-mapping-layout-pref                     Tests/LungfishAppTests/MappingLayoutPreferenceTests.swift
 org.example.storage-tests               Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
 org.example.test                        Tests/LungfishCoreTests/AppIdentityTests.swift
 org.lungfish.tests.AppSettings          Tests/LungfishCoreTests/AppSettingsTests.swift
 org.lungfish.tests.AppSettings.nested   Tests/LungfishCoreTests/AppSettingsTests.swift
-reference-bundle-scroll-direction-pref  Tests/LungfishAppTests/ReferenceBundleScrollDirectionPreferenceTests.swift
 sra-source-preference                   Tests/LungfishCoreTests/Services/SRADownloadSourcePreferenceTests.swift
-update-tools-deferral                   Tests/LungfishAppTests/UpdateToolsSheetViewModelTests.swift

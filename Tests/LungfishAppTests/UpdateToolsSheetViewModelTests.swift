@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishOperations
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 /// Counts calls from a `@Sendable` closure without tripping strict concurrency.
 private final class Counter: @unchecked Sendable {
@@ -258,9 +259,7 @@ final class UpdateToolsSheetViewModelTests: XCTestCase {
     /// An all-optional plan the user declined must not reappear on every launch, but the same
     /// deferral must not silence a plan that has required work or a different manifest.
     func testDeferredOptionalOnlyPlanIsSuppressedUntilTheManifestChanges() throws {
-        let suiteName = "update-tools-deferral-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "UpdateToolsSheetViewModelTests").defaults
 
         let manifest = ManagedToolLock.bundled
         let optionalOnly = optionalOnlyPlan()

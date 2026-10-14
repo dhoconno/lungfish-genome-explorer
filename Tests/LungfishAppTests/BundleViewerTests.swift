@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishOperations
 @testable import LungfishPhylogeneticsUI
+import LungfishTestSupport
 
 // Disambiguate DocumentType: LungfishApp.DocumentType (file format type used by DocumentManager)
 // vs LungfishCore.DocumentCategory (genomic document classification). We test the LungfishApp one.
@@ -1567,9 +1568,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
         let controller = MultipleSequenceAlignmentViewController()
         // A private defaults suite, so a pane another test or the user left
         // open does not leak in.
-        let suiteName = "lungfish-test-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "ViewerBundleRoutingTests").defaults
         controller.gutterWidthDefaults = defaults
         // A stored hide, so the canvas and drawer assertions below see a closed pane.
         defaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)

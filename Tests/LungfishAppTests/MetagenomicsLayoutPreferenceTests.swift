@@ -1,13 +1,12 @@
 import XCTest
 @testable import LungfishApp
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class MetagenomicsLayoutPreferenceTests: XCTestCase {
     func testCurrentLayoutFallsBackToLegacyBoolWhenEnumKeyIsMissing() {
-        let suite = "layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "MetagenomicsLayoutPreferenceTests").defaults
 
         defaults.set(true, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
 
@@ -18,10 +17,8 @@ final class MetagenomicsLayoutPreferenceTests: XCTestCase {
     }
 
     func testPersistWritesEnumRawValueAndPostsLayoutChangeNotification() {
-        let suite = "layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = makeTestDefaultsSuite(prefix: "MetagenomicsLayoutPreferenceTests").defaults
         let center = NotificationCenter()
-        defer { defaults.removePersistentDomain(forName: suite) }
 
         let exp = expectation(description: "injected notification center posts layout change")
         let token = center.addObserver(
@@ -46,9 +43,7 @@ final class MetagenomicsLayoutPreferenceTests: XCTestCase {
     }
 
     func testCurrentLayoutPrefersEnumKeyOverLegacyBoolWhenBothArePresent() {
-        let suite = "layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "MetagenomicsLayoutPreferenceTests").defaults
 
         defaults.set(true, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
         defaults.set(
@@ -63,9 +58,7 @@ final class MetagenomicsLayoutPreferenceTests: XCTestCase {
     }
 
     func testPersistMirrorsLegacyBoolForCompatibilityWhileKeepingEnumAuthoritative() {
-        let suite = "layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "MetagenomicsLayoutPreferenceTests").defaults
 
         MetagenomicsPanelLayout.detailLeading.persist(defaults: defaults)
         XCTAssertEqual(

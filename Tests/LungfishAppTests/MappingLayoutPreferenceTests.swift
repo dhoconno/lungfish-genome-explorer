@@ -1,13 +1,12 @@
 import XCTest
 @testable import LungfishApp
 import LungfishAssemblyUI
+import LungfishTestSupport
 
 @MainActor
 final class MappingLayoutPreferenceTests: XCTestCase {
     func testCurrentLayoutDoesNotReuseAssemblyDefaults() {
-        let suite = "mapping-layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "MappingLayoutPreferenceTests").defaults
 
         defaults.set(
             AssemblyPanelLayout.stacked.rawValue,
@@ -21,10 +20,8 @@ final class MappingLayoutPreferenceTests: XCTestCase {
     }
 
     func testPersistWritesMappingKeyWithoutTouchingAssemblyAndPostsNotification() {
-        let suite = "mapping-layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = makeTestDefaultsSuite(prefix: "MappingLayoutPreferenceTests").defaults
         let center = NotificationCenter()
-        defer { defaults.removePersistentDomain(forName: suite) }
 
         let exp = expectation(description: "mapping layout notification")
         let token = center.addObserver(

@@ -19,6 +19,7 @@ import AppKit
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 @MainActor
 final class TaxTriageSampleFilterAlignmentPaneTests: XCTestCase {
@@ -57,9 +58,7 @@ final class TaxTriageSampleFilterAlignmentPaneTests: XCTestCase {
             metadata: ["tool": "taxtriage"]
         )
 
-        let suiteName = "TaxTriageFilterPane.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "TaxTriageSampleFilterAlignmentPaneTests").defaults
         defaults.set(MetagenomicsPanelLayout.stacked.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
 
         let provider = ClassifierAlignmentEvidenceViewportController()

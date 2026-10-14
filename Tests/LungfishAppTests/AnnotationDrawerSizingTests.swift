@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 
 @MainActor
 final class AnnotationDrawerSizingTests: XCTestCase {
@@ -93,9 +94,7 @@ final class AnnotationDrawerSizingTests: XCTestCase {
         // via ViewerViewController.annotationDrawerDefaults, and remove that
         // suite's persistent domain in teardown rather than mutating a saved
         // real-world value.
-        let suiteName = "lungfish-test-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "AnnotationDrawerSizingTests").defaults
         let key = "annotationDrawerHeight"
         defaults.set(10_000.0, forKey: key)
         XCTAssertEqual(defaults.double(forKey: key), 10_000.0)
@@ -151,9 +150,7 @@ final class AnnotationDrawerSizingTests: XCTestCase {
     }
 
     func testKeyboardAndVoiceOverStepsResizeAndSaveTheDrawer() throws {
-        let suiteName = "lungfish-test-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
+        let defaults = makeTestDefaultsSuite(prefix: "AnnotationDrawerSizingTests").defaults
         let viewer = viewerInWindow(defaults: defaults)
 
         viewer.adjustAnnotationDrawerHeight(by: DrawerDividerView.keyboardStep)

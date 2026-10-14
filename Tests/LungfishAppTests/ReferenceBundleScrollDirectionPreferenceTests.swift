@@ -1,13 +1,12 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+import LungfishTestSupport
 
 @MainActor
 final class ReferenceBundleScrollDirectionPreferenceTests: XCTestCase {
     func testCurrentScrollDirectionDefaultsToTraditional() {
-        let suite = "reference-bundle-scroll-direction-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "ReferenceBundleScrollDirectionPreferenceTests").defaults
 
         XCTAssertEqual(
             ReferenceBundleScrollDirectionPreference.current(defaults: defaults),
@@ -16,9 +15,7 @@ final class ReferenceBundleScrollDirectionPreferenceTests: XCTestCase {
     }
 
     func testCurrentScrollDirectionReadsLegacyBundleBrowserPreference() {
-        let suite = "reference-bundle-scroll-direction-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "ReferenceBundleScrollDirectionPreferenceTests").defaults
 
         defaults.set(
             ScrollDirectionPreference.natural.rawValue,
@@ -32,10 +29,8 @@ final class ReferenceBundleScrollDirectionPreferenceTests: XCTestCase {
     }
 
     func testPersistScrollDirectionWritesReferenceBundleKeyAndPostsNotification() {
-        let suite = "reference-bundle-scroll-direction-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = makeTestDefaultsSuite(prefix: "ReferenceBundleScrollDirectionPreferenceTests").defaults
         let center = NotificationCenter()
-        defer { defaults.removePersistentDomain(forName: suite) }
 
         let exp = expectation(description: "reference bundle scroll direction notification")
         let token = center.addObserver(
