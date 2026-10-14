@@ -46,7 +46,9 @@ final class DatabaseBrowserNucleotideRowParityReplayTests: XCTestCase {
             + "GFF3, the FEATURES track's chromosome differ."
         let record = "Both routes write the builder's record, rewritten in the CLI's case to the final place. The run's "
             + "argument vector is the CLI's own, so each argv, each replay command and each step id differs, and the "
-            + "digests of the three files the renamed sequence changes follow from the naming."
+            + "digests of the three files the renamed sequence changes follow from the naming. The bundle's root record "
+            + "and its copy in provenance/ hold every step of the run, so they carry about half of the values. The "
+            + "harness explains a provenance envelope up to 1,000 values, each with an exact count (A45 M1 ruling, section 3)."
         let bundle = "<ANY>/Downloads/<ANY>.lungfishref/"
         return [
             RouteParityDeclaredDifference(
@@ -74,29 +76,29 @@ final class DatabaseBrowserNucleotideRowParityReplayTests: XCTestCase {
                     + "in the tree. The records ahead of the manifest hold other ids, so the numbers differ.",
                 closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 72, .recordWithoutGFF3: 63], "differs: \(bundle)<ANY>lungfish-provenance.json at argv[<ANY>",
+                [.recordWithGFF3: 90, .recordWithoutGFF3: 81], "differs: \(bundle)<ANY>lungfish-provenance.json at argv[<ANY>",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 21, .recordWithoutGFF3: 21], "differs: \(bundle)<ANY>lungfish-provenance.json at steps[<ANY>].argv[<ANY>",
+                [.recordWithGFF3: 61, .recordWithoutGFF3: 61], "differs: \(bundle)<ANY>lungfish-provenance.json at steps[<ANY>].argv[<ANY>",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 8, .recordWithoutGFF3: 7], "differs: \(bundle)<ANY>lungfish-provenance.json at reproducibleCommand",
+                [.recordWithGFF3: 10, .recordWithoutGFF3: 9], "differs: \(bundle)<ANY>lungfish-provenance.json at reproducibleCommand",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 7, .recordWithoutGFF3: 6],
+                [.recordWithGFF3: 19, .recordWithoutGFF3: 16],
                 "differs: \(bundle)<ANY>lungfish-provenance.json at steps[<ANY>].reproducibleCommand",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 6, .recordWithoutGFF3: 5], "differs: \(bundle)<ANY>lungfish-provenance.json at steps[<ANY>].id",
+                [.recordWithGFF3: 16, .recordWithoutGFF3: 13], "differs: \(bundle)<ANY>lungfish-provenance.json at steps[<ANY>].id",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 11, .recordWithoutGFF3: 11], "differs: \(bundle)<ANY>lungfish-provenance.json at <ANY>checksumSHA256",
+                [.recordWithGFF3: 27, .recordWithoutGFF3: 27], "differs: \(bundle)<ANY>lungfish-provenance.json at <ANY>checksumSHA256",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 11, .recordWithoutGFF3: 11], "differs: \(bundle)<ANY>lungfish-provenance.json at <ANY>fileSize",
+                [.recordWithGFF3: 27, .recordWithoutGFF3: 27], "differs: \(bundle)<ANY>lungfish-provenance.json at <ANY>fileSize",
                 reason: record, closedBy: closer),
             RouteParityDeclaredDifference(
-                [.recordWithGFF3: 1, .recordWithoutGFF3: 2],
+                [.recordWithGFF3: 3, .recordWithoutGFF3: 6],
                 "differs: \(bundle)<ANY>lungfish-provenance.json at steps[<ANY>].resolvedOptions.<ANY>",
                 reason: naming, closedBy: closer),
         ]
@@ -104,19 +106,6 @@ final class DatabaseBrowserNucleotideRowParityReplayTests: XCTestCase {
 
     /// The digest gap of the contract (lane Q30 M2 finding 1), pinned and never declared.
     static let digestGap: [String] = []
-
-    /// The whole-file gap. The bundle's root record and its copy `provenance/bundle.lungfish-provenance.json`
-    /// differ in more values than the harness explains for one file (`explainedLimit`), so each shows as
-    /// one whole-file difference, which no entry may declare (panel G5). The class pins them here, by
-    /// the start of the failure line, and a fix of the harness's limit or a mask of the argument vector
-    /// both sides cannot repeat empties this list (hand-off of lane A45 M1).
-    static func wholeFileGap(_ parityCase: Case) -> [String] {
-        let bundle = "\(record(of: parityCase).accession).lungfishref"
-        return [
-            "A against C: not declared: differs: Project.lungfish/Downloads/\(bundle)/.lungfish-provenance.json",
-            "A against C: not declared: differs: Project.lungfish/Downloads/\(bundle)/provenance/bundle.lungfish-provenance.json",
-        ]
-    }
 
     /// The row of the stand-in's GenBank record, which it serves with a GFF3.
     static let record = SearchResultRecord(
@@ -160,15 +149,7 @@ final class DatabaseBrowserNucleotideRowParityReplayTests: XCTestCase {
         let result = try harness.evaluate(parityCase, declared: Self.declared, runs: runs)
         let gap = result.failures.filter { Self.digestGap.contains($0) }
         XCTAssertEqual(gap, Self.digestGap, "the digest gap moved")
-        // Each whole-file difference of the gap shows once, by the start of its failure line.
-        let wholeFile = Self.wholeFileGap(parityCase)
-        let wholeFileFound = result.failures.filter { failure in wholeFile.contains { failure.hasPrefix($0) } }
-        XCTAssertEqual(wholeFileFound.count, wholeFile.count, "the whole-file gap moved: \(wholeFileFound)")
-        RouteParityHarness.assertNoFailures(
-            result.failures.filter { failure in
-                !Self.digestGap.contains(failure) && !wholeFile.contains { failure.hasPrefix($0) }
-            },
-            in: "\(parityCase)")
+        RouteParityHarness.assertNoFailures(result.failures.filter { !Self.digestGap.contains($0) }, in: "\(parityCase)")
 
         for run in runs.all {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
