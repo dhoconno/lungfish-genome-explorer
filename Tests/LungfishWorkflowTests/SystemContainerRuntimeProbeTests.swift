@@ -11,6 +11,11 @@
 // `ToolProcess`, which includes the case where a timeout stops the helper that `docker` forked.
 // The last case is the behaviour the move added. A cancelled task ends the probe at once and stops
 // `docker`, where the base waited out the timeout, so it failed there.
+//
+// Phase 2.10 tier 1. The two cases that hang a stub under a 1 s timeout run it once first and repeat
+// a probe that struck before the stub's first line, because the first run of a new script can wait
+// seconds for the system's check of it. With 20 copies of the group case started at once, 14 failed
+// on that wait while the probe stopped `docker` on time.
 
 import Darwin
 import Foundation
@@ -93,25 +98,24 @@ final class SystemContainerRuntimeProbeTests: XCTestCase {
     }
 
     func testADaemonThatHangsPastTheTimeoutIsUnreachableAndSaysSo() async throws {
+        let printed = folder.appendingPathComponent("printed.txt")
         // `exec` makes the stub one process, as the real `docker` is, so a stop of its leader ends it.
-        let docker = try writeStub("echo '28.3.2|'\nexec sleep 30")
+        let docker = try writeHangingStub("echo '28.3.2|'\n: > '\(printed.path)'\nexec sleep 30")
 
-        let clock = ContinuousClock()
-        let startedAt = clock.now
-        let verdict = await SystemContainerRuntimeProbe().dockerDaemon(dockerPath: docker.path, timeout: 1)
-        let waited = clock.now - startedAt
+        let run = await probeUntilReached(docker) { FileManager.default.fileExists(atPath: printed.path) }
 
+        XCTAssertTrue(run.stubReached, "the stub never printed, even with a timeout of \(run.seconds) s")
         XCTAssertEqual(
-            verdict,
+            run.verdict,
             DockerDaemonProbe(
                 reachable: false,
                 clientVersion: "28.3.2",
                 serverVersion: nil,
-                detail: "docker version did not answer within 1 s"
+                detail: run.timeoutDetail
             ),
             "the client version printed before the hang is kept"
         )
-        XCTAssertLessThan(waited, .seconds(10), "the probe returns at its timeout")
+        XCTAssertLessThan(run.waited, .seconds(run.seconds + 10), "the probe returns at its timeout")
     }
 
     func testALaunchFailureIsUnreachableWithADetail() async {
@@ -148,7 +152,7 @@ final class SystemContainerRuntimeProbeTests: XCTestCase {
     func testATimeoutStopsTheWholeProcessGroupOfDocker() async throws {
         let pidFile = folder.appendingPathComponent("child.pid")
         // A helper that docker forked and that no longer holds the probe's pipes.
-        let docker = try writeStub(
+        let docker = try writeHangingStub(
             """
             sleep 60 </dev/null >/dev/null 2>&1 &
             echo $! > '\(pidFile.path)'
@@ -156,10 +160,13 @@ final class SystemContainerRuntimeProbeTests: XCTestCase {
             """
         )
 
-        let verdict = await SystemContainerRuntimeProbe().dockerDaemon(dockerPath: docker.path, timeout: 1)
+        let run = await probeUntilReached(docker) { Self.pid(in: pidFile) != nil }
 
-        XCTAssertEqual(verdict.detail, "docker version did not answer within 1 s")
-        let pid = try XCTUnwrap(Self.pid(in: pidFile), "the stub never recorded its helper")
+        XCTAssertEqual(run.verdict.detail, run.timeoutDetail)
+        let pid = try XCTUnwrap(
+            Self.pid(in: pidFile),
+            "the stub never recorded its helper, even with a timeout of \(run.seconds) s"
+        )
         leftoverPIDs.append(pid)
         let gone = await waitUntil(timeout: .seconds(30)) { !Self.isRunning(pid) }
         XCTAssertTrue(gone, "the helper of docker outlived the probe's timeout")
@@ -197,6 +204,62 @@ final class SystemContainerRuntimeProbeTests: XCTestCase {
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
+    }
+
+    /// While this file exists, a hanging stub exits at once. That is how `probeUntilReached` runs it once
+    /// before the timed probes.
+    private var warmUpMarker: URL { folder.appendingPathComponent("warm-up") }
+
+    /// A `docker` stand-in that hangs in `body`. Probe it with `probeUntilReached`.
+    private func writeHangingStub(_ body: String) throws -> URL {
+        try writeStub("[ -e '\(warmUpMarker.path)' ] && exit 0\n\(body)")
+    }
+
+    /// What the last probe of a hanging stub gave.
+    private struct HangingProbe {
+        var verdict: DockerDaemonProbe
+        /// The timeout of that probe, in seconds.
+        var seconds: Int
+        /// How long that probe took.
+        var waited: Duration
+        /// Whether the stub ran the lines the case needs before that probe's timeout struck.
+        var stubReached: Bool
+
+        /// The detail of a probe that gave up after `seconds`.
+        var timeoutDetail: String { "docker version did not answer within \(seconds) s" }
+    }
+
+    /// Probes the hanging stub `docker` and returns the first probe after which `reached` holds, which means the
+    /// stub ran the lines the case needs before that probe's timeout struck. When none does, it returns the last.
+    ///
+    /// The probe's timeout starts when `docker` is launched, and the first run of a new script can wait seconds
+    /// for its first line. The system checks each new script before its first run. That check measured 0.1 to
+    /// 0.25 s a script and runs one script at a time for every process on the machine, so a parallel unit tier
+    /// queues dozens of them. A timeout that strikes before the stub's first line says nothing about the probe.
+    /// So the stub first runs once with the warm-up marker in place, which takes that check outside any timeout,
+    /// and a probe that still struck first is repeated with a timeout four times longer, up to 16 s.
+    private func probeUntilReached(_ docker: URL, reached: () -> Bool) async -> HangingProbe {
+        FileManager.default.createFile(atPath: warmUpMarker.path, contents: nil)
+        _ = await SystemContainerRuntimeProbe().dockerDaemon(dockerPath: docker.path, timeout: 30)
+        try? FileManager.default.removeItem(at: warmUpMarker)
+
+        let clock = ContinuousClock()
+        var seconds = 1
+        while true {
+            let startedAt = clock.now
+            let verdict = await SystemContainerRuntimeProbe().dockerDaemon(
+                dockerPath: docker.path,
+                timeout: TimeInterval(seconds)
+            )
+            let probe = HangingProbe(
+                verdict: verdict,
+                seconds: seconds,
+                waited: clock.now - startedAt,
+                stubReached: reached()
+            )
+            if probe.stubReached || seconds >= 16 { return probe }
+            seconds *= 4
+        }
     }
 
     /// The pid a stub wrote to `file`, or nil until it has written a whole number.
