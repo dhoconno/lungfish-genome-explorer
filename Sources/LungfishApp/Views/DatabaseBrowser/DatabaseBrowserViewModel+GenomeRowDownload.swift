@@ -15,14 +15,15 @@ private let genomeRowLogger = Logger(subsystem: LogSubsystem.app, category: "Dat
 /// The route a genome row of the NCBI browser's batch download takes (Phase 2.10 lane A44, ruling
 /// Q2b, panel decision C4).
 enum GenomeRowDownloadRoute: String, Sendable, Equatable, CaseIterable {
-    /// The route before lane A44. The app fetches the assembly summary and builds the bundle in
-    /// process in the batch folder, which is under the project's `.tmp` folder, and the import
-    /// copies it into the Downloads folder. The CLI route writes a provenance record this route
-    /// does not, a declared difference, so this route stays behind the hidden key for one release
-    /// (C4) and goes in 2.11.
+    /// The route before lane A44, kept for one release as the escape the hidden key names (C4).
+    /// The app fetches the assembly summary and builds the bundle in process in the batch folder,
+    /// under the project's `.tmp` folder, and the import copies it into the Downloads folder. It
+    /// writes no provenance record, the declared difference that keeps the key, and goes in 2.11.
+    /// A row with no project takes it whatever the key holds (`download-genome-no-project`).
     case legacy
-    /// One `lungfish-cli fetch genome <accession> --output-dir <folder> --format json` child for
-    /// each row, which writes straight into the folder the row's command names.
+    /// The default. One `lungfish-cli fetch genome <accession> --output-dir <folder> --format
+    /// json` child for each row with a project, which writes straight into the project's
+    /// Downloads folder, the folder the row's command names.
     case cli
 }
 
@@ -33,7 +34,7 @@ struct GenomeRowDownloadRouteSettings {
     /// for example `defaults write <app id> DatabaseBrowserGenomeRowRoute legacy`.
     static let defaultsKey = "DatabaseBrowserGenomeRowRoute"
     /// The route of a key that is unset or holds a value this reader does not know.
-    static let defaultRoute: GenomeRowDownloadRoute = .legacy
+    static let defaultRoute: GenomeRowDownloadRoute = .cli
 
     let defaults: UserDefaults
 
@@ -58,9 +59,10 @@ extension DatabaseBrowserViewModel {
 
     /// The folder a genome row writes its bundle into, which its command names. With a project
     /// it is the project's Downloads folder, where the import keeps a bundle in place
-    /// (`DownloadImportRouting`). With none it is the user's Downloads folder, never a system
-    /// scratch folder (UX 8) and never `Lungfish Downloads`, where the import would copy the
-    /// bundle under a new name and delete it.
+    /// (`DownloadImportRouting`). A row with no project runs in process (review fix F1), so no
+    /// CLI row writes without one until note N1 of the A44 M2 review. Without one the folder
+    /// would be the user's Downloads folder, never a system scratch folder (UX 8) and never
+    /// `Lungfish Downloads`, where the import would copy the bundle under a new name and delete it.
     nonisolated static func genomeRowFolder(projectURL: URL?, userDownloads: URL = userDownloadsFolder) -> URL {
         projectURL?.appendingPathComponent("Downloads", isDirectory: true) ?? userDownloads
     }
