@@ -63,13 +63,13 @@ extension ToolsCommand {
 
             --only <id> applies chosen items of the plan and may be repeated. An id is an
             environment to install or reinstall, a database id, or a retired environment to
-            remove. An id the plan does not hold is refused with exit 3 before any work. Required
-            work in the plan always runs too, as in the Update Tools sheet.
+            remove. An id the plan does not hold is refused with exit 3 before any work.
+            Required work in the plan always runs too, as in the Update Tools sheet.
 
             --format json prints progress as event lines on standard output and the text on
-            standard error. With --plan it prints the plan document, as --json does. SIGTERM
-            cancels a run: items that finished stay updated, the record of the run reads
-            cancelled, and the command exits 125.
+            standard error. With --plan it prints the plan document, as --json does.
+            SIGTERM cancels a run: items that finished stay updated, the record of the run
+            reads cancelled, and the command exits 125.
             """
         )
 
