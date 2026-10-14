@@ -4099,8 +4099,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
                 let dirName = childURL.lastPathComponent.lowercased()
 
-                // Kraken2/Classification results: the import prefix, or any `kraken` folder (the registry id without its version digit)
-                if dirName.hasPrefix(MetagenomicsImportKind.kraken2.directoryPrefix) || dirName.hasPrefix(AnalysisToolID.kraken2.rawValue.trimmingCharacters(in: .decimalDigits)) {
+                let legacyKrakenFolderPrefix = "kraken" // any folder whose name starts with kraken, wider than kraken2-
+                if dirName.hasPrefix(MetagenomicsImportKind.kraken2.directoryPrefix) || dirName.hasPrefix(legacyKrakenFolderPrefix) {
                     let hasReport = fm.fileExists(atPath: childURL.appendingPathComponent("classification.kraken2.report.txt").path)
                         || fm.fileExists(atPath: childURL.appendingPathComponent("classification.report.txt").path)
                     if hasReport {
