@@ -125,12 +125,14 @@ final class Kraken2DemuxGroupRefusalTests: XCTestCase {
     }
 
     func testKraken2StillRefusesAGroupAmongOtherInputsWithTheSameSentence() throws {
+        let before = try snapshot(of: fixtures.projectURL)
         let result = try runCLI([
             "kraken2", "classify", fixtures.singleRoot.path, fixtures.demuxGroup.path, "--db", "FixtureDB",
             "--project", fixtures.projectURL.path,
         ])
         XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, result.output)
         XCTAssertTrue(result.output.contains(Self.kraken2Sentence), result.output)
+        XCTAssertEqual(try snapshot(of: fixtures.projectURL), before, "no folder exists after the refusal")
     }
 
     // MARK: - Helpers
