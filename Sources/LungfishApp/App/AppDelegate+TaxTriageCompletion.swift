@@ -30,14 +30,15 @@ extension AppDelegate {
         var dbBuildErrorDescription: String?
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                // The runner reported 1.0 when its last sample ended, and a bar never moves back,
-                // so the database build keeps the bar there when the row already shows more than 0.95.
+                // The stage moves the bar to the middle of its share, 0.95 (W3), and a bar never moves back,
+                // so a row that already shows more keeps it. The overlay of the viewer takes the stage's
+                // line while the row runs, as it takes the pipeline's own, and a row that is cancelling
+                // keeps its `Cancelling...` there (UX inventory T2, U38 M3).
+                let stageLine = "Building TaxTriage database\u{2026}"
                 let shown = OperationCenter.shared.items.first { $0.id == opID }?.progress ?? 0
-                _ = OperationCenter.shared.update(
-                    id: opID,
-                    progress: max(shown, 0.95),
-                    detail: "Building TaxTriage database\u{2026}"
-                )
+                if OperationCenter.shared.update(id: opID, progress: max(shown, 0.95), detail: stageLine) {
+                    viewerController.showProgress(stageLine)
+                }
                 OperationCenter.shared.log(id: opID, level: .info, message: "Building taxtriage.sqlite from TaxTriage outputs")
             }
         }

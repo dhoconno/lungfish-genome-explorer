@@ -181,15 +181,18 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(Array(details.suffix(3)), ["TaxTriage pipeline complete", "Building TaxTriage database\u{2026}", item.detail])
 
         // The log. The database line is an information line, and a clean run logs nothing louder.
-        // The overlay of the viewer shows the pipeline's messages and never the database line.
+        // The overlay of the viewer shows the pipeline's messages and then the database line, which the
+        // stage tells it, where it kept the pipeline's last message through the build before (U38 M3).
         let lines = Self.loggedLines(of: item)
         XCTAssertEqual(
             Array(lines.suffix(2)),
             ["info: TaxTriage pipeline complete", "info: Building taxtriage.sqlite from TaxTriage outputs"]
         )
         XCTAssertFalse(lines.contains { $0.hasPrefix("warning:") || $0.hasPrefix("error:") }, "\(lines)")
-        XCTAssertEqual(run.viewer.overlayLines.last, "TaxTriage pipeline complete")
-        XCTAssertFalse(run.viewer.overlayLines.contains("Building TaxTriage database\u{2026}"))
+        XCTAssertEqual(
+            Array(run.viewer.overlayLines.suffix(2)),
+            ["TaxTriage pipeline complete", "Building TaxTriage database\u{2026}"]
+        )
 
         // Each of the stand-in's 29 task lines reads `Running <process> (<tag>)` once in the log, the
         // detail and the overlay, though the trace reading at the end of the run repeats the last one
@@ -261,8 +264,9 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         // One warning line per cause (T9), and the warning line makes the label (T8, D4). The row
         // completes plainly, so the detail is no second warning line. The pipeline's last progress
         // message is `TaxTriage pipeline complete` where a run with errored tasks used to send the
-        // paragraph, so the paragraph is no information line either, and the row and the overlay
-        // of the viewer end on the short message.
+        // paragraph, so the paragraph is no information line either, and the pipeline's own last
+        // message is the short one. The database stage then takes the row's detail and the viewer's
+        // overlay (U38 M3).
         let paragraph = "\(headline). Results that depend on the failed steps, such as alignments and TASS scores, are missing for the samples named."
             + " Raise Max memory, or list the host in Exclude host taxa (9606 for human) so the host genome is not downloaded as an alignment reference."
         let lines = Self.loggedLines(of: item)
@@ -284,7 +288,8 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             Array(run.trace.details.suffix(3)),
             ["TaxTriage pipeline complete", "Building TaxTriage database\u{2026}", item.detail]
         )
-        XCTAssertEqual(run.viewer.overlayLines.last, "TaxTriage pipeline complete")
+        // The overlay ends on the database line, which the stage tells it (U38 M3).
+        XCTAssertEqual(run.viewer.overlayLines.last, "Building TaxTriage database\u{2026}")
 
         // The bar never moves back (T9).
         XCTAssertEqual(Self.drops(in: run.trace.bars), [], "\(run.trace.bars)")
@@ -439,12 +444,19 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
         // The row on its way to Cancelled. The bar stays where the database build left it, which is
         // 1.0 because the bar never moves back (T9). The build the cancel stopped logs no warning,
-        // because a cancel is no failure (T10).
+        // because a cancel is no failure (T10). The stage told the overlay its line before the cancel,
+        // and the cancel shows the row's own `Cancelling...` over it, so no later engine line reaches
+        // the overlay (U38 M3).
         XCTAssertEqual(
             Array(run.trace.details.suffix(3)),
             ["Building TaxTriage database\u{2026}", "Cancelling...", "Cancelled by user"]
         )
         XCTAssertEqual(run.trace.bars.last, 1.0)
+        XCTAssertEqual(
+            run.viewer.overlayLines.last { $0 != "Cancelling..." },
+            "Building TaxTriage database\u{2026}",
+            "\(run.viewer.overlayLines)"
+        )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
         let lines = Self.loggedLines(of: item)
         XCTAssertTrue(lines.contains("info: Building taxtriage.sqlite from TaxTriage outputs"), "\(lines)")
