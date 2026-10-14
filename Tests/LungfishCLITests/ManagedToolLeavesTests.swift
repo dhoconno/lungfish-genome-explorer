@@ -111,6 +111,15 @@ final class ManagedToolLeavesTests: XCTestCase {
         XCTAssertEqual(try Fixtures.recordStatus(storageRoot: root, folder: "packs"), "completed")
     }
 
+    /// The record the last pack run wrote.
+    private func lastPackRecord() throws -> ProvenanceEnvelope {
+        let name = try XCTUnwrap(
+            ManagedToolLeaf.recordNames(storageRoot: root, folder: "packs").sorted().last, "the run wrote a record"
+        )
+        let sidecar = ManagedToolLeaf.recordDirectory(storageRoot: root, folder: "packs").appendingPathComponent(name)
+        return try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+    }
+
     func testAFailedPackRunRecordsFailedAndExitsDependency() async throws {
         let pack = try Fixtures.pack()
         CondaCommand.packStatusServiceOverride = Fixtures.PackService(.fail)
@@ -122,6 +131,28 @@ final class ManagedToolLeavesTests: XCTestCase {
         guard case .failed(let message, _)? = lines.events.last else { return XCTFail("ends with failed: \(lines.events)") }
         XCTAssertEqual(message, "Tool pack '\(pack.name)' failed verification: second-tool does not run")
         XCTAssertEqual(try Fixtures.recordStatus(storageRoot: root, folder: "packs"), "failed")
+        // The requirement in flight when the run failed never reached its end, so its step does not say it succeeded.
+        let inFlight = try XCTUnwrap(
+            try lastPackRecord().steps.first { $0.toolName == "first-tool" }, "the requirement in flight is a step of the record"
+        )
+        XCTAssertNotEqual(inFlight.exitStatus, 0, "a requirement that never finished is not recorded as succeeded")
+        XCTAssertEqual(inFlight.stderr, message, "and it carries the run's failure")
+    }
+
+    func testARequirementThatFinishedBeforeTheFailureStaysSucceededInTheRecord() async throws {
+        let pack = try Fixtures.pack()
+        CondaCommand.packStatusServiceOverride = Fixtures.PackService(.failAfterOneFinished)
+        let command = try CondaCommand.InstallSubcommand.parse(["--pack", pack.id, "--reinstall", "--format", "json"])
+        let lines = Fixtures.Lines()
+
+        await assertExit(.dependency) { try await command.executePacks(eventsOn: true, quiet: true, emit: lines.append) }
+
+        let steps = try lastPackRecord().steps
+        let finished = try XCTUnwrap(steps.first { $0.toolName == "done-tool" }, "the finished requirement is a step of the record")
+        XCTAssertEqual(finished.exitStatus, 0, "a requirement that reached its end stays succeeded")
+        XCTAssertNil(finished.stderr)
+        let inFlight = try XCTUnwrap(steps.first { $0.toolName == "first-tool" }, "the requirement in flight is a step of the record")
+        XCTAssertNotEqual(inFlight.exitStatus, 0, "while the one that never reached its end is not")
     }
 
     func testSIGTERMCancelsAPackReinstallAndRecordsItCancelled() async throws {
@@ -140,6 +171,11 @@ final class ManagedToolLeavesTests: XCTestCase {
 
         await assertExit(.cancelled) { try await run.value }
         XCTAssertEqual(try Fixtures.recordStatus(storageRoot: root, folder: "packs"), "cancelled")
+        let stopped = try XCTUnwrap(
+            try lastPackRecord().steps.first { $0.toolName == "first-tool" }, "the requirement a cancel stopped is a step of the record"
+        )
+        XCTAssertNotEqual(stopped.exitStatus, 0, "a requirement the cancel stopped is not recorded as succeeded")
+        XCTAssertEqual(stopped.stderr, "Cancelled")
         guard case .failed(let message, _)? = lines.events.last else { return XCTFail("ends with failed: \(lines.events)") }
         XCTAssertTrue(message.hasPrefix("Installation cancelled"), message)
     }

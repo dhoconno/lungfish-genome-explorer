@@ -31,7 +31,7 @@ enum ManagedToolLeafFixtures {
 
     /// A pack service that records what it was asked and either finishes, fails or waits for a cancel.
     actor PackService: PluginPackStatusProviding {
-        enum Behaviour: Sendable { case succeed, fail, stall }
+        enum Behaviour: Sendable { case succeed, fail, stall, failAfterOneFinished }
         private let behaviour: Behaviour
         private let atWork: AtWork
         private(set) var requests: [(packID: String, reinstall: Bool)] = []
@@ -65,6 +65,13 @@ enum ManagedToolLeafFixtures {
                     overallFraction: 0.75, itemFraction: 1, message: "Creating second-tool"
                 ))
             case .fail:
+                throw PluginPackStatusServiceError.verificationFailed(requirementID: "second-tool", reason: "second-tool does not run")
+            case .failAfterOneFinished:
+                // A requirement reached its end, and then the run failed on another one.
+                progress?(PluginPackInstallProgress(
+                    requirementID: "done-tool", requirementDisplayName: "Done tool",
+                    overallFraction: 0.5, itemFraction: 1, message: "Created done-tool"
+                ))
                 throw PluginPackStatusServiceError.verificationFailed(requirementID: "second-tool", reason: "second-tool does not run")
             case .stall:
                 try await Task.sleep(for: .seconds(60))
@@ -101,7 +108,8 @@ enum ManagedToolLeafFixtures {
             atWork.mark()
             switch behaviour {
             case .succeed: report(1, "samtools created")
-            case .fail: throw NSError(domain: "stand-in", code: 1, userInfo: [NSLocalizedDescriptionKey: "samtools does not solve"])
+            case .fail, .failAfterOneFinished:
+                throw NSError(domain: "stand-in", code: 1, userInfo: [NSLocalizedDescriptionKey: "samtools does not solve"])
             case .stall: try await Task.sleep(for: .seconds(60))
             }
         }

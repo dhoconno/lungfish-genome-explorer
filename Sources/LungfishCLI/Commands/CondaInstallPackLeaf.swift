@@ -19,13 +19,18 @@ import Synchronization
 /// exits 125. With `--format json` standard output holds only `CLIEvent` lines and the text goes to
 /// standard error.
 extension CondaCommand.InstallSubcommand {
+    /// The requirements a pack run reported, in the order it reported them, and the ones that reached
+    /// the end of their work. The service reports a requirement at `itemFraction` 1 when it is done.
     private final class RequirementLog: Sendable {
         private let ids = Mutex<[String]>([])
-        func note(_ id: String?) {
+        private let reachedEnd = Mutex<Set<String>>([])
+        func note(_ id: String?, itemFraction: Double) {
             guard let id else { return }
             ids.withLock { if !$0.contains(id) { $0.append(id) } }
+            if itemFraction >= 1 { reachedEnd.withLock { _ = $0.insert(id) } }
         }
         var all: [String] { ids.withLock { $0 } }
+        var finished: Set<String> { reachedEnd.withLock { $0 } }
     }
 
     /// The run, with each event line handed to `emit`, so a test can keep them.
@@ -74,7 +79,13 @@ extension CondaCommand.InstallSubcommand {
                             argv: ["lungfish-cli", "conda", "install", "--pack", pack.id] + (reinstall ? ["--reinstall"] : []),
                             explicit: ["pack": .string(pack.id), "reinstall": .boolean(reinstall)],
                             pluginPack: pack.id,
-                            steps: seen.all.map { ManagedToolLeaf.Step(id: $0, version: "unknown", failure: nil) },
+                            // A failed or cancelled run says the requirements it never finished did not succeed.
+                            // A completed run has no failure text, so its requirements all read succeeded.
+                            steps: seen.all.map { id in
+                                ManagedToolLeaf.Step(
+                                    id: id, version: "unknown", failure: seen.finished.contains(id) ? nil : failure
+                                )
+                            },
                             status: status,
                             failure: failure,
                             startedAt: startedAt,
@@ -87,7 +98,7 @@ extension CondaCommand.InstallSubcommand {
 
                 do {
                     try await service.install(pack: pack, reinstall: reinstall) { event in
-                        seen.note(event.requirementID)
+                        seen.note(event.requirementID, itemFraction: event.itemFraction)
                         if eventsOn {
                             let overall = (Double(index) + min(max(event.overallFraction, 0), 1)) / packCount
                             events.emitProgress(overall, message: event.message)
