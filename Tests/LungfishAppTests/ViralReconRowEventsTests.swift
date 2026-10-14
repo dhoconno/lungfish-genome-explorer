@@ -41,7 +41,8 @@ final class ViralReconRowEventsTests: XCTestCase {
 
     func testAFailedSampleMakesTheRowCompletedWithWarnings() async throws {
         let item = try await run([
-            .standardOutput(Self.line(.start(message: "Preparing workflow: nf-core/viralrecon"))),
+            .standardOutput(Self.line(.start(message: ""))),
+            .standardOutput(Self.line(.log(level: .info, message: "Preparing workflow: nf-core/viralrecon"))),
             .standardOutput(Self.line(.log(level: .info, message: "Created run bundle: /work/viralrecon.lungfishrun"))),
             .standardOutput(Self.line(.log(level: .warning, message: Self.failedSample))),
             .standardOutput(Self.line(.complete(outputs: ["/work/viralrecon.lungfishrun", "/work/results"], message: nil))),
