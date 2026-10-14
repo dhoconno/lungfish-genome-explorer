@@ -6,10 +6,9 @@ ARGUMENTS:
   <query>                 Search query
 
 OPTIONS:
-  --limit <limit>         Maximum results (default: 20) (default: 20)
+  --limit <limit>         Maximum results (default: 20)
   --api-key <api-key>     NCBI API key for higher rate limits
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

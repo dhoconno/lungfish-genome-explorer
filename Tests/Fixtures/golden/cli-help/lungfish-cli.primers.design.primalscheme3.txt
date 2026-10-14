@@ -22,8 +22,9 @@ OPTIONS:
   --pool-count <pool-count>
                           (default: 2)
   --min-overlap <min-overlap>
-                          Minimum overlap for independent legacy designs;
-                          combined designs require the default 10. (default: 10)
+                          Minimum overlap for independent legacy designs only.
+                          A combined design rejects any other value. (default:
+                          10)
   --minimum-base-frequency <minimum-base-frequency>
                           (default: 0.0)
   --high-gc

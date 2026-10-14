@@ -7,33 +7,19 @@ apparent mapping depth.
 
 Defaults are entropy 0.6, window 50, k-mer 5, and 4 bbduk threads (--threads).
 
-USAGE: lungfish-cli fastq entropy-filter [<options>] <input> --output <output>
+USAGE: lungfish-cli fastq entropy-filter <input> [--entropy <entropy>] [--window <window>] [--kmer <kmer>] [--pairing <pairing>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
-  --entropy <entropy>     Entropy threshold, 0.3-0.9 (default: 0.6) (default:
-                          0.6)
+  --entropy <entropy>     Entropy threshold, 0.3-0.9 (default: 0.6)
   --window <window>       Entropy sliding window in bases (default: 50)
-                          (default: 50)
   --kmer <kmer>           K-mer length for entropy estimation (default: 5)
-                          (default: 5)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
-  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
-                          -vvv)
-  -q, --quiet             Suppress non-essential output (errors only)
-  --progress              Show progress bar (default: auto-detect TTY)
-  --no-progress           Disable progress bar
-  --debug                 Enable debug output with detailed logging
-  --log-file <log-file>   Write detailed logs to file
-  --no-color              Disable colored output
-  -t, --threads <threads> Number of threads to use (default: auto)
   --pairing <pairing>     How to treat the input's records: interleaved
                           (adjacent records are mates and are kept or dropped
-                          together), single, or auto (default: auto) (values:
-                          interleaved, single, auto; default: auto)
+                          together), single, or auto (values: interleaved,
+                          single, auto; default: auto)
         auto reads the pairingMode recorded by the enclosing .lungfishfastq
         bundle, then inspects read names. Mates with identical names, /1 /2
         suffixes, or Casava descriptions are all recognised.

@@ -13,12 +13,11 @@ ARGUMENTS:
 
 OPTIONS:
   --db <db>               Database: nucleotide, protein, genome (default:
-                          nucleotide) (default: nucleotide)
-  --limit <limit>         Maximum results (default: 20) (default: 20)
+                          nucleotide)
+  --limit <limit>         Maximum results (default: 20)
   --organism <organism>   Filter by organism
   --api-key <api-key>     NCBI API key for higher rate limits
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

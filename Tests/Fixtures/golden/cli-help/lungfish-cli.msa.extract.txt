@@ -13,8 +13,7 @@ OPTIONS:
   --columns <columns>     Optional 1-based aligned column ranges, e.g. 10-40,55
   --name <name>           Output bundle or FASTA record-set name
   --force                 Overwrite an existing output
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

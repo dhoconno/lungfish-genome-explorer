@@ -4,8 +4,7 @@ XLSX/CSV/TSV.
 USAGE: lungfish-cli genotype export [<options>] --bundle <bundle> --output <output>
 
 OPTIONS:
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)
@@ -17,8 +16,8 @@ OPTIONS:
   -t, --threads <threads> Number of threads to use (default: auto)
   -b, --bundle <bundle>   Path to the .lungfishgenotype bundle.
   --export-format <export-format>
-                          Export container format: xlsx, csv, tsv (default:
-                          xlsx). (values: xlsx, csv, tsv; default: xlsx)
+                          Export container format. (values: xlsx, csv, tsv;
+                          default: xlsx)
   -o, --output <output>   Output file path.
   --lens <lens>           Viewport lens to record in provenance (e.g.
                           haplotype, allele).

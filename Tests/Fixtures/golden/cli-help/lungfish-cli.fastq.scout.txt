@@ -4,7 +4,7 @@ Scans a subset of reads against a barcode kit and writes a
 scout-result.json file with per-barcode hit counts and suggested
 accept/reject dispositions.
 
-USAGE: lungfish-cli fastq scout [<options>] <input> --kit <kit> --output <output>
+USAGE: lungfish-cli fastq scout <input> --kit <kit> --output <output> [--read-limit <read-limit>] [--accept-threshold <accept-threshold>] [--reject-threshold <reject-threshold>] [--error-rate <error-rate>] [--overlap <overlap>] [--source-platform <source-platform>] [--no-indels]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -26,14 +26,11 @@ OPTIONS:
                           FLD0001<TAB>GTATCGTCGT.
   -o, --output <output>   Output scout-result.json path
   --read-limit <read-limit>
-                          Maximum reads to scan (default: 10000) (default:
-                          10000)
+                          Maximum reads to scan (default: 10000)
   --accept-threshold <accept-threshold>
                           Minimum hits to auto-accept a barcode (default: 10)
-                          (default: 10)
   --reject-threshold <reject-threshold>
                           Maximum hits to auto-reject a barcode (default: 3)
-                          (default: 3)
   --error-rate <error-rate>
                           Override barcode matching error rate
   --overlap <overlap>     Override minimum barcode overlap
@@ -41,17 +38,6 @@ OPTIONS:
                           Source platform: illumina, ont, pacbio, element,
                           ultima, mgi
   --no-indels             Disallow indels in barcode matching
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
-  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
-                          -vvv)
-  -q, --quiet             Suppress non-essential output (errors only)
-  --progress              Show progress bar (default: auto-detect TTY)
-  --no-progress           Disable progress bar
-  --debug                 Enable debug output with detailed logging
-  --log-file <log-file>   Write detailed logs to file
-  --no-color              Disable colored output
-  -t, --threads <threads> Number of threads to use (default: auto)
   --version               Show the version.
   -h, --help              Show help information.
 

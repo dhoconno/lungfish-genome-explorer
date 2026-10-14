@@ -23,8 +23,7 @@ ARGUMENTS:
   <bundle-path>           Path to the .lungfishref bundle to update in place
 
 OPTIONS:
-  --format <format>       Output format: text, json (default: text) (values:
-                          text, json; default: text)
+  --format <format>       Output format (values: text, json; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

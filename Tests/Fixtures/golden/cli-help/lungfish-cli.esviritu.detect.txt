@@ -27,23 +27,21 @@ OPTIONS:
         --project.
   --paired                Input files are paired-end reads
   --read-format <read-format>
-                          Read layout: auto, unpaired, paired, or interleaved.
-                          (values: auto, unpaired, paired, interleaved;
-                          default: auto)
-        auto (default) plans a single input, a file or a .lungfishfastq bundle.
-        Separate R1 and R2 files run as a pair, strictly alternating R1/R2
-        records run as interleaved, and single-end reads run as unpaired. A
-        sample that mixes pairs with merged or orphan reads runs as unpaired on
-        one file that holds every read, and the output says why. Several files
-        of single reads are joined into one file. Two files run as unpaired
-        unless --paired is given.
+                          Read layout. (values: auto, unpaired, paired,
+                          interleaved; default: auto)
+        auto plans a single input, a file or a .lungfishfastq bundle. Separate
+        R1 and R2 files run as a pair, strictly alternating R1/R2 records run
+        as interleaved, and single-end reads run as unpaired. A sample that
+        mixes pairs with merged or orphan reads runs as unpaired on one file
+        that holds every read, and the output says why. Several files of single
+        reads are joined into one file. Two files run as unpaired unless
+        --paired is given.
   --recursive             When an input is a directory, include eligible FASTQ
                           files in subfolders
   --no-qc                 Skip quality filtering (fastp)
   --extra-args <extra-args>
                           Additional EsViritu arguments passed verbatim
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

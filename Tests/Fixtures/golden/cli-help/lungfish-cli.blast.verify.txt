@@ -18,12 +18,12 @@ OPTIONS:
   --kraken-output <kraken-output>
                           Kraken2 per-read output file (.kraken)
   --taxid <taxid>         Taxonomy ID to verify
-  --reads <reads>         Number of reads to submit (default: 20) (default: 20)
+  --reads <reads>         Number of reads to submit (default: 20)
   --seed <seed>           Random seed for choosing which fragments to submit
-                          (default: 0) (default: 0)
+                          (default: 0)
   --max-concurrent <max-concurrent>
                           Maximum in-flight BLAST submissions for this process
-                          (default: 1) (default: 1)
+                          (default: 1)
   --include-children      Include reads classified to descendant taxa
   --extra-args <extra-args>
                           Additional BLAST URL API parameters as KEY=VALUE
@@ -32,8 +32,7 @@ OPTIONS:
                           Classifier result folder to save the verification in,
                           under blast-verifications/ (the app restores it when
                           the taxon is selected)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

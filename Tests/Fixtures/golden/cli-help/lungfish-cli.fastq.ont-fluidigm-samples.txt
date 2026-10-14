@@ -16,8 +16,7 @@ OPTIONS:
   --barcodes <barcodes>   CSV/TSV file with sample and Fluidigm barcode
                           sequence columns
   -o, --output <output>   Output directory for per-sample .lungfishfastq bundles
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)
@@ -29,14 +28,12 @@ OPTIONS:
   -t, --threads <threads> Number of threads to use (default: auto)
   --primer-mismatches <primer-mismatches>
                           Maximum mismatches allowed when detecting CS1/CS2
-                          primer boundaries (default: 2) (default: 2)
+                          primer boundaries (default: 2)
   --minimum-insert-length <minimum-insert-length>
                           Minimum CS1-CS2 insert length to retain (default: 20)
-                          (default: 20)
   --canonicalize-reverse-complements/--no-canonicalize-reverse-complements
                           Canonicalize exact reverse-complement insert
                           duplicates after orienting CS1-CS2 reads (default:
-                          disabled) (default:
                           --no-canonicalize-reverse-complements)
   --force                 Replace an existing output directory
   --version               Show the version.

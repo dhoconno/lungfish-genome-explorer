@@ -22,21 +22,18 @@ OPTIONS:
   -o, --output <output>   Output directory for .lungfishfastq bundles
   --include-unclassified  Include unclassified reads (default: skip)
   --concurrency <concurrency>
-                          Max concurrent barcode imports (default: 4) (default:
-                          4)
+                          Max concurrent barcode imports (default: 4)
   --storage-mode <storage-mode>
-                          How to store ONT chunks inside each bundle: chunked
-                          or flattened (default: chunked) (values: chunked,
-                          flattened; default: chunked)
+                          How to store ONT chunks inside each bundle (values:
+                          chunked, flattened; default: chunked)
   --optimize-storage      Run clumpify on flattened per-barcode FASTQ payloads
                           to improve compression
   --quality-binning <quality-binning>
                           Quality binning for --optimize-storage: none,
                           illumina4 (7 quality levels), or eightLevel (~21
-                          quality levels) (default: none) (values: illumina4,
-                          eightLevel, none; default: none)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+                          quality levels) (values: illumina4, eightLevel, none;
+                          default: none)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

@@ -18,13 +18,11 @@ ARGUMENTS:
 
 OPTIONS:
   --query <query>         Universal search query text
-  --limit <limit>         Maximum number of results (default: 200) (default:
-                          200)
+  --limit <limit>         Maximum number of results (default: 200)
   --reindex               Force index rebuild before querying
   --stats                 Include indexing/query timing and entity-count
                           diagnostics
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

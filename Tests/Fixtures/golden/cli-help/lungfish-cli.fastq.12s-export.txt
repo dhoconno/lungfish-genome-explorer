@@ -5,7 +5,7 @@ USAGE: lungfish-cli fastq 12s-export --bundle <bundle> --export-format <export-f
 OPTIONS:
   --bundle <bundle>       Input .lungfish12s result bundle
   --export-format <export-format>
-                          Export format: csv, tsv, xlsx (values: csv, tsv, xlsx)
+                          Export format (values: csv, tsv, xlsx)
   --output <output>       Output report path
   --min-exact-reads <min-exact-reads>
                           Minimum exact reads required for a species row

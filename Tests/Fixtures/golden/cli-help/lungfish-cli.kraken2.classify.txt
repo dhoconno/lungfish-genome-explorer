@@ -17,9 +17,8 @@ OPTIONS:
   --db <db>               Database name (e.g., 'Viral', 'Standard-8')
   --db-digest <db-digest> SHA-256 the database's install receipt must hold,
                           checked before anything is written
-  --preset <preset>       Sensitivity preset: sensitive, balanced, precise
-                          (values: sensitive, balanced, precise; default:
-                          balanced)
+  --preset <preset>       Sensitivity preset (values: sensitive, balanced,
+                          precise; default: balanced)
   -o, --output-dir <output-dir>
                           Output directory (default: ./classification-<db>,
                           with <db> in lower case)
@@ -29,14 +28,13 @@ OPTIONS:
                           names and classify each in its own folder
   --paired                Input files are paired-end reads
   --read-format <read-format>
-                          Read layout: auto, unpaired, paired, or interleaved.
-                          (values: auto, unpaired, paired, interleaved;
-                          default: auto)
-        auto (default) plans a single input, a file or a .lungfishfastq bundle.
-        Its read pairs run as pairs with kraken2 --paired, and its merged or
-        single reads run beside them in the same kraken2 run. A strictly
-        interleaved file is split into two mate files. unpaired classifies
-        every read on its own. Two separate files need --paired.
+                          Read layout. (values: auto, unpaired, paired,
+                          interleaved; default: auto)
+        auto plans a single input, a file or a .lungfishfastq bundle. Its read
+        pairs run as pairs with kraken2 --paired, and its merged or single
+        reads run beside them in the same kraken2 run. A strictly interleaved
+        file is split into two mate files. unpaired classifies every read on
+        its own. Two separate files need --paired.
   --unpaired <unpaired>   A file of merged or single reads classified beside
                           the --paired R1 and R2 files (repeatable)
   --recursive             When an input is a directory, include eligible
@@ -57,8 +55,7 @@ OPTIONS:
                           Bracken minimum read threshold (default: 10)
   --extra-args <extra-args>
                           Additional kraken2 arguments passed verbatim
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

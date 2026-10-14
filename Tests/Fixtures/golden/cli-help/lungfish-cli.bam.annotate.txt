@@ -16,8 +16,7 @@ OPTIONS:
   --include-qualities     Include SAM QUAL in annotation attributes
   --replace               Replace an existing annotation track with the same
                           generated ID or name
-  --format <format>       Output format: text, json (default: text) (values:
-                          text, json; default: text)
+  --format <format>       Output format (values: text, json; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

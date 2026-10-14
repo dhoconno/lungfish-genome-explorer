@@ -50,8 +50,7 @@ ARGUMENTS:
 
 OPTIONS:
   --output-dir <output-dir>
-                          Output directory for the bundles (default: current
-                          directory) (default: .)
+                          Output directory for the bundles (default: .)
   --name <name>           Bundle name for one accession (default: derived from
                           the assembly or record)
   --into-bundle <into-bundle>
@@ -62,8 +61,7 @@ OPTIONS:
   --no-bundle             Download files but don't create a .lungfishref bundle
   --api-key <api-key>     NCBI API key for higher rate limits (default: the
                           NCBI_API_KEY environment variable)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

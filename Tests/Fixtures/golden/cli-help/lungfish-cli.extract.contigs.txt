@@ -17,9 +17,8 @@ OPTIONS:
   --project-root <project-root>
                           Project root directory for --bundle mode
   --line-width <line-width>
-                          FASTA line width (default: 60) (default: 60)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+                          FASTA line width (default: 60)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

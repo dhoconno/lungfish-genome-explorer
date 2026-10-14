@@ -7,8 +7,7 @@ ARGUMENTS:
 
 OPTIONS:
   --frame <frame>         Reading frame: 1-3 forward, 4-6 reverse (default: 1)
-                          (default: 1)
-  --table <table>         Genetic code table ID (default: 1) (default: 1)
+  --table <table>         Genetic code table ID (default: 1)
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
   --compress              Compress output with gzip

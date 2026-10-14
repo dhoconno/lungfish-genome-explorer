@@ -25,12 +25,11 @@ OPTIONS:
   --iupac                 Interpret pattern as an IUPAC ambiguity code motif
   --max-mismatches <max-mismatches>
                           Allow up to N mismatches for exact matching (default:
-                          0) (default: 0)
+                          0)
   --forward-only          Search forward strand only (skip reverse complement)
   --case-sensitive        Enable case-sensitive matching
   -o, --output <output>   Output file path (default: stdout)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

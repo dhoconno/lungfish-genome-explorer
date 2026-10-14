@@ -8,8 +8,8 @@ OPTIONS:
                           Long-form CSV/TSV/JSON genotype rows for prompt
                           preview testing.
   --input-format <input-format>
-                          Input table format: auto, csv, tsv, or json. (values:
-                          auto, csv, tsv, json; default: auto)
+                          Input table format. (values: auto, csv, tsv, json;
+                          default: auto)
   --preview-prompt        Render prompt/evidence JSON without contacting an AI
                           provider or publishing a revision.
   --output <output>       Optional output JSON path for prompt preview
@@ -17,11 +17,10 @@ OPTIONS:
   --debug-output <debug-output>
                           Write validated AI haplotyping debug JSON without
                           publishing a haplotype revision.
-  --mode <mode>           AI haplotyping mode: ai-discovery or ai-refinement.
-                          (values: ai-discovery, ai-refinement; default:
-                          ai-refinement)
-  --provider <provider>   AI provider: openai or anthropic. (values: openai,
-                          anthropic; default: openai)
+  --mode <mode>           AI haplotyping mode. (values: ai-discovery,
+                          ai-refinement; default: ai-refinement)
+  --provider <provider>   AI provider. (values: openai, anthropic; default:
+                          openai)
   --model <model>         Provider model override. Defaults to the provider's
                           app default.
   --azure-openai-endpoint <azure-openai-endpoint>
@@ -53,8 +52,8 @@ OPTIONS:
                           Retrieve only prompt-relevant knowledge-pack records
                           before contacting the AI provider.
   --review-scope <review-scope>
-                          AI refinement review scope: all or unresolved-only.
-                          (values: all, unresolved-only; default: all)
+                          AI refinement review scope. (values: all,
+                          unresolved-only; default: all)
   --chunk-start-index <chunk-start-index>
                           1-based first evidence chunk to run for debug-output
                           smoke runs. (default: 1)

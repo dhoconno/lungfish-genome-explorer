@@ -79,7 +79,7 @@ OPTIONS:
                           kraken2)
   --read-format <read-format>
                           Output read format: fastq or fasta (for
-                          --by-classifier; default fastq) (default: fastq)
+                          --by-classifier) (default: fastq)
   --include-unmapped-mates
                           Include unmapped mates of mapped pairs (for
                           --by-classifier, non-kraken2)
@@ -106,8 +106,7 @@ OPTIONS:
   --bundle                Wrap output in a .lungfishfastq bundle
   --bundle-name <bundle-name>
                           Custom bundle display name (implies --bundle)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

@@ -22,8 +22,7 @@ OPTIONS:
                           docker.io/condaforge/miniforge3:latest)
   --timeout <timeout>     Seconds to wait for the Docker daemon before
                           reporting it unreachable (default: 5.0)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

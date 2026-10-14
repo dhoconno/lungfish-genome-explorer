@@ -10,7 +10,7 @@ Examples:
   lungfish-cli translate input.fasta
   lungfish-cli translate input.fasta --frame 1
   lungfish-cli translate input.fasta --frame 1 --table 2 -o proteins.fasta
-  lungfish-cli translate input.fasta --all-frames --stop-as-asterisk
+  lungfish-cli translate input.fasta --longest-orf --no-stop-asterisk
 
 USAGE: lungfish-cli translate [<options>] <input>
 
@@ -22,13 +22,13 @@ OPTIONS:
                           all 6 frames
   --table <table>         Genetic code table ID (1=standard, 2=vertebrate mito,
                           3=yeast mito, 11=bacterial) (default: 1)
-  -o, --output <output>   Output file path (default: stdout)
+  -o, --output <output>   Output file path (default: stdout). Required with
+                          --format json
   --trim-to-stop          Stop translation at the first stop codon
   --no-stop-asterisk      Omit stop codon asterisks from output
   --longest-orf           Output only the longest open reading frame per
                           sequence per frame
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

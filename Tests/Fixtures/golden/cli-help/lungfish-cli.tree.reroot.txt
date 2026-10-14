@@ -9,8 +9,7 @@ OPTIONS:
                           of the outgroup; the new root splits the branch above
                           it at its midpoint
   --output <output>       Output .lungfishtree bundle path
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

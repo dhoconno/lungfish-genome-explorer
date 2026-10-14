@@ -7,17 +7,15 @@ ARGUMENTS:
 
 OPTIONS:
   --output-dir <output-dir>
-                          Output directory for FASTQ files (default: current
-                          directory) (default: .)
+                          Output directory for FASTQ files (default: .)
   --use-toolkit           Fetch with the SRA Toolkit only, with no fallback to
                           ENA (requires prefetch/fasterq-dump)
   --prefer-source <source>
-                          Archive to try first, ena (default) or ncbi. ENA
-                          serves ready FASTQ files. NCBI needs the SRA Toolkit
-                          to convert its archive, which takes longer, but it
-                          can be faster when ENA is slow. When the preferred
-                          source fails, the other one is tried. (values: ena,
-                          ncbi)
+                          Archive to try first. ENA serves ready FASTQ files.
+                          NCBI needs the SRA Toolkit to convert its archive,
+                          which takes longer, but it can be faster when ENA is
+                          slow. When the preferred source fails, the other one
+                          is tried. (values: ena, ncbi)
   --bundle                Import the run into a .lungfishfastq bundle of
                           --project, as the app's SRA row does
         The run is downloaded, imported with the import settings below and
@@ -32,7 +30,7 @@ OPTIONS:
         inferred are recorded as unknown, never as Illumina. A given value is
         recorded as given, even when the reads suggest another platform.
   --pairing <pairing>     Read pairing: auto, single, paired, interleaved
-                          (default: auto) (default: auto)
+                          (default: auto)
         auto and paired match R1/R2 files by name, inside one folder first.
         Mates in two folders pair only when no other listed file has either
         name. When one does, a warning names the files. They also join a run's
@@ -50,13 +48,12 @@ OPTIONS:
         it as interleaved mates.
   --quality-binning <quality-binning>
                           Quality binning: illumina4 (7 quality levels),
-                          eightLevel (~21 quality levels), none (default:
-                          none). Binning is lossy and irreversible once
-                          originals are removed — opt in explicitly. (default:
-                          none)
+                          eightLevel (~21 quality levels), none. Binning is
+                          lossy and irreversible once originals are removed —
+                          opt in explicitly. (default: none)
   --compression <compression>
                           Compression level: fast, balanced, maximum (default:
-                          balanced) (default: balanced)
+                          balanced)
   --recipe <recipe>       Processing recipe: vsp2-target-enrichment,
                           wastewater-metagenomics, illumina-amplicon-merge,
                           vsp2, wgs, hifi, or none (default: none)
@@ -70,8 +67,7 @@ OPTIONS:
   --clumping-tool <clumping-tool>
                           Storage optimization tool: auto, bbtools,
                           trim-galore, none (default: platform-specific)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

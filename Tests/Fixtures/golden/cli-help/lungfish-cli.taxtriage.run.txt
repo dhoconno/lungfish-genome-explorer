@@ -35,8 +35,7 @@ OPTIONS:
         bundle whose sample role is negative control or extraction blank marks
         its sample without this option. A name that no sample of the run has is
         refused.
-  --platform <platform>   Sequencing platform: illumina, oxford, pacbio
-                          (default: illumina) (values: illumina, oxford,
+  --platform <platform>   Sequencing platform (values: illumina, oxford,
                           pacbio; default: illumina)
         The platform of each sample whose reads record none. A bundle of
         Illumina, Oxford Nanopore or PacBio reads runs on the platform it
@@ -67,12 +66,9 @@ OPTIONS:
         --project.
   --db <db>               Path to existing Kraken2 database
   --confidence <confidence>
-                          Kraken2 confidence threshold (default: 0.2) (default:
-                          0.2)
-  --top-hits <top-hits>   Number of top hits to report (default: 10) (default:
-                          10)
-  --rank <rank>           Taxonomic rank: D,P,C,O,F,G,S (default: S) (default:
-                          S)
+                          Kraken2 confidence threshold (default: 0.2)
+  --top-hits <top-hits>   Number of top hits to report (default: 10)
+  --rank <rank>           Taxonomic rank: D,P,C,O,F,G,S (default: S)
   --skip-assembly         Skip genome assembly steps (default: true)
   --no-skip-assembly      Enable genome assembly steps
   --skip-krona            Skip Krona visualization generation
@@ -80,19 +76,16 @@ OPTIONS:
                           references, separated by spaces or commas (e.g. 9606
                           for human). Passed as --remove_taxids. Default: none.
   --max-memory <max-memory>
-                          Maximum memory (Nextflow format, default: 16.GB)
-                          (default: 16.GB)
+                          Maximum memory (Nextflow format) (default: 16.GB)
   --max-cpus <max-cpus>   Maximum CPUs (default: auto)
   --nf-profile <nf-profile>
                           Nextflow execution profile (default: docker)
-                          (default: docker)
   --revision <revision>   The TaxTriage commit or tag to run. Without it, LGE
                           runs the commit its tool lock pins
   --extra-args <extra-args>
                           Additional TaxTriage/Nextflow pipeline arguments
                           passed verbatim
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

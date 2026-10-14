@@ -18,8 +18,7 @@ OPTIONS:
         identifiers, empty reads. VCF: data lines whose column count disagrees
         with the #CHROM header, and records that repeat an earlier CHROM, POS,
         REF and ALT. Other formats have no extra checks.
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

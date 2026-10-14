@@ -28,8 +28,7 @@ OPTIONS:
                           only)
   --alphabet <alphabet>   Sequence alphabet: dna, rna, protein (default:
                           auto-detect from file extension)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

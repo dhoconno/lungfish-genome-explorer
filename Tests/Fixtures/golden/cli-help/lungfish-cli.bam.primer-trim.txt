@@ -23,8 +23,7 @@ OPTIONS:
                           Sliding-window width for ivar trim (default: 4)
   --ivar-primer-offset <ivar-primer-offset>
                           Primer coordinate offset (bp) (default: 0)
-  --format <format>       Output format: text, json (default: text) (values:
-                          text, json; default: text)
+  --format <format>       Output format (values: text, json; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

@@ -22,8 +22,7 @@ OPTIONS:
   --no-preserve-unsupported
                           Skip unsupported artifacts instead of preserving them
                           as binary files
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

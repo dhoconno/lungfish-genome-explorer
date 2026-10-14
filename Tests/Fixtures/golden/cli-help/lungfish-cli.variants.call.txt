@@ -27,14 +27,13 @@ OPTIONS:
                           alignment's read groups (@RG PL).
   --ivar-consensus-af <ivar-consensus-af>
                           Allele frequency threshold above which an iVar
-                          haplotype counts as consensus (default 0.75)
-                          (default: 0.75)
+                          haplotype counts as consensus (default: 0.75)
   --ivar-merge-af-threshold <ivar-merge-af-threshold>
                           Maximum allele frequency distance for merging
-                          adjacent iVar SNPs (default 0.25) (default: 0.25)
+                          adjacent iVar SNPs (default: 0.25)
   --ivar-bad-quality-threshold <ivar-bad-quality-threshold>
-                          iVar ALT_QUAL below this fails the bq filter (default
-                          20) (default: 20)
+                          iVar ALT_QUAL below this fails the bq filter
+                          (default: 20)
   --ivar-no-ignore-strand-bias
                           Apply iVar strand-bias filter (off by default for
                           amplicon data)
@@ -46,8 +45,7 @@ OPTIONS:
   --extra-args, --advanced-options <extra-args>
                           Additional caller arguments, written exactly as they
                           should be passed to the underlying tool
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

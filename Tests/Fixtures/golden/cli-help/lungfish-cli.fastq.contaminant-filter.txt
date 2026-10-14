@@ -6,15 +6,14 @@ ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
-  --mode <mode>           Filter mode: phix, custom (default: phix) (default:
-                          phix)
+  --mode <mode>           Filter mode: phix, custom (default: phix)
   --ref <ref>             Reference FASTA for custom mode
-  --kmer <kmer>           K-mer size (default: 31) (default: 31)
-  --hdist <hdist>         Hamming distance tolerance (default: 1) (default: 1)
+  --kmer <kmer>           K-mer size (default: 31)
+  --hdist <hdist>         Hamming distance tolerance (default: 1)
   --pairing <pairing>     How to treat the input's records: interleaved
                           (adjacent records are mates and are kept or dropped
-                          together), single, or auto (default: auto) (values:
-                          interleaved, single, auto; default: auto)
+                          together), single, or auto (values: interleaved,
+                          single, auto; default: auto)
         auto reads the pairingMode recorded by the enclosing .lungfishfastq
         bundle, then inspects read names. Mates with identical names, /1 /2
         suffixes, or Casava descriptions are all recognised.

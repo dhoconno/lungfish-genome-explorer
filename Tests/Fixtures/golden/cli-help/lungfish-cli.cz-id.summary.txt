@@ -6,8 +6,7 @@ ARGUMENTS:
   <input-path>            Path to a CZ-ID taxon report TSV
 
 OPTIONS:
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)
@@ -17,8 +16,7 @@ OPTIONS:
   --log-file <log-file>   Write detailed logs to file
   --no-color              Disable colored output
   -t, --threads <threads> Number of threads to use (default: auto)
-  --top <top>             Number of top taxa to display (default: 20) (default:
-                          20)
+  --top <top>             Number of top taxa to display (default: 20)
   --version               Show the version.
   -h, --help              Show help information.
 

@@ -13,8 +13,7 @@ OPTIONS:
   --strand <strand>       Replacement strand: +, -, or .
   --note <note>           Replacement annotation note
   --qualifier <qualifier> Repeatable replacement qualifier key=value
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

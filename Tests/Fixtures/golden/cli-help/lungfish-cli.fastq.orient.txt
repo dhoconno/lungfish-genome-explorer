@@ -13,9 +13,7 @@ OPTIONS:
   --reference <reference> Reference FASTA file path
   --word-length <word-length>
                           Word length for orientation matching (default: 12)
-                          (default: 12)
-  --db-mask <db-mask>     Database masking method (default: dust) (default:
-                          dust)
+  --db-mask <db-mask>     Database masking method (default: dust)
   --extra-args <extra-args>
                           Additional vsearch arguments passed verbatim
   --version               Show the version.

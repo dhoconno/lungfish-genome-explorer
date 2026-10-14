@@ -13,8 +13,7 @@ OPTIONS:
   --strand <strand>       Annotation strand: +, -, or . (default: .)
   --note <note>           Optional annotation note
   --qualifier <qualifier> Repeatable key=value qualifier
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

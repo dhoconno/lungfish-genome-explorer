@@ -25,8 +25,7 @@ OPTIONS:
   --name <name>           Output bundle name
   --reason <reason>       Optional mask reason
   --force                 Overwrite an existing output bundle
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

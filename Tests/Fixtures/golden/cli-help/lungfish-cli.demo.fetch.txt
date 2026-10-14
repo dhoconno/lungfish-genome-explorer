@@ -20,8 +20,7 @@ ARGUMENTS:
 OPTIONS:
   --force                 Replace an existing copy with a fresh one (the old
                           copy goes to the Trash)
-  --format <format>       Output format: text, json (default: text) (values:
-                          text, json; default: text)
+  --format <format>       Output format (values: text, json; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

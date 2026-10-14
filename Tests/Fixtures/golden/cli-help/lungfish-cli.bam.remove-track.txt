@@ -11,8 +11,7 @@ USAGE: lungfish-cli bam remove-track --bundle <bundle> --track <track> [--format
 OPTIONS:
   --bundle <bundle>       Path to the reference bundle (.lungfishref)
   --track <track>         ID of the derived alignment track to remove
-  --format <format>       Output format: text, json (default: text) (values:
-                          text, json; default: text)
+  --format <format>       Output format (values: text, json; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

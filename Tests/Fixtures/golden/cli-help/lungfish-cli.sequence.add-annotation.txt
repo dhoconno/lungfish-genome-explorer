@@ -14,8 +14,7 @@ OPTIONS:
   --name <name>           Feature name.
   --type <type>           Feature type (GenBank/GFF3-style, e.g. gene, CDS).
   --strand <strand>       Strand: +, -, or . for unknown. (default: .)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

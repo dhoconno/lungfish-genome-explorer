@@ -36,8 +36,7 @@ OPTIONS:
                           should be passed to MAFFT
   --extra-args <extra-args>
                           Additional MAFFT arguments passed verbatim
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

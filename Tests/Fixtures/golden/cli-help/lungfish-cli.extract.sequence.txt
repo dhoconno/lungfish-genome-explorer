@@ -28,11 +28,11 @@ OPTIONS:
                           (default: 0)
   --flank-5 <flank-5>     Add N bases of 5' (upstream) flanking sequence
   --flank-3 <flank-3>     Add N bases of 3' (downstream) flanking sequence
-  -o, --output <output>   Output file path (default: stdout)
+  -o, --output <output>   Output file path (default: stdout). Required with
+                          --format json
   --line-width <line-width>
-                          FASTA line width (default: 70) (default: 70)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+                          FASTA line width (default: 70)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

@@ -19,8 +19,7 @@ OPTIONS:
   --barcodes <barcodes>   CSV/TSV file with sample_id, barcode_1, and barcode_2
                           columns, or headerless rows in that order
   -o, --output <output>   Output directory for per-sample .lungfishfastq bundles
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)
@@ -35,11 +34,10 @@ OPTIONS:
                           (default: active cores) (default: <ACTIVE-CORES>)
   --max-reads-per-slice <max-reads-per-slice>
                           Compatibility option for legacy chunked demux paths;
-                          0 disables sub-slicing (default: 100000) (default:
-                          100000)
+                          0 disables sub-slicing (default: 100000)
   --max-bytes-per-cutadapt <max-bytes-per-cutadapt>
                           Compatibility option for legacy chunked demux paths
-                          (default: 536870912) (default: 536870912)
+                          (default: 536870912)
   --force                 Replace an existing output directory
   --version               Show the version.
   -h, --help              Show help information.

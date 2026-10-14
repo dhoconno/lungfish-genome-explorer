@@ -35,19 +35,18 @@ OPTIONS:
                           exact no-substitution matching (default: 3)
   --matching-mode <matching-mode>
                           12S matching mode: 'illumina-exact' (exact embedded
-                          reference matches only; default) or 'ont-indel'
-                          (allow indel-only fallback). (default: illumina-exact)
+                          reference matches only) or 'ont-indel' (allow
+                          indel-only fallback). (default: illumina-exact)
   --chimera-review/--no-chimera-review
                           Run vsearch chimera review on unresolved sequences
                           (default: --chimera-review)
   --force                 Replace an existing output bundle
   --ambiguity-resolution <ambiguity-resolution>
                           How cross-species identical-sequence reads are
-                          resolved: 'strict' (any nonzero abundance lead wins;
-                          default) or 'conservative' (winner must have >=2x the
+                          resolved: 'strict' (any nonzero abundance lead wins)
+                          or 'conservative' (winner must have >=2x the
                           runner-up and >=10 reads). (default: strict)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

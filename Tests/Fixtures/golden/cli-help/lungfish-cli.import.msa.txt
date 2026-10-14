@@ -12,8 +12,7 @@ OPTIONS:
                           Source format: aligned-fasta, clustal, phylip, nexus,
                           stockholm, a2m-a3m
   --output <output>       Explicit output .lungfishmsa bundle path
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

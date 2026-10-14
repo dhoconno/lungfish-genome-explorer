@@ -28,10 +28,9 @@ ARGUMENTS:
 
 OPTIONS:
   --db <db>               Database: nucleotide, protein (default: nucleotide)
-                          (default: nucleotide)
   --fetch-format <fetch-format>
                           Fetch format: genbank, fasta, gff3, xml (default:
-                          genbank) (default: genbank)
+                          genbank)
   --save-to <save-to>     Output file path
   --api-key <api-key>     NCBI API key for higher rate limits
   --no-retry              Do not retry HTTP 429 rate-limit responses
@@ -42,8 +41,7 @@ OPTIONS:
                           current directory)
   --no-gff3               With --bundle, fetch no GFF3 and take the annotations
                           from the GenBank record
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

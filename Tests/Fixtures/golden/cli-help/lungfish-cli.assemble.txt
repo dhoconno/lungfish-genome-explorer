@@ -29,9 +29,8 @@ OPTIONS:
                           How the records of a single Illumina input file
                           relate: auto, single-end, interleaved (every record
                           is followed by its mate), or mixed (merged reads and
-                          interleaved pairs in one file) (default: auto)
-                          (values: auto, single-end, interleaved, mixed;
-                          default: auto)
+                          interleaved pairs in one file) (values: auto,
+                          single-end, interleaved, mixed; default: auto)
         auto reads the enclosing .lungfishfastq bundle's metadata, then scans
         read names (identical names, /1 /2, and Casava descriptions all count
         as mates). SPAdes and MEGAHIT assemble a strictly interleaved file with
@@ -57,8 +56,7 @@ OPTIONS:
   --extra-arg <extra-arg> Additional assembler argument (repeatable)
   --reference-bundle      Also publish a .lungfishref bundle of the contigs
                           beside --output, named after the project
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

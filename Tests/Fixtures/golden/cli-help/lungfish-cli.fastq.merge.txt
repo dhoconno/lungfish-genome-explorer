@@ -7,7 +7,7 @@ ARGUMENTS:
 
 OPTIONS:
   --min-overlap <min-overlap>
-                          Minimum overlap (default: 12) (default: 12)
+                          Minimum overlap (default: 12)
   --strict                Use strict merge mode
   --count-duplicates      Collapse identical output sequences after merge and
                           encode support as size=N

@@ -10,8 +10,7 @@ OPTIONS:
   --variant-id <variant-id>
                           Delete one variant, named <track-id>:<row-id>. Repeat
                           for more variants.
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

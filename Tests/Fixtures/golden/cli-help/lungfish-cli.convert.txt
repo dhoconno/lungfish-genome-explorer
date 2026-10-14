@@ -20,8 +20,7 @@ OPTIONS:
   --to <to>               Output file path (required)
   --include-annotations   Include annotations in output (if supported)
   --force                 Overwrite existing output file
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

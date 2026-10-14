@@ -49,8 +49,7 @@ OPTIONS:
                           source assembly. Default: the alignment's name
   -o, --output <output>   Output FASTA, or a .lungfishref bundle
   --allow-all-low-depth   Write a consensus that is N at every position
-  --format <format>       Output format: text, json (default: text) (values:
-                          text, json; default: text)
+  --format <format>       Output format (values: text, json; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

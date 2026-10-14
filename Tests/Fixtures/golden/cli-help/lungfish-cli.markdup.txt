@@ -16,7 +16,7 @@ ARGUMENTS:
 OPTIONS:
   --force                 Re-run markdup even if already marked
   --sort-threads <sort-threads>
-                          Threads for samtools sort (default 4) (default: 4)
+                          Threads for samtools sort (default: 4)
   --deduplicated-bundle <deduplicated-bundle>
                           Create a sibling .lungfishref bundle with duplicate
                           reads removed
@@ -24,8 +24,7 @@ OPTIONS:
                           <name>.markdup.bam (single BAM input only)
   --in-place              Overwrite the input BAM with the marked copy.
                           WARNING: destroys the unmarked original
-  --format <format>       Output format: text, json (default: text) (values:
-                          text, json; default: text)
+  --format <format>       Output format (values: text, json; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

@@ -7,9 +7,8 @@ ARGUMENTS:
                           PRJNA123456)
 
 OPTIONS:
-  --limit <limit>         Maximum results (default: 20) (default: 20)
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
+  --limit <limit>         Maximum results (default: 20)
+  --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
   -q, --quiet             Suppress non-essential output (errors only)

@@ -1,6 +1,6 @@
 OVERVIEW: Find open reading frames and add them as a new annotation track
 
-USAGE: lungfish-cli sequence annotate-orfs [<options>] <bundle>
+USAGE: lungfish-cli sequence annotate-orfs <bundle> [--sequence <sequence>] [--start <start>] [--end <end>] [--frames <frames>] [--table <table>] [--min-length <min-length>] [--include-partial] [--allow-alternative-starts] [--track-id <track-id>] [--track-name <track-name>]
 
 ARGUMENTS:
   <bundle>                Reference bundle to update
@@ -24,17 +24,6 @@ OPTIONS:
                           ID.
   --track-name <track-name>
                           Annotation track display name.
-  --format <format>       Output format: text, json, tsv (default: text)
-                          (values: text, json, tsv; default: text)
-  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
-                          -vvv)
-  -q, --quiet             Suppress non-essential output (errors only)
-  --progress              Show progress bar (default: auto-detect TTY)
-  --no-progress           Disable progress bar
-  --debug                 Enable debug output with detailed logging
-  --log-file <log-file>   Write detailed logs to file
-  --no-color              Disable colored output
-  -t, --threads <threads> Number of threads to use (default: auto)
   --version               Show the version.
   -h, --help              Show help information.
 
