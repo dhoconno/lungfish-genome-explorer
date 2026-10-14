@@ -175,7 +175,7 @@ Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift 10
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2267
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift 2642
 Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift 1781
-Sources/LungfishWorkflow/Native/NativeToolRunner.swift 1177
+Sources/LungfishWorkflow/Native/NativeToolRunner.swift 895
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingPatchValidator.swift 1247
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRevisionPublisher.swift 905
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRunner.swift 970
