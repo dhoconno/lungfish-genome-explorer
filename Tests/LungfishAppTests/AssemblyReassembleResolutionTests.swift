@@ -80,7 +80,7 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
         let readSets = try ReadSetFixtures(in: root.appendingPathComponent("SplitReadSets", isDirectory: true))
         let run = try await inProcessRun([readSets.mixedRoot], pairedEnd: false)
         XCTAssertEqual(try run.reads, [["p1/1", "p2/1"], ["p1/2", "p2/2"], ["m1", "m2", "m3"]])
-        let inputs = try await AssemblyRunner.managedAssemblyProvenanceInputs(
+        let inputs = try await ManagedAssemblyProvenanceInputs.managedAssemblyProvenanceInputs(
             originalInputURLs: run.result.originalInputURLs,
             executionInputURLs: run.result.request.inputURLs,
             startedAt: run.result.materializationStartedAt,
@@ -99,13 +99,13 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
     /// again. The R1 and R2 files of a mate pair are recorded as themselves.
     func testTheRunRecordsAJoinedBundleAsTheBundleAndTheJoinAsACatStep() async throws {
         let joined = try await inProcessRun([shapes.multiFile], pairedEnd: false).result
-        let records = AssemblyRunner.managedAssemblyInputRecords(
+        let records = ManagedAssemblyProvenanceInputs.managedAssemblyInputRecords(
             originalInputURLs: joined.originalInputURLs,
             executionInputURLs: joined.request.inputURLs
         )
         XCTAssertEqual(records.map(\.originalPath), [shapes.multiFile.standardizedFileURL.path])
         XCTAssertNotNil(records.first?.sha256)
-        let steps = try AssemblyRunner.managedAssemblyMaterializationSteps(
+        let steps = try ManagedAssemblyProvenanceInputs.managedAssemblyMaterializationSteps(
             originalInputURLs: joined.originalInputURLs,
             executionInputURLs: joined.request.inputURLs,
             startedAt: joined.materializationStartedAt,
@@ -117,7 +117,7 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
 
         let mates = try await inProcessRun([shapes.paired], pairedEnd: false).result
         XCTAssertEqual(
-            AssemblyRunner.managedAssemblyInputRecords(
+            ManagedAssemblyProvenanceInputs.managedAssemblyInputRecords(
                 originalInputURLs: mates.originalInputURLs,
                 executionInputURLs: mates.request.inputURLs
             ).map(\.originalPath),

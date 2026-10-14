@@ -312,7 +312,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             threads: originalRequest.threads
         )
 
-        let records = AssemblyRunner.managedAssemblyInputRecords(
+        let records = ManagedAssemblyProvenanceInputs.managedAssemblyInputRecords(
             originalInputURLs: originalRequest.inputURLs,
             executionInputURLs: executionRequest.inputURLs
         )
@@ -398,7 +398,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         let materializationStartedAt = Date(timeIntervalSince1970: 100)
         let materializationEndedAt = Date(timeIntervalSince1970: 102)
         let materializationStep = try XCTUnwrap(
-            AssemblyRunner.managedAssemblyMaterializationStep(
+            ManagedAssemblyProvenanceInputs.managedAssemblyMaterializationStep(
                 originalInputURLs: originalRequest.inputURLs,
                 executionInputURLs: executionRequest.inputURLs,
                 startedAt: materializationStartedAt,
@@ -409,7 +409,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         let provenance = ProvenanceBuilder.build(
             request: executionRequest,
             result: result,
-            inputRecords: AssemblyRunner.managedAssemblyInputRecords(
+            inputRecords: ManagedAssemblyProvenanceInputs.managedAssemblyInputRecords(
                 originalInputURLs: originalRequest.inputURLs,
                 executionInputURLs: executionRequest.inputURLs
             ),

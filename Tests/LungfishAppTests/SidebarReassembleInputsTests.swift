@@ -254,12 +254,12 @@ final class SidebarReassembleInputsTests: XCTestCase {
                 ),
                 wallTimeSeconds: 1
             ),
-            inputRecords: AssemblyRunner.managedAssemblyInputRecords(
+            inputRecords: ManagedAssemblyProvenanceInputs.managedAssemblyInputRecords(
                 originalInputURLs: resolved.originalInputURLs,
                 executionInputURLs: ran.inputURLs
             ),
             requestedInputURLs: recordRequestedInputs ? executionRequest.inputURLs : nil,
-            steps: try AssemblyRunner.managedAssemblyMaterializationSteps(
+            steps: try ManagedAssemblyProvenanceInputs.managedAssemblyMaterializationSteps(
                 originalInputURLs: resolved.originalInputURLs,
                 executionInputURLs: ran.inputURLs,
                 startedAt: resolved.materializationStartedAt,

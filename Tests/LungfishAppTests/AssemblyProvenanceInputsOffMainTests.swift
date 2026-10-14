@@ -113,17 +113,17 @@ final class AssemblyProvenanceInputsOffMainTests: XCTestCase {
         for testCase in cases {
             let run = try await resolvedRun(testCase.inputs)
             // What the run built on the main thread before.
-            let mainThreadRecords = AssemblyRunner.managedAssemblyInputRecords(
+            let mainThreadRecords = ManagedAssemblyProvenanceInputs.managedAssemblyInputRecords(
                 originalInputURLs: run.originalInputURLs,
                 executionInputURLs: run.request.inputURLs
             )
-            let mainThreadSteps = try AssemblyRunner.managedAssemblyMaterializationSteps(
+            let mainThreadSteps = try ManagedAssemblyProvenanceInputs.managedAssemblyMaterializationSteps(
                 originalInputURLs: run.originalInputURLs,
                 executionInputURLs: run.request.inputURLs,
                 startedAt: startedAt,
                 endedAt: endedAt
             )
-            let offMain = try await AssemblyRunner.managedAssemblyProvenanceInputs(
+            let offMain = try await ManagedAssemblyProvenanceInputs.managedAssemblyProvenanceInputs(
                 originalInputURLs: run.originalInputURLs,
                 executionInputURLs: run.request.inputURLs,
                 startedAt: startedAt,
