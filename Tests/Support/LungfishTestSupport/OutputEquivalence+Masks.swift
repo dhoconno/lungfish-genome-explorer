@@ -210,7 +210,8 @@ extension OutputEquivalence {
         /// is the `.lungfish` project folder that holds the record, which a
         /// `@/` path is read from. Without one a `@/` path stays as written,
         /// and a `<bundle>/` or `<workspace>/` path is never read, so the
-        /// digest a record states beside it is kept.
+        /// digest a record states beside it is kept. A `@/` path lies inside
+        /// the project, so it is never read as a deleted scratch intermediate.
         static func maskDigests(
             in value: Any, paths: Set<String>, roots: [String], folder: String, project: String?, changed: inout Bool
         ) -> Any {
@@ -227,7 +228,7 @@ extension OutputEquivalence {
                 if let root = roots.first(where: { path.hasPrefix($0 + "/") }) {
                     relative = String(path.dropFirst(root.count + 1))
                 }
-                return paths.contains(relative) || isDeletedScratchIntermediate(path)
+                return paths.contains(relative) || isDeletedScratchIntermediate(written)
             }
             for (key, item) in object {
                 if namesContentComparedFile, digestKeys.contains(key) {

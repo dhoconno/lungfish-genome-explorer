@@ -455,6 +455,24 @@ final class OutputEquivalenceTests: XCTestCase {
         )
     }
 
+    /// A `@/` path lies inside the project, never under the system temporary folder, so the digest
+    /// a record states for a file neither tree holds is kept and compared (FXP review, BIO's question).
+    func testAnAtSlashPathToAFileNeitherTreeHoldsKeepsItsDigest() throws {
+        let (a, b) = try makeRoots()
+        let bundle = "Project.lungfish/Downloads/out.lungfishref"
+        for (root, digest) in [(a, String(repeating: "c", count: 64)), (b, String(repeating: "d", count: 64))] {
+            try write(
+                #"{"outputs":[{"path":"@/Downloads/out.lungfishref/gone.json","checksumSHA256":"\#(digest)"}]}"#,
+                to: root,
+                "\(bundle)/.lungfish-provenance.json"
+            )
+        }
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle).map { $0.components(separatedBy: "\n")[0] },
+            ["differs: \(bundle)/.lungfish-provenance.json"]
+        )
+    }
+
     // MARK: - Fixture helpers
 
     private func makeRoots() throws -> (URL, URL) {
