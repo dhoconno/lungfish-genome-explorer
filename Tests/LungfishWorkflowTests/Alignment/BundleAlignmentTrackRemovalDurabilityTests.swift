@@ -69,6 +69,10 @@ final class BundleAlignmentTrackRemovalDurabilityTests: XCTestCase {
             XCTAssertNotNil(input.fileSize, path)
         }
         XCTAssertEqual(removal.dependsOn.count, 1, "the removal step follows the manifest step")
+        // Every route records LungfishAppVersion.short, never the version of a host such as xctest.
+        let versions: [String?] = [record.workflowVersion, record.toolVersion, record.runtimeIdentity.appVersion]
+            + record.steps.map { $0.toolVersion }
+        XCTAssertEqual(versions, [String?](repeating: LungfishAppVersion.short, count: versions.count))
     }
 
     func testACancelBeforeTheManifestChangesRecordsCancelledAndChangesNothing() async throws {

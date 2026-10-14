@@ -24,6 +24,10 @@ public struct BundleAlignmentTrackRemovalRecord: Sendable {
     public static let folder = "\(ProvenanceWriter.bundleProvenanceDirectoryName)/removals"
     /// The exit status a cancelled `lungfish-cli` command reports, `CLIExitCode.cancelled`.
     static let cancelledExitStatus = 125
+    /// The version every part of the record names, `LungfishAppVersion.short`, as the `lungfish-cli`
+    /// leaves record it. In the app and its bundled CLI it is the app's stamped version. A host such
+    /// as xctest never lends its own, so every route that runs this service records one version.
+    static let version = LungfishAppVersion.short
 
     let bundleURL: URL
     let track: AlignmentTrackInfo
@@ -90,7 +94,7 @@ public struct BundleAlignmentTrackRemovalRecord: Sendable {
         let argv = Self.cliArgv(bundleURL: bundleURL, trackID: track.id)
         let manifestStep = ProvenanceStep(
             toolName: Self.workflowName,
-            toolVersion: WorkflowRun.currentAppVersion,
+            toolVersion: Self.version,
             argv: argv,
             inputs: [],
             outputs: [try ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .output)],
@@ -102,13 +106,33 @@ public struct BundleAlignmentTrackRemovalRecord: Sendable {
         var builder = try builder(argv: argv)
             .output(manifestURL, format: .json, role: .output)
             .step(manifestStep)
-        if var removal = RecordedRemovalStep.step(
-            toolName: Self.workflowName, api: Self.removalAPI, removing: files, clock: clock
-        ) {
-            removal.dependsOn = [manifestStep.id]
+        if let removal = removalStep(removing: files, after: manifestStep) {
             builder = builder.step(removal)
         }
         return try builder.complete(exitStatus: 0, status: .completed, startedAt: clock.startedAt, endedAt: clock.now)
+    }
+
+    /// The step that removes `files`, each path once and in order, after `manifestStep`, or nil when
+    /// there are none. It has the shape `RecordedRemovalStep.step` gives, the API, the paths and its
+    /// resolved options, and names this record's `version` where that helper names the host's.
+    private func removalStep(removing files: [ProvenanceFileDescriptor], after manifestStep: ProvenanceStep) -> ProvenanceStep? {
+        var seen: Set<String> = []
+        let removed = files.filter { seen.insert($0.path).inserted }
+        guard !removed.isEmpty else { return nil }
+        var step = ProvenanceStep(
+            toolName: Self.workflowName,
+            toolVersion: Self.version,
+            argv: [Self.removalAPI] + removed.map(\.path),
+            resolvedOptions: RecordedRemovalStep.resolvedOptions,
+            inputs: removed,
+            outputs: [],
+            exitStatus: 0,
+            wallTimeSeconds: clock.elapsed,
+            startedAt: clock.startedAt,
+            completedAt: clock.now
+        )
+        step.dependsOn = [manifestStep.id]
+        return step
     }
 
     /// The record of a removal a cancel stopped before the manifest changed.
@@ -125,9 +149,9 @@ public struct BundleAlignmentTrackRemovalRecord: Sendable {
     private func builder(argv: [String]) -> ProvenanceRunBuilder {
         ProvenanceRunBuilder(
             workflowName: Self.workflowName,
-            workflowVersion: WorkflowRun.currentAppVersion,
+            workflowVersion: Self.version,
             toolName: Self.workflowName,
-            toolVersion: WorkflowRun.currentAppVersion
+            toolVersion: Self.version
         )
         .argv(argv)
         .durableReplayArgv(argv)
@@ -142,6 +166,6 @@ public struct BundleAlignmentTrackRemovalRecord: Sendable {
                 "trackSourcePath": .string(track.sourcePath),
             ]
         )
-        .runtime(ProvenanceRuntimeIdentity())
+        .runtime(ProvenanceRuntimeIdentity(appVersion: Self.version))
     }
 }

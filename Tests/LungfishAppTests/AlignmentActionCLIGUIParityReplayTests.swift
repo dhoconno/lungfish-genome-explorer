@@ -33,24 +33,10 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
         case cancelWhileHashing
     }
 
-    /// Every difference A against C declares. Both routes write the removal's record through the
-    /// one service, and the record differs only in the version of the process that wrote it.
-    static let declared: [RouteParityDeclaredDifference<Case>] = {
-        let record = "differs: Project.lungfish/Sample.lungfishref/provenance/removals/aln-derived.lungfish-provenance.json at "
-        let reason = "Side A writes from the xctest process, whose bundle version is Xcode's. In the app the "
-            + "in-process route and the bundled lungfish-cli both read the app's Info.plist "
-            + "(ProvenanceRecord.swift:149-160), so a release records one version on both routes"
-        let both: [Case: Int] = [.removeDerivedTrack: 1, .cancelWhileHashing: 1]
-        return [
-            RouteParityDeclaredDifference(both, record + "runtimeIdentity.appVersion", reason: reason, closedBy: "none, a harness fact"),
-            RouteParityDeclaredDifference(both, record + "tool.version", reason: reason, closedBy: "none, a harness fact"),
-            RouteParityDeclaredDifference(both, record + "toolVersion", reason: reason, closedBy: "none, a harness fact"),
-            RouteParityDeclaredDifference(both, record + "workflowVersion", reason: reason, closedBy: "none, a harness fact"),
-            RouteParityDeclaredDifference(
-                [.removeDerivedTrack: 2], record + "steps[<ANY>].toolVersion", reason: reason, closedBy: "none, a harness fact"
-            ),
-        ]
-    }()
+    /// Every difference A against C declares, none (C4). Both routes write the removal's record
+    /// through the one service, which names `LungfishAppVersion.short` as the leaves do, so the
+    /// xctest host of side A lends the record no version (the A42 precedent, commit 1082a4b88).
+    static let declared: [RouteParityDeclaredDifference<Case>] = []
 
     private var scratch: URL!
     private var cli: URL!
