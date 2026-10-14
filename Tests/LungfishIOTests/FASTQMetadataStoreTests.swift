@@ -715,6 +715,145 @@ final class FASTQMetadataStoreTests: XCTestCase {
         XCTAssertTrue(decoded.perPositionQuality.isEmpty)
     }
 
+    // MARK: - Quality Histogram Order
+
+    /// Statistics that differ from each other only in the dictionary they are given.
+    private func makeStatistics(qualityScoreHistogram: [UInt8: Int]) -> FASTQDatasetStatistics {
+        FASTQDatasetStatistics(
+            readCount: 53, baseCount: 41_000,
+            meanReadLength: 12.9, minReadLength: 12, maxReadLength: 13,
+            medianReadLength: 13, n50ReadLength: 13,
+            meanQuality: 29.68, q20Percentage: 95.5, q30Percentage: 95.0,
+            gcContent: 0.5379,
+            readLengthHistogram: [12: 3, 13: 50],
+            qualityScoreHistogram: qualityScoreHistogram,
+            perPositionQuality: []
+        )
+    }
+
+    private func jsonObject(_ data: Data) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// A `[UInt8: Int]` encodes as a flat `[quality, count, ...]` array in the dictionary's iteration
+    /// order, which changes from process to process and with the order and capacity a dictionary was
+    /// built with, so one histogram gave a sidecar two sets of bytes. The encoder writes the pairs in
+    /// ascending quality order (BIO ruling on lane A45 M3c, item 2). Three equal dictionaries are laid
+    /// out three ways here, which makes the order of the pairs differ at the base within one process.
+    func testTheQualityHistogramIsWrittenInKeyOrderWhateverItsDictionary() throws {
+        let pairs = (2...41).map { (UInt8($0), 1000 + $0) }
+        var ascending: [UInt8: Int] = [:]
+        for (quality, count) in pairs { ascending[quality] = count }
+        var descending: [UInt8: Int] = [:]
+        for (quality, count) in pairs.reversed() { descending[quality] = count }
+        var reserved: [UInt8: Int] = [:]
+        reserved.reserveCapacity(512)
+        for (quality, count) in pairs.reversed() { reserved[quality] = count }
+        XCTAssertEqual(ascending, descending)
+        XCTAssertEqual(ascending, reserved)
+
+        let values = [ascending, descending, reserved].map { makeStatistics(qualityScoreHistogram: $0) }
+        XCTAssertEqual(values[0], values[1])
+        XCTAssertEqual(values[0], values[2])
+
+        var sidecars: [Data] = []
+        for (index, value) in values.enumerated() {
+            let fastqURL = tempDir.appendingPathComponent("order-\(index).fastq.gz")
+            XCTAssertTrue(FileManager.default.createFile(atPath: fastqURL.path, contents: Data()))
+            try FASTQMetadataStore.write(PersistedFASTQMetadata(computedStatistics: value), for: fastqURL)
+            sidecars.append(try Data(contentsOf: FASTQMetadataStore.metadataURL(for: fastqURL)))
+        }
+        XCTAssertEqual(sidecars[0], sidecars[1], "built ascending against built descending")
+        XCTAssertEqual(sidecars[0], sidecars[2], "built ascending against built descending with a reserved capacity")
+
+        let expected = pairs.flatMap { [Int($0.0), $0.1] }
+        XCTAssertEqual(expected.count, 80)
+        for (index, sidecar) in sidecars.enumerated() {
+            let statistics = try XCTUnwrap(jsonObject(sidecar)["computedStatistics"] as? [String: Any])
+            XCTAssertEqual(statistics["qualityScoreHistogram"] as? [Int], expected, "sidecar \(index)")
+        }
+        for (index, value) in values.enumerated() {
+            let encoded = try jsonObject(JSONEncoder().encode(value))
+            XCTAssertEqual(encoded["qualityScoreHistogram"] as? [Int], expected, "JSONEncoder with no options, value \(index)")
+        }
+    }
+
+    /// A sidecar written before the encoder sorted the histogram holds its pairs in dictionary order.
+    /// The reader takes them in any order, and the next write puts them in key order with every other
+    /// key as it was. The literal is the `computedStatistics` of the SRA toolkit run the ruling measured.
+    func testASidecarWithItsHistogramInAnyOrderDecodesAndIsRewrittenInKeyOrder() throws {
+        let fastqURL = tempDir.appendingPathComponent("ERR10019355.fastq.gz")
+        XCTAssertTrue(FileManager.default.createFile(atPath: fastqURL.path, contents: Data()))
+        let literal = """
+        {
+          "computedStatistics" : {
+            "baseCount" : 686,
+            "gcContent" : 0.5379,
+            "maxReadLength" : 13,
+            "meanQuality" : 29.68,
+            "meanReadLength" : 12.9,
+            "medianReadLength" : 13,
+            "minReadLength" : 12,
+            "n50ReadLength" : 13,
+            "perPositionQuality" : [
+              {"lowerQuartile" : 38, "mean" : 37.924528301886795, "median" : 39, "percentile10" : 37, "percentile90" : 39, "position" : 0, "upperQuartile" : 39},
+              {"lowerQuartile" : 38, "mean" : 38.18867924528302, "median" : 39, "percentile10" : 37, "percentile90" : 39, "position" : 1, "upperQuartile" : 39},
+              {"lowerQuartile" : 37, "mean" : 37.924528301886795, "median" : 39, "percentile10" : 37, "percentile90" : 39, "position" : 2, "upperQuartile" : 39},
+              {"lowerQuartile" : 38, "mean" : 37.60377358490566, "median" : 39, "percentile10" : 37, "percentile90" : 39, "position" : 3, "upperQuartile" : 39},
+              {"lowerQuartile" : 36, "mean" : 34.41509433962264, "median" : 38, "percentile10" : 19, "percentile90" : 39, "position" : 4, "upperQuartile" : 39},
+              {"lowerQuartile" : 37, "mean" : 36.867924528301884, "median" : 38, "percentile10" : 33, "percentile90" : 39, "position" : 5, "upperQuartile" : 39},
+              {"lowerQuartile" : 38, "mean" : 38.075471698113205, "median" : 39, "percentile10" : 36, "percentile90" : 39, "position" : 6, "upperQuartile" : 39},
+              {"lowerQuartile" : 37, "mean" : 36.490566037735846, "median" : 38, "percentile10" : 34, "percentile90" : 39, "position" : 7, "upperQuartile" : 39},
+              {"lowerQuartile" : 36, "mean" : 36.24528301886792, "median" : 37, "percentile10" : 33, "percentile90" : 39, "position" : 8, "upperQuartile" : 39},
+              {"lowerQuartile" : 37, "mean" : 36.528301886792455, "median" : 39, "percentile10" : 33, "percentile90" : 39, "position" : 9, "upperQuartile" : 39},
+              {"lowerQuartile" : 36, "mean" : 35.24528301886792, "median" : 37, "percentile10" : 32, "percentile90" : 39, "position" : 10, "upperQuartile" : 38},
+              {"lowerQuartile" : 37, "mean" : 38.0377358490566, "median" : 39, "percentile10" : 37, "percentile90" : 39, "position" : 11, "upperQuartile" : 39},
+              {"lowerQuartile" : 36, "mean" : 35.56, "median" : 38, "percentile10" : 32, "percentile90" : 38, "position" : 12, "upperQuartile" : 38}
+            ],
+            "q20Percentage" : 95.77259475218659,
+            "q30Percentage" : 95.6268221574344,
+            "qualityScoreHistogram" : [38,148,36,24,16,5,39,305,34,18,18,6,17,5,15,5,32,15,37,117,35,5,33,24,14,1,19,7,20,1],
+            "readCount" : 53,
+            "readLengthHistogram" : {"12" : 3, "13" : 50}
+          }
+        }
+        """
+        try Data(literal.utf8).write(to: FASTQMetadataStore.metadataURL(for: fastqURL))
+
+        // The half that passes at the base: a file written in dictionary order still decodes.
+        let loaded = try XCTUnwrap(FASTQMetadataStore.loadIfPresent(for: fastqURL))
+        let statistics = try XCTUnwrap(loaded.computedStatistics)
+        XCTAssertEqual(
+            statistics.qualityScoreHistogram,
+            [38: 148, 36: 24, 16: 5, 39: 305, 34: 18, 18: 6, 17: 5, 15: 5, 32: 15, 37: 117, 35: 5, 33: 24, 14: 1, 19: 7, 20: 1]
+        )
+        XCTAssertEqual(statistics.qualityScoreHistogram.count, 15)
+        XCTAssertEqual(statistics.qualityScoreHistogram.values.reduce(0, +), 686)
+        XCTAssertEqual(Int64(statistics.qualityScoreHistogram.values.reduce(0, +)), statistics.baseCount)
+
+        // The rewrite lists the same pairs by quality and changes no other key.
+        try FASTQMetadataStore.write(loaded, for: fastqURL)
+        let rewritten = try XCTUnwrap(
+            jsonObject(Data(contentsOf: FASTQMetadataStore.metadataURL(for: fastqURL)))["computedStatistics"] as? [String: Any]
+        )
+        let original = try XCTUnwrap(jsonObject(Data(literal.utf8))["computedStatistics"] as? [String: Any])
+        XCTAssertEqual(
+            rewritten["qualityScoreHistogram"] as? [Int],
+            [14, 1, 15, 5, 16, 5, 17, 5, 18, 6, 19, 7, 20, 1, 32, 15, 33, 24, 34, 18, 35, 5, 36, 24, 37, 117, 38, 148, 39, 305]
+        )
+        // The literal is not in key order, which is the case the test is about.
+        XCTAssertEqual(
+            original["qualityScoreHistogram"] as? [Int],
+            [38, 148, 36, 24, 16, 5, 39, 305, 34, 18, 18, 6, 17, 5, 15, 5, 32, 15, 37, 117, 35, 5, 33, 24, 14, 1, 19, 7, 20, 1]
+        )
+        var othersWritten = rewritten
+        othersWritten["qualityScoreHistogram"] = nil
+        var othersLiteral = original
+        othersLiteral["qualityScoreHistogram"] = nil
+        XCTAssertEqual(othersWritten.count, 13)
+        XCTAssertEqual(NSDictionary(dictionary: othersWritten), NSDictionary(dictionary: othersLiteral))
+    }
+
     // MARK: - PositionQualitySummary
 
     func testPositionQualitySummaryEquatable() {

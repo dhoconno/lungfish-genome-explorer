@@ -117,6 +117,33 @@ public struct FASTQDatasetStatistics: Sendable, Codable, Equatable {
         self.perPositionQuality = perPositionQuality
     }
 
+    /// Encodes as the synthesized encoder does, every key in declaration order, except that the pairs of
+    /// `qualityScoreHistogram` go in ascending quality order. A `[UInt8: Int]` encodes as a flat
+    /// `[quality, count, ...]` array in the dictionary's iteration order, which changes from process to process,
+    /// so two runs wrote one histogram in two orders (BIO ruling on lane A45 M3c). The shape is unchanged, and the
+    /// synthesized `init(from:)` reads the pairs in any order, so a file written before still decodes.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(readCount, forKey: .readCount)
+        try container.encode(baseCount, forKey: .baseCount)
+        try container.encode(meanReadLength, forKey: .meanReadLength)
+        try container.encode(minReadLength, forKey: .minReadLength)
+        try container.encode(maxReadLength, forKey: .maxReadLength)
+        try container.encode(medianReadLength, forKey: .medianReadLength)
+        try container.encode(n50ReadLength, forKey: .n50ReadLength)
+        try container.encode(meanQuality, forKey: .meanQuality)
+        try container.encode(q20Percentage, forKey: .q20Percentage)
+        try container.encode(q30Percentage, forKey: .q30Percentage)
+        try container.encode(gcContent, forKey: .gcContent)
+        try container.encode(readLengthHistogram, forKey: .readLengthHistogram)
+        var histogram = container.nestedUnkeyedContainer(forKey: .qualityScoreHistogram)
+        for (quality, count) in qualityScoreHistogram.sorted(by: { $0.key < $1.key }) {
+            try histogram.encode(quality)
+            try histogram.encode(count)
+        }
+        try container.encode(perPositionQuality, forKey: .perPositionQuality)
+    }
+
     /// Placeholder statistics with known read/base counts but no quality data.
     /// Used for virtual demux bundles where full statistics aren't yet computed.
     public static func placeholder(readCount: Int, baseCount: Int64) -> FASTQDatasetStatistics {
