@@ -867,7 +867,7 @@ final class OperationRoutingTests: XCTestCase {
         let tools = combinedAppDelegateSource()
         let mappingBody = try sourceFunctionBody(
             named: "func runManagedMapping(\n        plan: MappingRunPlan",
-            endingBefore: "    private func runSingleManagedMappingAwaitingCompletion",
+            endingBefore: "    func runSingleManagedMappingAwaitingCompletion",
             in: tools
         )
         XCTAssertTrue(mappingBody.contains("SequentialAnalysisBatchHold("))
@@ -1095,7 +1095,7 @@ final class OperationRoutingTests: XCTestCase {
         let source = combinedAppDelegateSource()
         let fanout = try sourceFunctionBody(
             named: "func runManagedMapping(\n        plan: MappingRunPlan",
-            endingBefore: "    private func runSingleManagedMappingAwaitingCompletion",
+            endingBefore: "    func runSingleManagedMappingAwaitingCompletion",
             in: source
         )
         // F5: one `Task.detached` driving a sequential `for` loop over
@@ -1115,7 +1115,7 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertEqual(detachedCallSites, 1, "Expected exactly one `let task = Task.detached` (sequential driver), found \(detachedCallSites)")
 
         let single = try sourceFunctionBody(
-            named: "private func runSingleManagedMappingAwaitingCompletion",
+            named: "func runSingleManagedMappingAwaitingCompletion",
             endingBefore: "private func routePostMappingDeterministicCompletion",
             in: source
         )
@@ -1162,7 +1162,7 @@ final class OperationRoutingTests: XCTestCase {
         // Every AppDelegate file, so the mapping route reads the same wherever it sits (2.10 A46).
         let source = combinedAppDelegateSource()
         let single = try sourceFunctionBody(
-            named: "private func runSingleManagedMappingAwaitingCompletion",
+            named: "func runSingleManagedMappingAwaitingCompletion",
             endingBefore: "private func routePostMappingDeterministicCompletion",
             in: source
         )
