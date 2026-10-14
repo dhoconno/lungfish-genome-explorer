@@ -35,10 +35,22 @@ public final class GenBankDownloadBundleBuilder: Sendable {
         try await BundleBuildHelpers.validateTools(using: toolRunner)
     }
 
+    /// How the one sequence of a downloaded record is named in its bundle (Phase 2.10 lane A45).
+    public enum SequenceNaming: Sendable, Equatable {
+        /// The record's LOCUS name (`MN908947`), as the in-process route named it before lane A45.
+        /// The accession with its version is an alias.
+        case locusName
+        /// The accession with its version that NCBI resolved the request to (`MN908947.3`), the
+        /// name a VCF's CHROM and the record's GFF3 rows carry. The bare accession and the LOCUS
+        /// name are aliases, so a file written against the older name still resolves.
+        case accessionVersion
+    }
+
     public func downloadAndBuild(
         accession: String,
         outputDirectory: URL,
         includeGFF3Annotations: Bool = true,
+        sequenceNaming: SequenceNaming = .locusName,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
@@ -71,6 +83,11 @@ public final class GenBankDownloadBundleBuilder: Sendable {
             throw DatabaseServiceError.parseError(message: "Expected one sequence record for \(accession); NCBI returned \(records.count).")
         }
 
+        // The sequence and the FEATURES track name the chromosome alike, whichever name the row asks for.
+        var sequence = record.sequence
+        if sequenceNaming == .accessionVersion { sequence.name = resolvedAccession }
+        let chromosomeName = sequenceNaming == .accessionVersion ? resolvedAccession : record.locus.name
+
         let bundleURL = BundleBuildHelpers.makeUniqueBundleURL(
             baseName: BundleBuildHelpers.sanitizedFilename(resolvedAccession),
             in: outputDirectory
@@ -93,11 +110,11 @@ public final class GenBankDownloadBundleBuilder: Sendable {
 
         let plainFASTA = genomeDir.appendingPathComponent("sequence.fa")
         let fastaClock = ProvenanceRunClock()
-        try FASTAWriter(url: plainFASTA).write([record.sequence])
+        try FASTAWriter(url: plainFASTA).write([sequence])
         provenanceSteps.append(try Self.conversionProvenanceStep(
             entryPoint: "GenBankReader.readAll (first record) + FASTAWriter.write",
             inputs: [durableGenBankURL], outputs: [plainFASTA],
-            options: ["sequenceName": .string(record.sequence.name)], runClock: fastaClock))
+            options: ["sequenceName": .string(sequence.name)], runClock: fastaClock))
 
         progressHandler?(0.35, "Compressing FASTA (bgzip)...")
 
@@ -202,9 +219,17 @@ public final class GenBankDownloadBundleBuilder: Sendable {
                 // preserving ALL qualifiers (db_xref, product, protein_id, etc.)
                 // and multi-interval (join) features as proper BED12 blocks.
                 let bedURL = tempDir.appendingPathComponent("annotations.bed")
+                // A feature carries the LOCUS name as its chromosome, so the versioned naming sets it.
+                let featureAnnotations = sequenceNaming == .accessionVersion
+                    ? record.annotations.map { feature -> SequenceAnnotation in
+                        var named = feature
+                        named.chromosome = chromosomeName
+                        return named
+                    }
+                    : record.annotations
                 writeGenBankAnnotationsToBED(
-                    annotations: record.annotations,
-                    chromName: record.locus.name,
+                    annotations: featureAnnotations,
+                    chromName: chromosomeName,
                     to: bedURL
                 )
 
@@ -221,7 +246,7 @@ public final class GenBankDownloadBundleBuilder: Sendable {
                 provenanceSteps.append(try Self.conversionProvenanceStep(
                     entryPoint: "writeGenBankAnnotationsToBED + clipBEDCoordinates + AnnotationDatabase.createFromBED",
                     inputs: [durableGenBankURL], outputs: [dbURL],
-                    options: ["chromosome": .string(record.locus.name), "clipToChromosomeBounds": .boolean(true),
+                    options: ["chromosome": .string(chromosomeName), "clipToChromosomeBounds": .boolean(true),
                               "preserveQualifiers": .boolean(true), "bedFormat": .string("BED12+")],
                     runClock: annotationClock))
 
