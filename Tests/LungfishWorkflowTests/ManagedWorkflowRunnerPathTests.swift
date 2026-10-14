@@ -118,7 +118,7 @@ final class ManagedWorkflowRunnerPathTests: XCTestCase {
         XCTAssertEqual(found, managedExecutable)
     }
 
-    func testNextflowRunnerIgnoresFallbackExecutableWhenManagedCopyMissing() async {
+    func testManagedNextflowLaunchIgnoresFallbackExecutableWhenManagedCopyMissing() {
         let tempHome = FileManager.default.temporaryDirectory
             .appendingPathComponent("managed-nextflow-runner-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempHome) }
@@ -145,14 +145,13 @@ final class ManagedWorkflowRunnerPathTests: XCTestCase {
             }
         }
 
-        let runner = NextflowRunner(
-            processManager: .shared,
-            homeDirectoryProvider: { tempHome }
-        )
-
-        let available = await runner.isAvailable()
-
-        XCTAssertFalse(available)
+        XCTAssertThrowsError(try WorkflowEngineLaunch.resolveManaged(
+            executableName: "nextflow",
+            homeDirectory: tempHome,
+            appIdentity: .preview
+        )) { error in
+            XCTAssertTrue(error is WorkflowEngineNotInstalled, "\(error)")
+        }
     }
 
     func testSnakemakeRunnerIgnoresFallbackExecutableWhenManagedCopyMissing() async {
