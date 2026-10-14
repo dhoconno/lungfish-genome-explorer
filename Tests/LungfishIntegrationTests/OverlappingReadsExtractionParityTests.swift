@@ -93,6 +93,45 @@ final class OverlappingReadsExtractionParityTests: XCTestCase {
         }.sorted()
     }
 
+    /// The regular files under `folder`, relative and sorted.
+    private func files(in folder: URL) -> [String] {
+        let base = folder.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])
+        var paths: [String] = []
+        while let url = enumerator?.nextObject() as? URL {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            paths.append(url.standardizedFileURL.resolvingSymlinksInPath().path.replacingOccurrences(of: base, with: ""))
+        }
+        return paths.sorted()
+    }
+
+    /// p48's two writers, pinned before the route moves (Phase 2.10 lane A51 M3, BIO "p48's two
+    /// writers align or declare their difference"). The action's run writes the FASTQ and no
+    /// record. The command its row records writes the FASTQ, the FASTQ's record beside it and a
+    /// run record for the folder.
+    func testTheActionAndItsRecordedCommandLeaveTheseFiles() async throws {
+        _ = try samtoolsPath()
+        let config = try XCTUnwrap(MappingAnnotationActionCoordinator.extractionConfiguration(
+            for: SequenceAnnotation(type: .gene, name: "orf1a start", chromosome: "MT192765.1", intervals: [AnnotationInterval(start: 0, end: 3000)]),
+            mappingResult: mappingResult,
+            outputDirectory: runDirectory.appendingPathComponent("annotation-extractions", isDirectory: true)
+        ))
+
+        _ = try await ReadExtractionService().extractByBAMRegion(config: config)
+        let actionFiles = files(in: config.outputDirectory)
+        try FileManager.default.removeItem(at: config.outputDirectory)
+        let words = try AdvancedCommandLineOptions.parse(ViewerViewController.overlappingReadsExtractionCLICommand(config: config))
+        let parsed = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(Array(words.dropFirst())))
+        try await XCTUnwrap(parsed as? ExtractReadsSubcommand).run()
+        let commandFiles = files(in: config.outputDirectory)
+
+        XCTAssertEqual(actionFiles, Self.actionFiles, "the action's run")
+        XCTAssertEqual(commandFiles, Self.commandFiles, "the recorded command")
+    }
+
+    private static let actionFiles = ["orf1a-start.fastq"]
+    private static let commandFiles = [".lungfish-provenance.json", "orf1a-start.fastq", "orf1a-start.fastq.lungfish-provenance.json"]
+
     func testAnnotationActionAndItsRecordedCommandExtractTheReadsSamtoolsReports() async throws {
         _ = try samtoolsPath()
         let annotations: [(name: String, intervals: [AnnotationInterval], regions: [String])] = [
