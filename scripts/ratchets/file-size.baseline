@@ -56,7 +56,7 @@ Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift 2656
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Columns.swift 1246
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Filtering.swift 2229
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1090
-Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5658
+Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5654
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1159
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1293
 Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2315
