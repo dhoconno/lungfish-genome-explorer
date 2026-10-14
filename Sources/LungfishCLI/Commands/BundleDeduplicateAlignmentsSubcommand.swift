@@ -104,7 +104,7 @@ struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
                     record: record
                 )
             }
-            if error is CLIError || error is AlignmentDuplicateError {
+            if error is CLIError || (error as? AlignmentDuplicateError)?.isRefusal == true {
                 throw events.refused(error.localizedDescription)
             }
             throw events.failed(error.localizedDescription)

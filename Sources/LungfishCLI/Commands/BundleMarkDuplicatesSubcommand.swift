@@ -88,10 +88,24 @@ struct BundleMarkDuplicatesSubcommand: AsyncParsableCommand {
                 )
                 throw output.cancelled("Marking cancelled. Tracks marked before the cancel stay attached.", record: record)
             }
-            if error is CLIError || error is AlignmentDuplicateError {
+            if error is CLIError || (error as? AlignmentDuplicateError)?.isRefusal == true {
                 throw output.refused(error.localizedDescription)
             }
             throw output.failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AlignmentDuplicateError {
+    /// Whether the service stopped before it changed anything, which a leaf ends with exit 3. The service
+    /// throws `.sourcePathNotFound` and `.samtoolsFailed` in its per-track loop, after an earlier track may
+    /// already be attached, so those two are failures (exit 64). Both duplicate leaves read this.
+    var isRefusal: Bool {
+        switch self {
+        case .noAlignmentTracks, .allTracksAlreadyMarked:
+            return true
+        case .sourcePathNotFound, .samtoolsFailed:
+            return false
         }
     }
 }

@@ -7,6 +7,7 @@
 // to leave no sign at all. It is now a `log` event at warning level, which the app's bridge puts in
 // the row's log. Text mode keeps its warning line.
 
+import ArgumentParser
 import Foundation
 import XCTest
 import LungfishCore
@@ -87,5 +88,56 @@ final class AlignmentWorkflowLeafOutputTests: XCTestCase {
         let events = try lines.compactMap { try CLIEventLineDecoder().decode(line: $0) }
         XCTAssertEqual(events.count, 1, "only the failed event: \(lines)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: record.url.path))
+    }
+
+    // MARK: - The exit status of a duplicate leaf
+
+    /// Runs a duplicate leaf whose service stops with `error`, and returns the status the leaf ends on.
+    private func exitStatus(
+        stoppingWith error: AlignmentDuplicateError,
+        leaf: (@escaping DuplicateWorkflowRunner) async throws -> Void
+    ) async -> Int32? {
+        let service: DuplicateWorkflowRunner = { _ in throw error }
+        do {
+            try await leaf(service)
+            return nil
+        } catch let code as ExitCode {
+            return code.rawValue
+        } catch {
+            return nil
+        }
+    }
+
+    /// Phase 2.10 lane A54, review fix 1. The service throws `.sourcePathNotFound` and `.samtoolsFailed` in its
+    /// per-track loop, after an earlier track may be attached, so the leaf ends them as failures (64) and not as
+    /// the refusals of a run that changed nothing (3). Only `.noAlignmentTracks` and `.allTracksAlreadyMarked`
+    /// stop the service before it touches the bundle.
+    func testADuplicateLeafExits64WhenSamtoolsFails() async throws {
+        let bundle = root.appendingPathComponent("Sample.lungfishref", isDirectory: true).path
+        let mark = try BundleMarkDuplicatesSubcommand.parse([bundle, "--format", "json"])
+        let dedupe = try BundleDeduplicateAlignmentsSubcommand.parse([bundle, "--format", "json"])
+        let leaves: [(name: String, run: (@escaping DuplicateWorkflowRunner) async throws -> Void)] = [
+            ("bundle mark-duplicates", { service in
+                try await mark.execute(eventsOn: true, quiet: true, emit: { _ in }, service: service)
+            }),
+            ("bundle deduplicate-alignments", { service in
+                try await dedupe.execute(eventsOn: true, quiet: true, emit: { _ in }, service: service)
+            }),
+        ]
+        let table: [(error: AlignmentDuplicateError, expected: CLIExitCode)] = [
+            (.samtoolsFailed("samtools exited with status 1"), .workflowError),
+            (.sourcePathNotFound("alignments/missing.bam"), .workflowError),
+            (.noAlignmentTracks, .inputError),
+            (.allTracksAlreadyMarked, .inputError),
+        ]
+        for leaf in leaves {
+            for (error, expected) in table {
+                let status = await exitStatus(stoppingWith: error, leaf: leaf.run)
+                XCTAssertEqual(
+                    status, expected.rawValue,
+                    "\(leaf.name) answers \(error) with \(expected) (\(expected.rawValue)), not \(String(describing: status))"
+                )
+            }
+        }
     }
 }
