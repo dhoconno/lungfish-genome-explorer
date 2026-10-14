@@ -61,6 +61,15 @@ struct ProvenanceStderrTests {
         #expect(ProvenanceStderr.normalized("") == nil)
     }
 
+    @Test("a stderr of 10,240 blank characters is recorded as absent")
+    func blankStderrAtTheBoundIsNil() {
+        for blank in [" ", "\n", "\t", " \n"] {
+            let text = String(repeating: blank, count: Self.bound / blank.count)
+            #expect(text.count == Self.bound)
+            #expect(ProvenanceStderr.normalized(text) == nil, "\(Self.bound) characters of \(blank.debugDescription)")
+        }
+    }
+
     @Test("stderr over 10,240 characters keeps the whole lines of the first 2,048 and the last 8,192 around one marker")
     func longerStderrKeepsItsHeadAndItsTail() throws {
         // Lines of 100 characters with the line number at the start of each, so a wrong slice

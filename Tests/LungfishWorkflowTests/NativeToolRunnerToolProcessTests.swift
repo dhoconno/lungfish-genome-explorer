@@ -8,6 +8,7 @@
 
 import XCTest
 import Darwin
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class NativeToolRunnerToolProcessTests: XCTestCase {
@@ -224,6 +225,72 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         )
         XCTAssertEqual(pipeline.exitCodes, [255, 0])
         XCTAssertEqual(pipeline.firstFailureCode, 255)
+    }
+
+    // MARK: Standard error and the capture limit (Phase 2.10, S34)
+
+    /// One stderr line of a tool that names a project path on every line. Every line has the
+    /// same width, so a capture limit that is not a multiple of it falls inside a line.
+    private static let stderrRoot = "/Users/analyst/Projects/Study.lungfish/Analyses/classify-1"
+
+    private static func stderrLine(_ index: Int) -> String {
+        String(format: "[bam_sort] %06ld writing to %@/part-%06ld.sorted.bam\n", index, stderrRoot, index)
+    }
+
+    private static func stderrLines(_ range: Range<Int>) -> String {
+        range.map(stderrLine).joined()
+    }
+
+    /// A script that prints the lines 0 up to `count` to stderr and exits 0.
+    private static func stderrScript(count: Int) -> String {
+        """
+        i=0
+        while [ "$i" -lt \(count) ]; do
+          printf '[bam_sort] %06d writing to \(stderrRoot)/part-%06d.sorted.bam\\n' "$i" "$i" >&2
+          i=$((i + 1))
+        done
+        """
+    }
+
+    private func runStderrScript(count: Int, maxStderrBytes: Int?) async throws -> NativeToolResult {
+        try await NativeToolRunner().runProcess(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: ["-c", Self.stderrScript(count: count)],
+            timeout: 60,
+            maxStderrBytes: maxStderrBytes
+        )
+    }
+
+    /// A stderr under the capture limit, and one exactly at it, reach the result whole.
+    func testStderrWithinTheCaptureLimitReachesTheResultWhole() async throws {
+        let count = 600
+        let expected = Self.stderrLines(0..<count)
+        for limit in [expected.utf8.count + 1_000, expected.utf8.count] {
+            let result = try await runStderrScript(count: count, maxStderrBytes: limit)
+            XCTAssertEqual(result.exitCode, 0)
+            XCTAssertEqual(result.stderr, expected, "capture limit \(limit)")
+        }
+    }
+
+    /// A long stderr of whole lines that the capture kept whole is cut by ProvenanceStderr into
+    /// a head that ends on a whole line and a tail that starts on one.
+    func testALongStderrOfWholeLinesKeepsWholeLinesAtBothEndsOfItsProvenanceCut() async throws {
+        let count = 400
+        let result = try await runStderrScript(count: count, maxStderrBytes: nil)
+        XCTAssertGreaterThan(result.stderr.count, ProvenanceStderr.maxLength)
+
+        let kept = try XCTUnwrap(ProvenanceStderr.normalized(result.stderr))
+        let parts = kept.components(separatedBy: ProvenanceStderr.truncationMarker)
+        guard parts.count == 2 else { return XCTFail("One marker joins the head and the tail: \(parts.count) parts") }
+        let head = parts[0].split(separator: "\n").map(String.init)
+        let tail = parts[1].split(separator: "\n").map(String.init)
+        XCTAssertFalse(head.isEmpty)
+        XCTAssertFalse(tail.isEmpty)
+        let printed = { (index: Int) in Self.stderrLine(index).trimmingCharacters(in: .newlines) }
+        // The head starts at the first line the tool printed and the tail ends at its last one,
+        // and every line between is a whole line.
+        XCTAssertEqual(head, (0..<head.count).map(printed))
+        XCTAssertEqual(tail, ((count - tail.count)..<count).map(printed))
     }
 
     // MARK: Helpers
