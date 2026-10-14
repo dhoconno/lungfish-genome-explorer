@@ -128,7 +128,7 @@ struct GenomeFetchProvenanceWriter {
             }
             return files.compactMap { $0 as? URL }.filter {
                 (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
-                    && !$0.lastPathComponent.hasSuffix(".lungfish-provenance.json")
+                    && !$0.lastPathComponent.hasSuffix(ProvenanceRecorder.provenanceFilename)
             }.sorted { $0.path < $1.path }
         }
         return try await CLIProvenanceSupport.recordSingleStepRun(
