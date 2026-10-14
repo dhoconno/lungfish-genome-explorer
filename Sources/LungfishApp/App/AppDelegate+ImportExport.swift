@@ -480,7 +480,7 @@ extension AppDelegate {
             defer { try? FileManager.default.removeItem(at: tempDirectory) }
             let uncompressedURL = tempDirectory.appendingPathComponent(outputURL.deletingPathExtension().lastPathComponent)
             try await writeUncompressedFASTQ(inputURLs, to: uncompressedURL)
-            try gzipFile(uncompressedURL, to: outputURL)
+            try await gzipFile(uncompressedURL, to: outputURL)
             return
         }
 
@@ -515,19 +515,25 @@ extension AppDelegate {
         }
     }
 
-    nonisolated private static func gzipFile(_ inputURL: URL, to outputURL: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-c", inputURL.path]
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-        process.standardOutput = outputHandle
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "com.lungfish.browser", code: Int(process.terminationStatus),
+    /// Compresses `inputURL` into `outputURL` with the system gzip, run through ``ToolProcess``.
+    /// Cancelling the task stops the gzip tree and throws `CancellationError`, and no thread waits for the child.
+    nonisolated static func gzipFile(_ inputURL: URL, to outputURL: URL) async throws {
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(ToolProcessSpec(
+                executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+                arguments: ["-c", inputURL.path],
+                environment: ["PATH": "/usr/bin:/bin"],
+                stdout: .file(outputURL),
+                stderr: .discard,
+                label: "gzip -c"
+            ))
+        } catch let error as ToolProcessError {
+            if case .cancelled = error { throw CancellationError() }
+            throw error
+        }
+        guard result.isSuccess else {
+            throw NSError(domain: "com.lungfish.browser", code: Int(result.status),
                           userInfo: [NSLocalizedDescriptionKey: "Compression failed for \(outputURL.lastPathComponent)."])
         }
     }
