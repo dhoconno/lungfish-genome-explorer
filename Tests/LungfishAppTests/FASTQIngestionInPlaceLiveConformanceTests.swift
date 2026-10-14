@@ -176,11 +176,13 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         XCTAssertEqual(run.parameters["binning"]?.stringValue, QualityBinningScheme.none.rawValue)
         XCTAssertEqual(run.parameters["wasClumpified"]?.booleanValue, true)
 
-        // The order. The command removes the original last, in its own process, once the output, the
-        // sidecar and the record that names the original's digest exist (BIO's objection 8). Every
-        // reading of the folder with the original gone holds all three, and the record holds the
-        // digest the command took while the original still existed.
-        XCTAssertFalse(readings.isEmpty,"the folder was read at least once after the original went")
+        // The order. The command removes the original last, in its own process (BIO's objection 8).
+        // A reading follows a folder change by a moment and the kernel merges changes, so this check
+        // can miss an inverted order and never fails a correct one. Every reading with the original
+        // gone holds the output, the sidecar and the record. The digest shows that the command read
+        // the original before it went, not when the record was written. The order itself is proved at
+        // the removal call by FastqIngestPublishDurabilityTests, which runs the same FastqIngestRun.
+        XCTAssertFalse(readings.isEmpty, "the folder was read at least once after the original went")
         XCTAssertTrue(
             readings.allSatisfy { $0.output && $0.sidecar && $0.record },
             "the original goes after the output, the sidecar and the record: \(readings)"
