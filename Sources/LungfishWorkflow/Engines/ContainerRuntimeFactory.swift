@@ -269,14 +269,14 @@ public enum NewContainerRuntimeFactory {
     }
 }
 
-// MARK: - ContainerRuntimeFactory (Nextflow-specific)
+// MARK: - ContainerRuntimeFactory
 
-/// Factory for creating container runtimes for Nextflow workflows.
+/// Factory for creating container runtimes for workflow runners.
 ///
 /// Provides convenience methods for detecting and selecting container
-/// runtimes for Nextflow workflow execution.
+/// runtimes for workflow execution.
 ///
-/// - Note: This is a Nextflow-specific wrapper around `NewContainerRuntimeFactory`.
+/// - Note: This is a thin wrapper around `NewContainerRuntimeFactory`.
 public enum ContainerRuntimeFactory {
 
     private static let logger = Logger(
