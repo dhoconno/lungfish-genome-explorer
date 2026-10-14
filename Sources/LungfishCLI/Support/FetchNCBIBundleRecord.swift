@@ -19,7 +19,19 @@ import LungfishWorkflow
 enum FetchNCBIBundleRecord {
     /// Rewrites the record of `bundle`, which was built at `staged` and now sits at `bundle`. It
     /// does nothing when the bundle holds no record.
-    static func rebase(bundle: URL, from staged: URL) throws {
+    ///
+    /// - Parameters:
+    ///   - resolved: Entries added to the record's resolved defaults, such as the Pathoplexus
+    ///     record a `fetch pathoplexus` bundle was built for.
+    ///   - names: Files of the bundle, by their name inside it, that changed after the builder
+    ///     wrote its record, such as the manifest once Pathoplexus's metadata is appended. The
+    ///     record states their digest and size as they stand now (B-5).
+    static func rebase(
+        bundle: URL,
+        from staged: URL,
+        adding resolved: [String: ParameterValue] = [:],
+        refreshingDigestsOf names: [String] = []
+    ) throws {
         guard let envelope = ProvenanceRecorder.loadEnvelope(from: bundle) else { return }
         var text = String(decoding: try ProvenanceJSON.encoder.encode(envelope), as: UTF8.self)
         // The builder keeps the spelling of the path it was given, and a reader may resolve it, so
@@ -29,8 +41,41 @@ enum FetchNCBIBundleRecord {
         for spelling in spellings where !spelling.isEmpty {
             text = text.replacingOccurrences(of: spelling, with: bundle.path)
         }
-        let rebased = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(text.utf8))
+        var rebased = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(text.utf8))
+        if !resolved.isEmpty {
+            rebased.options = ProvenanceOptions(
+                explicit: rebased.options.explicit,
+                defaults: rebased.options.defaults,
+                resolvedDefaults: rebased.options.resolvedDefaults.merging(resolved) { _, added in added })
+        }
+        if !names.isEmpty {
+            try refreshDigests(of: Set(names.map { bundle.appendingPathComponent($0).path }), in: &rebased)
+        }
         try FetchGenomeRun.removeBuilderRecord(of: bundle)
         try ProvenanceWriter(signingProvider: nil).write(rebased, to: bundle)
+    }
+
+    /// States the digest and size of each file of `paths` as the file stands, wherever the record
+    /// lists it.
+    private static func refreshDigests(of paths: Set<String>, in envelope: inout ProvenanceEnvelope) throws {
+        func refreshed(_ descriptor: ProvenanceFileDescriptor) throws -> ProvenanceFileDescriptor {
+            guard paths.contains(descriptor.path) else { return descriptor }
+            let current = try ProvenanceFileDescriptor.file(url: URL(fileURLWithPath: descriptor.path), role: descriptor.role)
+            return ProvenanceFileDescriptor(
+                path: descriptor.path,
+                checksumSHA256: current.checksumSHA256,
+                fileSize: current.fileSize,
+                format: descriptor.format,
+                role: descriptor.role,
+                originPath: descriptor.originPath,
+                sourceProvenancePath: descriptor.sourceProvenancePath)
+        }
+        envelope.files = try envelope.files.map(refreshed)
+        envelope.outputs = try envelope.outputs.map(refreshed)
+        envelope.output = try envelope.output.map(refreshed)
+        for index in envelope.steps.indices {
+            envelope.steps[index].inputs = try envelope.steps[index].inputs.map(refreshed)
+            envelope.steps[index].outputs = try envelope.steps[index].outputs.map(refreshed)
+        }
     }
 }

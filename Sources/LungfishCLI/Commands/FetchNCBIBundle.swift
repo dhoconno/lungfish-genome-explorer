@@ -130,12 +130,13 @@ struct FetchNCBIBundleRun: Sendable {
     }
 
     /// The project's `.tmp` folder when `directory` is inside a project, or else a hidden folder in
-    /// `directory`, so the bundle moves into place by a rename on the same volume.
-    static func makeStagingFolder(for directory: URL) throws -> URL {
+    /// `directory`, so the bundle moves into place by a rename on the same volume. `prefix` names
+    /// the command that stages (`fetch pathoplexus` stages with its own).
+    static func makeStagingFolder(for directory: URL, prefix: String = "fetch-ncbi-") throws -> URL {
         if let project = ProjectTempDirectory.findProjectRoot(directory) {
-            return try ProjectTempDirectory.create(prefix: "fetch-ncbi-", in: project)
+            return try ProjectTempDirectory.create(prefix: prefix, in: project)
         }
-        let folder = directory.appendingPathComponent(".fetch-ncbi-\(UUID().uuidString)", isDirectory: true)
+        let folder = directory.appendingPathComponent(".\(prefix)\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }

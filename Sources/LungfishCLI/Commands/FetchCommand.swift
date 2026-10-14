@@ -20,6 +20,7 @@ struct FetchCommand: AsyncParsableCommand {
             SRASubcommand.self,
             ENASubcommand.self,
             GenomeSubcommand.self,
+            PathoplexusSubcommand.self,
         ],
         defaultSubcommand: NCBISubcommand.self
     )

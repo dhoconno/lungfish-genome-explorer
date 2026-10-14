@@ -112,6 +112,19 @@ public actor PathoplexusService: DatabaseService {
     }
 
     public func fetch(accession: String, organism: String?) async throws -> DatabaseRecord {
+        try await fetchKeepingSource(accession: accession, organism: organism).record
+    }
+
+    /// A fetched record with the FASTA text the server sent for it (Phase 2.10 lane A45), so a
+    /// caller can keep what arrived and name its digest.
+    public struct FetchedRecord: Sendable {
+        public let record: DatabaseRecord
+        /// The FASTA the server sent, as received.
+        public let fasta: String
+    }
+
+    /// ``fetch(accession:organism:)`` that also returns the FASTA text the sequence was read from.
+    public func fetchKeepingSource(accession: String, organism: String?) async throws -> FetchedRecord {
         let normalizedAccession = accession.trimmingCharacters(in: .whitespacesAndNewlines)
         let organism = try Self.requireExplicitOrganism(organism)
 
@@ -141,6 +154,7 @@ public actor PathoplexusService: DatabaseService {
         accessionCandidates = accessionCandidates.filter { seenCandidates.insert($0).inserted }
 
         var sequence = ""
+        var sourceText = ""
         for candidate in accessionCandidates {
             var sequenceFilters = filters
             sequenceFilters.accession = candidate
@@ -148,6 +162,7 @@ public actor PathoplexusService: DatabaseService {
             let fastaRecords = parseSequenceRecords(fastaText)
             if let first = fastaRecords.first, !first.sequence.isEmpty {
                 sequence = first.sequence
+                sourceText = fastaText
                 break
             }
         }
@@ -157,7 +172,7 @@ public actor PathoplexusService: DatabaseService {
             )
         }
 
-        return DatabaseRecord(
+        let record = DatabaseRecord(
             id: normalizedAccession,
             accession: meta.accession.trimmingCharacters(in: .whitespacesAndNewlines),
             version: meta.accessionVersion,
@@ -173,6 +188,7 @@ public actor PathoplexusService: DatabaseService {
             collectionDate: meta.collectionDate,
             location: meta.geoLocCountry
         )
+        return FetchedRecord(record: record, fasta: sourceText)
     }
 
     public nonisolated func fetchBatch(accessions: [String]) async throws -> AsyncThrowingStream<DatabaseRecord, Error> {
