@@ -169,3 +169,72 @@ extension AnalysisRunExecutor {
         return try builder.output(descriptor)
     }
 }
+
+public extension ProvenanceEnvelope {
+    /// The record with a run level that names each file as the run left it (2.8 B3, 2.10 A39). A step keeps
+    /// the files as they were when it ran, and a removal step names what went (`RecordedRemovalStep`), but
+    /// the run level, which the record writes after every step, names neither a file that is gone, as
+    /// ``droppingMissingRunLevelFiles()`` drops, nor the bytes a removal step of the record names, such as
+    /// a BAM that a markdup rewrote in place and the index it replaced. The `output` pointer moves to the
+    /// last kept output when it named such a file. A path compares with its deepest existing folder
+    /// resolved, so a file named under `/var` and under `/private/var` is one file, and nothing is hashed.
+    func droppingRemovedRunLevelFiles() -> ProvenanceEnvelope {
+        let kept = droppingMissingRunLevelFiles()
+        let removed = Set(kept.steps
+            .filter { $0.resolvedOptions["operation"] == .string(RecordedRemovalStep.operation) }
+            .flatMap(\.inputs)
+            .compactMap { file in file.checksumSHA256.map { Self.removedBytesKey(path: file.path, digest: $0) } })
+        guard !removed.isEmpty else { return kept }
+        let survives: (ProvenanceFileDescriptor) -> Bool = { file in
+            guard let digest = file.checksumSHA256 else { return true }
+            return !removed.contains(Self.removedBytesKey(path: file.path, digest: digest))
+        }
+        let keptFiles = kept.files.filter(survives)
+        let keptOutputs = kept.outputs.filter(survives)
+        let keptOutput = kept.output.flatMap { survives($0) ? $0 : keptOutputs.last }
+        guard keptFiles.count != kept.files.count
+            || keptOutputs.count != kept.outputs.count
+            || keptOutput?.path != kept.output?.path else {
+            return kept
+        }
+        return ProvenanceEnvelope(
+            schemaVersion: schemaVersion,
+            id: id,
+            createdAt: createdAt,
+            workflowName: workflowName,
+            workflowVersion: workflowVersion,
+            toolName: toolName,
+            toolVersion: toolVersion,
+            githubReleaseVersion: githubReleaseVersion,
+            tool: tool,
+            argv: argv,
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand: reproducibleCommand,
+            options: options,
+            runtimeIdentity: runtimeIdentity,
+            files: keptFiles,
+            output: keptOutput,
+            outputs: keptOutputs,
+            steps: steps,
+            wallTimeSeconds: wallTimeSeconds,
+            exitStatus: exitStatus,
+            stderr: stderr,
+            signatures: signatures,
+            status: status,
+            legacyWorkflowRun: legacyRun
+        )
+    }
+
+    /// The bytes at a path, with the path's deepest existing folder resolved, since a removed file or folder
+    /// cannot be.
+    private static func removedBytesKey(path: String, digest: String) -> String {
+        var existing = URL(fileURLWithPath: path).standardizedFileURL
+        var rest: [String] = []
+        while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
+            rest.insert(existing.lastPathComponent, at: 0)
+            existing.deleteLastPathComponent()
+        }
+        let resolved = rest.reduce(existing.resolvingSymlinksInPath()) { $0.appendingPathComponent($1) }
+        return resolved.path + "\u{0}" + digest
+    }
+}

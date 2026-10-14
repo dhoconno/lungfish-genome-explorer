@@ -142,12 +142,17 @@ extension BuildDbCommand {
         }
         builder = builder.step(step)
 
-        let envelope = try builder.complete(
+        let completed = try builder.complete(
             exitStatus: exitStatus,
             stderr: stderr,
             startedAt: startedAt,
             endedAt: completedAt
         )
+        // build-db esviritu moves each BAM and its index out of `_temp/` and marks duplicates in place, and
+        // its steps keep them as they were, so its record and each sidecar name every file at the run level
+        // as the run left it (2.8 B3, 2.10 A39). The kraken2 and taxtriage records keep theirs, whose run
+        // levels the B34 tests and the TaxTriage parity declarations still pin.
+        let envelope = tool == .esViritu ? completed.droppingRemovedRunLevelFiles() : completed
 
         let writer = ProvenanceWriter()
         if writesFolderRecord {
