@@ -289,6 +289,13 @@ final class UpdateToolsSheetViewModel {
             OperationCenterCLIBridge.failOperation(operationID, detail: nil, fallbackMessage: error.localizedDescription)
         }
 
+        // The command changed environments and databases in another process, so this process
+        // forgets the pack statuses it cached and reads the registry again when a database ran.
+        await PluginPackStatusService.shared.invalidateVisibleStatusesCache()
+        if !Set(ids).isDisjoint(with: plan.databaseUpdates.map(\.id)) {
+            try? await MetagenomicsDatabaseRegistry.shared.reloadFromDisk()
+        }
+
         // The command updated what it could, so the plan after it names what is still to do.
         let after = try await reconciler.currentPlan()
         let outstanding = Set((after.installEnvironments + after.reinstallEnvironments).map(\.environment))

@@ -95,6 +95,8 @@ extension PluginManagerViewModel {
             try await provider.install(pack: pack, reinstall: reinstall, progress: progress)
         case .cli:
             let packID = pack.id
+            // The command changed the environments in another process, whatever way it ended, so
+            // the status service forgets what it cached before the caller reads the status.
             do {
                 _ = try await CLIManagedToolsRunner.launch(
                     CLIManagedToolsRunner.installPack(packID: packID, reinstall: reinstall),
@@ -102,8 +104,13 @@ extension PluginManagerViewModel {
                     overlay: { [weak self] message in self?.packProgressMessage[packID] = message }
                 )
             } catch is CancellationError {
+                await provider.invalidateVisibleStatusesCache()
                 return
+            } catch {
+                await provider.invalidateVisibleStatusesCache()
+                throw error
             }
+            await provider.invalidateVisibleStatusesCache()
         }
     }
 
