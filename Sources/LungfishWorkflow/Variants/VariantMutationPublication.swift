@@ -1,6 +1,5 @@
 import Foundation
 import LungfishIO
-import LungfishWorkflow
 
 /// Coordinates SQLite recovery with all bundle provenance artifacts. Databases
 /// are restored through SQLite; their pathnames are never unlinked or replaced.

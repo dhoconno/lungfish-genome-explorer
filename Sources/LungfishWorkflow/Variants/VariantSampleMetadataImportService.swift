@@ -4,7 +4,6 @@
 
 import Foundation
 import LungfishIO
-import LungfishWorkflow
 
 package struct VariantSampleMetadataImportTarget: Sendable, Equatable {
     package let databaseURL: URL

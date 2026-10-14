@@ -7,6 +7,7 @@ import LungfishIO
 import LungfishKit
 @testable import LungfishApp
 @testable import LungfishOperations
+import LungfishWorkflow
 
 @MainActor
 final class ProjectStorageResponsivenessTests: XCTestCase {
