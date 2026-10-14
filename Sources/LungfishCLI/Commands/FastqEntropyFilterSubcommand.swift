@@ -20,7 +20,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             that per-read complexity metrics miss, and that otherwise inflate
             apparent mapping depth.
 
-            Defaults are entropy 0.6, window 50, k-mer 5, and 4 bbduk threads (--threads).
+            It runs 4 bbduk threads unless the global --threads option sets another count.
             """
     )
 
