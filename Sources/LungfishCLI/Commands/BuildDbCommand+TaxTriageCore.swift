@@ -232,10 +232,9 @@ extension BuildDbCommand {
             // what it removes (2.8 P1). The build's own steps name what it read with a digest too. The
             // removal depends on each build step, which read what it removed (BIO 6).
             let recorded = recordedFiles + (built.record?.steps ?? []).flatMap { $0.inputs + $0.outputs }
-            var removal = try core.performRecordedCleanup(resultURL: resultURL, recorded: recorded, events: events)
-            removal?.dependsOn = built.record?.steps.map(\.id) ?? []
-            // In its final form, its `dependsOn` set, since the first copy of a step is the one recorded (lane S33).
-            if let removal { events.step(removal) }
+            let removal = try core.performRecordedCleanup(
+                resultURL: resultURL, recorded: recorded, dependsOn: built.record?.steps.map(\.id) ?? [], events: events
+            )
             return Build(result: built, removal: removal)
         }
 
@@ -349,9 +348,14 @@ extension BuildDbCommand {
         /// first and then `recorded`. A file that no record names, or whose size on disk is not the size its
         /// record holds, goes unnamed, because P1 excuses a missing file only by the digest of a record that
         /// names it. It returns nil when it names nothing.
+        ///
+        /// The step depends on `dependsOn`, the build's steps, which read what it removes (BIO 6), and goes to the
+        /// sink's `step` in that final form (lane S33). A cancel at the check before a later folder hands over the
+        /// step of the files removed so far before it ends the core.
         private func performRecordedCleanup(
             resultURL: URL,
             recorded: [ProvenanceFileDescriptor],
+            dependsOn: [UUID],
             events: BuildDbEventSink
         ) throws -> ProvenanceStep? {
             let fm = FileManager.default
@@ -359,9 +363,25 @@ extension BuildDbCommand {
             let named = Self.byResolvedPath(recorded)
             var removed: [ProvenanceFileDescriptor] = []
             var freedBytes: Int64 = 0
+            func handedOverRemoval() -> ProvenanceStep? {
+                var removal = RecordedRemovalStep.step(
+                    toolName: Self.cleanupRemovalToolName,
+                    api: "BuildDbCommand.TaxTriageSubcommand.performRecordedCleanup(resultURL:recorded:dependsOn:events:)",
+                    removing: removed.filter { !fm.fileExists(atPath: $0.path) },
+                    clock: removalClock
+                )
+                removal?.dependsOn = dependsOn
+                if let removal { events.step(removal) }
+                return removal
+            }
 
             for cleanupRoot in [resultURL] + serialTaxTriageResultDirectories(in: resultURL) {
-                try events.checkCancellation()
+                do {
+                    try events.checkCancellation()
+                } catch {
+                    _ = handedOverRemoval()
+                    throw error
+                }
                 guard !Self.isSymbolicLink(cleanupRoot) else { continue }
                 let folderNamed = Self.byResolvedPath(
                     ProvenanceRecorder.loadEnvelope(from: cleanupRoot).map(Self.fileDescriptors(of:)) ?? []
@@ -395,12 +415,7 @@ extension BuildDbCommand {
             }
 
             if let line = BuildDbCommand.cleanupLine(freedBytes: freedBytes) { events.text(line) }
-            return RecordedRemovalStep.step(
-                toolName: Self.cleanupRemovalToolName,
-                api: "BuildDbCommand.TaxTriageSubcommand.performRecordedCleanup(resultURL:recorded:events:)",
-                removing: removed.filter { !fm.fileExists(atPath: $0.path) },
-                clock: removalClock
-            )
+            return handedOverRemoval()
         }
 
         /// The fastp FASTQ files a cleanup removes, the files directly in `fastpDir` named as FASTQ or gzip,

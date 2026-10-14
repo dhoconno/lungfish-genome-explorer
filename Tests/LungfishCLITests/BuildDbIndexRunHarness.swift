@@ -58,13 +58,14 @@ struct BuildDbIndexRun {
 
     /// Runs `prepared` through the executor as a `toolID` run in a folder under `scratch`, with the index builder
     /// that `indexer` makes from the run's cancel hook, and stops it at `fault`. `home` is the HOME of the build,
-    /// where it finds its managed samtools.
+    /// where it finds its managed samtools. `afterCopy` takes the run's root once the unit recorded its launch step.
     static func run(
         _ toolID: AnalysisToolID,
         prepared: URL,
         in scratch: URL,
         home: URL? = nil,
         fault: BuildDbIndexFault = .none,
+        afterCopy: (@Sendable (URL) throws -> Void)? = nil,
         indexer: (@escaping @Sendable () -> Bool) -> any AnalysisResultIndexing
     ) async throws -> BuildDbIndexRun {
         let hook = CancelHook()
@@ -75,7 +76,7 @@ struct BuildDbIndexRun {
             commandLine: ["lungfish-cli", "probe", toolID.rawValue]
         )
         let services = AnalysisRunServices(indexing: faulting, cancelRequested: { hook.requested })
-        let tool = IndexBuildProbeTool(toolID: toolID, home: home)
+        let tool = IndexBuildProbeTool(toolID: toolID, home: home, afterCopy: afterCopy)
         let report = await Task {
             await AnalysisRunExecutor(services: services).execute(tool, request, events: AnalysisRunEvents { _ in })
         }.value
@@ -195,10 +196,12 @@ private struct IndexBuildProbeTool: AnalysisRunTool {
 
     let identity: AnalysisRunIdentity
     let home: URL?
+    let afterCopy: (@Sendable (URL) throws -> Void)?
 
-    init(toolID: AnalysisToolID, home: URL?) {
+    init(toolID: AnalysisToolID, home: URL?, afterCopy: (@Sendable (URL) throws -> Void)?) {
         identity = AnalysisRunIdentity(toolID: toolID, workflowName: "lungfish.build-db-index-probe")
         self.home = home
+        self.afterCopy = afterCopy
     }
 
     func plan(_ request: AnalysisRunRequest, context: AnalysisRunPlanningContext) async throws -> AnalysisRunPlan<URL> {
@@ -222,6 +225,7 @@ private struct IndexBuildProbeTool: AnalysisRunTool {
             toolName: BuildDbIndexRun.launchToolName, toolVersion: "1.0",
             argv: [BuildDbIndexRun.launchToolName, unit.value.path, root.path], inputs: [], outputs: outputs, exitStatus: 0
         ))
+        try afterCopy?(root)
         return .completed(root)
     }
 
@@ -358,9 +362,13 @@ enum BuildDbIndexFixtures {
         return prepared
     }
 
-    /// `taxtriage-mini` with its BAMs, holding files the executor's cleanup removes, as A18's cases hold them.
-    static func taxTriage(in scratch: URL, named name: String = "prepared-taxtriage") throws -> URL {
+    /// `taxtriage-mini`, with its BAMs unless `withBAMs` is false, holding files the executor's cleanup removes, as
+    /// A18's cases hold them.
+    static func taxTriage(in scratch: URL, named name: String = "prepared-taxtriage", withBAMs: Bool = true) throws -> URL {
         let prepared = try copy("taxtriage-mini", to: scratch.appendingPathComponent(name, isDirectory: true))
+        if !withBAMs {
+            try FileManager.default.removeItem(at: prepared.appendingPathComponent("minimap2", isDirectory: true))
+        }
         for relative in ["count/S.fastq.gz", "fastp/S.fastp.fastq.gz", "get/S.get.tsv"] {
             let url = prepared.appendingPathComponent(relative)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

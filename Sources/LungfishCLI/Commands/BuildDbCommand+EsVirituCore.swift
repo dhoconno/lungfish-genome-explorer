@@ -51,7 +51,7 @@ extension BuildDbCommand {
         ///
         /// A cancel of the caller's task, or one the sink's `cancelRequested` reports (2.8 row 266), ends the build
         /// with `CancellationError` at its next check. The checks come before each sample folder is read or cleaned up, before the database is written, before the
-        /// BAMs move, after the read count pass and before the record is written. The database of an earlier
+        /// BAMs move, before and after the read count pass and before the record is written. The database of an earlier
         /// build is put back and no record of a failed build is written, so a cancelled build leaves no
         /// database and no record (plan decision E5 of Phase 2.7). A step that finished before the cancel stays
         /// done, and the sink's `step` took it as it ended, the build step once the database is kept (lane S33).
@@ -153,6 +153,8 @@ extension BuildDbCommand {
                 // The move ended whole, so it goes over now, before the samtools steps that go over as each
                 // ends (2.9 R6, lane S33).
                 relocationSteps.forEach(events.step)
+                // A cancel that came with the move stops the build here, before the read count pass launches samtools.
+                try events.checkCancellation()
 
                 // 5. Compute unique reads from BAMs and update DB
                 try await updateUniqueReadsInDB(
@@ -179,14 +181,7 @@ extension BuildDbCommand {
                 if !options.noCleanup {
                     try performCleanup(resultURL: resultURL, events: events)
                 }
-                // The move left nothing at the BAMs' old paths in `_temp/`, which the records name, so a
-                // step names each with the digest the move recorded (P1 of Phase 2.8, row 422).
-                cleanupSteps = RecordedRemovalStep.step(
-                    toolName: "Lungfish EsViritu BAM Relocation Source Removal",
-                    api: "BuildDbCommand.EsVirituSubcommand.relocateEsVirituBAMs(resultURL:)",
-                    removing: relocationSteps.flatMap(\.inputs).filter { !FileManager.default.fileExists(atPath: $0.path) },
-                    clock: cleanupClock
-                ).map { [$0] } ?? []
+                cleanupSteps = Self.relocationSourceRemovalStep(relocationSteps, clock: cleanupClock).map { [$0] } ?? []
                 cleanupSteps.forEach(events.step)
 
                 try events.checkCancellation()
@@ -209,6 +204,13 @@ extension BuildDbCommand {
                 if let buildStep = record.steps.last { events.step(buildStep) }
                 return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
+                // A build that ends after the move and before the removal step names the moved BAMs' old paths
+                // hands that step over first, from the descriptors the move took and with no new hash, so the
+                // caller's record names each old path (lane S33 M4). The failure record below stays as it was.
+                if cleanupSteps.isEmpty,
+                   let removal = Self.relocationSourceRemovalStep(relocationSteps, clock: ProvenanceRunClock()) {
+                    events.step(removal)
+                }
                 do {
                     try databaseSnapshot.restore()
                 } catch {
@@ -583,6 +585,18 @@ extension BuildDbCommand {
                 wallTimeSeconds: clock.elapsed,
                 startedAt: clock.startedAt,
                 completedAt: clock.now
+            )
+        }
+
+        /// The step that names each old path in `_temp/` that the BAM move left empty, which the records name, with
+        /// the digest the move recorded (P1 of Phase 2.8, row 422). It reads `relocationSteps`' descriptors and
+        /// hashes nothing. Nil when no old path is gone.
+        static func relocationSourceRemovalStep(_ relocationSteps: [ProvenanceStep], clock: ProvenanceRunClock) -> ProvenanceStep? {
+            RecordedRemovalStep.step(
+                toolName: "Lungfish EsViritu BAM Relocation Source Removal",
+                api: "BuildDbCommand.EsVirituSubcommand.relocateEsVirituBAMs(resultURL:)",
+                removing: relocationSteps.flatMap(\.inputs).filter { !FileManager.default.fileExists(atPath: $0.path) },
+                clock: clock
             )
         }
 

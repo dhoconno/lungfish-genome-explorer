@@ -480,9 +480,26 @@ extension BuildDbCommand {
                     .sorted { $0.path < $1.path }
             }
 
+            // What the cleanup removed or rewrote so far, from descriptors it took before each removal, with no new hash.
+            func removalStep() -> ProvenanceStep? {
+                RecordedRemovalStep.step(
+                    toolName: ClassificationPipeline.kraken2OutputRemovalToolName,
+                    api: "BuildDbCommand.Kraken2Subcommand.performCleanup(resultURL:sampleDirectories:events:)",
+                    removing: removed.filter { !fm.fileExists(atPath: $0.path) } + replaced,
+                    clock: removalClock
+                )
+            }
+
             for dir in cleanupDirs {
-                // Outside the `do` below, which turns a failed compaction into a warning.
-                try events.checkCancellation()
+                // Outside the `do` below, which turns a failed compaction into a warning. A cancel once a folder is
+                // compacted hands over the removal step of what went so far before it ends the core, so the
+                // caller's record names each file that is gone (lane S33 M4).
+                do {
+                    try events.checkCancellation()
+                } catch {
+                    if let removal = removalStep() { events.step(removal) }
+                    throw error
+                }
                 let name = dir.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
 
@@ -542,12 +559,7 @@ extension BuildDbCommand {
             }
 
             if let line = BuildDbCommand.cleanupLine(freedBytes: freedBytes) { events.text(line) }
-            let removal = RecordedRemovalStep.step(
-                toolName: ClassificationPipeline.kraken2OutputRemovalToolName,
-                api: "BuildDbCommand.Kraken2Subcommand.performCleanup(resultURL:sampleDirectories:events:)",
-                removing: removed.filter { !fm.fileExists(atPath: $0.path) } + replaced,
-                clock: removalClock
-            )
+            let removal = removalStep()
             if let removal { events.step(removal) }
             return steps + (removal.map { [$0] } ?? [])
         }
