@@ -299,9 +299,10 @@ extension MainSplitViewController {
 
     /// Displays a batch aggregated viewer for a `.batchGroup` sidebar item.
     ///
-    /// Detects the tool type from the batch directory name prefix, loads the
-    /// appropriate manifest (for Kraken2 and EsViritu) or scans subdirectories
-    /// (for TaxTriage), creates the viewer VC, and wires the Inspector.
+    /// The tool is the one the folder's metadata names, else the router's classifier, else (a legacy folder
+    /// with neither) the folder name. A folder prefix never beats a tool id. Loads the appropriate manifest
+    /// (for Kraken2 and EsViritu) or scans subdirectories (for TaxTriage), creates the viewer VC, and wires
+    /// the Inspector.
     ///
     /// - Parameter batchURL: The batch result directory (e.g. `kraken2-batch-2024-06-02T14-20-15/`).
     func displayBatchGroup(at batchURL: URL) {
@@ -310,9 +311,10 @@ extension MainSplitViewController {
 
         let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
         let toolId = AnalysesFolder.readAnalysisMetadata(from: batchURL)?.tool ?? ClassifierDatabaseRouter.route(for: batchURL)?.analysisID.rawValue ?? dirName
+        let tool = Self.metagenomicsTool(forToolId: toolId)
         inspectorController?.updateProvenanceTarget(
             url: batchURL,
-            sidebarType: provenanceSidebarType(forMetagenomicsToolId: toolId, directoryName: dirName),
+            sidebarType: provenanceSidebarType(forMetagenomicsToolId: toolId),
             displayName: dirName
         )
 
@@ -351,8 +353,7 @@ extension MainSplitViewController {
             break
         }
 
-        if toolId.hasPrefix("kraken2") || toolId.hasPrefix("classification")
-            || dirName.hasPrefix("kraken2") || dirName.hasPrefix("classification") {
+        if tool == .kraken2 {
             // Check for SQLite database first -- faster than parsing per-sample kreport files.
             let dbURL = batchURL.appendingPathComponent("kraken2.sqlite")
             if FileManager.default.fileExists(atPath: dbURL.path),
@@ -427,7 +428,7 @@ extension MainSplitViewController {
             // aggregated manifest is built, so this status is not applicable.
             self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus = .notCached
 
-        } else if toolId.hasPrefix("esviritu") || dirName.hasPrefix("esviritu") {
+        } else if tool == .esviritu {
             // Check for SQLite database first — faster than parsing per-sample files.
             let dbURL = batchURL.appendingPathComponent("esviritu.sqlite")
             if FileManager.default.fileExists(atPath: dbURL.path),
@@ -482,7 +483,7 @@ extension MainSplitViewController {
                     esVirituVC.didLoadFromManifestCache ? .cached : .building
             }
 
-        } else if toolId.hasPrefix("taxtriage") || dirName.hasPrefix("taxtriage") {
+        } else if tool == .taxtriage {
             // Check for SQLite database first — faster than parsing per-sample files.
             let dbURL = batchURL.appendingPathComponent("taxtriage.sqlite")
             let existingDB = FileManager.default.fileExists(atPath: dbURL.path)
@@ -574,45 +575,40 @@ extension MainSplitViewController {
                     taxTriageVC.didLoadFromManifestCache ? .cached : .building
             }
 
-        } else if toolId == "naomgs" || dirName.hasPrefix("naomgs") {
+        } else if tool == .naomgs {
             displayNaoMgsResultFromSidebar(at: batchURL)
             self.inspectorController?.clearBatchOperationDetails()
 
-        } else if toolId == "nvd" || dirName.hasPrefix("nvd") {
+        } else if tool == .nvd {
             displayNvdResultFromSidebar(at: batchURL)
             self.inspectorController?.clearBatchOperationDetails()
 
         } else {
-            mainSplitLogger.warning("displayBatchGroup: Unrecognized batch prefix in '\(dirName, privacy: .public)'")
+            mainSplitLogger.warning("displayBatchGroup: Unrecognized batch tool '\(toolId, privacy: .public)' in '\(dirName, privacy: .public)'")
         }
     }
 
-    func provenanceSidebarType(
-        forMetagenomicsToolId toolId: String,
-        directoryName: String
-    ) -> SidebarItemType {
-        if toolId.hasPrefix("kraken2")
-            || toolId.hasPrefix("classification")
-            || directoryName.hasPrefix("kraken2")
-            || directoryName.hasPrefix("classification") {
-            return .classificationResult
+    /// What the word `classification` named in the first releases, which wrote it as the tool of a Kraken2 run.
+    /// The registry does not know it, so the tool id maps it to Kraken2 here, as the router does.
+    private static let legacyClassificationToolId = "classification"
+
+    /// The registry kind a tool id names, matched by the registry's ids. The tool id is the metadata's tool or the
+    /// router's id, and only a legacy folder with neither leaves the folder name there, so its prefix reads as a tool.
+    static func metagenomicsTool(forToolId toolId: String) -> AnalysisToolID? {
+        if toolId.hasPrefix(legacyClassificationToolId) { return .kraken2 }
+        return AnalysisToolRegistry.all.first { toolId.hasPrefix($0.id.rawValue) }?.id
+    }
+
+    func provenanceSidebarType(forMetagenomicsToolId toolId: String) -> SidebarItemType {
+        switch Self.metagenomicsTool(forToolId: toolId) {
+        case .kraken2?: return .classificationResult
+        case .esviritu?: return .esvirituResult
+        case .taxtriage?: return .taxTriageResult
+        case .naomgs?: return .naoMgsResult
+        case .nvd?: return .nvdResult
+        case .czId?: return .czIdResult
+        default: return .analysisResult
         }
-        if toolId.hasPrefix("esviritu") || directoryName.hasPrefix("esviritu") {
-            return .esvirituResult
-        }
-        if toolId.hasPrefix("taxtriage") || directoryName.hasPrefix("taxtriage") {
-            return .taxTriageResult
-        }
-        if toolId == "naomgs" || directoryName.hasPrefix("naomgs") {
-            return .naoMgsResult
-        }
-        if toolId == "nvd" || directoryName.hasPrefix("nvd") {
-            return .nvdResult
-        }
-        if toolId.hasPrefix("cz-id") || directoryName.hasPrefix("cz-id") {
-            return .czIdResult
-        }
-        return .analysisResult
     }
 
     /// Shows a ``DatabaseBuildPlaceholderView`` in the viewport area and

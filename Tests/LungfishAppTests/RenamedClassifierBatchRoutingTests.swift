@@ -242,9 +242,9 @@ final class RenamedClassifierBatchRoutingTests: XCTestCase {
 /// legacy folder with no metadata. The tests below pin the viewer `displayBatchGroup` installs and the type
 /// `provenanceSidebarType` returns for every pair of a metadata tool and a folder prefix.
 ///
-/// At the base the arms run Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD, and each also matches the folder prefix,
-/// so the prefix of an earlier arm beats the metadata of a later one. `knownDefects` lists those pairs with what
-/// opens for them today, and the commit that makes the metadata win removes the table.
+/// Before the lane the arms ran Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD, and each also matched the folder
+/// prefix, so the prefix of an earlier arm beat the metadata of a later one. 14 pairs opened the prefix's tool
+/// (the pin commit lists them) and the metadata's tool opens now.
 extension RenamedClassifierBatchRoutingTests {
 
     /// The classifier a batch folder opens as, with the sidebar type its provenance target carries.
@@ -274,24 +274,6 @@ extension RenamedClassifierBatchRoutingTests {
     private static let folderPrefixes = [
         "kraken2-", "classification-", "esviritu-", "taxtriage-", "naomgs-", "nvd-",
     ]
-
-    /// The pairs where the folder prefix of an earlier arm beats the metadata of a later one, each keyed
-    /// `"<metadata tool> <folder prefix>"` with what opens today. Kraken2 with a prefix of another tool is not
-    /// here, because the Kraken2 arm is first and the metadata already wins.
-    private static let knownDefects: [String: BatchFamily] = [
-        "esviritu kraken2-": .kraken2, "esviritu classification-": .kraken2,
-        "taxtriage kraken2-": .kraken2, "taxtriage classification-": .kraken2,
-        "naomgs kraken2-": .kraken2, "naomgs classification-": .kraken2,
-        "nvd kraken2-": .kraken2, "nvd classification-": .kraken2,
-        "taxtriage esviritu-": .esviritu, "naomgs esviritu-": .esviritu, "nvd esviritu-": .esviritu,
-        "naomgs taxtriage-": .taxtriage, "nvd taxtriage-": .taxtriage,
-        "nvd naomgs-": .naomgs,
-    ]
-
-    /// What a pair opens today.
-    private static func opensToday(_ metadata: (tool: String, family: BatchFamily), prefix: String) -> BatchFamily {
-        knownDefects["\(metadata.tool) \(prefix)"] ?? metadata.family
-    }
 
     /// A batch folder that holds every classifier database, so whichever arm opens it finds its own and the
     /// database build placeholder, which would start `lungfish-cli build-db`, never shows.
@@ -335,9 +317,9 @@ extension RenamedClassifierBatchRoutingTests {
         return family
     }
 
-    /// The viewer `displayBatchGroup` installs for every pair of a metadata tool and a folder prefix.
-    /// The pairs in `knownDefects` open the prefix's tool today, and the others open the metadata's tool.
-    func testPin_theViewerForEveryMetadataToolAndFolderPrefix() throws {
+    /// The viewer `displayBatchGroup` installs for every pair of a metadata tool and a folder prefix is the
+    /// metadata tool's, whatever the folder is called.
+    func testTheViewerFollowsTheMetadataToolForEveryFolderPrefix() throws {
         for metadata in Self.metadataTools {
             for prefix in Self.folderPrefixes {
                 let root = try makeTempRoot()
@@ -351,58 +333,34 @@ extension RenamedClassifierBatchRoutingTests {
                 controller.displayBatchGroup(at: batch)
 
                 XCTAssertEqual(
-                    installedViewer(of: controller), Self.opensToday(metadata, prefix: prefix),
+                    installedViewer(of: controller), metadata.family,
                     "metadata \(metadata.tool) in a folder named \(batch.lastPathComponent)"
                 )
             }
         }
     }
 
-    /// The type `provenanceSidebarType` returns for the same pairs, which `displayBatchGroup` hands to the
-    /// Inspector's provenance target before it picks a viewer.
-    func testPin_theProvenanceSidebarTypeForEveryMetadataToolAndFolderPrefix() {
+    /// The type `provenanceSidebarType` returns follows the tool id alone. `displayBatchGroup` hands it the
+    /// metadata's tool, so the Inspector's provenance target takes the type of the tool whatever the folder is called.
+    func testTheProvenanceSidebarTypeFollowsTheToolIdForEveryMetadataTool() {
         let (controller, window) = makeController()
         defer { window.contentViewController = nil }
         for metadata in Self.metadataTools {
-            for prefix in Self.folderPrefixes {
-                let directoryName = prefix + "2026-10-13T10-00-00"
-                XCTAssertEqual(
-                    controller.provenanceSidebarType(forMetagenomicsToolId: metadata.tool, directoryName: directoryName),
-                    Self.opensToday(metadata, prefix: prefix).sidebarType,
-                    "metadata \(metadata.tool) in a folder named \(directoryName)"
-                )
-            }
-        }
-    }
-
-    /// A tool that is not a classifier keeps its own type, and today a classifier prefix on its folder beats
-    /// it. The folder of a CZ-ID import or an assembly is not a Kraken2 or EsViritu result.
-    func testPin_aNonClassifierToolWithAClassifierPrefix() {
-        let (controller, window) = makeController()
-        defer { window.contentViewController = nil }
-        let rows: [(tool: String, prefix: String, today: SidebarItemType, expected: SidebarItemType)] = [
-            ("spades", "kraken2-", .classificationResult, .analysisResult),
-            ("spades", "esviritu-", .esvirituResult, .analysisResult),
-            ("cz-id", "kraken2-", .classificationResult, .czIdResult),
-            ("cz-id", "taxtriage-", .taxTriageResult, .czIdResult),
-        ]
-        for row in rows {
-            let directoryName = row.prefix + "2026-10-13T10-00-00"
             XCTAssertEqual(
-                controller.provenanceSidebarType(forMetagenomicsToolId: row.tool, directoryName: directoryName),
-                row.today,
-                "metadata \(row.tool) in a folder named \(directoryName) (the type it should have is \(row.expected))"
+                controller.provenanceSidebarType(forMetagenomicsToolId: metadata.tool),
+                metadata.family.sidebarType,
+                "metadata \(metadata.tool)"
             )
         }
-        // With no classifier prefix on the folder the type follows the tool.
-        XCTAssertEqual(controller.provenanceSidebarType(forMetagenomicsToolId: "spades", directoryName: "run"), .analysisResult)
-        XCTAssertEqual(controller.provenanceSidebarType(forMetagenomicsToolId: "cz-id", directoryName: "run"), .czIdResult)
+        // A tool that is not a classifier keeps its own type, and the CZ-ID import has a type of its own.
+        XCTAssertEqual(controller.provenanceSidebarType(forMetagenomicsToolId: "spades"), .analysisResult)
+        XCTAssertEqual(controller.provenanceSidebarType(forMetagenomicsToolId: "cz-id"), .czIdResult)
     }
 
     /// A legacy folder has no `analysis-metadata.json`. The router reads a name with a timestamp, and a name it
     /// cannot read stays the tool id, so its prefix still names the viewer and the provenance type. Older layouts
     /// keep opening.
-    func testPin_aLegacyFolderWithNoMetadataRoutesByItsPrefix() throws {
+    func testALegacyFolderWithNoMetadataRoutesByItsPrefix() throws {
         let legacy: [(name: String, opens: BatchFamily)] = [
             ("kraken2-batch-2026-01-01T00-00-00", .kraken2),
             ("classification-batch-2026-01-01T00-00-00", .kraken2),

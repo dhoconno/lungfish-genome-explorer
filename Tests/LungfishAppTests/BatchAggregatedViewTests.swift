@@ -1387,84 +1387,53 @@ final class BatchGroupRoutingTests: XCTestCase {
 
     // MARK: - Tool Detection from Directory Name Prefix
 
+    /// The tool a legacy folder with no metadata and no router id is read as, from the name it leaves as the tool id.
+    /// These drive the function `displayBatchGroup` decides by, and the registry's ids give the prefixes.
+    private func tool(_ name: String) -> AnalysisToolID? {
+        MainSplitViewController.metagenomicsTool(forToolId: name)
+    }
+
     func testKraken2PrefixDetected() {
-        let dirNames = ["kraken2-batch-2024-06-02T14-20-15", "kraken2-batch-sample-run"]
-        for name in dirNames {
-            XCTAssertTrue(
-                name.hasPrefix("kraken2") || name.hasPrefix("classification"),
-                "'\(name)' should be detected as a Kraken2 batch"
-            )
+        for name in ["kraken2-batch-2024-06-02T14-20-15", "kraken2-batch-sample-run"] {
+            XCTAssertEqual(tool(name), .kraken2, "'\(name)' should be detected as a Kraken2 batch")
         }
     }
 
     func testClassificationPrefixDetected() {
-        let dirNames = ["classification-batch-2024-01-15", "classification-run-001"]
-        for name in dirNames {
-            XCTAssertTrue(
-                name.hasPrefix("kraken2") || name.hasPrefix("classification"),
-                "'\(name)' should be detected as a classification batch"
-            )
+        for name in ["classification-batch-2024-01-15", "classification-run-001"] {
+            XCTAssertEqual(tool(name), .kraken2, "'\(name)' should be detected as a classification batch")
         }
     }
 
     func testEsVirituPrefixDetected() {
-        let dirNames = ["esviritu-batch-2025-03-10T09-00-00", "esviritu-run-sampleA"]
-        for name in dirNames {
-            XCTAssertTrue(
-                name.hasPrefix("esviritu"),
-                "'\(name)' should be detected as an EsViritu batch"
-            )
+        for name in ["esviritu-batch-2025-03-10T09-00-00", "esviritu-run-sampleA"] {
+            XCTAssertEqual(tool(name), .esviritu, "'\(name)' should be detected as an EsViritu batch")
         }
     }
 
     func testTaxTriagePrefixDetected() {
-        let dirNames = ["taxtriage-batch-2025-04-01", "taxtriage-20250325-143022"]
-        for name in dirNames {
-            XCTAssertTrue(
-                name.hasPrefix("taxtriage"),
-                "'\(name)' should be detected as a TaxTriage batch"
-            )
+        for name in ["taxtriage-batch-2025-04-01", "taxtriage-20250325-143022"] {
+            XCTAssertEqual(tool(name), .taxtriage, "'\(name)' should be detected as a TaxTriage batch")
         }
     }
 
-    func testUnknownPrefixNotMatchedByAnyTool() {
-        let unknown = ["naomgs-batch-001", "nvd-batch-run", "unknown-tool-batch"]
-        for name in unknown {
-            let isKraken2 = name.hasPrefix("kraken2") || name.hasPrefix("classification")
-            let isEsViritu = name.hasPrefix("esviritu")
-            let isTaxTriage = name.hasPrefix("taxtriage")
-            XCTAssertFalse(isKraken2 || isEsViritu || isTaxTriage,
-                           "'\(name)' should not match any known batch tool prefix")
-        }
+    func testUnknownPrefixNotMatchedByAnyClassifierTool() {
+        XCTAssertEqual(tool("naomgs-batch-001"), .naomgs)
+        XCTAssertEqual(tool("nvd-batch-run"), .nvd)
+        XCTAssertNil(tool("unknown-tool-batch"), "an unknown name names no tool")
     }
 
     // MARK: - Prefix Disambiguation (no overlap)
 
-    /// Verify that the three recognized prefixes are mutually exclusive,
-    /// so the routing if-else chain always picks exactly one branch.
+    /// Each recognized prefix names exactly one tool, so the routing if-else chain picks exactly one branch.
     func testPrefixesAreMutuallyExclusive() {
-        let kraken2Name = "kraken2-batch-2024-01-01"
-        let classificationName = "classification-batch-2024-01-01"
-        let esVirituName = "esviritu-batch-2024-01-01"
-        let taxTriageName = "taxtriage-batch-2024-01-01"
-
-        // Each name must match exactly one branch.
-        func matchCount(_ name: String) -> Int {
-            var count = 0
-            if name.hasPrefix("kraken2") || name.hasPrefix("classification") { count += 1 }
-            if name.hasPrefix("esviritu") { count += 1 }
-            if name.hasPrefix("taxtriage") { count += 1 }
-            return count
+        let names: [(name: String, tool: AnalysisToolID)] = [
+            ("kraken2-batch-2024-01-01", .kraken2), ("classification-batch-2024-01-01", .kraken2),
+            ("esviritu-batch-2024-01-01", .esviritu), ("taxtriage-batch-2024-01-01", .taxtriage),
+        ]
+        for row in names {
+            XCTAssertEqual(tool(row.name), row.tool, "\(row.name) should name \(row.tool.rawValue) and no other tool")
         }
-
-        XCTAssertEqual(matchCount(kraken2Name), 1,
-                       "kraken2 prefix should match exactly one branch")
-        XCTAssertEqual(matchCount(classificationName), 1,
-                       "classification prefix should match exactly one branch")
-        XCTAssertEqual(matchCount(esVirituName), 1,
-                       "esviritu prefix should match exactly one branch")
-        XCTAssertEqual(matchCount(taxTriageName), 1,
-                       "taxtriage prefix should match exactly one branch")
     }
 
     // MARK: - TaxonomyViewController batch mode wired correctly
