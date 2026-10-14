@@ -38,8 +38,10 @@ public enum OutputEquivalence {
     /// What a mask knows about one side of a comparison. Each side's text has
     /// both roots replaced by `<ROOT>`. `runIDNumbers` and `uuidNumbers`
     /// number every run ID and every UUID in that side's tree by first
-    /// appearance, so the same ID gets the same number in a file name and in
-    /// a manifest value, and two IDs never share one.
+    /// appearance, the files both trees hold first, so the same ID gets the
+    /// same number in a file name and in a manifest value, two IDs never
+    /// share one, and a file only one tree holds moves no number in a shared
+    /// file.
     /// `contentComparedPaths` holds this side's unmasked relative paths of
     /// the files that exist in both trees and are compared by content rather
     /// than by bytes, and of the folders that hold a file in each tree.
@@ -186,8 +188,15 @@ public enum OutputEquivalence {
             filesB = filesB.filter { isSQLiteFile($0.value) }
         }
         let rootsOnly = MaskContext(rootA: rootA, rootB: rootB)
-        let numbersA = identifierNumbers(in: filesA, context: rootsOnly)
-        let numbersB = identifierNumbers(in: filesB, context: rootsOnly)
+        // The blanked names both trees hold. Each tree numbers those files
+        // before the others, so a file only one tree holds moves no number in
+        // a file both hold.
+        func blank(_ files: [String: URL]) -> Set<String> {
+            Set(files.keys.map { blankedIdentifiers($0, context: rootsOnly) })
+        }
+        let sharedNames = blank(filesA).intersection(blank(filesB))
+        let numbersA = identifierNumbers(in: filesA, context: rootsOnly, sharedNames: sharedNames)
+        let numbersB = identifierNumbers(in: filesB, context: rootsOnly, sharedNames: sharedNames)
         let maskPaths = kind == .bundle
         let (keyedA, collisionsA) = keyed(
             filesA, maskPaths: maskPaths, masks: masks.names,
@@ -334,13 +343,17 @@ public enum OutputEquivalence {
     /// numbers in both trees whichever way their UUIDs sort. Only files that
     /// tie on both keys, such as two children whose records are the same
     /// apart from their IDs, fall back to the order of their raw names.
+    /// Given `sharedNames`, the blanked names both trees hold, the files whose
+    /// blanked name it holds are numbered first in that way and the others
+    /// after them, so a file only one tree holds moves no number in a file
+    /// both hold. Without it every file counts as shared.
     static func identifierNumbers(
         in files: [String: URL],
-        context: MaskContext
+        context: MaskContext,
+        sharedNames: Set<String>? = nil
     ) -> (runIDs: [String: Int], uuids: [String: Int]) {
         func blanked(_ text: String) -> String {
-            let withoutUUIDs = Masks.replace(Masks.uuidPattern, in: Masks.roots(text, context: context)) { _ in "<ID>" }
-            return Masks.replace(Masks.runIDPattern, in: withoutUUIDs) { _ in "<ID>" }
+            blankedIdentifiers(text, context: context)
         }
         var recordTexts: [String: String] = [:]
         var isRecord: Set<String> = []
@@ -370,10 +383,21 @@ public enum OutputEquivalence {
             number(Masks.runIDPattern, in: text, into: &runIDs)
             number(Masks.uuidPattern, in: text, into: &uuids)
         }
-        order.filter { isRecord.contains($0) }.forEach(record)
-        order.filter { !isRecord.contains($0) }.forEach(record)
-        order.compactMap { recordTexts[$0] }.forEach(record)
+        let isShared = { (name: String) in sharedNames?.contains(blanked(name)) ?? true }
+        for group in [order.filter(isShared), order.filter { !isShared($0) }] {
+            group.filter { isRecord.contains($0) }.forEach(record)
+            group.filter { !isRecord.contains($0) }.forEach(record)
+            group.compactMap { recordTexts[$0] }.forEach(record)
+        }
         return (runIDs, uuids)
+    }
+
+    /// `text` with both roots masked and every UUID and run ID blanked to
+    /// `<ID>`. A file's blanked name orders the files of a tree and matches
+    /// them across the two trees before any number exists.
+    static func blankedIdentifiers(_ text: String, context: MaskContext) -> String {
+        let withoutUUIDs = Masks.replace(Masks.uuidPattern, in: Masks.roots(text, context: context)) { _ in "<ID>" }
+        return Masks.replace(Masks.runIDPattern, in: withoutUUIDs) { _ in "<ID>" }
     }
 
     static func isSQLiteFile(_ url: URL) -> Bool {

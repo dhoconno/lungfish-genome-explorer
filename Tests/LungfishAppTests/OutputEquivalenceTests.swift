@@ -435,6 +435,26 @@ final class OutputEquivalenceTests: XCTestCase {
         )
     }
 
+    /// UUIDs are numbered per tree, the files both trees hold first, so a file only one tree holds,
+    /// here A's batch folder marker and B's record with two ids, moves no number in a shared file
+    /// (lane A44 M2c P2, its QA ruling).
+    func testAFileOnlyOneTreeHoldsMovesNoNumberInASharedFile() throws {
+        let (a, b) = try makeRoots()
+        for root in [a, b] {
+            try write(#"{"id":"\#(UUID().uuidString)"}"#, to: root, "p/out.bundle/manifest.json")
+        }
+        try write("{}\n", to: a, "p/.tmp/batch-\(UUID().uuidString)/marker.json")
+        try write(
+            #"{"runID":"\#(UUID().uuidString)","operationID":"\#(UUID().uuidString)"}"#,
+            to: b,
+            "p/out.bundle/.lungfish-provenance.json"
+        )
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle),
+            ["only in A: p/.tmp/batch-<UUID-2>/marker.json", "only in B: p/out.bundle/.lungfish-provenance.json"]
+        )
+    }
+
     // MARK: - Fixture helpers
 
     private func makeRoots() throws -> (URL, URL) {
