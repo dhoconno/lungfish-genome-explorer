@@ -400,6 +400,7 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
     func testTheStatusLineHelpSaysWhatItJudgesAndWhatRunStatusSays() throws {
         let viewModel = ProvenanceInspectorViewModel()
         viewModel.summary.statusLabel = "Complete record"
+        viewModel.summary.runStatus = .stated(.completed)
 
         let inspected = try ProvenanceSection(viewModel: viewModel).inspect()
         let status = try inspected.find(ViewType.Label.self, where: {
@@ -412,10 +413,55 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         )
     }
 
+    /// Lane U35, M2 item 2 (row 273 of Phase 2.8). The help tells the status line from the Run Status row, so it shows
+    /// while that row sits below the line and not where the line names no record. No provenance required, Missing
+    /// provenance and Invalid record (an unreadable verified record) show no Run Status row, and their words need no help.
+    func testTheStatusLineHasNoHelpWhereNoRunStatusRowSitsBelowIt() throws {
+        for (label, runStatus) in [
+            ("No provenance required", nil), ("Missing provenance", nil), ("Invalid record", nil),
+            ("Complete record", ProvenanceRunStatusDisplay.stated(.failed)),
+            ("Incomplete record", .notRecorded), ("Older record format", .stated(.completed)),
+        ] as [(String, ProvenanceRunStatusDisplay?)] {
+            let viewModel = ProvenanceInspectorViewModel()
+            viewModel.summary.statusLabel = label
+            viewModel.summary.runStatus = runStatus
+
+            let status = try ProvenanceSection(viewModel: viewModel).inspect().find(ViewType.Label.self, where: {
+                (try? $0.find(text: label)) != nil
+            })
+
+            if runStatus == nil {
+                XCTAssertThrowsError(try status.help(), "\(label) shows no Run Status row, so it needs no help")
+            } else {
+                XCTAssertNoThrow(try status.help(), "\(label) sits above a Run Status row")
+            }
+        }
+    }
+
+    /// The same rule reaches VoiceOver, which reads the tooltip as the line's help. A line with no help reads none.
+    func testTheStatusLineReadsNoHelpToVoiceOverWhereNoRunStatusRowSitsBelowIt() throws {
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.summary.statusLabel = "Missing provenance"
+        let window = AccessibilityTreeProbe.host(ProvenanceSection(viewModel: viewModel))
+        defer { window.orderOut(nil) }
+        func statusLine() -> NSObject? {
+            AccessibilityTreeProbe.all(in: window).first {
+                [AccessibilityTreeProbe.label($0), AccessibilityTreeProbe.value($0)].contains("Missing provenance")
+            }
+        }
+
+        AccessibilityTreeProbe.waitUntil { statusLine() != nil }
+
+        let line = try XCTUnwrap(statusLine(), AccessibilityTreeProbe.dump(window))
+        let help: String? = (line as AnyObject).accessibilityHelp?() ?? nil
+        XCTAssertTrue((help ?? "").isEmpty, "the line reads no help, it read \(help ?? "nil")")
+    }
+
     /// VoiceOver reads the same sentence as the status line's help, after the line's words.
     func testTheStatusLineHelpReachesVoiceOver() throws {
         let viewModel = ProvenanceInspectorViewModel()
         viewModel.summary.statusLabel = "Complete record"
+        viewModel.summary.runStatus = .stated(.completed)
         let window = AccessibilityTreeProbe.host(ProvenanceSection(viewModel: viewModel))
         defer { window.orderOut(nil) }
         func statusLine() -> NSObject? {

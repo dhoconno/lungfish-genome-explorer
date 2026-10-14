@@ -160,7 +160,7 @@ struct ProvenanceSection: View {
         let label = Label(viewModel.summary.statusLabel, systemImage: statusSymbol)
             .font(LungfishInspectorStyle.controlFont)
             .foregroundStyle(statusForegroundStyle)
-            .help(ProvenanceAuditStatus.statusLineHelp)
+            .statusLineHelp(shows: viewModel.summary.runStatus != nil)
         if usesGenotypePresentation {
             label.fixedSize(horizontal: false, vertical: true)
         } else {
@@ -762,5 +762,15 @@ struct ProvenanceDisclosureRow<Label: View, Content: View>: View {
                 isExpanded.toggle()
             }
         }
+    }
+}
+
+private extension View {
+    /// The tooltip of the status line, which SwiftUI also gives to VoiceOver as the line's help, only while a Run
+    /// Status row sits below the line (Phase 2.10 lane U35, row 273 of Phase 2.8). The help tells the line from that
+    /// row, so a line that names no record, such as Missing provenance, has nothing to be told from.
+    @ViewBuilder
+    func statusLineHelp(shows: Bool) -> some View {
+        if shows { help(ProvenanceAuditStatus.statusLineHelp) } else { self }
     }
 }
