@@ -28,7 +28,7 @@ extension BAMCommand {
         @Option(name: .customLong("track-id"), help: "Override the auto-generated alignment track identifier")
         var trackIDOverride: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let runClock = ProvenanceRunClock()

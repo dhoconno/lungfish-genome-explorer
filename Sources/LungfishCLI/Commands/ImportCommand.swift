@@ -505,7 +505,7 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let runClock = ProvenanceRunClock()
@@ -1091,7 +1091,7 @@ extension ImportCommand {
         )
         var replace: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let runClock = ProvenanceRunClock()
@@ -1538,7 +1538,7 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         private static let compressionExtensions: Set<String> = ["gz", "gzip", "bgz", "bz2", "xz", "zst", "zstd"]
         private static let fastaExtensions: Set<String> = ["fa", "fasta", "fna", "fsa", "fas", "faa", "ffn", "frn"]
@@ -1791,7 +1791,7 @@ extension ImportCommand {
         )
         var outputDir: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -1921,7 +1921,7 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -2002,7 +2002,7 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -2101,7 +2101,7 @@ extension ImportCommand {
         )
         var fetchReferences: Bool = true
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -2193,7 +2193,7 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)

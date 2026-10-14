@@ -371,7 +371,7 @@ extension VariantsCommand {
         @Option(name: .customLong("sample"), help: "Optional sample name passed to WhatsHap")
         var sampleName: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
         var threads: Int { globalOptions.threads ?? 1 }
 
         @Option(name: .customLong("extra-gatk-args"), parsing: .unconditional, help: "Additional GATK HaplotypeCaller arguments")
@@ -619,7 +619,7 @@ extension VariantsCommand {
         @Option(name: [.short, .customLong("output")], help: "Output VCF path")
         var outputPath: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         static func parse(_ arguments: [String]) throws -> Self {
             let trimmed = arguments.first == configuration.commandName
@@ -715,7 +715,7 @@ extension VariantsCommand {
         @Option(name: .customLong("limit"), help: "Maximum variants to export")
         var limit: Int = 5000
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         static func parse(_ arguments: [String]) throws -> Self {
             let trimmed = arguments.first == configuration.commandName

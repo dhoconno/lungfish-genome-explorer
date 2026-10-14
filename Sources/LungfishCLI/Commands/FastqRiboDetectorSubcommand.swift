@@ -73,7 +73,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("read-length"), help: "Mean sequencing read length. Inferred from input when omitted.")
     var readLength: Int?
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     var threads: Int? { globalOptions.threads }
 

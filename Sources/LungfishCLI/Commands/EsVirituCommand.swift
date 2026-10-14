@@ -444,7 +444,7 @@ extension EsVirituCommand {
         )
         var force: Bool = false
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -493,7 +493,7 @@ extension EsVirituCommand {
             abstract: "Check EsViritu database installation status"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)

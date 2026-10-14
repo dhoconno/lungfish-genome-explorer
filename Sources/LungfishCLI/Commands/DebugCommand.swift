@@ -694,7 +694,7 @@ struct WorkflowLogSubcommand: AsyncParsableCommand {
     )
     var resourceUsage: Bool = false
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)

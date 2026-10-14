@@ -61,7 +61,7 @@ extension TaxTriageCommand {
             abstract: "Verify Nextflow and container runtime availability"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         /// The probe `run()` hands the pipeline. The default runs `docker
         /// version`, the same probe the app's wizard row and `debug container`

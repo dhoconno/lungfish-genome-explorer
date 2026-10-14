@@ -36,7 +36,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("kmer"), help: "K-mer length for entropy estimation (default: 5)")
     var kmer: Int = FASTQEntropyFilterDefaults.kmer
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
     var threads: Int { globalOptions.threads ?? 4 }
 
     @OptionGroup var pairing: FASTQPairingOptions

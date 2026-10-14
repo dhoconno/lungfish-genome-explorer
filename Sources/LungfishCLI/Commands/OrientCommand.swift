@@ -65,7 +65,7 @@ struct OrientCommand: AsyncParsableCommand {
     @Option(name: [.customLong("output-dir"), .customShort("o")], help: "Output directory (default: current directory)")
     var outputDir: String?
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     // MARK: - Execution
 

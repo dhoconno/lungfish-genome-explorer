@@ -34,7 +34,7 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("replace"), help: "Replace an existing output bundle")
     var replace: Bool = false
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)

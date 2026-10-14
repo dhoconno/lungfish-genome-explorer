@@ -55,7 +55,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
             abstract: "Import NAO-MGS results as a standalone JSON summary"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         @Argument(help: "Path to NAO-MGS results directory or virus_hits_final.tsv(.gz)")
         var inputPath: String

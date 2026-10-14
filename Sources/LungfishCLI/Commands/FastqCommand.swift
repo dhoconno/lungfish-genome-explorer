@@ -240,7 +240,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
           help: "Discard reads that do not match any barcode")
     var discardUnassigned: Bool = false
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
     var threads: Int { globalOptions.threads ?? 4 }
 
     @Flag(name: .customLong("replace"),
@@ -646,7 +646,7 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("no-indels"), help: "Disallow indels in barcode matching")
     var useNoIndels: Bool = false
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     func run() async throws {
         guard readLimit > 0 else {

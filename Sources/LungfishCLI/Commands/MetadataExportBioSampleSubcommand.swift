@@ -33,7 +33,7 @@ struct MetadataExportBioSampleSubcommand: AsyncParsableCommand {
     @Option(name: .long, help: "BioSample package: clinical (default) or environmental")
     var package: String = "clinical"
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     func run() async throws {
         let folderURL = URL(fileURLWithPath: folderPath)

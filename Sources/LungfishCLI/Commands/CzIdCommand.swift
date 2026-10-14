@@ -27,7 +27,7 @@ struct CzIdCommand: AsyncParsableCommand {
             abstract: "Import a CZ-ID taxon report TSV into a Lungfish result directory"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         @Argument(help: "Path to a CZ-ID taxon report TSV, ZIP archive, or extracted export folder")
         var inputPath: String

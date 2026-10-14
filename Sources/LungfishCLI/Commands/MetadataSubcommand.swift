@@ -34,7 +34,7 @@ import LungfishWorkflow
         )
         var bundlePath: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() throws {
             let runClock = ProvenanceRunClock()

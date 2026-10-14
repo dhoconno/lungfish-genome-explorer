@@ -23,7 +23,7 @@ struct ListSubcommand: AsyncParsableCommand {
     )
     var nfCore: Bool = false
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)

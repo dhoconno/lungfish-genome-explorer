@@ -40,7 +40,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("relative-threshold"), help: "Minimum relative minimizer-hit proportion for an rRNA match")
     var relativeThreshold: Double = 0
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     var threads: Int? { globalOptions.threads }
 

@@ -250,8 +250,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             return path
         }
         XCTAssertEqual(
-            ignoring.count, 53,
-            "53 leaves list --format json and ignore it at the base of lane A55: \(ignoring.sorted())"
+            ignoring.count, 18,
+            "Only the 18 conda leaves list --format json and ignore it after A55 M3 (53 at its base): \(ignoring.sorted())"
         )
     }
 

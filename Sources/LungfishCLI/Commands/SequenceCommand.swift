@@ -62,7 +62,7 @@ struct SequenceCommand: AsyncParsableCommand {
         @Option(name: .customLong("track-name"), help: "Annotation track display name.")
         var trackName: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             guard minLength > 0 else {
@@ -161,7 +161,7 @@ struct SequenceCommand: AsyncParsableCommand {
         @Option(name: .customLong("track-id"), help: "Annotation track ID to delete.")
         var trackID: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
@@ -212,7 +212,7 @@ struct SequenceCommand: AsyncParsableCommand {
         @Option(name: .customLong("row-id"), parsing: .upToNextOption, help: "Annotation database row ID to delete. Repeat or pass multiple values.")
         var rowIDs: [Int64] = []
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             guard !rowIDs.isEmpty else {
@@ -283,7 +283,7 @@ struct SequenceCommand: AsyncParsableCommand {
         @Option(help: "New note/description. Omit to clear.")
         var note: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL

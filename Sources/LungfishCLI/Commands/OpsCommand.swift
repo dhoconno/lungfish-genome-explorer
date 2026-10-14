@@ -27,7 +27,7 @@ extension OpsCommand {
         @Argument(help: "Project or bundle directory containing .lungfish-provenance.json sidecars")
         var project: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)

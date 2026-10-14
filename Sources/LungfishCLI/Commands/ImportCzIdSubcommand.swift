@@ -30,7 +30,7 @@ extension ImportCommand {
         @Option(name: .customLong("non-host-fastq"), help: "Optional non-host FASTQ path to record in provenance")
         var nonHostFastqPath: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)

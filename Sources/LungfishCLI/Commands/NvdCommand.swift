@@ -49,7 +49,7 @@ struct NvdCommand: AsyncParsableCommand {
             abstract: "Import NVD results into a Lungfish project"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         @Argument(help: "Path to NVD results directory (containing 05_labkey_bundling/)")
         var inputPath: String
