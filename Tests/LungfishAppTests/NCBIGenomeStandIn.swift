@@ -13,7 +13,8 @@ import LungfishTestSupport
 /// assembly's ESearch, by accession or by name, its ESummary, FTP files and assembly report, and
 /// the GenBank record's EFetch answers, from `NCBIDownloadPinFixtures`, and the same for a second
 /// assembly by accession that differs only
-/// in its accession, uid and name. An ESearch for any other term finds nothing, and an
+/// in its accession, uid and name, and for a second record with no GFF3 that differs only in its
+/// accession (`recordWithoutGFF3Accession`). An ESearch for any other term finds nothing, and an
 /// EFetch for any other id is not found, so a test can make an accession fail. It holds no secret,
 /// and a run reaches it only through `NCBIServiceEndpoints.standInOriginVariable`, which makes the
 /// service send no key.
@@ -26,6 +27,9 @@ enum NCBIGenomeStandIn {
     /// The part of an ESearch term that finds the first assembly by its name, as the variant-only
     /// reference download searches when a VCF names an assembly but no accession (lane A44 M3).
     static let assemblyNameTerm = "StandInAsm1[Assembly Name]"
+    /// A second GenBank record, the first under another accession, for which NCBI serves no GFF3,
+    /// so only the record's FEATURES describe its features (BIO on lane A44 M3-2, outside the table).
+    static let recordWithoutGFF3Accession = "ZZ000002.1"
 
     /// `text` about the first assembly, made about the second. Its FTP folder keeps the first's
     /// parent folder, which the JSON answers spell with escaped slashes.
@@ -34,6 +38,11 @@ enum NCBIGenomeStandIn {
             .replacingOccurrences(of: "GCA_000000001.1", with: "GCA_000000002.1")
             .replacingOccurrences(of: "StandInAsm1", with: "StandInAsm2")
             .replacingOccurrences(of: "9900001", with: secondAssemblyUID)
+    }
+
+    /// `text` about the GenBank record, made about the record NCBI serves no GFF3 for.
+    static func aboutRecordWithoutGFF3(_ text: String) -> String {
+        text.replacingOccurrences(of: "ZZ000001", with: "ZZ000002")
     }
 
     /// The FTP path of the assembly's genomic FASTA.
@@ -71,11 +80,12 @@ enum NCBIGenomeStandIn {
             case "/entrez/eutils/esummary.fcgi":
                 return .text(value("id") == secondAssemblyUID ? aboutSecondAssembly(summary.value) : summary.value)
             case "/entrez/eutils/efetch.fcgi":
-                guard value("id") == NCBIDownloadPinFixtures.genBankAccession else { return .notFound }
-                switch value("rettype") {
-                case "gb": return .text(NCBIDownloadPinFixtures.genBankRecord)
-                case "fasta": return .text(NCBIDownloadPinFixtures.genBankFASTA)
-                case "gff3": return .text(NCBIDownloadPinFixtures.genBankGFF3)
+                switch (value("id"), value("rettype")) {
+                case (NCBIDownloadPinFixtures.genBankAccession, "gb"): return .text(NCBIDownloadPinFixtures.genBankRecord)
+                case (NCBIDownloadPinFixtures.genBankAccession, "fasta"): return .text(NCBIDownloadPinFixtures.genBankFASTA)
+                case (NCBIDownloadPinFixtures.genBankAccession, "gff3"): return .text(NCBIDownloadPinFixtures.genBankGFF3)
+                case (recordWithoutGFF3Accession, "gb"): return .text(aboutRecordWithoutGFF3(NCBIDownloadPinFixtures.genBankRecord))
+                case (recordWithoutGFF3Accession, "fasta"): return .text(aboutRecordWithoutGFF3(NCBIDownloadPinFixtures.genBankFASTA))
                 default: return .notFound
                 }
             default:

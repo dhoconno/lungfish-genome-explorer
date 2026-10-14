@@ -16,7 +16,8 @@ enum NakedBundleReferenceRoute: String, Sendable, Equatable, CaseIterable {
     /// The app builds the assembly's bundle, or with no assembly the GenBank record's, in process in
     /// the project's `.tmp` folder and merges its genome and annotations into the variant-only
     /// bundle. It writes no provenance record, the declared difference that keeps the key, and goes
-    /// in 2.11.
+    /// in 2.11. Without an NCBI GFF3 its GenBank fallback converts FEATURES, where the CLI adds no
+    /// track.
     case legacy
     /// One `lungfish-cli fetch genome <accession> --into-bundle <bundle> --format json` child for
     /// the assembly the app found, or with no assembly for the VCF's GenBank accession, which merges

@@ -159,6 +159,39 @@ final class NakedBundleReferenceParityReplayTests: XCTestCase {
         XCTAssertEqual(mapVCFChromosomes([chrom], toBundleChromosomes: chromosomesA), [chrom: "ZZ000001"])
     }
 
+    /// BIO's second ruling on M3-2, outside its table, which `.legacy`'s doc states. For a record
+    /// NCBI serves no GFF3 for, the in-process fallback converts the record's FEATURES into a track
+    /// on the LOCUS name, where the CLI merges the genome with no annotation track. Not a parity
+    /// case, because the fallback takes only a versioned RefSeq name, for which NCBI has a GFF3.
+    func testWithoutAnNCBIGFF3OnlyTheInProcessFallbackAddsATrack() async throws {
+        let (cli, root) = try await prepare()
+        defer { TestTempDirectory.cleanup(root) }
+        let server = try await NCBIGenomeStandIn.start(servingIn: root.appendingPathComponent("served", isDirectory: true))
+        defer { server.stop() }
+        let saved = ProcessEnvironmentOverride(
+            set: [NCBIServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString], unset: ["NCBI_API_KEY"])
+        defer { saved.restore() }
+
+        let accession = NCBIGenomeStandIn.recordWithoutGFF3Accession
+        let input = Input(
+            inferredRef: Self.reference(assembly: nil, accession: nil),
+            ncbiAccessions: [accession], chromosome: accession, fetched: accession)
+        var bundles: [NakedBundleReferenceRoute: URL] = [:]
+        for route in NakedBundleReferenceRoute.allCases {
+            let sideRoot = root.appendingPathComponent(route.rawValue, isDirectory: true)
+            try Self.makeProject(sideRoot, chromosome: accession)
+            let outcome = try await Self.side(sideRoot, route: route, input: input, cli: route == .cli ? cli : nil)
+            XCTAssertEqual(outcome.end, .completed, "\(route): \(outcome.detail)")
+            bundles[route] = Self.bundle(in: sideRoot)
+        }
+        let cliManifest = try BundleManifest.load(from: try XCTUnwrap(bundles[.cli]))
+        XCTAssertEqual(cliManifest.genome?.chromosomes.map(\.name), [accession], "the CLI merges the genome")
+        XCTAssertEqual(cliManifest.annotations.map(\.id), [], "the CLI adds no track without an NCBI GFF3")
+        let legacyRows = try Self.annotationRows(of: try XCTUnwrap(bundles[.legacy]))
+        XCTAssertFalse(legacyRows.isEmpty, "the in-process build converts the record's FEATURES")
+        XCTAssertEqual(Set(legacyRows.map(\.chromosome)), ["ZZ000002"], "FEATURES rows sit on the LOCUS name")
+    }
+
     // MARK: - Running a case
 
     /// Runs `parityCase` on its three sides in `root` against the stand-in and checks that C
