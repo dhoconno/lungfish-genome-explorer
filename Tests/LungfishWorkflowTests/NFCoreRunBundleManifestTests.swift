@@ -1,7 +1,29 @@
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class NFCoreRunBundleManifestTests: XCTestCase {
+    /// The manifest took its app version from `Bundle.main`, so a test run recorded its host's (xctest's own
+    /// version) and a packaged `lungfish-cli` recorded none, since its embedded plist carries no version keys.
+    /// The manifest names Lungfish's version, and its build is the one a run record names for the same process
+    /// (Phase 2.10 FXS34, BIO's finding on FX46).
+    func testTheManifestNamesTheAppVersionNotTheHosts() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        let manifest = NFCoreRunBundleManifest(
+            workflow: workflow, version: "3.0.0", executor: .docker, params: [:], outputDirectoryName: "results")
+
+        XCTAssertEqual(manifest.appVersion, LungfishAppVersion.short)
+        let build = try XCTUnwrap(manifest.appBuildVersion)
+        XCTAssertEqual("Lungfish \(LungfishAppVersion.short) (\(build))", WorkflowRun.currentAppVersion)
+
+        // A caller that names its own version and build keeps them, and a manifest on disk reads back as written.
+        let named = NFCoreRunBundleManifest(
+            workflow: workflow, version: "3.0.0", executor: .docker, params: [:], outputDirectoryName: "results",
+            appVersion: "2026.9.99", appBuildVersion: "5752")
+        let readBack = try JSONDecoder().decode(NFCoreRunBundleManifest.self, from: JSONEncoder().encode(named))
+        XCTAssertEqual([readBack.appVersion, readBack.appBuildVersion], ["2026.9.99", "5752"])
+    }
+
     func testManifestRoundTripPreservesNFCoreIdentityAndResultSurfaces() throws {
         let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
         let tempDirectory = FileManager.default.temporaryDirectory

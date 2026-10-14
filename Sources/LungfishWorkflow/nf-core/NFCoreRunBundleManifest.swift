@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public enum NFCoreExecutor: String, Codable, Sendable, Equatable {
     case docker
@@ -76,8 +77,9 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         self.version = version
         self.workflowPinnedVersion = workflowPinnedVersion ?? workflow.pinnedVersion
         self.workflowGithubReleaseVersion = workflowGithubReleaseVersion ?? version
-        self.appVersion = appVersion ?? Self.hostAppVersion
-        self.appBuildVersion = appBuildVersion ?? Self.hostAppBuildVersion
+        // Lungfish's own version and build, never `Bundle.main`'s, which is a test host's or a packaged CLI's.
+        self.appVersion = appVersion ?? LungfishAppVersion.short
+        self.appBuildVersion = appBuildVersion ?? RunBundleAppBuild.current
         self.executor = executor
         self.params = params
         self.outputDirectoryName = outputDirectoryName
@@ -158,14 +160,6 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         stderrLogPath = try container.decodeIfPresent(String.self, forKey: .stderrLogPath)
         nextflowLogPath = try container.decodeIfPresent(String.self, forKey: .nextflowLogPath)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
-    }
-
-    private static var hostAppVersion: String? {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    }
-
-    private static var hostAppBuildVersion: String? {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct LocalWorkflowInputBinding: Codable, Sendable, Equatable {
@@ -89,8 +90,9 @@ public struct LocalWorkflowRunBundleManifest: Codable, Sendable, Equatable {
         self.workflowDisplayName = request.workflowDisplayName
         self.workflowPath = request.workflowURL.path
         self.engine = request.engine
-        self.appVersion = Self.hostAppVersion
-        self.appBuildVersion = Self.hostAppBuildVersion
+        // Lungfish's own version and build, never `Bundle.main`'s, which is a test host's or a packaged CLI's.
+        self.appVersion = LungfishAppVersion.short
+        self.appBuildVersion = RunBundleAppBuild.current
         self.params = request.effectiveParams
         self.inputBindings = inputBindings ?? request.inputURLs.map { LocalWorkflowInputBinding(url: $0) }
         self.outputDirectoryName = request.outputDirectory.lastPathComponent
@@ -105,14 +107,6 @@ public struct LocalWorkflowRunBundleManifest: Codable, Sendable, Equatable {
         self.stdoutLogPath = stdoutLogPath
         self.stderrLogPath = stderrLogPath
         self.createdAt = createdAt
-    }
-
-    private static var hostAppVersion: String? {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    }
-
-    private static var hostAppBuildVersion: String? {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
     }
 }
 

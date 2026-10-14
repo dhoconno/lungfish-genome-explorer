@@ -296,7 +296,8 @@ public struct HaplotypeDefinitionStore: Sendable {
     }
 
     public static var currentToolVersion: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        // Lungfish's own version, never `Bundle.main`'s, which is a test host's or a packaged CLI's.
+        let version = LungfishAppVersion.short
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
         return "Lungfish \(version) (\(build))"
     }
