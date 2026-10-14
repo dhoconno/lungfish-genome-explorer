@@ -176,6 +176,12 @@ The `complete` line names each bundle in `outputs`, in the order of the accessio
 
 The human text goes to standard error while the switch is on. In text mode the command prints it on standard output and no event, and its warnings and its failure go to standard error. `--quiet` drops everything but the failure. The NCBI key reaches the command through `--api-key` or the `NCBI_API_KEY` variable, and no line names it. The command printed one `fetch-genome` result document before 2.10.
 
+## Running a workflow
+
+`workflow run` prints events on both of its routes, a local workflow's and nf-core's, and `WorkflowRunOutput` in `Sources/LungfishCLI/Commands/RunSubcommand+Output.swift` writes them. With `--format json`, standard output holds only event lines. The first is a `start` line with no message, so a row that shows a start message as its detail keeps the detail it has. The second is an info `log` line, `Preparing workflow: <workflow>`, and each other line that text mode prints on standard output, such as `Created run bundle: <path>`, is an info `log` line too. When the run has to wait for Docker, the engine's two lines, `Docker daemon unavailable. Launching Docker Desktop...` and `Docker daemon ready`, are `progress` lines at 0.01 and 0.02. The run's outcome lines are `log` lines at level `warning`. A Viral Recon run prints one for all its ignored tasks and one for its failed samples, each only when the run has any. Standard error keeps the lines that text mode prints there, apart from the outcome lines, so the tail of a failure reads the same and a reader never takes an outcome twice.
+
+The run ends with one `complete` line or one `failed` line. `complete` names the run bundle and the results folder in `outputs`. Under `--prepare-only` it names the run bundle alone, and under `--dry-run`, which writes nothing, it names nothing. `failed` holds the reason in `error`, and a cancelled run reads `Workflow cancelled` and exits 125.
+
 ## The contract table
 
 `CLIEventContractTable` in `Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift` holds one row for each leaf command of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
