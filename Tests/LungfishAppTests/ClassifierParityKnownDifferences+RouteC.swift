@@ -26,9 +26,7 @@ extension ClassifierParityKnownDifferences {
 
     /// Review F2 fix 5 asked side C to hold the named-file fact with nothing declared. These are
     /// defects of the code the route shares with the command, so they show on side C and side C'.
-    static let commandFacts: [ClassifierParityKnownDifference] = [
-        commandFact([.e1: 2, .e2: 2, .e3: 4], "fact: record * names */bams/*.third.filt.sorted.bam* with another digest",
-            "The batch root names the BAM and its index as the run's outputs with their digests from before the markdup. The records build-db esviritu writes name them as the run left them since 2.10 A39 M2",
-            closedBy: bamRunLevel),
-    ].flatMap { $0 }
+    /// The last two, the run level of the records build-db esviritu writes and of the EsViritu batch
+    /// root after the move and the markdup, went in Phase 2.10 lane A39, so the list is empty.
+    static let commandFacts: [ClassifierParityKnownDifference] = []
 }

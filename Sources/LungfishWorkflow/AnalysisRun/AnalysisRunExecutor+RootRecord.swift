@@ -28,7 +28,8 @@ extension AnalysisRunExecutor {
     /// never wins.
     ///
     /// The record's argv is the command that ran, its replay argv the one a unit recorded or else the
-    /// request's, its run-level files only those that still exist, its options are the plan's with what the units
+    /// request's, its run-level files only those that still exist and none with bytes a removal step of the run
+    /// names (``ProvenanceEnvelope/droppingRemovedRunLevelFiles()``), its options are the plan's with what the units
     /// and the finalize recorded merged in and hold the read-set plan under `resolvedDefaults`
     /// (E13), its status and exit status say how the run ended, and its stderr
     /// holds the reason a run did not complete and every warning. A completed run lists the
@@ -132,14 +133,17 @@ extension AnalysisRunExecutor {
         let stderr = ([ending.message(displayName: input.identity.displayName)].compactMap { $0 } + warnings)
             .joined(separator: "\n")
         // A step keeps the files it wrote as they were when it ran, such as a per-read output that a
-        // later step compressed and removed. The run level names only files the result still holds.
+        // later step compressed and removed, or a BAM that an index build marked in place. The run level
+        // names only files the result still holds, each as the run left it, so a batch root names each
+        // kept file with the digest of the step that last wrote it, as the Kraken2 root names its staged
+        // inputs, and reads none again (2.8 B3, 2.9 R7, 2.10 A39).
         return try builder.complete(
             exitStatus: Int(ending.exitCode),
             status: ending.status,
             stderr: stderr.isEmpty ? nil : stderr,
             startedAt: input.clock.startedAt,
             endedAt: input.clock.now
-        ).droppingMissingRunLevelFiles()
+        ).droppingRemovedRunLevelFiles()
     }
 
     /// Adds a descriptor the tool already took, without hashing it. A local file goes in as a
@@ -178,8 +182,11 @@ public extension ProvenanceEnvelope {
     /// a BAM that a markdup rewrote in place and the index it replaced. The `output` pointer moves to the
     /// last kept output when it named such a file. A path compares with its deepest existing folder
     /// resolved, so a file named under `/var` and under `/private/var` is one file, and nothing is hashed.
+    /// A record that nests a legacy run is left as ``droppingMissingRunLevelFiles()`` leaves it, since only
+    /// the Provenance core rebuilds that shape.
     func droppingRemovedRunLevelFiles() -> ProvenanceEnvelope {
         let kept = droppingMissingRunLevelFiles()
+        guard kept.legacyRun == nil else { return kept }
         let removed = Set(kept.steps
             .filter { $0.resolvedOptions["operation"] == .string(RecordedRemovalStep.operation) }
             .flatMap(\.inputs)
@@ -220,8 +227,7 @@ public extension ProvenanceEnvelope {
             exitStatus: exitStatus,
             stderr: stderr,
             signatures: signatures,
-            status: status,
-            legacyWorkflowRun: legacyRun
+            status: status
         )
     }
 

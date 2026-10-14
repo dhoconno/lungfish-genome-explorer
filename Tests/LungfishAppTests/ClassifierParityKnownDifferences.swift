@@ -52,9 +52,6 @@ enum ClassifierParityKnownDifferences {
     /// (ClassifierParityKnownDifferences+RouteC.swift).
     static let all: [ClassifierParityKnownDifference] = commandFacts
 
-    /// The run level of the records build-db esviritu writes after its move and markdup.
-    static let bamRunLevel = "2.9, the records build-db esviritu writes after its move and markdup, and the batch root written after them, name the BAM and its index at their run level where they are and with their final digests (B3 review fix 1)"
-
     /// One line per found difference that no entry declares, and per entry that matches another
     /// number of found differences than its count for `parityCase` in `scope`, listing the
     /// differences it matches.
