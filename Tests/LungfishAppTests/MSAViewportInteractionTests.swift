@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class MSAViewportInteractionTests: XCTestCase {
@@ -13,20 +14,17 @@ final class MSAViewportInteractionTests: XCTestCase {
     // UserDefaults.standard resolves to the app's real bundle identity inside
     // xctest, so tests must never read or write through it. Use a
     // suite-specific instance per test, injected into each controller before
-    // its view loads, and remove that suite's persistent domain in teardown.
-    private var gutterWidthSuiteName = ""
-    private var gutterWidthDefaults: UserDefaults!
+    // its view loads. TestDefaultsSuite removes the suite and its plist when the test ends.
+    private var gutterWidthSuite: TestDefaultsSuite!
+    private var gutterWidthDefaults: UserDefaults { gutterWidthSuite.defaults }
 
     override func setUpWithError() throws {
-        gutterWidthSuiteName = "lungfish-test-\(UUID().uuidString)"
-        gutterWidthDefaults = UserDefaults(suiteName: gutterWidthSuiteName)
+        gutterWidthSuite = makeTestDefaultsSuite(prefix: "MSAViewportInteractionTests")
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        UserDefaults().removePersistentDomain(forName: gutterWidthSuiteName)
-        gutterWidthDefaults = nil
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 

@@ -64,14 +64,6 @@ assembly-layout-pref                    Tests/LungfishAssemblyUITests/AssemblyLa
 layout-pref                             Tests/LungfishAppTests/MetagenomicsLayoutPreferenceTests.swift
 lungfish-test                           Tests/LungfishAppTests/AnnotationDrawerSizingTests.swift
 lungfish-test                           Tests/LungfishAppTests/BundleViewerTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSABottomPaneDefaultOpenTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSABottomPaneReReviewFixTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSABottomPaneReviewFixTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSABottomPaneTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSABottomPaneThirdReviewFixTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSADistanceMatrixGUICLIParityTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSADistanceMatrixMenuRoutingTests.swift
-lungfish-test                           Tests/LungfishAppTests/MSAViewportInteractionTests.swift
 lungfish-test                           Tests/LungfishCoreTests/SequenceAppearanceTests.swift
 mapping-layout-pref                     Tests/LungfishAppTests/MappingLayoutPreferenceTests.swift
 org.example.storage-tests               Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift

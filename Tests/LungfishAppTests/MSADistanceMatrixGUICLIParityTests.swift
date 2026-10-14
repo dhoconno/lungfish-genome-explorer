@@ -17,19 +17,16 @@ import LungfishTestSupport
 @MainActor
 final class MSADistanceMatrixGUICLIParityTests: XCTestCase {
     private var temporaryDirectory: URL!
-    private var suiteName = ""
-    private var defaults: UserDefaults!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var defaults: UserDefaults { preferencesSuite.defaults }
 
     override func setUpWithError() throws {
-        suiteName = "lungfish-test-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        preferencesSuite = makeTestDefaultsSuite(prefix: "MSADistanceMatrixGUICLIParityTests")
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        UserDefaults().removePersistentDomain(forName: suiteName)
-        defaults = nil
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 

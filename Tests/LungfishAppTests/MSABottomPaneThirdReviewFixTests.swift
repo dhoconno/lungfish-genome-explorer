@@ -12,12 +12,11 @@ import LungfishTestSupport
 @MainActor
 final class MSABottomPaneThirdReviewFixTests: XCTestCase {
     private var temporaryDirectory: URL!
-    private var suiteName = ""
-    private var defaults: UserDefaults!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var defaults: UserDefaults { preferencesSuite.defaults }
 
     override func setUpWithError() throws {
-        suiteName = "lungfish-test-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        preferencesSuite = makeTestDefaultsSuite(prefix: "MSABottomPaneThirdReviewFixTests")
         // These tests start from a hidden pane. The default-open behaviour is in MSABottomPaneDefaultOpenTests.
         defaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -25,8 +24,6 @@ final class MSABottomPaneThirdReviewFixTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        UserDefaults().removePersistentDomain(forName: suiteName)
-        defaults = nil
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporaryDirectory.path)
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
