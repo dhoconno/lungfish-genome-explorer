@@ -69,7 +69,7 @@ public struct ProvenanceStepObservation: Codable, Sendable, Equatable {
         public let unset: [String]
         /// The sanitized PATH entries the adapter put before the base PATH, in order.
         public let pathPrefix: [String]
-        /// True when the adapter set a PATH that dropped the inherited one, so `pathPrefix` is the whole
+        /// True when the adapter set a PATH that does not end with the inherited one, so `pathPrefix` is the whole
         /// PATH the child got and not a prefix (Phase 2.10 S8). False for every older record.
         public let pathReplaced: Bool
 

@@ -53,7 +53,7 @@ extension NativeToolRunner {
         )
     }
 
-    /// Whether a launch that sets `path` dropped the inherited PATH, so that
+    /// Whether the PATH a launch sets, `path`, does not end with the inherited PATH, so that
     /// ``ToolProcessEnvironmentChange/pathPrefix`` is the whole PATH the child
     /// got and not entries before the inherited one. It reads the same two
     /// facts as ``pathPrefix(of:inheritedPath:)``.
