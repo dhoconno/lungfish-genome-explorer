@@ -9,6 +9,7 @@
 import CryptoKit
 import Foundation
 import LungfishCore
+import LungfishIO
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
@@ -157,6 +158,82 @@ final class ViralReconRunRecordTests: XCTestCase {
             let bytes = try Data(contentsOf: URL(fileURLWithPath: input.path))
             XCTAssertEqual(input.checksumSHA256, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(), input.path)
         }
+    }
+
+    /// Q35 V3, BIO 2.2. A reference bundle that `fetch genome` wrote keeps its annotation only in
+    /// `annotations/annotations.db`, and the run exports it as `inputs/reference/annotations.gff` for `--gff`. The engine
+    /// reads those bytes, and they set SnpEff's gene names, so the export is an input of the step in the `gff` slot, after
+    /// the FASTA and before the primer BED, with the digest that `stagedAnnotation.sha256` holds. Nothing else about the
+    /// step's inputs moves, and the caller's `params` still hold no `gff`.
+    func testAnExportedAnnotationIsAnInputWithItsDigest() async throws {
+        let reference = root.appendingPathComponent("Downloads/MN908947.3.lungfishref", isDirectory: true)
+        let fasta = try await writeFetchedReferenceBundle(at: reference)
+
+        let run = try await ViralReconLaunchedRun.run(in: root, extraArguments: ["--param", "fasta=\(fasta.path)"])
+
+        let exported = run.bundle.appendingPathComponent("inputs/reference/annotations.gff")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exported.path), "the run exported no GFF")
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: run.bundle))
+        let step = try XCTUnwrap(record.steps.first)
+        XCTAssertEqual(
+            step.inputs.map(\.path),
+            ([run.samplesheet] + run.reads + [fasta, exported, run.primerBED]).map(\.path),
+            "the samplesheet, the reads, the FASTA, the exported GFF and the primer BED, in that order"
+        )
+        let staged = try XCTUnwrap(
+            record.options.explicit[ViralReconAnnotationStaging.provenanceKey]?.dictionaryValue, "no staged annotation in the record")
+        let stagedDigest = try XCTUnwrap(staged["sha256"]?.stringValue)
+        let gff = try XCTUnwrap(step.inputs.first { $0.path == exported.path })
+        XCTAssertEqual(gff.checksumSHA256, stagedDigest, "the input carries stagedAnnotation.sha256")
+        XCTAssertEqual(gff.checksumSHA256, SHA256.hash(data: try Data(contentsOf: exported)).map { String(format: "%02x", $0) }.joined())
+        XCTAssertEqual(gff.format, .gff3)
+        XCTAssertEqual(gff.role, .input)
+        XCTAssertEqual(gff.fileSize, UInt64(try Data(contentsOf: exported).count))
+        let launch = try XCTUnwrap(run.runner.launches.first, "the run launched nothing")
+        let flag = try XCTUnwrap(launch.arguments.firstIndex(of: "--gff"), "the engine got no --gff")
+        XCTAssertEqual(launch.arguments[flag + 1], exported.path, "the engine read the bytes the record names")
+        XCTAssertNil(try NFCoreRunBundleStore.read(from: run.bundle).params["gff"], "the records keep the caller's parameters")
+    }
+
+    /// The other half of BIO 2.2, unchanged. A GFF3 the caller names stays listed as the caller gave it, and its staged
+    /// `.gff` copy, which the run bundle holds only to satisfy the schema's file name, is not a second input.
+    func testACallersGFF3IsListedAsTheCallerGaveIt() async throws {
+        let gff3 = root.appendingPathComponent("references/genes.gff3")
+        try FileManager.default.createDirectory(at: gff3.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "##gff-version 3\nMN908947.3\tGenbank\tgene\t5\t40\t.\t+\t.\tID=gene-S;Name=S\n".write(to: gff3, atomically: true, encoding: .utf8)
+
+        let run = try await ViralReconLaunchedRun.run(in: root, extraArguments: ["--param", "gff=\(gff3.path)"])
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: run.bundle.appendingPathComponent("inputs/reference/genes.gff").path))
+        let step = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: run.bundle)?.steps.first)
+        XCTAssertEqual(step.inputs.map(\.path), ([run.samplesheet] + run.reads + [gff3, run.primerBED]).map(\.path))
+    }
+
+    /// A `.lungfishref` as `fetch genome` leaves it, its FASTA at `genome/sequence.fa` and its annotation only in
+    /// `annotations/annotations.db`, imported from a GFF3 that is then deleted. Returns the FASTA.
+    private func writeFetchedReferenceBundle(at bundleURL: URL) async throws -> URL {
+        let fasta = bundleURL.appendingPathComponent("genome/sequence.fa")
+        try FileManager.default.createDirectory(at: fasta.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try ">MN908947.3\n\(String(repeating: "ACGT", count: 20))\n".write(to: fasta, atomically: true, encoding: .utf8)
+        let gff3 = root.appendingPathComponent("fetch-temp/annotations.gff3")
+        try FileManager.default.createDirectory(at: gff3.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try ("##gff-version 3\nMN908947.3\tGenbank\tgene\t5\t40\t.\t+\t.\tID=gene-S;Name=S\n"
+            + "MN908947.3\tGenbank\tCDS\t5\t40\t.\t+\t0\tID=cds-S;Parent=gene-S;Name=S\n")
+            .write(to: gff3, atomically: true, encoding: .utf8)
+        let database = bundleURL.appendingPathComponent("annotations/annotations.db")
+        try FileManager.default.createDirectory(at: database.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try await AnnotationDatabase.createFromGFF3(gffURL: gff3, outputURL: database, chromosomeSizes: [("MN908947.3", 80)])
+        try FileManager.default.removeItem(at: gff3)
+        try BundleManifest(
+            name: "MN908947.3",
+            identifier: "org.lungfish.MN908947.3",
+            source: SourceInfo(organism: "SARS-CoV-2", assembly: "MN908947.3"),
+            genome: GenomeInfo(path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 80, chromosomes: []),
+            annotations: [AnnotationTrackInfo(
+                id: "annotations", name: "genes", path: "annotations/annotations.db",
+                databasePath: "annotations/annotations.db", annotationType: .custom, featureCount: 2)]
+        ).save(to: bundleURL)
+        return fasta
     }
 
     /// The A30 seam ruling, deviation 1. Once the engine launched, the manifest names the engine's own log beside its

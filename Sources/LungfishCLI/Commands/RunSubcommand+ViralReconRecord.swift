@@ -86,9 +86,16 @@ extension RunSubcommand {
     /// Nanopore `fastq_pass` folder and sequencing summary the parameters name, each as the caller gave it. Each carries
     /// its digest, except that a cancelled run names the reads and references unhashed, so the cancel ends inside the
     /// grace the app gives it (SWIFT 3).
+    ///
+    /// A caller who names no `gff` for a reference bundle that holds only its annotation database gets the database
+    /// exported into the run bundle, and the engine reads that copy (`--gff <run bundle>/inputs/reference/annotations.gff`).
+    /// Its bytes set SnpEff's gene names, so the export is an input in the `gff` slot, with the digest that
+    /// `stagedAnnotation.sha256` holds (Phase 2.10, V3-BIO 2.2). A GFF3 the caller names stays listed as the caller gave
+    /// it, and its renamed copy is not a second input.
     static func viralReconInputRecords(
         request: NFCoreRunRequest,
         readPairing: [ViralReconReadPairingDecision],
+        stagedAnnotation: ViralReconStagedAnnotation?,
         hashesReads: Bool
     ) -> [FileRecord] {
         func record(_ url: URL, _ format: FileFormat) -> FileRecord {
@@ -98,8 +105,12 @@ extension RunSubcommand {
         }
         let samplesheets = request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input) }
         let reads = readPairing.flatMap(\.sourceFASTQURLs).map { record($0, .fastq) }
-        let references = viralReconInputParameters.compactMap { parameter in
-            request.params[parameter.name].flatMap { $0.isEmpty ? nil : record(URL(fileURLWithPath: $0), parameter.format) }
+        let references = viralReconInputParameters.compactMap { parameter -> FileRecord? in
+            if parameter.name == ViralReconAnnotationStaging.parameterName,
+               let exported = stagedAnnotation, exported.exportedFromDatabase {
+                return record(exported.stagedURL, parameter.format)
+            }
+            return request.params[parameter.name].flatMap { $0.isEmpty ? nil : record(URL(fileURLWithPath: $0), parameter.format) }
         }
         var seen = Set<String>()
         return (samplesheets + reads + references).filter { seen.insert($0.path).inserted }

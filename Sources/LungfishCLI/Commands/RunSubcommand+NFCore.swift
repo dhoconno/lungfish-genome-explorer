@@ -517,7 +517,8 @@ extension RunSubcommand {
             bundlePath: bundleURL,
             prepareOnly: prepareOnly
         ) + (globalOptions.quiet ? ["--quiet"] : [])
-        let inputs = Self.viralReconInputRecords(request: request, readPairing: readPairing, hashesReads: status != .cancelled)
+        let inputs = Self.viralReconInputRecords(
+            request: request, readPairing: readPairing, stagedAnnotation: stagedAnnotation, hashesReads: status != .cancelled)
         let outputs = [
             ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
             ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
