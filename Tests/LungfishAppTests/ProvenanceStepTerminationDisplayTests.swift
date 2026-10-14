@@ -2,6 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
+import CryptoKit
+import SwiftUI
 import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
@@ -19,6 +22,13 @@ import LungfishWorkflow
 /// expected file of the folder.
 @MainActor
 final class ProvenanceStepTerminationDisplayTests: XCTestCase {
+    private var windows: [NSWindow] = []
+
+    override func tearDown() async throws {
+        for window in windows { window.orderOut(nil) }
+        windows.removeAll()
+        try await super.tearDown()
+    }
 
     // MARK: - The observed records
 
@@ -284,7 +294,163 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         XCTAssertEqual(cancelled?.searchText, "Cancelled (signal 15, SIGTERM)\nComplete")
     }
 
+    // MARK: - VoiceOver and the project
+
+    /// VoiceOver reads the rows of a step in the order the disclosure draws them, which is the order of the Copy
+    /// text. Environment follows the Command, Termination follows Exit Status and Output follows Wall Time. The case
+    /// hosts the real section, presses the run and the step open, and lists the accessibility identifiers of the
+    /// step's rows in tree order. Opening the rows writes nothing into the project (UX 6).
+    func testVoiceOverReadsTheStepRowsInTheOrderOfTheCopyText() async throws {
+        var before = ""
+        let (model, project) = try await loadedModel(folder: "observed-signal") { before = try Self.digest(of: $0) }
+        let host = host(ProvenanceSection(viewModel: model))
+        try openFirstStep(in: host)
+        spin { AXTree.element(in: host, identifier: "provenance-step-output") != nil }
+
+        let rows = AXTree.all(in: host).compactMap { AXTree.identifier($0) }.filter(Self.stepRowIdentifiers.contains)
+        var ordered: [String] = []
+        for identifier in rows where ordered.last != identifier { ordered.append(identifier) }
+        let start = try XCTUnwrap(ordered.firstIndex(of: "provenance-step-command"), AXTree.dump(host))
+        XCTAssertEqual(
+            Array(ordered[start...].prefix(8)),
+            ["provenance-step-command", "provenance-step-environment", "provenance-path-list-value",
+             "provenance-summary-value", "provenance-step-termination", "provenance-summary-value",
+             "provenance-step-output", "provenance-summary-value"],
+            "The order is Command, Environment, the Inputs and Outputs lists, Exit Status, Termination, Wall Time, Output, stderr."
+        )
+        let values = ["provenance-step-environment": "Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set",
+                      "provenance-step-termination": "Ended by signal 9 (SIGKILL)",
+                      "provenance-step-output": "Incomplete"]
+        for (identifier, text) in values {
+            let element = try XCTUnwrap(AXTree.element(in: host, identifier: identifier), identifier)
+            XCTAssertEqual(AXTree.value(element), text, identifier)
+        }
+        XCTAssertEqual(try Self.digest(of: project), before, "Opening the rows wrote into the project.")
+    }
+
+    /// The step of a record with no observation draws none of the new rows.
+    func testTheStepOfAnOlderRecordDrawsNoneOfTheNewRows() async throws {
+        let (model, _) = try await loadedModel(folder: "observed-older-record")
+        let host = host(ProvenanceSection(viewModel: model))
+        try openFirstStep(in: host)
+
+        let identifiers = Set(AXTree.all(in: host).compactMap { AXTree.identifier($0) })
+        XCTAssertTrue(identifiers.contains("provenance-step-command"), "The step is open.")
+        XCTAssertTrue(identifiers.isDisjoint(with: ["provenance-step-environment", "provenance-step-termination", "provenance-step-output"]))
+    }
+
+    /// Displaying writes nothing (UX 6). The project, record included, hashes the same before the lookup and after
+    /// the lookup built the rows and the Copy text.
+    func testDisplayingAnObservedRecordWritesNothing() async throws {
+        for folder in Self.observedFolders {
+            var before = ""
+            let (model, project) = try await loadedModel(folder: folder) { before = try Self.digest(of: $0) }
+            XCTAssertFalse(model.copyableText.isEmpty, folder)
+            XCTAssertEqual(try Self.digest(of: project), before, "Loading \(folder) wrote into the project.")
+        }
+    }
+
+    // MARK: - Real records
+
+    /// The kraken2 and EsViritu records the S36 goldens hold are the shapes the producers write. Only the step the
+    /// producer observed gains a line, and that line is the Environment of a clean exit. The goldens mask their
+    /// dates, ids, durations and sizes, so the case gives them values and reads the rest as committed.
+    func testTheRecordsOfTheClassifierGoldensShowOneEnvironmentLineOnTheObservedStep() async throws {
+        let cases = [
+            ("kraken2", "Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set"),
+            ("esviritu", "Empty, with ESVIRITU_DB, HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set"),
+        ]
+        for (golden, environment) in cases {
+            let (model, _) = try await loadedModel(folder: "\(golden)-golden", record: Self.unmaskedGolden(golden))
+            let steps = model.lineageRuns.last?.steps ?? []
+            XCTAssertGreaterThan(steps.count, 1, "The golden \(golden) holds LGE's own steps beside the tool's.")
+            let observed = steps.filter { $0.observation != nil }
+            XCTAssertEqual(observed.count, 1, "\(golden): \(steps.map(\.toolName))")
+            XCTAssertEqual(observed.first?.observation?.environment, environment, golden)
+            XCTAssertNil(observed.first?.observation?.termination, golden)
+            XCTAssertNil(observed.first?.observation?.output, golden)
+            XCTAssertEqual(model.copyableText.components(separatedBy: "\nEnvironment: ").count - 1, 1, golden)
+        }
+    }
+
     // MARK: - Harness
+
+    private static let observedFolders = [
+        "observed-clean-exit", "observed-nonzero-exit", "observed-signal", "observed-cancelled",
+        "observed-launch-failure", "observed-environment-change", "observed-environment-none", "observed-older-record",
+    ]
+
+    private static let stepRowIdentifiers: Set<String> = [
+        "provenance-step-command", "provenance-step-environment", "provenance-path-list-value",
+        "provenance-summary-value", "provenance-step-termination", "provenance-step-output",
+    ]
+
+    /// A hash of every file under `project` with its path, so a write of any kind shows.
+    private static func digest(of project: URL) throws -> String {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey]
+        let urls = (FileManager.default.enumerator(at: project, includingPropertiesForKeys: Array(keys))?.allObjects as? [URL] ?? [])
+            .filter { (try? $0.resourceValues(forKeys: keys).isRegularFile) == true }
+            .sorted { $0.path < $1.path }
+        var hasher = SHA256()
+        for url in urls {
+            hasher.update(data: Data(url.path.utf8))
+            hasher.update(data: try Data(contentsOf: url))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The golden classifier record with a value for each masked date, id, duration and size, which the record
+    /// reader needs, and every other byte as committed.
+    private static func unmaskedGolden(_ name: String) throws -> Data {
+        let url = ProvenanceDisplayFixtures.testsDirectory
+            .appendingPathComponent("Fixtures/golden/classifiers/\(name)/lungfish-provenance.json")
+        var text = try String(contentsOf: url, encoding: .utf8)
+            .replacingOccurrences(of: "\"<TIMESTAMP>\"", with: "\"2026-10-14T12:00:00Z\"")
+            .replacingOccurrences(of: "\"<DURATION>\"", with: "1.5")
+            .replacingOccurrences(of: "\"<SIZE-R10>\"", with: "1024")
+        for number in 1...60 {
+            text = text.replacingOccurrences(
+                of: "\"<UUID-\(number)>\"", with: "\"00000000-0000-0000-0000-\(String(format: "%012d", number))\""
+            )
+        }
+        return Data(text.utf8)
+    }
+
+    private func openFirstStep(in host: NSObject) throws {
+        spin { AXTree.element(in: host, identifier: "provenance-run-1") != nil }
+        let run = try XCTUnwrap(AXTree.element(in: host, identifier: "provenance-run-1"), AXTree.dump(host))
+        XCTAssertTrue(AXTree.press(run), "the run row must answer AXPress")
+        spin { AXTree.element(in: host, identifier: "provenance-run-1-step-1") != nil }
+        let step = try XCTUnwrap(AXTree.element(in: host, identifier: "provenance-run-1-step-1"), AXTree.dump(host))
+        XCTAssertTrue(AXTree.press(step), "the step row must answer AXPress")
+        spin { AXTree.element(in: host, identifier: "provenance-step-command") != nil }
+    }
+
+    /// Hosts `content` in a window and returns that window, the root of the tree to walk. SwiftUI builds its
+    /// accessibility nodes only once an assistive client is attached, and this application attribute is how one
+    /// announces itself.
+    private func host<Content: View>(_ content: Content) -> NSObject {
+        NSApplication.shared.accessibilitySetValue(
+            true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        )
+        let hosting = NSHostingView(rootView: content)
+        hosting.frame = NSRect(x: 0, y: 0, width: 460, height: 720)
+        let window = NSWindow(
+            contentRect: hosting.frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.orderFront(nil)
+        windows.append(window)
+        return window
+    }
+
+    private func spin(timeout: TimeInterval = 5, until condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
 
     /// The label of each unindented line of the first Lineage step in `copy`, which is the step's header and then
     /// the label before the first colon of each of its lines.
@@ -307,6 +473,8 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
     /// Copies the committed record of `folder` into a temporary project and loads it through the real lookup.
     private func loadedModel(
         folder: String,
+        record: Data? = nil,
+        beforeLoad: (URL) throws -> Void = { _ in },
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws -> (model: ProvenanceInspectorViewModel, project: URL) {
@@ -314,11 +482,16 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         let analysis = project.appendingPathComponent("Analyses/\(folder)", isDirectory: true)
         let sidecar = analysis.appendingPathComponent(".lungfish-provenance.json")
         try FileManager.default.createDirectory(at: analysis, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(
-            at: ProvenanceDisplayFixtures.directory
-                .appendingPathComponent("Analyses/\(folder)/.lungfish-provenance.json"),
-            to: sidecar
-        )
+        if let record {
+            try record.write(to: sidecar, options: .atomic)
+        } else {
+            try FileManager.default.copyItem(
+                at: ProvenanceDisplayFixtures.directory
+                    .appendingPathComponent("Analyses/\(folder)/.lungfish-provenance.json"),
+                to: sidecar
+            )
+        }
+        try beforeLoad(project)
         let model = ProvenanceInspectorViewModel()
         model.load(item: ProvenanceInspectableItem(
             url: analysis, sidebarType: .analysisResult, contentMode: .genomics, displayName: folder
@@ -379,5 +552,47 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         let project = root.appendingPathComponent("Observed Records.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         return project
+    }
+}
+
+// MARK: - Accessibility tree walking
+
+/// Reads the NSAccessibility tree the way `ProvenanceSectionAccessibilityTests` does, so SwiftUI's own nodes are
+/// included. The elements come in tree order, which is the order VoiceOver reads them.
+@MainActor
+private enum AXTree {
+    static func children(of element: NSObject) -> [NSObject] {
+        let modern = ((element as AnyObject).accessibilityChildren?() ?? nil) ?? []
+        if !modern.isEmpty { return modern.compactMap { $0 as? NSObject } }
+        return ((element.accessibilityAttributeValue(.children) as? [Any]) ?? []).compactMap { $0 as? NSObject }
+    }
+
+    static func all(in root: NSObject) -> [NSObject] {
+        [root] + children(of: root).flatMap { all(in: $0) }
+    }
+
+    static func element(in root: NSObject, identifier: String) -> NSObject? {
+        all(in: root).first { self.identifier($0) == identifier }
+    }
+
+    static func identifier(_ element: NSObject) -> String? {
+        (element as AnyObject).accessibilityIdentifier?() ?? nil
+    }
+
+    /// The value through the modern protocol, which is what VoiceOver and the AX API read.
+    static func value(_ element: NSObject) -> String? {
+        element.perform(NSSelectorFromString("accessibilityValue"))?.takeUnretainedValue() as? String
+            ?? element.accessibilityAttributeValue(.value) as? String
+    }
+
+    static func press(_ element: NSObject) -> Bool {
+        (element as AnyObject).accessibilityPerformPress?() ?? false
+    }
+
+    static func dump(_ root: NSObject, depth: Int = 0) -> String {
+        let role = ((root as AnyObject).accessibilityRole?() ?? nil)?.rawValue ?? "?"
+        let label = (root as AnyObject).accessibilityLabel?() ?? nil
+        let line = String(repeating: "  ", count: depth) + "\(role) | \(label ?? "") | \(identifier(root) ?? "")"
+        return ([line] + children(of: root).map { dump($0, depth: depth + 1) }).joined(separator: "\n")
     }
 }

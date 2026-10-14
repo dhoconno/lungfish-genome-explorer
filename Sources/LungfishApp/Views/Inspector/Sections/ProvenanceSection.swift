@@ -410,6 +410,7 @@ struct ProvenanceSection: View {
                     }
                     .accessibilityAction(named: "Copy Command") { copyToPasteboard(step.command) }
                 }
+                stepObservationRow(.environment, of: step)
                 if !step.inputPaths.isEmpty {
                     pathList("Inputs", step.inputPathLabels, recorded: step.inputPaths)
                 }
@@ -419,9 +420,11 @@ struct ProvenanceSection: View {
                 if let exitStatus = step.exitStatus {
                     summaryRow("Exit Status", value: "\(exitStatus)")
                 }
+                stepObservationRow(.termination, of: step)
                 if let wallTime = step.wallTimeSeconds {
                     summaryRow("Wall Time", value: formatDuration(wallTime))
                 }
+                stepObservationRow(.output, of: step)
                 if let stderr = step.stderr {
                     summaryRow("stderr", value: stderr.isEmpty ? "(empty)" : stderr)
                 }
@@ -543,7 +546,7 @@ struct ProvenanceSection: View {
     /// A label and value. When `recorded` differs from `value` (a path shown
     /// project-relative, a command with its paths shortened), the value's
     /// tooltip and accessibility value carry the recorded text whole.
-    private func summaryRow(
+    func summaryRow(
         _ label: String,
         value: String,
         recorded: String? = nil,
@@ -664,6 +667,7 @@ struct ProvenanceSection: View {
             || step.inputPaths.contains(where: matchesSearch)
             || step.outputPaths.contains(where: matchesSearch)
             || matchesSearch(step.stderr ?? "")
+            || matchesSearch(step.observation?.searchText ?? "")
     }
 
     private func matchesSearch(_ value: String) -> Bool {
