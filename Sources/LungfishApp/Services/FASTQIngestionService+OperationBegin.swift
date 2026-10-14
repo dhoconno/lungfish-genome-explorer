@@ -26,16 +26,11 @@ extension FASTQIngestionService {
     /// Registers the in-place ingestion row and, only when it starts, calls
     /// `launch` with the operation ID. The row locks no bundle.
     ///
-    /// cli-parity-gap: fastq-ingest-in-place. The run clumpifies and
-    /// compresses the FASTQ file in place with `FASTQIngestionPipeline`,
-    /// deletes the original, writes the FASTQ metadata sidecar and applies no
-    /// quality binning. No `lungfish-cli` command reproduces that. The closest
-    /// is `lungfish-cli debug fastq-ingest` with `--binning none
-    /// --delete-originals`, which runs the same pipeline but leaves the
-    /// sidecar unwritten. The row used to record a `lungfish-cli import fastq`
-    /// command, which would build a new bundle under `Imports` in the file's
-    /// folder and bin quality scores with `illumina4`, a run that never
-    /// happened. It records no command until one covers the in-place run.
+    /// The run is `lungfish-cli fastq ingest` (Phase 2.10 lane A47 M3). It clumpifies and compresses
+    /// the FASTQ file in place, writes the FASTQ metadata sidecar and a record that names the original's
+    /// digest, and only then deletes the original. `cliArguments` is the argv the route runs, built once
+    /// by ``inPlaceIngestionCLIArguments(url:pairingMode:pairedFile:threads:)``, and the row records it.
+    /// The in-process route that ran until then, side A of the parity class, passes none and records none.
     @discardableResult
     static func beginInPlaceIngestionOperation(
         url: URL,

@@ -2,19 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A47 M1 (BIO's objection 8, plan decision G1). Copying a FASTQ file into a
+// Phase 2.10 lane A47 M1 and M3 (BIO's objection 8, plan decision G1). Copying a FASTQ file into a
 // project calls `FASTQIngestionService.ingestIfNeeded`, which clumpifies the file in place, replaces
 // it with a `.fastq.gz`, writes the metadata sidecar and a provenance record, and deletes the
-// original. This runs that route on a fixture with the managed clumpify and pins the result, the
-// sidecar, the record and the order in which they appear. It carries no `Sources` edit and passes
-// at the base.
-//
-// The order is the finding. The pipeline removes the original inside `run`, and the service
-// writes the sidecar and the record after `run` returns, so the original is gone before either
-// exists. A `FileManagerDelegate` on the shared manager reads the folder at the moment the original
-// is asked to go. Lane A47 M3 moves this row onto `lungfish-cli fastq ingest`, which publishes the
-// output, writes the sidecar and the record, and removes the original last. This pin then moves
-// with it, in the commit that moves the row.
+// original. M1 pinned the in-process route, whose pipeline removed the original before the sidecar
+// and the record existed. M3 moved the row onto `lungfish-cli fastq ingest`, so this runs that route
+// on the built CLI with the managed clumpify and pins the result, the sidecar, the record and the
+// order: the original goes last. The in-process route is side A of `FastqIngestRouteParityReplayTests`.
 //
 // The class needs the managed clumpify, so it is named `Conformance` and never runs in the unit
 // tier. It skips without the tool, and fails under `LUNGFISH_REQUIRE_TOOLS=1`.
@@ -23,6 +17,7 @@ import Foundation
 import XCTest
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishWorkflow
@@ -113,7 +108,15 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         FileManager.default.delegate = probe
         defer { FileManager.default.delegate = nil }
 
-        FASTQIngestionService.ingestIfNeeded(url: input)
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH"
+        )
+        FASTQIngestionService.ingestIfNeeded(
+            url: input, pairingMode: .singleEnd, pairedFile: nil, existingMetadata: nil, routeContext: nil,
+            runner: CLIReadsRunner(cliURLOverride: cli)
+        )
 
         let title = "FASTQ Ingestion: SRR9"
         let finished = await waitUntil(timeout: .seconds(120)) {
@@ -146,20 +149,21 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
 
         // The record.
         let run = try XCTUnwrap(ProvenanceRecorder.load(from: root))
-        XCTAssertEqual(run.name, "FASTQ Ingestion")
+        XCTAssertEqual(run.name, "lungfish fastq ingest")
         XCTAssertEqual(run.status, .completed)
-        XCTAssertEqual(run.steps.map(\.toolName), ["clumpify.sh", "lungfish-app"])
+        XCTAssertEqual(run.steps.first?.toolName, "FASTQIngestionPipeline")
+        XCTAssertTrue(run.steps.contains { $0.toolName == "clumpify.sh" }, "\(run.steps.map(\.toolName))")
         XCTAssertEqual(run.parameters["deleteOriginals"]?.booleanValue, true)
-        XCTAssertEqual(run.parameters["qualityBinning"]?.stringValue, QualityBinningScheme.none.rawValue)
+        XCTAssertEqual(run.parameters["binning"]?.stringValue, QualityBinningScheme.none.rawValue)
         XCTAssertEqual(run.parameters["wasClumpified"]?.booleanValue, true)
 
-        // The order. The original goes while the output exists and neither the sidecar nor the
-        // record does, because the service writes both after the pipeline returns.
+        // The order. The command removes the original last, once the output, the sidecar and the
+        // record that names the original's digest exist (BIO's objection 8).
         XCTAssertEqual(probe.removals.count, 1, "the original is removed once")
         XCTAssertEqual(
             probe.removals.first,
-            FolderSnapshot(output: true, sidecar: false, record: false, original: true),
-            "today's order is output, original removed, sidecar, record"
+            FolderSnapshot(output: true, sidecar: true, record: true, original: true),
+            "the order is output, sidecar, record, original removed"
         )
     }
 }

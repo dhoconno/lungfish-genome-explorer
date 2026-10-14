@@ -74,20 +74,17 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
         _ = try recordedInPlaceRow()
     }
 
-    func testInPlaceIngestionRecordsNoCommandAndPinsTheParityGap() throws {
-        // cli-parity-gap: fastq-ingest-in-place. The run clumpifies and
-        // compresses the file in place, deletes the original, writes the FASTQ
-        // metadata sidecar and applies no quality binning (FASTQIngestionConfig
-        // defaults to none). No command reproduces that. The row used to record
-        // a `lungfish-cli import fastq` command, which would build a new bundle
-        // under Imports in the file's folder and bin with illumina4, a run that
-        // never happened. The closest command is `debug fastq-ingest` with
-        // `--binning none --delete-originals`, which runs the same pipeline and
-        // leaves the sidecar unwritten. When a command covers the in-place run,
-        // record it and replace this pin with a parse test and a replay test.
-        let item = try recordedInPlaceRow()
-        XCTAssertNil(item.cliCommand, "the row records no command it cannot reproduce")
-        assertCLIParityGap(item.cliCommand, id: "fastq-ingest-in-place")
+    /// The gap `fastq-ingest-in-place` closed in lane A47 M3. The row records the argv its route runs,
+    /// `lungfish-cli fastq ingest`. `FASTQIngestionCLIRouteTests` parses it with the real parser, and
+    /// `FastqIngestRouteParityReplayTests` replays it (C against C').
+    func testInPlaceIngestionRecordsTheCommandTheRouteRuns() throws {
+        let arguments = try FASTQIngestionService.inPlaceIngestionCLIArguments(url: downloadedURL, threads: 4)
+        let reporter = RecordingOperationReporter()
+        FASTQIngestionService.beginInPlaceIngestionOperation(
+            url: downloadedURL, routeContext: routeContext, cliArguments: arguments, reporter: reporter
+        ) { _ in }
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(item.cliCommand, OperationCenter.buildCLICommand(subcommand: "", args: arguments))
     }
 
     func testRefusedInPlaceIngestionLaunchesNothing() {

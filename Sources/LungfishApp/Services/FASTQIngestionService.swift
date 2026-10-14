@@ -128,6 +128,29 @@ public enum FASTQIngestionService {
         existingMetadata: PersistedFASTQMetadata? = nil,
         routeContext: OperationRouteContext? = nil
     ) {
+        ingestIfNeeded(
+            url: url,
+            pairingMode: pairingMode,
+            pairedFile: pairedFile,
+            existingMetadata: existingMetadata,
+            routeContext: routeContext,
+            runner: CLIReadsRunner()
+        )
+    }
+
+    /// The same ingestion on `runner`, so a test can run a built `lungfish-cli`. The run is
+    /// `lungfish-cli fastq ingest` since Phase 2.10 lane A47 M3: the command writes the output, the
+    /// sidecar and a record that names the original's digest, and only then removes the original.
+    /// The command reads the sidecar beside `url` itself, so `existingMetadata` only decides whether
+    /// the file is skipped.
+    static func ingestIfNeeded(
+        url: URL,
+        pairingMode: FASTQIngestionConfig.PairingMode,
+        pairedFile: URL?,
+        existingMetadata: PersistedFASTQMetadata?,
+        routeContext: OperationRouteContext?,
+        runner: CLIReadsRunner
+    ) {
         // Skip if already ingested
         if let existing = existingMetadata ?? FASTQMetadataStore.load(for: url),
            let ingestion = existing.ingestion,
@@ -136,12 +159,12 @@ public enum FASTQIngestionService {
             return
         }
 
-        Self.startInPlaceIngestionInProcess(
+        Self.startInPlaceIngestionThroughCLI(
             url: url,
             pairingMode: pairingMode,
             pairedFile: pairedFile,
-            existingMetadata: existingMetadata,
-            routeContext: routeContext
+            routeContext: routeContext,
+            runner: runner
         )
     }
 
