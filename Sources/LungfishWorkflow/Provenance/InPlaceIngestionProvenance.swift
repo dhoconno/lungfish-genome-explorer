@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishWorkflow
 
 /// Reads the provenance record that stands in the folder of a FASTQ file and merges an in-place
 /// ingestion into it, so the ingestion keeps the file's earlier history (a download or an import)
