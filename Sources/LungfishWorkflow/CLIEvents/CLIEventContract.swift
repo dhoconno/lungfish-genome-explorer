@@ -149,7 +149,6 @@ package enum CLIEventContractTable {
         "fetch ena fasta": .result(schemaID: "fetch-ena-fasta"),
         "fetch ena reads": .result(schemaID: "fetch-ena-reads"),
         "fetch ena search": .result(schemaID: "fetch-ena-search"),
-
         "fetch ncbi": .result(schemaID: "fetch-ncbi"),
         "fetch search": .result(schemaID: "fetch-search"),
         "fetch sra download": .result(schemaID: "fetch-sra-download"),
