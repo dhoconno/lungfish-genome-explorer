@@ -52,7 +52,8 @@ struct NaoMgsCommand: AsyncParsableCommand {
     struct ImportSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "import",
-            abstract: "Import NAO-MGS results as a standalone JSON summary"
+            abstract: "Import NAO-MGS results as a standalone JSON summary",
+            discussion: "The global --threads option sets the thread count."
         )
 
         @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions

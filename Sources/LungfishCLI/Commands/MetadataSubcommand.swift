@@ -22,7 +22,8 @@ import LungfishWorkflow
     struct MetadataSubcommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "metadata",
-            abstract: "Import sample metadata CSV/TSV into a result bundle"
+            abstract: "Import sample metadata CSV/TSV into a result bundle",
+            discussion: "The global --threads option sets the thread count."
         )
 
         @Argument(help: "Path to the metadata CSV or TSV file")

@@ -58,6 +58,17 @@ final class DroppedFormatOptionTests: XCTestCase {
         XCTAssertFalse(ListSubcommand.helpMessage(columns: 100).contains("--format"))
     }
 
+    /// Hiding the group takes the `--threads` line out of the help, so each dropped leaf that reads the count says
+    /// so in its own words (A55 review, ruling 2). The three that already did stay as they are.
+    func testEachDroppedLeafThatReadsThreadsNamesItInItsHelp() throws {
+        let leaves = Self.leafTypes()
+        for path in ["fastq deacon-ribo", "fastq demultiplex", "fastq entropy-filter", "fastq ribodetector",
+                     "import metadata", "nao-mgs import", "orient", "variants phase"] {
+            let type = try XCTUnwrap(leaves[path], path)
+            XCTAssertTrue(type.helpMessage(columns: 100).contains("--threads"), "\(path) reads --threads, so its help names it")
+        }
+    }
+
     func testADroppedLeafHidesTheWholeGroupAsTheTextOnlyLeavesDo() {
         let help = ListSubcommand.helpMessage(columns: 100)
         for option in ["--format", "--verbose", "--quiet", "--no-color", "--threads"] {

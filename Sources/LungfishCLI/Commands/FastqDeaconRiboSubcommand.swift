@@ -22,7 +22,8 @@ private struct DeaconRiboInvocationRecord: Sendable {
 struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "deacon-ribo",
-        abstract: "Detect and remove ribosomal RNA sequences with Deacon and BBMap ribokmers"
+        abstract: "Detect and remove ribosomal RNA sequences with Deacon and BBMap ribokmers",
+        discussion: "The global --threads option sets the thread count."
     )
 
     @Argument(help: "Input FASTA/FASTQ file or .lungfishfastq bundle, or paired R1/R2 FASTQ files")

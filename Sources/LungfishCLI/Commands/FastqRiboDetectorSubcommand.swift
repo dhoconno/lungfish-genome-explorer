@@ -56,7 +56,8 @@ struct CondaRiboDetectorToolRunner: RiboDetectorToolRunning {
 struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ribodetector",
-        abstract: "Detect and remove ribosomal RNA sequences with RiboDetector CPU mode"
+        abstract: "Detect and remove ribosomal RNA sequences with RiboDetector CPU mode",
+        discussion: "The global --threads option sets the thread count."
     )
 
     nonisolated(unsafe) static var toolRunner: RiboDetectorToolRunning = CondaRiboDetectorToolRunner()

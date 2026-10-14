@@ -35,6 +35,8 @@ struct OrientCommand: AsyncParsableCommand {
             reference FASTA using vsearch. Reads on the minus strand are
             reverse-complemented to match the reference orientation. Essential
             for amplicon data with known primer orientation.
+
+            It uses all cores unless the global --threads option sets a count.
             """
     )
 
