@@ -2575,6 +2575,88 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(envelope.outputs.contains { $0.path.hasSuffix("filtered.\(FASTQBundle.directoryExtension)/reads.fastq") })
     }
 
+    /// A grouped run that mixes a FASTA bundle and a FASTQ bundle runs two commands. The dispatcher takes the
+    /// outputs of each plan and hands them to the planner that writes the record (`invocationOutputs`), so
+    /// each step lists the files its own command made. `FASTQOperationGroupedRecordTests` gives the planner
+    /// that list by hand, so only a run through the dispatcher shows that the dispatcher hands it over.
+    func testAGroupedRunOfTwoPlansGivesEachStepItsPlansOutputs() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let groupedOutputDir = tempDir.appendingPathComponent("grouped-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: groupedOutputDir, withIntermediateDirectories: true)
+
+        let fastaBundleURL = try makeFullFASTABundle(
+            named: "sequences",
+            in: tempDir,
+            records: [(id: "seq1", sequence: "AACCGGTTAACC")]
+        )
+        let fastqBundle = try FASTQOperationTestHelper.makeBundle(named: "reads", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: fastqBundle.fastqURL, readCount: 2, readLength: 20)
+        let inputPayloads = [
+            fastaBundleURL.lastPathComponent: fastaBundleURL.appendingPathComponent("reads.fasta"),
+            fastqBundle.bundleURL.lastPathComponent: fastqBundle.fastqURL,
+        ]
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .lengthFilter(min: 1, max: nil),
+            inputURLs: [fastaBundleURL, fastqBundle.bundleURL],
+            outputMode: .groupedResult
+        )
+
+        // One output bundle and the record its command wrote for each call, named for the input it read.
+        let runner = SpyCommandRunner { invocation, outputDirectory in
+            let inputBundleURL = URL(fileURLWithPath: try XCTUnwrap(invocation.arguments[safe: 1]))
+            let inputPayload = try XCTUnwrap(inputPayloads[inputBundleURL.lastPathComponent])
+            let stem = inputBundleURL.deletingPathExtension().lastPathComponent
+            let outputBundle = try FASTQOperationTestHelper.makeBundle(named: "filtered-\(stem)", in: outputDirectory)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputBundle.fastqURL, readCount: 1, readLength: 20)
+            try writeSyntheticProvenance(
+                to: outputBundle.bundleURL,
+                name: "lungfish fastq length-filter",
+                toolName: "seqkit",
+                toolVersion: "2.9.0",
+                command: ["seqkit", "seq", inputPayload.path, "-o", outputBundle.fastqURL.path],
+                inputURL: inputPayload,
+                outputURL: outputBundle.fastqURL
+            )
+            return FASTQCLIExecutionResult(outputURLs: [outputBundle.bundleURL])
+        }
+        let service = FASTQOperationExecutionService(
+            inputResolver: SpyInputResolver(resolvedRequest: request),
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        let result = try await service.execute(request: request, workingDirectory: groupedOutputDir)
+
+        XCTAssertEqual(runner.invocations.count, 2, "A FASTA bundle and a FASTQ bundle are two plans")
+        let groupedURL = try XCTUnwrap(result.groupedContainerURL)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: groupedURL))
+        guard envelope.steps.count == 2 else {
+            return XCTFail("Expected one step for each command, got \(envelope.steps.count)")
+        }
+        XCTAssertEqual(envelope.steps.map { $0.outputs.count }, [1, 1], "Each step lists the file its own command made")
+
+        let stepPaths = envelope.steps.flatMap { $0.outputs.map(\.path) }
+        XCTAssertEqual(Set(stepPaths).count, 2, "The two steps list different files")
+        let runPaths = Set(envelope.outputs.map(\.path))
+        for path in stepPaths {
+            XCTAssertTrue(runPaths.contains(path), "\(path) is a step output and not a run output")
+        }
+
+        // The steps keep the order the commands ran in, the FASTA bundle first, and each lists its own file.
+        let extensionName = FASTQBundle.directoryExtension
+        XCTAssertTrue(envelope.steps[0].argv.contains { $0.hasSuffix("/sequences.\(extensionName)") })
+        XCTAssertTrue(envelope.steps[1].argv.contains { $0.hasSuffix("/reads.\(extensionName)") })
+        XCTAssertEqual(
+            envelope.steps[0].outputs.first?.path.hasSuffix("filtered-sequences.\(extensionName)/reads.fastq"), true,
+            envelope.steps[0].outputs.first?.path ?? "no output"
+        )
+        XCTAssertEqual(
+            envelope.steps[1].outputs.first?.path.hasSuffix("filtered-reads.\(extensionName)/reads.fastq"), true,
+            envelope.steps[1].outputs.first?.path ?? "no output"
+        )
+    }
+
     func testExecuteTranslateDerivativeUsesFASTAOutputTarget() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
         defer { try? FileManager.default.removeItem(at: tempDir) }
