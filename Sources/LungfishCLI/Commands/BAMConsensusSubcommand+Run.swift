@@ -69,11 +69,10 @@ extension BAMConsensusSubcommand {
             format: invocation.alignmentURL.pathExtension.lowercased() == "cram" ? .cram : .bam,
             referenceFastaPath: invocation.decodingReferenceURL?.path
         )
-        guard let contigLength = contigLength(region.contig, inHeader: try await provider.fetchHeader()) else {
-            return .refused("The alignment has no contig named \(region.contig). Name one of its contigs in --region.", [])
-        }
-        guard region.end <= contigLength else {
-            return .refused("The region ends at \(region.end), past the end of \(region.contig) at \(contigLength).", [])
+        let contigLength: Int
+        switch AlignmentRegionOnEvidence.contigLength(of: region.contig, end: region.end, inHeader: try await provider.fetchHeader()) {
+        case .success(let length): contigLength = length
+        case .failure(let refusal): return .refused(refusal.message, [])
         }
         let context = try AlignmentActionContext(
             identity: .init(workflow: "bam consensus", resultID: invocation.resultID, sampleID: invocation.recordName, evidenceID: region.contig),
@@ -118,16 +117,6 @@ extension BAMConsensusSubcommand {
             try ProvenanceFileHasher.sha256(of: url) { try Task.checkCancellation() }
         }
         return AlignmentEvidenceFileSnapshot(url: url, byteCount: identity.byteCount, sha256: sha256)
-    }
-
-    /// The `LN` of the `@SQ` line named `contig` in a SAM header.
-    static func contigLength(_ contig: String, inHeader header: String) -> Int? {
-        for line in header.split(separator: "\n") where line.hasPrefix("@SQ") {
-            let fields = line.split(separator: "\t").map(String.init)
-            guard fields.contains("SN:\(contig)"), let length = fields.first(where: { $0.hasPrefix("LN:") }) else { continue }
-            return Int(length.dropFirst(3))
-        }
-        return nil
     }
 
     /// `contig:start-end`, 1-based and inclusive, as zero-based half-open bounds. The last colon

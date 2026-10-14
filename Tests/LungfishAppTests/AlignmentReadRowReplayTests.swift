@@ -181,4 +181,43 @@ final class AlignmentReadRowReplayTests: XCTestCase {
         XCTAssertEqual(item.errorMessage, AlignmentActionContext.EvidenceError.staleEvidence(shown.alignmentURL).localizedDescription)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: bundle.deletingLastPathComponent().path), [], "nothing was published")
     }
+
+    /// The coordinator refused a region whose contig was not the evidence's or whose end lay past the
+    /// contig, and the guard went with the in-process route. The leaf refuses both now (review A51, F2),
+    /// so the row begins with the command it records, the leaf fails before it stages, and the row
+    /// ends failed with the leaf's own sentence. Nothing is published, and the leaf records nothing.
+    private func assertRegionRowRefused(
+        contig: String, end: Int, message: String, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let bundle = scratch.appendingPathComponent("out/region.lungfishfastq")
+        viewer.alignmentExtractionSavePanelPresenter = SavePanel(url: bundle)
+        viewer.alignmentActionContext = try context()
+        viewer.setExplicitAlignmentSelection(contig: contig, start: 0, end: end)
+
+        let item = try await endedRow(titled: "Extract Reads in Selected Region") { viewer.extractReadsInSelectedAlignmentRegion() }
+
+        XCTAssertEqual(item.state, .failed, item.detail, file: file, line: line)
+        XCTAssertEqual(item.detail, "Alignment read extraction failed", file: file, line: line)
+        XCTAssertEqual(item.errorMessage, message, "the row shows the leaf's refusal", file: file, line: line)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ExtractReadsSubcommand.self)
+        XCTAssertEqual(command.regions, ["\(contig):1-\(end)"], "the row records the region the user selected", file: file, line: line)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: bundle.deletingLastPathComponent().path), [],
+            "nothing was published and nothing was recorded", file: file, line: line
+        )
+    }
+
+    func testARegionOnAContigTheBAMDoesNotNameFailsTheRowWithTheLeafsRefusal() async throws {
+        try await assertRegionRowRefused(
+            contig: "NC_045512.2", end: 3000,
+            message: "The alignment has no contig named NC_045512.2. Name one of its contigs in --region."
+        )
+    }
+
+    func testARegionThatEndsPastTheContigFailsTheRowWithTheLeafsRefusal() async throws {
+        try await assertRegionRowRefused(
+            contig: Self.contig, end: 30000,
+            message: "The region ends at 30000, past the end of \(Self.contig) at 29829."
+        )
+    }
 }

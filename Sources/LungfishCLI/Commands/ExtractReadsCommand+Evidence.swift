@@ -10,6 +10,15 @@ import LungfishWorkflow
 
 /// The stagers a run on alignment evidence uses, which a test stands in for.
 struct ExtractReadsEvidenceStages: Sendable {
+    /// The alignment's header, which a region run reads before it stages, to see that each region is on a contig.
+    var header: @Sendable (AlignmentReadExtractionInvocation) async throws -> String = { invocation in
+        try await AlignmentDataProvider(
+            alignmentPath: invocation.alignmentURL.path,
+            indexPath: invocation.indexURL.path,
+            format: invocation.alignmentURL.pathExtension.lowercased() == "cram" ? .cram : .bam,
+            referenceFastaPath: invocation.decodingReferenceURL?.path
+        ).fetchHeader()
+    }
     var region: @Sendable (BAMRegionExtractionConfig) async throws -> AlignmentReadExtractionTransaction = {
         try await AlignmentReadExtractionStager().stageRegion(config: $0)
     }
@@ -108,7 +117,8 @@ extension ExtractReadsSubcommand {
     /// Hashes the evidence, stages the reads, checks the evidence again and publishes the bundle with
     /// its record, as the viewer's coordinator did in the app before Phase 2.10. A cancel stops each
     /// hash and each tool and is checked again before the publication. A missing input is refused
-    /// before anything runs.
+    /// before anything runs, and so is a region that is not on the evidence, as `bam consensus` refuses
+    /// one: a contig the header does not name, or an end past the contig (review A51, F2).
     static func extractEvidence(
         _ invocation: AlignmentReadExtractionInvocation,
         stages: ExtractReadsEvidenceStages = .init()
@@ -130,6 +140,16 @@ extension ExtractReadsSubcommand {
         var snapshots: [AlignmentEvidenceFileSnapshot] = []
         for (_, url) in evidence { snapshots.append(try await snapshot(url)) }
         try Task.checkCancellation()
+        // Each region must lie on a contig of the header, before any samtools run reads it.
+        if case .regions(let regions, _, _, _) = invocation.selection {
+            let header = try await stages.header(invocation)
+            for region in regions {
+                if case .failure(let refusal) = AlignmentRegionOnEvidence.contigLength(ofRegion: region, inHeader: header) {
+                    throw ExtractReadsRefusal(refusal.message)
+                }
+            }
+            try Task.checkCancellation()
+        }
 
         let directory = invocation.outputURL.deletingLastPathComponent()
         let transaction: AlignmentReadExtractionTransaction

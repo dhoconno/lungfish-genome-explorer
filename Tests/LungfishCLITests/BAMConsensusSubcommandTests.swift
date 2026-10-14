@@ -43,10 +43,10 @@ final class BAMConsensusSubcommandTests: XCTestCase {
         .appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
     private static let contigLength = 29829
 
-    private func arguments(output: URL, minimumDepth: Int = 1, index: URL? = nil, extra: [String] = []) -> [String] {
+    private func arguments(output: URL, minimumDepth: Int = 1, index: URL? = nil, region: String? = nil, extra: [String] = []) -> [String] {
         [
             "--alignment", Self.bam.path, "--index", (index ?? URL(fileURLWithPath: Self.bam.path + ".bai")).path,
-            "--scope", "wholeContig", "--region", "MT192765.1:1-\(Self.contigLength)", "--min-depth", "\(minimumDepth)",
+            "--scope", "wholeContig", "--region", region ?? "MT192765.1:1-\(Self.contigLength)", "--min-depth", "\(minimumDepth)",
             "--name", "S1 MT192765.1 consensus", "--result-id", "run-1", "--output", output.path, "--format", "json",
         ] + extra
     }
@@ -71,6 +71,24 @@ final class BAMConsensusSubcommandTests: XCTestCase {
         XCTAssertEqual(lines.events.first, .start(message: BAMConsensusSubcommand.startMessage))
         XCTAssertEqual(lines.events.last, .failed(message: AlignmentConsensusPublicationService.allLowDepthRefusal, detail: nil))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [], "a refusal writes nothing")
+    }
+
+    /// The region guard `extract reads --index` shares (review A51, F2): a contig the header does not
+    /// name and an end past the contig are refused with exit 3 before any consensus is called, and
+    /// the run writes nothing.
+    func testARegionOffTheEvidenceIsRefusedWithExit3AndWritesNothing() async throws {
+        let output = root.appendingPathComponent("S1.fasta")
+        let refusals = [
+            ("NC_045512.2:1-3000", "The alignment has no contig named NC_045512.2. Name one of its contigs in --region."),
+            ("MT192765.1:1-\(Self.contigLength + 1)", "The region ends at \(Self.contigLength + 1), past the end of MT192765.1 at \(Self.contigLength)."),
+        ]
+        for (region, message) in refusals {
+            let (lines, exit) = try await run(arguments(output: output, region: region))
+
+            XCTAssertEqual(exit, CLIExitCode.inputError.rawValue, region)
+            XCTAssertEqual(lines.events, [.start(message: BAMConsensusSubcommand.startMessage), .failed(message: message, detail: nil)], region)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [], "a refusal writes nothing: \(region)")
+        }
     }
 
     func testWithTheFlagTheAllNConsensusIsWrittenAndItsRecordNamesTheAnswer() async throws {

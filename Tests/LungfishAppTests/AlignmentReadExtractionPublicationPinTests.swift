@@ -160,6 +160,8 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
         let root = self.root!
         let staged = Staged()
         var stages = ExtractReadsEvidenceStages()
+        // The evidence holds stand-in bytes, so the header the region check reads is a stand-in too.
+        stages.header = { _ in "@SQ\tSN:virus\tLN:40\n" }
         stages.region = { config in
             await staged.record(region: config)
             return try Self.transaction(in: root, named: "selected-region")

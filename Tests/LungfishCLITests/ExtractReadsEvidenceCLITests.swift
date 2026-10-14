@@ -138,6 +138,143 @@ final class ExtractReadsEvidenceCLITests: XCTestCase {
         ]), "with --index, --source and --bam go together")
     }
 
+    // MARK: - A region that is not on the evidence (review A51, F2)
+
+    /// What a refused run leaves, as `bam consensus` leaves it: the start and the failure that names the
+    /// fix, exit 3, the sentence on standard error, and nothing written, no bundle and no record.
+    private func assertRefused(
+        _ events: [CLIEvent], _ output: ImportStreamCapture.Output, message: String, bundle: URL,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        XCTAssertEqual((output.thrown as? ExitCode)?.rawValue, CLIExitCode.inputError.rawValue, "a refusal exits 3: \(String(describing: output.thrown))", file: file, line: line)
+        XCTAssertEqual(events, [.start(message: ExtractReadsSubcommand.startMessage), .failed(message: message, detail: nil)], file: file, line: line)
+        XCTAssertTrue(output.standardError.contains { $0.contains(message) }, "the refusal is printed: \(output.standardError)", file: file, line: line)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.path), "a refusal publishes no bundle", file: file, line: line)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: bundle).path), "a refusal records nothing", file: file, line: line)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: bundle.deletingLastPathComponent().path), [], "a refusal writes nothing", file: file, line: line)
+    }
+
+    /// `bam consensus` refuses a contig the header does not name before samtools reads a base, and the
+    /// region run, which the viewer's Extract Reads in Selected Region now runs, let samtools answer.
+    func testARegionOnAContigTheHeaderDoesNotNameIsRefusedBeforeSamtoolsReadsIt() async throws {
+        guard SamtoolsLocator.locate() != nil else { throw XCTSkip("The managed samtools is not installed.") }
+        let (bam, index) = try evidence()
+        let bundle = scratch.root.appendingPathComponent("out/region.lungfishfastq")
+
+        let (events, output) = try await run([
+            "--by-region", "--bam", bam.path, "--index", index.path, "--region", "NC_045512.2:1-3000", "--output", bundle.path,
+        ])
+
+        try assertRefused(
+            events, output, message: "The alignment has no contig named NC_045512.2. Name one of its contigs in --region.", bundle: bundle
+        )
+    }
+
+    /// samtools stops a region at the end of its contig without a word, so a bundle named for
+    /// `MT192765.1:1-30000` would hold the reads of `MT192765.1:1-29829`.
+    func testARegionThatEndsPastTheContigIsRefusedInsteadOfPublishedShort() async throws {
+        guard SamtoolsLocator.locate() != nil else { throw XCTSkip("The managed samtools is not installed.") }
+        let (bam, index) = try evidence()
+        let bundle = scratch.root.appendingPathComponent("out/region.lungfishfastq")
+
+        let (events, output) = try await run([
+            "--by-region", "--bam", bam.path, "--index", index.path, "--region", "MT192765.1:1-30000", "--output", bundle.path,
+        ])
+
+        try assertRefused(
+            events, output, message: "The region ends at 30000, past the end of MT192765.1 at 29829.", bundle: bundle
+        )
+    }
+
+    /// Every region is checked, so a good region before a bad one does not carry the run.
+    func testOneRegionOffTheEvidenceRefusesTheWholeRun() async throws {
+        guard SamtoolsLocator.locate() != nil else { throw XCTSkip("The managed samtools is not installed.") }
+        let (bam, index) = try evidence()
+        let bundle = scratch.root.appendingPathComponent("out/region.lungfishfastq")
+
+        let (events, output) = try await run([
+            "--by-region", "--bam", bam.path, "--index", index.path, "--region", "MT192765.1:1-3000",
+            "--region", "MT192765.1:29000-29830", "--output", bundle.path,
+        ])
+
+        try assertRefused(
+            events, output, message: "The region ends at 29830, past the end of MT192765.1 at 29829.", bundle: bundle
+        )
+    }
+
+    /// The guard refuses what is off the evidence and nothing else, so a region that ends on the
+    /// contig's last base and a contig named without coordinates still publish.
+    func testARegionOnTheEvidenceStillPublishesWhenItEndsOnTheLastBaseOrNamesTheWholeContig() async throws {
+        guard SamtoolsLocator.locate() != nil else { throw XCTSkip("The managed samtools is not installed.") }
+        let (bam, index) = try evidence()
+        for (name, region) in [("last-base", "MT192765.1:28000-29829"), ("whole-contig", "MT192765.1")] {
+            let bundle = scratch.root.appendingPathComponent("out/\(name).lungfishfastq")
+
+            let (events, output) = try await run([
+                "--by-region", "--bam", bam.path, "--index", index.path, "--region", region, "--output", bundle.path,
+            ])
+
+            XCTAssertNil(output.thrown, "\(region): \(output.standardError.joined(separator: "\n"))")
+            guard case .complete(let outputs, _)? = events.last else { return XCTFail("\(region): no complete event: \(events)") }
+            XCTAssertEqual(outputs, ["/work/out/\(name).lungfishfastq"], region)
+        }
+    }
+
+    /// The refusal comes before the stager, so a refused region costs no samtools extraction.
+    func testARegionOffTheEvidenceNeverReachesTheStager() async throws {
+        struct StagerRan: Error {}
+        let (bam, index) = try evidence()
+        var stages = ExtractReadsEvidenceStages()
+        stages.header = { _ in "@SQ\tSN:MT192765.1\tLN:29829\n" }
+        stages.region = { _ in throw StagerRan() }
+        let refusals = [
+            ("NC_045512.2:1-3000", "The alignment has no contig named NC_045512.2. Name one of its contigs in --region."),
+            ("MT192765.1:1-29830", "The region ends at 29830, past the end of MT192765.1 at 29829."),
+        ]
+        for (region, message) in refusals {
+            let invocation = AlignmentReadExtractionInvocation(
+                alignmentURL: bam, indexURL: index, decodingReferenceURL: nil,
+                selection: .regions([region], minimumMapQ: nil, excludedFlags: nil, readGroups: []),
+                readsName: "r", outputURL: scratch.root.appendingPathComponent("out/region.lungfishfastq")
+            )
+
+            do {
+                _ = try await ExtractReadsSubcommand.extractEvidence(invocation, stages: stages)
+                XCTFail("\(region) is not on the evidence")
+            } catch let refusal as ExtractReadsRefusal {
+                XCTAssertEqual(refusal.message, message, region)
+            }
+        }
+    }
+
+    /// The forms samtools takes for a region, read against a header that holds a contig with colons in its name.
+    func testTheRegionFormsSamtoolsTakesAreReadAgainstTheHeader() {
+        let header = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:HLA-A*01:01\tLN:500\n@PG\tID:x\n"
+        func refusal(_ region: String) -> String? {
+            if case .failure(let refusal) = AlignmentRegionOnEvidence.contigLength(ofRegion: region, inHeader: header) { return refusal.message }
+            return nil
+        }
+        func noContig(_ name: String) -> String { "The alignment has no contig named \(name). Name one of its contigs in --region." }
+
+        for region in [
+            "chr1", "chr1:1-1000", "chr1:1,000", "chr1:500-", "chr1:-1000", "chr1:1-1,000",
+            "HLA-A*01:01", "HLA-A*01:01:100-200", "{HLA-A*01:01}:100-200",
+        ] {
+            XCTAssertNil(refusal(region), "\(region) is on the evidence")
+        }
+        XCTAssertEqual(refusal("chr1:1-1001"), "The region ends at 1001, past the end of chr1 at 1000.")
+        XCTAssertEqual(refusal("chr1:-1001"), "The region ends at 1001, past the end of chr1 at 1000.")
+        XCTAssertEqual(refusal("chr1:1,001"), "The region starts at 1001, past the end of chr1 at 1000.")
+        XCTAssertEqual(refusal("chr1:1001-"), "The region starts at 1001, past the end of chr1 at 1000.")
+        XCTAssertEqual(refusal("HLA-A*01:01:100-501"), "The region ends at 501, past the end of HLA-A*01:01 at 500.")
+        XCTAssertEqual(refusal("chr2:1-10"), noContig("chr2"))
+        XCTAssertEqual(refusal("chr2"), noContig("chr2"))
+        XCTAssertEqual(refusal("chr1:abc"), noContig("chr1:abc"), "a text that reads as no range names a contig the header lacks")
+        XCTAssertEqual(refusal("chr1:"), noContig("chr1:"))
+        XCTAssertEqual(refusal("*"), noContig("*"), "the unmapped reads are no region")
+        XCTAssertEqual(refusal("."), noContig("."), "a region never falls back to all reads")
+    }
+
     // MARK: - The second check and the cancel
 
     /// What a stand-in stager hands back, a staged FASTQ.
@@ -166,6 +303,7 @@ final class ExtractReadsEvidenceCLITests: XCTestCase {
         )
         let root = scratch.root
         var stages = ExtractReadsEvidenceStages()
+        stages.header = { _ in "@SQ\tSN:MT192765.1\tLN:29829\n" }
         stages.region = { _ in try Self.stagedTransaction(in: root) }
         stages.beforeSecondCheck = { try Data("other bytes".utf8).write(to: bam) }
 
