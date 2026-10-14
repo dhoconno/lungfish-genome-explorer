@@ -15,7 +15,7 @@ import Foundation
 import XCTest
 import LungfishIO
 import LungfishTestSupport
-import LungfishWorkflow
+@testable import LungfishWorkflow
 @testable import LungfishOperations
 
 final class VariantEditPinTests: XCTestCase {

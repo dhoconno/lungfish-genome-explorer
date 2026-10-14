@@ -2,7 +2,7 @@ import XCTest
 import SQLite3
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 @testable import LungfishOperations
 
 final class VariantSampleMetadataImportServiceTests: XCTestCase {

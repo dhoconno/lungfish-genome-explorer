@@ -1,7 +1,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 @testable import LungfishOperations
 
 final class VariantDeletionMutationServiceTests: XCTestCase {
