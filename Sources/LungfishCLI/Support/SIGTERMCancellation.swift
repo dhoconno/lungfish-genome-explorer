@@ -26,39 +26,45 @@ private let sigtermPosts = SIGTERMPostLatch()
 /// A kqueue signal filter coexists with the handler and records a signal even when its action is to ignore it.
 /// It notes a signal sent to the process, as `kill` and `killpg` send it, and not one sent to a single thread.
 ///
-/// The filter clears an event when it reports one (`EV_CLEAR`), so a read that saw a post latches it. The latch
-/// holds after ``finish()`` closed the queue, until the next ``begin()``, because a leaf reads the flag after the
-/// run ended its instance. A queue that cannot be made leaves the handler's count as the only source.
+/// The filter reports how many times the signal was generated since its last read and clears that count when it
+/// does (`EV_CLEAR`), so the latch adds each report to a count of its own (Phase 2.10 lane FXS2). The count holds
+/// after ``finish()`` closed the queue, until the next ``begin()``, because a leaf reads the flag after the run
+/// ended its instance. The kernel merges posts that wait for one thread into a single delivery, so the count can
+/// stay above the number of times the handler ran. A queue that cannot be made leaves the handler's count as the
+/// only source.
 private final class SIGTERMPostLatch: Sendable {
     private struct State {
         var queue: Int32 = -1
-        var seen = false
+        var posts = 0
     }
 
     private let state = Mutex(State())
 
-    /// Clears the latch and starts watching, in place of any queue an earlier instance left open.
+    /// Clears the count and starts watching, in place of any queue an earlier instance left open.
     func begin() {
         state.withLock { state in
             if state.queue >= 0 { close(state.queue) }
-            state.seen = false
+            state.posts = 0
             state.queue = Self.makeQueue()
         }
     }
 
-    /// Whether a SIGTERM was posted since ``begin()``.
-    var occurred: Bool {
+    /// How many SIGTERMs the kernel posted since ``begin()``. It reads the queue first, so a post is counted at once.
+    var posts: Int {
         state.withLock { state in
-            if !state.seen, state.queue >= 0, Self.reports(state.queue) { state.seen = true }
-            return state.seen
+            if state.queue >= 0 { state.posts += Self.reports(state.queue) }
+            return state.posts
         }
     }
 
-    /// Latches what the queue noted and closes it. The latch keeps the answer.
+    /// Whether a SIGTERM was posted since ``begin()``.
+    var occurred: Bool { posts > 0 }
+
+    /// Counts what the queue noted and closes it. The count stays until the next ``begin()``.
     func finish() {
         state.withLock { state in
             guard state.queue >= 0 else { return }
-            if Self.reports(state.queue) { state.seen = true }
+            state.posts += Self.reports(state.queue)
             close(state.queue)
             state.queue = -1
         }
@@ -78,11 +84,12 @@ private final class SIGTERMPostLatch: Sendable {
         return queue
     }
 
-    /// Whether the queue holds a post, which reading it clears.
-    private static func reports(_ queue: Int32) -> Bool {
+    /// How many posts the queue holds, which reading it clears. An event stands for at least one post.
+    private static func reports(_ queue: Int32) -> Int {
         var event = kevent()
         var immediately = timespec(tv_sec: 0, tv_nsec: 0)
-        return kevent(queue, nil, 0, &event, 1, &immediately) > 0
+        guard kevent(queue, nil, 0, &event, 1, &immediately) > 0 else { return 0 }
+        return max(1, Int(event.data))
     }
 }
 
