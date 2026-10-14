@@ -24,4 +24,4 @@
 {"event":"progress","message":"Building indices...","progress":0.85,"schemaVersion":2}
 {"event":"progress","message":"Finalizing...","progress":0.95,"schemaVersion":2}
 {"event":"progress","message":"Complete","progress":1,"schemaVersion":2}
-{"event":"complete","message":"Built database at \/work\/kraken2\/kraken2.sqlite with 5294 rows","output":"\/work\/kraken2\/kraken2.sqlite","outputs":["\/work\/kraken2\/kraken2.sqlite"],"progress":1,"schemaVersion":2}
+{"event":"complete","message":"Built kraken2.sqlite with 5294 rows.","output":"\/work\/kraken2\/kraken2.sqlite","outputs":["\/work\/kraken2\/kraken2.sqlite"],"progress":1,"schemaVersion":2}

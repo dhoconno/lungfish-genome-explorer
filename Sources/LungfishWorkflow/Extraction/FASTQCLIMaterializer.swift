@@ -81,7 +81,7 @@ public final class FASTQCLIMaterializer: Sendable {
         let outputURL = tempDirectory.appendingPathComponent(
             "materialized-\(UUID().uuidString).\(outputExtension)"
         )
-        progress?("Materializing pointer dataset...")
+        progress?("Writing the reads to a FASTQ file\u{2026}")
 
         switch manifest.payload {
         case .full(let fastqFilename):

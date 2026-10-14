@@ -168,7 +168,8 @@ extension EsVirituAnalysisRunTool {
                     sampleFolder: nil,
                     displayName: "EsViritu Batch",
                     parameters: sample.config.summaryParameters(),
-                    summary: "\(sample.detectionCount) viruses in \(sample.familyCount) families"
+                    summary: "\(ClassificationCompletionDetail.counted(sample.detectionCount, "virus", "viruses"))"
+                        + " in \(ClassificationCompletionDetail.counted(sample.familyCount, "family", "families"))"
                 )
             }
             return EsVirituSourceRecord(
@@ -176,7 +177,10 @@ extension EsVirituAnalysisRunTool {
                 sampleFolder: sample.config.outputDirectory.lastPathComponent,
                 displayName: "EsViritu Detection",
                 parameters: sample.config.summaryParameters(),
-                summary: "\(sample.detectionCount) viruses detected in \(sample.familyCount) families"
+                summary: ClassificationCompletionDetail.esVirituCounts(
+                    virusCount: sample.detectionCount,
+                    familyCount: sample.familyCount
+                )
             )
         }
     }

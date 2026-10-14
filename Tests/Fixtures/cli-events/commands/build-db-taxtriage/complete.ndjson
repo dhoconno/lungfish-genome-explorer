@@ -20,4 +20,4 @@
 {"event":"progress","message":"Building indices...","progress":0.85,"schemaVersion":2}
 {"event":"progress","message":"Finalizing...","progress":0.95,"schemaVersion":2}
 {"event":"progress","message":"Complete","progress":1,"schemaVersion":2}
-{"event":"complete","message":"Built database at \/work\/taxtriage\/taxtriage.sqlite with 15 rows","output":"\/work\/taxtriage\/taxtriage.sqlite","outputs":["\/work\/taxtriage\/taxtriage.sqlite"],"progress":1,"schemaVersion":2}
+{"event":"complete","message":"Built taxtriage.sqlite with 15 rows.","output":"\/work\/taxtriage\/taxtriage.sqlite","outputs":["\/work\/taxtriage\/taxtriage.sqlite"],"progress":1,"schemaVersion":2}

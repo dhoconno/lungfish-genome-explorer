@@ -282,7 +282,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         if hasIgnoredFailures {
             let sampleCount = Set(ignoredFailures.compactMap(\.sampleID)).count
             let sampleSummary = sampleCount > 0 ? " across \(sampleCount) sample\(sampleCount == 1 ? "" : "s")" : ""
-            lines.append("Ignored sample failures: \(ignoredFailures.count)\(sampleSummary)")
+            lines.append("Ignored task failures: \(ignoredFailures.count)\(sampleSummary)")
         }
 
         if hasSampleFailures {

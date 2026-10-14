@@ -44,4 +44,4 @@
 {"event":"progress","message":"Building indices...","progress":0.85,"schemaVersion":2}
 {"event":"progress","message":"Finalizing...","progress":0.95,"schemaVersion":2}
 {"event":"progress","message":"Complete","progress":1,"schemaVersion":2}
-{"event":"complete","message":"Built database at \/work\/esviritu\/esviritu.sqlite with 19 rows","output":"\/work\/esviritu\/esviritu.sqlite","outputs":["\/work\/esviritu\/esviritu.sqlite"],"progress":1,"schemaVersion":2}
+{"event":"complete","message":"Built esviritu.sqlite with 19 rows.","output":"\/work\/esviritu\/esviritu.sqlite","outputs":["\/work\/esviritu\/esviritu.sqlite"],"progress":1,"schemaVersion":2}

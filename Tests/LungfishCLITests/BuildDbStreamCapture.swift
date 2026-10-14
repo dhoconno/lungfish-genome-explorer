@@ -93,11 +93,12 @@ enum BuildDbStreamCapture {
     }
 
     /// The size a cleanup line reports depends on gzip and on the locale's number format, so a
-    /// comparison reads the line up to the size.
+    /// comparison reads the line up to the size and from the closing bracket.
     static func withoutFreedSize(_ lines: [String]) -> [String] {
-        lines.map { line in
-            guard let range = line.range(of: "Cleanup complete. Freed ") else { return line }
-            return String(line[..<range.upperBound]) + "<size>"
+        let opening = "Removed intermediate files ("
+        return lines.map { line in
+            guard line.hasPrefix(opening), line.hasSuffix(").") else { return line }
+            return opening + "<size>)."
         }
     }
 

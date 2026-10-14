@@ -86,7 +86,7 @@ final class CLIClassifierRunnerTests: XCTestCase {
         )
 
         XCTAssertEqual(completion.detail, try ClassifierRouteFixtures.expectedEsVirituDetail())
-        XCTAssertNotEqual(completion.detail, "1 viruses detected in 1 families", "the command's own message")
+        XCTAssertNotEqual(completion.detail, "1 virus detected in 1 family", "the command's own message")
         XCTAssertFalse(completion.completesWithWarning)
         XCTAssertEqual(completion.folder?.standardizedFileURL, folder.standardizedFileURL)
         XCTAssertNil(completion.taxonomyResult)

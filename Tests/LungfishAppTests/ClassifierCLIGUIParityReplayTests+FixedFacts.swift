@@ -351,7 +351,11 @@ extension ClassifierCLIGUIParityReplayTests {
             }
             let detections = table.flatMap { try? ClassifierParityFixtures.esVirituDetections($0) }
             check("completion detail", row.completionDetail, detections.map {
-                $0.viruses == 0 ? "No viral hits detected" : "\($0.viruses) viruses detected in \($0.families) families"
+                // Each count noun follows its count (Phase 2.10 U34, W4), written out here so the fact
+                // does not borrow the words of the code it checks.
+                $0.viruses == 0
+                    ? "No viral hits detected"
+                    : "\($0.viruses) \($0.viruses == 1 ? "virus" : "viruses") detected in \($0.families) \($0.families == 1 ? "family" : "families")"
             })
             check("log Building esviritu.sqlite", row.logLines.first { $0.message.hasPrefix("Building esviritu.sqlite") }?.description, "[info] Building esviritu.sqlite from single-sample result")
         case (.esViritu, true):

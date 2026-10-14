@@ -24,6 +24,5 @@
 {"event":"progress","message":"Classification complete","progress":1,"schemaVersion":2}
 {"event":"progress","message":"Building Kraken2 database…","progress":1,"schemaVersion":2}
 {"event":"log","level":"info","message":"Parsed 15 classification rows from Kraken2 results","schemaVersion":2}
-{"event":"log","level":"info","message":"Built database at \/work\/Project.lungfish\/Analyses\/kraken2-batch-2026-10-11T16-36-39\/kraken2.sqlite with 15 rows","schemaVersion":2}
-{"event":"log","level":"info","message":"Cleanup complete. Freed Zero KB","schemaVersion":2}
+{"event":"log","level":"info","message":"Built kraken2.sqlite with 15 rows.","schemaVersion":2}
 {"artifacts":[{"kind":"tsv","path":"\/work\/Project.lungfish\/Analyses\/kraken2-batch-2026-10-11T16-36-39\/classification-batch-summary.tsv","role":"batch-summary"},{"kind":"json","path":"\/work\/Project.lungfish\/Analyses\/kraken2-batch-2026-10-11T16-36-39\/classification-batch-result.json","role":"batch-manifest"},{"kind":"sqlite","path":"\/work\/Project.lungfish\/Analyses\/kraken2-batch-2026-10-11T16-36-39\/kraken2.sqlite","role":"classification-database"},{"kind":"provenance","path":"\/work\/Project.lungfish\/Analyses\/kraken2-batch-2026-10-11T16-36-39\/.lungfish-provenance.json","role":"provenance"}],"event":"complete","message":"2 of 2 samples returned valid Kraken2 classifications","output":"\/work\/Project.lungfish\/Analyses\/kraken2-batch-2026-10-11T16-36-39","outputs":["\/work\/Project.lungfish\/Analyses\/kraken2-batch-2026-10-11T16-36-39"],"progress":1,"schemaVersion":2}

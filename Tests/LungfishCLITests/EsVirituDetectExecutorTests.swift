@@ -449,7 +449,41 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         }, "no materialization line is a log line")
     }
 
+    /// W4 of Phase 2.10 (U34). A pointer dataset reports `Writing the reads to a FASTQ file…` while the
+    /// materializer copies its reads, where it read `Materializing pointer dataset...`. The same line
+    /// heads the golden `classifiers/esviritu/materialize.txt` and the two stdout goldens beside it.
+    func testAPointerDatasetReportsItsMaterializationInPlainWords() async throws {
+        let shapes = try BundleShapeFixtures(in: root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true))
+        let work = root.appendingPathComponent("materialized", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let reported = ProgressLines()
+
+        _ = try await FASTQCLIMaterializer(runner: .shared).materialize(
+            bundleURL: shapes.full, tempDirectory: work, progress: { reported.append($0) }
+        )
+
+        XCTAssertEqual(reported.all, ["Writing the reads to a FASTQ file\u{2026}"])
+    }
+
     // MARK: - Helpers
+
+    /// The progress lines a materializer reported, in order.
+    private final class ProgressLines: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lines: [String] = []
+
+        func append(_ line: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            lines.append(line)
+        }
+
+        var all: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return lines
+        }
+    }
 
     /// `FASTQCLIMaterializer`, reporting `lines` as its own progress first.
     private struct ReportingMaterializer: CLISequenceInputMaterializing, Sendable {

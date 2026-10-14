@@ -330,7 +330,7 @@ extension BuildDbCommand {
                 freedBytes += performCleanupForSingleResult(resultURL: cleanupRoot)
             }
 
-            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
+            if let line = BuildDbCommand.cleanupLine(freedBytes: freedBytes) { events.text(line) }
         }
 
         /// T5's cleanup on the executor path, as amended in Phase 2.9. In the result folder and each serial
@@ -386,7 +386,7 @@ extension BuildDbCommand {
                 }
             }
 
-            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
+            if let line = BuildDbCommand.cleanupLine(freedBytes: freedBytes) { events.text(line) }
             return RecordedRemovalStep.step(
                 toolName: Self.cleanupRemovalToolName,
                 api: "BuildDbCommand.TaxTriageSubcommand.performRecordedCleanup(resultURL:recorded:events:)",

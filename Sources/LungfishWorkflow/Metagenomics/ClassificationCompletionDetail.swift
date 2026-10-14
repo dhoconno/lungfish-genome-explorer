@@ -27,11 +27,23 @@ public enum ClassificationCompletionDetail {
     }
 
     /// The detail of a finished EsViritu sample. A run with no detection reads
-    /// `No viral hits detected`.
+    /// `No viral hits detected`, and each count noun follows its count, as in
+    /// `1 virus detected in 1 family` (Phase 2.10 W4).
     public static func esVirituDetection(virusCount: Int, familyCount: Int) -> String {
         virusCount == 0
             ? "No viral hits detected"
-            : "\(virusCount) viruses detected in \(familyCount) families"
+            : esVirituCounts(virusCount: virusCount, familyCount: familyCount)
+    }
+
+    /// The counts of an EsViritu sample in words, `3 viruses detected in 2 families`, with each noun in
+    /// the number its count asks for. The sample's source bundle entry reads the same words.
+    public static func esVirituCounts(virusCount: Int, familyCount: Int) -> String {
+        "\(counted(virusCount, "virus", "viruses")) detected in \(counted(familyCount, "family", "families"))"
+    }
+
+    /// A count with its noun in the number the count asks for, `1 family` and `2 families`.
+    public static func counted(_ count: Int, _ singular: String, _ plural: String) -> String {
+        "\(count) \(count == 1 ? singular : plural)"
     }
 
     /// The detail of a finished EsViritu batch. A batch with failed samples names both counts.

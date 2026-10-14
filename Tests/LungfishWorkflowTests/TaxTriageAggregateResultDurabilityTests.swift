@@ -85,7 +85,7 @@ final class TaxTriageAggregateResultDurabilityTests: XCTestCase {
         XCTAssertEqual(
             aggregate.summary,
             "TaxTriage pipeline completed with warnings\nRuntime: 13.3s\nSamples: 3\nReports: 2\nMetrics: 0\n"
-                + "Ignored sample failures: 1 across 1 sample\nFailed samples: 1\nTotal output files: 5",
+                + "Ignored task failures: 1 across 1 sample\nFailed samples: 1\nTotal output files: 5",
             "the words each completed sample's bundle entry carries"
         )
     }

@@ -55,7 +55,7 @@ final class BuildDbCancellationTests: XCTestCase {
         }
 
         run.assertEndedCancelled()
-        XCTAssertFalse(run.lines.contains { $0.hasPrefix("Built database") }, "The build went on to write the database")
+        XCTAssertFalse(run.lines.contains { $0.hasPrefix("Built ") }, "The build went on to write the database")
         XCTAssertEqual(try Self.listing(of: result), before, "A cancel leaves the result folder as the build found it")
     }
 
@@ -105,7 +105,7 @@ final class BuildDbCancellationTests: XCTestCase {
         XCTAssertNotNil(earlier["kraken2.sqlite"], "The first build wrote the database")
         XCTAssertNotNil(earlier[".lungfish-provenance.json"], "and the record of the folder")
 
-        let run = await Self.run(cancellingAt: { $0.hasPrefix("Built database") }) { sink in
+        let run = await Self.run(cancellingAt: { $0.hasPrefix("Built ") }) { sink in
             try await BuildDbCommand.Kraken2Subcommand.buildDatabase(
                 in: result, options: try Self.options(force: true, noCleanup: true), events: sink
             )
@@ -162,24 +162,24 @@ final class BuildDbCancellationTests: XCTestCase {
             EsVirituStep(
                 name: "the coverage windows",
                 reportedAtTheStep: { $0.hasSuffix("coverage windows from EsViritu results") },
-                reportedOnlyAfterwards: { $0.hasPrefix("Built database") },
+                reportedOnlyAfterwards: { $0.hasPrefix("Built ") },
                 cleanupRan: false
             ),
             EsVirituStep(
                 name: "the database",
-                reportedAtTheStep: { $0.hasPrefix("Built database") },
+                reportedAtTheStep: { $0.hasPrefix("Built ") },
                 reportedOnlyAfterwards: { $0.contains("No rows with BAM paths") },
                 cleanupRan: false
             ),
             EsVirituStep(
                 name: "the read count pass",
                 reportedAtTheStep: { $0.contains("No rows with BAM paths") },
-                reportedOnlyAfterwards: { $0.hasPrefix("Cleanup complete") },
+                reportedOnlyAfterwards: { $0.hasPrefix("Removed intermediate files") },
                 cleanupRan: false
             ),
             EsVirituStep(
                 name: "the cleanup",
-                reportedAtTheStep: { $0.hasPrefix("Cleanup complete") },
+                reportedAtTheStep: { $0.hasPrefix("Removed intermediate files") },
                 reportedOnlyAfterwards: { _ in false },
                 cleanupRan: true
             ),
@@ -223,7 +223,7 @@ final class BuildDbCancellationTests: XCTestCase {
         try Data("BAM".utf8).write(to: bam)
         let before = try Self.listing(of: result)
 
-        let run = await Self.run(cancellingAt: { $0.hasPrefix("Built database") }) { sink in
+        let run = await Self.run(cancellingAt: { $0.hasPrefix("Built ") }) { sink in
             try await BuildDbCommand.EsVirituSubcommand.buildDatabase(in: result, options: try Self.options(), events: sink)
         }
 
@@ -245,7 +245,7 @@ final class BuildDbCancellationTests: XCTestCase {
         XCTAssertNotNil(earlier["esviritu.sqlite"], "The first build wrote the database")
         XCTAssertNotNil(earlier[".lungfish-provenance.json"], "and the record of the folder")
 
-        let run = await Self.run(cancellingAt: { $0.hasPrefix("Built database") }) { sink in
+        let run = await Self.run(cancellingAt: { $0.hasPrefix("Built ") }) { sink in
             try await BuildDbCommand.EsVirituSubcommand.buildDatabase(
                 in: result, options: try Self.options(force: true, noCleanup: true), events: sink
             )

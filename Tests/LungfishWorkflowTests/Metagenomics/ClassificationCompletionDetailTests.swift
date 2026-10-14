@@ -51,11 +51,22 @@ final class ClassificationCompletionDetailTests: XCTestCase {
             ClassificationCompletionDetail.esVirituDetection(virusCount: 3, familyCount: 2),
             "3 viruses detected in 2 families"
         )
-        // Today's text does not singularize, and the pin keeps it as it is.
-        XCTAssertEqual(
-            ClassificationCompletionDetail.esVirituDetection(virusCount: 1, familyCount: 1),
-            "1 viruses detected in 1 families"
-        )
+    }
+
+    /// Each count noun follows its count (Phase 2.10 U34, W4). It read `1 viruses detected in 1 families`.
+    func testEsVirituHitsFollowEachCountWithItsNoun() {
+        let cases: [(viruses: Int, families: Int, detail: String)] = [
+            (1, 1, "1 virus detected in 1 family"),
+            (3, 1, "3 viruses detected in 1 family"),
+            (1, 0, "1 virus detected in 0 families"),
+            (2, 2, "2 viruses detected in 2 families"),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                ClassificationCompletionDetail.esVirituDetection(virusCount: testCase.viruses, familyCount: testCase.families),
+                testCase.detail
+            )
+        }
     }
 
     // MARK: - EsViritu, a batch

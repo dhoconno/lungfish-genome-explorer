@@ -2118,7 +2118,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
         }
 
         XCTAssertTrue(output.contains("Demultiplexed group bundles are container-only"))
-        XCTAssertFalse(output.contains("Materializing pointer dataset"))
+        XCTAssertFalse(output.contains("Writing the reads to a FASTQ file"))
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path

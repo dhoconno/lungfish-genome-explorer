@@ -52,7 +52,7 @@ final class BuildDbEventStreamTests: XCTestCase {
                 continue
             }
             XCTAssertEqual(outputs, ["/work/\(result.lastPathComponent)/\(database)"], leaf)
-            XCTAssertEqual(message, text.standardOutput.first { $0.hasPrefix("Built database at ") }, leaf)
+            XCTAssertEqual(message, text.standardOutput.first { $0.hasPrefix("Built \(database) ") }, leaf)
             XCTAssertTrue(FileManager.default.fileExists(atPath: jsonScratch.resolved(outputs[0]).path), leaf)
         }
     }

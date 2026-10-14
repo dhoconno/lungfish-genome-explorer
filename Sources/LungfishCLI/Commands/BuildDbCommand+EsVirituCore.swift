@@ -516,7 +516,7 @@ extension BuildDbCommand {
                 }
             }
 
-            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
+            if let line = BuildDbCommand.cleanupLine(freedBytes: freedBytes) { events.text(line) }
         }
 
         private static func directorySize(_ url: URL) -> Int64? {

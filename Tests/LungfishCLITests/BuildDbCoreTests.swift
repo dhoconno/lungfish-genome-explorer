@@ -66,12 +66,11 @@ final class BuildDbCoreTests: XCTestCase {
         XCTAssertEqual(BuildDbStreamCapture.withoutFreedSize(text.standardOutput), [
             "Parsed 19 detection rows from EsViritu results",
             "Parsed 4000 coverage windows from EsViritu results",
-            "Built database at /work/esviritu/esviritu.sqlite with 19 rows",
+            "Built esviritu.sqlite with 19 rows.",
             "Running markdup on 1 BAM file(s)...",
             Self.markdupWarning,
             "Counting reads per organism...",
             "  Updated read counts for 2/2 organisms",
-            "Cleanup complete. Freed <size>",
         ])
         XCTAssertEqual(text.standardError, [])
         XCTAssertNil(json.thrown)

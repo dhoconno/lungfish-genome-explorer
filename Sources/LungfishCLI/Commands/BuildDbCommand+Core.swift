@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 // The `build-db kraken2`, `build-db esviritu` and `build-db taxtriage` bodies are cores that a caller in
@@ -54,11 +55,22 @@ struct BuildDbRunResult: Sendable {
     /// samtools passes, the BAM relocation of `build-db esviritu` and the database build.
     let record: ProvenanceEnvelope?
 
-    /// The last sentence a run prints about the database, which its `complete` line also carries.
+    /// The last sentence a run prints about the database, which its `complete` line also carries. A run
+    /// that built one names the file and not its path, with the count noun following its count
+    /// (`Built esviritu.sqlite with 1 row.`, Phase 2.10 W4).
     var summary: String {
         guard let rowCount else {
             return "Database already exists at \(databaseURL.path). Use --force to rebuild."
         }
-        return "Built database at \(databaseURL.path) with \(rowCount) rows"
+        return "Built \(databaseURL.lastPathComponent) with \(rowCount) \(rowCount == 1 ? "row" : "rows")."
+    }
+}
+
+extension BuildDbCommand {
+    /// The line a cleanup prints about what it removed, or nil when it removed nothing, where it once
+    /// printed `Cleanup complete. Freed Zero KB` (Phase 2.10 W4).
+    static func cleanupLine(freedBytes: Int64) -> String? {
+        guard freedBytes > 0 else { return nil }
+        return "Removed intermediate files (\(LungfishFormatters.formatBytes(freedBytes)))."
     }
 }

@@ -269,7 +269,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
 
         XCTAssertTrue(result.summary.contains("completed with warnings"))
-        XCTAssertTrue(result.summary.contains("Ignored sample failures: 1"))
+        XCTAssertTrue(result.summary.contains("Ignored task failures: 1"))
     }
 
     // MARK: - TaxTriageConfig Tests

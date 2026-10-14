@@ -503,7 +503,7 @@ extension BuildDbCommand {
                 }
             }
 
-            events.text("Cleanup complete. Freed \(LungfishFormatters.formatBytes(freedBytes))")
+            if let line = BuildDbCommand.cleanupLine(freedBytes: freedBytes) { events.text(line) }
             let removal = RecordedRemovalStep.step(
                 toolName: ClassificationPipeline.kraken2OutputRemovalToolName,
                 api: "BuildDbCommand.Kraken2Subcommand.performCleanup(resultURL:sampleDirectories:events:)",

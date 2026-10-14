@@ -100,7 +100,7 @@ final class AnalysisRunIndexStepRecordTests: XCTestCase {
     func testACancelInsideTheEsVirituBuildKeepsNoneOfItsStepsAndNoDigestOfItsDatabase() async throws {
         let indexer = CapturingIndexer(base: EsVirituResultIndexing())
 
-        let run = try await esVirituRun(indexing: indexer, cancellingAtLine: { $0.hasPrefix("Built database") })
+        let run = try await esVirituRun(indexing: indexer, cancellingAtLine: { $0.hasPrefix("Built ") })
 
         try assertCancelled(run)
         XCTAssertTrue(indexer.builds.isEmpty, "the build ended with the cancel")

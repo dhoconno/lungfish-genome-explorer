@@ -181,7 +181,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(run.firstDetail, "Starting EsViritu viral detection\u{2026}")
         XCTAssertEqual(run.item.displayStateLabel, "Completed")
         XCTAssertEqual(run.item.detail, try ClassifierRouteFixtures.expectedEsVirituDetail())
-        XCTAssertNotEqual(run.item.detail, "1 viruses detected in 1 families", "D9 reads the result back from disk")
+        XCTAssertNotEqual(run.item.detail, "1 virus detected in 1 family", "D9 reads the result back from disk")
         let logged = loggedLines(of: run.item)
         XCTAssertEqual(logged.filter { !$0.hasPrefix("info:") }, [], "no warning or error line")
         XCTAssertEqual(logged.first, "info: Validating configuration...")
