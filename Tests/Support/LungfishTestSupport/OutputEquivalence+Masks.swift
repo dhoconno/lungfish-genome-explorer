@@ -140,10 +140,17 @@ extension OutputEquivalence {
             replaceKeyValues(epochKeys, in: text, token: "<EPOCH>")
         }
 
-        /// Replaces the executable path, host, process ID and wall time that
-        /// a provenance envelope records.
+        /// Replaces the executable path, host, process ID, wall time and launch
+        /// caller that a provenance envelope records. The launch caller is a
+        /// `caller` of `gui` or `cli`, the entry point that launched the
+        /// workflow, which is the route's identity like the executable path
+        /// (ruling A53-M3, Phase 2.10). It masks these two values only, since
+        /// the same key holds the variant caller of a call, such as `lofreq`.
         public static let provenanceRuntime = Mask(name: "provenanceRuntime") { text, _ in
             var result = replaceKeyValues(["executablePath"], in: text, token: "<EXECUTABLE>")
+            result = result.replacingOccurrences(
+                of: #"("caller"\s*:\s*)"(?:gui|cli)""#, with: "$1\"<CALLER>\"", options: .regularExpression
+            )
             result = replaceKeyValues(["host", "hostName", "hostname"], in: result, token: "<HOST>")
             result = replaceKeyValues(["processIdentifier", "pid"], in: result, token: "<PID>")
             return replaceKeyValues(
