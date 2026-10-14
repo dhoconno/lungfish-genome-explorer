@@ -34,8 +34,8 @@ extension OutputEquivalence {
         /// record gets all but the executable path, host, process ID and wall
         /// time, which the contract masks in provenance alone. A file name
         /// gets the UUID and run ID masks. Payload text, request bodies and
-        /// plans get the roots mask alone, so a date, a host or a read ID in
-        /// data is compared as written.
+        /// plans get the roots and run wall time masks alone, so a date, a
+        /// host or a read ID in data is compared as written.
         public static var standard: MaskPolicy {
             let records = [
                 Masks.contentComparedDigests,
@@ -49,7 +49,7 @@ extension OutputEquivalence {
                 provenance: records + [Masks.provenanceRuntime],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
-                payloads: [Masks.roots]
+                payloads: [Masks.roots, Masks.runWallTime]
             )
         }
 
@@ -142,10 +142,15 @@ extension OutputEquivalence {
             result = replaceKeyValues(["host", "hostName", "hostname"], in: result, token: "<HOST>")
             result = replaceKeyValues(["processIdentifier", "pid"], in: result, token: "<PID>")
             return replaceKeyValues(
-                ["wallTimeSeconds", "wallTime", "wallClockSeconds", "durationSeconds", "elapsedSeconds"],
+                ["wallTimeSeconds", "wallTime", "wallClockSeconds", "durationSeconds", "elapsedSeconds", "wall_time_seconds"],
                 in: result,
                 token: "<DURATION>"
             )
+        }
+
+        /// The wall time a run writes beside its outputs, as in assembly-result.json. Two keys only.
+        public static let runWallTime = Mask(name: "runWallTime") { text, _ in
+            replaceKeyValues(["wallTimeSeconds", "wall_time_seconds"], in: text, token: "<DURATION>")
         }
 
         /// In a JSON record that names a file present in both trees and

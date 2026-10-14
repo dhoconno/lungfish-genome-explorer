@@ -289,6 +289,69 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle).count, 1)
     }
 
+    /// An assembler writes its wall time as `wall_time_seconds` in `provenance.json` and as
+    /// `wallTimeSeconds` in `assembly-result.json`, a payload. Two runs never take the same time, so
+    /// the contract masks both. Every fact beside them is still compared.
+    func testTheAssemblerWallTimeIsMaskedAndNothingBesideIt() throws {
+        let (a, b) = try makeRoots()
+        let run = { (root: URL, hostOS: String, n50: Int, duration: Int, wall: Double) throws in
+            try self.write(#"{"host_os":""# + hostOS + #"","wall_time_seconds":"# + "\(wall)" + "}", to: root, "provenance.json")
+            try self.write(#"{"n50":"# + "\(n50)" + #","wallTimeSeconds":"# + "\(wall)" + "}", to: root, "assembly-result.json")
+            try self.write(#"{"durationSeconds":"# + "\(duration)" + "}", to: root, "reads.json")
+        }
+        try run(a, "macOS", 100, 4, 1.25)
+        try run(b, "macOS", 100, 4, 7.5)
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .files), [])
+
+        try run(b, "Linux", 101, 5, 7.5)
+        let found = try OutputEquivalence.differences(a, b, kind: .files)
+        XCTAssertEqual(found.count, 3, "\(found)")
+        for file in ["provenance.json", "assembly-result.json", "reads.json"] {
+            XCTAssertTrue(found.contains { $0.hasPrefix("differs: \(file)\n") }, "\(file) must differ: \(found)")
+        }
+    }
+
+    /// The mask knows two keys and matches each whole. A fact a run records beside its wall time, in
+    /// a provenance envelope or in a payload, still fails the comparison when the routes disagree on
+    /// it, including a key that holds the name of a wall time key, and a payload keeps the other
+    /// wall-clock keys that only a provenance envelope masks.
+    func testNoFactBesideTheWallTimeIsMaskedWithIt() throws {
+        let (a, b) = try makeRoots()
+        let beside: [(key: String, a: String, b: String)] = [
+            ("host_os", #""macOS""#, #""Linux""#),
+            ("n50", "100", "101"),
+            ("commandLine", #""spades.py -t 4""#, #""spades.py -t 8""#),
+            ("duration", "4", "5"),
+            ("runtime", #""4s""#, #""5s""#),
+            ("total_wall_time_seconds", "4", "5"),
+            ("wallTimeSecondsTotal", "4", "5"),
+        ]
+        let payloadOnly: [(key: String, a: String, b: String)] = [
+            ("wallTime", "4", "5"),
+            ("wallClockSeconds", "4", "5"),
+            ("durationSeconds", "4", "5"),
+            ("elapsedSeconds", "4", "5"),
+        ]
+        for file in ["provenance.json", "assembly-result.json"] {
+            for wallKey in ["wallTimeSeconds", "wall_time_seconds"] {
+                let facts = file == "provenance.json" ? beside : beside + payloadOnly
+                for fact in facts {
+                    let label = "\(file) with \(wallKey) beside \(fact.key)"
+                    let record = { (value: String, wall: Double) in "{\"\(fact.key)\":\(value),\"\(wallKey)\":\(wall)}" }
+                    try empty(a, b)
+                    try write(record(fact.a, 1.25), to: a, file)
+                    try write(record(fact.a, 7.5), to: b, file)
+                    XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .files), [], "only the wall time differs in \(label)")
+
+                    try write(record(fact.b, 7.5), to: b, file)
+                    let found = try OutputEquivalence.differences(a, b, kind: .files)
+                    XCTAssertEqual(found.count, 1, "the fact differs in \(label): \(found)")
+                    XCTAssertTrue(found.first?.hasPrefix("differs: \(file)\n") == true, "\(label): \(found)")
+                }
+            }
+        }
+    }
+
     func testRecordedDigestsAreMaskedOnlyForFilesComparedByContent() throws {
         let (a, b) = try makeRoots()
         let record = { (path: String, checksum: String, size: Int) in
@@ -487,6 +550,15 @@ final class OutputEquivalenceTests: XCTestCase {
         let url = root.appendingPathComponent(relative)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url)
+    }
+
+    /// Removes everything under each root, so a case in a loop starts from empty trees.
+    private func empty(_ roots: URL...) throws {
+        for root in roots {
+            for item in try FileManager.default.contentsOfDirectory(atPath: root.path) {
+                try FileManager.default.removeItem(at: root.appendingPathComponent(item))
+            }
+        }
     }
 
     private func gzip(_ text: String, to root: URL, _ relative: String, keepNameAndTime: Bool) throws {
