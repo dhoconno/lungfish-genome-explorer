@@ -28,14 +28,14 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 803 | 240683 | 1421 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 9 | 1549 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 58 | 12786 | 60 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 58 | 12903 | 60 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
 
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 726 | 196041 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 729 | 196747 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20058 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 7 | 6070 | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -3362,7 +3362,7 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Swift files. 58, lines 12786
+- Swift files. 58, lines 12903
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
@@ -3404,8 +3404,8 @@ None.
 - `MappingViewerScaffold` struct, `Tests/Support/LungfishTestSupport/MappingViewerScaffold.swift:28`
 - `MergeBundleOverRawRootFixture` struct, `Tests/Support/LungfishTestSupport/MergeBundleOverRawRootFixture.swift:18`
 - `NCBITaxonomyFixture` enum, `Tests/Support/LungfishTestSupport/NCBITaxonomyFixture.swift:17`
-- `NextflowStandInEngine` struct, `Tests/Support/LungfishTestSupport/NextflowStandInEngine.swift:38`
-- `NextflowStandInWorkflow` struct, `Tests/Support/LungfishTestSupport/NextflowStandInWorkflow.swift:18`
+- `NextflowStandInEngine` struct, `Tests/Support/LungfishTestSupport/NextflowStandInEngine.swift:40`
+- `NextflowStandInWorkflow` struct, `Tests/Support/LungfishTestSupport/NextflowStandInWorkflow.swift:24`
 - `OutputEquivalence` enum, `Tests/Support/LungfishTestSupport/OutputEquivalence.swift:14`
 - `PlatformHeaderFixtures` enum, `Tests/Support/LungfishTestSupport/PlatformHeaderFixtures.swift:10`
 - `ProcessResult` struct, `Tests/Support/LungfishTestSupport/ToolAvailability.swift:76`
