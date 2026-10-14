@@ -7,8 +7,8 @@
 // InspectorViewController+TrimDuplicateWorkflows.swift as they were, so that file stays under its
 // size baseline. Both launch `lungfish-cli bam filter` and `bam annotate` on A51's L3 runner with no
 // key (ruling on deviation 6: the services the leaves call are the services the app awaited, and the
-// M1 pin shows both write the same bytes). The in-process task stays in each launch closure until the
-// commit that carries the parity cases removes it.
+// M1 pin shows both write the same bytes). AlignmentWorkflowCLIGUIParityReplayTests shows A against C
+// empty for both, so the in-process task each launch closure ran is gone.
 
 import AppKit
 import LungfishCore
@@ -44,77 +44,33 @@ extension InspectorViewController {
         }
 
         let workflowRequest = request.workflowRequest(bundleURL: bundleURL)
-        // No key: the route launches the leaf. The in-process branch below goes with the parity cases.
-        let route = InspectorDuplicateWorkflowRoute.cli
-        Self.beginMappedReadsAnnotationWorkflowOperation(request: workflowRequest, route: route) { operationID in
+        Self.beginMappedReadsAnnotationWorkflowOperation(request: workflowRequest) { operationID in
             let sourceTrackName = viewModel.readStyleSectionViewModel.alignmentFilterTrackOptions
                 .first(where: { $0.id == request.sourceTrackID })?.name ?? request.sourceTrackID
             viewModel.readStyleSectionViewModel.latestMappedReadsAnnotationMessage = nil
             viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = true
             split.activityIndicator.show(message: "Converting mapped reads to annotations...", style: .indeterminate)
 
-            if route == .cli {
-                // The leaf converts the reads and writes the annotation track before it exits. The row
-                // completes first, so the track opens and the alert shows only once the row is done.
-                Self.runAlignmentLeafThroughCLI(
-                    arguments: Self.mappedReadsAnnotationCLIArguments(request: workflowRequest),
-                    operationID: operationID,
-                    overlay: { [weak self] message in
-                        (self?.parent as? MainSplitViewController)?.activityIndicator.updateMessage(message)
-                    },
-                    cancelled: { [weak self] in self?.resetMappedReadsAnnotationUI() }
-                ) { [weak self] outcome in
-                    switch outcome {
-                    case .success:
-                        self?.finishMappedReadsAnnotation(
-                            operationID: operationID,
-                            createdTrackName: Self.annotationTrackName(for: workflowRequest),
-                            sourceTrackName: sourceTrackName,
-                            launchContext: launchContext
-                        )
-                    case .failure(let error):
-                        self?.failMappedReadsAnnotation(operationID: operationID, message: error.localizedDescription)
-                    }
-                }
-                return
-            }
-
-            Task(priority: .userInitiated) { [weak self] in
-                do {
-                    let result = try await MappedReadsAnnotationService().convertMappedReads(
-                        request: workflowRequest,
-                        progressHandler: { [weak self] progress, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    _ = OperationCenter.shared.updateWithLog(
-                                        id: operationID,
-                                        progress: max(0.01, min(0.99, progress)),
-                                        detail: message
-                                    )
-                                    if let self,
-                                       let split = self.parent as? MainSplitViewController {
-                                        split.activityIndicator.updateMessage(message)
-                                    }
-                                }
-                            }
-                        }
+            // The leaf converts the reads and writes the annotation track before it exits. The row
+            // completes first, so the track opens and the alert shows only once the row is done.
+            Self.runAlignmentLeafThroughCLI(
+                arguments: Self.mappedReadsAnnotationCLIArguments(request: workflowRequest),
+                operationID: operationID,
+                overlay: { [weak self] message in
+                    (self?.parent as? MainSplitViewController)?.activityIndicator.updateMessage(message)
+                },
+                cancelled: { [weak self] in self?.resetMappedReadsAnnotationUI() }
+            ) { [weak self] outcome in
+                switch outcome {
+                case .success:
+                    self?.finishMappedReadsAnnotation(
+                        operationID: operationID,
+                        createdTrackName: Self.annotationTrackName(for: workflowRequest),
+                        sourceTrackName: sourceTrackName,
+                        launchContext: launchContext
                     )
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            self?.finishMappedReadsAnnotation(
-                                operationID: operationID,
-                                createdTrackName: result.annotationTrackInfo.name,
-                                sourceTrackName: sourceTrackName,
-                                launchContext: launchContext
-                            )
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            self?.failMappedReadsAnnotation(operationID: operationID, message: error.localizedDescription)
-                        }
-                    }
+                case .failure(let error):
+                    self?.failMappedReadsAnnotation(operationID: operationID, message: error.localizedDescription)
                 }
             }
         }
@@ -206,13 +162,10 @@ extension InspectorViewController {
             launchContext = context
         }
 
-        // No key: the route launches the leaf. The in-process branch below goes with the parity cases.
-        let route = InspectorDuplicateWorkflowRoute.cli
         Self.beginFilteredAlignmentWorkflowOperation(
             bundleURL: bundleURL,
             serviceTarget: launchContext.serviceTarget,
-            request: request,
-            route: route
+            request: request
         ) { operationID in
             let sourceTrackName = viewModel.readStyleSectionViewModel.alignmentFilterTrackOptions
                 .first(where: { $0.id == request.sourceTrackID })?.name ?? request.sourceTrackID
@@ -220,73 +173,27 @@ extension InspectorViewController {
             viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = true
             split.activityIndicator.show(message: "Creating filtered alignment track...", style: .indeterminate)
 
-            if route == .cli {
-                // The leaf filters and attaches the new track before it exits. The row completes first,
-                // so the track opens and the alert shows only once the row is done.
-                Self.runAlignmentLeafThroughCLI(
-                    arguments: Self.filteredAlignmentCLIArguments(serviceTarget: launchContext.serviceTarget, request: request),
-                    operationID: operationID,
-                    overlay: { [weak self] message in
-                        (self?.parent as? MainSplitViewController)?.activityIndicator.updateMessage(message)
-                    },
-                    cancelled: { [weak self] in self?.resetFilteredAlignmentUI() }
-                ) { [weak self] outcome in
-                    do {
-                        let createdTrackID = try Self.filteredAlignmentTrackID(from: try outcome.get())
-                        self?.finishFilteredAlignment(
-                            operationID: operationID,
-                            createdTrackID: createdTrackID,
-                            createdTrackName: request.outputTrackName,
-                            sourceTrackName: sourceTrackName,
-                            launchContext: launchContext
-                        )
-                    } catch {
-                        self?.failFilteredAlignment(operationID: operationID, message: error.localizedDescription)
-                    }
-                }
-                return
-            }
-
-            Task(priority: .userInitiated) { [weak self] in
+            // The leaf filters and attaches the new track before it exits. The row completes first,
+            // so the track opens and the alert shows only once the row is done.
+            Self.runAlignmentLeafThroughCLI(
+                arguments: Self.filteredAlignmentCLIArguments(serviceTarget: launchContext.serviceTarget, request: request),
+                operationID: operationID,
+                overlay: { [weak self] message in
+                    (self?.parent as? MainSplitViewController)?.activityIndicator.updateMessage(message)
+                },
+                cancelled: { [weak self] in self?.resetFilteredAlignmentUI() }
+            ) { [weak self] outcome in
                 do {
-                    let result = try await BundleAlignmentFilterService().deriveFilteredAlignment(
-                        target: launchContext.serviceTarget,
-                        sourceTrackID: request.sourceTrackID,
-                        outputTrackName: request.outputTrackName,
-                        filterRequest: request.filterRequest,
-                        progressHandler: { [weak self] progress, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    _ = OperationCenter.shared.updateWithLog(
-                                        id: operationID,
-                                        progress: max(0.01, min(0.99, progress)),
-                                        detail: message
-                                    )
-                                    if let self,
-                                       let split = self.parent as? MainSplitViewController {
-                                        split.activityIndicator.updateMessage(message)
-                                    }
-                                }
-                            }
-                        }
+                    let createdTrackID = try Self.filteredAlignmentTrackID(from: try outcome.get())
+                    self?.finishFilteredAlignment(
+                        operationID: operationID,
+                        createdTrackID: createdTrackID,
+                        createdTrackName: request.outputTrackName,
+                        sourceTrackName: sourceTrackName,
+                        launchContext: launchContext
                     )
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            self?.finishFilteredAlignment(
-                                operationID: operationID,
-                                createdTrackID: result.trackInfo.id,
-                                createdTrackName: result.trackInfo.name,
-                                sourceTrackName: sourceTrackName,
-                                launchContext: launchContext
-                            )
-                        }
-                    }
                 } catch {
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            self?.failFilteredAlignment(operationID: operationID, message: error.localizedDescription)
-                        }
-                    }
+                    self?.failFilteredAlignment(operationID: operationID, message: error.localizedDescription)
                 }
             }
         }

@@ -254,7 +254,7 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
             let reporter = RecordingOperationReporter()
             var launched: UUID?
             InspectorViewController.beginFilteredAlignmentWorkflowOperation(
-                bundleURL: bundleURL, serviceTarget: .bundle(bundleURL), request: request, route: .cli, reporter: reporter
+                bundleURL: bundleURL, serviceTarget: .bundle(bundleURL), request: request, reporter: reporter
             ) { launched = $0 }
             return BegunRow(
                 id: try XCTUnwrap(launched, "the row started"),
@@ -265,7 +265,7 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
             let request = annotationLaunch.workflowRequest(bundleURL: bundleURL)
             let reporter = RecordingOperationReporter()
             var launched: UUID?
-            InspectorViewController.beginMappedReadsAnnotationWorkflowOperation(request: request, route: .cli, reporter: reporter) {
+            InspectorViewController.beginMappedReadsAnnotationWorkflowOperation(request: request, reporter: reporter) {
                 launched = $0
             }
             return BegunRow(

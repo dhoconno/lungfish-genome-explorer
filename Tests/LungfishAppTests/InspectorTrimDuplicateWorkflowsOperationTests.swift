@@ -117,7 +117,6 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
             bundleURL: bundleURL,
             serviceTarget: .bundle(bundleURL),
             request: filterRequest(),
-            route: .cli,
             reporter: center
         ) { _ in launched = true }
 
@@ -135,7 +134,6 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
             bundleURL: bundleURL,
             serviceTarget: .bundle(bundleURL),
             request: filterRequest(),
-            route: .cli,
             reporter: reporter
         ) { launchedID = $0 }
 
@@ -173,7 +171,6 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
             bundleURL: bundleURL,
             serviceTarget: .mappingResult(mappingResultURL),
             request: request,
-            route: .cli,
             reporter: reporter
         ) { _ in }
 
@@ -207,7 +204,6 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
 
         let result = InspectorViewController.beginMappedReadsAnnotationWorkflowOperation(
             request: annotationRequest(),
-            route: .cli,
             reporter: center
         ) { _ in launched = true }
 
@@ -223,7 +219,6 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
 
         InspectorViewController.beginMappedReadsAnnotationWorkflowOperation(
             request: annotationRequest(),
-            route: .cli,
             reporter: reporter
         ) { launchedID = $0 }
 
@@ -246,11 +241,10 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
 
     // MARK: - One builder for the bam filter and bam annotate commands (R3)
 
-    /// The exact strings these rows record. The in-process route keeps the strings the rows recorded while
-    /// the App had argv builders of its own, so building them with the Workflow builders the provenance
-    /// uses changed no recorded command. The CLI route records the argv the L3 runner runs, which is the
-    /// same words and `--format json` so that the leaf speaks events (Phase 2.10 lane A54). That command
-    /// parses with the request's options, and it equals the argv the launch runs.
+    /// The exact strings these rows record. Both rows launch their leaf on the L3 runner (Phase 2.10 lane A54),
+    /// so each records the argv the runner runs, the words the Workflow builders give the provenance and
+    /// `--format json` so that the leaf speaks events. That command parses with the request's options, and
+    /// it equals the argv the launch runs.
     func testFilterAndAnnotateRowsRecordTheArgvTheyRun() throws {
         let mappingResultURL = URL(fileURLWithPath: "/tmp/lane 1a1/Analyses/minimap2-run", isDirectory: true)
         let mappingRequest = AlignmentFilterInspectorLaunchRequest(
@@ -261,51 +255,38 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
         let bareAnnotation = MappedReadsAnnotationRequest(
             bundleURL: bundleURL, sourceTrackID: "aln-1", outputTrackName: "Mapped Reads"
         )
-        for route in InspectorDuplicateWorkflowRoute.allCases {
-            let tail = route == .cli ? " --format json" : ""
-            XCTAssertEqual(
-                InspectorViewController.filteredAlignmentCLICommand(
-                    serviceTarget: .bundle(bundleURL), request: filterRequest(), route: route
-                ),
-                "lungfish-cli bam filter --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
-                    + " --output-track-name 'Exact Matches' --mapped-only --primary-only --min-mapq 30"
-                    + " --remove-duplicates --min-percent-identity 99.5" + tail,
-                "\(route)"
-            )
-            XCTAssertEqual(
-                InspectorViewController.filteredAlignmentCLICommand(
-                    serviceTarget: .mappingResult(mappingResultURL), request: mappingRequest, route: route
-                ),
-                "lungfish-cli bam filter --mapping-result '/tmp/lane 1a1/Analyses/minimap2-run' --alignment-track aln-1"
-                    + " --output-track-name 'Exact Matches' --exclude-marked-duplicates --exact-match" + tail,
-                "\(route)"
-            )
-            XCTAssertEqual(
-                InspectorViewController.mappedReadsAnnotationCLICommand(request: annotationRequest(), route: route),
-                "lungfish-cli bam annotate --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
-                    + " --output-track-name 'Mapped Reads' --output-track-id mapped_reads_1 --primary-only"
-                    + " --include-sequence --replace" + tail,
-                "\(route)"
-            )
-            XCTAssertEqual(
-                InspectorViewController.mappedReadsAnnotationCLICommand(request: bareAnnotation, route: route),
-                "lungfish-cli bam annotate --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
-                    + " --output-track-name 'Mapped Reads'" + tail,
-                "\(route)"
-            )
-        }
-
-        // On the CLI route the recorded command is the launched argv.
-        let target = AlignmentFilterTarget.bundle(bundleURL)
-        let filterCommand = InspectorViewController.filteredAlignmentCLICommand(
-            serviceTarget: target, request: filterRequest(), route: .cli
+        XCTAssertEqual(
+            InspectorViewController.filteredAlignmentCLICommand(serviceTarget: .bundle(bundleURL), request: filterRequest()),
+            "lungfish-cli bam filter --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
+                + " --output-track-name 'Exact Matches' --mapped-only --primary-only --min-mapq 30"
+                + " --remove-duplicates --min-percent-identity 99.5 --format json"
         )
+        XCTAssertEqual(
+            InspectorViewController.filteredAlignmentCLICommand(serviceTarget: .mappingResult(mappingResultURL), request: mappingRequest),
+            "lungfish-cli bam filter --mapping-result '/tmp/lane 1a1/Analyses/minimap2-run' --alignment-track aln-1"
+                + " --output-track-name 'Exact Matches' --exclude-marked-duplicates --exact-match --format json"
+        )
+        XCTAssertEqual(
+            InspectorViewController.mappedReadsAnnotationCLICommand(request: annotationRequest()),
+            "lungfish-cli bam annotate --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
+                + " --output-track-name 'Mapped Reads' --output-track-id mapped_reads_1 --primary-only"
+                + " --include-sequence --replace --format json"
+        )
+        XCTAssertEqual(
+            InspectorViewController.mappedReadsAnnotationCLICommand(request: bareAnnotation),
+            "lungfish-cli bam annotate --bundle '/tmp/lane 1a1/Sample.lungfishref' --alignment-track aln-1"
+                + " --output-track-name 'Mapped Reads' --format json"
+        )
+
+        // The recorded command is the launched argv.
+        let target = AlignmentFilterTarget.bundle(bundleURL)
+        let filterCommand = InspectorViewController.filteredAlignmentCLICommand(serviceTarget: target, request: filterRequest())
         XCTAssertEqual(
             try RecordedCLICommand.arguments(of: filterCommand),
             InspectorViewController.filteredAlignmentCLIArguments(serviceTarget: target, request: filterRequest())
         )
         XCTAssertEqual(Array(try RecordedCLICommand.arguments(of: filterCommand).suffix(2)), ["--format", "json"])
-        let annotateCommand = InspectorViewController.mappedReadsAnnotationCLICommand(request: annotationRequest(), route: .cli)
+        let annotateCommand = InspectorViewController.mappedReadsAnnotationCLICommand(request: annotationRequest())
         XCTAssertEqual(
             try RecordedCLICommand.arguments(of: annotateCommand),
             InspectorViewController.mappedReadsAnnotationCLIArguments(request: annotationRequest())
@@ -341,7 +322,7 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
         let request = filterRequest()
         XCTAssertEqual(
             try RecordedCLICommand.arguments(of: InspectorViewController.filteredAlignmentCLICommand(
-                serviceTarget: target, request: request, route: .legacy
+                serviceTarget: target, request: request
             )),
             Array(BundleAlignmentFilterService.cliArgv(
                 target: target,
@@ -349,20 +330,20 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
                 outputTrackID: nil,
                 outputTrackName: request.outputTrackName,
                 filterRequest: request.filterRequest
-            ).dropFirst())
+            ).dropFirst()) + ["--format", "json"]
         )
         let annotation = annotationRequest()
         XCTAssertEqual(
             try RecordedCLICommand.arguments(of: InspectorViewController.mappedReadsAnnotationCLICommand(
-                request: annotation, route: .legacy
+                request: annotation
             )),
             Array(MappedReadsAnnotationService.cliArgv(
                 request: annotation,
                 bundleURL: annotation.bundleURL,
                 outputTrackName: annotation.outputTrackName
-            ).dropFirst())
+            ).dropFirst()) + ["--format", "json"]
         )
-        // The argv the CLI route runs is the same builders' argv and `--format json`.
+        // The argv the launch runs is the same builders' argv and `--format json`.
         XCTAssertEqual(
             InspectorViewController.filteredAlignmentCLIArguments(serviceTarget: target, request: request),
             Array(BundleAlignmentFilterService.cliArgv(

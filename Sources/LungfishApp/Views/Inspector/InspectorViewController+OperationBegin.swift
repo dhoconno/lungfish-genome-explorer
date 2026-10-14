@@ -49,14 +49,12 @@ extension InspectorViewController {
     /// Registers the filtered-alignment row and, only when it starts, calls
     /// `launch` with the operation ID. The row locks `bundleURL` and records
     /// the `lungfish-cli bam filter` command for the same target and request
-    /// the run uses: on the CLI route the argv the L3 runner runs, and on the
-    /// in-process route the command that reproduces the service's run.
+    /// the run uses, the argv the L3 runner runs.
     @discardableResult
     static func beginFilteredAlignmentWorkflowOperation(
         bundleURL: URL,
         serviceTarget: AlignmentFilterTarget,
         request: AlignmentFilterInspectorLaunchRequest,
-        route: InspectorDuplicateWorkflowRoute,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -65,7 +63,7 @@ extension InspectorViewController {
             detail: "Preparing \(request.outputTrackName)...",
             operationType: .bamImport,
             targetBundleURL: bundleURL,
-            cliCommand: filteredAlignmentCLICommand(serviceTarget: serviceTarget, request: request, route: route)
+            cliCommand: filteredAlignmentCLICommand(serviceTarget: serviceTarget, request: request)
         )
         switch result {
         case .started(let operationID):
@@ -84,24 +82,12 @@ extension InspectorViewController {
     /// never sets `filterRequest.region`, which the CLI cannot express.
     static func filteredAlignmentCLICommand(
         serviceTarget: AlignmentFilterTarget,
-        request: AlignmentFilterInspectorLaunchRequest,
-        route: InspectorDuplicateWorkflowRoute
+        request: AlignmentFilterInspectorLaunchRequest
     ) -> String {
-        switch route {
-        case .legacy:
-            return BundleAlignmentFilterService.cliArgv(
-                target: serviceTarget,
-                sourceTrackID: request.sourceTrackID,
-                outputTrackID: nil,
-                outputTrackName: request.outputTrackName,
-                filterRequest: request.filterRequest
-            ).map(shellEscape).joined(separator: " ")
-        case .cli:
-            return OperationCenter.buildCLICommand(
-                subcommand: "bam filter",
-                args: Array(filteredAlignmentCLIArguments(serviceTarget: serviceTarget, request: request).dropFirst(2))
-            )
-        }
+        OperationCenter.buildCLICommand(
+            subcommand: "bam filter",
+            args: Array(filteredAlignmentCLIArguments(serviceTarget: serviceTarget, request: request).dropFirst(2))
+        )
     }
 
     /// The argv after the binary that the CLI route runs for a filtered alignment: the argv of
@@ -127,7 +113,6 @@ extension InspectorViewController {
     @discardableResult
     static func beginMappedReadsAnnotationWorkflowOperation(
         request: MappedReadsAnnotationRequest,
-        route: InspectorDuplicateWorkflowRoute,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -136,7 +121,7 @@ extension InspectorViewController {
             detail: "Preparing \(request.outputTrackName)...",
             operationType: .bamImport,
             targetBundleURL: request.bundleURL,
-            cliCommand: mappedReadsAnnotationCLICommand(request: request, route: route)
+            cliCommand: mappedReadsAnnotationCLICommand(request: request)
         )
         switch result {
         case .started(let operationID):
@@ -151,23 +136,11 @@ extension InspectorViewController {
     /// `MappedReadsAnnotationService.convertMappedReads` with this request,
     /// built by `MappedReadsAnnotationService.cliArgv`, the builder the run's
     /// provenance uses (R3).
-    static func mappedReadsAnnotationCLICommand(
-        request: MappedReadsAnnotationRequest,
-        route: InspectorDuplicateWorkflowRoute
-    ) -> String {
-        switch route {
-        case .legacy:
-            return MappedReadsAnnotationService.cliArgv(
-                request: request,
-                bundleURL: request.bundleURL,
-                outputTrackName: request.outputTrackName
-            ).map(shellEscape).joined(separator: " ")
-        case .cli:
-            return OperationCenter.buildCLICommand(
-                subcommand: "bam annotate",
-                args: Array(mappedReadsAnnotationCLIArguments(request: request).dropFirst(2))
-            )
-        }
+    static func mappedReadsAnnotationCLICommand(request: MappedReadsAnnotationRequest) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "bam annotate",
+            args: Array(mappedReadsAnnotationCLIArguments(request: request).dropFirst(2))
+        )
     }
 
     /// The argv after the binary that the CLI route runs to convert mapped reads: the argv of

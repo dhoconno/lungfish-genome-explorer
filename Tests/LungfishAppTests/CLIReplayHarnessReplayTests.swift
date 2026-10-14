@@ -66,7 +66,6 @@ final class CLIReplayHarnessReplayTests: XCTestCase {
             bundleURL: bundleA,
             serviceTarget: .bundle(bundleA),
             request: request,
-            route: .cli,
             reporter: reporter
         ) { _ in launched = true }
         XCTAssertTrue(launched)
@@ -117,8 +116,7 @@ final class CLIReplayHarnessReplayTests: XCTestCase {
                 sourceTrackID: fixture.sourceTrackID,
                 outputTrackName: "Mapped Reads",
                 filterRequest: AlignmentFilterRequest(mappedOnly: true)
-            ),
-            route: .cli
+            )
         )
         try await RecordedCLICommand.runInProcess(try RecordedCLICommand.rebased(looser, from: rootA, to: rootC))
         let found = try OutputEquivalence.differences(bundleA, bundleC, kind: .bundle)
