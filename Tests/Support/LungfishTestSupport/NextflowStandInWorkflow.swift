@@ -167,10 +167,14 @@ extension NextflowStandInWorkflow {
 extension NextflowStandInWorkflow {
     /// nf-core/viralrecon 3.0.0, the release the lock pins, on an Illumina amplicon run with the
     /// options a new run in the app starts with (iVar variants, a BCFtools consensus, no assembly,
-    /// no Kraken 2 and no Freyja). Each sample runs the tasks of its reads, alignment, primer
+    /// no Kraken 2 and no Freyja). Each sample runs 29 tasks of its reads, alignment, primer
     /// trimming, coverage, variants and consensus in the order `workflows/viralrecon.nf` calls
-    /// them, and the run ends with MultiQC. Genome preparation is left out, because its task tags
-    /// name the genome's own files. Each sample writes the files LGE reads back
+    /// them, and the run ends with MultiQC. That is a subset of what such a run starts, to be
+    /// checked against Q35's V1 trace. Genome preparation is left out, because its task tags name
+    /// the genome's own files, and so are `VARIANTS_QC` (SnpEff), the low-coverage mask of the
+    /// consensus (`MAKE_BED_MASK`, `BEDTOOLS_MERGE`, `BEDTOOLS_MASKFASTA`), `PLOT_BASE_DENSITY`,
+    /// `QUAST`, `PANGOLIN_UPDATEDATA`, the Mosdepth plots and `VARIANTS_LONG_TABLE`. Each sample
+    /// writes the files LGE reads back
     /// (`ViralReconResultInventory`): `variants/bowtie2/<sample>.sorted.bam` and
     /// `<sample>.ivar_trim.sorted.bam` with their indexes, `variants/ivar/<sample>.vcf.gz` with its
     /// index, and `variants/ivar/consensus/bcftools/<sample>.consensus.fa`, whose header the

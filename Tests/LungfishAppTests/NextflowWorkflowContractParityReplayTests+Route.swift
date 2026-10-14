@@ -74,9 +74,11 @@ struct ViralReconRouteNormalizer: Sendable {
     }
 }
 
-/// Reads every JSON file under a project as canonical JSON with the record masks of
-/// docs/contracts/CLI-EQUIVALENCE.md: times, durations, host and process facts, and the checksum and size of a file in
-/// the project. A folder's checksum and size are masked only when `digestGap` names them.
+/// Reads every JSON file under a project as canonical JSON and masks what differs between runs. That is times,
+/// durations, host and build facts, and the checksum and size a record states for any file in the project, whose
+/// bytes are the stand-in's or name the run's root. It is wider than the contract's Masks, which keep a byte-compared
+/// file's checksum, because this class pins one run's records against a fixture and compares no payload's bytes. A
+/// folder's checksum and size are masked only when `digestGap` names them.
 enum ViralReconRouteRecords {
     static func read(
         project: URL, normalizer: ViralReconRouteNormalizer, digestGap: Set<String>

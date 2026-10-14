@@ -180,10 +180,11 @@ extension NextflowWorkflowContractParityReplayTests {
             encoding: .utf8)
     }
 
-    // digest gap, Q30 finding 1. The checksum and size a record states for a folder differ between any two roots,
-    // and the contract's masks leave them (docs/contracts/CLI-EQUIVALENCE.md, Masks). These are the exact record and
-    // key of each, masked here only. The landing agent empties this list once the mask fix lands. Never declare them
-    // as known differences.
+    // The checksum and size a record states for a folder in the project (Q30 M2 finding 1). The run bundle holds
+    // files that name the run's own temporary root, so these values change on every run. This class reads records
+    // through its own masks and not through OutputEquivalence, so the contract's folder mask does not reach it, and
+    // it masks exactly these. A lane that changes which folders a record names updates this list in the same commit,
+    // and the docker case fails until it does. Never declare them as known differences.
     static let digestGap: [(record: String, key: String)] = {
         let results = "Analyses/viralrecon-results/.lungfish-provenance.json"
         let bundle = "Analyses/viralrecon.lungfishrun/.lungfish-provenance.json"
