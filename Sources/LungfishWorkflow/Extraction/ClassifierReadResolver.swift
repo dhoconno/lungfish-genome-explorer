@@ -628,13 +628,13 @@ public actor ClassifierReadResolver {
     /// the last record is still fully present and usable, just not newline-terminated
     /// (R3-R3ML-10).
     func countFASTQRecords(in url: URL) async throws -> Int {
-        let handle = try FileHandle(forReadingFrom: url)
+        let handle = try ReadFileWriters.openForReading(url)
         defer { try? handle.close() }
         var lineCount = 0
         var sawAnyBytes = false
         var lastByteWasNewline = false
         while true {
-            let chunk = handle.readData(ofLength: 1 << 20)
+            let chunk = try ReadFileWriters.readChunk(of: handle, from: url, upTo: 1 << 20) ?? Data()
             if chunk.isEmpty { break }
             sawAnyBytes = true
             lineCount += chunk.reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }

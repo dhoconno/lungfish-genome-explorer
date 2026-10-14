@@ -6,6 +6,7 @@ import Darwin
 import Foundation
 import Synchronization
 import XCTest
+import LungfishCore
 
 /// Fixtures shared by the read writer tests of Phase 2.10 lane S31.
 enum ReadWriterFixtures {
@@ -169,6 +170,37 @@ enum ReadWriterFixtures {
         if let decoded = joinCase.decoded {
             XCTAssertEqual(try gunzip(destination), decoded, joinCase.name, file: file, line: line)
         }
+    }
+
+    // MARK: - Faults
+
+    /// `ENOSPC` on every write into a stage file after the first `allowed` ones.
+    static func fullDisk(afterWrites allowed: Int, tally: Tally) -> DurableReplace.Operations {
+        DurableReplace.Operations(writeBytes: { descriptor, bytes, count in
+            if path(of: descriptor).contains(DurableReplace.stageInfix), tally.add("stageWrites") > allowed {
+                errno = ENOSPC
+                return -1
+            }
+            return Darwin.write(descriptor, bytes, count)
+        })
+    }
+
+    /// The error `body` throws, or `nil`.
+    static func capturedError(_ body: () async throws -> Void) async -> Error? {
+        do {
+            try await body()
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    static func assertFullDisk(_ error: Error?, file: StaticString = #filePath, line: UInt = #line) {
+        guard case .systemFailure(_, let operation, let code)? = error as? DurableReplace.ReplaceError else {
+            return XCTFail("expected a system failure, got \(String(describing: error))", file: file, line: line)
+        }
+        XCTAssertEqual(operation, "write the stage file", file: file, line: line)
+        XCTAssertEqual(code, ENOSPC, file: file, line: line)
     }
 
     struct Refusal: Error {}

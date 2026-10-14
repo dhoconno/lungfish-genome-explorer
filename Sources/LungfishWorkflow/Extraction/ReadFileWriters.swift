@@ -3,66 +3,127 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
+
+// MARK: - Streaming publication
+
+/// A source file of a join or a conversion that cannot be opened or read.
+/// The error names the file, so a caller never gets a joined file that is
+/// missing the reads of one source (Phase 2.10 lane S31, panel BIO 2).
+enum ReadFileWriterError: Error, LocalizedError, Equatable {
+    case unreadableSource(path: String, reason: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableSource(let path, let reason):
+            return "Cannot read \(path): \(reason). Nothing was written."
+        }
+    }
+}
+
+/// The streaming core of the writers that put read files on disk.
+///
+/// Each writer streams into the hidden stage file of ``DurableReplace`` and
+/// names the result only when it is whole and synced, so the final name holds
+/// a whole old or new file at every step. A failed write, a full disk among
+/// them, is a thrown error, where `FileHandle.write(_:)` raised an
+/// Objective-C exception that Swift cannot catch. A source is read with the
+/// throwing `FileHandle.read(upToCount:)` in chunks, so a large input is never
+/// held whole and a read error is a thrown ``ReadFileWriterError``.
+enum ReadFileWriters {
+    /// The most bytes of a source held in memory at once while joining.
+    static let chunkSize = 4 * 1024 * 1024
+
+    /// Streams `sources` in order into `destination`, byte for byte.
+    static func join(_ sources: [URL], into destination: URL) throws {
+        try publish(destination) { stage in
+            for source in sources {
+                try append(source, to: stage)
+            }
+        }
+    }
+
+    /// Publishes the bytes that `body` streams as `destination`, swapping out
+    /// any regular file the name holds. When `body` throws, the name keeps its
+    /// old file and no stage file is left in the folder.
+    static func publish(_ destination: URL, writing body: (DurableReplace.StageWriter) throws -> Void) throws {
+        try DurableReplace.replace(
+            named: destination.lastPathComponent,
+            in: destination.deletingLastPathComponent(),
+            recovery: .none,
+            writing: body
+        )
+    }
+
+    /// Streams `source` into `stage` in chunks.
+    static func append(_ source: URL, to stage: DurableReplace.StageWriter) throws {
+        let input = try openForReading(source)
+        defer { try? input.close() }
+        while let chunk = try readChunk(of: input, from: source), !chunk.isEmpty {
+            try stage.write(chunk)
+        }
+    }
+
+    /// Opens `source`, or throws ``ReadFileWriterError/unreadableSource(path:reason:)``.
+    static func openForReading(_ source: URL) throws -> FileHandle {
+        do {
+            return try FileHandle(forReadingFrom: source)
+        } catch {
+            throw ReadFileWriterError.unreadableSource(path: source.path, reason: error.localizedDescription)
+        }
+    }
+
+    /// The next chunk of `handle`, `nil` at the end of the file, or a thrown
+    /// ``ReadFileWriterError/unreadableSource(path:reason:)``.
+    static func readChunk(of handle: FileHandle, from source: URL, upTo count: Int = chunkSize) throws -> Data? {
+        do {
+            return try handle.read(upToCount: count)
+        } catch {
+            throw ReadFileWriterError.unreadableSource(path: source.path, reason: error.localizedDescription)
+        }
+    }
+}
 
 // MARK: - Classifier read resolver
 
 extension ClassifierReadResolver {
     func concatenateFiles(_ sources: [URL], into destination: URL) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: destination.path) {
-            try fm.removeItem(at: destination)
-        }
-        fm.createFile(atPath: destination.path, contents: nil)
-        let outHandle = try FileHandle(forWritingTo: destination)
-        defer { try? outHandle.close() }
-        for src in sources {
-            let inHandle = try FileHandle(forReadingFrom: src)
-            defer { try? inHandle.close() }
-            while true {
-                let chunk = inHandle.readData(ofLength: 1 << 20)
-                if chunk.isEmpty { break }
-                outHandle.write(chunk)
-            }
-        }
+        try ReadFileWriters.join(sources, into: destination)
     }
 
     /// FASTQ → FASTA line-by-line conversion. Drops quality lines.
     func convertFASTQToFASTA(input: URL, output: URL) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: output.path) {
-            try fm.removeItem(at: output)
-        }
-        fm.createFile(atPath: output.path, contents: nil)
-
-        let inHandle = try FileHandle(forReadingFrom: input)
+        let inHandle = try ReadFileWriters.openForReading(input)
         defer { try? inHandle.close() }
-        let outHandle = try FileHandle(forWritingTo: output)
-        defer { try? outHandle.close() }
 
-        // Stream line-by-line. We use a simple buffered line reader.
-        let reader = LineReader(handle: inHandle)
-        var lineIndex = 0
-        while let line = reader.nextLine() {
-            let mod = lineIndex % 4
-            if mod == 0 {
-                // Header line: convert leading @ to >
-                if line.first == 0x40 /* @ */ {
-                    var converted = Data([0x3E /* > */])
-                    converted.append(line.dropFirst())
-                    converted.append(0x0A)
-                    outHandle.write(converted)
-                } else {
-                    var converted = line
-                    converted.append(0x0A)
-                    outHandle.write(converted)
+        try ReadFileWriters.publish(output) { stage in
+            // Stream line-by-line. We use a simple buffered line reader.
+            let reader = LineReader(handle: inHandle, source: input)
+            var pending = Data()
+            var lineIndex = 0
+            while let line = try reader.nextLine() {
+                let mod = lineIndex % 4
+                if mod == 0 {
+                    // Header line: convert leading @ to >
+                    if line.first == 0x40 /* @ */ {
+                        pending.append(0x3E /* > */)
+                        pending.append(line.dropFirst())
+                    } else {
+                        pending.append(line)
+                    }
+                    pending.append(0x0A)
+                } else if mod == 1 {
+                    pending.append(line)
+                    pending.append(0x0A)
                 }
-            } else if mod == 1 {
-                var seq = line
-                seq.append(0x0A)
-                outHandle.write(seq)
+                // mod == 2 (+) and mod == 3 (quality) are discarded.
+                lineIndex += 1
+                if pending.count >= ReadFileWriters.chunkSize {
+                    try stage.write(pending)
+                    pending.removeAll(keepingCapacity: true)
+                }
             }
-            // mod == 2 (+) and mod == 3 (quality) are discarded.
-            lineIndex += 1
+            if !pending.isEmpty { try stage.write(pending) }
         }
     }
 }
@@ -92,21 +153,25 @@ extension FASTQBatchImporter {
 /// line reader — it assumes LF line endings.
 fileprivate final class LineReader {
     private let handle: FileHandle
+    private let source: URL
     private var buffer = Data()
     private let chunkSize = 1 << 20
 
-    init(handle: FileHandle) {
+    init(handle: FileHandle, source: URL) {
         self.handle = handle
+        self.source = source
     }
 
-    func nextLine() -> Data? {
+    /// The next line without its line break, `nil` at the end of the file.
+    /// A read error is a thrown ``ReadFileWriterError``.
+    func nextLine() throws -> Data? {
         while true {
             if let newlineIndex = buffer.firstIndex(of: 0x0A) {
                 let line = buffer.subdata(in: buffer.startIndex..<newlineIndex)
                 buffer.removeSubrange(buffer.startIndex..<buffer.index(after: newlineIndex))
                 return line
             }
-            let chunk = handle.readData(ofLength: chunkSize)
+            let chunk = try ReadFileWriters.readChunk(of: handle, from: source, upTo: chunkSize) ?? Data()
             if chunk.isEmpty {
                 if buffer.isEmpty { return nil }
                 let line = buffer
