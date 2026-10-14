@@ -118,8 +118,9 @@ final class SidebarMoveOfABuiltResultFolderReplayTests: XCTestCase {
 
     // MARK: - The setup
 
-    /// Steps 1 to 5 of the design: the batch, the classifier's record for SRR35517702, `build-db kraken2`, one sidebar copy
-    /// of a file so that the project holds a record, and the bytes of the records outside the batch.
+    /// Steps 1 to 5 of the design. It builds the batch, writes the classifier's record for SRR35517702, runs
+    /// `build-db kraken2`, makes one sidebar copy of a file so that the project holds a record, and returns the digests
+    /// and the commands that `Built` keeps.
     private func buildTheBatch() async throws -> Built {
         let fixture = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
