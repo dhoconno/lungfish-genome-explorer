@@ -55,6 +55,10 @@ final class AssembleCommandReferenceBundleTests: XCTestCase {
             "--read-type", "illumina-short-reads", "--project-name", "demo", "--threads", "1",
             "--output", run.output.path, "--reference-bundle", "--format", "json",
         ])
+        // The record's output is the bundle, with role output (BIO's ruling D1 on A46 M3).
+        let output = try XCTUnwrap(record.output, "the record names no output")
+        XCTAssertTrue(output.path.hasSuffix("/demo.lungfishref"), "the record's output is \(output.path)")
+        XCTAssertEqual(output.role, .output)
         let wrapping = try XCTUnwrap(record.steps.first { $0.toolName == "Assembly Bundle Wrapping" })
         XCTAssertTrue(wrapping.outputs.contains { $0.path.hasSuffix("/demo.lungfishref") }, "the step names the bundle")
         let files = wrapping.outputs.filter { $0.path.contains("/demo.lungfishref/") }

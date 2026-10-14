@@ -105,7 +105,15 @@ final class AssemblyRouteParityReplayTests: XCTestCase {
         )
 
         XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
-        let result = try harness.evaluate(Case.spadesReassemble, declared: [], runs: runs)
+        // BIO's ruling D1 on A46 M3. Only this record names `lungfish-cli assemble`, and its output
+        // names the bundle (AssembleCommandReferenceBundleTests).
+        let declared = [
+            RouteParityDeclaredDifference(
+                [Case.spadesReassemble: 1], "only in C: Project.lungfish/Assemblies/demo/.lungfish-provenance.json",
+                reason: "C writes the record naming its row's command, A never wrote one", closedBy: "2.11, E14 deletion"
+            ),
+        ]
+        let result = try harness.evaluate(Case.spadesReassemble, declared: declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.spadesReassemble)")
         XCTAssertEqual(rows[.c]?.text, rows[.a]?.text, "the CLI route's row shows what the in-process row shows")
 

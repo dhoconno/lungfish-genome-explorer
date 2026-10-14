@@ -75,19 +75,23 @@ public enum AssemblyReferenceBundle {
     }
 
     /// The step a run record names a published bundle with, the `Assembly Bundle Wrapping` that the
-    /// bundle's own record names. Its outputs are the bundle and each of its files with its SHA-256,
-    /// and its inputs are `inputs`, the assembler's outputs that the bundle wraps.
+    /// bundle's own record names. Its outputs are the bundle and then each of its files with its
+    /// SHA-256, and its inputs are `inputs`, the assembler's outputs that the bundle wraps. A run
+    /// record's `output` is its last step's first output, so the bundle comes first and the record
+    /// names it (BIO's ruling D1 on Phase 2.10 lane A46 M3).
     public static func wrappingStep(
         bundleURL: URL,
         inputs: [ProvenanceFileDescriptor],
         startedAt: Date,
         completedAt: Date
     ) throws -> ProvenanceStep {
-        ProvenanceStep(
+        let descriptors = try AssemblyBundleBuilder().assemblyBundleOutputDescriptors(bundleURL: bundleURL)
+        let bundlePath = bundleURL.standardizedFileURL.path
+        return ProvenanceStep(
             toolName: "Assembly Bundle Wrapping",
             toolVersion: WorkflowRun.currentAppVersion,
             inputs: inputs,
-            outputs: try AssemblyBundleBuilder().assemblyBundleOutputDescriptors(bundleURL: bundleURL),
+            outputs: descriptors.filter { $0.path == bundlePath } + descriptors.filter { $0.path != bundlePath },
             exitStatus: 0,
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             startedAt: startedAt,
