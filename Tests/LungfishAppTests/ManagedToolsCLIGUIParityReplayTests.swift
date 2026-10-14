@@ -31,9 +31,9 @@ import LungfishWorkflow
 
 @MainActor
 final class ManagedToolsCLIGUIParityReplayTests: XCTestCase {
-    private var scratch: URL!
-    private var cli: URL!
-    private var harness: RouteParityHarness!
+    var scratch: URL!
+    var cli: URL!
+    var harness: RouteParityHarness!
 
     override func setUpWithError() throws {
         scratch = try TestTempDirectory.make(prefix: "managed-tools-parity")
@@ -56,12 +56,12 @@ final class ManagedToolsCLIGUIParityReplayTests: XCTestCase {
 
     // MARK: - A root and its stand-in micromamba
 
-    nonisolated private static func storageRoot(of root: URL) -> URL {
+    nonisolated static func storageRoot(of root: URL) -> URL {
         root.appendingPathComponent("storage", isDirectory: true)
     }
 
     /// The variables each CLI run gets for the side `root`: its own storage root, conda root and home.
-    nonisolated private static func environment(for root: URL) -> [String: String] {
+    nonisolated static func environment(for root: URL) -> [String: String] {
         [
             "LUNGFISH_STORAGE_ROOT": storageRoot(of: root).path,
             "LUNGFISH_CONDA_ROOT": storageRoot(of: root).appendingPathComponent("conda").path,
