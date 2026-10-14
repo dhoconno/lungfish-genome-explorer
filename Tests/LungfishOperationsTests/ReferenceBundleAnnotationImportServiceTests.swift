@@ -363,6 +363,30 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertTrue(provenance.contains("manual_annotations.db"))
     }
 
+    /// The attach's records name `LungfishAppVersion.short`, the version the `lungfish-cli
+    /// sequence` leaves record, never a host's own such as xctest's (2.10 A42 review, Fix 4).
+    func testTheAttachRecordsTheReleaseVersionOfThisProcess() async throws {
+        let bundleURL = try makeBundle(named: "Versioned")
+        let bedURL = tempRoot.appendingPathComponent("features.bed")
+        try "chr1\t1\t12\tprimer\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
+        _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: bedURL, bundleURL: bundleURL, trackID: "primers")
+
+        let log = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(
+            contentsOf: bundleURL.appendingPathComponent("annotations/primers-import-provenance.json")
+        )) as? [String: Any])
+        let entry = try XCTUnwrap((log["entries"] as? [[String: Any]])?.last)
+        XCTAssertEqual(entry["workflowVersion"] as? String, LungfishAppVersion.short)
+        XCTAssertEqual(entry["toolVersion"] as? String, LungfishAppVersion.short)
+        XCTAssertEqual((entry["runtime"] as? [String: Any])?["appVersion"] as? String, LungfishAppVersion.short)
+        let envelope = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(
+            contentsOf: bundleURL.appendingPathComponent(".lungfish-provenance.json")
+        )) as? [String: Any])
+        XCTAssertEqual(envelope["toolVersion"] as? String, LungfishAppVersion.short)
+        let step = try XCTUnwrap((envelope["steps"] as? [[String: Any]])?.last)
+        XCTAssertEqual(step["toolVersion"] as? String, LungfishAppVersion.short)
+    }
+
     private func makeBundle(named name: String, relativePath: String? = nil) throws -> URL {
         let bundleURL = tempRoot.appendingPathComponent(relativePath ?? "\(name).lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(
