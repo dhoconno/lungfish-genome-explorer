@@ -1,0 +1,2 @@
+{"event":"start","message":"Started download of demo project no-such-demo via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"There is no demo project called “no-such-demo”. Run 'lungfish-cli demo list' to see the available projects.","event":"failed","schemaVersion":2}

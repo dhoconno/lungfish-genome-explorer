@@ -5,6 +5,11 @@ project list before anything is unpacked. It is unpacked into a hidden
 staging folder and moved into place only when complete, so a failed or
 cancelled fetch never leaves a half-extracted project behind.
 
+With --format json the command prints CLIEvent lines on standard
+output, a start line, progress lines, then one complete line that names
+the installed project folder or one failed line. 'demo info <id>
+--format json' prints the project's record.
+
 USAGE: lungfish-cli demo fetch <id> [--force] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>] [--dest <dest>]
 
 ARGUMENTS:

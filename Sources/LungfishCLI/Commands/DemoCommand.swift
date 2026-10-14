@@ -52,11 +52,45 @@ struct DemoLocationOptions: ParsableArguments {
         return URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
     }
 
-    func loadManifest() throws -> DemoProjectManifest {
+    /// The hidden test seam that serves the archives from a loopback stand-in (Phase 2.10 lane A45 M4, panel
+    /// decision G5). It names an `http` origin on this Mac, such as `http://127.0.0.1:49152`, and the archive
+    /// URL of every project then keeps its path and query and takes that scheme, host and port. A list names
+    /// https archives only, so a test names a host that does not exist and this variable puts the loopback
+    /// server in its place. An origin anywhere else is refused, so a stray variable never sends a download to
+    /// another host. It is not in the help.
+    static let standInOriginVariable = "LUNGFISH_DEMO_STAND_IN_ORIGIN"
+
+    func loadManifest(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> DemoProjectManifest {
+        let manifest: DemoProjectManifest
         if let manifestPath, !manifestPath.isEmpty {
-            return try DemoProjectManifest.load(from: URL(fileURLWithPath: (manifestPath as NSString).expandingTildeInPath))
+            manifest = try DemoProjectManifest.load(from: URL(fileURLWithPath: (manifestPath as NSString).expandingTildeInPath))
+        } else {
+            manifest = try DemoProjectManifest.loadBundled()
         }
-        return try DemoProjectManifest.loadBundled()
+        guard let origin = environment[Self.standInOriginVariable], !origin.isEmpty else { return manifest }
+        return try Self.serving(manifest, fromOrigin: origin)
+    }
+
+    /// `manifest` with the archive of each project on `origin`, which must be an http origin on this Mac.
+    static func serving(_ manifest: DemoProjectManifest, fromOrigin origin: String) throws -> DemoProjectManifest {
+        guard let base = URL(string: origin), base.scheme?.lowercased() == "http",
+              let host = base.host?.lowercased(), host == "127.0.0.1" || host == "localhost" else {
+            throw DemoProjectError.invalidManifest(
+                "\(standInOriginVariable) must name an http origin on this Mac, such as http://127.0.0.1:8080, and not \(origin).")
+        }
+        let projects = manifest.projects.map { project -> DemoProject in
+            guard var parts = URLComponents(url: project.archive.url, resolvingAgainstBaseURL: false) else { return project }
+            parts.scheme = base.scheme
+            parts.host = base.host
+            parts.port = base.port
+            guard let served = parts.url else { return project }
+            return DemoProject(
+                id: project.id, title: project.title, summary: project.summary, chapters: project.chapters,
+                projectFolderName: project.projectFolderName,
+                archive: .init(url: served, sha256: project.archive.sha256, bytes: project.archive.bytes),
+                version: project.version, minimumAppVersion: project.minimumAppVersion)
+        }
+        return DemoProjectManifest(schemaVersion: manifest.schemaVersion, projects: projects)
     }
 }
 
@@ -292,6 +326,11 @@ extension DemoCommand {
             project list before anything is unpacked. It is unpacked into a hidden
             staging folder and moved into place only when complete, so a failed or
             cancelled fetch never leaves a half-extracted project behind.
+
+            With --format json the command prints CLIEvent lines on standard
+            output, a start line, progress lines, then one complete line that names
+            the installed project folder or one failed line. 'demo info <id>
+            --format json' prints the project's record.
             """
         )
 
@@ -304,44 +343,17 @@ extension DemoCommand {
         @OptionGroup var globalOptions: TextAndJSONGlobalOptions
         @OptionGroup var location: DemoLocationOptions
 
+        /// The run and what it prints are in `DemoFetchRun` and `DemoFetchReporter` (Phase 2.10 lane A45 M4).
         func run() async throws {
             let resolved = try globalOptions.resolved(with: CommandLine.arguments)
-            let manifest = try location.loadManifest()
-            let project = try DemoCommand.resolveProject(id, in: manifest)
-            let destination = location.destinationURL()
-            let projectURL = DemoProjectInstaller.projectURL(for: project, in: destination)
-
-            if !force, FileManager.default.fileExists(atPath: projectURL.path) {
-                if !resolved.quiet {
-                    FileHandle.standardError.write(Data(
-                        "\(project.title) is already installed. Pass --force to replace it with a fresh copy.\n".utf8
-                    ))
-                }
-                Swift.print(projectURL.path)
-                return
-            }
-
-            let showProgress = !resolved.quiet && isatty(fileno(stderr)) != 0
-            let installer = DemoProjectInstaller()
-            do {
-                let result = try await installer.install(project, into: destination, replaceExisting: force) { phase in
-                    guard !resolved.quiet else { return }
-                    DemoCommand.reportProgress(phase, interactive: showProgress)
-                }
-                if showProgress { FileHandle.standardError.write(Data("\n".utf8)) }
-                if result.replacedPreviousCopy, !resolved.quiet {
-                    let location = result.previousCopyTrashURL?.path ?? "the Trash"
-                    FileHandle.standardError.write(Data("Moved the previous copy to \(location).\n".utf8))
-                }
-                if resolved.outputFormat == .json {
-                    Swift.print(try DemoCommand.encodeJSON(DemoCommand.report(for: project, in: destination)))
-                } else {
-                    Swift.print(result.projectURL.path)
-                }
-            } catch {
-                if showProgress { FileHandle.standardError.write(Data("\n".utf8)) }
-                throw error
-            }
+            let reporter = DemoFetchReporter(
+                id: id, eventsOn: resolved.outputFormat == .json, quiet: resolved.quiet,
+                interactive: isatty(fileno(stderr)) != 0)
+            let run = DemoFetchRun(
+                id: id, force: force, destination: location.destinationURL(),
+                manifest: Result { try location.loadManifest() }, reporter: reporter)
+            reporter.start()
+            try reporter.finish(await run.fetch())
         }
     }
 

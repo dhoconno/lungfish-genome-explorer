@@ -114,6 +114,51 @@ final class DemoCommandTests: XCTestCase {
         }
     }
 
+    // MARK: - The stand-in origin and the events (Phase 2.10 lane A45 M4)
+
+    func testTheStandInOriginPutsEveryArchiveOnLoopbackAndKeepsItsPathAndQuery() throws {
+        let project = DemoProject(
+            id: "demo-one", title: "One", summary: "", chapters: [], projectFolderName: "One.lungfish",
+            archive: .init(
+                url: URL(string: "https://github.com/releases/download/demo/one.zip?token=1")!,
+                sha256: String(repeating: "a", count: 64), bytes: 10),
+            version: "2026.9.44")
+        let manifest = DemoProjectManifest(projects: [project])
+        for origin in ["http://127.0.0.1:49152", "http://localhost:8080"] {
+            let served = try DemoLocationOptions.serving(manifest, fromOrigin: origin)
+            XCTAssertEqual(served.projects.first?.archive.url.absoluteString, "\(origin)/releases/download/demo/one.zip?token=1")
+            XCTAssertEqual(served.projects.first?.archive.sha256, project.archive.sha256, "the checksum is the list's own")
+            XCTAssertEqual(served.projects.first?.archive.bytes, 10, "the size is the list's own")
+        }
+        XCTAssertEqual(DemoLocationOptions.standInOriginVariable, "LUNGFISH_DEMO_STAND_IN_ORIGIN")
+    }
+
+    func testTheStandInOriginRefusesEveryOtherHost() {
+        let manifest = DemoProjectManifest(projects: [])
+        for origin in ["http://example.com", "https://127.0.0.1:8443", "127.0.0.1", "ftp://localhost", "http://192.168.1.2:80"] {
+            XCTAssertThrowsError(try DemoLocationOptions.serving(manifest, fromOrigin: origin), origin) { error in
+                XCTAssertTrue("\(error)".contains(DemoLocationOptions.standInOriginVariable), "\(error)")
+            }
+        }
+    }
+
+    func testTheReporterPutsTheDownloadInTheFirstNineTenthsAndEachLaterPhaseAtItsOwnNumber() {
+        let total: Int64 = 1000
+        let lines = [
+            DemoFetchReporter.line(for: .downloading(bytesReceived: 0, totalBytes: total)),
+            DemoFetchReporter.line(for: .downloading(bytesReceived: 500, totalBytes: total)),
+            DemoFetchReporter.line(for: .downloading(bytesReceived: 1000, totalBytes: total)),
+            DemoFetchReporter.line(for: .downloading(bytesReceived: 2000, totalBytes: total)),
+            DemoFetchReporter.line(for: .downloading(bytesReceived: 5, totalBytes: nil)),
+            DemoFetchReporter.line(for: .verifying),
+            DemoFetchReporter.line(for: .extracting),
+            DemoFetchReporter.line(for: .installing),
+        ]
+        XCTAssertEqual(lines.map { $0.fraction }, [0, 0.45, 0.9, 0.9, 0, 0.91, 0.93, 0.98], "a total that is unknown or passed holds the bar")
+        XCTAssertEqual(
+            lines.map { $0.message }.suffix(3), ["Verifying size and SHA-256…", "Unpacking…", "Installing…"])
+    }
+
     private func install(_ project: DemoProject, version: String, in destination: URL) throws {
         let folder = DemoProjectInstaller.projectURL(for: project, in: destination)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

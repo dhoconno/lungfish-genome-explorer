@@ -1,0 +1,2 @@
+{"event":"start","message":"Started download of demo project demo-fixture via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Demo Fixture is already installed. Pass --force to replace it with a fresh copy.","output":"\/work\/Demo Fixture.lungfish","outputs":["\/work\/Demo Fixture.lungfish"],"progress":1,"schemaVersion":2}

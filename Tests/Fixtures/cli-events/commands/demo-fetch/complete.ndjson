@@ -1,0 +1,7 @@
+{"event":"start","message":"Started download of demo project demo-fixture via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Downloading Zero KB of 394 bytes","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Downloading 394 bytes of 394 bytes","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Verifying size and SHA-256…","progress":0.91,"schemaVersion":2}
+{"event":"progress","message":"Unpacking…","progress":0.93,"schemaVersion":2}
+{"event":"progress","message":"Installing…","progress":0.98,"schemaVersion":2}
+{"event":"complete","message":"Installed Demo Fixture","output":"\/work\/Demo Fixture.lungfish","outputs":["\/work\/Demo Fixture.lungfish"],"progress":1,"schemaVersion":2}

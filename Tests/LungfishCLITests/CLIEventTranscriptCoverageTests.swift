@@ -67,6 +67,10 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // managed bgzip. Its transcripts are runs of the built CLI (FetchSRAEventTranscriptReplayTests, lane
         // A45 of Phase 2.10).
         "fetch sra download",
+        // `demo fetch` downloads, unpacks and installs a project archive. Its transcripts are runs of the built CLI
+        // on a loopback stand-in that serves a small archive (DemoFetchEventTranscriptReplayTests, lane A45 of
+        // Phase 2.10).
+        "demo fetch",
     ]
 
     static var transcriptsFolder: URL {
