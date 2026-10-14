@@ -1087,10 +1087,8 @@ public actor CondaManager {
     ///   - stderrHandler: Optional callback that receives stderr lines in
     ///     real-time as they are written by the subprocess. Useful for parsing
     ///     progress output from tools like kraken2 that report progress to
-    ///     stderr. The stderr is still accumulated and returned in the result
-    ///     tuple regardless of whether this handler is set. It holds whole
-    ///     lines only, since a stderr over the 4 MB capture limit loses the
-    ///     start of its first line (``ToolProcessResult/stderrWholeLines``).
+    ///     stderr. The stderr is still accumulated and returned, as whole lines
+    ///     (``ToolProcessResult/stderrWholeLines``), whether this handler is set.
     ///   - stdoutHandler: Optional live stdout line callback. Each pipe frames UTF-8,
     ///     LF, CRLF, CR updates and its final unterminated line independently.
     ///     Both callbacks finish before this method returns or throws after launch.
@@ -1155,8 +1153,7 @@ public actor CondaManager {
         } catch ToolProcessError.cancelled {
             throw CancellationError()
         }
-        // Whole lines, since this text reaches the records of the classifier, EsViritu and GATK steps.
-        let stderr = result.stderrWholeLines
+        let stderr = result.stderrWholeLines // whole lines, since it reaches the classifier, EsViritu and GATK records
         // ToolProcess reports LGE's own timeouts, so a SIGTERM here came from
         // outside LGE and is a failure that names the signal.
         if result.termination == .signaled(signal: SIGTERM) {
