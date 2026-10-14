@@ -26,7 +26,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | 2473 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 8359 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | 3548 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 805 | 241449 | 1425 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 806 | 241637 | 1425 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 9 | 1549 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 58 | 12955 | 60 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -52,7 +52,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1114 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 10 | 3210 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 12 | 2569 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 547 | 200697 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 558 | 202731 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1846,7 +1846,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 805, lines 241449
+- Swift files. 806, lines 241637
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1871,13 +1871,13 @@ None.
 | Dependencies | 17 | 2796 |
 | Engines | 8 | 3913 |
 | Exports | 1 | 505 |
-| Extraction | 29 | 9180 |
+| Extraction | 30 | 9260 |
 | FASTQ | 1 | 271 |
 | Geneious | 10 | 2380 |
-| Ingestion | 30 | 10080 |
+| Ingestion | 30 | 10150 |
 | MSA | 14 | 2641 |
 | Mapping | 27 | 9665 |
-| Metagenomics | 67 | 23925 |
+| Metagenomics | 67 | 23963 |
 | Metagenomics/CzId | 3 | 909 |
 | Native | 14 | 5764 |
 | Nextflow | 13 | 2037 |
@@ -2153,7 +2153,7 @@ None.
 - `ClassificationBatchOutcomeEvaluation` struct, `Sources/LungfishWorkflow/Metagenomics/ClassificationBatchOutcomePolicy.swift:24`
 - `ClassificationBatchOutcomePolicy` enum, `Sources/LungfishWorkflow/Metagenomics/ClassificationBatchOutcomePolicy.swift:41`
 - `ClassificationBatchProvenanceContext` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift:22`
-- `ClassificationBatchResultManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:50`
+- `ClassificationBatchResultManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:51`
 - `ClassificationBatchSummaryRow` struct, `Sources/LungfishWorkflow/Metagenomics/ClassificationBatchOutcomePolicy.swift:9`
 - `ClassificationCLIInvocationBuilder` enum, `Sources/LungfishWorkflow/Metagenomics/ClassificationCLIInvocationBuilder.swift:29`
 - `ClassificationCompletionDetail` enum, `Sources/LungfishWorkflow/Metagenomics/ClassificationCompletionDetail.swift:15`
@@ -2307,8 +2307,8 @@ None.
 - `EsVirituAnalysisRunOptions` struct, `Sources/LungfishWorkflow/Metagenomics/EsVirituAnalysisRunTypes.swift:9`
 - `EsVirituAnalysisRunRefusal` enum, `Sources/LungfishWorkflow/Metagenomics/EsVirituAnalysisRunTypes.swift:57`
 - `EsVirituAnalysisRunTool` struct, `Sources/LungfishWorkflow/Metagenomics/EsVirituAnalysisRunTool.swift:19`
-- `EsVirituBatchAggregatedManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:200`
-- `EsVirituBatchResultManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:88`
+- `EsVirituBatchAggregatedManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:201`
+- `EsVirituBatchResultManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:89`
 - `EsVirituCLIInvocationBuilder` enum, `Sources/LungfishWorkflow/Metagenomics/EsVirituCLIInvocationBuilder.swift:9`
 - `EsVirituConfig` struct, `Sources/LungfishWorkflow/Metagenomics/EsVirituConfig.swift:89`
 - `EsVirituConfigError` enum, `Sources/LungfishWorkflow/Metagenomics/EsVirituConfig.swift:368`
@@ -2357,7 +2357,7 @@ None.
 - `FASTQBundleCopyImportResult` struct, `Sources/LungfishWorkflow/Ingestion/FASTQBundleCopyImportWorkflow.swift:8`
 - `FASTQBundleCopyImportWorkflow` class, `Sources/LungfishWorkflow/Ingestion/FASTQBundleCopyImportWorkflow.swift:43`
 - `FASTQCLIMaterializer` class, `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift:26`
-- `FASTQCLIMaterializerError` enum, `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift:726`
+- `FASTQCLIMaterializerError` enum, `Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift:714`
 - `FASTQConsumerRegistry` enum, `Sources/LungfishWorkflow/Ingestion/FASTQConsumerRegistry.swift:22`
 - `FASTQDerivedPayloadRoot` enum, `Sources/LungfishWorkflow/Extraction/FASTQDerivedPayloadRoot.swift:19`
 - `FASTQGzipProvenanceResult` struct, `Sources/LungfishWorkflow/Ingestion/FastpPairedRunner.swift:401`
@@ -2370,7 +2370,7 @@ None.
 - `FASTQMixedLayoutHint` enum, `Sources/LungfishWorkflow/Extraction/FASTQMixedLayoutHint.swift:20`
 - `FASTQPairingDecision` struct, `Sources/LungfishWorkflow/Ingestion/FASTQPairingModeResolver.swift:16`
 - `FASTQPairingModeResolver` enum, `Sources/LungfishWorkflow/Ingestion/FASTQPairingModeResolver.swift:52`
-- `FASTQPairInterleaver` enum, `Sources/LungfishWorkflow/Ingestion/FASTQPairInterleaver.swift:16`
+- `FASTQPairInterleaver` enum, `Sources/LungfishWorkflow/Ingestion/FASTQPairInterleaver.swift:17`
 - `FASTQPlatformLabelService` enum, `Sources/LungfishWorkflow/Ingestion/FASTQPlatformLabelService.swift:13`
 - `FASTQRawRecord` struct, `Sources/LungfishWorkflow/Demultiplex/ExactBarcodeDemux.swift:78`
 - `FASTQSampleSheet` struct, `Sources/LungfishWorkflow/Ingestion/FASTQSampleSheet.swift:7`
@@ -2639,11 +2639,11 @@ None.
 - `MatePairFileNaming` enum, `Sources/LungfishWorkflow/Mapping/MatePairFileNaming.swift:17`
 - `MCMHaplotypingPreset` struct, `Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift:5`
 - `MCMHaplotypingPresetError` enum, `Sources/LungfishWorkflow/ONTGenotyping/MCMHaplotypingPreset.swift:251`
-- `MetagenomicsBatchManifestHeader` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:37`
+- `MetagenomicsBatchManifestHeader` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:38`
 - `MetagenomicsBatchProvenanceWriter` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift:42`
 - `MetagenomicsBatchProvenanceWriterError` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift:9`
-- `MetagenomicsBatchResultStore` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:250`
-- `MetagenomicsBatchSampleRecord` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:8`
+- `MetagenomicsBatchResultStore` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:251`
+- `MetagenomicsBatchSampleRecord` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:9`
 - `MetagenomicsDatabaseArchiveTransferring` protocol, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:78`
 - `MetagenomicsDatabaseChecksum` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift:82`
 - `MetagenomicsDatabaseChecksumAlgorithm` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift:76`
@@ -3189,10 +3189,10 @@ None.
 - `TaxonomyExtractionConfig` struct, `Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionConfig.swift:43`
 - `TaxonomyExtractionError` enum, `Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionConfig.swift:187`
 - `TaxonomyExtractionPipeline` actor, `Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift:65`
-- `TaxTriageBatchManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:145`
+- `TaxTriageBatchManifest` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:146`
 - `TaxTriageConfig` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift:45`
 - `TaxTriageConfigError` enum, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift:515`
-- `TaxTriageCrossRef` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:110`
+- `TaxTriageCrossRef` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchResultStore.swift:111`
 - `TaxTriageIgnoredFailure` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageResult.swift:16`
 - `TaxTriageImportResult` struct, `Sources/LungfishWorkflow/Metagenomics/TaxTriageImportResult.swift:12`
 - `TaxTriagePipeline` actor, `Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift:144`
