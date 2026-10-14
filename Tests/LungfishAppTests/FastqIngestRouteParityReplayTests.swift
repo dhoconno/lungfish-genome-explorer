@@ -81,7 +81,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
 
     func testTheIngestionRoutesAgreeAndTheRecordedCommandReproducesTheCLIRoute() async throws {
         let condaRoot = try installStandInClumpify(Self.copyingClumpify, at: scratch.appendingPathComponent("tools/conda"))
-        let environment = ["LUNGFISH_CONDA_ROOT": condaRoot.path, "LUNGFISH_CONDA_SHARED_PKGS": "0"]
+        let environment = Self.standInEnvironment(condaRoot: condaRoot.path)
         await useEnvironment(environment)
         let harness = RouteParityHarness(
             cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120), environment: { _ in environment }
@@ -116,6 +116,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
         // record names are held to C's record first, then A's record files leave A's tree, and the
         // difference is declared in BIO's D1 form, as "only in C".
         try assertCKeepsEveryFactAKeeps(runs)
+        try assertEverySideRanThePinnedHeap(runs)
         try removeProvenanceFiles(in: runs.a.root)
         let result = try harness.evaluate(Case.copiedIn, declared: Self.declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.copiedIn)")
@@ -183,6 +184,20 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
         XCTAssertEqual(explicitC["wasClumpified"], explicitA["wasClumpified"])
     }
 
+    /// The records still name the `-Xmx` that ran, with no mask. Every side was pinned to one heap through the hidden
+    /// seam, so the clumpify step of each side's record names that heap in its argv: the app process on side A, the
+    /// CLI child on side C, and the replayed command on side C'.
+    private func assertEverySideRanThePinnedHeap(_ runs: RouteParityRuns) throws {
+        for run in runs.all {
+            let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: Self.record(in: run.root)), "side \(run.side)'s record")
+            let clumpify = try XCTUnwrap(record.steps.first { $0.toolName.contains("clumpify") }, "side \(run.side) has a clumpify step")
+            XCTAssertTrue(
+                clumpify.argv.contains("-Xmx\(Self.pinnedHeapGB)g"),
+                "side \(run.side) ran with the pinned heap, its argv is \(clumpify.argv)"
+            )
+        }
+    }
+
     // MARK: - Cancel
 
     /// The window's Cancel on every side while the clumpify runs (QA 4, SWIFT 3). The leaf exits
@@ -198,7 +213,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
             cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(60),
             environment: { root in
                 let side = RouteParitySide.allCases.first { $0.folderName == root.lastPathComponent } ?? .c
-                return ["LUNGFISH_CONDA_ROOT": toolRoots[side]?.path ?? "", "LUNGFISH_CONDA_SHARED_PKGS": "0"]
+                return Self.standInEnvironment(condaRoot: toolRoots[side]?.path ?? "")
             }
         )
         let scratch = self.scratch!
@@ -215,7 +230,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
             cancel: cancel,
             fixture: Self.writeBundleFixture,
             sideA: { root in
-                await self.useEnvironment(["LUNGFISH_CONDA_ROOT": toolRoots[.a]?.path ?? "", "LUNGFISH_CONDA_SHARED_PKGS": "0"])
+                await self.useEnvironment(Self.standInEnvironment(condaRoot: toolRoots[.a]?.path ?? ""))
                 let input = Self.bundleInput(in: root)
                 let pid = Self.pidFile(of: .a, in: scratch)
                 let (_, item) = try await ReadsRouteParity.record(title: Self.title) {
@@ -258,7 +273,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
     /// original alone.
     func testAFailedClumpifyFailsOnEverySideAndKeepsTheOriginal() async throws {
         let condaRoot = try installStandInClumpify(Self.failingClumpify, at: scratch.appendingPathComponent("tools/conda"))
-        let environment = ["LUNGFISH_CONDA_ROOT": condaRoot.path, "LUNGFISH_CONDA_SHARED_PKGS": "0"]
+        let environment = Self.standInEnvironment(condaRoot: condaRoot.path)
         await useEnvironment(environment)
         let harness = RouteParityHarness(
             cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120), environment: { _ in environment }
@@ -342,7 +357,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
     /// signature and key files of the record it replaces.
     func testEachCLISidesRecordsPassProvenanceVerify() async throws {
         let condaRoot = try installStandInClumpify(Self.copyingClumpify, at: scratch.appendingPathComponent("tools/conda"))
-        let environment = ["LUNGFISH_CONDA_ROOT": condaRoot.path, "LUNGFISH_CONDA_SHARED_PKGS": "0"]
+        let environment = Self.standInEnvironment(condaRoot: condaRoot.path)
         await useEnvironment(environment)
         let harness = RouteParityHarness(
             cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120), environment: { _ in environment }
@@ -504,6 +519,25 @@ extension FastqIngestRouteParityReplayTests {
 
 extension FastqIngestRouteParityReplayTests {
     nonisolated static let title = "FASTQ Ingestion: SRR9"
+
+    /// The heap every side is pinned to. The live policy never gives an ingest this value, since its floor is 4 GB,
+    /// so a side that ignored the pin shows in its record.
+    nonisolated static let pinnedHeapGB = 3
+
+    /// The hidden variable `ManagedJavaHeapPolicy` reads in a debug build. The name is written out here so that a
+    /// rename of the seam shows in this class (review A47 landing 22 item 5, FX47 (i)).
+    nonisolated static let pinnedHeapVariable = "LUNGFISH_MANAGED_JAVA_HEAP_PIN_GB"
+
+    /// What every side gets: the stand-in conda root, no shared package cache, and the pinned heap. Without the pin
+    /// each side sizes its heap from the host's live free memory, and two runs seconds apart can differ by a whole
+    /// gigabyte in the `-Xmx` their records name.
+    nonisolated static func standInEnvironment(condaRoot: String) -> [String: String] {
+        [
+            "LUNGFISH_CONDA_ROOT": condaRoot,
+            "LUNGFISH_CONDA_SHARED_PKGS": "0",
+            pinnedHeapVariable: String(pinnedHeapGB),
+        ]
+    }
 
     /// Four single-end reads, none a duplicate.
     nonisolated static let reads = [

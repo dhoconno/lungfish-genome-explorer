@@ -84,10 +84,12 @@ public enum ClumpingTool: String, Codable, Sendable, CaseIterable {
 
     public static func clumpifyHeapBytes(physicalMemoryBytes: Int64) -> Int64 {
         let gib: Int64 = 1_073_741_824
+        // This models a host of the given size, so the debug heap pin does not move it.
         let heapGB = ManagedJavaHeapPolicy.heapGB(
             physicalMemoryBytes: UInt64(max(0, physicalMemoryBytes)),
             availableMemoryBytes: nil,
-            minimumGB: 4
+            minimumGB: 4,
+            environment: [:]
         )
         return Int64(heapGB) * gib
     }

@@ -33,6 +33,13 @@ public enum ManagedJavaHeapPolicy: Sendable {
     /// Share of physical memory one bundled Java tool may claim.
     public static let physicalShare = 0.35
 
+    /// The variable a debug build reads to pin the heap (Phase 2.10 FX47 (i)). The policy reads the host's live free
+    /// memory, so two runs seconds apart can differ by a whole gigabyte in the `-Xmx` they hand a tool, and a test that
+    /// compares two runs of the same command needs one heap for both. The app process and the `lungfish-cli` child
+    /// both size their heap here, so one variable pins both routes. No help text, option, project file or defaults
+    /// key names or sets it, and a release build ignores it, as the stand-in seams of lane A45 do.
+    package static let pinnedHeapVariable = "LUNGFISH_MANAGED_JAVA_HEAP_PIN_GB"
+
     /// Heap size in whole gigabytes for one bundled Java tool.
     ///
     /// - Parameters:
@@ -40,11 +47,18 @@ public enum ManagedJavaHeapPolicy: Sendable {
     ///   - availableMemoryBytes: memory currently free (free + inactive +
     ///     speculative pages); defaults to a live reading, `nil` when unknown.
     ///   - minimumGB: floor; 4 for ingestion of large files, 1 for small derivative steps.
+    ///   - environment: Where a debug build reads ``pinnedHeapVariable``, this process's by default. A value there
+    ///     is the heap, whatever the memory arguments and the floor say. A caller that models another host passes
+    ///     none.
     public static func heapGB(
         physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory,
         availableMemoryBytes: UInt64? = currentAvailableMemoryBytes(),
-        minimumGB: Int = 4
+        minimumGB: Int = 4,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int {
+        if let pinned = pinnedHeapGB(environment: environment) {
+            return pinned
+        }
         let gb = 1024.0 * 1024.0 * 1024.0
         let physicalGB = Double(physicalMemoryBytes) / gb
         var candidate = physicalGB * physicalShare
@@ -54,6 +68,22 @@ public enum ManagedJavaHeapPolicy: Sendable {
         }
         let clamped = min(Double(compressedOopsCeilingGB), candidate)
         return max(minimumGB, Int(clamped.rounded(.down)))
+    }
+
+    /// The heap `environment` pins, or nil for none. Only a debug build reads it, and only a whole number of
+    /// gigabytes from 1 to the compressed-oops ceiling counts. Any other value pins nothing, so the live policy
+    /// stands.
+    package static func pinnedHeapGB(environment: [String: String]) -> Int? {
+        #if DEBUG
+        guard let text = environment[pinnedHeapVariable]?.trimmingCharacters(in: .whitespaces),
+              let value = Int(text),
+              (1...compressedOopsCeilingGB).contains(value) else {
+            return nil
+        }
+        return value
+        #else
+        return nil
+        #endif
     }
 
     /// Free + inactive + speculative pages right now, or `nil` if the host

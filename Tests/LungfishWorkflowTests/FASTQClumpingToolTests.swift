@@ -1,10 +1,23 @@
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class FASTQClumpingToolTests: XCTestCase {
     func testDefaultIsAuto() {
         XCTAssertEqual(ClumpingTool.default, .auto)
     }
+
+    #if DEBUG
+    /// `clumpifyHeapBytes` models a host of the size it is given. The debug heap pin (Phase 2.10 FX47 (i)) sizes the
+    /// heap a run hands a tool and must not move that model.
+    func testTheHeapPinDoesNotMoveTheBudgetOfAHypotheticalHost() {
+        let name = ManagedJavaHeapPolicy.pinnedHeapVariable
+        let previous = getenv(name).map { String(cString: $0) }
+        setenv(name, "3", 1)
+        defer { if let previous { setenv(name, previous, 1) } else { unsetenv(name) } }
+        XCTAssertEqual(ClumpingTool.clumpifyHeapBytes(physicalMemoryBytes: 64 * Self.gib), 22 * Self.gib)
+    }
+    #endif
 
     func testRawValuesAreStableForCLIAndProvenance() {
         XCTAssertEqual(ClumpingTool.auto.rawValue, "auto")
