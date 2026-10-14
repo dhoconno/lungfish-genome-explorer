@@ -256,7 +256,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         try await NativeToolRunner().runProcess(
             executableURL: URL(fileURLWithPath: "/bin/bash"),
             arguments: ["-c", Self.stderrScript(count: count)],
-            timeout: 60,
+            timeout: 30,
             maxStderrBytes: maxStderrBytes
         )
     }
@@ -315,7 +315,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         let result = try await NativeToolRunner().runProcess(
             executableURL: URL(fileURLWithPath: "/bin/bash"),
             arguments: ["-c", "/usr/bin/head -c 200000 /dev/zero | /usr/bin/tr '\\0' 'x' >&2"],
-            timeout: 60,
+            timeout: 30,
             maxStderrBytes: 65_536
         )
 
@@ -351,7 +351,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         let output = fixture.root.appendingPathComponent("out.txt")
 
         let result = try await fixture.runner.runWithFileOutput(
-            .seqkit, arguments: [], outputFile: output, timeout: 60
+            .seqkit, arguments: [], outputFile: output, timeout: 30
         )
 
         XCTAssertEqual(result.exitCode, 0)
@@ -368,7 +368,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
 
         let result = try await fixture.runner.runPipeline(
             [NativePipelineStage(.seqkit, arguments: []), NativePipelineStage(.samtools, arguments: [])],
-            timeout: 60
+            timeout: 30
         )
 
         XCTAssertEqual(result.exitCodes, [0, 0])
