@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
 /// Writes the provenance of one SRA run the window downloaded and imported.
 /// Internal, not private, so tests can read what it records.
