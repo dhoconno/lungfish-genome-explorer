@@ -183,12 +183,42 @@ extension InspectorViewController {
         runner: CLIAlignmentActionRunner = CLIAlignmentActionRunner(),
         finish: @escaping @MainActor (Result<CLIAlignmentActionRunner.Completion, any Error>) -> Void
     ) {
-        let arguments = removeDerivedAlignmentCLIArguments(bundleURL: bundleURL, trackID: trackID)
+        runAlignmentLeafThroughCLI(
+            arguments: removeDerivedAlignmentCLIArguments(bundleURL: bundleURL, trackID: trackID),
+            operationID: operationID,
+            runner: runner,
+            finish: finish
+        )
+    }
+
+    /// A leaf that completed without a fact the app needs from it, such as the bundle or the track it made.
+    /// The row then fails with `message` instead of showing a result the app cannot name.
+    struct AlignmentLeafCompletionError: LocalizedError, Equatable {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Runs one L3 leaf, `arguments` being the argv after the binary, on the runner for the row `operationID`
+    /// and hands how it ended to `finish` on the main actor (Phase 2.10 lanes A51 and A54, the one run
+    /// helper of the family). The leaf wrote every file before it exited, so the app writes nothing, and
+    /// the runner completes nothing: `finish` completes the row, so the result stays hidden until then.
+    /// The row's Cancel reaches the runner's `cancel()`. A cancelled run ends the row Cancelled, calls
+    /// `cancelled` so the caller can reset what it showed, and calls no `finish`. `overlay` gets each
+    /// progress message the row takes, for a caller that shows it in the viewer's progress overlay.
+    static func runAlignmentLeafThroughCLI(
+        arguments: [String],
+        operationID: UUID,
+        runner: CLIAlignmentActionRunner = CLIAlignmentActionRunner(),
+        overlay: (@MainActor @Sendable (String) -> Void)? = nil,
+        cancelled: @escaping @MainActor () -> Void = {},
+        finish: @escaping @MainActor (Result<CLIAlignmentActionRunner.Completion, any Error>) -> Void
+    ) {
         let task = Task(priority: .userInitiated) { @MainActor in
             do {
-                finish(.success(try await runner.run(arguments: arguments, operationID: operationID)))
+                finish(.success(try await runner.run(arguments: arguments, operationID: operationID, overlay: overlay)))
             } catch is CancellationError {
                 OperationCenterCLIBridge.acknowledgeCancellation(operationID)
+                cancelled()
             } catch {
                 finish(.failure(error))
             }

@@ -301,13 +301,35 @@ extension InspectorViewController {
             }
         }
 
-        /// The CLI command that reproduces the run, for the row's Copy CLI Command.
-        func cliCommand(bundleURL: URL) -> String {
+        /// The `lungfish-cli` subcommand the kind runs. Both are the existing duplicate leaves, not
+        /// `bam markdup`, which takes BAM files and no bundle (Phase 2.10 decision C14).
+        var subcommand: String {
             switch self {
-            case .markDuplicates:
-                return OperationCenter.buildCLICommand(subcommand: "bundle mark-duplicates", args: [bundleURL.path])
-            case .createDeduplicatedBundle:
-                return OperationCenter.buildCLICommand(subcommand: "bundle deduplicate-alignments", args: [bundleURL.path])
+            case .markDuplicates: return "bundle mark-duplicates"
+            case .createDeduplicatedBundle: return "bundle deduplicate-alignments"
+            }
+        }
+
+        /// The CLI command the in-process route records, for the row's Copy CLI Command.
+        func cliCommand(bundleURL: URL) -> String {
+            OperationCenter.buildCLICommand(subcommand: subcommand, args: [bundleURL.path])
+        }
+
+        /// The argv after the binary that the CLI route runs. `--format json` makes the leaf speak events.
+        func cliArguments(bundleURL: URL) -> [String] {
+            subcommand.split(separator: " ").map(String.init) + [bundleURL.path, "--format", "json"]
+        }
+
+        /// The command the row records on `route`: today's string in process, and the argv that runs on
+        /// the CLI route.
+        func cliCommand(bundleURL: URL, route: InspectorDuplicateWorkflowRoute) -> String {
+            switch route {
+            case .legacy:
+                return cliCommand(bundleURL: bundleURL)
+            case .cli:
+                return OperationCenter.buildCLICommand(
+                    subcommand: subcommand, args: Array(cliArguments(bundleURL: bundleURL).dropFirst(2))
+                )
             }
         }
 
@@ -358,10 +380,13 @@ extension InspectorViewController {
 
     /// Registers the Operations Panel row for a duplicate workflow, holding
     /// the bundle's write lock for the run. `.refused` when another operation
-    /// took the lock between the gate and this call.
+    /// took the lock between the gate and this call. The row records the
+    /// command of `route`: today's string in process, and the argv the L3
+    /// runner runs on the CLI route.
     static func startDuplicateWorkflowOperation(
         kind: DuplicateWorkflowKind,
         bundleURL: URL,
+        route: InspectorDuplicateWorkflowRoute,
         routeContext: OperationRouteContext?,
         center: OperationCenter = .shared,
         onCancel: (@Sendable () -> Void)? = nil
@@ -371,7 +396,7 @@ extension InspectorViewController {
             detail: kind.startingDetail,
             operationType: .bamImport,
             targetBundleURL: bundleURL,
-            cliCommand: kind.cliCommand(bundleURL: bundleURL),
+            cliCommand: kind.cliCommand(bundleURL: bundleURL, route: route),
             routeContext: routeContext,
             onCancel: onCancel
         )
@@ -436,6 +461,13 @@ extension InspectorViewController {
             break
         }
 
+        // The hidden key picks the route (default in process, Phase 2.10 lane A54). The CLI route shows the
+        // count read here, before the row begins, because the leaf's `complete` message is text and the
+        // app parses no number out of it.
+        let route = InspectorDuplicateWorkflowRouteSettings().route()
+        let trackCount = Self.duplicateWorkflowTrackCount(kind: kind, bundleURL: bundleURL)
+        let launch = Self.duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL, route: route)
+
         final class TaskHandle: @unchecked Sendable {
             var task: Task<Void, Never>?
         }
@@ -444,7 +476,9 @@ extension InspectorViewController {
         switch Self.startDuplicateWorkflowOperation(
             kind: kind,
             bundleURL: bundleURL,
+            route: route,
             routeContext: operationRouteContext(for: bundleURL),
+            // The CLI route replaces this with the runner's cancel once its run starts.
             onCancel: { handle.task?.cancel() }
         ) {
         case .started(let id):
@@ -456,6 +490,21 @@ extension InspectorViewController {
 
         viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
         split.activityIndicator.show(message: kind.startingDetail, style: .indeterminate)
+
+        if case .leaf(let arguments) = launch {
+            // The leaf marks or copies the bundle and writes its record before it exits. The row completes
+            // before the bundle opens or an alert shows, so the result stays hidden until then.
+            Self.runAlignmentLeafThroughCLI(
+                arguments: arguments,
+                operationID: operationID,
+                cancelled: { [weak self] in self?.resetDuplicateWorkflowUI() }
+            ) { [weak self] outcome in
+                self?.finishDuplicateWorkflowThroughCLI(
+                    kind: kind, bundleURL: bundleURL, trackCount: trackCount, operationID: operationID, outcome: outcome
+                )
+            }
+            return
+        }
 
         let progressHandler: @Sendable (Double, String) -> Void = { progress, message in
             DispatchQueue.main.async {
@@ -515,22 +564,42 @@ extension InspectorViewController {
         (parent as? MainSplitViewController)?.activityIndicator.hide()
     }
 
+    /// Ends a duplicate workflow that ran on the CLI route. A leaf that completed gives the result the
+    /// in-process route gives, so the same completion code runs: the row completes first, and the bundle
+    /// opens and the alert shows only then. A leaf that failed fails the row with its own words, as the
+    /// in-process route's catch does.
+    private func finishDuplicateWorkflowThroughCLI(
+        kind: DuplicateWorkflowKind,
+        bundleURL: URL,
+        trackCount: Int,
+        operationID: UUID,
+        outcome: Result<CLIAlignmentActionRunner.Completion, any Error>
+    ) {
+        do {
+            let result = try Self.duplicateWorkflowResult(
+                kind: kind, bundleURL: bundleURL, trackCount: trackCount, completion: try outcome.get()
+            )
+            finishDuplicateWorkflow(kind: kind, operationID: operationID, result: result)
+        } catch {
+            let message = error.localizedDescription
+            OperationCenterCLIBridge.failOperation(operationID, detail: message, fallbackMessage: message)
+            resetDuplicateWorkflowUI()
+            presentSimpleAlert(title: kind.failureAlertTitle, message: message)
+        }
+    }
+
     private func finishDuplicateWorkflow(
         kind: DuplicateWorkflowKind,
         operationID: UUID,
         result: AlignmentDuplicateService.WorkflowResult
     ) {
-        let trackCount = "\(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s")"
+        let trackCount = Self.alignmentTrackCountText(result.processedTracks)
         resetDuplicateWorkflowUI()
         guard let split = parent as? MainSplitViewController else { return }
 
         switch kind {
         case .markDuplicates:
-            guard OperationCenter.shared.complete(
-                id: operationID,
-                detail: "Marked duplicates in \(trackCount).",
-                bundleURLs: [result.bundleURL]
-            ) else { return }
+            guard Self.completeDuplicateWorkflowRow(kind: kind, operationID: operationID, result: result) else { return }
             do {
                 try split.viewerController.displayBundle(at: result.bundleURL)
                 // Markdup sets SAM duplicate flag; keep duplicates hidden by default.
@@ -547,11 +616,7 @@ extension InspectorViewController {
                 )
             }
         case .createDeduplicatedBundle:
-            guard OperationCenter.shared.complete(
-                id: operationID,
-                detail: "Created \(result.bundleURL.lastPathComponent) from \(trackCount).",
-                bundleURLs: [result.bundleURL]
-            ) else { return }
+            guard Self.completeDuplicateWorkflowRow(kind: kind, operationID: operationID, result: result) else { return }
             do {
                 try split.displayReferenceBundleAfterWorkflow(at: result.bundleURL)
                 presentSimpleAlert(

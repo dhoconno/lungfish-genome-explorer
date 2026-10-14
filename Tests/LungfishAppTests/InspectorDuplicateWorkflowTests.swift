@@ -13,6 +13,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class InspectorDuplicateWorkflowTests: XCTestCase {
@@ -62,6 +63,7 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
         let start = InspectorViewController.startDuplicateWorkflowOperation(
             kind: .markDuplicates,
             bundleURL: bundleURL,
+            route: .legacy,
             routeContext: nil,
             center: center,
             onCancel: { cancelReachedWorker.fulfill() }
@@ -81,6 +83,7 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
         let second = InspectorViewController.startDuplicateWorkflowOperation(
             kind: .createDeduplicatedBundle,
             bundleURL: bundleURL,
+            route: .legacy,
             routeContext: nil,
             center: center
         )
@@ -104,6 +107,7 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
         guard case .started(let id) = InspectorViewController.startDuplicateWorkflowOperation(
             kind: .createDeduplicatedBundle,
             bundleURL: bundleURL,
+            route: .legacy,
             routeContext: nil,
             center: center
         ) else {
@@ -124,11 +128,16 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
 
     private let spacedBundleURL = URL(fileURLWithPath: "/tmp/duplicate lane/Sample.lungfishref", isDirectory: true)
 
-    private func recordedCommand(of kind: InspectorViewController.DuplicateWorkflowKind, bundle: URL) throws -> String {
+    private func recordedCommand(
+        of kind: InspectorViewController.DuplicateWorkflowKind,
+        bundle: URL,
+        route: InspectorDuplicateWorkflowRoute = .legacy
+    ) throws -> String {
         let center = OperationCenter()
         guard case .started(let id) = InspectorViewController.startDuplicateWorkflowOperation(
             kind: kind,
             bundleURL: bundle,
+            route: route,
             routeContext: nil,
             center: center
         ) else {
@@ -168,6 +177,125 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
             try RecordedCLICommand.arguments(of: recordedCommand(of: .createDeduplicatedBundle, bundle: bundleURL)),
             ["bundle", "deduplicate-alignments", bundleURL.path]
         )
+    }
+
+    // MARK: - The hidden route key (Phase 2.10 lane A54, ruling on deviation 6)
+    //
+    // Both duplicate workflows run in process unless one hidden key, shared by the two kinds, moves them to
+    // `lungfish-cli bundle mark-duplicates` or `bundle deduplicate-alignments` on A51's L3 runner. The key
+    // flips in the lane's last commit, and the in-process route stays for one release (decision C4).
+
+    func testTheDuplicateRouteReadsItsHiddenKey() throws {
+        let key = InspectorDuplicateWorkflowRouteSettings.defaultsKey
+        XCTAssertEqual(key, "InspectorDuplicateWorkflowRoute")
+        XCTAssertEqual(InspectorDuplicateWorkflowRouteSettings.defaultRoute, .legacy, "the lane's last commit flips it")
+
+        let values: [(Any?, InspectorDuplicateWorkflowRoute)] = [
+            (nil, .legacy), ("legacy", .legacy), ("cli", .cli), ("CLI", .cli), (true, .cli), (false, .legacy), ("sideways", .legacy),
+        ]
+        for (value, expected) in values {
+            let defaults = makeTestDefaultsSuite(prefix: "InspectorDuplicateWorkflowTests").defaults
+            if let value { defaults.set(value, forKey: key) }
+            let route = InspectorDuplicateWorkflowRouteSettings(defaults: defaults).route()
+            XCTAssertEqual(route, expected, "the key holds \(String(describing: value))")
+
+            // Each value's recorded command, and whether the service or the runner runs.
+            for kind in [InspectorViewController.DuplicateWorkflowKind.markDuplicates, .createDeduplicatedBundle] {
+                let command = try recordedCommand(of: kind, bundle: bundleURL, route: route)
+                let launch = InspectorViewController.duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL, route: route)
+                switch route {
+                case .legacy:
+                    XCTAssertEqual(command, kind.cliCommand(bundleURL: bundleURL), "\(kind) on \(route) records today's command")
+                    XCTAssertEqual(launch, .service, "\(kind) on \(route) runs the service in process")
+                case .cli:
+                    let argv = kind.cliArguments(bundleURL: bundleURL)
+                    XCTAssertEqual(try RecordedCLICommand.arguments(of: command), argv, "\(kind) on \(route) records the argv that runs")
+                    XCTAssertEqual(launch, .leaf(arguments: argv), "\(kind) on \(route) runs the leaf on the runner")
+                }
+            }
+        }
+    }
+
+    func testTheCLIRouteRecordsTheArgvItRunsForEachKind() throws {
+        let mark = try recordedCommand(of: .markDuplicates, bundle: spacedBundleURL, route: .cli)
+        XCTAssertEqual(mark, "lungfish-cli bundle mark-duplicates '/tmp/duplicate lane/Sample.lungfishref' --format json")
+        let parsedMark = try RecordedCLICommand.parse(mark, as: BundleMarkDuplicatesSubcommand.self)
+        XCTAssertEqual(parsedMark.bundlePath, spacedBundleURL.path)
+        // The parsed options do not hold the format (the root command consumes `--format`, and the leaf reads
+        // it from the process arguments), so the argv is what shows the leaf speaks events.
+        XCTAssertEqual(Array(try RecordedCLICommand.arguments(of: mark).suffix(2)), ["--format", "json"])
+
+        let dedupe = try recordedCommand(of: .createDeduplicatedBundle, bundle: spacedBundleURL, route: .cli)
+        XCTAssertEqual(dedupe, "lungfish-cli bundle deduplicate-alignments '/tmp/duplicate lane/Sample.lungfishref' --format json")
+        let parsedDedupe = try RecordedCLICommand.parse(dedupe, as: BundleDeduplicateAlignmentsSubcommand.self)
+        XCTAssertEqual(parsedDedupe.bundlePath, spacedBundleURL.path)
+        XCTAssertNil(parsedDedupe.output, "the run names no output, so the leaf makes the sibling bundle the service makes")
+        XCTAssertEqual(Array(try RecordedCLICommand.arguments(of: dedupe).suffix(2)), ["--format", "json"])
+    }
+
+    /// Ruling on deviation 2 (condition 1). The app parses no number from `complete.message`, which is text.
+    /// It reads the count from the bundle before the row begins, and the service processes every one of
+    /// those tracks or throws, so the final detail is the words the in-process route gives. The stand-in
+    /// CLI's `complete` holds no number.
+    func testTheCLIRouteShowsTheTrackCountItReadBeforeBegin() async throws {
+        let root = try TestTempDirectory.make(prefix: "duplicate-track-count")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundle = try DerivedAlignmentTrackFixture.make(in: root).bundleURL
+        let kind = InspectorViewController.DuplicateWorkflowKind.markDuplicates
+        let trackCount = InspectorViewController.duplicateWorkflowTrackCount(kind: kind, bundleURL: bundle)
+        XCTAssertEqual(trackCount, 2, "the bundle holds two alignment tracks, neither marked")
+        let stand = try StandInAlignmentCLI.make(in: root, body: [
+            StandInAlignmentCLI.line(#"{"event":"start","message":"Marking duplicates...","progress":0}"#),
+            StandInAlignmentCLI.line(#"{"event":"progress","progress":0.5,"message":"Sample 1: marking duplicates..."}"#),
+            StandInAlignmentCLI.line("{\"event\":\"complete\",\"output\":\"\(bundle.path)\",\"outputs\":[\"\(bundle.path)\"],\"message\":\"Marked duplicates.\"}"),
+        ].joined(separator: "\n"))
+
+        guard case .started(let id) = InspectorViewController.startDuplicateWorkflowOperation(
+            kind: kind, bundleURL: bundle, route: .cli, routeContext: nil, center: .shared
+        ) else {
+            return XCTFail("the row did not start")
+        }
+        defer { OperationCenter.shared.clearItem(id: id) }
+        guard case .leaf(let arguments) = InspectorViewController.duplicateWorkflowLaunch(kind: kind, bundleURL: bundle, route: .cli) else {
+            return XCTFail("the CLI route runs a leaf")
+        }
+
+        let outcome = await withCheckedContinuation { continuation in
+            InspectorViewController.runAlignmentLeafThroughCLI(
+                arguments: arguments,
+                operationID: id,
+                runner: CLIAlignmentActionRunner(cliURLOverride: stand.cli),
+                finish: { continuation.resume(returning: $0) }
+            )
+        }
+        let completion = try outcome.get()
+        XCTAssertEqual(completion.message, "Marked duplicates.", "the stand-in's complete holds no number")
+        XCTAssertEqual(stand.arguments(), try RecordedCLICommand.arguments(of: OperationCenter.shared.items.first { $0.id == id }?.cliCommand))
+
+        let result = try InspectorViewController.duplicateWorkflowResult(
+            kind: kind, bundleURL: bundle, trackCount: trackCount, completion: completion
+        )
+        XCTAssertTrue(InspectorViewController.completeDuplicateWorkflowRow(kind: kind, operationID: id, result: result, center: .shared))
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == id })
+        XCTAssertEqual(row.detail, "Marked duplicates in 2 alignment tracks.")
+        XCTAssertEqual(row.state, .completed)
+    }
+
+    func testTheDeduplicatedBundleIsTheOneTheLeafNamedAndAMissingNameFailsTheRun() throws {
+        let completion = CLIAlignmentActionRunner.Completion(outputs: ["/tmp/Sample-deduplicated.lungfishref"], message: nil)
+        let result = try InspectorViewController.duplicateWorkflowResult(
+            kind: .createDeduplicatedBundle, bundleURL: bundleURL, trackCount: 1, completion: completion
+        )
+        XCTAssertEqual(result.bundleURL.path, "/tmp/Sample-deduplicated.lungfishref")
+        XCTAssertEqual(
+            InspectorViewController.duplicateWorkflowCompletionDetail(kind: .createDeduplicatedBundle, result: result),
+            "Created Sample-deduplicated.lungfishref from 1 alignment track."
+        )
+
+        let nothing = CLIAlignmentActionRunner.Completion(outputs: [], message: nil)
+        XCTAssertThrowsError(try InspectorViewController.duplicateWorkflowResult(
+            kind: .createDeduplicatedBundle, bundleURL: bundleURL, trackCount: 1, completion: nothing
+        ), "opening the source in place of the new bundle would be a false result")
     }
 
     // The button reads "Mark Duplicates in Bundle Tracks"; the sheet it opens

@@ -36,13 +36,16 @@ struct CLIAlignmentActionRunner: Sendable {
     /// leaf failed, whose description is the leaf's own failure message. With `keepsFirstDetail` the
     /// leaf's `start` event is dropped, so the row keeps the first detail its begin gave it, as a
     /// route does whose leaf's start message does not name the row's action (ADDING-AN-OPERATION.md).
+    /// A route that shows the leaf's words in the viewer's progress overlay passes `overlay`, which
+    /// gets each progress message the row takes (the bridge's row rule).
     func run(
         arguments: [String],
         operationID: UUID,
         workingDirectory: URL? = nil,
-        keepsFirstDetail: Bool = false
+        keepsFirstDetail: Bool = false,
+        overlay: (@MainActor @Sendable (String) -> Void)? = nil
     ) async throws -> Completion {
-        let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
+        let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID, overlay: overlay)
         let result = try await transport.run(
             arguments: arguments,
             terminationGracePeriod: Self.terminationGracePeriod,
