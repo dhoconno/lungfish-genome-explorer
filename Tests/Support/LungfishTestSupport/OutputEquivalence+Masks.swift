@@ -35,8 +35,9 @@ extension OutputEquivalence {
         /// time keys, which the contract masks in provenance alone, so its
         /// only wall time mask is the value of a manifest's Wall Time item.
         /// A file name gets the UUID and run ID masks. Payload text, request
-        /// bodies and plans get the roots and run wall time masks alone, so a
-        /// date, a host or a read ID in data is compared as written.
+        /// bodies and plans get the roots and run wall time masks and a FASTQ
+        /// sidecar's three clock values alone, so any other date, a host or a
+        /// read ID in data is compared as written.
         public static var standard: MaskPolicy {
             let records = [
                 Masks.contentComparedDigests,
@@ -51,7 +52,7 @@ extension OutputEquivalence {
                 provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
-                payloads: [Masks.roots, Masks.runWallTime]
+                payloads: [Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks]
             )
         }
 
@@ -154,6 +155,30 @@ extension OutputEquivalence {
         /// Three keys only.
         public static let runWallTime = Mask(name: "runWallTime") { text, _ in
             replaceKeyValues(["wallTimeSeconds", "wall_time_seconds", "wallClockSeconds"], in: text, token: "<DURATION>")
+        }
+
+        /// The clock values a FASTQ metadata sidecar (`<file>.lungfish-meta.json`) records for its download, its
+        /// import and its platform call: the top-level `downloadDate`, `ingestion.ingestionDate` and
+        /// `platformAssignment.recordedAt`, each set to `<TIMESTAMP>` where it is present. Those three paths alone,
+        /// so the same keys anywhere else, a key's absence, ENA's `first_public` and every statistic are compared
+        /// as written (BIO ruling on lane A45 M3c).
+        public static let fastqSidecarClocks = Mask(name: "fastqSidecarClocks") { text, _ in
+            rewritingJSON(text) { value, changed in maskSidecarClocks(in: value, changed: &changed) }
+        }
+
+        static func maskSidecarClocks(in value: Any, changed: inout Bool) -> Any {
+            guard var sidecar = value as? [String: Any] else { return value }
+            if sidecar["downloadDate"] != nil {
+                sidecar["downloadDate"] = "<TIMESTAMP>"
+                changed = true
+            }
+            for (parent, key) in [("ingestion", "ingestionDate"), ("platformAssignment", "recordedAt")] {
+                guard var object = sidecar[parent] as? [String: Any], object[key] != nil else { continue }
+                object[key] = "<TIMESTAMP>"
+                sidecar[parent] = object
+                changed = true
+            }
+            return sidecar
         }
 
         /// Sets the `value` of a display item labelled exactly `Wall Time` to `<DURATION>`, the wall time

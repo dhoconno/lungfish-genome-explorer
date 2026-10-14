@@ -352,6 +352,54 @@ final class OutputEquivalenceTests: XCTestCase {
         }
     }
 
+    /// A FASTQ metadata sidecar (`<file>.lungfish-meta.json`) records three wall-clock times, when the
+    /// FASTQ was downloaded, when it was imported and when its platform was assigned. Two runs never
+    /// stamp the same second, so the contract masks the values of the top-level `downloadDate`, of
+    /// `ingestion.ingestionDate` and of `platformAssignment.recordedAt` in a JSON payload. Every other
+    /// date, the same keys at any other path, a key's absence and every statistic are still compared
+    /// (BIO ruling on lane A45 M3c, item 1).
+    func testTheFASTQSidecarClocksAreMaskedAndNothingBesideIt() throws {
+        let (a, b) = try makeRoots()
+        let name = "S.fastq.gz.lungfish-meta.json"
+        let found = { try OutputEquivalence.differences(a, b, kind: .files) }
+        let template = #"{"computedStatistics":{"qualityScoreHistogram":[14,1,15,5],"readCount":53},"#
+            + #""downloadDate":@CLOCK@,"downloadSource":"SRA Toolkit","#
+            + #""enaReadRecord":{"first_public":"2022-08-01","run_accession":"ERR10019355"},"#
+            + #""ingestion":{"ingestionDate":@CLOCK@,"pairingMode":"single_end"},"#
+            + #""platformAssignment":{"platform":"unknown","recordedAt":@CLOCK@}}"#
+        let withClock = { (text: String, clock: String) in text.replacingOccurrences(of: "@CLOCK@", with: "\"\(clock)\"") }
+        let clockA = "2026-10-14T14:22:00Z"
+        let clockB = "2026-10-14T14:22:04Z"
+
+        try write(withClock(template, clockA), to: a, name)
+        try write(withClock(template, clockB), to: b, name)
+        XCTAssertEqual(try found(), [], "only the three clocks differ")
+
+        // Each change differs in one file on top of the clocks. The last two put the clock keys at other
+        // paths on both sides, with each side's own time.
+        let cases: [(label: String, both: Bool, edit: (String) -> String)] = [
+            ("downloadSource", false, { $0.replacingOccurrences(of: #""SRA Toolkit""#, with: #""ENA""#) }),
+            ("first_public", false, { $0.replacingOccurrences(of: "2022-08-01", with: "2022-08-02") }),
+            ("pairingMode", false, { $0.replacingOccurrences(of: "single_end", with: "paired_end") }),
+            ("platform", false, { $0.replacingOccurrences(of: #""platform":"unknown""#, with: #""platform":"illumina""#) }),
+            ("the histogram's order", false, { $0.replacingOccurrences(of: "[14,1,15,5]", with: "[15,5,14,1]") }),
+            ("no downloadDate", false, { $0.replacingOccurrences(of: #""downloadDate":@CLOCK@,"#, with: "") }),
+            ("enaReadRecord.downloadDate", true, {
+                $0.replacingOccurrences(of: #""first_public":"#, with: #""downloadDate":@CLOCK@,"first_public":"#)
+            }),
+            ("ingestion.recordedAt", true, {
+                $0.replacingOccurrences(of: #""pairingMode":"#, with: #""recordedAt":@CLOCK@,"pairingMode":"#)
+            }),
+        ]
+        for (label, both, edit) in cases {
+            try write(withClock(both ? edit(template) : template, clockA), to: a, name)
+            try write(withClock(edit(template), clockB), to: b, name)
+            let result = try found()
+            XCTAssertEqual(result.count, 1, "\(label): \(result)")
+            XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
+        }
+    }
+
     /// An assembly bundle's manifest lists the run's parameters as display items, a label and a value
     /// in a metadata group, and one of them is `Wall Time`. Two runs never take the same time, so the
     /// contract masks that item's value in a manifest. Every other item, the item's place, any other
