@@ -254,7 +254,7 @@ public final class GenomeDownloadBundleBuilder: Sendable {
             fastaDestination = result.fastaURL
             gffDestination = result.gffURL
             // The archive is unpacked and gone, so each file names the archive's URL.
-            let origin = NCBIServiceEndpoints(environment: ProcessInfo.processInfo.environment).datasetsOrigin
+            let origin = ncbiService.datasetsOrigin
             if let archiveURL = URL(string: "\(origin)/datasets/v2/genome/accession/\(accession)/download") {
                 sources.append(.describing(.fasta, from: archiveURL, file: result.fastaURL))
                 if let gffURL = result.gffURL {

@@ -151,7 +151,7 @@ public actor NCBIService: DatabaseService {
 
     public nonisolated let name = "NCBI"
     public nonisolated let baseURL: URL
-    private nonisolated let datasetsOrigin: String
+    package nonisolated let datasetsOrigin: String
 
     private let httpClient: HTTPClient
     private let apiKey: String?
