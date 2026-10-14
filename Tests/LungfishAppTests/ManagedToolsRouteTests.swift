@@ -67,6 +67,13 @@ final class ManagedToolsRouteTests: XCTestCase {
         XCTAssertEqual(tools.recordedCommand, "lungfish-cli " + tools.argv.joined(separator: " "))
         XCTAssertEqual(try RecordedCLICommand.parse(tools.recordedCommand, as: ToolsCommand.UpdateSubcommand.self).only, ["pigz", "samtools"])
 
+        let requiredOnly = CLIManagedToolsRunner.updateToolsRequiredOnly()
+        XCTAssertEqual(requiredOnly.argv, ["tools", "update", "--apply", "--yes", "--required-only", "--format", "json"])
+        XCTAssertEqual(requiredOnly.recordedCommand, "lungfish-cli " + requiredOnly.argv.joined(separator: " "))
+        let parsedRequiredOnly = try RecordedCLICommand.parse(requiredOnly.recordedCommand, as: ToolsCommand.UpdateSubcommand.self)
+        XCTAssertTrue(parsedRequiredOnly.requiredOnly, "an empty selection runs the required work")
+        XCTAssertEqual(parsedRequiredOnly.only, [], "and names no item")
+
         for reinstall in [false, true] {
             let pack = CLIManagedToolsRunner.installPack(packID: "read-mapping", reinstall: reinstall)
             XCTAssertEqual(pack.recordedCommand, "lungfish-cli " + pack.argv.joined(separator: " "))

@@ -252,21 +252,27 @@ final class UpdateToolsSheetViewModel {
     /// Applies `selection` on the route the hidden key names (panel decisions C4 and C10). The
     /// legacy route is the reconciler in this process. The CLI route runs `tools update --apply
     /// --only` on one Operations row and rebuilds the result from the plan and the receipt after
-    /// it, because the command ran the reconciler in its own process.
+    /// it, because the command ran the reconciler in its own process. A selection that names no
+    /// item, such as a plan that holds only the bootstrap update, runs `tools update --apply
+    /// --required-only` instead, since required items are always selected and the bootstrap and
+    /// the pipeline prefetch always run. Only a missing storage root and a refused row keep the
+    /// reconciler in this process.
     private func applySelection(
         _ selection: PlanSelection,
         reconciler: DependencyReconciler,
         progress: @escaping @Sendable (String, Double, String) -> Void
     ) async throws -> ReconciliationResult {
         let ids = CLIManagedToolsRunner.itemIDs(of: selection, in: plan)
-        guard ManagedToolsRouteSettings.currentRoute == .cli, !ids.isEmpty, let storageRoot else {
+        guard ManagedToolsRouteSettings.currentRoute == .cli, let storageRoot else {
             return try await reconciler.apply(plan, selection: selection, progress: progress)
         }
-        let invocation = CLIManagedToolsRunner.updateTools(ids: ids)
+        let invocation = ids.isEmpty
+            ? CLIManagedToolsRunner.updateToolsRequiredOnly()
+            : CLIManagedToolsRunner.updateTools(ids: ids)
         var started: UUID?
         OperationCenterDependencySink.beginDependencyOperation(
             title: "Update tools to \(plan.targetDependencySet)",
-            detail: "\(ids.count) item(s)",
+            detail: ids.isEmpty ? "Required updates" : "\(ids.count) item(s)",
             cliCommand: invocation.recordedCommand
         ) { started = $0 }
         guard let operationID = started else {
@@ -294,6 +300,11 @@ final class UpdateToolsSheetViewModel {
         await PluginPackStatusService.shared.invalidateVisibleStatusesCache()
         if !Set(ids).isDisjoint(with: plan.databaseUpdates.map(\.id)) {
             try? await MetagenomicsDatabaseRegistry.shared.reloadFromDisk()
+        }
+        // The result below is built from the items, and an empty selection has none, so a failed or
+        // cancelled command would otherwise end the sheet completed with no summary.
+        if ids.isEmpty, let failure {
+            throw CLIRouteError(message: failure)
         }
 
         // The command updated what it could, so the plan after it names what is still to do.

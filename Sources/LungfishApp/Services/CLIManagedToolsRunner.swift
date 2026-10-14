@@ -59,6 +59,13 @@ struct CLIManagedToolsRunner {
         )
     }
 
+    /// `tools update --apply --yes --required-only`, for a selection that names no item. Required items
+    /// are always selected and the bootstrap and the pipeline prefetch always run, so a plan that holds
+    /// only the last two is exactly the work this command does.
+    static func updateToolsRequiredOnly() -> Invocation {
+        Invocation(subcommand: "tools update", arguments: ["--apply", "--yes", "--required-only", "--format", "json"])
+    }
+
     /// `conda install --pack <id> [--reinstall]`.
     static func installPack(packID: String, reinstall: Bool) -> Invocation {
         Invocation(

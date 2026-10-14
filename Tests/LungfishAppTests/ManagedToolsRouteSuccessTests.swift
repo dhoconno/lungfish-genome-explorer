@@ -78,8 +78,8 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
     private static let samtoolsSpec = "bioconda::samtools=1.24=h36b3a25_1"
 
     /// A reconciler over a one-tool lock whose environment exists once `marker` does, with the
-    /// storage root `storage`.
-    private func makeReconciler(storage: URL, marker: URL) -> DependencyReconciler {
+    /// storage root `storage`. `sink` takes the rows the reconciler opens when it runs in process.
+    private func makeReconciler(storage: URL, marker: URL, sink: DependencyOperationSink? = nil) -> DependencyReconciler {
         let manifest = ManagedToolLock(
             packID: "lungfish-tools", displayName: "T", version: "0",
             tools: [.init(id: "samtools", environment: "samtools", packageSpec: Self.samtoolsSpec, executables: ["samtools"], version: "1.24")],
@@ -96,7 +96,9 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
         services.registryDatabaseVersions = { [:] }
         services.metagenomicsDatabaseVersions = { [:] }
         services.installedMicromambaVersion = { "2.9.0" }
-        return DependencyReconciler(manifest: manifest, storageRoot: storage, services: services, appVersion: "test", operationCenter: nil)
+        // A unit test never installs micromamba, whichever route runs the reconciler.
+        services.installBootstrap = { _ in }
+        return DependencyReconciler(manifest: manifest, storageRoot: storage, services: services, appVersion: "test", operationCenter: sink)
     }
 
     /// The receipt the command saves, prepared under its own root for the stand-in to copy into place.
@@ -168,6 +170,69 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
         XCTAssertEqual(run.sheet.failureSummary, "1 item did not finish: samtools")
         XCTAssertTrue(run.sheet.completed)
         XCTAssertEqual(run.sheet.resultReceipt?.environments["samtools"]?.state, .failed)
+        XCTAssertEqual(try row(running: run.command).state, .failed)
+    }
+
+    // MARK: - An empty selection
+
+    /// The sheet over a plan that holds only the bootstrap update, so its selection names no item. A
+    /// recording sink sits on the reconciler to show whether the run opened an in-process row.
+    private func runEmptySelection(script: [String]) async throws
+        -> (sheet: UpdateToolsSheetViewModel, sink: RecordingDependencySink, argv: String?, command: String)
+    {
+        let storage = scratch.appendingPathComponent("storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        // Samtools exists, so the plan after the command holds nothing. The command leaves the receipt.
+        let marker = scratch.appendingPathComponent("samtools-installed")
+        try Data().write(to: marker)
+        let receipt = try preparedReceipt(state: .installed)
+        let (cli, argv) = try fakeCLI([#"cp "\#(receipt.path)" "\#(storage.appendingPathComponent("dependency-receipt.json").path)""#] + script)
+        let sink = RecordingDependencySink()
+        let reconciler = makeReconciler(storage: storage, marker: marker, sink: sink)
+        let plan = ReconciliationPlan(
+            installEnvironments: [], reinstallEnvironments: [], removeEnvironments: [], databaseUpdates: [],
+            pipelinePrefetch: [], bootstrapUpdate: .init(currentVersion: "2.8.0", targetVersion: "2.9.0"),
+            targetDependencySet: "2026.2", estimatedDownloadBytes: 0
+        )
+        let sheet = UpdateToolsSheetViewModel(plan: plan, reconciler: reconciler, storageRoot: storage)
+        sheet.cliURLOverride = cli
+        XCTAssertTrue(CLIManagedToolsRunner.itemIDs(of: sheet.selection(), in: plan).isEmpty, "the selection names no item")
+        await sheet.run()
+        return (sheet, sink, try? argvLine(argv), CLIManagedToolsRunner.updateToolsRequiredOnly().recordedCommand)
+    }
+
+    /// Lane A52's review, Fix 3 c. A plan that holds only the bootstrap update or the pipeline prefetch
+    /// names no item, and the CLI route used to run the reconciler in process for it, so its rows
+    /// recorded no command. Required items are always selected and the bootstrap and prefetch always
+    /// run, so `tools update --apply --yes --required-only` does that work.
+    func testAnEmptySelectionRunsTheRequiredOnlyCommand() async throws {
+        let run = try await runEmptySelection(script: [
+            Self.start, Self.progress(0.5, "micromamba: Updating micromamba"), Self.complete("Updated 0 item(s) to 2026.2"),
+        ])
+        defer { clearRow(run.command) }
+
+        XCTAssertTrue(run.sink.started.isEmpty, "the CLI route opens no in-process row: \(run.sink.started)")
+        XCTAssertEqual(run.argv, "tools update --apply --yes --required-only --format json")
+        XCTAssertTrue(run.sheet.completed)
+        XCTAssertNil(run.sheet.failureSummary)
+        XCTAssertEqual(OperationCenter.shared.items.filter { $0.cliCommand == run.command }.count, 1, "one row records the command")
+        let row = try row(running: run.command)
+        XCTAssertEqual(row.state, .completed)
+        XCTAssertTrue(row.detail.contains("Updated 0 item(s)"), "the row ends on the command's complete message: \(row.detail)")
+    }
+
+    /// The result of a sheet is built from its items, and an empty selection has none, so a failed
+    /// command must end the sheet failed through the command's own words.
+    func testAnEmptySelectionThatFailsEndsTheSheetFailedWithTheCommandsWords() async throws {
+        let run = try await runEmptySelection(script: [Self.start, Self.failed("micromamba does not update")])
+        defer { clearRow(run.command) }
+
+        XCTAssertEqual(run.argv, "tools update --apply --yes --required-only --format json")
+        XCTAssertTrue(run.sheet.completed)
+        XCTAssertTrue(
+            run.sheet.failureSummary?.contains("does not update") == true,
+            "the summary carries the command's words: \(String(describing: run.sheet.failureSummary))"
+        )
         XCTAssertEqual(try row(running: run.command).state, .failed)
     }
 
