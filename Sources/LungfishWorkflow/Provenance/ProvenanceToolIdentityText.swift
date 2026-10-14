@@ -166,13 +166,14 @@ public struct ProvenanceToolIdentityText: Sendable, Equatable {
 
     /// `v1.24` when the version starts with a digit, `(development build)`
     /// or `v2026.9.72 (development build)` for a development build, the
-    /// version otherwise.
+    /// version otherwise. A full commit reads as recorded, since it names a
+    /// revision and not a release, so `3a5...` never reads `v3a5...`.
     public var displayVersion: String {
         if isDevelopmentBuild {
             guard version != Self.developmentBuildLabel else { return "(\(Self.developmentBuildLabel))" }
             return "v\(version) (\(Self.developmentBuildLabel))"
         }
-        guard let first = version.first, first.isNumber else { return version }
+        guard let first = version.first, first.isNumber, !versionIsCommit else { return version }
         return "v" + version
     }
 

@@ -67,6 +67,41 @@ struct ProvenanceExportFidelityTests {
         #expect(identity.environment?.name == "lofreq")
     }
 
+    /// Phase 2.10 U35. A Nextflow record holds a commit as its version, and a commit that starts with a digit once
+    /// read `v3a5...` as `1.24` reads `v1.24`. A full commit reads as recorded, and anything else keeps its `v`.
+    @Test("A full commit reads as recorded with no v before it, whatever its first character")
+    func aFullCommitHasNoVBeforeIt() {
+        let commits = [
+            "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+            "3a5c9d1e7b2f40886d9a1c3e5f7092b4d6e8a0c2",
+            "3A5C9D1E7B2F40886D9A1C3E5F7092B4D6E8A0C2",
+            String(repeating: "7", count: 40),
+        ]
+        for commit in commits {
+            let identity = ProvenanceToolIdentityText.parse(toolName: "taxtriage", toolVersion: commit)
+            #expect(identity.versionIsCommit, "\(commit)")
+            #expect(identity.version == commit)
+            #expect(identity.displayVersion == commit, "\(commit)")
+            #expect(identity.displayLabel == "taxtriage \(commit)", "\(commit)")
+        }
+
+        let notCommits = [
+            "3a5c9d1e7b2f40886d9a1c3e5f7092b4d6e8a0c",
+            "3a5c9d1e7b2f40886d9a1c3e5f7092b4d6e8a0c22",
+            "3a5c9d1e7b2f40886d9a1c3e5f7092b4d6e8a0cg",
+            "1.24",
+            "2026.10.14",
+        ]
+        for text in notCommits {
+            let identity = ProvenanceToolIdentityText.parse(toolName: "taxtriage", toolVersion: text)
+            #expect(!identity.versionIsCommit, "\(text)")
+            #expect(identity.displayVersion == "v" + text, "\(text)")
+        }
+        #expect(ProvenanceToolIdentityText.isCommit(String(repeating: "a", count: 40)))
+        #expect(!ProvenanceToolIdentityText.isCommit(""))
+        #expect(!ProvenanceToolIdentityText.isCommit(" " + String(repeating: "a", count: 39)))
+    }
+
     @Test("An app version written by a development build reads as one")
     func appVersionLabelNamesDevelopmentBuilds() {
         #expect(ProvenanceToolIdentityText.appVersionLabel("Lungfish dev (0)") == "Lungfish (development build)")

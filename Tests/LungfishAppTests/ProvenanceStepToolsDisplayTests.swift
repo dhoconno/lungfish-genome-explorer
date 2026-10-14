@@ -114,15 +114,28 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         XCTAssertTrue(texts.contains("Step Tools") && texts.contains("taxtriage \(commit)"), "\(texts)")
     }
 
-    /// T12. A commit that starts with a digit reads `v<commit>` in Step Tools, in the Lineage and in the Copy text,
-    /// as a version such as `1.24` reads `v1.24`. The record names no tag, since W5 shows a tagged commit as its tag.
-    func testACommitThatStartsWithADigitReadsVBeforeItInStepToolsAndTheLineage() async throws {
+    /// T12. At the base a commit that starts with a digit read `v<commit>` in Step Tools, in the Lineage and in the
+    /// Copy text, as a version such as `1.24` reads `v1.24`. A commit is not a release number, so it now reads as
+    /// recorded in all three (U35 M1 item 3). The record names no tag, since W5 shows a tagged commit as its tag.
+    func testACommitThatStartsWithADigitReadsAsRecordedInStepToolsAndTheLineage() async throws {
         let commit = Self.digitCommit
         let model = try await loadedModel(try commandLineRecord(steps: [("taxtriage", commit)]))
 
-        XCTAssertEqual(model.stepToolsText, "taxtriage v\(commit)")
-        XCTAssertEqual(model.lineageRuns.last?.steps.first?.toolVersion, "v\(commit)")
-        XCTAssertTrue(model.copyableText.contains("\n1. taxtriage v\(commit)\n"), model.copyableText)
+        XCTAssertEqual(model.stepToolsText, "taxtriage \(commit)")
+        XCTAssertEqual(model.lineageRuns.last?.steps.first?.toolVersion, commit)
+        XCTAssertTrue(model.copyableText.contains("\n1. taxtriage \(commit)\n"), model.copyableText)
+    }
+
+    /// The same commit as a run's own tool, the Tool row and the heading of its Lineage run, reads without `v`.
+    func testARunWhoseOwnToolIsTaxTriageAtADigitCommitReadsItWithoutV() async throws {
+        let commit = Self.digitCommit
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", commit)], runTool: ("taxtriage", commit))
+        )
+
+        XCTAssertEqual(model.toolText, "taxtriage \(commit)")
+        XCTAssertEqual(model.lineageRuns.last?.subtitle, "taxtriage \(commit)")
+        XCTAssertTrue(model.copyableText.contains("\nTool: taxtriage \(commit)\n"), model.copyableText)
     }
 
     /// Row 273. A record the command line wrote lists the helper steps LGE ran itself when their names do not
@@ -192,7 +205,9 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         let copy = model.copyableText
         XCTAssertTrue(copy.contains("Step Tools: taxtriage v3.3.8 (3a5c9d1)\n"), copy)
         let lineage = try XCTUnwrap(copy.range(of: "\nLineage\n"), copy)
-        XCTAssertTrue(copy[lineage.upperBound...].contains(commit), "the Lineage holds the full commit\n\(copy)")
+        XCTAssertTrue(
+            copy[lineage.upperBound...].contains("\n1. taxtriage \(commit)\n"), "the Lineage holds the full commit\n\(copy)"
+        )
     }
 
     /// A step that has no tag, or whose version is not a commit, shows as it did. An older TaxTriage record has
