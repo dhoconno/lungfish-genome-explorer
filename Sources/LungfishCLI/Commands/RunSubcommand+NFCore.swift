@@ -276,14 +276,30 @@ extension RunSubcommand {
         let launchArguments = NextflowWorkflowDescriptor.viralRecon.nextflowArguments(
             for: plannedRequest.viralReconLaunch(samplesheet: engineSamplesheetURL, configFiles: resourcePlan.configFiles))
         // The engine streams its output into logs/nextflow.log as it runs (2.9 N8).
-        let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(NFCoreWorkflowLaunch(
-            arguments: launchArguments,
-            profile: plannedRequest.executor.rawValue,
-            workingDirectory: launchScratch,
-            workDirectory: plannedRequest.workDirectory ?? scratchWorkDirectory,
-            environment: plannedRequest.launchEnvironment,
-            logFile: runBundleURL.appendingPathComponent("logs/nextflow.log")
-        ))
+        let processResult: NFCoreWorkflowProcessResult
+        do {
+            processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(NFCoreWorkflowLaunch(
+                arguments: launchArguments,
+                profile: plannedRequest.executor.rawValue,
+                workingDirectory: launchScratch,
+                workDirectory: plannedRequest.workDirectory ?? scratchWorkDirectory,
+                environment: plannedRequest.launchEnvironment,
+                logFile: runBundleURL.appendingPathComponent("logs/nextflow.log")
+            ))
+        } catch is CancellationError {
+            // The run is recorded as cancelled before its scratch is left for the sweep (SWIFT 3, P3).
+            recordCancelledRun(
+                request: request,
+                runBundleURL: runBundleURL,
+                createdAt: bundleClock.startedAt,
+                startedAt: processClock.startedAt,
+                endedAt: processClock.now,
+                readPairing: pairingDecisions,
+                effectiveSamplesheetURL: effectiveSamplesheetURL,
+                stagedAnnotation: stagedAnnotation
+            )
+            throw CancellationError()
+        }
         try writeProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
         let processCompletedAt = processClock.now
         let executionStatus: NFCoreRunExecutionStatus = processResult.exitCode == 0 ? .completed : .failed
@@ -346,6 +362,53 @@ extension RunSubcommand {
             try request.validateExecutorSupported()
         } catch {
             throw ValidationError(error.localizedDescription)
+        }
+    }
+
+    /// Records a cancelled run, the manifest and then the provenance, with the command's own exit code, 125. The
+    /// engine's tree is gone and the whole output is in `logs/nextflow.log`. A record that cannot be written is
+    /// reported on standard error and leaves the cancel as it is.
+    private func recordCancelledRun(
+        request: NFCoreRunRequest,
+        runBundleURL: URL,
+        createdAt: Date,
+        startedAt: Date,
+        endedAt: Date,
+        readPairing: [ViralReconReadPairingDecision],
+        effectiveSamplesheetURL: URL?,
+        stagedAnnotation: ViralReconStagedAnnotation?
+    ) {
+        let message = "Workflow cancelled"
+        let exitCode = CLIExitCode.cancelled.rawValue
+        do {
+            let stderrLogURL = runBundleURL.appendingPathComponent("logs/stderr.log")
+            try PortablePath.sanitize(text: message, forFileAt: stderrLogURL)
+                .write(to: stderrLogURL, atomically: true, encoding: .utf8)
+            try NFCoreRunBundleStore.write(
+                request.manifest(
+                    createdAt: createdAt,
+                    executionStatus: .cancelled,
+                    startedAt: startedAt,
+                    completedAt: endedAt,
+                    exitCode: exitCode,
+                    stderrLogPath: "logs/stderr.log"
+                ),
+                to: runBundleURL
+            )
+            try writeRunBundleProvenance(
+                request: request,
+                bundleURL: runBundleURL,
+                prepareOnly: false,
+                status: .cancelled,
+                exitCode: exitCode,
+                wallTime: endedAt.timeIntervalSince(startedAt),
+                stderr: message,
+                readPairing: readPairing,
+                effectiveSamplesheetURL: effectiveSamplesheetURL,
+                stagedAnnotation: stagedAnnotation
+            )
+        } catch {
+            FileHandle.standardError.write(Data("Could not record the cancelled run: \(error.localizedDescription)\n".utf8))
         }
     }
 

@@ -32,7 +32,7 @@ extension NextflowWorkflowContractParityReplayTests {
 
     /// A SIGTERM while the engine runs cancels the run. The command exits 125 inside the app's grace with no process
     /// of its tree left and the run's container stopped. The launch scratch stays for the abandoned-scratch sweep
-    /// (P3), and the manifest still reads `running`, since the route writes no record for a cancel.
+    /// (P3), and the manifest and the provenance record the run as cancelled (SWIFT 3).
     func testACancelledRunExits125AndLeavesItsScratchForTheSweep() async throws {
         let caseRoot = root.appendingPathComponent("scratch-cancelled", isDirectory: true)
         let (engine, arguments, environment) = try routeCommand(.docker, caseRoot: caseRoot, behaviour: .waitsUntilCancelled)
@@ -67,6 +67,13 @@ extension NextflowWorkflowContractParityReplayTests {
         let calls = dockerStandInCalls(case: "scratch-cancelled")
         XCTAssertTrue(calls.contains("kill \(container)") && calls.contains("rm \(container)"), "the cancel stops and removes the run's container: \(calls)")
         XCTAssertFalse(calls.contains("-g -a Docker"), "nothing starts Docker Desktop: \(calls)")
-        XCTAssertEqual(try NFCoreRunBundleStore.read(from: bundle).executionStatus, .running, "today's route writes no record for a cancel")
+        // The run is recorded as cancelled, the manifest and then the provenance, before the scratch is left (SWIFT 3).
+        CLISIGTERMHarness.assertRecordCancelled { try NFCoreRunBundleStore.read(from: bundle).executionStatus.rawValue }
+        let manifest = try NFCoreRunBundleStore.read(from: bundle)
+        XCTAssertEqual(manifest.exitCode, CLISIGTERMHarness.cancelledExitStatus, "the command's own exit code")
+        XCTAssertNotNil(manifest.completedAt)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundle), "no provenance for the cancelled run")
+        XCTAssertEqual(provenance.status, .cancelled)
+        XCTAssertEqual(provenance.steps.first?.exitStatus, Int(CLISIGTERMHarness.cancelledExitStatus))
     }
 }
