@@ -5,6 +5,7 @@ import AppKit
 @testable import LungfishWorkflow
 @testable import LungfishCore
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 private final class NvdRecordingEvidenceViewer: NSObject, ClassifierAlignmentViewerProviding {
@@ -27,12 +28,9 @@ final class NvdResultViewControllerTests: XCTestCase {
         // ephemeral suite this test's column-visibility assertions depend on
         // whatever an earlier run in the same test process (or an earlier
         // full-suite run on this machine) left behind under that key.
-        let suiteName = "NvdResultViewControllerTests.\(UUID().uuidString)"
-        let isolatedDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        isolatedDefaults.removePersistentDomain(forName: suiteName)
+        let isolatedDefaults = makeTestDefaultsSuite(prefix: "NvdResultViewControllerTests").defaults
         NvdResultViewController.testMetadataUserDefaultsOverride = isolatedDefaults
         addTeardownBlock {
-            isolatedDefaults.removePersistentDomain(forName: suiteName)
             NvdResultViewController.testMetadataUserDefaultsOverride = nil
         }
 
@@ -370,12 +368,10 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testOutlineTypographyScalesReusedRolesAndLateMetadataWithoutReloading() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "NvdResultViewControllerTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -504,12 +500,10 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testDetailTypographyReflowsAtNarrowWidthWithoutRebuildingMiniBAM() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "NvdResultViewControllerTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -598,12 +592,10 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testLargeOutlineTypographyIsBoundedAndPreservesEditorScrollAndColumns() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "NvdResultViewControllerTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -695,12 +687,10 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testByTaxonTypographyIsBoundedAndPreservesOutlineState() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "NvdResultViewControllerTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -785,12 +775,10 @@ final class NvdResultViewControllerTests: XCTestCase {
 
     func testNoBAMDetailMessageUsesLiveContentTypography() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "NvdResultViewControllerTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
