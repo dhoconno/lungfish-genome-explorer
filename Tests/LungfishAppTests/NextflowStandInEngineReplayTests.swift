@@ -4,9 +4,10 @@
 //
 // Phase 2.9 lane Q9 M1, decision N11 (docs/plans/2026-10-12-phase-2-9.md). The five TaxTriage
 // classes run the stand-in through today's pipeline. These cases launch it directly: the record
-// numbers of launches at once, the line shapes of R1's real Nextflow 26.04.6 output, the 2.8 lines
-// and the 25.04.6 sentinel, the engine options a launch records, and the pin that no support file
-// imports a module for testing.
+// numbers of launches at once, the line shapes of R1's real Nextflow 26.04.6 output (an agent's
+// run), the console of Q35's real Viral Recon run V1 (Phase 2.10), the 2.8 lines and the 25.04.6
+// sentinel, the engine options a launch records, and the pin that no support file imports a module
+// for testing.
 
 import Foundation
 import LungfishTestSupport
@@ -236,10 +237,15 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
 
     /// Viral Recon through `engineLaunch`, the direct launch `workflow run` takes, with its options
     /// where `workflow run` puts them today: the parameters sorted by name, then the resource-limit
-    /// `-c` and `-work-dir`. The stand-in prints the pinned release's logo, its manifest line and one
-    /// task line per task, and writes the files LGE reads back for each sample.
+    /// `-c` and `-work-dir`. In its agent log, which `.viralRecon` no longer prints by default, the
+    /// stand-in prints the pinned release's logo, its manifest line and one task line per task, and it
+    /// writes the files LGE reads back for each sample.
     func testViralReconRunsOnTheDirectLaunchWithTheOptionsWorkflowRunPasses() throws {
-        let engine = try NextflowStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), workflow: .viralRecon)
+        let engine = try NextflowStandInEngine(
+            root: root.appendingPathComponent("engine", isDirectory: true),
+            workflow: .viralRecon,
+            outputMode: .plainLog26
+        )
         let sheet = try writeViralReconSamplesheet(["S1", "S2"])
         let output = root.appendingPathComponent("results", isDirectory: true)
         let scratch = root.appendingPathComponent("nfcore-run-1", isDirectory: true)
@@ -302,6 +308,71 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
         XCTAssertEqual(Set(launch.fastqRecords.map(\.records)).count, 1, "\(launch.fastqRecords)")
         XCTAssertGreaterThan(launch.fastqRecords.first?.records ?? 0, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: work.appendingPathComponent("aa/000001/.command.log").path))
+    }
+
+    /// Viral Recon's default output is the console a user's Nextflow prints. Q35's V1 recorded it, and
+    /// V1b the tasks V1 lacked, from real runs of the release started as the app starts it, with no
+    /// agent variable in the environment: the engine's version line, the `Launching` line, the logo
+    /// between two empty lines, one `Submitted process >` line for each task and nf-core's completion
+    /// line last. The agent log's `[PIPELINE]`, `[WORKDIR]`, `[PROCESS` and `[SUCCESS]` lines are not
+    /// there. The version is the stand-in's sentinel where V1 prints 26.04.6, and the run's name is
+    /// fixed. The stand-in's 29 tasks for a sample are the ones the real runs submitted.
+    func testViralReconPrintsTheConsoleAUserSees() throws {
+        let engine = try NextflowStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), workflow: .viralRecon)
+        XCTAssertEqual(engine.outputMode, .consoleLog26, "the writer's own default")
+        XCTAssertEqual(NextflowStandInWorkflow.taxTriage.defaultOutputMode, .plainLog26, "TaxTriage keeps R1's agent log")
+        let scratch = root.appendingPathComponent("nfcore-run-1", isDirectory: true)
+        let result = try launchDirectly(engine.engineLaunch, [
+            "run", "nf-core/viralrecon", "-r", "3.0.0", "-profile", "docker",
+            "--input", try writeViralReconSamplesheet(["sampleA", "sample.B"]).path,
+            "--outdir", root.appendingPathComponent("results", isDirectory: true).path,
+            "-c", scratch.appendingPathComponent("lungfish-resource-limits.config").path,
+            "-work-dir", scratch.appendingPathComponent("work", isDirectory: true).path,
+        ])
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        // The empty lines are part of the console, so the output is split without dropping them.
+        var printed = result.stdout.components(separatedBy: "\n")
+        XCTAssertEqual(printed.popLast(), "", "the output ends with a newline")
+        let real = Self.v1Console.map(Self.consoleShape)
+        let shapes = printed.map(Self.consoleShape)
+        XCTAssertEqual(Array(shapes.prefix(12)), Array(real.prefix(12)), "the version line, Launching and the logo")
+        XCTAssertEqual(shapes.last, real.last, "nf-core's completion line is last")
+        let agentLines = ["[PIPELINE]", "[WORKDIR]", "[PROCESS ", "[SUCCESS]"]
+        XCTAssertEqual(printed.filter { line in agentLines.contains { line.hasPrefix($0) } }, [], "no line of the agent log")
+
+        // The 59 task lines are the 29 tasks V1 and V1b submitted, for each of the two samples, and MultiQC.
+        let tasks = Array(shapes.dropFirst(12).dropLast())
+        let multiqc = real[real.count - 2]
+        XCTAssertEqual(tasks.count, 59, "29 tasks for each sample and MultiQC")
+        XCTAssertEqual(tasks.last, multiqc)
+        XCTAssertEqual(tasks.first, "[<hash>] Submitted process > NFCORE_VIRALRECON:VIRALRECON:CAT_FASTQ (<sample>)", "V1's first task")
+        let counts = Dictionary(tasks.map { ($0, 1) }, uniquingKeysWith: +)
+        XCTAssertEqual(counts[multiqc], 1)
+        XCTAssertEqual(Set(counts.filter { $0.key != multiqc }.values), [2], "each sample runs each task once")
+        let submitted = Set(real.dropFirst(12).dropLast(2))
+        XCTAssertEqual(submitted.count, 29)
+        XCTAssertEqual(Set(counts.keys).subtracting([multiqc]), submitted, "the tasks V1 and V1b submitted, no more and no fewer")
+        XCTAssertEqual(printed.filter { $0.contains("NEXTCLADE") }, [], "V1b: the app passes no Nextclade dataset")
+    }
+
+    /// The console's `Launching` line names the repository, the fixed run name and the commit of the
+    /// pinned release with the revision `-r` names in brackets, as V1's does. A launch with no `-r`
+    /// names the commit alone, and a target that is a path is printed as it is.
+    func testTheConsoleLaunchingLineFollowsTheTargetAndTheRevision() throws {
+        let engine = try NextflowStandInEngine(root: root.appendingPathComponent("engine", isDirectory: true), workflow: .viralRecon)
+        let sheet = try writeViralReconSamplesheet(["S1"])
+        func launching(_ arguments: [String]) throws -> [String] {
+            let result = try ProcessRunner.run(engine.nextflow, arguments + [
+                "--input", sheet.path, "--outdir", root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true).path,
+            ], timeout: 60)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            return result.stdout.split(separator: "\n").map(String.init).filter { $0.hasPrefix("Launching ") }
+        }
+        let repository = "Launching `https://github.com/nf-core/viralrecon` [stand-in] - revision: 395079f1d2"
+        XCTAssertEqual(try launching(["run", "nf-core/viralrecon", "-r", "3.0.0"]), [repository + " [3.0.0]"])
+        XCTAssertEqual(try launching(["run", "nf-core/viralrecon"]), [repository])
+        XCTAssertEqual(try launching(["run", "/snapshots/viralrecon"]), ["Launching `/snapshots/viralrecon` [stand-in]"])
     }
 
     /// A JSON `-params-file` gives the launch its samplesheet and output folder as Nextflow reads
@@ -369,6 +440,81 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
             "-\(esc)[2m----------------------------------------------------\(esc)[0m-",
         ]
     }()
+
+    /// The lines of Q35's real Viral Recon consoles (Phase 2.10 evidence realrun/V1/evidence/cold/stdout.log
+    /// and realrun/V1/evidence/v1b/stdout.log, Nextflow 26.04.6) that the stand-in prints, in the real run's
+    /// order: the version line, the `Launching` line, the logo between two empty lines, the 20 tasks V1
+    /// submitted for the sample `sampleA`, which had no iVar variant, the nine tasks V1 lacked, which V1b
+    /// submitted for the sample `sample.B`, MultiQC and nf-core's completion line. The real runs printed
+    /// more: warnings, plugin downloads, the pipeline's parameter summary, the other tasks of both samples
+    /// (V1b's `NEXTCLADE_RUN` is not among them, since it never started), genome preparation, the Mosdepth
+    /// plots and `PANGOLIN_UPDATEDATA`. They submitted the tasks in parallel, so the order is not the order
+    /// `workflows/viralrecon.nf` calls them.
+    private static let v1Console: [String] = {
+        let submitted = " Submitted process > NFCORE_VIRALRECON:VIRALRECON:"
+        func lines(_ sample: String, _ tasks: [(hash: String, name: String)]) -> [String] {
+            tasks.map { "[\($0.hash)]" + submitted + $0.name + " (\(sample))" }
+        }
+        let sampleATasks = lines("sampleA", [
+            ("a5/9a1030", "CAT_FASTQ"),
+            ("89/206fb2", "FASTQ_TRIM_FASTP_FASTQC:FASTQC_RAW"),
+            ("e3/8b199d", "FASTQ_TRIM_FASTP_FASTQC:FASTP"),
+            ("a4/5cc0ef", "FASTQ_TRIM_FASTP_FASTQC:FASTQC_TRIM"),
+            ("ec/f35a35", "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN"),
+            ("7a/352378", "FASTQ_ALIGN_BOWTIE2:BAM_SORT_STATS_SAMTOOLS:SAMTOOLS_SORT"),
+            ("eb/4971b7", "FASTQ_ALIGN_BOWTIE2:BAM_SORT_STATS_SAMTOOLS:SAMTOOLS_INDEX"),
+            ("cc/cc0087", "FASTQ_ALIGN_BOWTIE2:BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:SAMTOOLS_IDXSTATS"),
+            ("7e/7637a1", "FASTQ_ALIGN_BOWTIE2:BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:SAMTOOLS_FLAGSTAT"),
+            ("56/103d60", "FASTQ_ALIGN_BOWTIE2:BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:SAMTOOLS_STATS"),
+            ("44/3298ec", "BAM_TRIM_PRIMERS_IVAR:IVAR_TRIM"),
+            ("04/741d43", "BAM_TRIM_PRIMERS_IVAR:BAM_SORT_STATS_SAMTOOLS:SAMTOOLS_SORT"),
+            ("ea/fe6d8f", "BAM_TRIM_PRIMERS_IVAR:BAM_SORT_STATS_SAMTOOLS:SAMTOOLS_INDEX"),
+            ("32/a0455d", "VARIANTS_IVAR:IVAR_VARIANTS"),
+            ("d1/ed43b4", "PICARD_COLLECTMULTIPLEMETRICS"),
+            ("5d/a30f91", "MOSDEPTH_AMPLICON"),
+            ("60/7b355f", "BAM_TRIM_PRIMERS_IVAR:BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:SAMTOOLS_STATS"),
+            ("3d/99087a", "MOSDEPTH_GENOME"),
+            ("b4/835802", "BAM_TRIM_PRIMERS_IVAR:BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:SAMTOOLS_IDXSTATS"),
+            ("45/c6f12f", "BAM_TRIM_PRIMERS_IVAR:BAM_SORT_STATS_SAMTOOLS:BAM_STATS_SAMTOOLS:SAMTOOLS_FLAGSTAT"),
+        ])
+        // The tasks that follow IVAR_VARIANTS, which only a sample with variants submits.
+        let sampleBTasks = lines("sample.B", [
+            ("ee/757048", "VARIANTS_IVAR:IVAR_VARIANTS_TO_VCF"),
+            ("92/dd1865", "VARIANTS_IVAR:BCFTOOLS_SORT"),
+            ("f0/6d4c2c", "VARIANTS_IVAR:VCF_TABIX_STATS:TABIX_TABIX"),
+            ("c7/5386c6", "CONSENSUS_BCFTOOLS:BCFTOOLS_FILTER"),
+            ("f3/80e776", "VARIANTS_IVAR:VCF_TABIX_STATS:BCFTOOLS_STATS"),
+            ("2b/b55703", "CONSENSUS_BCFTOOLS:TABIX_TABIX"),
+            ("8b/7b32e6", "CONSENSUS_BCFTOOLS:BCFTOOLS_CONSENSUS"),
+            ("43/15ff28", "CONSENSUS_BCFTOOLS:RENAME_FASTA_HEADER"),
+            ("94/536e90", "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN"),
+        ])
+        return [
+            "N E X T F L O W  ~  version 26.04.6",
+            "Launching `https://github.com/nf-core/viralrecon` [cranky_carson] - revision: 395079f1d2 [3.0.0]",
+            "",
+        ] + viralReconLogo + [""] + sampleATasks + sampleBTasks + [
+            "[97/acb4ef]" + submitted + "MULTIQC",
+            "-\u{1B}[0;35m[nf-core/viralrecon]\u{1B}[0;32m Pipeline completed successfully\u{1B}[0m-",
+        ]
+    }()
+
+    /// A console line with what differs between runs replaced: the Nextflow version, the run's name, the
+    /// task hash and the sample in a task's tag.
+    private static func consoleShape(_ line: String) -> String {
+        let rules = [
+            (#"^N E X T F L O W  ~  version [0-9]+\.[0-9]+\.[0-9]+$"#, "N E X T F L O W  ~  version <version>"),
+            (#"` \[[a-z_-]+\] - revision: "#, "` [<run>] - revision: "),
+            (#"^\[[0-9a-f]{2}/[0-9a-f]{6}\] "#, "[<hash>] "),
+            (#" \((sampleA|sample\.B)\)$"#, " (<sample>)"),
+        ]
+        var shaped = line
+        for (pattern, replacement) in rules {
+            guard let regex = try? Regex(pattern) else { continue }
+            shaped = shaped.replacing(regex, with: replacement)
+        }
+        return shaped
+    }
 
     /// A Viral Recon Illumina samplesheet that names the nf-core/test-datasets read pair of
     /// Tests/Fixtures/sarscov2 for each sample.

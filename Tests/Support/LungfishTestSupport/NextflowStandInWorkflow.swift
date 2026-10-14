@@ -21,6 +21,9 @@
 // variant) and showed `CAT_FASTQ (<sample>)` as the first task of each sample, which the list had missed.
 // V1b, a sample that has variants, then showed that `NEXTCLADE_RUN` never starts with the app's argv, which
 // gives no Nextclade dataset, and confirmed the other nine tasks that follow `IVAR_VARIANTS`.
+// V1 and V1b are also the source of the console `.viralRecon` prints by default, `OutputMode.consoleLog26`,
+// and of the commit its `Launching` line names for tag 3.0.0, 395079f1d2. `.taxTriage` keeps the agent log
+// of R1.
 
 import Foundation
 
@@ -42,12 +45,15 @@ public struct NextflowStandInWorkflow: Sendable {
     public let name: String
     /// The manifest version `[PIPELINE]` prints.
     public let version: String
-    /// The process of each task one sample runs in the plain-log mode, in order, with `@SAMPLE@`
+    /// The first ten characters of the commit the release's tag names, which the console's
+    /// `Launching` line prints beside the revision.
+    public let pinnedCommit: String
+    /// The process of each task one sample runs in the 26.04 modes, in order, with `@SAMPLE@`
     /// where the task's tag names the sample.
     public let processNames: [String]
-    /// The run-level tasks the plain-log mode runs before the samples' own tasks.
+    /// The run-level tasks the 26.04 modes run before the samples' own tasks.
     public let leadingProcessNames: [String]
-    /// The run-level tasks the plain-log mode runs after the samples' own tasks.
+    /// The run-level tasks the 26.04 modes run after the samples' own tasks.
     public let trailingProcessNames: [String]
     /// The entry of `processNames` where a sample of `.failsSamples` fails. A failing run stops
     /// every sample there.
@@ -55,18 +61,21 @@ public struct NextflowStandInWorkflow: Sendable {
     /// The entry of `processNames` that `.reportsErroredTasks` fails with 137 and ignores.
     public let ignoredFailureProcessName: String
     public let fixtures: [Fixture]
+    /// The output mode an engine of this workflow prints when its caller names none.
+    public let defaultOutputMode: NextflowStandInEngine.OutputMode
     /// The one task each sample runs in the progress-lines mode, the task that mode fails and
     /// ignores, and the repository its `Launching` line names. They keep the 2.8 lines.
     let progressLinesProcessName: String
     let progressLinesIgnoredProcessName: String
     let progressLinesRepository: String
     /// Shell functions the engine calls. `workflow_banner` prints the lines the workflow's own
-    /// code prints before `[PIPELINE]` in the plain-log mode, `workflow_prepare_outputs` makes the
-    /// output tree, and `workflow_sample_outputs <sample>` writes one sample's outputs. They may
-    /// read `$fixtures`, `$outdir`, `$target`, `$revision` and `$engine_version`.
+    /// code prints before `[PIPELINE]` in the plain-log mode and before the first task in the
+    /// console mode, `workflow_prepare_outputs` makes the output tree, and
+    /// `workflow_sample_outputs <sample>` writes one sample's outputs. They may read `$fixtures`,
+    /// `$outdir`, `$target`, `$revision` and `$engine_version`.
     let shellFunctions: String
 
-    /// The number of tasks a plain-log launch of `sampleCount` samples runs when none fails.
+    /// The number of tasks a launch of `sampleCount` samples runs in a 26.04 mode when none fails.
     public func taskCount(sampleCount: Int) -> Int {
         leadingProcessNames.count + sampleCount * processNames.count + trailingProcessNames.count
     }
@@ -87,6 +96,7 @@ extension NextflowStandInWorkflow {
         return NextflowStandInWorkflow(
             name: "nf-core/taxtriage",
             version: "1.0dev",
+            pinnedCommit: "e10bfebda3",
             processNames: [
                 "PIGZ_COMPRESS (@SAMPLE@)",
                 "COUNT_READS (@SAMPLE@)",
@@ -129,6 +139,7 @@ extension NextflowStandInWorkflow {
                 Fixture(name: "gcfmap.tsv", source: fixtures.appendingPathComponent("\(odr)/combine/SRR12486983.combined.gcfmap.tsv")),
                 Fixture(name: "top_report.tsv", source: fixtures.appendingPathComponent("taxtriage-mini/top/SRR35517702.top_report.tsv")),
             ],
+            defaultOutputMode: .plainLog26,
             progressLinesProcessName: prefix + "KRAKEN2_KRAKEN2",
             progressLinesIgnoredProcessName: prefix + "ALIGNMENT:MINIMAP2_ALIGN",
             progressLinesRepository: "jhuapl-bio/taxtriage",
@@ -219,6 +230,7 @@ extension NextflowStandInWorkflow {
         return NextflowStandInWorkflow(
             name: "nf-core/viralrecon",
             version: "3.0.0",
+            pinnedCommit: "395079f1d2",
             processNames: sampleTasks.map { prefix + $0 },
             leadingProcessNames: [],
             trailingProcessNames: [prefix + "MULTIQC"],
@@ -231,6 +243,7 @@ extension NextflowStandInWorkflow {
                 Fixture(name: "variants.vcf.gz.tbi", source: sarscov2.appendingPathComponent("test.vcf.gz.tbi")),
                 Fixture(name: "genome.fasta", source: sarscov2.appendingPathComponent("genome.fasta")),
             ],
+            defaultOutputMode: .consoleLog26,
             progressLinesProcessName: prefix + "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN",
             progressLinesIgnoredProcessName: prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN",
             progressLinesRepository: "nf-core/viralrecon",

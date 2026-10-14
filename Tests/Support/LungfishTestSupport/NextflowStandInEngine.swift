@@ -17,9 +17,11 @@
 //   `-c` and `-work-dir` after the parameters, and a JSON `-params-file` gives `input` and
 //   `outdir` when the command line names neither, as Nextflow reads it (Phase 2.10 lane Q33).
 // - A `NextflowStandInWorkflow` writes the per-sample outputs and names the tasks. The engine
-//   writes the trace file `-with-trace` names, and what it prints becomes the run's log.
-//   `OutputMode.plainLog26` prints the line shapes of Nextflow 26.04.6 with `NXF_ANSI_LOG=false`
-//   from Q15's real run R1, and `.progressLines25` prints the lines of 2.8.
+//   writes the trace file `-with-trace` names, and what it prints becomes the run's log. A caller
+//   that names no `OutputMode` gets the workflow's own. `OutputMode.plainLog26` prints the agent
+//   log (`CLAUDECODE` or `NXF_AGENT_MODE`) of Nextflow 26.04.6 with `NXF_ANSI_LOG=false` from
+//   Q15's real run R1, which no app run prints. `.consoleLog26` prints the console a user gets,
+//   from Q35's real Viral Recon run V1 (Phase 2.10), and `.progressLines25` prints the lines of 2.8.
 // - The engine reports version 25.04.6 build 5954 in `-version` and in every banner, where the
 //   lock pins 26.04.6, so a test tells a version its caller read from the engine from the lock's.
 // - `Behaviour` fails samples, reports errored tasks, waits until cancelled, or traps TERM with a
@@ -63,12 +65,25 @@ public struct NextflowStandInEngine: Sendable {
 
     /// The lines the stand-in Nextflow prints, which become the run's log.
     public enum OutputMode: Sendable, Equatable {
-        /// The plain log of Nextflow 26.04.6 with `NXF_ANSI_LOG=false`, in the line shapes of R1:
-        /// the workflow's own banner, `[PIPELINE] <name> <version> | profile=<profile>`,
-        /// `[WORKDIR] <folder>`, one `[PROCESS <hash>] <task>` line per task as it is submitted,
-        /// nf-core's completion line and `[SUCCESS] completed=<n> failed=<n> cached=0`. It prints
-        /// no `Submitted process >` and no `[100%]` line. The default for a new workflow.
+        /// The agent log (CLAUDECODE or NXF_AGENT_MODE) of Nextflow 26.04.6 with `NXF_ANSI_LOG=false`,
+        /// in the line shapes of R1: the workflow's own banner, `[PIPELINE] <name> <version> |
+        /// profile=<profile>`, `[WORKDIR] <folder>`, one `[PROCESS <hash>] <task>` line per task as
+        /// it is submitted, nf-core's completion line and `[SUCCESS] completed=<n> failed=<n>
+        /// cached=0`. It prints no `Submitted process >` and no `[100%]` line. R1 was an agent's run,
+        /// so this is what Nextflow prints when an agent's variable is in the launch environment,
+        /// and a run started without one prints the console of `.consoleLog26`. The default of
+        /// `.taxTriage`.
         case plainLog26
+        /// The console of a Nextflow 26.04.6 run that no agent variable switches to its agent log,
+        /// in the line shapes of Q35's V1, a real Viral Recon run started as the app starts it: the
+        /// engine's version line, a `Launching` line, an empty line, the workflow's own banner, an
+        /// empty line, one `[<hash>] Submitted process > <task>` line per task as it is submitted
+        /// and nf-core's completion line last. It prints no `[PIPELINE]`, `[WORKDIR]`, `[PROCESS`
+        /// or `[SUCCESS]` line, and none of the real run's warnings, plugin downloads or parameter
+        /// summary. The version is the stand-in's sentinel, and the run's name is fixed. The lines
+        /// of a failing sample and of an ignored task are the agent log's, provisional until a real
+        /// failure is on record (2.9 N11). The default of `.viralRecon`.
+        case consoleLog26
         /// The lines of the 2.8 stand-in, a Nextflow 25.04.6 banner, then `Submitted process >`
         /// and `[100%]` for each sample, which a real 26.04.6 never prints. The TaxTriage wrapper
         /// printed them until lane U10 M1 flipped it to `plainLog26`.
@@ -157,14 +172,16 @@ public struct NextflowStandInEngine: Sendable {
     /// may change one before it launches.
     public var fixturesDirectory: URL { root.appendingPathComponent("fixtures", isDirectory: true) }
 
-    /// Writes the engine into `root`, which must be empty or absent.
+    /// Writes the engine into `root`, which must be empty or absent. A nil `outputMode` takes the
+    /// workflow's own.
     public init(
         root: URL,
         workflow: NextflowStandInWorkflow,
         behaviour: Behaviour = .completes,
-        outputMode: OutputMode = .plainLog26,
+        outputMode: OutputMode? = nil,
         maximumWait: Duration = .seconds(120)
     ) throws {
+        let outputMode = outputMode ?? workflow.defaultOutputMode
         self.root = root.standardizedFileURL
         self.workflow = workflow
         self.behaviour = behaviour
@@ -209,6 +226,7 @@ public struct NextflowStandInEngine: Sendable {
             ("@MODE@", outputMode.scriptName),
             ("@WORKFLOW_NAME@", Self.shellQuoted(workflow.name)),
             ("@WORKFLOW_VERSION@", Self.shellQuoted(workflow.version)),
+            ("@WORKFLOW_COMMIT@", Self.shellQuoted(workflow.pinnedCommit)),
             ("@FAILING_PROCESS@", Self.shellQuoted(workflow.failingProcessName)),
             ("@IGNORED_PROCESS@", Self.shellQuoted(workflow.ignoredFailureProcessName)),
             ("@LEGACY_PROCESS@", Self.shellQuoted(workflow.progressLinesProcessName)),
@@ -388,6 +406,7 @@ public struct NextflowStandInEngine: Sendable {
     mode=@MODE@
     workflow_name=@WORKFLOW_NAME@
     workflow_version=@WORKFLOW_VERSION@
+    workflow_commit=@WORKFLOW_COMMIT@
     failing_process=@FAILING_PROCESS@
     ignored_process=@IGNORED_PROCESS@
     legacy_process=@LEGACY_PROCESS@
@@ -397,6 +416,25 @@ public struct NextflowStandInEngine: Sendable {
     esc=$(printf '\033')
 
     @WORKFLOW_FUNCTIONS@
+
+    # The line Nextflow prints when it launches a pipeline, in the shape of Q35's V1: the repository,
+    # the run's name, the first ten characters of the revision's commit and the revision in brackets
+    # (a target that is a path prints the path alone). The commit is the workflow's own, and only the
+    # tag form of the revision is on record. Called once the options are read.
+    launching_line() {
+      case "$target" in
+        ''|/*)
+          printf 'Launching `%s` [stand-in]\n' "${target:-main.nf}"
+          ;;
+        *)
+          if [ -n "$revision" ]; then
+            printf 'Launching `https://github.com/%s` [stand-in] - revision: %s [%s]\n' "$target" "$workflow_commit" "$revision"
+          else
+            printf 'Launching `https://github.com/%s` [stand-in] - revision: %s\n' "$target" "$workflow_commit"
+          fi
+          ;;
+      esac
+    }
 
     case "$1" in
       -version|--version|-v)
@@ -521,14 +559,25 @@ public struct NextflowStandInEngine: Sendable {
       done
     fi
     : > "$record/started"
-    if [ "$mode" = plain-log-26 ]; then
-      workflow_banner
-      printf '[PIPELINE] %s %s | profile=%s\n' "$workflow_name" "$workflow_version" "${profile:-standard}"
-      printf '[WORKDIR] %s\n' "${workdir:-$(pwd)/work}"
-    else
-      echo "N E X T F L O W  ~  version 25.04.6"
-      echo "Launching $legacy_repository [stand-in] DSL2"
-    fi
+    case "$mode" in
+      plain-log-26)
+        workflow_banner
+        printf '[PIPELINE] %s %s | profile=%s\n' "$workflow_name" "$workflow_version" "${profile:-standard}"
+        printf '[WORKDIR] %s\n' "${workdir:-$(pwd)/work}"
+        ;;
+      console-log-26)
+        # Viral Recon's banner starts with the empty line V1 has after Launching, and an empty line
+        # ends it.
+        echo "N E X T F L O W  ~  version $engine_version"
+        launching_line
+        workflow_banner
+        echo ""
+        ;;
+      *)
+        echo "N E X T F L O W  ~  version 25.04.6"
+        echo "Launching $legacy_repository [stand-in] DSL2"
+        ;;
+    esac
 
     if [ "$behaviour" = wait ] || [ "$behaviour" = trap-term ]; then
       tick=0
@@ -582,12 +631,18 @@ public struct NextflowStandInEngine: Sendable {
       fi
     done 3< "$samples"
 
-    if [ "$mode" = plain-log-26 ]; then
+    # The two 26.04 modes, the agent log and the console. They differ in the header above, in the line
+    # each task prints and in the [SUCCESS] line only the agent log ends with.
+    if [ "$mode" != progress-lines-25 ]; then
       completed=0
       errored=0
-      # One task, its [PROCESS] line as Nextflow submits it and its trace row: $1 name, $2 status, $3 exit.
-      plain_task() {
-        printf '[PROCESS aa/%06d] %s\n' "$((task + 1))" "$1"
+      # One task, its line as Nextflow submits it and its trace row: $1 name, $2 status, $3 exit.
+      submit_task() {
+        if [ "$mode" = console-log-26 ]; then
+          printf '[aa/%06d] Submitted process > %s\n' "$((task + 1))" "$1"
+        else
+          printf '[PROCESS aa/%06d] %s\n' "$((task + 1))" "$1"
+        fi
         trace_row "$1" "$2" "$3"
         if [ "$2" = COMPLETED ]; then
           completed=$((completed + 1))
@@ -597,7 +652,7 @@ public struct NextflowStandInEngine: Sendable {
       }
       listed_tasks() {
         while IFS= read -r name <&4; do
-          plain_task "$name" COMPLETED 0
+          submit_task "$name" COMPLETED 0
         done 4< "$1"
       }
       listed_tasks "$workflow/leading-processes"
@@ -606,13 +661,13 @@ public struct NextflowStandInEngine: Sendable {
         while IFS= read -r template <&4; do
           name=$(expand "$template" "$sample")
           if [ "$template" = "$failing_process" ] && is_failing "$sample"; then
-            plain_task "$name" FAILED 1
+            submit_task "$name" FAILED 1
             echo "ERROR ~ Error executing process > '$name'" >&2
           elif [ "$template" = "$ignored_process" ] && [ "$behaviour" = errored-tasks ]; then
-            plain_task "$name" FAILED 137
+            submit_task "$name" FAILED 137
             printf '[aa/%06d] NOTE: Process `%s` terminated with an error exit status (137) -- Error is ignored\n' "$task" "$name"
           else
-            plain_task "$name" COMPLETED 0
+            submit_task "$name" COMPLETED 0
           fi
           if [ "$failed" = 1 ] && [ "$template" = "$failing_process" ]; then
             break
@@ -630,7 +685,9 @@ public struct NextflowStandInEngine: Sendable {
       else
         printf '%s\n' "-${esc}[0;35m[$workflow_name]${esc}[0;32m Pipeline completed successfully${esc}[0m-"
       fi
-      printf '[SUCCESS] completed=%s failed=%s cached=0\n' "$completed" "$errored"
+      if [ "$mode" = plain-log-26 ]; then
+        printf '[SUCCESS] completed=%s failed=%s cached=0\n' "$completed" "$errored"
+      fi
       finish 0
     fi
 
@@ -720,6 +777,7 @@ extension NextflowStandInEngine.OutputMode {
     var scriptName: String {
         switch self {
         case .plainLog26: return "plain-log-26"
+        case .consoleLog26: return "console-log-26"
         case .progressLines25: return "progress-lines-25"
         }
     }
