@@ -298,6 +298,8 @@ extension RunSubcommand {
         }
         let launchArguments = NextflowWorkflowDescriptor.viralRecon.nextflowArguments(
             for: plannedRequest.viralReconLaunch(samplesheet: engineSamplesheetURL, configFiles: resourcePlan.configFiles))
+        // From here the manifest records the command the engine got, never the request's preview (Q33 fix 8).
+        let launchCommand = NFCoreRunCommandBuilder.commandPreview(nextflowArguments: launchArguments)
         // The engine streams its output into logs/nextflow.log as it runs (2.9 N8).
         let processResult: NFCoreWorkflowProcessResult
         do {
@@ -319,7 +321,8 @@ extension RunSubcommand {
                 endedAt: processClock.now,
                 readPairing: pairingDecisions,
                 effectiveSamplesheetURL: effectiveSamplesheetURL,
-                stagedAnnotation: stagedAnnotation
+                stagedAnnotation: stagedAnnotation,
+                launchCommand: launchCommand
             )
             throw CancellationError()
         }
@@ -334,7 +337,8 @@ extension RunSubcommand {
                 completedAt: processCompletedAt,
                 exitCode: processResult.exitCode,
                 stdoutLogPath: "logs/stdout.log",
-                stderrLogPath: "logs/stderr.log"
+                stderrLogPath: "logs/stderr.log",
+                commandPreview: launchCommand
             ),
             to: runBundleURL
         )
@@ -432,7 +436,8 @@ extension RunSubcommand {
         endedAt: Date,
         readPairing: [ViralReconReadPairingDecision],
         effectiveSamplesheetURL: URL?,
-        stagedAnnotation: ViralReconStagedAnnotation?
+        stagedAnnotation: ViralReconStagedAnnotation?,
+        launchCommand: String? = nil
     ) {
         let message = "Workflow cancelled"
         let exitCode = CLIExitCode.cancelled.rawValue
@@ -447,7 +452,8 @@ extension RunSubcommand {
                     startedAt: startedAt,
                     completedAt: endedAt,
                     exitCode: exitCode,
-                    stderrLogPath: "logs/stderr.log"
+                    stderrLogPath: "logs/stderr.log",
+                    commandPreview: launchCommand
                 ),
                 to: runBundleURL
             )

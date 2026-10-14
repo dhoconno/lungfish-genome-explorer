@@ -31,6 +31,8 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
     public let outputDirectoryName: String
     public let resultSurfaces: [NFCoreResultSurface]
     public let adapterIDs: [String]
+    /// The `nextflow` command of the run. Once the engine launched, it is the launch's own argv, so the resource-limit
+    /// `-c` file and the work folder stand where the launch passed them. Before a launch it previews the request.
     public let commandPreview: String
     public let resume: Bool
     public let workDirectoryPath: String?
@@ -60,7 +62,8 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         exitCode: Int32? = nil,
         stdoutLogPath: String? = nil,
         stderrLogPath: String? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        commandPreview: String? = nil
     ) {
         self.schemaVersion = Self.schemaVersion
         self.workflowName = workflow.name
@@ -76,7 +79,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         self.outputDirectoryName = outputDirectoryName
         self.resultSurfaces = workflow.resultSurfaces
         self.adapterIDs = workflow.supportedAdapterIDs
-        self.commandPreview = NFCoreRunCommandBuilder.commandPreview(
+        self.commandPreview = commandPreview ?? NFCoreRunCommandBuilder.commandPreview(
             workflow: workflow,
             version: version,
             executor: executor,
@@ -160,6 +163,12 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
 }
 
 public enum NFCoreRunCommandBuilder {
+    /// The command a launch ran, `nextflow` and its `arguments` in order, each word quoted for a shell only when it
+    /// needs it (Phase 2.10 Q33 fix 8).
+    public static func commandPreview(nextflowArguments arguments: [String]) -> String {
+        (["nextflow"] + arguments).map(shellEscape).joined(separator: " ")
+    }
+
     public static func commandPreview(
         workflow: NFCoreSupportedWorkflow,
         version: String,
