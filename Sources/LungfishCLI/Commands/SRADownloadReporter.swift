@@ -106,7 +106,12 @@ final class SRADownloadReporter: FASTQImportReporting, Sendable {
         }
     }
 
+    /// The words of the `failed` line of a run a cancel ended, which the app reads as Cancelled.
+    static let cancelledMessage = "Fetch cancelled"
+
     func fail(_ message: String, detail: String?, exitCode: CLIExitCode) -> ExitCode {
+        // A cancel reads the same whichever stage noticed it, so the import's own words give way.
+        let message = exitCode == .cancelled ? Self.cancelledMessage : message
         text(formatter.error(message))
         events.emitFailed(message, detail: detail)
         return exitCode.exitCode

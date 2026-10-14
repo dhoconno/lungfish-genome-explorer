@@ -22,7 +22,12 @@ public enum SRAToolkitStandInScripts {
     /// - Parameters:
     ///   - fixtures: `Tests/Fixtures/sra/fasterq-dump-split-3`.
     ///   - waitingMarker: When given, `prefetch` touches this file and then waits.
-    public static func write(into folder: URL, fixtures: URL, waitingMarker: URL? = nil) throws {
+    ///   - bulkReadCount: When given, `fasterq-dump` writes that many generated 150-base reads as
+    ///     `<accession>.fastq` for any run, in place of the recorded files, so the import that
+    ///     follows lasts long enough for a test to cancel it.
+    public static func write(
+        into folder: URL, fixtures: URL, waitingMarker: URL? = nil, bulkReadCount: Int? = nil
+    ) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let prefetchBody: String
         if let waitingMarker {
@@ -36,13 +41,30 @@ public enum SRAToolkitStandInScripts {
 
             """
         }
-        let fasterqBody = """
-        sra="$1"; out=""
-        while [ $# -gt 0 ]; do case "$1" in -O) out="$2"; shift 2;; *) shift;; esac; done
-        acc=$(basename "$sra" .sra)
-        cp '\(fixtures.path)'/"$acc"/*.fastq "$out"/ 2>/dev/null || { echo "no recorded reads for $acc" >&2; exit 1; }
+        let fasterqBody: String
+        if let bulkReadCount {
+            // Sixty-four distinct reads, repeated, so the bytes are plain reads and the awk run is short.
+            fasterqBody = #"""
+            sra="$1"; out=""
+            while [ $# -gt 0 ]; do case "$1" in -O) out="$2"; shift 2;; *) shift;; esac; done
+            acc=$(basename "$sra" .sra)
+            awk -v n=\#(bulkReadCount) -v acc="$acc" 'BEGIN {
+              srand(7); b = "ACGT"
+              for (k = 0; k < 64; k++) { s = ""; for (j = 0; j < 150; j++) s = s substr(b, int(rand() * 4) + 1, 1); seqs[k] = s }
+              q = sprintf("%150s", ""); gsub(/ /, "I", q)
+              for (i = 1; i <= n; i++) printf "@%s.%d\n%s\n+\n%s\n", acc, i, seqs[i % 64], q
+            }' > "$out/$acc.fastq"
 
-        """
+            """#
+        } else {
+            fasterqBody = """
+            sra="$1"; out=""
+            while [ $# -gt 0 ]; do case "$1" in -O) out="$2"; shift 2;; *) shift;; esac; done
+            acc=$(basename "$sra" .sra)
+            cp '\(fixtures.path)'/"$acc"/*.fastq "$out"/ 2>/dev/null || { echo "no recorded reads for $acc" >&2; exit 1; }
+
+            """
+        }
         try write("#!/bin/sh\n" + prefetchBody, to: folder.appendingPathComponent("prefetch"))
         try write("#!/bin/sh\n" + fasterqBody, to: folder.appendingPathComponent("fasterq-dump"))
     }

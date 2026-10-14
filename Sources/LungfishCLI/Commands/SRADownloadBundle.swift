@@ -83,7 +83,7 @@ struct SRADownloadBundleRun: Sendable {
         case let .bundle(bundle, record):
             reporter.completeBundle(bundle, record: record)
         case .cancelled:
-            reporter.failedRun("Fetch cancelled")
+            reporter.failedRun(SRADownloadReporter.cancelledMessage)
             throw CLIExitCode.cancelled.exitCode
         case let .failed(message):
             reporter.failedRun(message)
