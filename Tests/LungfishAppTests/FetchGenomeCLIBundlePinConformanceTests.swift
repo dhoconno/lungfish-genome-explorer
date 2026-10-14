@@ -61,7 +61,7 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
             ],
             unset: ["NCBI_API_KEY", ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey])
         defer { saved.restore() }
-        var command = try GenomeSubcommand.parse([NCBIDownloadPinFixtures.genBankAccession, "--output-dir", output.path, "--quiet"])
+        let command = try GenomeSubcommand.parse([NCBIDownloadPinFixtures.genBankAccession, "--output-dir", output.path, "--quiet"])
         try await command.run()
 
         let bundle = output.appendingPathComponent("ZZ000001.1.lungfishref", isDirectory: true)
@@ -76,7 +76,7 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
             contentsOf: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename), encoding: .utf8)
         XCTAssertFalse(record.contains(".lungfish-temp-"), "the record names the run's scratch folder")
         XCTAssertFalse(record.contains(".fetch-genome-"), "the record names the run's staging folder")
-        var verify = try ProvenanceCommand.VerifySubcommand.parse([bundle.path])
+        let verify = try ProvenanceCommand.VerifySubcommand.parse([bundle.path])
         try await verify.run()
     }
 
@@ -99,7 +99,7 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         defer { saved.restore() }
         let chrom = NCBIDownloadPinFixtures.genBankAccession
         let bundle = try Self.makeVariantOnlyBundle(in: root.appendingPathComponent("out", isDirectory: true), chromosome: chrom)
-        var command = try GenomeSubcommand.parse([chrom, "--into-bundle", bundle.path, "--quiet"])
+        let command = try GenomeSubcommand.parse([chrom, "--into-bundle", bundle.path, "--quiet"])
         try await command.run()
 
         let chromosomes = try XCTUnwrap(BundleManifest.load(from: bundle).genome?.chromosomes)
@@ -134,7 +134,7 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         if intoVariantOnlyBundle {
             arguments = [accession, "--into-bundle", try Self.makeVariantOnlyBundle(in: output).path, "--quiet"]
         }
-        var command = try GenomeSubcommand.parse(arguments)
+        let command = try GenomeSubcommand.parse(arguments)
         try await command.run()
 
         let bundles = try FileManager.default.contentsOfDirectory(atPath: output.path).sorted()
