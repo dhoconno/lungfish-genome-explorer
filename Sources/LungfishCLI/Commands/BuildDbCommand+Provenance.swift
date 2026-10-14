@@ -148,11 +148,15 @@ extension BuildDbCommand {
             startedAt: startedAt,
             endedAt: completedAt
         )
-        // build-db esviritu moves each BAM and its index out of `_temp/` and marks duplicates in place, and
-        // its steps keep them as they were, so its record and each sidecar name every file at the run level
-        // as the run left it (2.8 B3, 2.10 A39). The kraken2 and taxtriage records keep theirs, whose run
-        // levels the B34 tests and the TaxTriage parity declarations still pin.
-        let envelope = tool == .esViritu ? completed.droppingRemovedRunLevelFiles() : completed
+        // A step keeps each file as it was when the step ran and a removal step names what went, so the run
+        // level of the record and of each sidecar names only what is on disk (2.8 B3). That holds for
+        // build-db esviritu, which moves each BAM out of `_temp/` and marks duplicates in place (2.10 A39),
+        // and for build-db kraken2, which removes the raw per-read output and rewrites each result sidecar
+        // in place (2.10 FXK2). The taxtriage record keeps its run level, a correct difference (BIO's Q3 in
+        // the A39 review). The top reports it names that are gone come from the legacy GUI route's cleanup,
+        // which records no removal step, while the executor keeps `top/`, and its steps still name them, so
+        // the parity entry stays with the GUI route (TaxTriageParityKnownDifferences).
+        let envelope = tool == .taxTriage ? completed : completed.droppingRemovedRunLevelFiles()
 
         let writer = ProvenanceWriter()
         if writesFolderRecord {

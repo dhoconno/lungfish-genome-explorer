@@ -71,10 +71,11 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
     }
 
     /// The run level of the record, `files`, `outputs` and `output`, read from the envelope after the cleanup removed
-    /// `classification.kraken` (Phase 2.10 lane B34, row 268). `assertEveryNamedFileIsKeptOrRemoved` of the classifier
-    /// tests walks the steps only. Every file the run level names is there, or the removal step names it, so the record
-    /// never advertises a file that is gone without saying why.
-    func testKraken2CleanupRunLevelNamesNoGoneFileWithoutARemovalStep() async throws {
+    /// `classification.kraken` (Phase 2.10 lane B34, row 268, and follow-up 1 of the A39 review). The classifier tests'
+    /// `assertEveryNamedFileIsKeptOrRemoved` walks the steps only. A step keeps a file as it was when the step ran and a
+    /// removal step names what went, but rule B3 lets no removal step excuse the run level, which names only what is on
+    /// disk. So every file the run level names is there, and none has a path and digest that a removal step names.
+    func testKraken2CleanupRunLevelNamesOnlyFilesThatAreOnDisk() async throws {
         let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalRunLevel")
         defer { TestTempDirectory.cleanup(root) }
         let fixture = URL(fileURLWithPath: #filePath)
@@ -100,15 +101,22 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: raw.path))
         let runLevel = record.files + record.outputs + [record.output].compactMap { $0 }
         XCTAssertFalse(runLevel.isEmpty)
-        for named in runLevel where !removed.contains(resolved(named.path)) {
+        let bytesRemoved = Set(removal.inputs.compactMap { named in
+            named.checksumSHA256.map { "\(resolved(named.path)) \($0)" }
+        })
+        var withDigest = 0
+        for named in runLevel {
             XCTAssertTrue(
-                FileManager.default.fileExists(atPath: named.path), "the run level names \(named.path), which is gone with no removal step"
+                FileManager.default.fileExists(atPath: named.path), "the run level names \(named.path), which is gone"
+            )
+            guard let digest = named.checksumSHA256 else { continue }
+            withDigest += 1
+            XCTAssertFalse(
+                bytesRemoved.contains("\(resolved(named.path)) \(digest)"),
+                "the run level names \(named.path) with the digest of bytes a removal step names"
             )
         }
-        XCTAssertFalse(
-            record.outputs.contains { removed.contains(resolved($0.path)) && !FileManager.default.fileExists(atPath: $0.path) },
-            "an output the run removed is not an output of the record, unless the run rewrote it in place"
-        )
+        XCTAssertGreaterThan(withDigest, 0, "the run level names files with their digests")
     }
 
     func testKraken2CleanupThatCompactsNothingRecordsNoRemoval() async throws {
@@ -170,8 +178,10 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
 
     /// Phase 2.10 lane B34, review fix 5 item 2. The cleanup rewrites `classification-result.json` in place to name the
     /// gzip copy, so the digest this record states for it from before the run is not the one the file has now. Every
-    /// digest the record states for a file that is still there equals the file's, or a removal step names those old
-    /// bytes, as `RecordedRemovalStep` says of a file that a run rewrote in place.
+    /// digest a step of the record states for a file that is still there equals the file's, or a removal step names
+    /// those old bytes, as `RecordedRemovalStep` says of a file that a run rewrote in place. The run level, which
+    /// names only what is on disk (B3, follow-up 1 of the A39 review), has no such excuse. It names each file with
+    /// the digest the file has now and never the bytes a removal step names.
     func testKraken2CleanupNamesTheBytesItReplacedInTheSidecar() async throws {
         let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalRewrite")
         defer { TestTempDirectory.cleanup(root) }
@@ -202,10 +212,10 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
             "a removal step names the bytes the rewrite replaced"
         )
 
-        let stated = record.steps.flatMap { $0.inputs + $0.outputs } + record.files + record.outputs
-            + [record.output].compactMap { $0 }
+        // A step keeps a file as it was when the step ran, so a removal step excuses a step's naming of the replaced
+        // bytes (P1).
         var compared = 0
-        for named in stated {
+        for named in record.steps.flatMap({ $0.inputs + $0.outputs }) {
             guard let digest = named.checksumSHA256, FileManager.default.fileExists(atPath: named.path) else { continue }
             compared += 1
             XCTAssertTrue(
@@ -214,6 +224,27 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
                 "\(named.path) is stated with a digest it no longer has, and no removal step names those bytes"
             )
         }
-        XCTAssertGreaterThan(compared, 0, "the record states digests of files that are there")
+        XCTAssertGreaterThan(compared, 0, "the steps state digests of files that are there")
+
+        // The run level names only what is on disk (B3), so no removal step excuses it. Every file it names is there
+        // with the digest it has now, and none has a path and digest that a removal step names.
+        let runLevel = record.files + record.outputs + [record.output].compactMap { $0 }
+        var comparedAtRunLevel = 0
+        for named in runLevel {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: named.path), "the run level names \(named.path), which is gone"
+            )
+            guard let digest = named.checksumSHA256 else { continue }
+            comparedAtRunLevel += 1
+            XCTAssertFalse(
+                namedByARemoval.contains("\(resolved(named.path)) \(digest)"),
+                "the run level names \(named.path) with the digest of bytes a removal step names"
+            )
+            XCTAssertEqual(
+                digest, ProvenanceRecorder.sha256(of: URL(fileURLWithPath: named.path)),
+                "the run level states \(named.path) with a digest it no longer has"
+            )
+        }
+        XCTAssertGreaterThan(comparedAtRunLevel, 0, "the run level states digests of files that are there")
     }
 }
