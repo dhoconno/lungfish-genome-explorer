@@ -5,7 +5,7 @@
 // Phase 2.10 lane Q37, plan decision N6, BIO's ruling 4 on Q35's V1 and the QA ruling on owner direction O5
 // of Phase 2.9. A stand-in Nextflow prints and writes what its author believes a Viral Recon run does, and
 // only a real run shows what the pinned release does. Q35's V1b and V2 ran two samples for real on the
-// managed Nextflow 26.04.6 with Docker, 70 tasks in 95 s to 170 s once the images were local. This class runs
+// managed Nextflow 26.04.6 with Docker, 70 tasks in 168.7 s for V2 once the images were local. This class runs
 // the same inputs through ViralReconWorkflowExecutionService and the built lungfish-cli, as
 // ViralReconReferenceAnnotationRealRunTests does for one sample, and pins what V1b recorded, so that it holds
 // before and after A30 (the route) and B31 (the record).
@@ -19,7 +19,7 @@
 // with LUNGFISH_STORAGE_ROOT naming the managed root), this process resolves its managed tools from that root,
 // Docker answers `docker info`, LUNGFISH_DEMO_ARCHIVE_DIR holds the SARS-CoV-2 Amplicons archive and a
 // lungfish-cli is found (LUNGFISH_CLI_PATH, built at the head under test). It downloads MN908947.3, on a
-// Docker with none of the viralrecon images about 9 GB of images, and never starts Docker Desktop. Its name
+// Docker with none of the viralrecon images about 18.5 GB in 22 images (V1b), and never starts Docker Desktop. Its name
 // holds Conformance, so the unit tier never runs it. ViralReconRunRecordTests, ViralReconReferenceAnnotationStagingTests
 // and NextflowStandInEngineReplayTests on the stand-in stay the default and the fallback.
 //
@@ -221,7 +221,7 @@ final class ViralReconLiveConformanceTests: XCTestCase {
         XCTAssertEqual(expectedB.filter { !ran.contains($0) }, [], "tasks of sample.B the writer names that the real run did not start")
         XCTAssertEqual(expectedA.filter { !ran.contains($0) }, [], "tasks of sampleA the writer names that the real run did not start")
         XCTAssertEqual(Set(ran.filter { $0.hasSuffix(" (sampleA)") }), Set(expectedA), "sampleA runs the first 20 tasks and no more")
-        XCTAssertEqual(runLevel.filter { !ran.contains($0) }, [], "the run-level tasks, MULTIQC last, that the real run did not start")
+        XCTAssertEqual(runLevel.filter { !ran.contains($0) }, [], "the run-level tasks, MULTIQC among them, that the real run did not start")
         let named = Set(expectedB + expectedA + runLevel)
         let others = ran.filter { !named.contains($0) }
         for (group, part) in Self.writerGroups { note("group \(group): \(others.filter { $0.contains(part) }.count) tasks") }
