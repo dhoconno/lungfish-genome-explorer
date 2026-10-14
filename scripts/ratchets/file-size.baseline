@@ -33,7 +33,7 @@ Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1358
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1050
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1055
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1331
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1149
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1121
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
