@@ -161,13 +161,81 @@ final class EsVirituReadSetTests: XCTestCase {
         XCTAssertEqual(run.filesSeen, [["c1", "c2"], ["c3"]])
     }
 
+    // MARK: - Where the record files the read format and the plan (lane B33, 2.10)
+
+    /// Pins that pass at the base (QA 1). A run that asked for `auto` and was planned to `unpaired` files the
+    /// resolved format among the explicit options beside a default of `auto`, though the user chose no format
+    /// (2.7 E12, B8). The plan reaches its one home only after the unit moved it out of the explicit options
+    /// (E13, B16).
+    func testAnAutoRunFilesTheResolvedFormatAmongTheExplicitOptionsAndTheUnitMovesThePlan() async throws {
+        let run = try await detect(fixtures.subsetOfMerge)
+        XCTAssertEqual(run.formatSeen, "unpaired")
+        XCTAssertEqual(run.options.defaults["readFormat"], .string("auto"))
+        XCTAssertEqual(run.options.explicit["readFormat"], .string("unpaired"), "the user chose no format")
+        XCTAssertNil(run.options.resolvedDefaults["readFormat"])
+        XCTAssertEqual(run.planPlace, .resolvedDefaults)
+        XCTAssertNil(run.options.explicit[AnalysisRootRecordOptions.readSetPlanKey])
+    }
+
+    /// A format the user gave stays an explicit option with the value the run used, whichever home the
+    /// resolved format has.
+    func testAGivenFormatStaysAnExplicitOption() async throws {
+        let run = try await detect(fixtures.singleRoot, readFormat: "unpaired")
+        XCTAssertEqual(run.options.explicit["readFormat"], .string("unpaired"))
+        XCTAssertEqual(run.options.defaults["readFormat"], .string("auto"))
+    }
+
+    /// The pipeline's own record of a planned sample, the one a batch or `--project` run keeps in the
+    /// sample's folder, files both the format and the plan among the explicit options today.
+    func testThePipelineRecordOfAPlannedSampleFilesTheFormatAndThePlanAmongTheExplicitOptions() async throws {
+        let record = try await pipelineRecord(of: fixtures.subsetOfMerge)
+        XCTAssertEqual(record.options.explicit["readFormat"], .string("unpaired"))
+        XCTAssertNil(record.options.resolvedDefaults["readFormat"])
+        XCTAssertEqual(record.readSetPlan?.place, .explicitOptions)
+        XCTAssertNotNil(record.readSetPlan?.fields["singleReadReason"])
+    }
+
     // MARK: - Helpers
+
+    /// What `EsVirituPipeline.detect` records for a sample the read-set planner changed, with the stand-in
+    /// EsViritu, from a configuration the way the executor's unit builds one.
+    private func pipelineRecord(of input: URL) async throws -> ProvenanceEnvelope {
+        let runRoot = root.appendingPathComponent("pipeline-\(UUID().uuidString)", isDirectory: true)
+        let esviritu = try StandInEsViritu(root: runRoot)
+        let outputDirectory = runRoot.appendingPathComponent("sample", isDirectory: true)
+        let materializationDirectory = runRoot.appendingPathComponent("inputs", isDirectory: true)
+        let resolved = try await ResolvedSequenceInputs.resolvePreflighted(
+            inputURLs: [input],
+            operationName: "EsViritu detection",
+            materializationDirectory: materializationDirectory,
+            materializer: fixtures.materializer,
+            progress: nil
+        )
+        var config = EsVirituConfig(
+            inputFiles: resolved.executionInputURLs,
+            isPairedEnd: false,
+            sampleName: "sample",
+            outputDirectory: outputDirectory,
+            databasePath: esviritu.databaseURL,
+            threads: 2
+        )
+        config.recordInputLineage(resolved)
+        try await EsVirituAnalysisRunTool.planReadSet(
+            of: [input],
+            into: &config,
+            materializedInputs: resolved.executionInputURLs,
+            materializationDirectory: materializationDirectory
+        )
+        _ = try await EsVirituPipeline(condaManager: esviritu.condaManager).detect(config: config)
+        return try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputDirectory))
+    }
 
     private struct DetectRun {
         let outputDirectory: URL
         /// The record names of each file EsViritu was handed, in argument order.
         let filesSeen: [[String]]
         let formatSeen: String
+        let options: ProvenanceOptions
         let parameters: [String: ParameterValue]?
         /// The recorded read-set plan, or nil when the run recorded none, read by the one reader.
         let plan: [String: ParameterValue]?
@@ -206,6 +274,7 @@ final class EsVirituReadSetTests: XCTestCase {
             outputDirectory: outputDirectory,
             filesSeen: try esviritu.inputsSeen().map(ReadSetFixtures.readNames(in:)),
             formatSeen: esviritu.formatSeen,
+            options: envelope.options,
             parameters: envelope.options.explicit,
             plan: envelope.readSetPlan?.fields,
             planPlace: envelope.readSetPlan?.place
