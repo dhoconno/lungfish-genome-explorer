@@ -103,6 +103,7 @@ final class ProjectStorageResponsivenessTests: XCTestCase {
         var deletedCount = 0
         let mutation = try await measureMainActorWork {
             let task = try XCTUnwrap(drawer.runVariantStorageMutation(title: "Invented benchmark deletion", bundleURL: bundleURL,
+                command: VariantDeletionMutationService.deleteAllArguments(bundleURL: bundleURL),
                 center: center, work: {
                     try VariantDeletionMutationService().deleteAllVariants(bundleURL: bundleURL,
                         targets: [VariantDeletionMutationTarget(trackId: "invented", databaseURL: databaseURL)])

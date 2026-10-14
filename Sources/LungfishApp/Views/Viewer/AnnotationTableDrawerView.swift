@@ -232,7 +232,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Reference to the search index for direct SQL queries.
     var searchIndex: AnnotationSearchIndex?
     var variantStorageMutationTask: Task<Void, Never>?
-    private var variantStorageOperationID: UUID?
+    var variantStorageOperationID: UUID?
     var appliedVariantToolbarDensity: VariantToolbarDensity?
 
     /// Whether the variant toolbar wants the Profiles pop-up at the current
@@ -3027,7 +3027,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     /// worker has committed or rolled back. Only immutable inputs enter the worker.
     @discardableResult
     func runVariantStorageMutation<Value: Sendable>(
-        title: String, bundleURL: URL, center: OperationCenter = .shared,
+        title: String, bundleURL: URL, command: [String], center: OperationCenter = .shared,
         work: @escaping @Sendable () throws -> Value,
         publish: @escaping @MainActor (Value) -> Void
     ) -> Task<Void, Never>? {
@@ -3042,7 +3042,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 ?? ProjectTempDirectory.findProjectRoot(bundleURL),
             windowStateScope: scope)
         var task: Task<Void, Never>?
-        Self.beginVariantStorageMutationOperation(title: title, bundleURL: bundleURL, routeContext: route, reporter: center) { operationID in
+        Self.beginVariantStorageMutationOperation(title: title, bundleURL: bundleURL, command: command, routeContext: route, reporter: center) { operationID in
             variantStorageOperationID = operationID
             task = Task { @MainActor [weak self] in
                 defer {
@@ -3131,8 +3131,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 trackName: searchIndex.variantTrackName(for: $0.trackId)
             )
         }
-        runVariantStorageMutation(title: "Variant deletion", bundleURL: bundleURL, work: {
-            try VariantDeletionMutationService().deleteVariants(idsByTrack: idsByTrack, bundleURL: bundleURL, targets: targets)
+        let arguments = VariantDeletionMutationService.deleteSelectedArguments(bundleURL: bundleURL, idsByTrack: idsByTrack)
+        runVariantStorageMutation(title: "Variant deletion", bundleURL: bundleURL, command: arguments, work: {
+            try VariantDeletionMutationService().deleteVariants(
+                idsByTrack: idsByTrack, bundleURL: bundleURL, targets: targets,
+                invocationArgv: [CLICommandIdentity.executableName] + arguments)
         }, publish: { [weak self] result in
             guard let self, result.totalDeleted > 0 else { return }
             self.totalVariantCount = max(0, self.totalVariantCount - result.totalDeleted)
@@ -3157,8 +3160,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 trackName: searchIndex.variantTrackName(for: $0.trackId)
             )
         }
-        runVariantStorageMutation(title: "Delete all variants", bundleURL: bundleURL, work: {
-            try VariantDeletionMutationService().deleteAllVariants(bundleURL: bundleURL, targets: targets)
+        let arguments = VariantDeletionMutationService.deleteAllArguments(bundleURL: bundleURL)
+        runVariantStorageMutation(title: "Delete all variants", bundleURL: bundleURL, command: arguments, work: {
+            try VariantDeletionMutationService().deleteAllVariants(
+                bundleURL: bundleURL, targets: targets,
+                invocationArgv: [CLICommandIdentity.executableName] + arguments)
         }, publish: { [weak self] result in
             guard let self, result.totalDeleted > 0 else { return }
             self.totalVariantCount = 0
@@ -4498,18 +4504,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 annotationDrawerLogger.warning("importSampleMetadata: Could not resolve enclosing bundle for variant databases")
                 return
             }
-            let targets = searchIndex.variantDatabaseHandles.map {
-                VariantSampleMetadataImportTarget(databaseURL: $0.db.databaseURL, trackName: $0.trackId)
-            }
-            self.runVariantStorageMutation(title: "Sample metadata import", bundleURL: bundleURL, work: {
-                try VariantSampleMetadataImportService().importMetadata(from: fileURL, format: format, bundleURL: bundleURL, targets: targets)
-            }, publish: { [weak self] result in
-                guard let self else { return }
-                annotationDrawerLogger.info("importSampleMetadata: Updated \(result.totalUpdated) samples from \(fileURL.lastPathComponent)")
-                self.populateSampleData(from: searchIndex)
-                self.configureColumnsForTab(.samples)
-                self.updateDisplayedSamples()
-            })
+            // `variants import-sample-metadata` reads the file and stores the samples (decision C3).
+            self.importSampleMetadata(fileURL: fileURL, format: format, bundleURL: bundleURL)
         }
     }
 

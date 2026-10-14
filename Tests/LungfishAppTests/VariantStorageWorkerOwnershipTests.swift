@@ -21,6 +21,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
         defer { finish.signal() }
         var published = false
         let task = try XCTUnwrap(drawer.runVariantStorageMutation(title: "Invented mutation", bundleURL: bundle,
+            command: VariantDeletionMutationService.deleteAllArguments(bundleURL: bundle),
             center: center, work: {
                 XCTAssertFalse(Thread.isMainThread)
                 started.fulfill()
@@ -32,6 +33,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
         XCTAssertEqual(owner.state, .running)
         XCTAssertNil(owner.onCancel, "A synchronous durable transaction cannot promise cancellation")
         let blocked = drawer.runVariantStorageMutation(title: "Competing mutation", bundleURL: bundle,
+            command: VariantDeletionMutationService.deleteAllArguments(bundleURL: bundle),
             center: center, work: { XCTFail("Busy bundle must not enter another worker"); return 0 }, publish: { _ in })
         XCTAssertNil(blocked)
         XCTAssertEqual(center.activeLockHolder(for: bundle)?.id, owner.id)
@@ -61,6 +63,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
         center.failureReportStore = .temporaryForTesting()
         var published: VariantDeletionMutationResult?
         let task = try XCTUnwrap(drawer.runVariantStorageMutation(title: "Delete invented variants", bundleURL: bundle,
+            command: VariantDeletionMutationService.deleteAllArguments(bundleURL: bundle),
             center: center, work: {
                 XCTAssertFalse(Thread.isMainThread)
                 return try VariantDeletionMutationService().deleteAllVariants(bundleURL: bundle,
@@ -84,6 +87,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
         let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("failure-\(UUID()).lungfishref")
         var published = false
         let task = try XCTUnwrap(drawer.runVariantStorageMutation(title: "Failed update", bundleURL: bundle,
+            command: VariantDeletionMutationService.deleteAllArguments(bundleURL: bundle),
             center: center, work: { () throws -> Int in throw CocoaError(.fileWriteUnknown) },
             publish: { _ in published = true }))
         await task.value
