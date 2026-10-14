@@ -179,9 +179,13 @@ struct SRADownloadBundleRun: Sendable {
             return .failed("Output FASTQ bundle already exists: \(finalBundle.path)")
         }
         _ = try PortableRename.exclusive(stagedBundle, to: finalBundle)
-        // A bundle in its final place is finished, so a record that cannot be rewritten removes it.
+        // A bundle in its final place is finished, so a record that cannot be rewritten removes it. `rebase`
+        // relocates the run's record, states the sidecar's digest as it stands (the import wrote its records
+        // before step 4 took the download's facts into the sidecar) and writes the root record and the record
+        // of every output from it, in place of the records the import wrote under `provenance/`, which name
+        // the staged folder (BIO ruling on lane A45 M3c, section b item 3).
         do {
-            try relocateRecord(of: finalBundle, from: stagedBundle, refreshingDigestsOf: [sidecarName])
+            try FetchNCBIBundleRecord.rebase(bundle: finalBundle, from: stagedBundle, refreshingDigestsOf: [sidecarName])
         } catch {
             try? FileManager.default.removeItem(at: finalBundle)
             throw error
@@ -247,19 +251,6 @@ struct SRADownloadBundleRun: Sendable {
         }
         try ProvenanceWriter(signingProvider: nil).write(
             envelope, toSidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-    }
-
-    /// Rewrites the record of `bundle`, which was staged at `staged`, with the final place in every
-    /// path (ruling A45-M3 section 3). The import wrote the record it merges in before the sidecar took
-    /// the download's facts, so each file of `names`, by its name inside the bundle, is stated with
-    /// its digest and size as it stands now (ruling A45-M3 section 1, B-5).
-    private func relocateRecord(of bundle: URL, from staged: URL, refreshingDigestsOf names: [String]) throws {
-        guard let envelope = ProvenanceRecorder.loadEnvelope(from: bundle) else { return }
-        var relocated = envelope.relocated(from: staged, to: bundle)
-        try FetchNCBIBundleRecord.refreshDigests(
-            of: Set(names.map { bundle.appendingPathComponent($0).path }), in: &relocated)
-        try ProvenanceWriter(signingProvider: nil).write(
-            relocated, toSidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
     }
 }
 

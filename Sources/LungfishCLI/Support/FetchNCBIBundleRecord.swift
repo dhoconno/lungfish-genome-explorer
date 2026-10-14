@@ -6,7 +6,8 @@ import Foundation
 import LungfishCore
 import LungfishWorkflow
 
-/// The record of one `fetch ncbi --bundle` bundle (Phase 2.10 lane A45, BIO B-3 and B-5).
+/// The record of one `fetch ncbi --bundle`, `fetch pathoplexus` or `fetch sra download --bundle` bundle
+/// (Phase 2.10 lane A45, BIO B-3 and B-5).
 ///
 /// `GenBankDownloadBundleBuilder` writes the record while it builds, and names every file of the
 /// bundle at the place it built it. The CLI builds in a staging folder and moves the bundle into
@@ -50,8 +51,8 @@ enum FetchNCBIBundleRecord {
     }
 
     /// States the digest and size of each file of `paths` as the file stands, wherever the record
-    /// lists it. `fetch sra download --bundle` uses it for the metadata sidecar (lane A45 M3c).
-    static func refreshDigests(of paths: Set<String>, in envelope: inout ProvenanceEnvelope) throws {
+    /// lists it.
+    private static func refreshDigests(of paths: Set<String>, in envelope: inout ProvenanceEnvelope) throws {
         func refreshed(_ descriptor: ProvenanceFileDescriptor) throws -> ProvenanceFileDescriptor {
             guard paths.contains(descriptor.path) else { return descriptor }
             let current = try ProvenanceFileDescriptor.file(url: URL(fileURLWithPath: descriptor.path), role: descriptor.role)
