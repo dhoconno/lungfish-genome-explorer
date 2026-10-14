@@ -239,7 +239,10 @@ final class SystemContainerRuntimeProbeTests: XCTestCase {
     /// So the stub first runs once with the warm-up marker in place, which takes that check outside any timeout,
     /// and a probe that still struck first is repeated with a timeout four times longer, up to 16 s.
     private func probeUntilReached(_ docker: URL, reached: () -> Bool) async -> HangingProbe {
-        FileManager.default.createFile(atPath: warmUpMarker.path, contents: nil)
+        XCTAssertTrue(
+            FileManager.default.createFile(atPath: warmUpMarker.path, contents: nil),
+            "the warm-up marker was not made, so the warm-up would run the hanging body"
+        )
         _ = await SystemContainerRuntimeProbe().dockerDaemon(dockerPath: docker.path, timeout: 30)
         try? FileManager.default.removeItem(at: warmUpMarker)
 
