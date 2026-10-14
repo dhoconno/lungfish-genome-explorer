@@ -15,6 +15,9 @@ extension NFCoreLaunchStaging {
     /// direct CLI call get the same staging. The returned copy is what the
     /// engine is given. The request keeps the caller's path. A missing
     /// annotation is refused as a missing input file before anything runs.
+    /// With no `gff`, the annotation database of the reference bundle that
+    /// holds `fasta` is exported as GFF3 instead, as a bundle `fetch genome`
+    /// wrote keeps no GFF3 file (V1-BIO ruling 3).
     ///
     /// Only nf-core/viralrecon's `gff` is renamed. Another pipeline's `gff`
     /// parameter can expect another name, so it reaches the engine as given.

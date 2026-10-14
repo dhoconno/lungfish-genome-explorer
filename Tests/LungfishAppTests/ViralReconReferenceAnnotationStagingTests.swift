@@ -75,8 +75,8 @@ final class ViralReconReferenceAnnotationStagingTests: XCTestCase {
         defer { TestTempDirectory.cleanup(root) }
         let fixture = try ViralReconAppTestFixtures.illuminaRequest(root: root)
         let project = root.appendingPathComponent("Project", isDirectory: true)
-        // A fetched bundle keeps its annotation in annotations.db, so the
-        // wizard's Choose GFF button is how a GFF3 reaches the run.
+        // The bundle holds no annotation, so the wizard's Choose GFF button
+        // is how a GFF3 reaches the run.
         XCTAssertNil(try writeReferenceBundle(at: ViralReconReferenceCatalog.bundleURL(inProject: project), withGFF3: false))
         let chosen = root.appendingPathComponent("Downloads/MN908947.3.gff3")
         try FileManager.default.createDirectory(at: chosen.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -108,6 +108,44 @@ final class ViralReconReferenceAnnotationStagingTests: XCTestCase {
         let staging = try XCTUnwrap(launch.staging, "no staged annotation in provenance")
         XCTAssertEqual(staging["source"], .file(chosen))
         XCTAssertNil(staging["sourceBundleRelativePath"], "a chosen file lives outside any bundle")
+        XCTAssertEqual(launch.state, .completed)
+    }
+
+    /// `fetch genome` keeps a reference's annotation only in `annotations/annotations.db`, so the app finds no
+    /// GFF3 file to hand over. The run exports the database as GFF3, as the app's iVar route exports it, so iVar
+    /// merges codons and SnpEff runs (V1-BIO ruling 3), and records the export with its digest and source bundle.
+    func testAFetchedReferenceWithOnlyItsAnnotationDatabaseReachesNextflowAsExportedGFF3() async throws {
+        let root = try TestTempDirectory.make(prefix: "viralrecon-annotation-db").resolvingSymlinksInPath()
+        defer { TestTempDirectory.cleanup(root) }
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: root)
+        let project = root.appendingPathComponent("Project", isDirectory: true)
+        let referenceBundle = ViralReconReferenceCatalog.bundleURL(inProject: project)
+        let database = referenceBundle.appendingPathComponent("annotations/annotations.db")
+        let imported = root.appendingPathComponent("fetch-temp/annotations.gff3")
+        try FileManager.default.createDirectory(at: imported.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: database.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.annotationGFF3.write(to: imported, atomically: true, encoding: .utf8)
+        _ = try await AnnotationDatabase.createFromGFF3(
+            gffURL: imported, outputURL: database, chromosomeSizes: [("MN908947.3", 80)])
+        XCTAssertNil(try writeReferenceBundle(at: referenceBundle, withGFF3: false, annotations: [AnnotationTrackInfo(
+            id: "annotations", name: "genes", path: "annotations/annotations.db",
+            databasePath: "annotations/annotations.db", annotationType: .custom, featureCount: 3)]))
+
+        let launch = try await runThroughTheApp(request, project: project)
+
+        XCTAssertFalse(launch.cliArguments.contains { $0.hasPrefix("gff=") }, launch.cliArguments.joined(separator: " "))
+        let exported = launch.runBundleURL
+            .appendingPathComponent(ViralReconAnnotationStaging.stagingDirectoryPath, isDirectory: true)
+            .appendingPathComponent("annotations.gff")
+        XCTAssertEqual(launch.gff, exported.path)
+        let text = try XCTUnwrap(launch.gffBytes.flatMap { String(data: $0, encoding: .utf8) }, "no --gff bytes")
+        XCTAssertTrue(text.contains("MN908947.3\t.\tCDS\t5\t40\t.\t+\t0\t"), text)
+        let staging = try XCTUnwrap(launch.staging, "no staged annotation in provenance")
+        XCTAssertEqual(staging["source"], .file(database))
+        XCTAssertEqual(staging["staged"], .file(exported))
+        XCTAssertEqual(staging["sourceBundle"], .file(referenceBundle))
+        XCTAssertEqual(staging["sourceBundleRelativePath"], .string("annotations/annotations.db"))
+        XCTAssertEqual(staging["sha256"], .string(try FileDigest.sha256(of: exported)))
         XCTAssertEqual(launch.state, .completed)
     }
 
@@ -145,9 +183,22 @@ final class ViralReconReferenceAnnotationStagingTests: XCTestCase {
         )
     }
 
+    /// The annotation of the MN908947.3 bundles these tests write.
+    private static let annotationGFF3 = """
+        ##gff-version 3
+        ##sequence-region MN908947.3 1 80
+        MN908947.3\tGenbank\tregion\t1\t80\t.\t+\t.\tID=MN908947.3:1..80
+        MN908947.3\tGenbank\tgene\t5\t40\t.\t+\t.\tID=gene-S;Name=S;gene=S
+        MN908947.3\tGenbank\tCDS\t5\t40\t.\t+\t0\tID=cds-S;Parent=gene-S;product=surface glycoprotein
+
+        """
+
     /// A `.lungfishref` of MN908947.3, with its annotation at
-    /// `genome/genes.gff3` when `withGFF3` is set. Returns that annotation.
-    private func writeReferenceBundle(at bundleURL: URL, withGFF3: Bool) throws -> URL? {
+    /// `genome/genes.gff3` when `withGFF3` is set and the manifest listing
+    /// `annotations`. Returns that annotation.
+    private func writeReferenceBundle(
+        at bundleURL: URL, withGFF3: Bool, annotations: [AnnotationTrackInfo] = []
+    ) throws -> URL? {
         let genome = bundleURL.appendingPathComponent("genome", isDirectory: true)
         try FileManager.default.createDirectory(at: genome, withIntermediateDirectories: true)
         let sequence = String(repeating: "ACGT", count: 20)
@@ -164,19 +215,13 @@ final class ViralReconReferenceAnnotationStagingTests: XCTestCase {
                 indexPath: "genome/sequence.fa.fai",
                 totalLength: 80,
                 chromosomes: []
-            )
+            ),
+            annotations: annotations
         ).save(to: bundleURL)
         guard withGFF3 else { return nil }
 
         let gff3 = genome.appendingPathComponent("genes.gff3")
-        try """
-        ##gff-version 3
-        ##sequence-region MN908947.3 1 80
-        MN908947.3\tGenbank\tregion\t1\t80\t.\t+\t.\tID=MN908947.3:1..80
-        MN908947.3\tGenbank\tgene\t5\t40\t.\t+\t.\tID=gene-S;Name=S;gene=S
-        MN908947.3\tGenbank\tCDS\t5\t40\t.\t+\t0\tID=cds-S;Parent=gene-S;product=surface glycoprotein
-
-        """.write(to: gff3, atomically: true, encoding: .utf8)
+        try Self.annotationGFF3.write(to: gff3, atomically: true, encoding: .utf8)
         return gff3
     }
 }

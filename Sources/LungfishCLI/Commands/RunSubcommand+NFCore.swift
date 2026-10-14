@@ -79,6 +79,10 @@ extension RunSubcommand {
         try Self.requireSupportedExecutor(request)
         let stagedAnnotation = try NFCoreLaunchStaging.stageAnnotation(for: request, runBundleURL: runBundleURL)
         if let stagedAnnotation, !globalOptions.quiet { print(formatter.info(stagedAnnotation.summary)) }
+        if stagedAnnotation == nil, !globalOptions.quiet,
+           let notice = ViralReconAnnotationStaging.missingAnnotationNotice(params: request.params) {
+            print(formatter.warning(notice))
+        }
         let bundleClock = ProvenanceRunClock()
         try NFCoreRunBundleStore.write(
             request.manifest(createdAt: bundleClock.startedAt, executionStatus: .prepared),

@@ -16,6 +16,15 @@
 // call get the same staging. The copy, its digest, the original path and the
 // original's path inside its `.lungfishref` bundle are recorded in the run's
 // provenance under `stagedAnnotation`.
+//
+// A reference bundle written by `fetch genome` keeps its annotation only in
+// its annotation database. Without `--gff`, iVar merges no codons and
+// viralrecon skips SnpEff and the variants long table. So when the caller
+// names no `gff` and `fasta` lies in a `.lungfishref` bundle, the bundle's
+// annotation database is exported as GFF3 into the same folder, as the app's
+// iVar route exports it (ViralVariantCallingPipeline.exportBundleGFFIfAvailable),
+// and recorded the same way. A bundle with no annotation gets a warning for
+// the run log instead (Phase 2.10, V1-BIO ruling 3).
 
 import Foundation
 import LungfishCore
@@ -31,21 +40,26 @@ public struct ViralReconStagedAnnotation: Sendable, Equatable {
     public let sourceBundleURL: URL?
     /// The source's path inside `sourceBundleURL`, such as `genome/genes.gff3`.
     public let sourceBundleRelativePath: String?
-    /// SHA-256 of the staged copy, which is also the source's digest.
+    /// SHA-256 of the staged copy, which is also the source's digest unless the copy was exported.
     public let sha256: String
+    /// Whether the staged file was exported from the source bundle's annotation database, which is then
+    /// ``sourceURL``, because the caller named no GFF3.
+    public let exportedFromDatabase: Bool
 
     public init(
         sourceURL: URL,
         stagedURL: URL,
         sourceBundleURL: URL?,
         sourceBundleRelativePath: String?,
-        sha256: String
+        sha256: String,
+        exportedFromDatabase: Bool = false
     ) {
         self.sourceURL = sourceURL
         self.stagedURL = stagedURL
         self.sourceBundleURL = sourceBundleURL
         self.sourceBundleRelativePath = sourceBundleRelativePath
         self.sha256 = sha256
+        self.exportedFromDatabase = exportedFromDatabase
     }
 
     /// One line for the run log.
@@ -56,18 +70,25 @@ public struct ViralReconStagedAnnotation: Sendable, Equatable {
         } else {
             source = sourceURL.path
         }
+        if exportedFromDatabase {
+            return "Exported the annotation database \(source) as \(stagedURL.path), because the reference bundle "
+                + "holds no GFF3 file and viralrecon reads --gff for iVar's codon merge and SnpEff."
+        }
         return "Staged the GFF3 annotation \(source) as \(stagedURL.path), "
             + "because viralrecon accepts --gff only as .gff or .gff.gz. The bytes are unchanged."
     }
 
     /// The provenance record, stored under ``ViralReconAnnotationStaging/provenanceKey``.
     public var provenanceValue: ParameterValue {
+        let reason = exportedFromDatabase
+            ? "The reference bundle holds no GFF3 file, so its annotation database was exported as GFF3 under a .gff name, as the iVar route exports it, for iVar's codon merge and SnpEff"
+            : "nf-core/viralrecon accepts --gff only as .gff or .gff.gz, so the GFF3 was copied under that name with its bytes unchanged"
         var fields: [String: ParameterValue] = [
             "parameter": .string(ViralReconAnnotationStaging.parameterName),
             "source": .file(sourceURL),
             "staged": .file(stagedURL),
             "sha256": .string(sha256),
-            "reason": .string("nf-core/viralrecon accepts --gff only as .gff or .gff.gz, so the GFF3 was copied under that name with its bytes unchanged"),
+            "reason": .string(reason),
         ]
         if let sourceBundleURL {
             fields["sourceBundle"] = .file(sourceBundleURL)
@@ -133,10 +154,12 @@ public enum ViralReconAnnotationStaging {
     /// Copies the annotation `params` names into the run bundle when its name
     /// would fail viralrecon's `--gff` check.
     ///
-    /// Returns nil, and writes nothing, when there is no `gff` parameter, when
-    /// it is a URL rather than a local path, when its name already passes, or
-    /// when the file already sits at the staged path. The parameters themselves
-    /// are not changed. Pass the result to ``launchParams(_:using:)`` for the
+    /// With no `gff` parameter, exports the annotation database of the
+    /// reference bundle that holds `fasta` instead, when it has one. Returns
+    /// nil, and writes nothing, when there is neither, when `gff` is a URL
+    /// rather than a local path, when its name already passes, or when the
+    /// file already sits at the staged path. The parameters themselves are not
+    /// changed. Pass the result to ``launchParams(_:using:)`` for the
     /// parameters the engine is given.
     public static func stage(
         params: [String: String],
@@ -144,8 +167,10 @@ public enum ViralReconAnnotationStaging {
         fileManager: FileManager = .default
     ) throws -> ViralReconStagedAnnotation? {
         guard let value = params[parameterName]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty,
-              !value.contains("://") else {
+              !value.isEmpty else {
+            return try exportBundleAnnotation(params: params, inRunBundle: runBundleURL, fileManager: fileManager)
+        }
+        guard !value.contains("://") else {
             return nil
         }
         let sourceURL = URL(fileURLWithPath: value).standardizedFileURL
@@ -185,6 +210,76 @@ public enum ViralReconAnnotationStaging {
             sourceBundleURL: bundleURL,
             sourceBundleRelativePath: bundleURL.flatMap { relativePath(of: sourceURL, inside: $0) },
             sha256: stagedDigest
+        )
+    }
+
+    /// A warning for the run log when the caller names no `gff` and the
+    /// reference bundle that holds `fasta` has no annotation, so viralrecon
+    /// runs without one. Nil otherwise.
+    public static func missingAnnotationNotice(params: [String: String]) -> String? {
+        guard case .missing(let bundleURL) = bundleAnnotation(for: params) else { return nil }
+        return "The reference bundle \(bundleURL.lastPathComponent) has no annotation, so viralrecon runs without --gff. "
+            + "iVar merges no codons, and SnpEff and the variants long table are skipped."
+    }
+
+    /// What the reference bundle that holds `fasta` offers a run that names no `gff`.
+    enum BundleAnnotation: Equatable {
+        /// The caller names a `gff`, or `fasta` names no local file in a reference bundle.
+        case notApplicable
+        /// The bundle's first annotation track has no database.
+        case missing(bundle: URL)
+        /// The database of the bundle's first annotation track, relative to the bundle.
+        case database(bundle: URL, relativePath: String)
+    }
+
+    /// The parameter that names the reference FASTA.
+    static let fastaParameterName = "fasta"
+
+    /// Reads the bundle's first annotation track, as the iVar route does.
+    static func bundleAnnotation(for params: [String: String]) -> BundleAnnotation {
+        if let gff = params[parameterName]?.trimmingCharacters(in: .whitespacesAndNewlines), !gff.isEmpty {
+            return .notApplicable
+        }
+        guard let fasta = params[fastaParameterName]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !fasta.isEmpty,
+              !fasta.contains("://"),
+              let bundleURL = SequenceInputResolver.enclosingReferenceBundleURL(for: URL(fileURLWithPath: fasta))
+        else {
+            return .notApplicable
+        }
+        guard let manifest = try? BundleManifest.load(from: bundleURL),
+              let databasePath = manifest.annotations.first?.databasePath
+        else {
+            return .missing(bundle: bundleURL)
+        }
+        return .database(bundle: bundleURL, relativePath: databasePath)
+    }
+
+    /// Exports the annotation database of the reference bundle that holds
+    /// `fasta` as GFF3 into the run bundle, under the database's name with
+    /// `.gff`, when the caller names no `gff` and the bundle has one.
+    private static func exportBundleAnnotation(
+        params: [String: String],
+        inRunBundle runBundleURL: URL,
+        fileManager: FileManager
+    ) throws -> ViralReconStagedAnnotation? {
+        guard case .database(let bundleURL, let relativePath) = bundleAnnotation(for: params) else { return nil }
+        let databaseURL = bundleURL.appendingPathComponent(relativePath).standardizedFileURL
+        guard fileManager.fileExists(atPath: databaseURL.path) else {
+            throw StagingError.annotationNotFound(databaseURL)
+        }
+        let directory = runBundleURL.standardizedFileURL
+            .appendingPathComponent(stagingDirectoryPath, isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stagedURL = directory.appendingPathComponent(databaseURL.deletingPathExtension().lastPathComponent + ".gff")
+        try AnnotationDatabaseGFFExporter.export(database: try AnnotationDatabase(url: databaseURL), to: stagedURL)
+        return ViralReconStagedAnnotation(
+            sourceURL: databaseURL,
+            stagedURL: stagedURL,
+            sourceBundleURL: bundleURL,
+            sourceBundleRelativePath: relativePath,
+            sha256: try FileDigest.sha256(of: stagedURL),
+            exportedFromDatabase: true
         )
     }
 

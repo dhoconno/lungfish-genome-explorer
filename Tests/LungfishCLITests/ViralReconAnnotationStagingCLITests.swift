@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishWorkflow
@@ -251,5 +252,103 @@ final class ViralReconAnnotationStagingCLITests: XCTestCase {
         let staged = runBundle.appendingPathComponent("inputs/reference/MN908947.3.gff.gz")
         XCTAssertEqual(try Data(contentsOf: staged), try Data(contentsOf: gff3))
         XCTAssertEqual(try XCTUnwrap(try stagingRecord(in: runBundle))["staged"], .file(staged))
+    }
+
+    // MARK: - A fetched bundle's annotation database reaches Nextflow as GFF3 (V1-BIO ruling 3)
+
+    /// `fetch genome` keeps a reference's annotation only in `annotations/annotations.db`. A call that names the
+    /// bundle's FASTA and no `gff` gets the database exported as GFF3, as the app's iVar route exports it, so iVar
+    /// merges codons and SnpEff runs, and the export is recorded with its digest and source bundle.
+    func testABundlesAnnotationDatabaseIsExportedWhenNoGFFIsNamed() async throws {
+        let referenceBundle = root.appendingPathComponent("Downloads/MN908947.3.lungfishref", isDirectory: true)
+        let fasta = try await writeFetchedReferenceBundle(at: referenceBundle, annotated: true)
+        let runBundle = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let runner = try await run(try arguments(fasta: fasta, runBundle: runBundle))
+
+        let launch = try XCTUnwrap(runner.launches.first)
+        let exported = runBundle.appendingPathComponent("inputs/reference/annotations.gff")
+        XCTAssertEqual(launch.gff, exported.path)
+        let text = try XCTUnwrap(launch.gffBytes.flatMap { String(data: $0, encoding: .utf8) }, "no --gff bytes")
+        XCTAssertTrue(text.hasPrefix("##gff-version 3\n"), text)
+        XCTAssertTrue(text.contains("MN908947.3\t.\tCDS\t5\t40\t.\t+\t0\t"), text)
+        XCTAssertNil(try NFCoreRunBundleStore.read(from: runBundle).params["gff"], "the records keep the caller's parameters")
+
+        let record = try XCTUnwrap(try stagingRecord(in: runBundle), "no staged annotation in provenance")
+        XCTAssertEqual(record["source"], .file(referenceBundle.appendingPathComponent("annotations/annotations.db")))
+        XCTAssertEqual(record["staged"], .file(exported))
+        XCTAssertEqual(record["sha256"], .string(try FileDigest.sha256(of: exported)))
+        XCTAssertEqual(record["sourceBundle"], .file(referenceBundle))
+        XCTAssertEqual(record["sourceBundleRelativePath"], .string("annotations/annotations.db"))
+        guard case .string(let reason)? = record["reason"] else { return XCTFail("the record gives no reason") }
+        XCTAssertTrue(reason.contains("its annotation database was exported as GFF3"), reason)
+        XCTAssertNil(ViralReconAnnotationStaging.missingAnnotationNotice(params: ["fasta": fasta.path]))
+    }
+
+    /// A bundle with no annotation launches without `--gff`, records no staging and says so in the run log.
+    func testABundleWithNoAnnotationLaunchesWithoutGFFAndSaysSo() async throws {
+        let referenceBundle = root.appendingPathComponent("Downloads/MN908947.3.lungfishref", isDirectory: true)
+        let fasta = try await writeFetchedReferenceBundle(at: referenceBundle, annotated: false)
+        let runBundle = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let runner = try await run(try arguments(fasta: fasta, runBundle: runBundle))
+
+        XCTAssertNil(try XCTUnwrap(runner.launches.first).gff)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runBundle.appendingPathComponent("inputs/reference").path))
+        XCTAssertNil(try stagingRecord(in: runBundle))
+        XCTAssertEqual(
+            ViralReconAnnotationStaging.missingAnnotationNotice(params: try NFCoreRunBundleStore.read(from: runBundle).params),
+            "The reference bundle MN908947.3.lungfishref has no annotation, so viralrecon runs without --gff. "
+                + "iVar merges no codons, and SnpEff and the variants long table are skipped.")
+        // A loose FASTA, or a named GFF3, is not a bundle without annotation.
+        XCTAssertNil(ViralReconAnnotationStaging.missingAnnotationNotice(params: ["fasta": root.appendingPathComponent("ref.fa").path]))
+        XCTAssertNil(ViralReconAnnotationStaging.missingAnnotationNotice(params: ["fasta": fasta.path, "gff": "/data/genes.gff3"]))
+    }
+
+    private func arguments(fasta: URL, runBundle: URL) throws -> [String] {
+        let results = root.appendingPathComponent("results", isDirectory: true)
+        return [
+            "nf-core/viralrecon",
+            "--executor", "docker",
+            "--input", try samplesheet().path,
+            "--results-dir", results.path,
+            "--expected-output", results.path,
+            "--bundle-path", runBundle.path,
+            "--version", "3.0.0",
+            "--param", "platform=illumina",
+            "--param", "fasta=\(fasta.path)",
+            "--quiet",
+        ]
+    }
+
+    /// A `.lungfishref` as `fetch genome` leaves it, its FASTA at `genome/sequence.fa` and, when `annotated`, its
+    /// annotation only in `annotations/annotations.db`, imported from a GFF3 that is then deleted. Returns the FASTA.
+    private func writeFetchedReferenceBundle(at bundleURL: URL, annotated: Bool) async throws -> URL {
+        let fasta = try write(
+            ">MN908947.3\n\(String(repeating: "ACGT", count: 20))\n",
+            to: bundleURL.appendingPathComponent("genome/sequence.fa"))
+        var tracks: [AnnotationTrackInfo] = []
+        if annotated {
+            let gff3 = try write(
+                "##gff-version 3\nMN908947.3\tGenbank\tgene\t5\t40\t.\t+\t.\tID=gene-S;Name=S\n"
+                    + "MN908947.3\tGenbank\tCDS\t5\t40\t.\t+\t0\tID=cds-S;Parent=gene-S;Name=S\n",
+                to: root.appendingPathComponent("fetch-temp/annotations.gff3"))
+            let database = bundleURL.appendingPathComponent("annotations/annotations.db")
+            try FileManager.default.createDirectory(at: database.deletingLastPathComponent(), withIntermediateDirectories: true)
+            _ = try await AnnotationDatabase.createFromGFF3(
+                gffURL: gff3, outputURL: database, chromosomeSizes: [("MN908947.3", 80)])
+            try FileManager.default.removeItem(at: gff3)
+            tracks = [AnnotationTrackInfo(
+                id: "annotations", name: "genes", path: "annotations/annotations.db",
+                databasePath: "annotations/annotations.db", annotationType: .custom, featureCount: 2)]
+        }
+        try BundleManifest(
+            name: "MN908947.3",
+            identifier: "org.lungfish.MN908947.3",
+            source: SourceInfo(organism: "SARS-CoV-2", assembly: "MN908947.3"),
+            genome: GenomeInfo(path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 80, chromosomes: []),
+            annotations: tracks
+        ).save(to: bundleURL)
+        return fasta
     }
 }
