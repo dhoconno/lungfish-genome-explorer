@@ -191,12 +191,12 @@ struct DemoFetchRun: Sendable {
 
     /// The hidden test seam that sends the old copy of a replace into a folder instead of the user's Trash
     /// (Phase 2.10 lane A45 M4), so a test of the replace never writes to the Trash. The item keeps its name in
-    /// the folder. It is not in the help.
+    /// the folder. It is not in the help. A debug build alone reads it.
     static let trashFolderVariable = "LUNGFISH_DEMO_TRASH_FOLDER"
 
     /// The folder ``trashFolderVariable`` names, nil when it is unset or empty.
     static func trashFolder(environment: [String: String]) -> URL? {
-        guard let named = environment[trashFolderVariable], !named.isEmpty else { return nil }
+        guard let named = DemoLocationOptions.seam(trashFolderVariable, in: environment) else { return nil }
         return URL(fileURLWithPath: (named as NSString).expandingTildeInPath, isDirectory: true)
     }
 

@@ -57,26 +57,38 @@ struct DemoLocationOptions: ParsableArguments {
     /// URL of every project then keeps its path and query and takes that scheme, host and port. A list names
     /// https archives only, so a test names a host that does not exist and this variable puts the loopback
     /// server in its place. An origin anywhere else is refused, so a stray variable never sends a download to
-    /// another host. It is not in the help.
+    /// another host. It is not in the help. A debug build alone reads it.
     static let standInOriginVariable = "LUNGFISH_DEMO_STAND_IN_ORIGIN"
 
     /// The hidden test seam that names the demo project list in the environment (Phase 2.10 lane A45 M4). The
     /// command the Demo Projects window records carries no `--manifest`, so the replay of that command (side C' of
     /// the parity) and the window's child read their list here. `--manifest` wins when both are given, and an empty
-    /// value names nothing. It is not in the help.
+    /// value names nothing. It is not in the help. A debug build alone reads it.
     static let manifestVariable = "LUNGFISH_DEMO_MANIFEST"
 
     func loadManifest(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> DemoProjectManifest {
         let manifest: DemoProjectManifest
         if let manifestPath, !manifestPath.isEmpty {
             manifest = try DemoProjectManifest.load(from: URL(fileURLWithPath: (manifestPath as NSString).expandingTildeInPath))
-        } else if let named = environment[Self.manifestVariable], !named.isEmpty {
+        } else if let named = Self.seam(Self.manifestVariable, in: environment) {
             manifest = try DemoProjectManifest.load(from: URL(fileURLWithPath: (named as NSString).expandingTildeInPath))
         } else {
             manifest = try DemoProjectManifest.loadBundled()
         }
-        guard let origin = environment[Self.standInOriginVariable], !origin.isEmpty else { return manifest }
+        guard let origin = Self.seam(Self.standInOriginVariable, in: environment) else { return manifest }
         return try Self.serving(manifest, fromOrigin: origin)
+    }
+
+    /// The value of one of the hidden test seams, nil when it is unset or empty. A release build reads none of
+    /// them, as the stand-in origins of the services do (A44 review Q2a term 2), so a shipped lungfish-cli and
+    /// the Demo Projects window's child ignore all three variables.
+    static func seam(_ name: String, in environment: [String: String]) -> String? {
+        #if DEBUG
+        guard let value = environment[name], !value.isEmpty else { return nil }
+        return value
+        #else
+        return nil
+        #endif
     }
 
     /// `manifest` with the archive of each project on `origin`, which must be an http origin on this Mac.
