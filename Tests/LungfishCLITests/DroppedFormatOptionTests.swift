@@ -5,10 +5,11 @@
 // Phase 2.10 lane A55 (2.6 row 213), milestone M3. A leaf that listed `--format json` and never read it
 // either honours the option or drops it. A dropped leaf hides its `GlobalOptions` group with
 // `@OptionGroup(visibility: .hidden)` and its contract row says `humanTextOnly`. The group keeps its type, so
-// the root command and the leaf still share each parsed value. A different type did not share them. The
-// root claimed `--threads` and the leaf read nil (build/lane/m3-first-attempt.log of the lane). These cases
-// read the help of every leaf in the command tree, so a row and its help cannot part, and parse a dropped
-// leaf through the real root parser to show that the global options still reach it.
+// the root command and the leaf still share each parsed value. A different type does not share them, because
+// ArgumentParser hands a leaf's `@OptionGroup` the value its parent decoded for the same type, so the root
+// would take `--threads` and the leaf would read nil (`SubcommandThreadsOptionTests`). These cases read the
+// help of every leaf in the command tree, so a row and its help cannot part, and parse a dropped leaf through
+// the real root parser to show that the global options still reach it.
 
 import ArgumentParser
 import Foundation
