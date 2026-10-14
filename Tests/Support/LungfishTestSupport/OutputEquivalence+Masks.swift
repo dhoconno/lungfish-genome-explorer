@@ -264,8 +264,9 @@ extension OutputEquivalence {
         /// each file in that folder, is still compared under its own kind, so
         /// only the record's copy of a byte-level digest is masked. A record
         /// that names a run's scratch intermediate, a content-compared file
-        /// under the system temporary folder that no longer exists, is masked
-        /// the same way, because the run deleted it and it cannot be compared.
+        /// or a SAM under the system temporary folder that no longer exists,
+        /// is masked the same way, because the run deleted it and it cannot
+        /// be compared.
         /// A record that names any other file, such as an input outside the
         /// trees or a file compared byte for byte, keeps its digest.
         public static let contentComparedDigests = Mask(name: "contentComparedDigests") { text, context in
@@ -291,11 +292,16 @@ extension OutputEquivalence {
         static let contentComparedSuffixes = [
             ".bam", ".bai", ".csi", ".tbi", ".crai", ".gz", ".bgz", ".bgzf", ".db", ".sqlite", ".sqlite3", ".json",
         ]
-        /// A content-compared file under the system temporary folder that
-        /// no longer exists.
+        /// The suffixes of the files a run may delete from its scratch folder. They are the content-compared
+        /// suffixes and a SAM. A SAM that both trees keep is compared byte for byte, so `contentComparedSuffixes`,
+        /// which the comparison reads to decide what a record's digest may hide, leaves it out.
+        static let scratchIntermediateSuffixes = contentComparedSuffixes + [".sam"]
+
+        /// A content-compared file or a SAM under the system temporary folder
+        /// that no longer exists.
         static func isDeletedScratchIntermediate(_ path: String) -> Bool {
             let lowered = path.lowercased()
-            guard contentComparedSuffixes.contains(where: { lowered.hasSuffix($0) }) else { return false }
+            guard scratchIntermediateSuffixes.contains(where: { lowered.hasSuffix($0) }) else { return false }
             let temporary = FileManager.default.temporaryDirectory
             let prefixes = rootSpellings(temporary) + ["/tmp", "/private/tmp"]
             guard prefixes.contains(where: { path.hasPrefix($0 + "/") }) else { return false }

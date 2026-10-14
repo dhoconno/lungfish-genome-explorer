@@ -513,6 +513,28 @@ final class OutputEquivalenceTests: XCTestCase {
         try write(record(deleted, "bbbb", 585), to: b, "provenance.json")
         XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
 
+        // So is a SAM the run deleted, the text a mapper writes before it sorts to a BAM (lane A46 M3, D6).
+        let deletedSAM = scratch.appendingPathComponent("work-\(UUID().uuidString)/x.raw.sam").path
+        try write(record(deletedSAM, "aaaa", 584), to: a, "provenance.json")
+        try write(record(deletedSAM, "bbbb", 585), to: b, "provenance.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // A SAM that exists, or that lies outside the temporary folder, keeps its digest.
+        try write("input placeholder\n", to: scratch, "inputs/input.sam")
+        let inputSAM = scratch.appendingPathComponent("inputs/input.sam").path
+        for samPath in [inputSAM, "/Users/someone/Project.lungfish/x.raw.sam"] {
+            try write(record(samPath, "aaaa", 584), to: a, "provenance.json")
+            try write(record(samPath, "bbbb", 584), to: b, "provenance.json")
+            XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle).count, 1, samPath)
+        }
+
+        // A SAM both trees keep is compared byte for byte, so the digest a record states for it is compared too.
+        try write("@HD\tVN:1.6\n", to: a, "tracks/x.sam")
+        try write("@HD\tVN:1.6\n", to: b, "tracks/x.sam")
+        try write(record("tracks/x.sam", "aaaa", 584), to: a, "provenance.json")
+        try write(record("tracks/x.sam", "bbbb", 584), to: b, "provenance.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle).count, 1)
+
         try write(record("reads.fasta", "aaaa", 584), to: a, "provenance.json")
         try write(record("reads.fasta", "bbbb", 584), to: b, "provenance.json")
         XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle).count, 1)
