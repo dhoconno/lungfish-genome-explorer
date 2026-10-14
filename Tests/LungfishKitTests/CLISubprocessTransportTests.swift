@@ -131,6 +131,33 @@ final class CLISubprocessTransportTests: XCTestCase {
         XCTAssertEqual(events.values, [.progress(fraction: 0.1, message: "first")])
     }
 
+    /// The CLI runs in the folder the caller names, where a relative `--output` resolves, and in
+    /// the app's own folder when it names none (Phase 2.10 lane A51, the clipboard and share
+    /// destinations of the consensus).
+    func testTheCLIRunsInTheGivenWorkingDirectoryAndInTheAppsFolderByDefault() async throws {
+        let workingDirectory = folder.appendingPathComponent("work folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let cli = try fakeCLI("#!/bin/sh\nprintf '{\"event\":\"complete\",\"message\":\"done\",\"outputs\":[\"%s\"]}\\n' \"$(/bin/pwd -P)\"\n")
+        let transport = CLISubprocessTransport(cliURLOverride: cli)
+
+        let given = Task {
+            try await transport.run(arguments: [], isCancelled: { false }, onEvent: { _ in }, workingDirectory: workingDirectory)
+        }
+        // `pwd -P` names /private/var where Foundation names /var.
+        func physical(_ path: String) -> String {
+            path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path
+        }
+        let givenOutputs = try await wait(for: given).get().outputs
+        XCTAssertEqual(givenOutputs.map(physical), [physical(workingDirectory.resolvingSymlinksInPath().path)])
+
+        let byDefault = Task {
+            try await transport.run(arguments: [], isCancelled: { false }, onEvent: { _ in })
+        }
+        let appFolder = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).resolvingSymlinksInPath().path
+        let defaultOutputs = try await wait(for: byDefault).get().outputs
+        XCTAssertEqual(defaultOutputs.map(physical), [physical(appFolder)])
+    }
+
     func testEventsArriveInOrder() async throws {
         let lines = (1...40).map { #"echo '{"event":"progress","progress":\#(Double($0) / 40),"message":"step \#($0)"}'"# }
         let complete = try completeLine(outputs: ["/tmp/out"])

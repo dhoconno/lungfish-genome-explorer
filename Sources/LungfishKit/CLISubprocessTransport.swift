@@ -133,13 +133,17 @@ public actor CLISubprocessTransport {
     ///     standard error that is not blank arrives as an info `.log` event,
     ///     so the operation log keeps it at info level. The bridge hops each
     ///     event to the main actor itself.
+    ///   - workingDirectory: The folder the CLI runs in, where a relative path in
+    ///     `arguments` resolves, such as the `--output` name of a clipboard or
+    ///     share destination. Nil keeps the app's own folder.
     public func run(
         arguments: [String],
         terminationGracePeriod: Duration = .zero,
         drainGracePeriod: Duration? = nil,
         environmentAdditions: [String: String] = [:],
         isCancelled: @Sendable () async -> Bool,
-        onEvent: @escaping @Sendable (CLIEvent) -> Void
+        onEvent: @escaping @Sendable (CLIEvent) -> Void,
+        workingDirectory: URL? = nil
     ) async throws -> Result {
         if await isCancelled() {
             throw CancellationError()
@@ -205,7 +209,8 @@ public actor CLISubprocessTransport {
                 arguments: arguments,
                 terminationGracePeriod: terminationGracePeriod,
                 drainGracePeriod: drainGracePeriod,
-                environmentAdditions: environmentAdditions
+                environmentAdditions: environmentAdditions,
+                workingDirectory: workingDirectory
             ),
             cancellation: cancellation,
             onStdoutLine: handleLine,

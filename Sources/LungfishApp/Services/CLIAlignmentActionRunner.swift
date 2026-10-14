@@ -30,16 +30,18 @@ struct CLIAlignmentActionRunner: Sendable {
         transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
     }
 
-    /// Runs `arguments`, the argv after the binary, for the row `operationID`. It throws
+    /// Runs `arguments`, the argv after the binary, for the row `operationID`, in
+    /// `workingDirectory` when one is given, where a relative `--output` resolves. It throws
     /// `CancellationError` when the row was cancelled and `CLISubprocessTransport.RunError` when the
     /// leaf failed, whose description is the leaf's own failure message.
-    func run(arguments: [String], operationID: UUID) async throws -> Completion {
+    func run(arguments: [String], operationID: UUID, workingDirectory: URL? = nil) async throws -> Completion {
         let result = try await transport.run(
             arguments: arguments,
             terminationGracePeriod: Self.terminationGracePeriod,
             drainGracePeriod: Self.drainGracePeriod,
             isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
-            onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
+            onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID),
+            workingDirectory: workingDirectory
         )
         return Completion(outputs: result.outputs, message: result.message)
     }
