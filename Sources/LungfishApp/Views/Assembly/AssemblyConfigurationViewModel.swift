@@ -398,7 +398,7 @@ public enum AssemblyRunner {
         return (records, steps)
     }
 
-    private static func runManagedAssemblyOperation(
+    static func runManagedAssemblyOperation(
         request: AssemblyRunRequest,
         baseOutputDirectory: URL,
         projectName: String,
