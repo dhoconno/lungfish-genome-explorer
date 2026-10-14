@@ -141,6 +141,7 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
                 outputTrackName: "Exact Matches",
                 filterRequest: AlignmentFilterRequest(identityFilter: .exactMatch)
             ),
+            route: .cli,
             reporter: center
         ) { launchedID = $0 }
         let operationID = try XCTUnwrap(launchedID, "a free bundle must start and launch")

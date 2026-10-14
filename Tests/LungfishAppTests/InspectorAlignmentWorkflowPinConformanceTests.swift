@@ -120,7 +120,7 @@ final class InspectorAlignmentWorkflowPinConformanceTests: XCTestCase {
         let rowsA = try Self.annotationRowText(bundleURL: bundleA, trackPath: result.databasePath)
 
         let command = InspectorViewController.mappedReadsAnnotationCLICommand(
-            request: launch.workflowRequest(bundleURL: bundleB)
+            request: launch.workflowRequest(bundleURL: bundleB), route: .cli
         )
         try await RecordedCLICommand.runInProcess(command)
         let rowsB = try Self.annotationRowText(bundleURL: bundleB, trackPath: "annotations/pinned_mapped_reads.db")
@@ -165,7 +165,9 @@ final class InspectorAlignmentWorkflowPinConformanceTests: XCTestCase {
         )
         let service = try pin(of: bundleA.appendingPathComponent(result.trackInfo.sourcePath))
 
-        let command = InspectorViewController.filteredAlignmentCLICommand(serviceTarget: .bundle(bundleB), request: request)
+        let command = InspectorViewController.filteredAlignmentCLICommand(
+            serviceTarget: .bundle(bundleB), request: request, route: .cli
+        )
         try await RecordedCLICommand.runInProcess(command)
         let derived = try BundleManifest.load(from: bundleB).alignments.filter {
             $0.id != request.sourceTrackID

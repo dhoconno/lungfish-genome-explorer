@@ -66,6 +66,7 @@ final class CLIReplayHarnessReplayTests: XCTestCase {
             bundleURL: bundleA,
             serviceTarget: .bundle(bundleA),
             request: request,
+            route: .cli,
             reporter: reporter
         ) { _ in launched = true }
         XCTAssertTrue(launched)
@@ -92,8 +93,11 @@ final class CLIReplayHarnessReplayTests: XCTestCase {
         // rebased command.
         let envelopeA = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: bundleA))
         let envelopeB = try XCTUnwrap(try ProvenanceEnvelopeReader.load(from: bundleB))
-        XCTAssertEqual(envelopeA.argv, try AdvancedCommandLineOptions.parse(recorded))
-        XCTAssertEqual(envelopeB.argv, try AdvancedCommandLineOptions.parse(replay))
+        // The service writes the run's canonical argv, which has no `--format json`: that flag only makes the
+        // leaf speak events to the app's runner, so the record is the command without it (Phase 2.10 lane A54).
+        let eventsFlag = ["--format", "json"]
+        XCTAssertEqual(envelopeA.argv + eventsFlag, try AdvancedCommandLineOptions.parse(recorded))
+        XCTAssertEqual(envelopeB.argv + eventsFlag, try AdvancedCommandLineOptions.parse(replay))
         XCTAssertNotEqual(
             try OutputEquivalence.differences(bundleA, fixture.bundleURL, kind: .bundle),
             [],
@@ -113,7 +117,8 @@ final class CLIReplayHarnessReplayTests: XCTestCase {
                 sourceTrackID: fixture.sourceTrackID,
                 outputTrackName: "Mapped Reads",
                 filterRequest: AlignmentFilterRequest(mappedOnly: true)
-            )
+            ),
+            route: .cli
         )
         try await RecordedCLICommand.runInProcess(try RecordedCLICommand.rebased(looser, from: rootA, to: rootC))
         let found = try OutputEquivalence.differences(bundleA, bundleC, kind: .bundle)
