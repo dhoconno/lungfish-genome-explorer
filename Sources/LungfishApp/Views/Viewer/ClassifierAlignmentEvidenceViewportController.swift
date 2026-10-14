@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import LungfishKit
+import LungfishWorkflow
 
 /// Bridges classifier leaf requests to the existing App-owned full viewer.
 /// No wrapper bundle is created and `clear` only clears in-memory display state.

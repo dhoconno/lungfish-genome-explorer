@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 /// Presentation metadata paired with the immutable scientific request.  The
 /// scientific request is deliberately built from the evidence context and an

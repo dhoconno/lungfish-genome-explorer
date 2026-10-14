@@ -1,7 +1,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
 package enum AlignmentConsensusPublicationDestination: Sendable, Equatable {
     case referenceBundle(URL)

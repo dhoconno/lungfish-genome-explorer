@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+import LungfishWorkflow
 
 final class MappingConsensusExportRequestBuilderTests: XCTestCase {
     func testBuildUsesOnlyTheRequiredResolvedRegionAndContextFilters() throws {

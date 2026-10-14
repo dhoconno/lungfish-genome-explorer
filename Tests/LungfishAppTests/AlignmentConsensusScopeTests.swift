@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import LungfishWorkflow
 
 @MainActor
 final class AlignmentConsensusScopeTests: XCTestCase {

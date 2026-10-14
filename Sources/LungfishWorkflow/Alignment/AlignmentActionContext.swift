@@ -4,7 +4,6 @@
 
 import Foundation
 import LungfishIO
-import LungfishWorkflow
 
 /// Cheap, stat-based identity for a file used to decide whether a cached
 /// SHA-256 digest is still trustworthy, without rereading the file.
