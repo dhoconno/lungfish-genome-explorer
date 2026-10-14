@@ -568,13 +568,15 @@ public actor ClassificationPipeline {
         }
 
         let kraken2Result: (stdout: String, stderr: String, exitCode: Int32)
+        let kraken2Launch = await ClassifierLaunchDeclaration(recorder: provenanceRecorder, runID: runID)
         do {
             kraken2Result = try await condaManager.runTool(
                 name: "kraken2",
                 arguments: kraken2Args,
                 environment: Self.kraken2Environment,
                 timeout: 7200, // 2 hour timeout for large datasets
-                stderrHandler: kraken2StderrHandler
+                stderrHandler: kraken2StderrHandler,
+                observer: kraken2Launch.observer
             )
         } catch is CancellationError {
             await recordKraken2Failure(
@@ -590,7 +592,8 @@ public actor ClassificationPipeline {
                 exitCode: 130,
                 stderr: "Kraken2 classification cancelled.",
                 kraken2Clock: kraken2Clock,
-                interleavedHalves: interleavedHalves
+                interleavedHalves: interleavedHalves,
+                launch: kraken2Launch
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -622,7 +625,8 @@ public actor ClassificationPipeline {
                 exitCode: unavailable ? 127 : 1,
                 stderr: error.localizedDescription,
                 kraken2Clock: kraken2Clock,
-                interleavedHalves: interleavedHalves
+                interleavedHalves: interleavedHalves,
+                launch: kraken2Launch
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -649,7 +653,8 @@ public actor ClassificationPipeline {
                 exitCode: 1,
                 stderr: error.localizedDescription,
                 kraken2Clock: kraken2Clock,
-                interleavedHalves: interleavedHalves
+                interleavedHalves: interleavedHalves,
+                launch: kraken2Launch
             )
             try await persistInterruptedClassificationRun(
                 provenanceRecorder: provenanceRecorder,
@@ -683,6 +688,7 @@ public actor ClassificationPipeline {
             stderr: kraken2Result.stderr,
             dependsOn: kraken2Dependencies
         )
+        await kraken2Launch.recordObservation(onStep: kraken2StepID)
 
         // The halves are only needed by kraken2; drop them now rather than at
         // scope exit so Bracken and sidecar work do not hold the disk, as a step.
@@ -1326,7 +1332,8 @@ public actor ClassificationPipeline {
         exitCode: Int32,
         stderr: String,
         kraken2Clock: ProvenanceRunClock,
-        interleavedHalves: [FileRecord]
+        interleavedHalves: [FileRecord],
+        launch: ClassifierLaunchDeclaration
     ) async {
         let fileManager = FileManager.default
         let outputs: [FileRecord] = [
@@ -1355,6 +1362,7 @@ public actor ClassificationPipeline {
             stderr: stderr,
             dependsOn: dependsOn
         )
+        await launch.recordObservation(onStep: kraken2StepID)
         await Self.removeInterleavedSplit(
             interleavedHalves, of: effectiveConfig, recorder: provenanceRecorder, runID: runID,
             dependsOn: [kraken2StepID].compactMap { $0 }
@@ -1733,17 +1741,19 @@ public actor ClassificationPipeline {
         try Task.checkCancellation()
         let brackenClock = ProvenanceRunClock()
         let processResult: (stdout: String, stderr: String, exitCode: Int32)
+        let brackenLaunch = await ClassifierLaunchDeclaration(recorder: provenanceRecorder, runID: runID)
         do {
             processResult = try await condaManager.runTool(
                 name: "bracken",
                 arguments: brackenArgs,
                 environment: Self.brackenEnvironment,
                 workingDirectory: staging.scratchDirectory,
-                timeout: 3600
+                timeout: 3600,
+                observer: brackenLaunch.observer
             )
         } catch is CancellationError {
             try? fm.removeItem(at: config.brackenURL)
-            _ = await provenanceRecorder.recordStep(
+            let stepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "bracken",
                 toolVersion: brackenVersion,
@@ -1757,6 +1767,7 @@ public actor ClassificationPipeline {
                 stderr: "Bracken profiling cancelled.",
                 dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
+            await brackenLaunch.recordObservation(onStep: stepID)
             throw CancellationError()
         } catch let error as CondaError {
             try? fm.removeItem(at: config.brackenURL)
@@ -1781,6 +1792,7 @@ public actor ClassificationPipeline {
                 stderr: message,
                 dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
+            await brackenLaunch.recordObservation(onStep: stepID)
             return BrackenExecutionResult(
                 tree: tree,
                 outputURL: nil,
@@ -1809,6 +1821,7 @@ public actor ClassificationPipeline {
                 stderr: message,
                 dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
+            await brackenLaunch.recordObservation(onStep: stepID)
             return BrackenExecutionResult(
                 tree: tree,
                 outputURL: nil,
@@ -1847,6 +1860,7 @@ public actor ClassificationPipeline {
                 stderr: processResult.stderr,
                 dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
+            await brackenLaunch.recordObservation(onStep: brackenStepID)
             _ = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "Lungfish Bracken Cancellation",
@@ -1905,6 +1919,7 @@ public actor ClassificationPipeline {
                 stderr: processResult.stderr,
                 dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
+            await brackenLaunch.recordObservation(onStep: stepID)
             return BrackenExecutionResult(
                 tree: tree,
                 outputURL: nil,
@@ -1977,6 +1992,7 @@ public actor ClassificationPipeline {
                 stderr: processResult.stderr,
                 dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
             )
+            await brackenLaunch.recordObservation(onStep: brackenStepID)
             let validationStepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "Lungfish Bracken Output Validation",
@@ -2028,6 +2044,7 @@ public actor ClassificationPipeline {
             stderr: processResult.stderr,
             dependsOn: dependsOn, managedToolID: ManagedBrackenVersion.toolID, toolVersionEvidence: brackenEvidence
         )
+        await brackenLaunch.recordObservation(onStep: stepID)
         logger.info("Bracken profiling merged successfully")
         return BrackenExecutionResult(
             tree: mergedTree,

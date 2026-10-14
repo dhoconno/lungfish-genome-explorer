@@ -1045,6 +1045,9 @@ public actor CondaManager {
     ///     Both callbacks finish before this method returns or throws after launch.
     ///     Callbacks run one at a time on the run's event queue, and output is
     ///     not read while one runs, so they should enqueue expensive work.
+    ///   - observer: The observer of a declared provenance step, bound around
+    ///     this one launch alone and never around the micromamba probes before
+    ///     it. Nil leaves the task's own binding as it is.
     /// - Returns: A tuple of (stdout, stderr, exitCode).
     /// - Throws: ``CondaError`` on tool-not-found, timeout, or launch failure.
     public func runTool(
@@ -1054,11 +1057,12 @@ public actor CondaManager {
         workingDirectory: URL? = nil,
         environmentVariables: [String: String]? = nil,
         timeout: TimeInterval = 3600,
-        stderrHandler: (@Sendable (String) -> Void)? = nil
+        stderrHandler: (@Sendable (String) -> Void)? = nil,
+        observer: ToolProcessObserver? = nil
     ) async throws -> (stdout: String, stderr: String, exitCode: Int32) {
         try await runTool(name: name, arguments: arguments, environment: environment,
             workingDirectory: workingDirectory, environmentVariables: environmentVariables,
-            timeout: timeout, stdoutHandler: nil, stderrHandler: stderrHandler)
+            timeout: timeout, stdoutHandler: nil, stderrHandler: stderrHandler, observer: observer)
     }
 
     /// Streams stdout in addition to stderr. The explicit stdout argument preserves
@@ -1071,7 +1075,8 @@ public actor CondaManager {
         environmentVariables: [String: String]? = nil,
         timeout: TimeInterval = 3600,
         stdoutHandler: (@Sendable (String) -> Void)?,
-        stderrHandler: (@Sendable (String) -> Void)? = nil
+        stderrHandler: (@Sendable (String) -> Void)? = nil,
+        observer: ToolProcessObserver? = nil
     ) async throws -> (stdout: String, stderr: String, exitCode: Int32) {
         repairManagedLaunchers(environment: environment)
         try await ensureMicromamba()
@@ -1081,23 +1086,26 @@ public actor CondaManager {
 
         // Hermetic: nothing from the caller's shell beyond TMPDIR.
         let processEnvironment = hermeticToolEnvironment(adding: environmentVariables)
-        let spec = ToolProcessSpec(
-            executableURL: micromambaPath,
-            arguments: args,
-            environment: processEnvironment,
-            workingDirectory: workingDirectory,
-            timeout: CondaFamilyProcess.limit(seconds: timeout),
-            terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
-            label: name,
-            environmentChange: observedEnvironmentChange(of: processEnvironment),
-            identityHint: environment
-        )
         let result: ToolProcessResult
         do {
-            result = try await ToolProcess.run(
-                spec,
-                onEvent: CondaFamilyProcess.lineForwarder(stdout: stdoutHandler, stderr: stderrHandler)
-            )
+            // A declared step's observer is bound around the spec, whose environment change reads it, and the one
+            // launch, and never around the micromamba probes above (RECORDING-PROVENANCE.md, the observer hook).
+            result = try await ToolProcessObservation.$observer.withValue(observer ?? ToolProcessObservation.observer) {
+                try await ToolProcess.run(
+                    ToolProcessSpec(
+                        executableURL: micromambaPath,
+                        arguments: args,
+                        environment: processEnvironment,
+                        workingDirectory: workingDirectory,
+                        timeout: CondaFamilyProcess.limit(seconds: timeout),
+                        terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
+                        label: name,
+                        environmentChange: observedEnvironmentChange(of: processEnvironment),
+                        identityHint: environment
+                    ),
+                    onEvent: CondaFamilyProcess.lineForwarder(stdout: stdoutHandler, stderr: stderrHandler)
+                )
+            }
         } catch ToolProcessError.timedOut {
             logger.warning("Tool '\(name, privacy: .public)' timed out after \(Int(timeout))s and was terminated")
             throw CondaError.timeout(tool: name, seconds: timeout)

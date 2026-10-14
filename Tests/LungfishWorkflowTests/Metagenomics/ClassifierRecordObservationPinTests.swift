@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane S36 M1, item 1 (QA 1). Pins taken at the base, before any classifier launch binds a ToolProcess
+// Phase 2.10 lane S36 M1, item 1 (QA 1). Pins taken at the base, before any classifier launch bound a ToolProcess
 // observer. Each record is captured masked (`ClassifierRecordCapture`), so the binding of item 2 shows up here as
-// exactly the `observation` key it adds to the kraken2, bracken and EsViritu steps. The probe that picks Bracken's
-// CLI dialect runs and is no step, and no record writes a peak memory (Phase 2.7 decision P4).
+// exactly the `observation` key it adds to the kraken2, bracken and EsViritu steps and nothing else. The probe that
+// picks Bracken's CLI dialect runs and is no step, and no record writes a peak memory (Phase 2.7 decision P4).
 
 import XCTest
 @testable import LungfishWorkflow
@@ -25,7 +25,7 @@ final class ClassifierRecordObservationPinTests: XCTestCase {
 
         ClassifierRecordCapture.assertLines(try ClassifierRecordCapture.lines(in: config.outputDirectory), equal: [
             "record: argv,createdAt,durableReplayArgv,exitStatus,files,id,options,output,outputs,reproducibleCommand,runtimeIdentity,schemaVersion,signatures,status,steps,tool,toolName,toolVersion,wallTimeSeconds,workflowName,workflowVersion",
-            "kraken2 exit=0: argv,completedAt,dependsOn,durableReplayArgv,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,runtimeIdentity,startedAt,stderr,toolName,toolVersion,wallTimeSeconds",
+            "kraken2 exit=0: argv,completedAt,dependsOn,durableReplayArgv,exitStatus,id,inputs,observation,outputs,reproducibleCommand,resolvedOptions,runtimeIdentity,startedAt,stderr,toolName,toolVersion,wallTimeSeconds",
             "lungfish-kraken2-index exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,toolName,toolVersion,wallTimeSeconds",
             "gzip exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,toolName,toolVersion,wallTimeSeconds",
             "Lungfish Kraken2 Output Removal exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,toolName,toolVersion,wallTimeSeconds",
@@ -43,9 +43,9 @@ final class ClassifierRecordObservationPinTests: XCTestCase {
 
         ClassifierRecordCapture.assertLines(try ClassifierRecordCapture.lines(in: config.outputDirectory), equal: [
             "record: argv,createdAt,durableReplayArgv,exitStatus,files,id,options,output,outputs,reproducibleCommand,runtimeIdentity,schemaVersion,signatures,status,steps,tool,toolName,toolVersion,wallTimeSeconds,workflowName,workflowVersion",
-            "kraken2 exit=0: argv,completedAt,dependsOn,durableReplayArgv,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,runtimeIdentity,startedAt,stderr,toolName,toolVersion,wallTimeSeconds",
+            "kraken2 exit=0: argv,completedAt,dependsOn,durableReplayArgv,exitStatus,id,inputs,observation,outputs,reproducibleCommand,resolvedOptions,runtimeIdentity,startedAt,stderr,toolName,toolVersion,wallTimeSeconds",
             "Lungfish Bracken Preflight exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,runtimeIdentity,startedAt,toolName,toolVersion,wallTimeSeconds",
-            "bracken exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,managedToolID,outputs,reproducibleCommand,resolvedOptions,runtimeIdentity,startedAt,stderr,toolName,toolVersion,toolVersionEvidence,wallTimeSeconds",
+            "bracken exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,managedToolID,observation,outputs,reproducibleCommand,resolvedOptions,runtimeIdentity,startedAt,stderr,toolName,toolVersion,toolVersionEvidence,wallTimeSeconds",
             "lungfish-kraken2-index exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,toolName,toolVersion,wallTimeSeconds",
             "gzip exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,toolName,toolVersion,wallTimeSeconds",
             "Lungfish Kraken2 Output Removal exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,toolName,toolVersion,wallTimeSeconds",
@@ -62,7 +62,7 @@ final class ClassifierRecordObservationPinTests: XCTestCase {
 
         ClassifierRecordCapture.assertLines(try ClassifierRecordCapture.lines(in: run.config.outputDirectory), equal: [
             "record: argv,createdAt,exitStatus,files,githubReleaseVersion,id,options,output,outputs,reproducibleCommand,runtimeIdentity,schemaVersion,signatures,status,steps,tool,toolName,toolVersion,wallTimeSeconds,workflowName,workflowVersion",
-            "EsViritu exit=0: argv,completedAt,dependsOn,exitStatus,githubReleaseVersion,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,stderr,toolName,toolVersion,wallTimeSeconds",
+            "EsViritu exit=0: argv,completedAt,dependsOn,exitStatus,githubReleaseVersion,id,inputs,observation,outputs,reproducibleCommand,resolvedOptions,startedAt,stderr,toolName,toolVersion,wallTimeSeconds",
             "Lungfish EsViritu Result Sidecar exit=0: argv,completedAt,dependsOn,exitStatus,id,inputs,outputs,reproducibleCommand,resolvedOptions,startedAt,toolName,toolVersion,wallTimeSeconds",
         ])
     }

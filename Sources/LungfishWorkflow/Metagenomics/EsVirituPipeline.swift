@@ -488,6 +488,7 @@ public actor EsVirituPipeline {
         }
 
         let esVirituResult: (stdout: String, stderr: String, exitCode: Int32)
+        let esVirituLaunch = await ClassifierLaunchDeclaration(recorder: provenanceRecorder, runID: runID)
         do {
             // No wall-clock limit. A large sample rich in one virus aligns for hours, and the
             // one-hour floor ended such runs and discarded the work. Cancel still stops a run.
@@ -497,7 +498,8 @@ public actor EsVirituPipeline {
                 environment: Self.esVirituEnvironment,
                 environmentVariables: ["ESVIRITU_DB": effectiveConfig.databasePath.path],
                 timeout: .infinity,
-                stderrHandler: esVirituStderrHandler
+                stderrHandler: esVirituStderrHandler,
+                observer: esVirituLaunch.observer
             )
         } catch let error as CondaError {
             await provenanceRecorder.completeRun(runID, status: .failed)
@@ -516,7 +518,7 @@ public actor EsVirituPipeline {
             let failureOutputs = fm.fileExists(atPath: effectiveConfig.detectionOutputURL.path)
                 ? [ProvenanceRecorder.fileRecord(url: effectiveConfig.detectionOutputURL, format: .text, role: .output)]
                 : []
-            await provenanceRecorder.recordStep(
+            let failedStepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "EsViritu",
                 toolVersion: toolVersion,
@@ -528,6 +530,7 @@ public actor EsVirituPipeline {
                 wallTime: esVirituWallTime,
                 stderr: esVirituResult.stderr
             )
+            await esVirituLaunch.recordObservation(onStep: failedStepID)
             await provenanceRecorder.completeRun(runID, status: .failed)
             throw EsVirituPipelineError.esVirituFailed(
                 exitCode: esVirituResult.exitCode,
@@ -625,6 +628,7 @@ public actor EsVirituPipeline {
             wallTime: esVirituWallTime,
             stderr: esVirituResult.stderr
         )
+        await esVirituLaunch.recordObservation(onStep: esVirituStepID)
 
         progress?(0.95, "Saving result metadata...")
 
