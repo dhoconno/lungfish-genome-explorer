@@ -224,7 +224,7 @@ public final class BAMImportService: @unchecked Sendable {
         metadataDB.addProvenanceRecord(
             tool: "lungfish",
             subcommand: "import-bam",
-            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            version: LungfishAppVersion.short,
             command: "import \(fileName)",
             inputFile: bamURL.path,
             outputFile: dbURL.path,

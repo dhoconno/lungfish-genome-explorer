@@ -339,6 +339,47 @@ final class BAMImportServiceTests: XCTestCase {
         XCTAssertTrue(result.indexWasCreated)
     }
 
+    // MARK: - The import row
+
+    /// Fix 3 of the whole-lane review of Phase 2.10 lane A46. The import row in the track's metadata
+    /// database names the version of the app that ran the import, `LungfishAppVersion.short`. It read
+    /// `Bundle.main`'s `CFBundleShortVersionString` before, which a packaged `lungfish-cli` does not hold.
+    /// `map` publishes the viewer's track through this import, so the CLI route's row lost the version the
+    /// in-process route wrote. A test run has the same gap, since `Bundle.main` there is xctest's.
+    func testTheImportRowNamesTheAppVersion() async throws {
+        do {
+            _ = try await NativeToolRunner.shared.toolPath(for: .samtools)
+        } catch {
+            throw XCTSkip("samtools is not installed in the managed conda root")
+        }
+        let fixtureBAM = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sarscov2/test.paired_end.sorted.bam")
+        guard FileManager.default.fileExists(atPath: fixtureBAM.path) else {
+            throw XCTSkip("sarscov2 BAM fixture missing")
+        }
+        let bundleURL = tempDir.appendingPathComponent("versioned.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try BundleManifest(
+            name: "Versioned",
+            identifier: "bundle.versioned",
+            source: SourceInfo(organism: "Virus", assembly: "MN908947.3", database: "Test")
+        ).save(to: bundleURL)
+
+        let result = try await BAMImportService.importBAM(
+            bamURL: fixtureBAM,
+            bundleURL: bundleURL,
+            name: "Versioned",
+            materialization: .adoptCoordinateSorted
+        )
+
+        let metadataDBPath = try XCTUnwrap(result.trackInfo.metadataDBPath)
+        let database = try AlignmentMetadataDatabase(url: bundleURL.appendingPathComponent(metadataDBPath))
+        let row = try XCTUnwrap(database.provenanceHistory().first { $0.subcommand == "import-bam" })
+        XCTAssertEqual(row.tool, "lungfish")
+        XCTAssertEqual(row.version, LungfishAppVersion.short, "the import row names the app that ran the import")
+    }
+
     // MARK: - Progress Handler
 
     func testProgressHandlerCalledOnValidation() async {
