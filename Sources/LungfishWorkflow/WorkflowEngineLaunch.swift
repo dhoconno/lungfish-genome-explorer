@@ -9,9 +9,9 @@ import LungfishCore
 ///
 /// This is the one place a Nextflow launch gets its executable and its
 /// environment. `lungfish-cli workflow run`, the app's workflow services and
-/// the in-process callers (``TaxTriagePipeline``, ``ProcessPBAANextflowRunner``,
-/// ``NextflowRunner`` and the version probe in ``BaseWorkflowRunner``) all
-/// start from it. A caller that needs a setting of its own states it with
+/// the in-process callers (``TaxTriagePipeline``, ``ProcessPBAANextflowRunner``
+/// and the version probe in ``BaseWorkflowRunner``) all start from it. A caller
+/// that needs a setting of its own states it with
 /// ``overridingEnvironment(set:unset:)`` instead of building a second
 /// environment.
 ///

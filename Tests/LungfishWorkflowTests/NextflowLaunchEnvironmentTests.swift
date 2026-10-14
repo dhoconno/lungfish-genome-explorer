@@ -7,10 +7,10 @@ import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
-/// R7. TaxTriage, pbAA, `NextflowRunner` and `BaseWorkflowRunner` start
-/// Nextflow with the environment ``WorkflowEngineLaunch`` builds, so each one
-/// gets the managed engine's bundled JDK as `JAVA_HOME` and a Mac without a
-/// system JDK can still run them.
+/// R7. TaxTriage, pbAA and `BaseWorkflowRunner` start Nextflow with the
+/// environment ``WorkflowEngineLaunch`` builds, so each one gets the managed
+/// engine's bundled JDK as `JAVA_HOME` and a Mac without a system JDK can still
+/// run them.
 ///
 /// The stub engines write the environment they were started with to a file,
 /// so the end-to-end cases check what the launched process saw rather than
@@ -301,38 +301,7 @@ final class NextflowLaunchEnvironmentTests: XCTestCase {
         }
     }
 
-    // MARK: - NextflowRunner and BaseWorkflowRunner
-
-    func testNextflowRunnerVersionProbeLaunchesWithTheSharedEnvironment() async throws {
-        let toolRoot = try StubNextflowToolRoot()
-        defer { toolRoot.cleanup() }
-        let runner = NextflowRunner(homeDirectoryProvider: { toolRoot.home }, appIdentity: .preview)
-
-        let version = await runner.getVersion()
-
-        XCTAssertEqual(version, StubNextflowToolRoot.version)
-        let shared = try toolRoot.sharedLaunch()
-        let launched = try StubNextflowToolRoot.readDump(toolRoot.nextflowDump)
-        XCTAssertEqual(launched, StubNextflowToolRoot.dumped(shared.environment))
-        XCTAssertEqual(launched["JAVA_HOME"], toolRoot.jvmHome.standardizedFileURL.path)
-    }
-
-    func testNextflowRunnerLaunchIsTheSharedLaunchPlusCondaSettingsForTheCondaProfile() async throws {
-        let toolRoot = try StubNextflowToolRoot()
-        defer { toolRoot.cleanup() }
-        let runner = NextflowRunner(homeDirectoryProvider: { toolRoot.home }, appIdentity: .preview)
-        let baseEnvironment = ["PATH": "/usr/bin:/bin"]
-        let shared = try toolRoot.sharedLaunch(baseEnvironment: baseEnvironment)
-
-        let plain = await runner.nextflowLaunch(useConda: false, baseEnvironment: baseEnvironment)
-        let conda = await runner.nextflowLaunch(useConda: true, baseEnvironment: baseEnvironment)
-
-        XCTAssertEqual(plain, shared)
-        let condaSettings = await CondaManager.shared.nextflowCondaConfig()
-        XCTAssertEqual(conda, shared.overridingEnvironment(set: condaSettings))
-        XCTAssertEqual(conda?.environment["NXF_CONDA_ENABLED"], "true")
-        XCTAssertEqual(conda?.environment["JAVA_HOME"], toolRoot.jvmHome.standardizedFileURL.path)
-    }
+    // MARK: - BaseWorkflowRunner
 
     func testBaseWorkflowRunnerVersionProbeLaunchesWithTheSharedEnvironment() async throws {
         let toolRoot = try StubNextflowToolRoot()

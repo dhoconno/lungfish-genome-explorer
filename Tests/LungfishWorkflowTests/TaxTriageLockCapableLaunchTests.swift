@@ -229,26 +229,6 @@ final class TaxTriageLockCapableLaunchTests: XCTestCase {
         )
         XCTAssertTrue(message.contains("no diagnostic output"))
     }
-
-    // MARK: - Generic Nextflow runner
-
-    func testNextflowRunnerFailureDiagnosticsFallBackToStdout() {
-        let diagnostics = NextflowRunner.failureDiagnostics(
-            stderr: "",
-            stdout: "Nextflow needs to be executed in a shared file system that supports file locks."
-        )
-
-        XCTAssertTrue(diagnostics.contains("supports file locks"))
-    }
-
-    func testNextflowRunnerFailureDiagnosticsPreferStderr() {
-        let diagnostics = NextflowRunner.failureDiagnostics(
-            stderr: "boom",
-            stdout: "ignored"
-        )
-
-        XCTAssertEqual(diagnostics, "boom")
-    }
 }
 
 extension TaxTriageLockCapableLaunchTests {

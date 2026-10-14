@@ -16,7 +16,7 @@ import XCTest
 /// The command resolves the engine with ``WorkflowEngineLaunch`` and runs it through ``WorkflowEngineProcess/run(executableURL:arguments:environment:workingDirectory:stdoutFileName:stderrFileName:)``,
 /// which gives the engine its output in two log files of its working directory. No workflow runner actor of
 /// `LungfishWorkflow` takes part. This pin runs the real ``ProcessLocalWorkflowProcessRunner`` on a stand-in engine, so
-/// it holds before `NextflowRunner` goes and on the head that deletes it (A31 passes it on both).
+/// it holds at the base of lane A31 and on its head, where the runner actor nothing launched through is gone.
 final class LocalWorkflowEngineRoutePinTests: XCTestCase {
     private var root: URL!
 

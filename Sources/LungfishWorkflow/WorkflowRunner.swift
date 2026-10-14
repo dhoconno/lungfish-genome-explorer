@@ -149,17 +149,18 @@ public struct WorkflowProgressUpdate: Sendable {
 /// ## Implementation Example
 ///
 /// ```swift
-/// actor NextflowRunner: WorkflowRunner {
-///     nonisolated let engineType: WorkflowEngineType = .nextflow
+/// actor SnakemakeRunner: WorkflowRunner {
+///     nonisolated let engineType: WorkflowEngineType = .snakemake
 ///
 ///     func isAvailable() async -> Bool {
-///         // Check if nextflow is installed
+///         // Check if snakemake is installed
 ///     }
 ///
 ///     func run(
 ///         workflow: WorkflowDefinition,
 ///         parameters: WorkflowParameters,
-///         progress: @escaping (WorkflowProgressUpdate) -> Void
+///         outputDirectory: URL,
+///         progress: @escaping @Sendable (WorkflowProgressUpdate) -> Void
 ///     ) async throws -> WorkflowResult {
 ///         // Execute the workflow
 ///     }

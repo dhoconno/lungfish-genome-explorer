@@ -105,8 +105,8 @@ extension Array where Element == URL {
 ///
 /// TaxTriage is a remote Nextflow DSL2 pipeline from JHU APL. Unlike local `.nf`
 /// workflow files, it is invoked as `nextflow run jhuapl-bio/taxtriage`. This
-/// pipeline actor uses ``ProcessManager`` directly to spawn the Nextflow process,
-/// since ``NextflowRunner`` expects a local workflow file.
+/// pipeline actor starts the Nextflow process itself, on ``NextflowEngineProcess``,
+/// with ``ProcessManager`` as its spawner.
 ///
 /// The pipeline performs these steps:
 ///

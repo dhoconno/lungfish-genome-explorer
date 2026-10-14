@@ -9,7 +9,7 @@ import LungfishCore
 /// ## Overview
 ///
 /// This module contains:
-/// - **Nextflow**: Nextflow runner and schema parser
+/// - **Nextflow**: Nextflow launch, engine process and schema parser
 /// - **Snakemake**: Snakemake runner and config parser
 /// - **VisualBuilder**: Node-based workflow graph editor
 ///
@@ -25,16 +25,10 @@ import LungfishCore
 /// ## Example
 ///
 /// ```swift
-/// // Run a Nextflow workflow
-/// let runner = NextflowRunner()
-/// let execution = try await runner.run(
-///     workflow: workflowPath,
-///     params: parameters,
-///     profile: .docker
+/// // Find the managed Nextflow. A copy on PATH is never launched.
+/// let launch = try WorkflowEngineLaunch.resolveManaged(
+///     executableName: "nextflow",
+///     homeDirectory: FileManager.default.homeDirectoryForCurrentUser
 /// )
-///
-/// // Monitor progress
-/// for await update in execution.progress {
-///     print("Process: \(update.process), Status: \(update.status)")
-/// }
+/// print(launch.executableURL.path)
 /// ```
