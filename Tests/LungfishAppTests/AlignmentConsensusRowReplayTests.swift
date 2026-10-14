@@ -11,6 +11,12 @@
 //
 // The route runs `lungfish-cli` from the build products, so the name ends in ReplayTests and the
 // class runs in the integration tier.
+//
+// The table moved once, as the ruling predicted, when the route moved onto `bam consensus`: the
+// destination comes before the row, so a cancel of the sheet or the save panel leaves no row, and
+// the save panel shows before the all-N sheet. A failed run reads "Alignment consensus failed"
+// with the sheet "Generate Consensus Failed", since one command generates and publishes. Every
+// other line kept its words.
 
 import AppKit
 import SwiftUI
@@ -49,6 +55,11 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
     private var sheets: [String] = []
 
     override func setUp() async throws {
+        // The route finds lungfish-cli through CLIBinaryLocator, which takes LUNGFISH_CLI_PATH first,
+        // so no `swift build --show-bin-path` waits on the lock this test run holds.
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let cli = try XCTUnwrap(CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products), "no lungfish-cli beside \(products.path)")
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
         scratch = try TestTempDirectory.make(prefix: "consensus-row")
         try FileManager.default.createDirectory(at: scratch.appendingPathComponent("out"), withIntermediateDirectories: true)
         _ = NSApplication.shared
@@ -66,6 +77,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
         window?.contentViewController = nil
         OperationCenter.shared.clearCompleted()
         TestTempDirectory.cleanup(scratch)
+        unsetenv("LUNGFISH_CLI_PATH")
     }
 
     /// The evidence the viewer shows, the sarscov2 BAM with every filter off but the depth.
@@ -212,10 +224,12 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
 
     func testADeclinedAllNConsensusEndsCancelledAndWritesNothing() async throws {
         let lines = try await run(.destination(.file), minimumDepth: 100_000, acceptAllN: false)
+        // The destination now comes first, so the save panel shows before the all-N sheet.
         XCTAssertEqual(lines, [
             "row Generate Alignment Consensus",
             "end cancelled Cancelled by user",
             Self.scopeLine,
+            "save panel S1-MT192765.1-consensus.fasta",
             Self.allNSheet,
         ])
     }
@@ -223,33 +237,25 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
     func testAnExistingDestinationFailsTheRowWithItsSheet() async throws {
         try Data("kept".utf8).write(to: scratch.appendingPathComponent("out/S1.fasta"))
         let lines = try await run(.destination(.file))
+        // One command generates and publishes, so the row and sheet read as a generation failure (W3).
         XCTAssertEqual(lines, [
             "row Generate Alignment Consensus",
-            "end failed Consensus publication failed",
+            "end failed Alignment consensus failed",
             "error A file already exists at <root>/out/S1.fasta.",
             Self.scopeLine,
             "save panel S1-MT192765.1-consensus.fasta",
-            "failure Publish Consensus Failed: A file already exists at <root>/out/S1.fasta.",
+            "failure Generate Consensus Failed: A file already exists at <root>/out/S1.fasta.",
             "file <root>/out/S1.fasta",
         ])
     }
 
     func testCancellingTheDestinationSheetWritesNothing() async throws {
-        let lines = try await run(.cancelTheDialog)
-        XCTAssertEqual(lines, [
-            "row Generate Alignment Consensus",
-            "end cancelled Cancelled by user",
-            Self.scopeLine,
-        ])
+        let lines = try await run(.cancelTheDialog, expectRow: false)
+        XCTAssertEqual(lines, ["no row"], "the sheet comes before the row, so its cancel leaves none")
     }
 
     func testCancellingTheSavePanelWritesNothing() async throws {
-        let lines = try await run(.destination(.file), savePanelAnswer: nil)
-        XCTAssertEqual(lines, [
-            "row Generate Alignment Consensus",
-            "end cancelled Cancelled by user",
-            Self.scopeLine,
-            "save panel S1-MT192765.1-consensus.fasta",
-        ])
+        let lines = try await run(.destination(.file), savePanelAnswer: nil, expectRow: false)
+        XCTAssertEqual(lines, ["no row", "save panel S1-MT192765.1-consensus.fasta"])
     }
 }

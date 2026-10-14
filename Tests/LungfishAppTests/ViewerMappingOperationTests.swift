@@ -6,16 +6,17 @@
 // begin helpers (R4). Neither locks a bundle. Extracting the reads that
 // overlap an annotation records the `lungfish-cli extract reads --by-region`
 // command for the configuration the run executes, and it must parse with the
-// values the run uses. Generating an alignment consensus has no lungfish-cli
-// command, so its test pins today's description as a parity gap. A command
-// added later fails the pin and prompts a parse test in its place. A reporter
-// that refuses every begin proves each launch closure sits behind the
+// values the run uses. Generating an alignment consensus records the
+// `lungfish-cli bam consensus` command its runner runs (Phase 2.10 lane A51),
+// which must parse with the request's filters and the chosen `--output`. A
+// reporter that refuses every begin proves each launch closure sits behind the
 // `.started` case.
 
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishWorkflow
@@ -118,15 +119,40 @@ final class ViewerMappingOperationTests: XCTestCase {
         )
     }
 
-    // MARK: - Alignment consensus, a CLI parity gap
+    // MARK: - Alignment consensus, lungfish-cli bam consensus
 
-    func testAlignmentConsensusRecordsNoCommandAsAParityGap() throws {
+    /// The run the viewer begins for a FASTA destination, with every filter set.
+    private func consensusInvocation(
+        scope: AlignmentConsensusScope = .selectedRegion,
+        start: Int = 4,
+        end: Int = 9,
+        output: String = "/tmp/lane 1a2f/Consensus/S1 consensus.fasta"
+    ) -> AlignmentConsensusInvocation {
+        let filters = AlignmentConsensusFilters(
+            minimumDepth: 3, minimumMapQ: 20, minimumBaseQuality: 12, excludedFlags: 0x904, readGroups: ["rg2", "rg1"]
+        )
+        return AlignmentConsensusInvocation(
+            alignmentURL: resultDirectory.appendingPathComponent("sample.sorted.bam"),
+            indexURL: resultDirectory.appendingPathComponent("sample.sorted.bam.bai"),
+            decodingReferenceURL: nil,
+            region: ResolvedAlignmentRegion(scope: scope, contig: "chrSynthetic", start: start, end: end),
+            consensusRequest: AlignmentConsensusRequest(
+                chromosome: "chrSynthetic", start: start, end: end, filters: filters,
+                mode: .simple, useAmbiguity: true, insertionPolicy: .omit, deletionPolicy: .n
+            ),
+            recordName: "S1 chrSynthetic:5-9 selected consensus",
+            resultID: "run-1",
+            output: output
+        )
+    }
+
+    func testAlignmentConsensusRecordsTheBamConsensusCommandItRuns() throws {
         let reporter = RecordingOperationReporter()
-        let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9)
+        let invocation = consensusInvocation()
         var launchedID: UUID?
 
         ViewerViewController.beginAlignmentConsensusGenerationOperation(
-            region: region,
+            invocation: invocation,
             reporter: reporter
         ) { launchedID = $0 }
 
@@ -138,24 +164,56 @@ final class ViewerMappingOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        // No lungfish-cli command calls a consensus from a BAM or CRAM
-        // alignment. The closest is `msa consensus`, which reads a
-        // `.lungfishmsa` bundle, so the row records no command and its log
-        // names the scope and region.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "alignment-consensus")
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: BAMConsensusSubcommand.self)
+        XCTAssertEqual(command.outputPath, "/tmp/lane 1a2f/Consensus/S1 consensus.fasta")
+        XCTAssertEqual(command.alignmentPath, resultDirectory.appendingPathComponent("sample.sorted.bam").path)
+        XCTAssertEqual(command.indexPath, resultDirectory.appendingPathComponent("sample.sorted.bam.bai").path)
+        XCTAssertNil(command.decodingReferencePath)
+        XCTAssertEqual(command.scope, "selectedRegion")
+        XCTAssertEqual(command.region, "chrSynthetic:5-9", "1-based and inclusive, as samtools takes it")
+        XCTAssertEqual(command.minimumDepth, 3)
+        XCTAssertEqual(command.minimumMapQ, 20)
+        XCTAssertEqual(command.minimumBaseQuality, 12)
+        XCTAssertEqual(command.excludedFlags, 0x904)
+        XCTAssertEqual(command.readGroups, ["rg1", "rg2"])
+        XCTAssertEqual(command.callerMode, "simple")
+        XCTAssertTrue(command.useAmbiguity)
+        XCTAssertEqual(command.name, "S1 chrSynthetic:5-9 selected consensus")
+        XCTAssertEqual(command.resultID, "run-1")
+        XCTAssertFalse(command.allowAllLowDepth, "the user's all-N answer is added only after the leaf asks")
+        // The runner runs the argv the row records.
+        let arguments = ViewerViewController.alignmentConsensusCLIArguments(invocation)
+        XCTAssertEqual(Array(arguments.prefix(2)), ["bam", "consensus"])
+        XCTAssertEqual(Array(arguments.suffix(2)), ["--format", "json"])
+        XCTAssertEqual(
+            item.cliCommand,
+            OperationCenter.buildCLICommand(subcommand: "bam consensus", args: Array(arguments.dropFirst(2)))
+        )
         XCTAssertEqual(
             item.logs.map(\.message),
             ["Consensus scope selectedRegion, region chrSynthetic:4-9, reference fill never"]
         )
     }
 
+    func testAClipboardOrShareConsensusNamesItsOutputRelativeToTheFolderItRunsIn() throws {
+        let reporter = RecordingOperationReporter()
+        let invocation = consensusInvocation(output: "S1-chrSynthetic-5-9-selectedRegion-consensus.fasta")
+
+        ViewerViewController.beginAlignmentConsensusGenerationOperation(invocation: invocation, reporter: reporter) { _ in }
+
+        let arguments = ViewerViewController.alignmentConsensusCLIArguments(invocation)
+        let command = try BAMConsensusSubcommand.parse(Array(arguments.dropFirst(2)))
+        XCTAssertEqual(command.outputPath, "S1-chrSynthetic-5-9-selectedRegion-consensus.fasta")
+        XCTAssertTrue(reporter.items.first?.cliCommand?.hasSuffix(
+            "--output S1-chrSynthetic-5-9-selectedRegion-consensus.fasta --format json"
+        ) == true, reporter.items.first?.cliCommand ?? "nil")
+    }
+
     func testAlignmentConsensusDescribesTheWholeContigScope() throws {
         let reporter = RecordingOperationReporter()
-        let region = ResolvedAlignmentRegion(scope: .wholeContig, contig: "chrSynthetic", start: 0, end: 100)
 
         ViewerViewController.beginAlignmentConsensusGenerationOperation(
-            region: region,
+            invocation: consensusInvocation(scope: .wholeContig, start: 0, end: 100),
             reporter: reporter
         ) { _ in }
 
@@ -183,7 +241,7 @@ final class ViewerMappingOperationTests: XCTestCase {
             annotationName: "test gene/1", config: config, reporter: reporter
         ) { _ in launched.append("overlapping reads extraction") })
         check("alignment consensus", ViewerViewController.beginAlignmentConsensusGenerationOperation(
-            region: ResolvedAlignmentRegion(scope: .wholeContig, contig: "chrSynthetic", start: 0, end: 100),
+            invocation: consensusInvocation(scope: .wholeContig, start: 0, end: 100),
             reporter: reporter
         ) { _ in launched.append("alignment consensus") })
 

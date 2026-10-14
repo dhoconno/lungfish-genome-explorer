@@ -10,31 +10,46 @@ import LungfishIO
 import SwiftUI
 
 /// The begin helpers for the launches in the baselined
-/// ViewerViewController+Mapping.swift (finding R4). Each one registers a row
-/// through `OperationReporting` and calls `launch` only when the row started,
-/// so a test can check the row and its command without touching
-/// `OperationCenter.shared`. They live here, not beside their launch sites, so
-/// the baselined file does not grow (scripts/ratchets/file-size.sh).
+/// ViewerViewController+Mapping.swift (finding R4), and the viewer's
+/// Generate Consensus action, which runs `lungfish-cli bam consensus` on the
+/// L3 runner (Phase 2.10 lane A51, ruling A51-consensus). Each begin helper
+/// registers a row through `OperationReporting` and calls `launch` only when
+/// the row started, so a test can check the row and its command without
+/// touching `OperationCenter.shared`. They live here, not beside their launch
+/// sites, so the baselined file does not grow (scripts/ratchets/file-size.sh).
 extension ViewerViewController {
+    /// The argv after the binary that runs `invocation`, `bam consensus` with
+    /// its events on (Phase 2.10 lane A51, ruling A51-consensus). The row
+    /// records it and the L3 runner runs it.
+    static func alignmentConsensusCLIArguments(_ invocation: AlignmentConsensusInvocation) -> [String] {
+        Array(AlignmentConsensusPublicationService.replayArgv(invocation).dropFirst()) + ["--format", "json"]
+    }
+
+    /// The row's command for `invocation`, `lungfish-cli bam consensus ...`,
+    /// built from the argv the runner runs.
+    static func alignmentConsensusCLICommand(_ invocation: AlignmentConsensusInvocation) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "bam consensus",
+            args: Array(alignmentConsensusCLIArguments(invocation).dropFirst(2))
+        )
+    }
+
     /// Registers the alignment consensus row and, only when it starts, calls
-    /// `launch` with the operation ID. The row locks no bundle.
-    ///
-    /// cli-parity-gap: alignment-consensus. No lungfish-cli command calls a
-    /// consensus from a BAM or CRAM alignment. The closest is `msa consensus`,
-    /// which reads a `.lungfishmsa` bundle. The row records no command. It
-    /// used to record a `Lungfish.app alignment consensus` description, which
-    /// does not parse, so the row's log names the scope and region instead.
+    /// `launch` with the operation ID. The row locks no bundle, records the
+    /// `lungfish-cli bam consensus` command of `invocation`, which names the
+    /// chosen destination in `--output`, and logs the scope and the region.
     @discardableResult
     static func beginAlignmentConsensusGenerationOperation(
-        region: ResolvedAlignmentRegion,
+        invocation: AlignmentConsensusInvocation,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
+        let region = invocation.region
         let result = reporter.begin(
             title: "Generate Alignment Consensus",
             detail: "Calling evidence-only consensus…",
             operationType: .export,
-            cliCommand: nil
+            cliCommand: alignmentConsensusCLICommand(invocation)
         )
         switch result {
         case .started(let operationID):
@@ -48,6 +63,78 @@ extension ViewerViewController {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
+    }
+
+    /// Runs the row's `bam consensus` on the L3 runner and hands how it ended
+    /// to `finish` on the main actor. When the leaf refuses a result that is N
+    /// at every position, matched by its failed message, `confirmAllLowDepth`
+    /// shows today's sheet. Its Cancel ends the row Cancelled with nothing
+    /// written. Its Continue records the command with `--allow-all-low-depth`
+    /// through `setCommand` and runs that. The leaf wrote every file before it
+    /// exited, so the app writes nothing. The row's Cancel reaches the
+    /// runner's `cancel()`. A cancelled run ends the row Cancelled with no
+    /// alert and hands `finish` a `CancellationError` for its clean-up.
+    @discardableResult
+    static func runAlignmentConsensusThroughCLI(
+        invocation: AlignmentConsensusInvocation,
+        workingDirectory: URL?,
+        operationID: UUID,
+        runner: CLIAlignmentActionRunner = CLIAlignmentActionRunner(),
+        confirmAllLowDepth: @escaping @MainActor () async -> Bool,
+        finish: @escaping @MainActor (Result<CLIAlignmentActionRunner.Completion, any Error>) -> Void
+    ) -> Task<Void, Never> {
+        let refusal = CLISubprocessTransport.RunError.failedEvent(
+            message: AlignmentConsensusPublicationService.allLowDepthRefusal,
+            detail: nil
+        )
+        let task = Task(priority: .userInitiated) { @MainActor in
+            do {
+                do {
+                    let arguments = alignmentConsensusCLIArguments(invocation)
+                    finish(.success(try await runner.run(arguments: arguments, operationID: operationID, workingDirectory: workingDirectory)))
+                } catch let error as CLISubprocessTransport.RunError where error == refusal {
+                    guard await confirmAllLowDepth() else { throw CancellationError() }
+                    let accepted = invocation.allowingAllLowDepth()
+                    OperationCenter.shared.setCommand(id: operationID, command: alignmentConsensusCLICommand(accepted))
+                    // The sheet held the row's Cancel. The second run takes it back.
+                    OperationCenter.shared.setCancelCallback(for: operationID) { runner.cancel() }
+                    let arguments = alignmentConsensusCLIArguments(accepted)
+                    finish(.success(try await runner.run(arguments: arguments, operationID: operationID, workingDirectory: workingDirectory)))
+                }
+            } catch is CancellationError {
+                OperationCenterCLIBridge.acknowledgeCancellation(operationID)
+                finish(.failure(CancellationError()))
+            } catch {
+                finish(.failure(error))
+            }
+        }
+        OperationCenter.shared.setCancelCallback(for: operationID) {
+            task.cancel()
+            runner.cancel()
+        }
+        return task
+    }
+
+    /// Today's words of the all-N sheet for a run whose minimum depth is `minimumDepth`.
+    static func alignmentConsensusAllLowDepthMessage(minimumDepth: Int) -> String {
+        "Every position in the requested region is below the minimum depth of \(minimumDepth). The consensus will contain only N characters. You can continue without filling from the reference."
+    }
+
+    /// Today's summary, which the clipboard row logs and its Consensus Copied sheet shows.
+    static func alignmentConsensusSummary(_ exportRequest: MappingConsensusExportRequest) -> String {
+        let request = exportRequest.consensusRequest
+        let filters = request.filters
+        let groups = filters.readGroups.isEmpty ? "all" : filters.readGroups.sorted().joined(separator: ",")
+        return [
+            "Scope: \(exportRequest.region.scope.rawValue)",
+            "Region: \(exportRequest.region.contig):\(exportRequest.region.start + 1)-\(exportRequest.region.end)",
+            "Caller: \(request.mode.rawValue)",
+            "Minimum depth/MAPQ/base quality: \(filters.minimumDepth)/\(filters.minimumMapQ)/\(filters.minimumBaseQuality)",
+            "Excluded flags: \(filters.excludedFlags)",
+            "Read groups: \(groups)",
+            "Low-depth policy: N",
+            "Reference-fill policy: never",
+        ].joined(separator: "\n")
     }
 
     /// Registers the overlapping-reads row and, only when it starts, calls
@@ -98,7 +185,10 @@ extension ViewerViewController {
     }
 
     /// Shared evidence-only consensus action for mapping, direct reference,
-    /// and detached classifier full viewers.
+    /// and detached classifier full viewers. The destination is chosen first,
+    /// then the row begins with the `bam consensus` command the runner runs,
+    /// so a cancel of the sheet or of the save panel leaves no row and starts
+    /// no process (ruling A51-consensus).
     func presentAlignmentConsensusGeneration() {
         if let priorOperationID = activeConsensusGenerationOperationID {
             OperationCenter.shared.cancel(id: priorOperationID)
@@ -128,86 +218,236 @@ extension ViewerViewController {
             presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
             return
         }
-
-        let coordinator = AlignmentScientificActionCoordinator()
-        Self.beginAlignmentConsensusGenerationOperation(region: exportRequest.region) { operationID in
-            activeConsensusGenerationOperationID = operationID
-            let task = Task { @MainActor [weak self] in
-                do {
-                    let generation = try await coordinator.generateConsensus(
-                        context: context,
-                        exportRequest: exportRequest
-                    )
-                    for record in generation.result.executionRecords {
-                        OperationCenter.shared.log(
-                            id: operationID,
-                            level: record.exitStatus == 0 ? .info : .error,
-                            message: "\(record.reproducibleCommand)\n\(record.stderr ?? "")"
-                        )
-                    }
-                    guard let self else {
-                        OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Originating viewer closed")
-                        return
-                    }
-                    if generation.requiresAllLowDepthWarning {
-                        guard let window = view.window else {
-                            throw AlignmentScientificActionError.destinationUnavailable(
-                                "An application window is required to confirm an all-N consensus."
-                            )
-                        }
-                        guard await confirmAllLowDepthConsensus(
-                            generation,
-                            on: window,
-                            operationID: operationID
-                        ) else {
-                            self.finishConsensusWorkflow(operationID: operationID, cancellation: true)
-                            return
-                        }
-                    }
-                    try Task.checkCancellation()
-                    presentAlignmentConsensusDestinationDialog(
-                        generation,
-                        coordinator: coordinator,
-                        operationID: operationID
-                    )
-                } catch is CancellationError {
-                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                    self?.clearConsensusWorkflow(operationID: operationID)
-                } catch {
-                    self?.logConsensusFailure(error, operationID: operationID)
-                    let accepted = OperationCenter.shared.fail(
-                        id: operationID,
-                        detail: "Alignment consensus failed",
-                        errorMessage: error.localizedDescription
-                    )
-                    self?.clearConsensusWorkflow(operationID: operationID)
-                    guard accepted else { return }
-                    self?.presentExtractionFailureAlert(
-                        title: "Generate Consensus Failed",
-                        message: error.localizedDescription
-                    )
-                    self?.clearConsensusWorkflow(operationID: operationID)
-                }
+        guard let window = view.window, window.attachedSheet == nil else {
+            presentExtractionFailureAlert(
+                title: "Generate Consensus Failed",
+                message: "An application window is required to choose a consensus destination."
+            )
+            return
+        }
+        let model = FASTASequenceExtractionDialogModel(
+            selectionCount: 1,
+            suggestedName: exportRequest.suggestedName
+        )
+        let sheet = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        let dialog = FASTASequenceExtractionDialog(
+            model: model,
+            onCancel: { [weak window, weak sheet] in
+                if let window, let sheet, window.attachedSheet === sheet { window.endSheet(sheet) }
+            },
+            onPrimary: { [weak self, weak window, weak sheet] in
+                guard let self, let window, let sheet else { return }
+                if window.attachedSheet === sheet { window.endSheet(sheet) }
+                let requested = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                chooseAlignmentConsensusOutput(
+                    model.destination,
+                    name: requested.isEmpty ? exportRequest.suggestedName : requested,
+                    context: context,
+                    exportRequest: exportRequest,
+                    window: window
+                )
             }
-            activeConsensusGenerationTask = task
-            OperationCenter.shared.setCancelCallback(for: operationID) { task.cancel() }
+        )
+        sheet.contentViewController = NSHostingController(rootView: dialog)
+        window.beginSheet(sheet)
+    }
+
+    /// Resolves where the run writes and launches it. Clipboard and share run
+    /// in a registered temp folder with `--output` a file name relative to it,
+    /// the contract's one relative path. File and bundle take the save panel's
+    /// choice, and its cancel launches nothing.
+    private func chooseAlignmentConsensusOutput(
+        _ destination: DialogDestination,
+        name: String,
+        context: AlignmentActionContext,
+        exportRequest: MappingConsensusExportRequest,
+        window: NSWindow
+    ) {
+        let fileName = ExtractionBundleNaming.sanitizeFilename(name)
+        switch destination {
+        case .clipboard, .share:
+            let directory: URL
+            do {
+                directory = try TempFileManager.shared.createRegisteredTempDirectory(prefix: "lungfish-consensus-\(destination.rawValue)-")
+            } catch {
+                presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
+                return
+            }
+            launchAlignmentConsensus(
+                destination, output: "\(fileName).fasta", workingDirectory: directory,
+                context: context, exportRequest: exportRequest, window: window
+            )
+        case .bundle, .file:
+            let ext = destination == .bundle ? "lungfishref" : "fasta"
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let chosen = await alignmentExtractionSavePanelPresenter.present(suggestedName: "\(fileName).\(ext)", on: window) else {
+                    return
+                }
+                launchAlignmentConsensus(
+                    destination, output: normalizedConsensusDestination(chosen, extension: ext).path, workingDirectory: nil,
+                    context: context, exportRequest: exportRequest, window: window
+                )
+            }
         }
     }
 
+    /// Begins the row with the `bam consensus` command that writes `output`
+    /// and runs it on the L3 runner.
+    private func launchAlignmentConsensus(
+        _ destination: DialogDestination,
+        output: String,
+        workingDirectory: URL?,
+        context: AlignmentActionContext,
+        exportRequest: MappingConsensusExportRequest,
+        window: NSWindow
+    ) {
+        let invocation = AlignmentConsensusInvocation(
+            context: context,
+            region: exportRequest.region,
+            consensusRequest: exportRequest.consensusRequest,
+            recordName: exportRequest.recordName,
+            output: output
+        )
+        let message = Self.alignmentConsensusAllLowDepthMessage(minimumDepth: exportRequest.minDepth)
+        let summary = Self.alignmentConsensusSummary(exportRequest)
+        let started = Self.beginAlignmentConsensusGenerationOperation(invocation: invocation) { operationID in
+            activeConsensusGenerationOperationID = operationID
+            activeConsensusGenerationTask = Self.runAlignmentConsensusThroughCLI(
+                invocation: invocation,
+                workingDirectory: workingDirectory,
+                operationID: operationID,
+                confirmAllLowDepth: { [weak self, weak window] in
+                    guard let self, let window else { return false }
+                    return await confirmAllLowDepthConsensus(message: message, on: window, operationID: operationID)
+                },
+                finish: { [weak self, weak window] outcome in
+                    guard let self else {
+                        if let workingDirectory { Self.removeConsensusTempDirectory(workingDirectory) }
+                        return
+                    }
+                    finishAlignmentConsensus(
+                        outcome, destination: destination, summary: summary,
+                        workingDirectory: workingDirectory, operationID: operationID, window: window
+                    )
+                }
+            )
+        }
+        if case .refused = started, let workingDirectory {
+            Self.removeConsensusTempDirectory(workingDirectory)
+        }
+    }
+
+    /// Ends the row as today's route did for each destination. The leaf wrote
+    /// the FASTA or the bundle with its record before it exited. Clipboard
+    /// reads the FASTA back and share offers it with its record, both from the
+    /// temp folder, which goes once they are done.
+    private func finishAlignmentConsensus(
+        _ outcome: Result<CLIAlignmentActionRunner.Completion, any Error>,
+        destination: DialogDestination,
+        summary: String,
+        workingDirectory: URL?,
+        operationID: UUID,
+        window: NSWindow?
+    ) {
+        let removeTemp = { if let workingDirectory { Self.removeConsensusTempDirectory(workingDirectory) } }
+        let completion: CLIAlignmentActionRunner.Completion
+        switch outcome {
+        case .failure(let error) where error is CancellationError:
+            removeTemp()
+            clearConsensusWorkflow(operationID: operationID)
+            return
+        case .failure(let error):
+            removeTemp()
+            let accepted = OperationCenter.shared.fail(
+                id: operationID,
+                detail: "Alignment consensus failed",
+                errorMessage: error.localizedDescription
+            )
+            clearConsensusWorkflow(operationID: operationID)
+            guard accepted else { return }
+            presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
+            return
+        case .success(let value):
+            completion = value
+        }
+        let outputs = completion.outputs.map { URL(fileURLWithPath: $0) }
+        switch destination {
+        case .file:
+            _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus FASTA saved", outputURLs: outputs)
+            clearConsensusWorkflow(operationID: operationID)
+        case .bundle:
+            _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus reference bundle created", bundleURLs: outputs)
+            clearConsensusWorkflow(operationID: operationID)
+        case .clipboard:
+            let task = Task { @MainActor [weak self] in
+                defer { removeTemp() }
+                do {
+                    guard let fastaURL = outputs.first else { throw CLISubprocessTransport.RunError.missingCompletion }
+                    let fasta = try await Task.detached { try String(contentsOf: fastaURL, encoding: .utf8) }.value
+                    DefaultPasteboard().setString(fasta)
+                    OperationCenter.shared.log(id: operationID, level: .info, message: summary)
+                    _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus copied to clipboard")
+                    self?.clearConsensusWorkflow(operationID: operationID)
+                    guard let window else { return }
+                    let alert = NSAlert()
+                    alert.messageText = "Consensus Copied"
+                    alert.informativeText = summary
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window, completionHandler: nil)
+                } catch {
+                    let accepted = OperationCenter.shared.fail(id: operationID, detail: "Alignment consensus failed", errorMessage: error.localizedDescription)
+                    self?.clearConsensusWorkflow(operationID: operationID)
+                    guard accepted else { return }
+                    self?.presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
+                }
+            }
+            activeConsensusGenerationTask = task
+        case .share:
+            let sessionID = UUID()
+            let session = AlignmentConsensusShareSession(
+                cleanup: removeTemp,
+                finish: { [weak self] outcome in
+                    self?.activeConsensusShareSessions[sessionID] = nil
+                    switch outcome {
+                    case .shared:
+                        _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus shared")
+                    case .cancelled:
+                        OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                    case .failed(let message):
+                        _ = OperationCenter.shared.fail(id: operationID, detail: "Consensus share failed", errorMessage: message)
+                    }
+                    self?.clearConsensusWorkflow(operationID: operationID)
+                }
+            )
+            activeConsensusShareSessions[sessionID] = session
+            OperationCenter.shared.setCancelCallback(for: operationID) {
+                DispatchQueue.main.async { session.cancel() }
+            }
+            session.present(items: outputs, relativeTo: view, preferredEdge: .minY)
+        }
+    }
+
+    /// Removes a clipboard or share run's temp folder and its registration.
+    static func removeConsensusTempDirectory(_ directory: URL) {
+        TempFileManager.shared.unregisterSessionTempDirectory(directory)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     private func confirmAllLowDepthConsensus(
-        _ generation: AlignmentScientificActionCoordinator.ConsensusGeneration,
+        message: String,
         on window: NSWindow,
         operationID: UUID
     ) async -> Bool {
         if let alignmentConsensusAllLowDepthConfirmation {
-            return await alignmentConsensusAllLowDepthConfirmation(
-                generation.allLowDepthWarningMessage,
-                window
-            )
+            return await alignmentConsensusAllLowDepthConfirmation(message, window)
         }
         guard window.attachedSheet == nil else { return false }
         return await presentAlignmentConsensusAllLowDepthConfirmation(
-            message: generation.allLowDepthWarningMessage,
+            message: message,
             on: window,
             operationID: operationID
         )
@@ -241,236 +481,6 @@ extension ViewerViewController {
         }
     }
 
-    private func presentAlignmentConsensusDestinationDialog(
-        _ generation: AlignmentScientificActionCoordinator.ConsensusGeneration,
-        coordinator: AlignmentScientificActionCoordinator,
-        operationID: UUID
-    ) {
-        guard activeConsensusGenerationOperationID == operationID,
-              OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else {
-            OperationCenter.shared.acknowledgeCancellation(id: operationID)
-            return
-        }
-        guard let window = view.window, window.attachedSheet == nil else {
-            _ = OperationCenter.shared.fail(
-                id: operationID,
-                detail: "Consensus destination unavailable",
-                errorMessage: "An application window is required to choose a consensus destination."
-            )
-            clearConsensusWorkflow(operationID: operationID)
-            return
-        }
-        let model = FASTASequenceExtractionDialogModel(
-            selectionCount: 1,
-            suggestedName: generation.exportRequest.suggestedName
-        )
-        let sheet = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
-            styleMask: [.titled], backing: .buffered, defer: false
-        )
-        let dialog = FASTASequenceExtractionDialog(
-            model: model,
-            onCancel: {
-                OperationCenter.shared.cancel(id: operationID)
-            },
-            onPrimary: { [weak self, weak window, weak sheet] in
-                guard let self, let window, let sheet else { return }
-                _ = performConsensusDestinationPrimaryIfActive(operationID: operationID) {
-                    if window.attachedSheet === sheet { window.endSheet(sheet) }
-                    let requested = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let name = requested.isEmpty ? generation.exportRequest.suggestedName : requested
-                    handleAlignmentConsensusDestination(
-                        model.destination,
-                        generation: generation,
-                        coordinator: coordinator,
-                        operationID: operationID,
-                        suggestedName: name,
-                        window: window
-                    )
-                }
-            }
-        )
-        sheet.contentViewController = NSHostingController(rootView: dialog)
-        // Generation has completed, so cancellation must now own the sheet
-        // handoff rather than continuing to target the completed generation task.
-        installConsensusDestinationCancellation(
-            operationID: operationID,
-            window: window,
-            sheet: sheet
-        )
-        window.beginSheet(sheet)
-    }
-
-    func installConsensusDestinationCancellation(
-        operationID: UUID,
-        window: NSWindow?,
-        sheet: NSWindow?
-    ) {
-        OperationCenter.shared.setCancelCallback(for: operationID) { [weak self, weak window, weak sheet] in
-            DispatchQueue.main.async {
-                if let window, let sheet, window.attachedSheet === sheet {
-                    window.endSheet(sheet)
-                }
-                self?.clearConsensusWorkflow(operationID: operationID)
-                OperationCenter.shared.acknowledgeCancellation(id: operationID)
-            }
-        }
-    }
-
-    /// Executes the destination sheet's primary action only while its exact
-    /// Operation Center row is still running. `cancel(id:)` changes the row to
-    /// `.cancelling` synchronously, closing the callback-dispatch race in which
-    /// a primary click could otherwise start publication after cancellation.
-    @discardableResult
-    func performConsensusDestinationPrimaryIfActive(
-        operationID: UUID,
-        action: () -> Void
-    ) -> Bool {
-        guard activeConsensusGenerationOperationID == operationID,
-              OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else {
-            return false
-        }
-        action()
-        return true
-    }
-
-    private func handleAlignmentConsensusDestination(
-        _ destination: DialogDestination,
-        generation: AlignmentScientificActionCoordinator.ConsensusGeneration,
-        coordinator: AlignmentScientificActionCoordinator,
-        operationID: UUID,
-        suggestedName: String,
-        window: NSWindow
-    ) {
-        guard activeConsensusGenerationOperationID == operationID,
-              OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else {
-            return
-        }
-        switch destination {
-        case .clipboard:
-            DefaultPasteboard().setString(generation.fastaRecord)
-            OperationCenter.shared.log(id: operationID, level: .info, message: generation.summary)
-            _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus copied to clipboard")
-            clearConsensusWorkflow(operationID: operationID)
-            let alert = NSAlert()
-            alert.messageText = "Consensus Copied"
-            alert.informativeText = generation.summary
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-        case .bundle, .file:
-            let ext = destination == .bundle ? "lungfishref" : "fasta"
-            let task = Task { @MainActor [weak self] in
-                guard let chosen = await self?.alignmentExtractionSavePanelPresenter.present(
-                    suggestedName: "\(ExtractionBundleNaming.sanitizeFilename(suggestedName)).\(ext)",
-                    on: window
-                ) else {
-                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                self?.clearConsensusWorkflow(operationID: operationID)
-                    return
-                }
-                guard !Task.isCancelled else {
-                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                self?.clearConsensusWorkflow(operationID: operationID)
-                    return
-                }
-                let finalURL = self?.normalizedConsensusDestination(chosen, extension: ext) ?? chosen
-                do {
-                    let published = try await coordinator.publishConsensus(
-                        generation,
-                        destination: destination == .bundle ? .referenceBundle(finalURL) : .fasta(finalURL)
-                    )
-                    if destination == .bundle {
-                        _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus reference bundle created", bundleURLs: [published.finalURL])
-                    } else {
-                        _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus FASTA saved", outputURLs: [published.finalURL, published.provenanceURL])
-                    }
-                    self?.clearConsensusWorkflow(operationID: operationID)
-                } catch is CancellationError {
-                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                    self?.clearConsensusWorkflow(operationID: operationID)
-                } catch {
-                    self?.logConsensusFailure(error, operationID: operationID)
-                    let accepted = OperationCenter.shared.fail(id: operationID, detail: "Consensus publication failed", errorMessage: error.localizedDescription)
-                    self?.clearConsensusWorkflow(operationID: operationID)
-                    guard accepted else { return }
-                    self?.presentExtractionFailureAlert(title: "Publish Consensus Failed", message: error.localizedDescription)
-                    self?.clearConsensusWorkflow(operationID: operationID)
-                }
-            }
-            activeConsensusGenerationTask = task
-            OperationCenter.shared.setCancelCallback(for: operationID) { [weak window] in
-                task.cancel()
-                DispatchQueue.main.async {
-                    if let window, let sheet = window.attachedSheet as? NSSavePanel {
-                        window.endSheet(sheet, returnCode: .cancel)
-                    }
-                }
-            }
-        case .share:
-            let task = Task { @MainActor [weak self] in
-                guard let self else {
-                    OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Originating viewer closed")
-                    return
-                }
-                do {
-                    try Task.checkCancellation()
-                    let directory = try TempFileManager.shared.createRegisteredTempDirectory(prefix: "lungfish-consensus-share-")
-                    var transferredToShareSession = false
-                    defer {
-                        if !transferredToShareSession {
-                            TempFileManager.shared.unregisterSessionTempDirectory(directory)
-                            try? FileManager.default.removeItem(at: directory)
-                        }
-                    }
-                    let url = directory.appendingPathComponent("\(ExtractionBundleNaming.sanitizeFilename(suggestedName)).fasta")
-                    let published = try await coordinator.publishConsensus(generation, destination: .fasta(url))
-                    try Task.checkCancellation()
-                    guard OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else { throw CancellationError() }
-                    let sessionID = UUID()
-                    let session = AlignmentConsensusShareSession(
-                        cleanup: {
-                            TempFileManager.shared.unregisterSessionTempDirectory(directory)
-                            try? FileManager.default.removeItem(at: directory)
-                        },
-                        finish: { [weak self] outcome in
-                            self?.activeConsensusShareSessions[sessionID] = nil
-                            switch outcome {
-                            case .shared:
-                                _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus shared")
-                            case .cancelled:
-                                OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                            case .failed(let message):
-                                _ = OperationCenter.shared.fail(id: operationID, detail: "Consensus share failed", errorMessage: message)
-                            }
-                            self?.clearConsensusWorkflow(operationID: operationID)
-                        }
-                    )
-                    activeConsensusShareSessions[sessionID] = session
-                    transferredToShareSession = true
-                    OperationCenter.shared.setCancelCallback(for: operationID) {
-                        DispatchQueue.main.async { session.cancel() }
-                    }
-                    session.present(
-                        items: [published.finalURL, published.provenanceURL],
-                        relativeTo: view,
-                        preferredEdge: .minY
-                    )
-                } catch is CancellationError {
-                    finishConsensusWorkflow(operationID: operationID, cancellation: true)
-                } catch {
-                    logConsensusFailure(error, operationID: operationID)
-                    let accepted = OperationCenter.shared.fail(id: operationID, detail: "Consensus share failed", errorMessage: error.localizedDescription)
-                    clearConsensusWorkflow(operationID: operationID)
-                    guard accepted else { return }
-                    presentExtractionFailureAlert(title: "Share Consensus Failed", message: error.localizedDescription)
-                    clearConsensusWorkflow(operationID: operationID)
-                }
-            }
-            activeConsensusGenerationTask = task
-            OperationCenter.shared.setCancelCallback(for: operationID) { task.cancel() }
-        }
-    }
-
     func finishConsensusWorkflow(operationID: UUID, cancellation: Bool) {
         if cancellation { OperationCenter.shared.acknowledgeCancellation(id: operationID) }
         clearConsensusWorkflow(operationID: operationID)
@@ -488,27 +498,6 @@ extension ViewerViewController {
         return normalized.pathExtension.isEmpty
             ? normalized.appendingPathExtension(ext)
             : normalized.deletingPathExtension().appendingPathExtension(ext)
-    }
-
-    private func logConsensusFailure(_ error: Error, operationID: UUID) {
-        let records: [AlignmentConsensusExecutionRecord]
-        switch error {
-        case let failure as AlignmentConsensusPublicationFailure:
-            OperationCenter.shared.log(id: operationID, level: .error, message: failure.attempt.durableLogMessage)
-            records = []
-        case AlignmentFetchError.consensusExecutionFailed(let attached),
-             AlignmentFetchError.consensusCoordinateMismatchWithRecords(let attached):
-            records = attached
-        default:
-            records = []
-        }
-        for record in records {
-            OperationCenter.shared.log(
-                id: operationID,
-                level: .error,
-                message: "\(record.reproducibleCommand)\n\(record.stderr ?? "")"
-            )
-        }
     }
 }
 

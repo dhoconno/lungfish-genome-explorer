@@ -26,55 +26,6 @@ final class MappingResultViewControllerTests: XCTestCase {
         super.tearDown()
     }
 
-    func testCancellingDestinationSheetBlocksPrimaryPublicationAndFinishesOnce() async throws {
-        OperationCenter.shared.cancelAll()
-        OperationCenter.shared.clearCompleted()
-        let viewer = ViewerViewController()
-        _ = viewer.view
-        let operationID = OperationCenter.shared.begin(
-            title: "Generate Alignment Consensus",
-            detail: "Choose a destination",
-            operationType: .export,
-            cliCommand: nil
-        ).rowID
-        viewer.activeConsensusGenerationOperationID = operationID
-        viewer.installConsensusDestinationCancellation(
-            operationID: operationID,
-            window: nil,
-            sheet: nil
-        )
-        let cancelledTerminalCount = LockedTestCounter()
-        let observer = NotificationCenter.default.addObserver(
-            forName: .operationStateChanged,
-            object: OperationCenter.shared,
-            queue: .main
-        ) { notification in
-            guard notification.userInfo?["operationID"] as? UUID == operationID,
-                  notification.userInfo?["operationState"] as? String == "cancelled" else { return }
-            cancelledTerminalCount.increment()
-        }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-            OperationCenter.shared.clearCompleted()
-        }
-
-        OperationCenter.shared.cancel(id: operationID)
-        var publisherInvocationCount = 0
-        let didAcceptPrimary = viewer.performConsensusDestinationPrimaryIfActive(
-            operationID: operationID
-        ) {
-            publisherInvocationCount += 1
-        }
-
-        XCTAssertFalse(didAcceptPrimary)
-        XCTAssertEqual(publisherInvocationCount, 0)
-        try await waitUntil {
-            OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .cancelled
-        }
-        XCTAssertNil(viewer.activeConsensusGenerationOperationID)
-        XCTAssertEqual(cancelledTerminalCount.value, 1)
-    }
-
     func testCancellingAllLowDepthWarningClosesSheetAndResumesWithoutPublishing() async throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
