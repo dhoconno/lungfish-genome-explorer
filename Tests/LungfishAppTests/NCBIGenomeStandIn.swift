@@ -80,6 +80,11 @@ enum NCBIGenomeStandIn {
             case "/entrez/eutils/esummary.fcgi":
                 return .text(value("id") == secondAssemblyUID ? aboutSecondAssembly(summary.value) : summary.value)
             case "/entrez/eutils/efetch.fcgi":
+                // A record's GFF3 is the slow step of `fetch ncbi --bundle` (lane A45), so a test
+                // that holds the stand-in cancels the run there.
+                if let hold, value("rettype") == "gff3" {
+                    hold.waitForRelease()
+                }
                 switch (value("id"), value("rettype")) {
                 case (NCBIDownloadPinFixtures.genBankAccession, "gb"): return .text(NCBIDownloadPinFixtures.genBankRecord)
                 case (NCBIDownloadPinFixtures.genBankAccession, "fasta"): return .text(NCBIDownloadPinFixtures.genBankFASTA)

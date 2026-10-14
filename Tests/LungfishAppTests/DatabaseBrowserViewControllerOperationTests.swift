@@ -8,10 +8,11 @@
 // closure sits behind the `.started` case. NCBI genome assemblies with a
 // project, one or a batch, record `fetch genome`, which must parse with the
 // values the run uses and names the folder the run writes the bundles into
-// (R3, lane A44). SRA runs, genome rows with no project, NCBI nucleotide and
-// virus records and Pathoplexus records record no command, and the tests pin
-// each as a CLI parity gap. A command added later fails a pin and prompts a
-// parse test in its place.
+// (R3, lane A44). NCBI nucleotide and virus records with a project record
+// `fetch ncbi --bundle`, which must parse the same way (lane A45). SRA runs,
+// rows with no project and Pathoplexus records record no command, and the
+// tests pin each as a CLI parity gap. A command added later fails a pin and
+// prompts a parse test in its place.
 
 import XCTest
 @testable import LungfishApp
@@ -141,9 +142,9 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
     }
 
-    // MARK: - NCBI nucleotide and virus records, and Pathoplexus
+    // MARK: - NCBI nucleotide and virus records (lane A45), and Pathoplexus
 
-    func testNucleotideAndVirusRowsRecordNoCommandAsAParityGap() throws {
+    func testNucleotideAndVirusRowsRecordTheFetchNCBIBundleCommand() throws {
         for searchType in [NCBISearchType.nucleotide, .virus] {
             let item = try recordedRow(
                 title: "GenBank: MN908947.3, NC_045512.2",
@@ -152,13 +153,57 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
                 searchType: searchType
             )
 
-            // `fetch ncbi` saves one GenBank file where the run builds one
-            // `.lungfishref` bundle for each record. `fetch genome
-            // <accession>` also builds a bundle from a nucleotide record, with
-            // a layout of its own, and is the closest command.
-            XCTAssertNil(item.cliCommand, "\(searchType)")
-            assertCLIParityGap(item.cliCommand, id: "download-ncbi-bundle")
+            // The row built a `.lungfishref` bundle for each record while `fetch ncbi`
+            // saved one GenBank file. `--bundle` builds the browser's bundles, and the run
+            // writes them into the project's Downloads folder, which the command names.
+            XCTAssertEqual(
+                item.cliCommand,
+                "lungfish-cli fetch ncbi MN908947.3 NC_045512.2 --bundle "
+                    + "--output-dir '/tmp/lane 1a2g/Project.lungfish/Downloads' --format json",
+                "\(searchType)")
+            let command = try RecordedCLICommand.parse(item.cliCommand, as: NCBISubcommand.self)
+            XCTAssertTrue(command.bundle)
+            XCTAssertEqual(command.accessions, ["MN908947.3", "NC_045512.2"])
+            XCTAssertEqual(command.outputDir, "/tmp/lane 1a2g/Project.lungfish/Downloads")
+            XCTAssertEqual(command.globalOptions.outputFormat, .json)
+            XCTAssertFalse(command.noGFF3)
+            XCTAssertNil(command.apiKey, "the key reaches the child through its environment")
+            XCTAssertNil(command.saveTo)
         }
+    }
+
+    func testTheGFF3SettingTurnedOffRecordsNoGFF3() throws {
+        let reporter = RecordingOperationReporter()
+        DatabaseBrowserViewModel.beginBatchDownloadOperation(
+            title: "MN908947.3",
+            accessions: ["MN908947.3"],
+            source: .ncbi,
+            searchType: .nucleotide,
+            routeContext: routeContext,
+            includeGFF3Annotations: false,
+            reporter: reporter
+        ) { _ in }
+        let item = try XCTUnwrap(reporter.items.first)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: NCBISubcommand.self)
+        XCTAssertTrue(command.noGFF3)
+        XCTAssertTrue(command.bundle)
+    }
+
+    func testNucleotideRowWithNoProjectRecordsNoCommandAsAParityGap() throws {
+        // With no project the run builds in a scratch folder and the import copies the bundle
+        // out, as for a genome assembly, so the row records nil and runs in process.
+        let reporter = RecordingOperationReporter()
+        DatabaseBrowserViewModel.beginBatchDownloadOperation(
+            title: "MN908947.3",
+            accessions: ["MN908947.3"],
+            source: .ncbi,
+            searchType: .nucleotide,
+            routeContext: nil,
+            reporter: reporter
+        ) { _ in }
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
     }
 
     func testPathoplexusRowRecordsNoCommandAsAParityGap() throws {

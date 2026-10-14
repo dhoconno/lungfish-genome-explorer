@@ -2374,7 +2374,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
             accessions: recordsToDownload.map(\.accession),
             source: currentSource,
             searchType: searchType,
-            routeContext: routeContext
+            routeContext: routeContext,
+            includeGFF3Annotations: includeGFF3Annotations
         ) { downloadCenterTaskID in
             isDownloading = true
             downloadProgress = 0
@@ -2474,6 +2475,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             // Capture project URL for project-local temp allocation, and the genome rows' route once
             let batchProjectURL = routeContext?.projectURL
             let genomeRoute = batchProjectURL == nil ? GenomeRowDownloadRoute.legacy : genomeRowRoute
+            let nucleotideRoute = batchProjectURL == nil ? NucleotideRowDownloadRoute.legacy : nucleotideRowRoute
 
             // Use Task.detached to break out of MainActor context.
             // This is critical when running in a modal sheet - regular Task {}
@@ -2517,24 +2519,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                     batchFolder: batchFolder, projectURL: batchProjectURL
                                 )
                             } else {
-                                // Nucleotide and virus downloads always end as .lungfishref bundles.
-                                logger.info("performBatchDownload: Starting GenBank bundle build for \(record.accession, privacy: .public)")
-                                let bundleURL = try await genBankVM.downloadAndBuild(
-                                    accession: record.accession,
-                                    outputDirectory: try batchFolder.url(),
-                                    includeGFF3Annotations: includeGFF3Annotations
-                                ) { progress, message in
-                                    let overall = (Double(index) + progress) / Double(totalCount)
-                                    performOnMainRunLoop {
-                                        _ = DownloadCenter.shared.update(
-                                            id: downloadCenterTaskID,
-                                            progress: overall,
-                                            detail: "\(record.accession): \(message)"
-                                        )
-                                    }
-                                }
-                                fileURL = bundleURL
-                                logger.info("performBatchDownload: Built GenBank bundle at \(bundleURL.path, privacy: .public)")
+                                // A nucleotide or virus row ends as a .lungfishref bundle. It runs
+                                // `lungfish-cli fetch ncbi --bundle` into the folder the row's command
+                                // names, or the in-process build behind the hidden key (lane A45,
+                                // DatabaseBrowserViewModel+NucleotideRowDownload.swift).
+                                fileURL = try await Self.downloadNucleotideRow(
+                                    record, index: index, totalCount: totalCount,
+                                    operationID: downloadCenterTaskID, route: nucleotideRoute,
+                                    ncbi: ncbi, genBankVM: genBankVM, includeGFF3Annotations: includeGFF3Annotations,
+                                    batchFolder: batchFolder, projectURL: batchProjectURL
+                                )
                             }
 
                         case .ena:

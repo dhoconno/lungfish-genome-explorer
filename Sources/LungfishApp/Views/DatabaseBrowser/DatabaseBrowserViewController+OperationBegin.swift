@@ -25,10 +25,9 @@ extension DatabaseBrowserViewModel {
     /// function describes.
     ///
     /// - cli-parity-gap: download-sra. Every SRA run download.
-    /// - cli-parity-gap: download-genome-no-project. NCBI genome assemblies
-    ///   with no project in the route context.
-    /// - cli-parity-gap: download-ncbi-bundle. NCBI nucleotide and virus
-    ///   records, and any other source `fetch` cannot read.
+    /// - cli-parity-gap: download-genome-no-project. NCBI genome assemblies,
+    ///   nucleotide records and virus records with no project in the route
+    ///   context (lane A45 widened it from genome assemblies).
     /// - cli-parity-gap: download-pathoplexus. Pathoplexus records.
     @discardableResult
     static func beginBatchDownloadOperation(
@@ -37,6 +36,7 @@ extension DatabaseBrowserViewModel {
         source: DatabaseSource,
         searchType: NCBISearchType,
         routeContext: OperationRouteContext?,
+        includeGFF3Annotations: Bool = true,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -48,7 +48,8 @@ extension DatabaseBrowserViewModel {
                 source: source,
                 searchType: searchType,
                 accessions: accessions,
-                projectURL: routeContext?.projectURL
+                projectURL: routeContext?.projectURL,
+                includeGFF3Annotations: includeGFF3Annotations
             ),
             routeContext: routeContext
         )
@@ -80,24 +81,40 @@ extension DatabaseBrowserViewModel {
     /// - SRA runs record nil. `fetch sra download` downloads one run, and the
     ///   run then imports the FASTQ files into the project with the settings
     ///   the user confirmed in the import sheet, which no command does.
-    /// - NCBI nucleotide and virus records record nil. `fetch ncbi` saves one
-    ///   GenBank file where the run builds one `.lungfishref` bundle for every
-    ///   record. `fetch genome <accession>` also builds a bundle from a
-    ///   nucleotide record, with a layout of its own, and is the closest
-    ///   command.
+    /// - NCBI nucleotide and virus records, with a project, record `fetch ncbi
+    ///   <accessions> --bundle --output-dir <folder> [--no-gff3] --format
+    ///   json` (lane A45). The run launches it for each row in turn into the
+    ///   project's Downloads folder, and each bundle's record names its own
+    ///   accession, so one line with every accession builds the same bundles.
+    ///   `--no-gff3` is the browser's GFF3 setting turned off. With no project
+    ///   the row records nil and runs in process, for the reason the genome
+    ///   assemblies give.
     /// - Pathoplexus records record nil. No fetch command reads Pathoplexus,
     ///   and its accessions are not NCBI accessions.
     static func batchDownloadCLICommand(
         source: DatabaseSource,
         searchType: NCBISearchType,
         accessions: [String],
-        projectURL: URL?
+        projectURL: URL?,
+        includeGFF3Annotations: Bool = true
     ) -> String? {
-        guard source == .ncbi, searchType == .genome, !accessions.isEmpty, let projectURL else { return nil }
+        guard source == .ncbi, !accessions.isEmpty, let projectURL else { return nil }
         let folder = genomeRowFolder(projectURL: projectURL)
-        return OperationCenter.buildCLICommand(
-            subcommand: "fetch genome",
-            args: Array(genomeFetchArguments(accessions: accessions, folder: folder).dropFirst(2))
-        )
+        switch searchType {
+        case .genome:
+            return OperationCenter.buildCLICommand(
+                subcommand: "fetch genome",
+                args: Array(genomeFetchArguments(accessions: accessions, folder: folder).dropFirst(2))
+            )
+        case .nucleotide, .virus:
+            return OperationCenter.buildCLICommand(
+                subcommand: "fetch ncbi",
+                args: Array(nucleotideFetchArguments(
+                    accessions: accessions, folder: folder, includeGFF3Annotations: includeGFF3Annotations
+                ).dropFirst(2))
+            )
+        default:
+            return nil
+        }
     }
 }
