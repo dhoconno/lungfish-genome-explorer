@@ -1,0 +1,7 @@
+{"event":"start","message":"Updating kraken2-viral...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Downloading Viral…","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Downloading Viral","progress":0.425,"schemaVersion":2}
+{"event":"progress","message":"Verifying Viral…","progress":0.88,"schemaVersion":2}
+{"event":"progress","message":"Installing Viral…","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"Updated Viral","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Updated 1 database(s): kraken2-viral","output":"\/work\/databases\/kraken2\/viral","outputs":["\/work\/databases\/kraken2\/viral"],"progress":1,"schemaVersion":2}

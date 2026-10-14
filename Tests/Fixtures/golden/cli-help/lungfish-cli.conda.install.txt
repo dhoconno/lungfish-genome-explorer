@@ -1,5 +1,15 @@
 OVERVIEW: Install a tool or plugin pack from bioconda
 
+With --pack, installs the environments a plugin pack is missing, or with
+--reinstall
+recreates every environment of the pack. Each pack run writes a record under
+provenance/packs in the storage root. --format json prints progress as event
+lines
+on standard output and the text on standard error. SIGTERM cancels a pack run,
+which
+puts back the environments it moved aside, records the run as cancelled and
+exits 125.
+
 USAGE: lungfish-cli conda install [<options>] [<packages> ...]
 
 ARGUMENTS:
@@ -20,6 +30,8 @@ OPTIONS:
                           Conda root to install into when using --offline or
                           --from-lockfile (default: managed storage conda root)
   --overwrite             Replace existing environments when using --offline
+  --reinstall             With --pack, recreate the pack's environments instead
+                          of installing only what is missing
   --format <format>       Output format: text, json, tsv (default: text)
                           (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,

@@ -94,7 +94,14 @@ extension CondaCommand {
     struct InstallSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "install",
-            abstract: "Install a tool or plugin pack from bioconda"
+            abstract: "Install a tool or plugin pack from bioconda",
+            discussion: """
+            With --pack, installs the environments a plugin pack is missing, or with --reinstall
+            recreates every environment of the pack. Each pack run writes a record under
+            provenance/packs in the storage root. --format json prints progress as event lines
+            on standard output and the text on standard error. SIGTERM cancels a pack run, which
+            puts back the environments it moved aside, records the run as cancelled and exits 125.
+            """
         )
 
         @Argument(help: "Package name(s) to install (e.g., 'samtools' 'bwa-mem2')")
@@ -121,13 +128,28 @@ extension CondaCommand {
         @Flag(name: .long, help: "Replace existing environments when using --offline")
         var overwrite: Bool = false
 
+        @Flag(
+            name: .customLong("reinstall"),
+            help: "With --pack, recreate the pack's environments instead of installing only what is missing"
+        )
+        var reinstall: Bool = false
+
+        func validate() throws {
+            guard reinstall else { return }
+            guard isPack else {
+                throw ValidationError("--reinstall requires --pack")
+            }
+            guard !offline, fromBundle == nil, fromLockfile == nil else {
+                throw ValidationError("--reinstall cannot be combined with --offline, --from-bundle or --from-lockfile")
+            }
+        }
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
             try CondaCommand.validateExplicitStorageOverrides(explicitCondaRoot: condaRoot)
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let manager = CondaManager.shared
-            let packStatusService = CondaCommand.packStatusServiceOverride ?? PluginPackStatusService.shared
 
             if let fromLockfile {
                 guard packages.isEmpty else {
@@ -181,47 +203,12 @@ extension CondaCommand {
             }
 
             if isPack {
-                // Install a plugin pack
-                for packID in packages {
-                    guard let pack = CondaCommand.visiblePacksForTesting().first(where: { $0.id == packID }) else {
-                        print(formatter.error("Unknown tool pack: \(packID)"))
-                        print("Available packs: \(CondaCommand.visiblePacksForTesting().map(\.id).joined(separator: ", "))")
-                        throw CLIExitCode.inputError.exitCode
-                    }
-
-                    print(formatter.header("Installing Tool Pack: \(pack.name)"))
-                    print("Packages: \(pack.packages.joined(separator: ", "))")
-                    print("")
-
-                    do {
-                        try await packStatusService.install(pack: pack, reinstall: false) { event in
-                            if !globalOptions.quiet {
-                                print("\r\(formatter.info(event.message))", terminator: "")
-                            }
-                        }
-                        print("")
-                        print(formatter.success("Tool pack '\(pack.name)' installed"))
-                    } catch let error as PluginPackStatusServiceError {
-                        switch error {
-                        case .storageUnavailable(let root):
-                            throw CondaCommand.storageUnavailableValidationError(for: root)
-                        case .smokeTestFailed:
-                            print("")
-                            print(formatter.error("Tool pack '\(pack.name)' failed: \(error.localizedDescription)"))
-                        case .verificationFailed(_, let reason):
-                            print("")
-                            print(formatter.error("Tool pack '\(pack.name)' failed verification: \(reason)"))
-                            throw CLIExitCode.dependency.exitCode
-                        case .invalidRequirementSelection, .selectedRequirementInstallUnsupported:
-                            print(formatter.error(error.localizedDescription))
-                            throw CLIExitCode.dependency.exitCode
-                        }
-                    } catch {
-                        print("")
-                        print(formatter.error("Tool pack '\(pack.name)' failed: \(error.localizedDescription)"))
-                        throw CLIExitCode.dependency.exitCode
-                    }
-                }
+                // Install or reinstall a plugin pack, in CondaInstallPackLeaf.swift
+                try await executePacks(
+                    eventsOn: globalOptions.outputFormat == .json,
+                    quiet: globalOptions.quiet,
+                    emit: printEventLine
+                )
             } else {
                 // Install individual packages
                 let envName = env ?? packages.first ?? "default"

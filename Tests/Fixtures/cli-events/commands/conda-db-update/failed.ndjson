@@ -1,0 +1,2 @@
+{"event":"start","message":"Updating no-such-database...","progress":0,"schemaVersion":2}
+{"detail":"no-such-database: Database 'no-such-database' not found in registry","error":"1 database(s) failed to update","event":"failed","schemaVersion":2}

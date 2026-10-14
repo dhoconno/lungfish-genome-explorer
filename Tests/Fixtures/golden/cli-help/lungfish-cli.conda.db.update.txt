@@ -18,6 +18,12 @@ Exit codes:
   2   usage error, such as a missing target or --yes
   1   a database failed to update, --all found updates it could not apply, or
       every selected database was skipped
+  125 cancelled by SIGTERM; the installed database is left as it was and the
+      run is recorded as cancelled under provenance/databases in the storage
+root
+
+--format json prints progress as event lines on standard output and the text on
+standard error.
 
 Examples:
   lungfish-cli conda db update kraken2-viral --yes

@@ -1,0 +1,4 @@
+{"event":"start","message":"Reinstalling Multiple Sequence Alignment...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Creating first-tool","progress":0.25,"schemaVersion":2}
+{"event":"progress","message":"Creating second-tool","progress":0.75,"schemaVersion":2}
+{"event":"complete","message":"Multiple Sequence Alignment reinstalled","output":"\/work\/provenance\/packs\/<time>-multiple-sequence-alignment-reinstall.lungfish-provenance.json","outputs":["\/work\/provenance\/packs\/<time>-multiple-sequence-alignment-reinstall.lungfish-provenance.json"],"progress":1,"schemaVersion":2}

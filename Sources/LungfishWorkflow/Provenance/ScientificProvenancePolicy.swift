@@ -216,6 +216,11 @@ public enum ScientificProvenancePolicy {
             writer: "CanonicalMetagenomicsDatabaseInstallProvenanceWriter"
         ),
         "conda extract": dataWriting("cli.conda.extract", writer: "TaxonomyExtractionPipeline"),
+        // `conda install --pack` writes no scientific data, but the environments it puts in place
+        // are what a later result has to be traceable to, so each pack run it makes, an install
+        // or a reinstall, records its own envelope (lane A52 of Phase 2.10). The other modes of
+        // the leaf write their own records (`--offline`, `--from-lockfile`) or none (packages).
+        "conda install": metadataOnly("cli.conda.install", requiresProvenance: true, writer: "CondaInstallPackLeaf"),
         "debug fastq-ingest": dataWriting("cli.debug.fastq-ingest", writer: "FASTQIngestSubcommand"),
         "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline"),
         "fastq savont-cluster": dataWriting(

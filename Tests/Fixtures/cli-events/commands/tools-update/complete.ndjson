@@ -1,0 +1,4 @@
+{"event":"start","message":"Updating tools to 2026.2...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"samtools: Solving samtools","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"samtools: samtools created","progress":0.99,"schemaVersion":2}
+{"event":"complete","message":"Updated 1 item(s) to 2026.2","output":"\/work\/provenance\/dependencies\/<time>-2026.2.lungfish-provenance.json","outputs":["\/work\/provenance\/dependencies\/<time>-2026.2.lungfish-provenance.json"],"progress":1,"schemaVersion":2}

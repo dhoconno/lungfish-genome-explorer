@@ -60,6 +60,16 @@ extension ToolsCommand {
 
             --required-only restricts databases to the required ones, so combining it with
             --include-databases has no effect; a note is printed to stderr saying so.
+
+            --only <id> applies chosen items of the plan and may be repeated. An id is an
+            environment to install or reinstall, a database id, or a retired environment to
+            remove. An id the plan does not hold is refused with exit 3 before any work. Required
+            work in the plan always runs too, as in the Update Tools sheet.
+
+            --format json prints progress as event lines on standard output and the text on
+            standard error. With --plan it prints the plan document, as --json does. SIGTERM
+            cancels a run: items that finished stay updated, the record of the run reads
+            cancelled, and the command exits 125.
             """
         )
 
@@ -87,9 +97,23 @@ extension ToolsCommand {
         @Option(name: .customLong("storage-root"), help: "Managed storage root (default: the configured location)")
         var storageRoot: String?
 
+        @Option(
+            name: .customLong("only"),
+            help: ArgumentHelp(
+                "Apply only this item of the plan (repeatable, with --apply)",
+                discussion: "An item is an environment to install or reinstall, a database id, or a retired environment to remove. Required work in the plan always runs too."
+            )
+        )
+        var only: [String] = []
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            try await execute(emit: printEventLine)
+        }
+
+        /// The run, with each event line handed to `emit`, so a test can keep them.
+        func execute(emit: @escaping (String) -> Void) async throws {
             // Silently preferring one over the other would make `--plan --apply` look like a
             // dry run to a script that meant to apply, or vice versa.
             guard !(planOnly && apply) else {
@@ -109,11 +133,26 @@ extension ToolsCommand {
                 ))
             }
 
+            // `--only` names the items of a plan to apply, so it needs `--apply`, and it replaces
+            // the two switches that choose a share of the plan by policy.
+            if !only.isEmpty {
+                guard apply else {
+                    FileHandle.standardError.write(Data("Error: --only applies with --apply\n".utf8))
+                    throw CLIExitCode.usage.exitCode
+                }
+                guard !requiredOnly, !includeDatabases else {
+                    FileHandle.standardError.write(Data(
+                        "Error: --only cannot be combined with --required-only or --include-databases\n".utf8
+                    ))
+                    throw CLIExitCode.usage.exitCode
+                }
+            }
+
             let root = try resolvedStorageRoot()
             let reconciler = DependencyReconciler(
-                manifest: ManagedToolLock.bundled,
+                manifest: ToolsCommand.manifestOverride ?? ManagedToolLock.bundled,
                 storageRoot: root,
-                services: .live(condaManager: .shared, storageRoot: root),
+                services: ToolsCommand.servicesOverride ?? .live(condaManager: .shared, storageRoot: root),
                 appVersion: LungfishAppVersion.short,
                 operationCenter: nil
             )
@@ -121,7 +160,7 @@ extension ToolsCommand {
             let plan = try await reconciler.currentPlan()
 
             guard apply else {
-                if json {
+                if json || globalOptions.outputFormat == .json {
                     print(try Self.encodeJSON(plan))
                 } else {
                     print(Self.render(plan))
@@ -138,44 +177,13 @@ extension ToolsCommand {
                 throw CLIExitCode.usage.exitCode
             }
 
-            if !json {
-                print(Self.render(plan))
-                print("")
-            }
-
-            var selection: PlanSelection = requiredOnly ? .requiredOnly(from: plan) : .all(from: plan)
-            if !includeDatabases {
-                selection.databases = Set(
-                    plan.databaseUpdates.filter { $0.policy == .required }.map(\.id)
-                )
-            }
-
-            let quiet = globalOptions.quiet
-            let printProgress = !json && !quiet
-            let result = try await reconciler.apply(plan, selection: selection) { item, fraction, detail in
-                guard printProgress else { return }
-                let percent = Int((fraction * 100).rounded())
-                print("[\(percent)%] \(item): \(detail)")
-            }
-
-            if json {
-                print(try Self.encodeApplyJSON(plan: plan, result: result))
-            } else {
-                print(Self.renderResult(result))
-            }
-
-            // The receipt pseudo-item names the bookkeeping step, not an installable tool: a
-            // machine whose tools all installed but whose receipt could not be written is
-            // usable, so it warns rather than failing the command.
-            let realFailures = result.failed.filter { $0.key != DependencyReconciler.receiptItemID }
-            if let receiptFailure = result.failed[DependencyReconciler.receiptItemID] {
-                FileHandle.standardError.write(
-                    Data("Warning: could not record the dependency receipt: \(receiptFailure)\n".utf8)
-                )
-            }
-            if !realFailures.isEmpty {
-                throw CLIExitCode.failure.exitCode
-            }
+            try await applyChosen(
+                plan: plan,
+                reconciler: reconciler,
+                storageRoot: root,
+                eventsOn: globalOptions.outputFormat == .json && !json,
+                emit: emit
+            )
         }
 
         /// `--storage-root`, else the configured managed storage location (which itself honors

@@ -274,7 +274,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "conda envs": nil,
         "conda export-pack": nil,
         "conda extract": "cli.conda.extract",
-        "conda install": nil,
+        "conda install": "cli.conda.install",
         "conda list": nil,
         "conda lock": nil,
         "conda offline-export": nil,

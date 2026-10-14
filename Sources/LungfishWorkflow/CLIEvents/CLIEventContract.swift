@@ -73,7 +73,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (50)
+    // MARK: Leaves that emit events (53)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -90,6 +90,8 @@ package enum CLIEventContractTable {
         "bundle deduplicate-alignments": .events(flag: formatJSON, channel: .standardOutput),
         "bundle mark-duplicates": .events(flag: formatJSON, channel: .standardOutput),
         "conda classify": .events(flag: formatJSON, channel: .standardOutput),
+        "conda db update": .events(flag: formatJSON, channel: .standardOutput),
+        "conda install": .events(flag: formatJSON, channel: .standardOutput),
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "extract reads": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
@@ -118,6 +120,7 @@ package enum CLIEventContractTable {
         "sequence add-annotation": .events(flag: formatJSON, channel: .standardOutput),
         "sequence attach-track": .events(flag: formatJSON, channel: .standardOutput),
         "taxtriage run": .events(flag: formatJSON, channel: .standardOutput),
+        "tools update": .events(flag: formatJSON, channel: .standardOutput),
         "tree export subtree": .events(flag: formatJSON, channel: .standardOutput),
         "tree extract-subtree": .events(flag: formatJSON, channel: .standardOutput),
         "tree infer iqtree": .events(flag: formatJSON, channel: .standardOutput),
@@ -129,7 +132,7 @@ package enum CLIEventContractTable {
         "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]
 
-    // MARK: Leaves that print one JSON result (69)
+    // MARK: Leaves that print one JSON result (68)
 
     private static let results: [String: CLIEventContract] = [
         "analyze composition": .result(schemaID: "analyze-composition"),
@@ -197,7 +200,6 @@ package enum CLIEventContractTable {
         "search": .result(schemaID: "search"),
         "storage dedupe": .result(schemaID: "storage-dedupe"),
         "storage info": .result(schemaID: "storage-info"),
-        "tools update": .result(schemaID: "tools-update"),
         "translate": .result(schemaID: "translate"),
         "universal-search": .result(schemaID: "universal-search"),
         "workflow validate": .result(schemaID: "workflow-validate"),
@@ -218,7 +220,7 @@ package enum CLIEventContractTable {
         "fastq ont-barcode-genotype": .legacy(schemaID: "r1-ont-barcode-genotyping", removeBy: "2.8"),
     ]
 
-    // MARK: Leaves with human text only (117)
+    // MARK: Leaves with human text only (115)
 
     private static let text: [String: CLIEventContract] = [
         "bam adopt-mapping": .text(reason: ignoresFormat),
@@ -230,11 +232,9 @@ package enum CLIEventContractTable {
         "conda db list": .text(reason: ignoresFormat),
         "conda db recommend": .text(reason: ignoresFormat),
         "conda db remove": .text(reason: ignoresFormat),
-        "conda db update": .text(reason: ignoresFormat),
         "conda envs": .text(reason: ignoresFormat),
         "conda export-pack": .text(reason: ignoresFormat),
         "conda extract": .text(reason: ignoresFormat),
-        "conda install": .text(reason: ignoresFormat),
         "conda list": .text(reason: ignoresFormat),
         "conda lock": .text(reason: ignoresFormat),
         "conda offline-export": .text(reason: ignoresFormat),

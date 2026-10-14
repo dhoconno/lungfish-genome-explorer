@@ -15,6 +15,18 @@ the tools installed, they just were not written down.
 --required-only restricts databases to the required ones, so combining it with
 --include-databases has no effect; a note is printed to stderr saying so.
 
+--only <id> applies chosen items of the plan and may be repeated. An id is an
+environment to install or reinstall, a database id, or a retired environment to
+remove. An id the plan does not hold is refused with exit 3 before any work.
+Required
+work in the plan always runs too, as in the Update Tools sheet.
+
+--format json prints progress as event lines on standard output and the text on
+standard error. With --plan it prints the plan document, as --json does.
+SIGTERM
+cancels a run: items that finished stay updated, the record of the run reads
+cancelled, and the command exits 125.
+
 USAGE: lungfish-cli tools update <options>
 
 OPTIONS:
@@ -28,6 +40,11 @@ OPTIONS:
   --storage-root <storage-root>
                           Managed storage root (default: the configured
                           location)
+  --only <only>           Apply only this item of the plan (repeatable, with
+                          --apply)
+        An item is an environment to install or reinstall, a database id, or a
+        retired environment to remove. Required work in the plan always runs
+        too.
   --format <format>       Output format: text, json, tsv (default: text)
                           (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,

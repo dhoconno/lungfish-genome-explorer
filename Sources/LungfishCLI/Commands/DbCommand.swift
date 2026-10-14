@@ -6,6 +6,7 @@ import ArgumentParser
 import Foundation
 import LungfishWorkflow
 import LungfishCore
+import Synchronization
 
 /// Manage metagenomics reference databases.
 ///
@@ -407,6 +408,11 @@ extension DbCommand {
               2   usage error, such as a missing target or --yes
               1   a database failed to update, --all found updates it could not apply, or
                   every selected database was skipped
+              125 cancelled by SIGTERM; the installed database is left as it was and the
+                  run is recorded as cancelled under provenance/databases in the storage root
+
+            --format json prints progress as event lines on standard output and the text on
+            standard error.
 
             Examples:
               lungfish-cli conda db update kraken2-viral --yes
@@ -426,27 +432,67 @@ extension DbCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
+        /// Test seam. A test hands the command a registry rooted in a scratch folder with a stand-in
+        /// archive installer, because the real one downloads gigabytes.
+        private static let registryOverrideStorage = Mutex<MetagenomicsDatabaseRegistry?>(nil)
+
+        static var registryOverride: MetagenomicsDatabaseRegistry? {
+            get { registryOverrideStorage.withLock { $0 } }
+            set { registryOverrideStorage.withLock { $0 = newValue } }
+        }
+
+        /// What the databases of one run did, kept outside the run's task so a cancel can record the
+        /// ones that finished before it.
+        private final class RunLog: Sendable {
+            private struct State {
+                var failed: [(String, String)] = []
+                var skipped: [(String, String)] = []
+                var succeeded: [String] = []
+            }
+            private let state = Mutex(State())
+            var failures: [(String, String)] { state.withLock { $0.failed } }
+            var skipped: [(String, String)] { state.withLock { $0.skipped } }
+            var succeeded: [String] { state.withLock { $0.succeeded } }
+            func fail(_ target: String, _ message: String) { state.withLock { $0.failed.append((target, message)) } }
+            func skip(_ target: String, _ message: String) { state.withLock { $0.skipped.append((target, message)) } }
+            func succeed(_ target: String) { state.withLock { $0.succeeded.append(target) } }
+        }
+
         func run() async throws {
+            try await execute(eventsOn: globalOptions.outputFormat == .json, quiet: globalOptions.quiet, emit: printEventLine)
+        }
+
+        /// The run, with each event line handed to `emit`, so a test can keep them. With `--format
+        /// json` standard output holds only `CLIEvent` lines. SIGTERM, the app's Cancel, cancels the
+        /// update. The registry stages the new copy beside the installed one, so a cancel before the
+        /// swap leaves the installed database as it was, and the run is recorded as cancelled under
+        /// `<storage root>/provenance/databases` and the command exits 125 (Phase 2.10 lane A52).
+        func execute(eventsOn: Bool, quiet: Bool, emit: @escaping (String) -> Void) async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
-            let registry = MetagenomicsDatabaseRegistry.shared
+            let registry = Self.registryOverride ?? MetagenomicsDatabaseRegistry.shared
+            let events = CLIEventEmitter(enabled: eventsOn, emit: emit)
+            let say: @Sendable (String) -> Void = { printHumanLine($0, eventsOn: eventsOn) }
+            func refuse(_ message: String, _ exit: CLIExitCode) -> ExitCode {
+                events.emitFailed(message)
+                say(formatter.error(message))
+                return exit.exitCode
+            }
 
             // How the command was invoked, not what it found: these are the same class of
             // mistake `tools update` reports as a usage error, and a script branching on exit
             // codes should not have to learn a different convention for each command.
             guard catalogID != nil || all else {
-                print(formatter.error("Specify a database catalog identifier or --all"))
-                throw CLIExitCode.usage.exitCode
+                throw refuse("Specify a database catalog identifier or --all", .usage)
             }
             guard !(catalogID != nil && all) else {
-                print(formatter.error("Specify either a database catalog identifier or --all, not both"))
-                throw CLIExitCode.usage.exitCode
+                throw refuse("Specify either a database catalog identifier or --all, not both", .usage)
             }
             guard yes else {
-                print(formatter.error("Updating a database replaces the installed copy; re-run with --yes to confirm"))
-                throw CLIExitCode.usage.exitCode
+                throw refuse("Updating a database replaces the installed copy; re-run with --yes to confirm", .usage)
             }
 
             let targets = try await resolveTargets(registry: registry)
+            let storageRoot = ManagedToolLeaf.currentStorageRoot()
             if targets.isEmpty {
                 // "Nothing to update" is only true if nothing is advertising an update.
                 // If `db list` is showing updates that this command could not turn into
@@ -458,52 +504,102 @@ extension DbCommand {
                         .map(\.name)
                         .sorted()
                     if !advertised.isEmpty {
-                        print(formatter.error(
+                        throw refuse(
                             "\(advertised.count) database(s) have an update available but none could be "
                             + "resolved to an update target: \(advertised.joined(separator: ", ")). "
-                            + "Run 'lungfish-cli conda db info <name>' for details."
-                        ))
-                        throw CLIExitCode.failure.exitCode
+                            + "Run 'lungfish-cli conda db info <name>' for details.",
+                            .failure
+                        )
                     }
                 }
-                print(formatter.info("No databases have an update available."))
+                events.emitStart("No databases have an update available.")
+                say(formatter.info("No databases have an update available."))
+                events.emitComplete(outputs: [storageRoot.path], message: "No databases have an update available.")
                 return
             }
 
-            var failures: [(String, String)] = []
-            var skipped: [(String, String)] = []
-            var succeeded: [String] = []
-            for target in targets {
-                print(formatter.header("Updating \(target)"))
-                do {
-                    try await registry.updateDatabase(catalogID: target) { fraction, message in
-                        if !globalOptions.quiet {
-                            print("\r\(formatter.info("[\(Int((fraction * 100).rounded()))%] \(message)"))", terminator: "")
+            events.emitStart("Updating \(targets.joined(separator: ", "))...")
+            let startedAt = Date()
+            let targetCount = Double(targets.count)
+            let log = RunLog()
+            let outcome = await ManagedToolLeaf.cancellingOnSIGTERM { () async throws -> Void in
+                for (index, target) in targets.enumerated() {
+                    say(formatter.header("Updating \(target)"))
+                    do {
+                        try await registry.updateDatabase(catalogID: target) { fraction, message in
+                            if eventsOn {
+                                let overall = (Double(index) + min(max(fraction, 0), 1)) / targetCount
+                                events.emitProgress(overall, message: message)
+                            } else if !quiet {
+                                print("\r\(formatter.info("[\(Int((fraction * 100).rounded()))%] \(message)"))", terminator: "")
+                            }
                         }
+                        say("")
+                        say(formatter.success("Database '\(target)' updated"))
+                        log.succeed(target)
+                    } catch let error as MetagenomicsDatabaseRegistryError {
+                        if ManagedToolLeaf.endedOnCancel(error) { throw CancellationError() }
+                        say("")
+                        // A database that cannot be updated in place (locally built, or on a volume
+                        // that is not mounted) is a skip, not a failure: the user is told what to do
+                        // instead and the remaining databases still update.
+                        if case .updateNotSupported = error {
+                            say(formatter.warning("Skipped '\(target)': \(error.localizedDescription)"))
+                            events.emitLog(.warning, "Skipped '\(target)': \(error.localizedDescription)")
+                            log.skip(target, error.localizedDescription)
+                        } else {
+                            say(formatter.error("Failed '\(target)': \(error.localizedDescription)"))
+                            log.fail(target, error.localizedDescription)
+                        }
+                    } catch {
+                        if ManagedToolLeaf.endedOnCancel(error) { throw CancellationError() }
+                        say("")
+                        say(formatter.error("Failed '\(target)': \(error.localizedDescription)"))
+                        log.fail(target, error.localizedDescription)
                     }
-                    print("")
-                    print(formatter.success("Database '\(target)' updated"))
-                    succeeded.append(target)
-                } catch let error as MetagenomicsDatabaseRegistryError {
-                    print("")
-                    // A database that cannot be updated in place (locally built, or on a volume
-                    // that is not mounted) is a skip, not a failure: the user is told what to do
-                    // instead and the remaining databases still update.
-                    if case .updateNotSupported = error {
-                        print(formatter.warning("Skipped '\(target)': \(error.localizedDescription)"))
-                        skipped.append((target, error.localizedDescription))
-                    } else {
-                        print(formatter.error("Failed '\(target)': \(error.localizedDescription)"))
-                        failures.append((target, error.localizedDescription))
-                    }
-                } catch {
-                    print("")
-                    print(formatter.error("Failed '\(target)': \(error.localizedDescription)"))
-                    failures.append((target, error.localizedDescription))
                 }
             }
 
-            if !failures.isEmpty {
+            func recordRun(_ status: RunStatus, _ failure: String?) {
+                ManagedToolLeaf.writeRecord(
+                    ManagedToolLeaf.Record(
+                        workflowName: "conda-database-update",
+                        folder: "databases",
+                        label: targets.joined(separator: "+"),
+                        argv: ["lungfish-cli", "conda", "db", "update"] + (all ? ["--all"] : targets) + ["--yes"],
+                        explicit: ["databases": .array(targets.map { .string($0) })],
+                        pluginPack: nil,
+                        steps: log.succeeded.map { ManagedToolLeaf.Step(id: $0, version: "unknown", failure: nil) }
+                            + log.failures.map { ManagedToolLeaf.Step(id: $0.0, version: "unknown", failure: $0.1) },
+                        status: status,
+                        failure: failure,
+                        startedAt: startedAt,
+                        endedAt: Date()
+                    ),
+                    storageRoot: storageRoot
+                )
+            }
+
+            var runError: (any Error)?
+            if case .failure(let error) = outcome { runError = error }
+            if ManagedToolLeaf.endedOnCancel(runError) {
+                recordRun(.cancelled, "Cancelled")
+                let message = "Update cancelled. The installed database was left as it was."
+                events.emitFailed(message)
+                say(message)
+                throw CLIExitCode.cancelled.exitCode
+            }
+            if let runError {
+                events.emitFailed(runError.localizedDescription)
+                throw runError
+            }
+
+            if !log.failures.isEmpty {
+                recordRun(.failed, log.failures.map { "\($0.0): \($0.1)" }.joined(separator: "; "))
+                events.emitFailed(
+                    "\(log.failures.count) database(s) failed to update",
+                    detail: log.failures.map { "\($0.0): \($0.1)" }.joined(separator: "; ")
+                )
                 throw CLIExitCode.failure.exitCode
             }
 
@@ -515,14 +611,23 @@ extension DbCommand {
             // empty-target case above, reached by a different route: `--all` selecting
             // only locally built databases (SILVA, Greengenes), which are rebuilt by
             // reinstalling rather than updated in place.
-            if succeeded.isEmpty, !skipped.isEmpty {
-                print("")
-                print(formatter.error(
-                    "No database was updated: all \(skipped.count) selected database(s) were skipped. "
-                    + skipped.map { "'\($0.0)': \($0.1)" }.joined(separator: "; ")
-                ))
+            if log.succeeded.isEmpty, !log.skipped.isEmpty {
+                let message = "No database was updated: all \(log.skipped.count) selected database(s) were skipped. "
+                    + log.skipped.map { "'\($0.0)': \($0.1)" }.joined(separator: "; ")
+                say("")
+                events.emitFailed(message)
+                say(formatter.error(message))
                 throw CLIExitCode.failure.exitCode
             }
+
+            let rows = (try? await registry.availableDatabases()) ?? []
+            let updatedPaths = log.succeeded.compactMap { target in
+                rows.first { $0.catalogID == target || $0.name == target }?.path?.path
+            }
+            events.emitComplete(
+                outputs: updatedPaths.isEmpty ? [storageRoot.path] : updatedPaths,
+                message: "Updated \(log.succeeded.count) database(s): \(log.succeeded.joined(separator: ", "))"
+            )
         }
 
         /// The database identifiers this invocation should update.

@@ -343,6 +343,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     private static func captures() -> [Capture] {
         annotationCaptures() + exportCaptures() + derivedCaptures() + treeCaptures() + platformCaptures()
             + importCaptures() + ontSplitCaptures() + sequenceCaptures() + variantsCaptures()
+            + managedToolCaptures()
     }
 
     /// The four import commands and the three `build-db` leaves (`BuildDbStreamCapture`), run by `ImportStreamCapture`,
