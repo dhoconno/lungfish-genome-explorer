@@ -116,7 +116,6 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
         // difference is declared in BIO's D1 form, as "only in C".
         try assertCKeepsEveryFactAKeeps(runs)
         try removeProvenanceFiles(in: runs.a.root)
-        for run in runs.all { try maskIngestionDate(in: run.root) }
         let result = try harness.evaluate(Case.copiedIn, declared: Self.declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.copiedIn)")
 
@@ -144,19 +143,6 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
     }
 
     // MARK: - The facts of A's record (ruling section 3, item d)
-
-    /// The sidecar names the second each run finished (`ingestion.ingestionDate`), a wall-clock value
-    /// that the contract's masks leave as written, so two runs a second apart would differ. The test
-    /// sets it to one value on every side and compares the rest of the sidecar as it is.
-    private func maskIngestionDate(in root: URL) throws {
-        let sidecar = FASTQMetadataStore.metadataURL(for: Self.output(in: root))
-        let text = try String(contentsOf: sidecar, encoding: .utf8)
-        let masked = text.replacingOccurrences(
-            of: #""ingestionDate"\s*:\s*"[^"]*""#, with: #""ingestionDate" : "1970-01-01T00:00:00Z""#, options: .regularExpression
-        )
-        XCTAssertNotEqual(masked, text, "the sidecar of \(root.lastPathComponent) holds an ingestion date")
-        try masked.write(to: sidecar, atomically: true, encoding: .utf8)
-    }
 
     /// Removes every record file under `root`: the root record and the sidecar of each output.
     private func removeProvenanceFiles(in root: URL) throws {
