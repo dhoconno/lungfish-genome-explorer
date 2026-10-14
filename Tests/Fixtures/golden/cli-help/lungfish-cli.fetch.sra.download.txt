@@ -11,11 +11,11 @@ OPTIONS:
   --use-toolkit           Fetch with the SRA Toolkit only, with no fallback to
                           ENA (requires prefetch/fasterq-dump)
   --prefer-source <source>
-                          Archive to try first. ENA serves ready FASTQ files.
-                          NCBI needs the SRA Toolkit to convert its archive,
-                          which takes longer, but it can be faster when ENA is
-                          slow. When the preferred source fails, the other one
-                          is tried. (values: ena, ncbi)
+                          Archive to try first (default: ena). ENA serves ready
+                          FASTQ files. NCBI needs the SRA Toolkit to convert
+                          its archive, which takes longer, but it can be faster
+                          when ENA is slow. When the preferred source fails,
+                          the other one is tried. (values: ena, ncbi)
   --bundle                Import the run into a .lungfishfastq bundle of
                           --project, as the app's SRA row does
         The run is downloaded, imported with the import settings below and

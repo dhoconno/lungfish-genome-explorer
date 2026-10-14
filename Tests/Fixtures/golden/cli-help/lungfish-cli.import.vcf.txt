@@ -14,8 +14,8 @@ OPTIONS:
                           a .lungfishref bundle (default: filename)
   --import-profile <import-profile>
                           Variant database import profile when attaching to a
-                          .lungfishref bundle (values: auto, low-memory, fast,
-                          ultra-low-memory)
+                          .lungfishref bundle (default: auto) (values: auto,
+                          low-memory, fast, ultra-low-memory)
   --replace <replace>     Replace the existing variant track with this id
                           instead of adding a new track.
         Without --replace, a VCF whose file name matches an existing track is
