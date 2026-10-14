@@ -1472,7 +1472,9 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         try await command.run(nfCoreRunner: runner)
 
         let invocation = try XCTUnwrap(runner.invocations.first)
-        XCTAssertEqual(invocation.arguments.first, "run")
+        // The resource-limit config comes first, as the descriptor writes every -c file before run.
+        XCTAssertEqual(invocation.arguments.first, "-c")
+        XCTAssertEqual(invocation.arguments.dropFirst(2).first, "run")
         XCTAssertTrue(invocation.arguments.contains("nf-core/viralrecon"))
         XCTAssertEqual(
             invocation.environment["NXF_SYNTAX_PARSER"], "v1",

@@ -47,13 +47,6 @@ enum ViralReconContractKnownDifferences {
             reason: "The request writes no --input when it has no input and joins several inputs with commas (NFCoreRunRequest.effectiveParams), where the descriptor writes the one samplesheet. workflow run always passes one samplesheet, so only the builder shows it",
             closedBy: "A30 M2, no --input without input (fit difference 1)"
         ),
-        // Fit difference 2 of the contract (section 1).
-        ViralReconContractKnownDifference(
-            counts: [.docker: 1],
-            id: "argv: -c after the parameters, the contract writes it before run",
-            reason: "workflow run appends the resource-limit config (NFCoreResourceLimits.Plan.nextflowArguments) after the sorted parameters, where the descriptor writes every -c file before run",
-            closedBy: "A30 M2, -c before run (fit difference 2)"
-        ),
         // Fit difference 3 of the contract (section 1).
         ViralReconContractKnownDifference(
             counts: [.lockWithoutPin: 1],

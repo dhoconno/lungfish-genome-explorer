@@ -4,6 +4,8 @@ stderr:
 
 
 argv:
+-c
+<scratch>/lungfish-resource-limits.config
 run
 nf-core/viralrecon
 -r
@@ -42,8 +44,6 @@ true
 true
 --variant_caller
 ivar
--c
-<scratch>/lungfish-resource-limits.config
 
 environment:
 HOME=<root>/engine/home
