@@ -85,17 +85,11 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         }
     }
 
-    /// Stopped under the coordinator rule on two differences that are neither declared nor a digest
-    /// gap, which await a ruling (lane A44 M2c report, findings P1 and P2). C against C': each
-    /// record states the SHA-256 of `manifest.json`, whose bytes differ between runs only in the
-    /// random ids of its metadata groups and items, which the compare masks in the file but not in
-    /// the digest a record states for it (14 values). A against C: the manifest's ids are numbered
-    /// across the tree, so the files only one side holds shift them (one value).
-    /// `LUNGFISH_A44_PARITY_FINDINGS=1` runs the case as it stands.
+    /// One genome row with a project. C against C' lists nothing, A against C exactly the declared
+    /// entries, and each CLI side's record names each output with its digest. Findings P1 and P2
+    /// of lane A44 M2c, the digest a record states for `manifest.json` and the numbering of its
+    /// ids across the tree, no longer show since lane Q30's mask and the FXP fix.
     func testTheGenomeRowBuildsTheSameBundleOnBothRoutes() async throws {
-        guard ProcessInfo.processInfo.environment["LUNGFISH_A44_PARITY_FINDINGS"] == "1" else {
-            throw XCTSkip("Stopped on findings P1 and P2 of lane A44 M2c, which await a ruling")
-        }
         try await assertParity(.oneAssemblyInAProject)
     }
 
