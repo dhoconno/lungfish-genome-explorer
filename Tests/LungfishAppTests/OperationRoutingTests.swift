@@ -1104,7 +1104,8 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(fanout.contains("let task = Task.detached"))
         XCTAssertTrue(fanout.contains("for request in requests"))
         XCTAssertTrue(fanout.contains("await self.runSingleManagedMappingAwaitingCompletion("))
-        XCTAssertTrue(fanout.contains("warning: plan.warning"))
+        // Each route behind the mapping key (2.10 A46) hands its child the pooled warning.
+        XCTAssertEqual(fanout.components(separatedBy: "warning: plan.warning").count - 1, 2)
         // Only one Task.detached CALL SITE (`let task = Task.detached`) in
         // the fan-out function -- per-bundle work is awaited inline inside
         // that one sequential loop, never spawned as its own detached task
