@@ -317,11 +317,16 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
     /// guarded by `testAppDelegateVolatileImportProgressDoesNotUseUpdateWithLog`,
     /// these streams do not append a changing ETA suffix on every tick, so
     /// logging every message does not flood the history.
+    ///
+    /// Mapped-reads annotation and filtered-alignment derivation (F26, F27) run `lungfish-cli bam
+    /// annotate` and `bam filter` on the L3 runner since Phase 2.10 lane A54. The Inspector holds no
+    /// progress handler for them, and the runner's `OperationCenterCLIBridge` shows each progress event
+    /// on the row and logs it, so the pin for those two is on the launch and on the bridge.
     func testNonVolatileProgressHandlersPairUpdateWithLog() throws {
         let root = repositoryRoot()
         var violations: [String] = []
 
-        func assertLogged(path: String, marker: String, source: String) {
+        func assertLogged(path: String, marker: String, source: String, pairedWith token: String = "updateWithLog") {
             let lines = source.components(separatedBy: .newlines)
             let markerLines = lines.indices.filter { lines[$0].contains(marker) }
             guard !markerLines.isEmpty else {
@@ -332,26 +337,28 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
                 let lowerBound = max(0, markerLine - 10)
                 let upperBound = min(lines.endIndex, markerLine + 20)
                 let context = lines[lowerBound..<upperBound].joined(separator: "\n")
-                if !context.contains("updateWithLog") {
-                    violations.append("\(path):\(markerLine + 1) \(marker) does not pair with updateWithLog")
+                if !context.contains(token) {
+                    violations.append("\(path):\(markerLine + 1) \(marker) does not pair with \(token)")
                 }
             }
         }
 
-        let trimDuplicateWorkflowsPath = "Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift"
-        let trimDuplicateWorkflowsSource = try String(
-            contentsOf: root.appendingPathComponent(trimDuplicateWorkflowsPath),
-            encoding: .utf8
-        )
+        let derivedWorkflowsPath = "Sources/LungfishApp/Views/Inspector/InspectorViewController+DerivedAlignmentWorkflows.swift"
+        let derivedWorkflowsSource = try readRepositorySource(root.appendingPathComponent(derivedWorkflowsPath))
+        let launchMarker = "Self.runAlignmentLeafThroughCLI("
+        let launches = derivedWorkflowsSource.components(separatedBy: launchMarker).count - 1
+        if launches < 2 {
+            violations.append("\(derivedWorkflowsPath): expected the annotation and the filtered-alignment workflow to launch on \(launchMarker), found \(launches)")
+        }
+        if derivedWorkflowsSource.contains("OperationCenter.shared.update(") {
+            violations.append("\(derivedWorkflowsPath): a progress handler calls OperationCenter.update() with no log")
+        }
+        let bridgePath = "Sources/LungfishApp/Services/OperationCenterCLIBridge.swift"
         assertLogged(
-            path: trimDuplicateWorkflowsPath,
-            marker: "convertMappedReads(",
-            source: trimDuplicateWorkflowsSource
-        )
-        assertLogged(
-            path: trimDuplicateWorkflowsPath,
-            marker: "deriveFilteredAlignment(",
-            source: trimDuplicateWorkflowsSource
+            path: bridgePath,
+            marker: "case let .progress(",
+            source: try readRepositorySource(root.appendingPathComponent(bridgePath)),
+            pairedWith: "logProgress("
         )
 
         let variantWorkflowPath = "Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift"
