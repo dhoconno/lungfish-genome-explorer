@@ -158,9 +158,12 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
     private func assertCKeepsEveryFactAKeeps(_ runs: RouteParityRuns) throws {
         let a = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: Self.record(in: runs.a.root)), "side A's record")
         let c = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: Self.record(in: runs.c.root)), "side C's record")
-        let toolsC = Set(c.steps.map(\.toolName))
-        for tool in a.steps.map(\.toolName) where tool != "lungfish-app" {
-            XCTAssertTrue(toolsC.contains(tool), "C's record keeps the \(tool) step, it holds \(toolsC)")
+        for step in a.steps where step.toolName != "lungfish-app" {
+            XCTAssertTrue(
+                c.steps.contains { $0.toolName == step.toolName && $0.toolVersion == step.toolVersion },
+                "C's record keeps the \(step.toolName) step at version \(String(describing: step.toolVersion)), "
+                    + "it holds \(c.steps.map { "\($0.toolName) \(String(describing: $0.toolVersion))" })"
+            )
         }
         let output = Self.output(in: runs.c.root)
         let sidecar = FASTQMetadataStore.metadataURL(for: output)
