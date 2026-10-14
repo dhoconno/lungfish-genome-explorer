@@ -32,7 +32,6 @@
           ],
           "observation" : {
             "environment" : "Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set",
-            "output" : "Not recorded",
             "termination" : "Could not start (posix_spawn failed, no such file or directory)"
           },
           "ordinal" : 1,

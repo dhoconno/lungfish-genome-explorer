@@ -15,9 +15,9 @@ import LungfishWorkflow
 ///   since Exit Status gives its code. A step ToolProcess stopped, a step a signal ended (Exit Status then holds
 ///   the signal number and reads like a code), a step whose status something else took and a step that never ran
 ///   add the line. A time limit is the limit the step reached and never how long it ran.
-/// - Output says whether every output of the step was read or written whole. A step that exited 0 adds the line only
-///   when its output was cut short. A step that did not exit 0 reads Complete, Incomplete or Not recorded, and Not
-///   recorded shows only there, since a stage that streamed its standard output or never launched records nothing.
+/// - Output reads Incomplete when an output of the step was cut short, and Not recorded when a step that ran and
+///   did not exit 0 recorded nothing about its output. Output read whole adds nothing, and neither does a step that
+///   never started, since Termination says so.
 /// - Environment is one line, what the step's adapter changed. An inherited environment it left alone adds nothing.
 ///   The line names the variables and never their values or the PATH entries, which a decoded record resolves to
 ///   folders of the Mac that reads it. No rule reads a particular name, `TMPDIR` among them.
@@ -92,7 +92,7 @@ struct ProvenanceStepTerminationDisplay: Equatable, Sendable {
         case .timedOut(.wallClock, let seconds):
             headline = "Timed out at its limit of \(LungfishFormatters.formatDuration(seconds))"
         case .timedOut(.idle, let seconds):
-            headline = "Timed out after \(LungfishFormatters.formatDuration(seconds)) without output"
+            headline = "Timed out at its limit of \(LungfishFormatters.formatDuration(seconds)) without output"
         case .pipelineStageFailed:
             headline = "Stopped because another stage of its pipeline failed"
         }
@@ -157,11 +157,11 @@ struct ProvenanceStepTerminationDisplay: Equatable, Sendable {
     // MARK: - Output
 
     private static func outputText(_ observation: ProvenanceStepObservation) -> String? {
-        let exitedZero = observation.termination == .exited(code: 0)
-        switch observation.outputComplete {
-        case false?: return "Incomplete"
-        case true?: return exitedZero ? nil : "Complete"
-        case nil: return exitedZero ? nil : "Not recorded"
+        if observation.outputComplete == false { return "Incomplete" }
+        guard observation.outputComplete == nil else { return nil }
+        switch observation.termination {
+        case .exited(code: 0), .launchFailed, .notLaunched: return nil
+        case .exited, .signaled, .statusLost: return "Not recorded"
         }
     }
 

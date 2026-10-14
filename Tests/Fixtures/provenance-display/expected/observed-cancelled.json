@@ -32,7 +32,6 @@
           ],
           "observation" : {
             "environment" : "Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set",
-            "output" : "Complete",
             "termination" : "Cancelled (signal 15, SIGTERM)"
           },
           "ordinal" : 1,

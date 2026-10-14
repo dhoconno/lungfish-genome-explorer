@@ -193,7 +193,7 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
             ("wall clock limit", observation(.signaled(signal: 15), stop: .timedOut(limit: .wallClock, seconds: 3600)),
              "Timed out at its limit of 1h 0m (signal 15, SIGTERM)"),
             ("idle limit", observation(.signaled(signal: 9), stop: .timedOut(limit: .idle, seconds: 90)),
-             "Timed out after 1m 30s without output (signal 9, SIGKILL)"),
+             "Timed out at its limit of 1m 30s without output (signal 9, SIGKILL)"),
             ("another stage failed", observation(.signaled(signal: 13), stop: .pipelineStageFailed(stage: 0)),
              "Stopped because another stage of its pipeline failed (signal 13, SIGPIPE)"),
             ("stage never started", observation(.notLaunched, stop: .pipelineStageFailed(stage: 0)),
@@ -204,18 +204,21 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         }
     }
 
-    /// Output reads Not recorded only when the step did not exit 0 (decision P2). A step that exited 0 shows the
-    /// line only when its output was cut short.
+    /// Output reads Incomplete when an output of the step was cut short, and Not recorded when a step that ran and
+    /// did not exit 0 recorded nothing about its output. Output read whole adds nothing, and neither does a step that
+    /// never started, since Termination says so.
     func testTheOutputLineReadsNotRecordedOnlyWhenTheStepDidNotExitZero() {
         let cases: [(String, ProvenanceStepObservation.Termination, Bool?, String?)] = [
             ("exit 0, whole", .exited(code: 0), true, nil),
             ("exit 0, not recorded", .exited(code: 0), nil, nil),
             ("exit 0, cut short", .exited(code: 0), false, "Incomplete"),
-            ("exit 2, whole", .exited(code: 2), true, "Complete"),
+            ("exit 2, whole", .exited(code: 2), true, nil),
             ("exit 2, not recorded", .exited(code: 2), nil, "Not recorded"),
             ("exit 2, cut short", .exited(code: 2), false, "Incomplete"),
             ("signal, not recorded", .signaled(signal: 9), nil, "Not recorded"),
-            ("never launched", .notLaunched, nil, "Not recorded"),
+            ("never launched", .notLaunched, nil, nil),
+            ("launch failure", .launchFailed(reason: "no such file"), nil, nil),
+            ("status lost, not recorded", .statusLost, nil, "Not recorded"),
         ]
         for (name, termination, complete, expected) in cases {
             let display = ProvenanceStepTerminationDisplay(observation(termination, outputComplete: complete))
@@ -291,7 +294,7 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         XCTAssertNil(ProvenanceStepTerminationDisplay(observation(.exited(code: 0), environment: unchanged)))
 
         let cancelled = ProvenanceStepTerminationDisplay(observation(.signaled(signal: 15), stop: .cancelled))
-        XCTAssertEqual(cancelled?.searchText, "Cancelled (signal 15, SIGTERM)\nComplete")
+        XCTAssertEqual(cancelled?.searchText, "Cancelled (signal 15, SIGTERM)")
     }
 
     // MARK: - VoiceOver and the project
