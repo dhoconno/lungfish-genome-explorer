@@ -16,14 +16,19 @@ import LungfishTestSupport
 /// `json.dumps([scope, name], separators=(",", ":"), ensure_ascii=False)` under
 /// the namespace `EAE6B16C-E0F3-4099-B3D7-DB52CED9199C`, so they share no code
 /// with the Swift derivation.
+///
+/// Phase 2.10 lane B35 (panel decision R2) added the last column of the
+/// listing, `id`, which prints the id the export writes as `cohort_id`. The
+/// listing pins flipped on purpose, and the expected ids are the ones the CSV
+/// pin holds.
 final class GenotypeCohortListingPinTests: XCTestCase {
     static let noDismissalListing = """
-    starred\tname\tscope\tmatches\tdescription
-    *\tIncomplete haplotypes\tbundle\t2\tSamples with unresolved, not-assayed, or error haplotype slots.
-    *\tNeeds review\tbundle\t2\tIncomplete haplotypes, low support, or analyst-flagged samples.
-    -\tHomozygous\tbundle\t0\tSamples whose H1 equals H2 at every called locus.
-    -\tRecombinants\tbundle\t0\tSamples carrying a rec* haplotype at any locus.
-    *\tErrors at MHC-A\tbundle\t0\tSamples that fail to call any haplotype at MHC-A.
+    starred\tname\tscope\tmatches\tdescription\tid
+    *\tIncomplete haplotypes\tbundle\t2\tSamples with unresolved, not-assayed, or error haplotype slots.\t31d2b132-01dd-5f19-bc0a-8878472f012f
+    *\tNeeds review\tbundle\t2\tIncomplete haplotypes, low support, or analyst-flagged samples.\tdf4ca8e2-bf22-50fc-8c94-bdb45c58a1f5
+    -\tHomozygous\tbundle\t0\tSamples whose H1 equals H2 at every called locus.\t5fd26aec-1025-5049-ae30-f43c219e9a7a
+    -\tRecombinants\tbundle\t0\tSamples carrying a rec* haplotype at any locus.\t048c9d06-a36a-5243-beec-7f2f591d780a
+    *\tErrors at MHC-A\tbundle\t0\tSamples that fail to call any haplotype at MHC-A.\t3c5638b5-3d64-5064-ac68-20ae371e14d2
 
     """
 

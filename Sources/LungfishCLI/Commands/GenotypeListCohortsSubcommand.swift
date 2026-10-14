@@ -12,6 +12,11 @@ import LungfishIO
 ///   4. matching subject count (predicate evaluated over each sample as a
 ///      minimal `GenotypeCohortSubject` derived from the bundle data)
 ///   5. description (or `-` if absent)
+///   6. id, the lower-case UUID that `genotype export-labkey` writes as
+///      `cohort_id`. A cohort that stores no id shows the id derived from its
+///      scope and name, and reading it writes nothing. Two cohorts that share
+///      an id are both listed, which is how an analyst finds the pair that the
+///      export refuses.
 struct GenotypeListCohortsSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "list-cohorts",
@@ -41,9 +46,10 @@ struct GenotypeListCohortsSubcommand: AsyncParsableCommand {
         let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
         let subjects = makeSubjects(from: result, sidecar: sidecar)
 
-        let header = ["starred", "name", "scope", "matches", "description"]
+        let header = ["starred", "name", "scope", "matches", "description", "id"]
         var lines: [String] = [header.joined(separator: "\t")]
-        for cohort in sidecar.smartCohorts {
+        let cohortIDs = sidecar.resolvedSmartCohortIDs
+        for (offset, cohort) in sidecar.smartCohorts.enumerated() {
             let matchCount = subjects.reduce(into: 0) { count, subject in
                 if cohort.predicate.evaluate(subject) {
                     count += 1
@@ -55,6 +61,7 @@ struct GenotypeListCohortsSubcommand: AsyncParsableCommand {
                 cohort.scope,
                 String(matchCount),
                 cohort.description?.isEmpty == false ? cohort.description! : "-",
+                cohortIDs[offset].uuidString.lowercased(),
             ]
             lines.append(row.joined(separator: "\t"))
         }
