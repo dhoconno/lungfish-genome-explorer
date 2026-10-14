@@ -20,6 +20,12 @@ final class BuildDbCoreCancelRemovalTests: XCTestCase {
     }
 
     override func tearDown() {
+        // A case that failed before it gave `get/` its write permission back leaves it read-only.
+        if let scratch, let walker = FileManager.default.enumerator(at: scratch, includingPropertiesForKeys: [.isDirectoryKey]) {
+            for case let url as URL in walker where (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            }
+        }
         TestTempDirectory.cleanup(scratch)
     }
 
