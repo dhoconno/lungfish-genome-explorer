@@ -3,38 +3,60 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
-enum AlignmentConsensusPublicationDestination: Sendable, Equatable {
+package enum AlignmentConsensusPublicationDestination: Sendable, Equatable {
     case referenceBundle(URL)
     case fasta(URL)
 
-    var finalURL: URL {
+    package var finalURL: URL {
         switch self {
         case .referenceBundle(let url), .fasta(let url): url.standardizedFileURL
         }
     }
 }
 
-struct AlignmentConsensusPublicationRequest: Sendable {
-    let context: AlignmentActionContext
-    let region: ResolvedAlignmentRegion
-    let consensusRequest: AlignmentConsensusRequest
-    let result: AlignmentConsensusResult
-    let recordName: String
-    let destination: AlignmentConsensusPublicationDestination
+package struct AlignmentConsensusPublicationRequest: Sendable {
+    package let context: AlignmentActionContext
+    package let region: ResolvedAlignmentRegion
+    package let consensusRequest: AlignmentConsensusRequest
+    package let result: AlignmentConsensusResult
+    package let recordName: String
+    package let destination: AlignmentConsensusPublicationDestination
+
+    package init(
+        context: AlignmentActionContext,
+        region: ResolvedAlignmentRegion,
+        consensusRequest: AlignmentConsensusRequest,
+        result: AlignmentConsensusResult,
+        recordName: String,
+        destination: AlignmentConsensusPublicationDestination
+    ) {
+        self.context = context
+        self.region = region
+        self.consensusRequest = consensusRequest
+        self.result = result
+        self.recordName = recordName
+        self.destination = destination
+    }
 }
 
-struct AlignmentConsensusPublicationResult: Sendable, Equatable {
-    let finalURL: URL
-    let payloadURL: URL
-    let provenanceURL: URL
+package struct AlignmentConsensusPublicationResult: Sendable, Equatable {
+    package let finalURL: URL
+    package let payloadURL: URL
+    package let provenanceURL: URL
+
+    package init(finalURL: URL, payloadURL: URL, provenanceURL: URL) {
+        self.finalURL = finalURL
+        self.payloadURL = payloadURL
+        self.provenanceURL = provenanceURL
+    }
 }
 
-enum AlignmentConsensusPublicationError: LocalizedError {
+package enum AlignmentConsensusPublicationError: LocalizedError {
     case invalidRegion
     case invalidResultLength
     case destinationExists(URL)
 
-    var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .invalidRegion: "The consensus publication region is invalid."
         case .invalidResultLength: "The consensus result does not cover the requested region."
@@ -43,21 +65,21 @@ enum AlignmentConsensusPublicationError: LocalizedError {
     }
 }
 
-struct AlignmentConsensusPublicationAttempt: Sendable, Equatable {
-    enum Stage: String, Sendable { case validation, destinationCheck, payloadWrite, manifestWrite, provenanceWrite, sidecarPublication, payloadPublication }
-    let stage: Stage
-    let argv: [String]
-    let reproducibleCommand: String
-    let explicitOptions: [String: String]
-    let resolvedDefaults: [String: String]
-    let destinationPath: String
-    let evidence: [AlignmentEvidenceFileSnapshot]
-    let startedAt: Date
-    let endedAt: Date
-    let exitStatus: Int32
-    let stderr: String
+package struct AlignmentConsensusPublicationAttempt: Sendable, Equatable {
+    package enum Stage: String, Sendable { case validation, destinationCheck, payloadWrite, manifestWrite, provenanceWrite, sidecarPublication, payloadPublication }
+    package let stage: Stage
+    package let argv: [String]
+    package let reproducibleCommand: String
+    package let explicitOptions: [String: String]
+    package let resolvedDefaults: [String: String]
+    package let destinationPath: String
+    package let evidence: [AlignmentEvidenceFileSnapshot]
+    package let startedAt: Date
+    package let endedAt: Date
+    package let exitStatus: Int32
+    package let stderr: String
 
-    var durableLogMessage: String {
+    package var durableLogMessage: String {
         let inputs = evidence.map { "\($0.url.path) size=\($0.byteCount) sha256=\($0.sha256)" }.joined(separator: "; ")
         let explicit = explicitOptions.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
         let defaults = resolvedDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
@@ -65,22 +87,22 @@ struct AlignmentConsensusPublicationAttempt: Sendable, Equatable {
     }
 }
 
-struct AlignmentConsensusPublicationFailure: LocalizedError, Sendable {
-    let attempt: AlignmentConsensusPublicationAttempt
-    let underlyingDescription: String
-    var errorDescription: String? { underlyingDescription }
+package struct AlignmentConsensusPublicationFailure: LocalizedError, Sendable {
+    package let attempt: AlignmentConsensusPublicationAttempt
+    package let underlyingDescription: String
+    package var errorDescription: String? { underlyingDescription }
 }
 
 /// Publishes evidence-only consensus through a hidden sibling staging target.
 /// Every durable descriptor is constructed from its final path; staging paths
 /// survive only as `originPath`/the explicit staging-to-final audit mapping.
-struct AlignmentConsensusPublicationService {
-    typealias Mover = (URL, URL) throws -> Void
-    typealias FailureInjector = (AlignmentConsensusPublicationAttempt.Stage) throws -> Void
+package struct AlignmentConsensusPublicationService {
+    package typealias Mover = (URL, URL) throws -> Void
+    package typealias FailureInjector = (AlignmentConsensusPublicationAttempt.Stage) throws -> Void
     private let moveItem: Mover
     private let failureInjector: FailureInjector
 
-    init(
+    package init(
         moveItem: @escaping Mover = { source, destination in
             try FileManager.default.moveItem(at: source, to: destination)
         },
@@ -90,7 +112,7 @@ struct AlignmentConsensusPublicationService {
         self.failureInjector = failureInjector
     }
 
-    func publish(_ request: AlignmentConsensusPublicationRequest) throws -> AlignmentConsensusPublicationResult {
+    package func publish(_ request: AlignmentConsensusPublicationRequest) throws -> AlignmentConsensusPublicationResult {
         let runClock = ProvenanceRunClock()
         var stage = AlignmentConsensusPublicationAttempt.Stage.validation
         do {

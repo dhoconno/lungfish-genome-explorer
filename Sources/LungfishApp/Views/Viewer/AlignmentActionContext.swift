@@ -8,14 +8,14 @@ import LungfishWorkflow
 
 /// Cheap, stat-based identity for a file used to decide whether a cached
 /// SHA-256 digest is still trustworthy, without rereading the file.
-struct AlignmentEvidenceFileIdentity: Sendable, Equatable, Hashable {
-    let path: String
-    let byteCount: UInt64
-    let modificationDate: Double
-    let inode: UInt64
-    let device: Int32
+package struct AlignmentEvidenceFileIdentity: Sendable, Equatable, Hashable {
+    package let path: String
+    package let byteCount: UInt64
+    package let modificationDate: Double
+    package let inode: UInt64
+    package let device: Int32
 
-    init(path: String, byteCount: UInt64, modificationDate: Double, inode: UInt64, device: Int32) {
+    package init(path: String, byteCount: UInt64, modificationDate: Double, inode: UInt64, device: Int32) {
         self.path = path
         self.byteCount = byteCount
         self.modificationDate = modificationDate
@@ -24,7 +24,7 @@ struct AlignmentEvidenceFileIdentity: Sendable, Equatable, Hashable {
     }
 
     /// Reads the cheap identity fields for `url` with a single `stat(2)` call.
-    static func current(of url: URL) throws -> AlignmentEvidenceFileIdentity {
+    package static func current(of url: URL) throws -> AlignmentEvidenceFileIdentity {
         var info = stat()
         guard stat(url.path, &info) == 0 else {
             throw AlignmentActionContext.EvidenceError.missingEvidence(url)
@@ -44,8 +44,10 @@ struct AlignmentEvidenceFileIdentity: Sendable, Equatable, Hashable {
 /// actions on the same, unchanged alignment evidence never rehash. A hit
 /// requires path, size, mtime, inode and device to all match the cached
 /// entry; any difference forces a fresh digest.
-actor AlignmentEvidenceDigestCache {
-    static let shared = AlignmentEvidenceDigestCache()
+package actor AlignmentEvidenceDigestCache {
+    package static let shared = AlignmentEvidenceDigestCache()
+
+    package init() {}
 
     private var digests: [AlignmentEvidenceFileIdentity: String] = [:]
 
@@ -53,7 +55,7 @@ actor AlignmentEvidenceDigestCache {
     /// caching a fresh one with `hash` otherwise. `hash` runs off this actor's
     /// isolation only in the sense that callers should already be off the
     /// main actor; the cache lookup itself is cheap (dictionary access).
-    func digest(
+    package func digest(
         for identity: AlignmentEvidenceFileIdentity,
         computingWith hash: () throws -> String
     ) rethrows -> String {
@@ -66,25 +68,25 @@ actor AlignmentEvidenceDigestCache {
     }
 
     /// Test/diagnostic seam: number of cached entries.
-    func cachedEntryCount() -> Int {
+    package func cachedEntryCount() -> Int {
         digests.count
     }
 
     /// Test seam: clears the cache so tests do not leak state across runs.
-    func removeAll() {
+    package func removeAll() {
         digests.removeAll()
     }
 }
 
 /// Stable, user-independent identity of the alignment evidence currently shown
 /// by the full viewer.
-struct AlignmentEvidenceIdentity: Sendable, Equatable, Hashable {
-    let workflow: String
-    let resultID: String
-    let sampleID: String
-    let evidenceID: String
+package struct AlignmentEvidenceIdentity: Sendable, Equatable, Hashable {
+    package let workflow: String
+    package let resultID: String
+    package let sampleID: String
+    package let evidenceID: String
 
-    init(workflow: String, resultID: String, sampleID: String, evidenceID: String) {
+    package init(workflow: String, resultID: String, sampleID: String, evidenceID: String) {
         self.workflow = workflow
         self.resultID = resultID
         self.sampleID = sampleID
@@ -93,12 +95,12 @@ struct AlignmentEvidenceIdentity: Sendable, Equatable, Hashable {
 }
 
 /// A final evidence file and the provenance fingerprint captured for it.
-struct AlignmentEvidenceFileSnapshot: Sendable, Equatable {
-    let url: URL
-    let byteCount: UInt64
-    let sha256: String
+package struct AlignmentEvidenceFileSnapshot: Sendable, Equatable {
+    package let url: URL
+    package let byteCount: UInt64
+    package let sha256: String
 
-    init(url: URL, byteCount: UInt64, sha256: String) {
+    package init(url: URL, byteCount: UInt64, sha256: String) {
         self.url = url
         self.byteCount = byteCount
         self.sha256 = sha256
@@ -106,13 +108,13 @@ struct AlignmentEvidenceFileSnapshot: Sendable, Equatable {
 }
 
 /// Where a scientific action may persist a new result.
-enum AlignmentOutputCapability: Sendable, Equatable {
+package enum AlignmentOutputCapability: Sendable, Equatable {
     case projectDerivedRoot(URL)
     case userSelectedDestination
 }
 
 /// The original reads available for read-level actions.
-enum AlignmentSourceReadResolution: Sendable, Equatable {
+package enum AlignmentSourceReadResolution: Sendable, Equatable {
     case sourceFASTQs([URL])
     case bamFallback
 }
@@ -120,8 +122,8 @@ enum AlignmentSourceReadResolution: Sendable, Equatable {
 /// Immutable, App-owned input shared by every action exposed for displayed
 /// alignment evidence.  It intentionally describes final evidence directly;
 /// it never creates a wrapper bundle or mutates the evidence being viewed.
-struct AlignmentActionContext: Sendable, Equatable {
-    enum ValidationError: Error, Sendable, Equatable {
+package struct AlignmentActionContext: Sendable, Equatable {
+    package enum ValidationError: Error, Sendable, Equatable {
         case emptyIdentityField(String)
         case emptyContig
         case invalidContigLength(Int)
@@ -133,26 +135,26 @@ struct AlignmentActionContext: Sendable, Equatable {
         case unexpectedDecodingReferenceSnapshot(URL)
     }
 
-    enum EvidenceError: Error, Sendable, Equatable {
+    package enum EvidenceError: Error, Sendable, Equatable {
         case missingEvidence(URL)
         case staleEvidence(URL)
     }
 
-    let identity: AlignmentEvidenceIdentity
-    let alignmentURL: URL
-    let indexURL: URL
-    let decodingReferenceURL: URL?
-    let contig: String
-    let contigLength: Int
-    let alignmentSnapshot: AlignmentEvidenceFileSnapshot
-    let indexSnapshot: AlignmentEvidenceFileSnapshot
-    let decodingReferenceSnapshot: AlignmentEvidenceFileSnapshot?
-    let filters: AlignmentConsensusFilters
-    let outputCapability: AlignmentOutputCapability
-    let sourceReads: AlignmentSourceReadResolution
-    let presentationLabel: String
+    package let identity: AlignmentEvidenceIdentity
+    package let alignmentURL: URL
+    package let indexURL: URL
+    package let decodingReferenceURL: URL?
+    package let contig: String
+    package let contigLength: Int
+    package let alignmentSnapshot: AlignmentEvidenceFileSnapshot
+    package let indexSnapshot: AlignmentEvidenceFileSnapshot
+    package let decodingReferenceSnapshot: AlignmentEvidenceFileSnapshot?
+    package let filters: AlignmentConsensusFilters
+    package let outputCapability: AlignmentOutputCapability
+    package let sourceReads: AlignmentSourceReadResolution
+    package let presentationLabel: String
 
-    init(
+    package init(
         identity: AlignmentEvidenceIdentity,
         alignmentURL: URL,
         indexURL: URL,
@@ -248,7 +250,7 @@ struct AlignmentActionContext: Sendable, Equatable {
 
     /// Clipboard actions only present in-memory derivatives and therefore never
     /// need a project output root or destination chooser.
-    var allowsClipboardActions: Bool { true }
+    package var allowsClipboardActions: Bool { true }
 
     /// Re-check every final evidence payload immediately before an action is
     /// launched or published. Runs entirely off the main actor: this is safe
@@ -258,7 +260,7 @@ struct AlignmentActionContext: Sendable, Equatable {
     /// rehash only happens when the file's cheap stat identity (size, mtime,
     /// inode, device) no longer matches what was cached for that digest, or
     /// nothing has ever hashed this identity before.
-    nonisolated func validateCurrentSnapshots(
+    package nonisolated func validateCurrentSnapshots(
         digestCache: AlignmentEvidenceDigestCache = .shared
     ) async throws {
         try await validateSnapshot(alignmentSnapshot, at: alignmentURL, digestCache: digestCache)
@@ -268,7 +270,7 @@ struct AlignmentActionContext: Sendable, Equatable {
         }
     }
 
-    func replacingFilters(_ filters: AlignmentConsensusFilters) throws -> AlignmentActionContext {
+    package func replacingFilters(_ filters: AlignmentConsensusFilters) throws -> AlignmentActionContext {
         try AlignmentActionContext(
             identity: identity,
             alignmentURL: alignmentURL,
