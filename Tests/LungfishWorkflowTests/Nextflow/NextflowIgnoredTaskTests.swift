@@ -39,9 +39,14 @@ final class NextflowIgnoredTaskTests: XCTestCase {
             (Self.prefix + "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (S2)", "FAILED", "140"),
             (Self.prefix + "FASTQ_ALIGN_BOWTIE2:BOWTIE2_ALIGN (S2)", "CACHED", "0"),
             (Self.prefix + "MULTIQC", "COMPLETED", "0"),
+            (Self.prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN (S3)", "FAILED", "1"),
         ])
 
-        XCTAssertEqual(NextflowTraceTask.ignored(inTrace: text), [], "a FAILED row with a later success of its name is a retry")
+        XCTAssertEqual(
+            NextflowTraceTask.ignored(inTrace: text),
+            [NextflowTraceTask(processPath: Self.prefix + "CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN", tag: "S3")],
+            "a FAILED row with a later success of its name is a retry, and a FAILED row with none is ignored"
+        )
     }
 
     func testAFailedRowWithNoLaterSuccessIsIgnored() {
