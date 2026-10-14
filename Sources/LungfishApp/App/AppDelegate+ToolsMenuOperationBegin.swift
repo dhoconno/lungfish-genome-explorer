@@ -147,11 +147,15 @@ extension AppDelegate {
     /// builds it from `request`. The command names the bundles the user chose
     /// and leaves `--read-layout` in auto, because `lungfish-cli map` resolves
     /// the bundles' files and the read layout the same way this run does.
+    ///
+    /// The CLI route passes `cliArguments`, the argv `CLIReadsRunner` runs, starting with `map`,
+    /// and the row records that argv instead (decision C5).
     @discardableResult
     static func beginManagedMappingOperation(
         request: MappingRunRequest,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
+        cliArguments: [String]? = nil,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
         let result = reporter.begin(
@@ -160,7 +164,7 @@ extension AppDelegate {
             operationType: .mapping,
             cliCommand: OperationCenter.buildCLICommand(
                 subcommand: "map",
-                args: MappingCLIInvocationBuilder.arguments(for: request)
+                args: cliArguments.map { Array($0.dropFirst()) } ?? MappingCLIInvocationBuilder.arguments(for: request)
             ),
             routeContext: routeContext
         )

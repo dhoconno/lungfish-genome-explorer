@@ -81,6 +81,7 @@ extension AppDelegate {
         routeContext explicitRouteContext: OperationRouteContext? = nil
     ) {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        let route = ReadsLaunchRouteSettings().route(for: .mapping)
         guard canWriteProjectOutputs(
             projectURL: routeContext?.projectURL,
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
@@ -125,6 +126,24 @@ extension AppDelegate {
                 let preassignedDirectory = preassignedIterator.next() ?? nil
                 if Task.isCancelled { break }
                 guard let self else { break }
+                // The mapping key's CLI route runs `lungfish-cli map` for the same request and
+                // folder (decision C4). Its row's cancel also reaches the command at once.
+                guard route == .legacy else {
+                    let succeeded = await self.runSingleManagedMappingThroughCLI(
+                        request: request,
+                        warning: plan.warning,
+                        routeContext: routeContext,
+                        preassignedAnalysisDirectory: preassignedDirectory,
+                        cancelBatch: { taskHandle.cancel() },
+                        registerCancel: { @MainActor opID in
+                            // The child now tracks its output, and so the batch root. The
+                            // runner set the row's cancel already, so `opID` is not used here.
+                            batchOutputHold.didLaunchChild()
+                        }
+                    )
+                    anySucceeded = anySucceeded || succeeded
+                    continue
+                }
                 let succeeded = await self.runSingleManagedMappingAwaitingCompletion(
                     request: request,
                     warning: plan.warning,
@@ -410,5 +429,106 @@ extension AppDelegate {
             }
         )
         return publication?.result
+    }
+
+    // MARK: - The CLI route behind the mapping key
+
+    /// The argv the mapping key's CLI route runs for `request`, which its row records: the command
+    /// the in-process row records today, with `--format json` so the command prints its report
+    /// and no text on standard output (decision C5).
+    static func managedMappingCLIArguments(for request: MappingRunRequest) -> [String] {
+        ["map"] + MappingCLIInvocationBuilder.arguments(for: request) + ["--format", "json"]
+    }
+
+    /// Runs one request through `lungfish-cli map` on `CLIReadsRunner` and returns whether it
+    /// completed (Phase 2.10, decisions C4 and C5). The row's title, first detail, folder, warning,
+    /// UI-test backend and end of run are those of `runSingleManagedMappingAwaitingCompletion`. The
+    /// command writes the BAM, the sidecars, the viewer bundle and the source bundle's analysis
+    /// history, so the app only reads the result back to complete the row. A failed or cancelled
+    /// run's folder goes, as on the in-process route. The row's cancel cancels the batch through
+    /// `cancelBatch` and reaches the command at once through the runner.
+    private func runSingleManagedMappingThroughCLI(
+        request initialRequest: MappingRunRequest,
+        warning: String?,
+        routeContext: OperationRouteContext?,
+        preassignedAnalysisDirectory: URL? = nil,
+        runner: CLIReadsRunner = CLIReadsRunner(),
+        cancelBatch: @escaping @Sendable () -> Void,
+        registerCancel: @MainActor (UUID) -> Void
+    ) async -> Bool {
+        var request = initialRequest
+        var ownedAnalysisDirectory: URL?
+        if let preassignedAnalysisDirectory {
+            request = request.withOutputDirectory(preassignedAnalysisDirectory)
+            ownedAnalysisDirectory = preassignedAnalysisDirectory
+        } else if let projectURL = routeContext?.projectURL ?? request.projectURL,
+                  let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
+            request = request.withOutputDirectory(analysisDir)
+            ownedAnalysisDirectory = analysisDir
+        }
+        let discardOwnedAnalysisDirectory = {
+            if let ownedAnalysisDirectory {
+                AnalysesFolder.discardFailedAnalysisDirectory(ownedAnalysisDirectory)
+            }
+        }
+
+        let arguments = Self.managedMappingCLIArguments(for: request)
+        let began = Self.beginManagedMappingOperation(
+            request: request,
+            routeContext: routeContext,
+            cliArguments: arguments
+        ) { opID in
+            if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                cancelBatch()
+                runner.cancel()
+            }
+            registerCancel(opID)
+            if let warning {
+                OperationCenter.shared.log(id: opID, level: .warning, message: warning)
+            }
+        }
+        guard let opID = began.startedID else {
+            discardOwnedAnalysisDirectory()
+            return false
+        }
+
+        do {
+            if AppUITestConfiguration.current.isEnabled,
+               AppUITestConfiguration.current.backendMode == .deterministic {
+                let result = try AppUITestMappingBackend.writeResult(for: request)
+                guard OperationCenter.shared.complete(
+                    id: opID,
+                    detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped"
+                ) else { return false }
+                AppUITestConfiguration.current.appendEvent(
+                    "mapping.operation.completed target=\(request.outputDirectory.lastPathComponent)"
+                )
+                routePostMappingDeterministicCompletion(outputDirectory: request.outputDirectory, request: request)
+                return true
+            }
+
+            _ = try await runner.runResult(arguments: arguments, operationID: opID)
+            let outputDirectory = request.outputDirectory
+            let result = try await Task.detached { try MappingResult.load(from: outputDirectory) }.value
+            guard OperationCenter.shared.complete(
+                id: opID,
+                detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped",
+                bundleURLs: [result.viewerBundleURL ?? result.bamURL]
+            ) else { return false }
+            targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                .sidebarController.requestReloadFromFilesystem()
+            return true
+        } catch is CancellationError {
+            discardOwnedAnalysisDirectory()
+            OperationCenter.shared.acknowledgeCancellation(id: opID)
+            return false
+        } catch {
+            discardOwnedAnalysisDirectory()
+            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                .sidebarController.requestReloadFromFilesystem()
+            return false
+        }
     }
 }
