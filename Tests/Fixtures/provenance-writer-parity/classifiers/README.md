@@ -17,6 +17,7 @@ The normalization keeps the facts the same on every Mac and every run.
 - Host values become tokens, namely `<app-version>`, `<host-os>`, `<host-name>`, and `<cli-version>` when the CLI version differs from the app version.
 - Any UUID becomes `<uuid>`.
 - The times a clock decides are cleared (timing `clockedRunAndSteps`), and the value of every `peakMemoryBytes` becomes `0`, because the field is a number and a token cannot take its place. The key stays, so a writer that starts or stops recording a peak shows as a difference. No classifier writer records a peak at the base, so no file here holds the key yet.
+- `TMPDIR` is taken out of the `changed` names of every step `observation`, because a launch lists it only when the process that ran the test has one. Every other name stays.
 - The checksum and size of a file whose bytes differ on every run are cleared. These are the result sidecars `classification-result.json` and `esviritu-result.json`, the gzipped per-read output and its SQLite index, and the Kraken2 batch manifest.
 
 The two batch indexes `kraken2.sqlite` and `esviritu.sqlite` are fixed stand-in files, because `lungfish-cli build-db` runs as a subprocess that the unit tier does not start.
@@ -42,5 +43,6 @@ A lane moves only the facts its panel decision names, in a reviewed commit that 
 | S2, environment changes | every file | The conda and container values each step records, and the tool version evidence a managed environment gives (P10, P12) |
 | S3, the recorder rebuilt on the builder | `kraken2-pipeline-profile`, `esviritu-pipeline` | The repeated `files` entries and the step order the rebuild declares, never the canonical run rules (P11) |
 | S4a and S4b, the envelope copy helper | `kraken2-batch`, `esviritu-batch` | The status and the step ids the batch rollup copies from each sample record (P5) |
+| S36, the observations (Phase 2.10) | every file | The `observation` of each kraken2, Bracken and EsViritu step, which the facts hold under `steps` and never under the legacy views. The batch rollups and the wrapper record copy the steps whole, so they carry it too |
 
 The known defects these records hold are pinned on their own in `ClassifierLegacyRecordPinTests` and `ClassifierBrackenDegradePinTests`, each with the lane that flips it.

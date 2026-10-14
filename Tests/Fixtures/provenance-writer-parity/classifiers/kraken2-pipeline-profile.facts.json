@@ -817,6 +817,34 @@
           "size" : 24
         }
       ],
+      "observation" : {
+        "environment" : {
+          "base" : "hermetic",
+          "changed" : [
+            "HOME",
+            "MAMBA_ROOT_PREFIX",
+            "PATH"
+          ],
+          "pathPrefix" : [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+          ],
+          "values" : {
+            "MAMBA_ROOT_PREFIX" : "<project>/conda"
+          }
+        },
+        "outputComplete" : true,
+        "stage" : {
+          "count" : 1,
+          "index" : 0
+        },
+        "termination" : {
+          "code" : 0,
+          "kind" : "exited"
+        }
+      },
       "outputs" : [
         {
           "format" : "text",
@@ -1033,6 +1061,34 @@
           "size" : 31
         }
       ],
+      "observation" : {
+        "environment" : {
+          "base" : "hermetic",
+          "changed" : [
+            "HOME",
+            "MAMBA_ROOT_PREFIX",
+            "PATH"
+          ],
+          "pathPrefix" : [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+          ],
+          "values" : {
+            "MAMBA_ROOT_PREFIX" : "<project>/conda"
+          }
+        },
+        "outputComplete" : true,
+        "stage" : {
+          "count" : 1,
+          "index" : 0
+        },
+        "termination" : {
+          "code" : 0,
+          "kind" : "exited"
+        }
+      },
       "outputs" : [
         {
           "format" : "text",
