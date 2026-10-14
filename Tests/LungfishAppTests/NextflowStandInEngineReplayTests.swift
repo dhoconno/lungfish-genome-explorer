@@ -425,6 +425,41 @@ final class NextflowStandInEngineReplayTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathComponent("variants").path))
     }
 
+    /// `.reportsErroredTasks` fails and ignores each sample's `PANGOLIN_RUN`, the last task of a
+    /// sample now that V1b showed `NEXTCLADE_RUN` never starts. The release ignores no failure, so
+    /// the case is the stand-in's own. The console prints Nextflow's note for the task, nf-core's
+    /// errored completion line last and no `[SUCCESS]` line.
+    func testViralReconReportsAnIgnoredPangolinFailureInTheConsole() throws {
+        for workflow in [NextflowStandInWorkflow.viralRecon, .taxTriage] {
+            XCTAssertTrue(workflow.processNames.contains(workflow.ignoredFailureProcessName), workflow.name)
+        }
+        let engine = try NextflowStandInEngine(
+            root: root.appendingPathComponent("engine", isDirectory: true),
+            workflow: .viralRecon,
+            behaviour: .reportsErroredTasks
+        )
+        let output = root.appendingPathComponent("results", isDirectory: true)
+        let result = try ProcessRunner.run(engine.nextflow, [
+            "run", "nf-core/viralrecon", "--input", try writeViralReconSamplesheet(["S1", "S2"]).path,
+            "--outdir", output.path, "-with-trace", output.appendingPathComponent("trace.txt").path,
+        ], timeout: 60)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let pangolin = "NFCORE_VIRALRECON:VIRALRECON:CONSENSUS_BCFTOOLS:CONSENSUS_QC:PANGOLIN_RUN"
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        for sample in ["S1", "S2"] {
+            let note = "] NOTE: Process `\(pangolin) (\(sample))` terminated with an error exit status (137) -- Error is ignored"
+            XCTAssertEqual(lines.filter { $0.hasSuffix(note) }.count, 1, sample)
+        }
+        XCTAssertEqual(lines.last, "-\u{1B}[0;35m[nf-core/viralrecon]\u{1B}[0;33m Pipeline completed successfully, but with errored process(es) \u{1B}[0m-")
+        XCTAssertEqual(lines.filter { $0.hasPrefix("[SUCCESS]") }, [])
+        let rows = try String(contentsOf: output.appendingPathComponent("trace.txt"), encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(
+            rows.filter { $0.hasSuffix("\tFAILED\t137") }.map { String($0.split(separator: "\t")[3]) },
+            ["\(pangolin) (S1)", "\(pangolin) (S2)"]
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.appendingPathComponent("variants/ivar/consensus/bcftools/S1.consensus.fa").path))
+    }
+
     /// The eight lines of `before_text` in subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf
     /// at tag 3.0.0, with the manifest version, after the empty line it starts with.
     private static let viralReconLogo: [String] = {
