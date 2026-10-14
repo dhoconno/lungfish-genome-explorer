@@ -5,6 +5,7 @@
 import Compression
 import Foundation
 import LungfishCore
+import os
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.io", category: "ONTDirectoryImporter")
@@ -614,11 +615,14 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
     ///
     /// Handles both gzip-compressed and uncompressed FASTQ files.
     /// For gzip files, uses `gzcat` for decompression. For plain text, uses `wc -l` directly.
-    private func countReadsInFASTQ(url: URL) throws -> Int {
+    ///
+    /// - Parameter lineCounter: The tool that counts the lines, `wc` unless a test names a reader that
+    ///   goes away early.
+    func countReadsInFASTQ(url: URL, lineCounter: URL = URL(fileURLWithPath: "/usr/bin/wc")) throws -> Int {
         let isGzipped = url.pathExtension.lowercased() == "gz"
 
         let wcProcess = Process()
-        wcProcess.executableURL = URL(fileURLWithPath: "/usr/bin/wc")
+        wcProcess.executableURL = lineCounter
         wcProcess.arguments = ["-l"]
 
         let outputPipe = Pipe()
@@ -626,6 +630,8 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         wcProcess.standardError = FileHandle.nullDevice
 
         var decompressProcess: Process?
+        // The first error the feed of a plain file met, such as the broken pipe of a reader that exited early.
+        let feedFailure = OSAllocatedUnfairLock<(any Error)?>(initialState: nil)
 
         if isGzipped {
             let gzcat = Process()
@@ -642,16 +648,29 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         } else {
             let inputPipe = Pipe()
             wcProcess.standardInput = inputPipe
+            // A reader that has gone fails the write with EPIPE, which the feed below stops on and this call
+            // throws. Without this the write raises SIGPIPE and ends the whole process, the app or the CLI.
+            // Setting it on the write end alone leaves the signal disposition of the rest of the process alone.
+            guard fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
             // Feed file content to wc via pipe
             let inputHandle = try FileHandle(forReadingFrom: url)
             inputPipe.fileHandleForWriting.writeabilityHandler = { handle in
-                let data = inputHandle.readData(ofLength: 4 * 1024 * 1024)
-                if data.isEmpty {
+                do {
+                    let data = try inputHandle.read(upToCount: 4 * 1024 * 1024) ?? Data()
+                    if data.isEmpty {
+                        handle.writeabilityHandler = nil
+                        try? handle.close()
+                        try? inputHandle.close()
+                    } else {
+                        try handle.write(contentsOf: data)
+                    }
+                } catch {
+                    feedFailure.withLock { $0 = $0 ?? error }
                     handle.writeabilityHandler = nil
-                    handle.closeFile()
+                    try? handle.close()
                     try? inputHandle.close()
-                } else {
-                    handle.write(data)
                 }
             }
         }
@@ -661,6 +680,11 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
         decompressProcess?.waitUntilExit()
         wcProcess.waitUntilExit()
+
+        if let failure = feedFailure.withLock({ $0 }) {
+            // A failed write reports the POSIX error, here the broken pipe, under a generic "couldn't be saved".
+            throw (failure as NSError).userInfo[NSUnderlyingErrorKey] as? NSError ?? failure
+        }
 
         if let dp = decompressProcess, dp.terminationStatus != 0 {
             logger.warning("gzcat failed for \(url.lastPathComponent) with exit code \(dp.terminationStatus)")
