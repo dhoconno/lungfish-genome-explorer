@@ -138,8 +138,8 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
             for (bundle, record) in zip(bundles, records) {
                 try Self.assertRecordNamesEachOutputWithItsDigest(bundle, side: run.side)
                 let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))
-                XCTAssertTrue(
-                    envelope.argv.contains(record.accession),
+                XCTAssertEqual(
+                    envelope.argv.filter { records.map(\.accession).contains($0) }, [record.accession],
                     "side \(run.side): \(bundle.lastPathComponent) names \(envelope.argv)")
             }
         }
