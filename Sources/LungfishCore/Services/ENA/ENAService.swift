@@ -40,8 +40,11 @@ public actor ENAService: DatabaseService {
     // MARK: - Properties
 
     public nonisolated let name = "ENA"
-    public nonisolated let baseURL = URL(string: "https://www.ebi.ac.uk/ena/browser/api/")!
-    private let portalURL = URL(string: "https://www.ebi.ac.uk/ena/portal/api/")!
+    public nonisolated let baseURL: URL
+    private let portalURL: URL
+    /// The origin a debug build's stand-in serves the files of a run from, which the records this
+    /// service decodes carry. Nil for ENA's own hosts.
+    private let mirrorOrigin: String?
 
     private let httpClient: HTTPClient
     private var lastRequestTime: Date?
@@ -54,8 +57,18 @@ public actor ENAService: DatabaseService {
 
     /// Creates a new ENA service.
     ///
-    /// - Parameter httpClient: HTTP client for making requests
-    public init(httpClient: HTTPClient = URLSessionHTTPClient()) {
+    /// - Parameters:
+    ///   - httpClient: HTTP client for making requests
+    ///   - environment: Where a debug build reads its loopback stand-in origin from
+    ///     (``ENAServiceEndpoints``). A release build ignores it.
+    public init(
+        httpClient: HTTPClient = URLSessionHTTPClient(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        let endpoints = ENAServiceEndpoints(environment: environment)
+        self.baseURL = endpoints.browserBase
+        self.portalURL = endpoints.portalBase
+        self.mirrorOrigin = endpoints.mirrorOrigin
         self.httpClient = httpClient
     }
 
@@ -247,7 +260,7 @@ public actor ENAService: DatabaseService {
 
         // Try to decode as array, handle potential empty array
         do {
-            return try JSONDecoder().decode([ENAReadRecord].self, from: data)
+            return stamped(try JSONDecoder().decode([ENAReadRecord].self, from: data))
         } catch {
             // Check if it's an error response
             if let errorText = String(data: data, encoding: .utf8),
@@ -282,7 +295,7 @@ public actor ENAService: DatabaseService {
         }
 
         do {
-            return try JSONDecoder().decode([ENAReadRecord].self, from: data)
+            return stamped(try JSONDecoder().decode([ENAReadRecord].self, from: data))
         } catch {
             if let errorText = String(data: data, encoding: .utf8),
                errorText.contains("No results") {
@@ -403,6 +416,17 @@ public actor ENAService: DatabaseService {
     }
 
     // MARK: - Private Methods
+
+    /// `records` as a debug build's stand-in serves them: each one carries the origin its files are
+    /// fetched from. With no stand-in the records are returned unchanged.
+    private func stamped(_ records: [ENAReadRecord]) -> [ENAReadRecord] {
+        guard let mirrorOrigin else { return records }
+        return records.map { record in
+            var stamped = record
+            stamped.mirrorOrigin = mirrorOrigin
+            return stamped
+        }
+    }
 
     private nonisolated static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError {
@@ -562,6 +586,9 @@ public struct ENAReadRecord: Codable, Sendable {
     public let fastqBytes: String?  // Semicolon-separated file sizes
     public let fastqMD5: String?  // Semicolon-separated MD5 checksums
     public let firstPublic: Date?
+    /// The origin a debug build's stand-in serves this record's files from. Only an ``ENAService``
+    /// bound to a stand-in sets it. It is not a coded field, so no downloaded or stored record can.
+    package var mirrorOrigin: String?
 
     enum CodingKeys: String, CodingKey {
         case runAccession = "run_accession"
@@ -656,8 +683,7 @@ public struct ENAReadRecord: Codable, Sendable {
     public var fastqHTTPURLs: [URL] {
         guard let ftpPaths = fastqFTP, !ftpPaths.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
         return ftpPaths.components(separatedBy: ";").compactMap { ftpPath in
-            let httpPath = "https://\(ftpPath)"
-            return URL(string: httpPath)
+            URL(string: Self.fileURLString(ftpPath, mirrorOrigin: mirrorOrigin))
         }
     }
 }
