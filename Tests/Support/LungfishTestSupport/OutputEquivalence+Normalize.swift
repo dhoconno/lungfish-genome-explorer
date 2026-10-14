@@ -36,7 +36,10 @@ extension OutputEquivalence {
         case .remoteRequest:
             return try normalizedRequest(url, masks: masks.payloads, context: context)
         case .managedPlan:
-            let text = applying(masks.payloads, to: try String(contentsOf: url, encoding: .utf8), context: context)
+            // Each file gets the masks of its role, as a file of `.files` does, so a provenance envelope in a
+            // managed tree takes the provenance masks. The managed state files add their clock keys.
+            let roleMasks = masks.masks(for: role(ofFileNamed: url.lastPathComponent))
+            let text = applying(roleMasks + masks.managed, to: try String(contentsOf: url, encoding: .utf8), context: context)
             return canonicalJSON(text) ?? text
         }
     }

@@ -22,12 +22,22 @@ extension OutputEquivalence {
         /// Every other text. That is payload text, a BAM header, an index
         /// listing, a remote request body and a managed plan.
         public var payloads: [Mask]
+        /// The masks a managed plan (`.managedPlan`) applies on top of its file's role, to the text of the
+        /// managed state files. No other kind applies them.
+        public var managed: [Mask]
+        /// The masks a managed plan applies to the relative name of each file. No other kind applies them.
+        public var managedNames: [Mask]
 
-        public init(provenance: [Mask], records: [Mask], names: [Mask], payloads: [Mask]) {
+        public init(
+            provenance: [Mask], records: [Mask], names: [Mask], payloads: [Mask],
+            managed: [Mask] = [], managedNames: [Mask] = []
+        ) {
             self.provenance = provenance
             self.records = records
             self.names = names
             self.payloads = payloads
+            self.managed = managed
+            self.managedNames = managedNames
         }
 
         /// The contract's masks. A provenance envelope gets all of them. A
@@ -40,6 +50,9 @@ extension OutputEquivalence {
         /// sidecar's three clock values and a demo project install record's
         /// install time alone, so any other date, a host or a read ID in data
         /// is compared as written.
+        /// A managed plan gives each file the masks of its role, as a file of the other kinds gets them, so a
+        /// provenance envelope takes the provenance masks. It also masks the clock values of its receipt and
+        /// pack status cache by key and the UTC stamp that starts a record's file name, and nothing else.
         public static var standard: MaskPolicy {
             let records = [
                 Masks.contentComparedDigests,
@@ -55,7 +68,9 @@ extension OutputEquivalence {
                 provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
-                payloads: [Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock]
+                payloads: [Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock],
+                managed: [Masks.managedStateClocks],
+                managedNames: [Masks.managedRecordStamp]
             )
         }
 
@@ -195,6 +210,88 @@ extension OutputEquivalence {
             }
             return sidecar
         }
+
+        /// The clock values a managed storage root's state files hold, which only `.managedPlan` applies: in
+        /// `dependency-receipt.json` the value of each `installedAt` and `updatedAt` key, and in
+        /// `conda/cache/plugin-pack-statuses.json` the value of each `timestamp` key and the number after each
+        /// `mtime=` in a fingerprint component, each set to `<TIMESTAMP>`. Those keys in those two files alone, so
+        /// the same keys in any other file, a database's release or version in the receipt, the `size=` and
+        /// `perm=` of a fingerprint component and every other value are compared as written (lane A52 review,
+        /// Fix 3 a, under the BIO ruling on lane A45 M3c).
+        public static let managedStateClocks = Mask(name: "managedStateClocks") { text, context in
+            switch context.recordName {
+            case receiptFileName:
+                return rewritingJSON(text) { value, changed in
+                    maskClockKeys(receiptClockKeys, in: value, changed: &changed)
+                }
+            case packStatusFileName where context.recordFolder == packStatusFolder
+                || context.recordFolder.hasSuffix("/" + packStatusFolder):
+                return rewritingJSON(text) { value, changed in
+                    maskMtimes(in: maskClockKeys(packStatusClockKeys, in: value, changed: &changed), changed: &changed)
+                }
+            default:
+                return text
+            }
+        }
+
+        static let receiptFileName = "dependency-receipt.json"
+        static let receiptClockKeys: Set<String> = ["installedAt", "updatedAt"]
+        static let packStatusFileName = "plugin-pack-statuses.json"
+        static let packStatusFolder = "conda/cache"
+        static let packStatusClockKeys: Set<String> = ["timestamp"]
+
+        /// Sets the value of each key in `keys`, at any depth, to `<TIMESTAMP>`.
+        static func maskClockKeys(_ keys: Set<String>, in value: Any, changed: inout Bool) -> Any {
+            if let array = value as? [Any] {
+                return array.map { maskClockKeys(keys, in: $0, changed: &changed) }
+            }
+            guard var object = value as? [String: Any] else { return value }
+            for (key, item) in object {
+                if keys.contains(key) {
+                    object[key] = "<TIMESTAMP>"
+                    changed = true
+                } else {
+                    object[key] = maskClockKeys(keys, in: item, changed: &changed)
+                }
+            }
+            return object
+        }
+
+        /// Sets the number after each `mtime=` in a string value to `<TIMESTAMP>`.
+        static func maskMtimes(in value: Any, changed: inout Bool) -> Any {
+            if let array = value as? [Any] {
+                return array.map { maskMtimes(in: $0, changed: &changed) }
+            }
+            if var object = value as? [String: Any] {
+                for (key, item) in object {
+                    object[key] = maskMtimes(in: item, changed: &changed)
+                }
+                return object
+            }
+            guard let string = value as? String else { return value }
+            let masked = mtimePattern.stringByReplacingMatches(
+                in: string, range: NSRange(location: 0, length: (string as NSString).length), withTemplate: "$1<TIMESTAMP>"
+            )
+            if masked != string { changed = true }
+            return masked
+        }
+
+        static var mtimePattern: NSRegularExpression { try! NSRegularExpression(pattern: "(mtime=)\(numberPattern)") }
+
+        /// The UTC stamp that starts a record's file name under `provenance/`, as in
+        /// `provenance/packs/2026-10-14T120000-read-mapping-install.lungfish-provenance.json`, which a managed
+        /// plan's compared name shows as `<UTC-STAMP>-`. A name mask, applied by `.managedPlan` alone. The
+        /// folders, the rest of the name and a stamp anywhere else in a name are compared as written, so a
+        /// record of another run, pack or database still differs (lane A52 review, Fix 3 a).
+        public static let managedRecordStamp = Mask(name: "managedRecordStamp") { text, _ in
+            managedRecordStampPattern.stringByReplacingMatches(
+                in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: "$1<UTC-STAMP>-"
+            )
+        }
+
+        static var managedRecordStampPattern: NSRegularExpression { try! NSRegularExpression(
+            pattern: "((?:^|/)provenance/(?:[^/]+/)*)[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}-"
+        ) }
 
         /// The seconds a FASTQ demultiplex import took, which `demux-manifest.json` records as the top-level
         /// `parameters.wallClockSeconds`, set to `<DURATION>` where it is present. That one path alone, so the same

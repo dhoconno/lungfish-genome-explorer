@@ -23,8 +23,10 @@
 // 1. Rows. The in-process Update Tools run opens a parent row and a row for every item through the
 //    reconciler's sink, with no command, where the CLI route opens one row whose command names the
 //    chosen items. Checked by the row assertions in each case, since a row is not a file of a root.
-// 2. Records. The CLI leaves write the pack record and the dependency record of their own process,
-//    where the in-process pack route writes none. Declared below, as the files and values that differ.
+// 2. Records. The CLI pack leaf writes a record for every run, where the in-process pack route writes
+//    none. Declared below. The dependency record is compared under the provenance masks, which hide the
+//    executable of the process that wrote it, and the clock values and ids of the receipt, the pack
+//    status cache and the records are masked by key (docs/contracts/CLI-EQUIVALENCE.md, row "Masks").
 // 3. Cancel. The in-process route cannot stop micromamba and the sheet has no Cancel. The cancel
 //    cases of ManagedToolsCLIGUIParityReplayTests cover the CLI route on sides C and C'.
 // 4. A database that cannot be updated in place shows a notice in process and a failed row on the CLI
@@ -79,81 +81,12 @@ extension ManagedToolsCLIGUIParityReplayTests {
     /// The differences of A against C, each counted. The list only shrinks.
     static let declared: [RouteParityDeclaredDifference<CompletedCase>] = [
         RouteParityDeclaredDifference(
-            [.updateTools: 1],
-            "differs: storage/provenance/dependencies/settled-<ANY>.lungfish-provenance.json at runtimeIdentity.executablePath",
-            reason: "The reconciler writes the Update Tools record on both routes, and its runtime identity names the process that ran it, the app on the in-process route and lungfish-cli on the CLI route.",
-            closedBy: "the phase that removes the in-process route (2.11)"
-        ),
-        RouteParityDeclaredDifference(
             [.packReinstall: 1],
-            "only in C: storage/provenance/packs/settled-<ANY>.lungfish-provenance.json",
+            "only in C: storage/provenance/packs/<UTC-STAMP>-multiple-sequence-alignment-reinstall.lungfish-provenance.json",
             reason: "The in-process pack route writes no record. conda install --pack writes one for every run, install or reinstall (lane A52 M2).",
             closedBy: "the phase that removes the in-process route (2.11)"
         ),
     ]
-
-    // MARK: - Wall-clock values and ids of the managed state files
-
-    /// The kind `.managedPlan` gives every file the roots mask alone (docs/contracts/CLI-EQUIVALENCE.md,
-    /// "plans get the roots and run wall time masks alone"). The managed state files hold the time
-    /// and ids of their run, which that policy leaves as written. The receipt's `installedAt` and
-    /// `updatedAt`, the pack status cache's `timestamp` and file `mtime`s, a record's `createdAt`,
-    /// `startedAt`, `completedAt` and UUIDs, and the minute a record's file name starts with, differ
-    /// between any two runs of one command. C against C' declares nothing, so the clock alone would
-    /// fail two runs of the same command.
-    ///
-    /// This settles each side's root the same way before the comparison. A value becomes `<TIME>` or
-    /// `<ID>` where it is, so a key one route does not write still differs, and a record's stamp
-    /// becomes `settled`. Nothing else is touched. The executable a record names stays, because which
-    /// process wrote the record is a difference of the routes. It is the mask a reviewed change to the
-    /// contract's table would add for managed state, and it goes when that change lands.
-    static func settleWallClock(in root: URL) throws {
-        let fileManager = FileManager.default
-        let storage = storageRoot(of: root)
-        let uuidPattern = "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
-        func settled(_ value: Any, times: Set<String>, ids: Set<String>) -> Any {
-            if let object = value as? [String: Any] {
-                return object.reduce(into: [String: Any]()) { result, pair in
-                    if times.contains(pair.key) {
-                        result[pair.key] = "<TIME>"
-                    } else if ids.contains(pair.key), let text = pair.value as? String,
-                              text.range(of: uuidPattern, options: .regularExpression) != nil {
-                        result[pair.key] = "<ID>"
-                    } else {
-                        result[pair.key] = settled(pair.value, times: times, ids: ids)
-                    }
-                }
-            }
-            if let array = value as? [Any] { return array.map { settled($0, times: times, ids: ids) } }
-            if let text = value as? String {
-                return text.replacingOccurrences(of: "mtime=[0-9.]+", with: "mtime=<TIME>", options: .regularExpression)
-            }
-            return value
-        }
-        func rewrite(_ url: URL, times: Set<String>, ids: Set<String>) throws {
-            let value = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
-            let data = try JSONSerialization.data(
-                withJSONObject: settled(value, times: times, ids: ids), options: [.sortedKeys, .prettyPrinted]
-            )
-            try data.write(to: url)
-        }
-        for relative in ["dependency-receipt.json", "conda/cache/plugin-pack-statuses.json"] {
-            let url = storage.appendingPathComponent(relative)
-            if fileManager.fileExists(atPath: url.path) {
-                try rewrite(url, times: ["installedAt", "updatedAt", "timestamp"], ids: [])
-            }
-        }
-        let provenance = storage.appendingPathComponent("provenance", isDirectory: true)
-        for folder in (try? fileManager.contentsOfDirectory(atPath: provenance.path)) ?? [] {
-            let directory = provenance.appendingPathComponent(folder, isDirectory: true)
-            for name in (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [] {
-                let url = directory.appendingPathComponent(name)
-                try rewrite(url, times: ["createdAt", "startedAt", "completedAt"], ids: ["id"])
-                guard let stamp = name.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}-"#, options: .regularExpression) else { continue }
-                try fileManager.moveItem(at: url, to: directory.appendingPathComponent("settled-" + name[stamp.upperBound...]))
-            }
-        }
-    }
 
     // MARK: - Running a case
 
@@ -201,9 +134,6 @@ extension ManagedToolsCLIGUIParityReplayTests {
         )
         XCTAssertEqual(replay.end, .completed, "side C': \(replay.detail) \(replay.stderr)")
 
-        for root in [rootA, rootC, rootCPrime] {
-            try Self.settleWallClock(in: root)
-        }
         let runs = RouteParityRuns(caseRoot: caseRoot, a: runA, c: runC, cPrime: runCPrime)
         let result = try harness.evaluate(parityCase, declared: Self.declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")

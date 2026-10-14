@@ -49,7 +49,9 @@ public enum OutputEquivalence {
     /// reads, "" at the root, which a record's checksum and size maps are
     /// read from. `recordProject` is the path of the nearest `.lungfish`
     /// project folder that holds that file, nil when none does, which a
-    /// record's `@/` paths are read from.
+    /// record's `@/` paths are read from. `recordName` is the name of that
+    /// file without its folder, "" when no file is read, which the masks of a
+    /// managed plan's state files pick their file by.
     public struct MaskContext: Sendable {
         public let rootA: URL
         public let rootB: URL
@@ -58,6 +60,7 @@ public enum OutputEquivalence {
         public let contentComparedPaths: Set<String>
         public let recordFolder: String
         public let recordProject: String?
+        public let recordName: String
 
         public init(
             rootA: URL,
@@ -66,7 +69,8 @@ public enum OutputEquivalence {
             uuidNumbers: [String: Int] = [:],
             contentComparedPaths: Set<String> = [],
             recordFolder: String = "",
-            recordProject: String? = nil
+            recordProject: String? = nil,
+            recordName: String = ""
         ) {
             self.rootA = rootA
             self.rootB = rootB
@@ -75,6 +79,7 @@ public enum OutputEquivalence {
             self.contentComparedPaths = contentComparedPaths
             self.recordFolder = recordFolder
             self.recordProject = recordProject
+            self.recordName = recordName
         }
 
         /// This side's context for `file`, whose unmasked relative path is
@@ -89,7 +94,7 @@ public enum OutputEquivalence {
             return MaskContext(
                 rootA: rootA, rootB: rootB, runIDNumbers: runIDNumbers, uuidNumbers: uuidNumbers,
                 contentComparedPaths: contentComparedPaths, recordFolder: (name as NSString).deletingLastPathComponent,
-                recordProject: folder.count > 1 ? folder : nil
+                recordProject: folder.count > 1 ? folder : nil, recordName: (name as NSString).lastPathComponent
             )
         }
     }
@@ -197,13 +202,16 @@ public enum OutputEquivalence {
         let sharedNames = blank(filesA).intersection(blank(filesB))
         let numbersA = identifierNumbers(in: filesA, context: rootsOnly, sharedNames: sharedNames)
         let numbersB = identifierNumbers(in: filesB, context: rootsOnly, sharedNames: sharedNames)
-        let maskPaths = kind == .bundle
+        // A bundle masks the relative names of its files with the name masks. A managed plan masks them
+        // with its own, the UTC stamp that starts a record's file name, and no other part of a name.
+        let maskPaths = kind == .bundle || kind == .managedPlan
+        let nameMasks = kind == .managedPlan ? masks.managedNames : masks.names
         let (keyedA, collisionsA) = keyed(
-            filesA, maskPaths: maskPaths, masks: masks.names,
+            filesA, maskPaths: maskPaths, masks: nameMasks,
             context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersA.runIDs, uuidNumbers: numbersA.uuids)
         )
         let (keyedB, collisionsB) = keyed(
-            filesB, maskPaths: maskPaths, masks: masks.names,
+            filesB, maskPaths: maskPaths, masks: nameMasks,
             context: MaskContext(rootA: rootA, rootB: rootB, runIDNumbers: numbersB.runIDs, uuidNumbers: numbersB.uuids)
         )
         // Files in both trees that are compared by content, and folders that
@@ -226,7 +234,7 @@ public enum OutputEquivalence {
             for name in files.keys {
                 var folder = (name as NSString).deletingLastPathComponent
                 while !folder.isEmpty, result[folder] == nil {
-                    result[folder] = maskPaths ? applying(masks.names, to: folder, context: names) : folder
+                    result[folder] = maskPaths ? applying(nameMasks, to: folder, context: names) : folder
                     folder = (folder as NSString).deletingLastPathComponent
                 }
             }
