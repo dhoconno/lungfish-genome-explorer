@@ -6,6 +6,7 @@
 // `ViralReconLaunchedRun.Runner`, which records the launch the engine got and writes Nextflow's own debug log in
 // the launch folder, so every record fact can be checked against the launch it describes.
 
+import CryptoKit
 import Foundation
 import LungfishCore
 import XCTest
@@ -128,6 +129,34 @@ final class ViralReconRunRecordTests: XCTestCase {
         XCTAssertTrue(launched.hasPrefix("nextflow_command: " + probe.command.map(shellEscape).joined(separator: " ") + " "), String(launched))
         let step = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: run.bundle)?.steps.first)
         XCTAssertEqual(step.resolvedOptions["nextflowVersion"], .string("25.04.6"), "the probe's, never the console's")
+    }
+
+    /// B31 review fix 2, BIO 8. The reference files a caller names with `fasta`, `gff` and `primer_fasta` are inputs of
+    /// the step, as Q35's V1 launch passed them. They follow the samplesheet and the reads in the order the record lists
+    /// its parameters, the FASTA, the GFF, the primer BED, then the primer FASTA, and each carries its file's SHA-256.
+    func testTheReferenceFilesAreInputsWithTheirDigests() async throws {
+        let references = root.appendingPathComponent("references", isDirectory: true)
+        try FileManager.default.createDirectory(at: references, withIntermediateDirectories: true)
+        let fasta = references.appendingPathComponent("MN908947.3.fasta")
+        let gff = references.appendingPathComponent("MN908947.3.gff")
+        let primerFASTA = references.appendingPathComponent("primers.fasta")
+        try ">MN908947.3\nACGTACGTACGT\n".write(to: fasta, atomically: true, encoding: .utf8)
+        try "##gff-version 3\nMN908947.3\tstand-in\tgene\t1\t12\t.\t+\t.\tID=gene1\n".write(to: gff, atomically: true, encoding: .utf8)
+        try ">nCoV-2019_1_LEFT\nACGTACGTAC\n".write(to: primerFASTA, atomically: true, encoding: .utf8)
+
+        let run = try await ViralReconLaunchedRun.run(in: root, extraArguments: [
+            "--param", "fasta=\(fasta.path)", "--param", "gff=\(gff.path)", "--param", "primer_fasta=\(primerFASTA.path)",
+        ])
+
+        let step = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: run.bundle)?.steps.first)
+        XCTAssertEqual(
+            step.inputs.map(\.path),
+            ([run.samplesheet] + run.reads + [fasta, gff, run.primerBED, primerFASTA]).map(\.path)
+        )
+        for input in step.inputs {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: input.path))
+            XCTAssertEqual(input.checksumSHA256, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(), input.path)
+        }
     }
 
     /// The A30 seam ruling, deviation 1. Once the engine launched, the manifest names the engine's own log beside its
