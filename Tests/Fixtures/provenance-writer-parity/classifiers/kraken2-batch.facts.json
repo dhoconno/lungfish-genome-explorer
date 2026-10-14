@@ -133,6 +133,7 @@
         "<project>/Analyses/kraken2-batch/SampleA/classification.kraken"
       ],
       "dependsOn" : [
+        3,
         4
       ],
       "exitCode" : 0,
@@ -146,7 +147,9 @@
         "<project>/Analyses/kraken2-batch/SampleA/classification-result.json"
       ],
       "dependsOn" : [
-        2
+        2,
+        3,
+        4
       ],
       "exitCode" : 0,
       "toolName" : "Lungfish Classification Result Sidecar",
@@ -280,6 +283,7 @@
         "<project>/Analyses/kraken2-batch/SampleB/classification.kraken"
       ],
       "dependsOn" : [
+        10,
         11
       ],
       "exitCode" : 0,
@@ -293,7 +297,9 @@
         "<project>/Analyses/kraken2-batch/SampleB/classification-result.json"
       ],
       "dependsOn" : [
-        9
+        9,
+        10,
+        11
       ],
       "exitCode" : 0,
       "toolName" : "Lungfish Classification Result Sidecar",
@@ -819,6 +825,7 @@
         "<project>/Analyses/kraken2-batch/SampleA/classification.kraken"
       ],
       "dependsOn" : [
+        3,
         4
       ],
       "exitCode" : 0,
@@ -832,7 +839,9 @@
         "<project>/Analyses/kraken2-batch/SampleA/classification-result.json"
       ],
       "dependsOn" : [
-        2
+        2,
+        3,
+        4
       ],
       "exitCode" : 0,
       "toolName" : "Lungfish Classification Result Sidecar",
@@ -966,6 +975,7 @@
         "<project>/Analyses/kraken2-batch/SampleB/classification.kraken"
       ],
       "dependsOn" : [
+        10,
         11
       ],
       "exitCode" : 0,
@@ -979,7 +989,9 @@
         "<project>/Analyses/kraken2-batch/SampleB/classification-result.json"
       ],
       "dependsOn" : [
-        9
+        9,
+        10,
+        11
       ],
       "exitCode" : 0,
       "toolName" : "Lungfish Classification Result Sidecar",
@@ -1619,6 +1631,7 @@
         "<project>/Analyses/kraken2-batch/SampleA/classification.kraken"
       ],
       "dependsOn" : [
+        3,
         4
       ],
       "exitStatus" : 0,
@@ -1658,7 +1671,9 @@
         "<project>/Analyses/kraken2-batch/SampleA/classification-result.json"
       ],
       "dependsOn" : [
-        2
+        2,
+        3,
+        4
       ],
       "exitStatus" : 0,
       "inputs" : [
@@ -2129,6 +2144,7 @@
         "<project>/Analyses/kraken2-batch/SampleB/classification.kraken"
       ],
       "dependsOn" : [
+        10,
         11
       ],
       "exitStatus" : 0,
@@ -2168,7 +2184,9 @@
         "<project>/Analyses/kraken2-batch/SampleB/classification-result.json"
       ],
       "dependsOn" : [
-        9
+        9,
+        10,
+        11
       ],
       "exitStatus" : 0,
       "inputs" : [

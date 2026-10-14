@@ -151,6 +151,7 @@
         "<project>/output/classification.kraken"
       ],
       "dependsOn" : [
+        3,
         4
       ],
       "exitCode" : 0,
@@ -164,7 +165,9 @@
         "<project>/output/classification-result.json"
       ],
       "dependsOn" : [
-        2
+        2,
+        3,
+        4
       ],
       "exitCode" : 0,
       "toolName" : "Lungfish Classification Result Sidecar",
@@ -524,6 +527,7 @@
         "<project>/output/classification.kraken"
       ],
       "dependsOn" : [
+        3,
         4
       ],
       "exitCode" : 0,
@@ -537,7 +541,9 @@
         "<project>/output/classification-result.json"
       ],
       "dependsOn" : [
-        2
+        2,
+        3,
+        4
       ],
       "exitCode" : 0,
       "toolName" : "Lungfish Classification Result Sidecar",
@@ -1162,6 +1168,7 @@
         "<project>/output/classification.kraken"
       ],
       "dependsOn" : [
+        3,
         4
       ],
       "exitStatus" : 0,
@@ -1201,7 +1208,9 @@
         "<project>/output/classification-result.json"
       ],
       "dependsOn" : [
-        2
+        2,
+        3,
+        4
       ],
       "exitStatus" : 0,
       "inputs" : [
