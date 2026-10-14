@@ -28,7 +28,8 @@ extension InspectorViewController {
         let canonicalURL = url.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         viewModel.provenanceSectionViewModel.configureVerifiedSources([.init(id: canonicalURL.path, name: "Primer order",
             item: .init(url: url, sidebarType: .analysisResult, contentMode: viewModel.contentMode, displayName: order.metadata.name),
-            verifiedRecord: .init(envelope: envelope, sidecarURL: canonicalURL))])
+            verifiedRecord: .init(envelope: envelope, sidecarURL: canonicalURL,
+                statusWasRecorded: snapshot.provenanceStatedItsStatus))])
         viewModel.reconcileSelectedTab()
     }
     func beginPrimerAnalysisDocument(at url: URL, displaySession: PrimerAnalysisDisplaySession? = nil) {
@@ -61,7 +62,8 @@ extension InspectorViewController {
             var sources: [ProvenanceSource] = [.init(id: canonicalURL.path, name: "Analysis", item: .init(
                 url: bundle.url, sidebarType: .primerAnalysisBundle, contentMode: viewModel.contentMode,
                 displayName: bundle.url.deletingPathExtension().lastPathComponent),
-                verifiedRecord: .init(envelope: snapshot.provenance, sidecarURL: canonicalURL))]
+                verifiedRecord: .init(envelope: snapshot.provenance, sidecarURL: canonicalURL, statusWasRecorded:
+                    snapshot.statusStatedPaths.contains(bundle.manifest.provenance.relativePath)))]
             let toolArtifacts = bundle.manifest.artifacts.filter { $0.role == "toolProvenance" }
             let derivedArtifacts = bundle.manifest.artifacts.filter { $0.role == "derivedProvenance" }
             let workflowArtifacts = bundle.manifest.artifacts.filter { $0.role == "workflowProvenance" }
@@ -73,7 +75,8 @@ extension InspectorViewController {
                 sources.append(.init(id: sidecarURL.path, name: "\(index + 1). \(entry.1.toolName)",
                     item: .init(url: sidecarURL, sidebarType: .primerAnalysisBundle,
                         contentMode: viewModel.contentMode, displayName: entry.1.toolName),
-                    verifiedRecord: .init(envelope: entry.1, sidecarURL: sidecarURL)))
+                    verifiedRecord: .init(envelope: entry.1, sidecarURL: sidecarURL,
+                        statusWasRecorded: snapshot.statusStatedPaths.contains(entry.0.relativePath))))
             }
             viewModel.provenanceSectionViewModel.configureVerifiedSources(sources)
             viewModel.reconcileSelectedTab()

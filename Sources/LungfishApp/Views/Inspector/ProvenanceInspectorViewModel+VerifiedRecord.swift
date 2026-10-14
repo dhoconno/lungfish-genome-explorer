@@ -8,15 +8,12 @@ import LungfishWorkflow
 extension VerifiedProvenanceRecord {
     /// Whether the record stated how its run ended (Phase 2.8 decision P3).
     ///
-    /// A loader that decoded the record from its bytes may say. Otherwise the sidecar's own text decides,
-    /// read the way the lookup reads a record it finds, so a canonical envelope that holds no `status` key
-    /// reads Not recorded here as it does there. A sidecar that cannot be read counts as stating its status,
-    /// as a canonical envelope does. Reading writes nothing.
+    /// The loader that decoded the record from its verified bytes, off the main actor, says. A canonical
+    /// envelope that holds no `status` key then reads Not recorded here as it does in a lookup. This reads
+    /// nothing, where it once read the sidecar for each presentation (Phase 2.10 lane U35). A record whose
+    /// loader said nothing counts as stating its status, as a canonical envelope does.
     var statesItsStatus: Bool {
-        if let statusWasRecorded { return statusWasRecorded }
-        guard let data = try? Data(contentsOf: sidecarURL),
-              let reading = try? ProvenanceEnvelopeReader.read(data) else { return true }
-        return reading.statusWasRecorded
+        statusWasRecorded ?? true
     }
 }
 

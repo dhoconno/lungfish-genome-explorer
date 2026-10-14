@@ -194,12 +194,17 @@ public struct PrimerOrderDocument: Codable, Sendable {
 public struct PrimerOrderViewerSnapshot: Sendable {
   public let document: PrimerOrderDocument
   public let provenance: ProvenanceEnvelope
+  /// Whether the record stated how its run ended, as the loader read it off the main actor, so the Inspector
+  /// reads no sidecar to learn it (Phase 2.10 lane U35, M2 item 2).
+  public let provenanceStatedItsStatus: Bool
 
   public init(
     document: PrimerOrderDocument,
-    provenance: ProvenanceEnvelope
+    provenance: ProvenanceEnvelope,
+    provenanceStatedItsStatus: Bool = false
   ) {
     self.document = document
     self.provenance = provenance
+    self.provenanceStatedItsStatus = provenanceStatedItsStatus
   }
 }

@@ -23,6 +23,10 @@ public struct PrimerAnalysisViewerSnapshot: Sendable {
   public var bindingContexts: [PrimerBindingInspectionContext] = []
   /// Saved results that can become a `.lungfishprimers` scheme, with refusals explained.
   public var schemeExportCandidates: [PrimerSchemeFromAnalysisCandidate] = []
+  /// The bundle-relative paths of the provenance records (the canonical record and each tool, derived and workflow
+  /// record) that stated how their run ended. The loader reads the verified bytes off the main actor, so the Inspector
+  /// reads no sidecar to learn it. A path missing here did not state its status (Phase 2.10 lane U35, M2 item 2).
+  public var statusStatedPaths: Set<String> = []
 
   public init(
     bundle: PrimerAnalysisBundle,
@@ -36,7 +40,8 @@ public struct PrimerAnalysisViewerSnapshot: Sendable {
     workflowProvenance: [ProvenanceEnvelope] = [],
     designReview: [PrimerTargetDesignReview] = [],
     bindingContexts: [PrimerBindingInspectionContext] = [],
-    schemeExportCandidates: [PrimerSchemeFromAnalysisCandidate] = []
+    schemeExportCandidates: [PrimerSchemeFromAnalysisCandidate] = [],
+    statusStatedPaths: Set<String> = []
   ) {
     self.bundle = bundle
     self.provenance = provenance
@@ -50,6 +55,7 @@ public struct PrimerAnalysisViewerSnapshot: Sendable {
     self.designReview = designReview
     self.bindingContexts = bindingContexts
     self.schemeExportCandidates = schemeExportCandidates
+    self.statusStatedPaths = statusStatedPaths
   }
 
   public var inspectableBindingContexts: [PrimerBindingInspectionContext] {
@@ -125,15 +131,16 @@ public struct PrimerAnalysisViewerSnapshot: Sendable {
         knownInputIDs: Set(bundle.manifest.inputs.map(\.id)), projections: schemeProjections)
       schemeDocument = document
     } else { schemeDocument = nil }
-    let toolProvenance = try bundle.manifest.artifacts.filter { $0.role == "toolProvenance" }.map {
-      try ProvenanceEnvelopeReader.decodeCanonical(verifiedBytes($0, in: bundle))
+    var statusStatedPaths: Set<String> = []
+    if statesItsStatus(bundle.canonicalProvenanceData) { statusStatedPaths.insert(bundle.manifest.provenance.relativePath) }
+    func canonicalRecord(_ artifact: PrimerAnalysisArtifact) throws -> ProvenanceEnvelope {
+      let data = try verifiedBytes(artifact, in: bundle)
+      if statesItsStatus(data) { statusStatedPaths.insert(artifact.relativePath) }
+      return try ProvenanceEnvelopeReader.decodeCanonical(data)
     }
-    let derivedProvenance = try bundle.manifest.artifacts.filter { $0.role == "derivedProvenance" }.map {
-      try ProvenanceEnvelopeReader.decodeCanonical(verifiedBytes($0, in: bundle))
-    }
-    let workflowProvenance = try bundle.manifest.artifacts.filter { $0.role == "workflowProvenance" }.map {
-      try ProvenanceEnvelopeReader.decodeCanonical(verifiedBytes($0, in: bundle))
-    }
+    let toolProvenance = try bundle.manifest.artifacts.filter { $0.role == "toolProvenance" }.map(canonicalRecord)
+    let derivedProvenance = try bundle.manifest.artifacts.filter { $0.role == "derivedProvenance" }.map(canonicalRecord)
+    let workflowProvenance = try bundle.manifest.artifacts.filter { $0.role == "workflowProvenance" }.map(canonicalRecord)
     struct RowMap: Decodable {
       struct Row: Decodable { let rowIndex: Int; let originalHeader: String; let normalizedHeader: String }
       let schemaVersion: Int
@@ -210,7 +217,13 @@ public struct PrimerAnalysisViewerSnapshot: Sendable {
                 designReview: reviews,
                 bindingContexts: try PrimerBindingInspectionContext.load(
                   bundle: bundle, schemes: legacySchemes) + normalizedBindingContexts + primer3BindingContexts,
-                schemeExportCandidates: schemeCandidates)
+                schemeExportCandidates: schemeCandidates, statusStatedPaths: statusStatedPaths)
+  }
+
+  /// Whether canonical record bytes state how their run ended, as a lookup reads the same bytes. A record the
+  /// decoder derives its status for, from the exit status, did not state it.
+  private nonisolated static func statesItsStatus(_ data: Data) -> Bool {
+    (try? ProvenanceEnvelopeReader.read(data).statusWasRecorded) ?? false
   }
 
   private nonisolated static func verifiedBytes(_ artifact: PrimerAnalysisArtifact, in bundle: PrimerAnalysisBundle) throws -> Data {

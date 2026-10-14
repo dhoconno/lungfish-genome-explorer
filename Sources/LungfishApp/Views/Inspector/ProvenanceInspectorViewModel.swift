@@ -301,7 +301,7 @@ struct ProvenanceSource: Identifiable {
 struct VerifiedProvenanceRecord {
     let envelope: ProvenanceEnvelope
     let sidecarURL: URL
-    /// Whether the record stated how its run ended. Nil lets the sidecar's own text decide (`statesItsStatus`).
+    /// Whether the record stated how its run ended, as its loader read it. Nil counts as stated (`statesItsStatus`).
     var statusWasRecorded: Bool? = nil
 }
 

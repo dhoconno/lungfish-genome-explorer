@@ -468,9 +468,11 @@ public struct PrimerOrderExportService: Sendable {
 
   public static func loadSnapshot(from url: URL) throws -> PrimerOrderViewerSnapshot {
     try Task.checkCancellation()
-    guard let envelope = try ProvenanceEnvelopeReader.load(from: url), envelope.exitStatus == 0 else {
+    let sidecar = url.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+    guard let reading = try ProvenanceEnvelopeReader.read(fromSidecar: sidecar), reading.envelope.exitStatus == 0 else {
       throw PrimerOrderExportError.invalid("The primer order has no completed provenance.")
     }
+    let envelope = reading.envelope
     var checked: Set<String> = []
     let originalRoot: String
     let bytes = try checkedData(relativePath: PrimerOrderDocument.filename, root: url)
@@ -497,7 +499,7 @@ public struct PrimerOrderExportService: Sendable {
     }
     guard required
       .allSatisfy(checked.contains) else { throw PrimerOrderExportError.invalid("The primer order is missing verified outputs.") }
-    return .init(document: document, provenance: envelope)
+    return .init(document: document, provenance: envelope, provenanceStatedItsStatus: reading.statusWasRecorded)
   }
 
   private static func resolvedOptions(selection: PrimerOrderSelection, metadata: PrimerOrderMetadata,

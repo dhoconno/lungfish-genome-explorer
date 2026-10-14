@@ -281,8 +281,11 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
         let model = ProvenanceInspectorViewModel()
         let before = try projectSnapshot(project)
+        // The loader decodes the bytes off the main actor and says whether the record stated its status.
+        var source = verifiedSource(envelope, sidecar: sidecar)
+        source.verifiedRecord?.statusWasRecorded = try ProvenanceEnvelopeReader.read(bytes).statusWasRecorded
 
-        model.configureVerifiedSources([verifiedSource(envelope, sidecar: sidecar)])
+        model.configureVerifiedSources([source])
 
         XCTAssertEqual(try projectSnapshot(project), before, "Reading a verified record never writes into the project.")
         XCTAssertEqual(envelope.status, .completed, "The decoder derives completed from the exit status 0.")
@@ -291,8 +294,25 @@ final class ProvenanceRunStatusDisplayTests: XCTestCase {
         XCTAssertFalse(model.copyableText.contains("Run Status: Completed"), model.copyableText)
     }
 
-    /// A loader that decoded the record's bytes says whether the record stated its status, and its answer wins
-    /// over the sidecar's text in both directions.
+    /// Lane U35, M2 item 2. The view model reads nothing from the sidecar of a verified record. It once read the
+    /// sidecar on the main actor for each presentation, and a sidecar whose text held no `status` answered Not
+    /// recorded here. A record whose loader said nothing now counts as stating its status, as a canonical envelope
+    /// does, whatever its sidecar holds.
+    func testAVerifiedRecordWhoseLoaderSaidNothingReadsNothingFromItsSidecar() throws {
+        let bytes = try recordBytes("fastq-trim-cancelled") { $0.removeValue(forKey: "status") }
+        let (_, sidecar) = try makeProject(bytes)
+        let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
+        let source = verifiedSource(envelope, sidecar: sidecar)
+        XCTAssertNil(source.verifiedRecord?.statusWasRecorded, "this loader said nothing")
+        let model = ProvenanceInspectorViewModel()
+
+        model.configureVerifiedSources([source])
+
+        XCTAssertEqual(model.summary.runStatus, .stated(.completed), "the sidecar's missing status changed nothing")
+    }
+
+    /// A loader that decoded the record's bytes says whether the record stated its status, and its answer is the
+    /// only one, in both directions.
     func testALoadersAnswerOnWhetherTheRecordStatedItsStatusWinsOverTheSidecar() throws {
         let stated = try makeProject(recordBytes("fastq-trim-cancelled")).sidecar
         let derived = try makeProject(recordBytes("fastq-trim-cancelled") { $0.removeValue(forKey: "status") }).sidecar

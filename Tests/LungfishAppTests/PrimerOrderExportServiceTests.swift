@@ -336,6 +336,37 @@ final class PrimerOrderExportServiceTests: XCTestCase {
     return try session.makeOrderDraft()
   }
 
+  /// Lane U35, M2 item 2. The two loaders read their records off the main actor and say whether each stated how
+  /// its run ended, so the Inspector reads no sidecar for the Run Status row. An analysis lists the paths of the
+  /// records that stated it, an order carries one flag, and the Inspector shows what its loader said.
+  func testTheLoadersSayWhetherEachRecordStatedItsStatusAndTheInspectorShowsIt() async throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    XCTAssertEqual(snapshot.statusStatedPaths, [snapshot.bundle.manifest.provenance.relativePath])
+    let analysisInspector = InspectorViewController()
+    analysisInspector.beginPrimerAnalysisDocument(at: fixture.bundle)
+    analysisInspector.updatePrimerAnalysisDocument(snapshot)
+    XCTAssertEqual(analysisInspector.viewModel.provenanceSectionViewModel.summary.runStatus, .stated(.completed))
+
+    let output = try await PrimerOrderExportService().export(selection: try draft(snapshot).selection,
+      metadata: .init(name: "status fact order", project: "U35"),
+      destinationURL: fixture.root.appendingPathComponent("order"), invocationArgv: ["order-fixture"])
+    XCTAssertTrue(try PrimerOrderExportService.loadSnapshot(from: output).provenanceStatedItsStatus)
+
+    // The same saved record with its status key removed. The decoder derives a status from the exit status.
+    let sidecar = output.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+    var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: sidecar)) as? [String: Any])
+    object.removeValue(forKey: "status")
+    try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]).write(to: sidecar)
+    let derived = try PrimerOrderExportService.loadSnapshot(from: output)
+    XCTAssertFalse(derived.provenanceStatedItsStatus)
+    let orderInspector = InspectorViewController()
+    orderInspector.beginPrimerOrderDocument(at: output)
+    orderInspector.updatePrimerOrderDocument(derived, at: output)
+    XCTAssertEqual(orderInspector.viewModel.provenanceSectionViewModel.summary.runStatus, .notRecorded)
+  }
+
   private func makeFixture() throws -> (root: URL, bundle: URL) {
     let pointer = try XCTUnwrap(realpath(FileManager.default.temporaryDirectory.path, nil))
     defer { free(pointer) }
