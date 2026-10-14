@@ -238,17 +238,17 @@ final class GenotypeCohortIdentityExportTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private static func makeFiveCohortBundle(in root: URL) throws -> URL {
+    static func makeFiveCohortBundle(in root: URL) throws -> URL {
         try Pins.makeBundle(in: root, smartCohorts: Pins.builtInCohorts + [Pins.analystCohort])
     }
 
-    private static func export(_ bundle: URL, root: URL) async throws -> String {
+    static func export(_ bundle: URL, root: URL) async throws -> String {
         try await Pins.exportLabKeySmartCohorts(bundle, root: root)
     }
 
     /// The rows of `smart_cohorts.csv` as `(cohort_id, cohort_name)`. No name in
     /// these tests holds a comma or a quote.
-    private static func rows(_ csv: String) -> [(id: String, name: String)] {
+    static func rows(_ csv: String) -> [(id: String, name: String)] {
         csv.split(separator: "\n").dropFirst().map { line in
             let fields = line.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false)
             return (String(fields[0]), String(fields[1]))
@@ -292,7 +292,7 @@ final class GenotypeCohortIdentityExportTests: XCTestCase {
     }
 
     /// Stores `ids[i]` as the `id` of cohort `i`, and none for a `nil`.
-    private static func storeIDs(_ ids: [String?], in bundle: URL) throws {
+    static func storeIDs(_ ids: [String?], in bundle: URL) throws {
         try editCohortObjects(in: bundle) { cohorts in
             for (index, id) in ids.enumerated() where index < cohorts.count {
                 cohorts[index]["id"] = id
@@ -321,7 +321,7 @@ final class GenotypeCohortIdentityExportTests: XCTestCase {
     }
 
     /// Every file and folder under `bundle` with the SHA-256 of each file.
-    private static func treeDigest(of bundle: URL) throws -> [String: String] {
+    static func treeDigest(of bundle: URL) throws -> [String: String] {
         let fileManager = FileManager.default
         var digests: [String: String] = [:]
         for relative in fileManager.enumerator(atPath: bundle.path)?.compactMap({ $0 as? String }) ?? [] {
