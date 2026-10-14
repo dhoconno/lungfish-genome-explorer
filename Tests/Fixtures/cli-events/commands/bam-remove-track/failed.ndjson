@@ -1,0 +1,2 @@
+{"event":"start","message":"Removing Sample 1...","progress":0,"schemaVersion":2}
+{"error":"Alignment track 'aln-source' is a source alignment and cannot be removed by this action.","event":"failed","schemaVersion":2}

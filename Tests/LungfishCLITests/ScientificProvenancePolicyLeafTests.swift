@@ -249,6 +249,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "bam filter": "cli.bam",
         "bam markdup": "cli.bam",
         "bam primer-trim": "cli.bam",
+        "bam remove-track": "cli.bam.remove-track",
         "blast verify": "cli.blast",
         "build-db esviritu": "cli.build-db",
         "build-db kraken2": "cli.build-db",

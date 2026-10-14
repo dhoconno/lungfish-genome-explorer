@@ -74,12 +74,13 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (39)
+    // MARK: Leaves that emit events (40)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
         "assemble": .events(flag: jsonEvents, channel: .standardError),
         "bam primer-trim": .events(flag: formatJSON, channel: .standardOutput),
+        "bam remove-track": .events(flag: formatJSON, channel: .standardOutput),
         "build-db esviritu": .events(flag: formatJSON, channel: .standardOutput),
         "build-db kraken2": .events(flag: formatJSON, channel: .standardOutput),
         "build-db taxtriage": .events(flag: formatJSON, channel: .standardOutput),

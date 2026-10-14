@@ -1,0 +1,2 @@
+{"event":"start","message":"Removing Sample 1 filtered...","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Removed derived alignment track \"Sample 1 filtered\".","output":"\/work\/Project.lungfish\/Sample.lungfishref\/provenance\/removals\/aln-derived.lungfish-provenance.json","outputs":["\/work\/Project.lungfish\/Sample.lungfishref\/provenance\/removals\/aln-derived.lungfish-provenance.json"],"progress":1,"schemaVersion":2}

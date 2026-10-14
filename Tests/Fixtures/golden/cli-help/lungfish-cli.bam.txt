@@ -25,5 +25,7 @@ SUBCOMMANDS:
                           result as a new alignment track
   adopt-mapping           Attach a `lungfish-cli map` result to a reference
                           bundle as a new alignment track
+  remove-track            Remove a derived alignment track and its files from a
+                          bundle
 
   See 'lungfish-cli help bam <subcommand>' for detailed help.

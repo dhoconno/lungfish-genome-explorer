@@ -194,6 +194,7 @@ lungfish-cli bam annotate-cds-best	shown	0	lungfish-cli.bam.annotate-cds-best.tx
 lungfish-cli bam markdup	shown	0	lungfish-cli.bam.markdup.txt
 lungfish-cli bam primer-trim	shown	0	lungfish-cli.bam.primer-trim.txt
 lungfish-cli bam adopt-mapping	shown	0	lungfish-cli.bam.adopt-mapping.txt
+lungfish-cli bam remove-track	shown	0	lungfish-cli.bam.remove-track.txt
 lungfish-cli variants	shown	0	lungfish-cli.variants.txt
 lungfish-cli variants call	shown	0	lungfish-cli.variants.call.txt
 lungfish-cli variants phase	shown	0	lungfish-cli.variants.phase.txt

@@ -7,6 +7,9 @@
 // runs in the app, the manifest and the files `removeDerivedAlignmentTrack` leaves in the bundle and
 // the order of its writes. The manifest is saved before any file goes (SWIFT 4), and then the BAM,
 // its index, its statistics database and the BAM's sidecar go, in that order.
+//
+// The removal's record (2.7 E7, BIO 6) then moved the pin as predicted. It is written after the
+// manifest is saved and before any file goes, and it is the one file the removal adds.
 
 import Foundation
 import Synchronization
@@ -29,13 +32,19 @@ final class BundleAlignmentTrackRemovalPinTests: XCTestCase {
     func testRemovalSavesTheManifestFirstThenRemovesTheTrackFilesInOrder() async throws {
         let fixture = try DerivedAlignmentTrackFixture.make(in: root)
         let log = RemovalWriteLog()
-        let service = BundleAlignmentTrackRemovalService(
-            fileManager: RemovalRecordingFileManager(fixture: fixture, log: log)
-        ) { manifest, bundleURL in
-            let left = DerivedAlignmentTrackFixture.derivedArtifactPaths.filter {
+        let left: @Sendable (URL) -> Int = { bundleURL in
+            DerivedAlignmentTrackFixture.derivedArtifactPaths.filter {
                 FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent($0).path)
+            }.count
+        }
+        let service = BundleAlignmentTrackRemovalService(
+            fileManager: RemovalRecordingFileManager(fixture: fixture, log: log),
+            recordWriter: { envelope, url in
+                log.append("write \(envelope.status) record \(fixture.relativePath(of: url)) while \(left(fixture.bundleURL)) track files remain")
+                try BundleAlignmentTrackRemovalRecord.write(envelope, to: url)
             }
-            log.append("save manifest with \(manifest.alignments.map(\.id)) while \(left.count) track files remain")
+        ) { manifest, bundleURL in
+            log.append("save manifest with \(manifest.alignments.map(\.id)) while \(left(bundleURL)) track files remain")
             try PreparedAlignmentAttachmentService.atomicManifestSave(manifest: manifest, bundleURL: bundleURL)
         }
 
@@ -45,10 +54,16 @@ final class BundleAlignmentTrackRemovalPinTests: XCTestCase {
         )
 
         let removed = DerivedAlignmentTrackFixture.derivedArtifactPaths + [DerivedAlignmentTrackFixture.derivedSidecarPath]
+        let record = "provenance/removals/aln-derived.lungfish-provenance.json"
         XCTAssertEqual(
             log.entries,
-            ["save manifest with [\"aln-source\"] while 3 track files remain"] + removed.map { "remove \($0)" }
+            [
+                "save manifest with [\"aln-source\"] while 3 track files remain",
+                "write completed record \(record) while 3 track files remain",
+            ] + removed.map { "remove \($0)" }
         )
+        XCTAssertEqual(result.recordURL.map(fixture.relativePath(of:)), record)
+        XCTAssertEqual(result.leftoverArtifactURLs, [])
         XCTAssertEqual(result.removedTrack.id, DerivedAlignmentTrackFixture.derivedTrackID)
         XCTAssertEqual(result.removedTrack.name, DerivedAlignmentTrackFixture.derivedTrackName)
         XCTAssertEqual(result.removedArtifactURLs.map(fixture.relativePath(of:)), removed)
@@ -58,7 +73,7 @@ final class BundleAlignmentTrackRemovalPinTests: XCTestCase {
         )
         XCTAssertEqual(
             fixture.relativeFiles(),
-            (DerivedAlignmentTrackFixture.sourcePaths + [BundleManifest.filename]).sorted()
+            (DerivedAlignmentTrackFixture.sourcePaths + [BundleManifest.filename, record]).sorted()
         )
     }
 }

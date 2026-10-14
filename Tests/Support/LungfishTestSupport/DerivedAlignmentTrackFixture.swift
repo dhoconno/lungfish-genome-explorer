@@ -80,6 +80,32 @@ public struct DerivedAlignmentTrackFixture: Sendable {
         return DerivedAlignmentTrackFixture(projectURL: project, bundleURL: bundle)
     }
 
+    /// Puts the real BAM at `bam` and its `.bai` in place of both tracks' BAM and index, for a
+    /// comparison that reads alignments with samtools, such as `OutputEquivalence` of a bundle.
+    public func useAlignment(_ bam: URL) throws {
+        let pairs = [
+            (Self.sourcePaths[0], Self.sourcePaths[1]),
+            (Self.derivedArtifactPaths[0], Self.derivedArtifactPaths[1]),
+        ]
+        for (bamPath, indexPath) in pairs {
+            for (source, path) in [(bam, bamPath), (bam.appendingPathExtension("bai"), indexPath)] {
+                let target = bundleURL.appendingPathComponent(path)
+                try FileManager.default.removeItem(at: target)
+                try FileManager.default.copyItem(at: source, to: target)
+            }
+        }
+    }
+
+    /// Makes the derived statistics database a sparse file of `size` bytes whose first byte no text
+    /// holds, so a removal takes long to hash it and a comparison reads it as binary.
+    public func makeDerivedDatabaseSparse(size: UInt64) throws {
+        let url = bundleURL.appendingPathComponent(Self.derivedArtifactPaths[2])
+        try Data([0xFF]).write(to: url)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: size)
+        try handle.close()
+    }
+
     /// The fixture of a bundle already in `root`, as a parity side's copy holds it.
     public static func existing(in root: URL) -> DerivedAlignmentTrackFixture {
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)

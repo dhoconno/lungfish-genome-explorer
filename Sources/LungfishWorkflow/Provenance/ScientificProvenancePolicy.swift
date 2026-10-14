@@ -238,7 +238,9 @@ public enum ScientificProvenancePolicy {
         "fastq 12s-export-unresolved": dataWriting(
             "cli.fastq.12s-export-unresolved",
             writer: "TwelveSUnresolvedFastaExportWorkflow"
-        )
+        ),
+        // The removal's record names each removed file with its digest (2.10 A51, BIO 6).
+        "bam remove-track": dataWriting("cli.bam.remove-track", writer: "BundleAlignmentTrackRemovalRecord"),
     ]
 
     public static let nativeToolPolicies: [String: ProvenancePolicyEntry] = [
