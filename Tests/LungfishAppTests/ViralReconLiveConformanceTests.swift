@@ -52,6 +52,12 @@ final class ViralReconLiveConformanceTests: XCTestCase {
         static let vcfText = "2666be2893b1efbaaa56abc1feb0e2e0b4f739894ae79d14a40f3141db88133e"
         static let vcfRecords = 82
         static let consensus = "43b2dc433c1c45ef6290eef3c45aa6fe31409a85c43383edf37f9d9d04a688d9"
+        /// `pipeline_info/nf_core_viralrecon_software_mqc_versions.yml` byte for byte. It names the version of every process's
+        /// tool, `v3.0.0-g395079f` for the pipeline and Nextflow 26.04.6. V2's copy is identical.
+        static let softwareVersions = "03d329e3aef82dae428decf5d7f7ff16296179d6a39d0a72d33f59e8729c03b2"
+        /// The `pipeline_info/params_*.json` of V1b through `normalizedParameters`, 102 parameters with the pipeline's defaults.
+        /// V2's file gives the same digest.
+        static let parameters = "485410bbedde156de676630e15b882fe2e0f8ef763be75e4f2bcb5cc333343fd"
     }
 
     /// The groups of tasks `NextflowStandInWorkflow.viralRecon` names in its documentation as left out of its
@@ -318,6 +324,74 @@ final class ViralReconLiveConformanceTests: XCTestCase {
         for part in [" --max_cpus", " --max_memory"] {
             XCTAssertFalse(manifest.commandPreview.contains(part), "Q33 fix 8, the recorded command passes \(part), which the launch does not")
         }
+
+        // BIO 3 and BIO 4, the review of Q37 (fix 1). The tag stands beside the commit, the engine records the version of
+        // every process as in V1b, and the run's effective parameters, the pipeline's own defaults included, are V1b's. A
+        // parameter the launch drops, such as `--variant_caller ivar` or `--consensus_caller bcftools`, moves the digest.
+        XCTAssertEqual(provenance.options.explicit["github_release_version"], .string("3.0.0"), "N2, the tag beside the commit")
+        let versionsDigest = Self.sha256(try Data(contentsOf: info.appendingPathComponent("nf_core_viralrecon_software_mqc_versions.yml")))
+        note("pipeline_info software versions sha256 \(versionsDigest)")
+        XCTAssertEqual(versionsDigest, V1b.softwareVersions, "BIO 4, the tool versions the engine recorded differ from V1b's")
+        let paramsFile = try XCTUnwrap(
+            try fileManager.contentsOfDirectory(atPath: info.path).sorted().last { $0.hasPrefix("params_") && $0.hasSuffix(".json") },
+            "pipeline_info holds no params file"
+        )
+        let parameters = try Self.normalizedParameters(try Data(contentsOf: info.appendingPathComponent(paramsFile)))
+        let parametersDigest = Self.sha256(Data(parameters.utf8))
+        note("\(paramsFile) normalized \(parameters.utf8.count) bytes, sha256 \(parametersDigest)")
+        XCTAssertEqual(parametersDigest, V1b.parameters, "BIO 3, the effective parameters differ from V1b's")
+        if parametersDigest != V1b.parameters { note("normalized parameters follow\n\(parameters)") }
+    }
+
+    /// The normalization behind `V1b.parameters`, on a file shaped like Nextflow's `params_*.json`. It needs no tool and no
+    /// Docker. The folder and the stamp of a run do not move the text, and a dropped, added or changed parameter does.
+    func testTheParameterNormalizationDropsTheRunStampsAndKeepsEveryParameter() throws {
+        func file(folder: String, stamp: String, changing change: (inout [String: Any]) -> Void = { _ in }) throws -> Data {
+            var parameters: [String: Any] = [
+                "input": "/\(folder)/inputs/samplesheet.paired.csv",
+                "outdir": "/\(folder)/results-\(stamp)",
+                "trace_report_suffix": stamp,
+                "fasta": "/\(folder)/Downloads/MN908947.3.lungfishref/genome/sequence.fa.gz",
+                "gff": "/\(folder)/inputs/reference/genes.gff",
+                "primer_bed": "/\(folder)/inputs/primers/primers.bed",
+                "primer_fasta": "/\(folder)/inputs/primers/primers.fasta",
+                "variant_caller": "ivar",
+                "consensus_caller": "bcftools",
+                "skip_assembly": true,
+                "min_perc_contig_aligned": 0.7,
+                "genome": NSNull(),
+                "genomes": [
+                    "codfreq": ["fasta": "https://example.org/genome/codfreq.fa"],
+                    "MN908947.3": ["fasta": "https://example.org/genome/MN908947.3.fa"],
+                ],
+            ]
+            change(&parameters)
+            return try JSONSerialization.data(withJSONObject: parameters)
+        }
+        let v1b = try Self.normalizedParameters(try file(folder: "v1b.lungfish/Analyses/viralrecon.lungfishrun", stamp: "2026-10-13_20-11-16"))
+        let v2 = try Self.normalizedParameters(try file(folder: "run.lungfish/Analyses/viralrecon.lungfishrun", stamp: "2026-10-13_22-41-16"))
+        XCTAssertEqual(v1b, v2, "two runs of the same parameters in two folders at two times")
+        XCTAssertEqual(
+            v1b,
+            #"{"consensus_caller":"bcftools","fasta":"sequence.fa.gz","genome":null,"#
+                + #""genomes":{"MN908947.3":{"fasta":"https://example.org/genome/MN908947.3.fa"},"codfreq":{"fasta":"https://example.org/genome/codfreq.fa"}},"#
+                + #""gff":"genes.gff","input":"samplesheet.paired.csv","min_perc_contig_aligned":0.69999999999999996,"primer_bed":"primers.bed","primer_fasta":"primers.fasta","#
+                + #""skip_assembly":true,"variant_caller":"ivar"}"#,
+            "keys in byte order (MN908947.3 before codfreq), compact, the five paths cut to their file names, outdir and trace_report_suffix gone"
+        )
+        let mutations: [(what: String, change: (inout [String: Any]) -> Void)] = [
+            ("a dropped variant_caller", { $0["variant_caller"] = nil }),
+            ("a changed consensus_caller", { $0["consensus_caller"] = "ivar" }),
+            ("a changed switch", { $0["skip_assembly"] = false }),
+            ("a changed number", { $0["min_perc_contig_aligned"] = 0.8 }),
+            ("an added parameter, as a launch that passes the caps would add", { $0["max_cpus"] = 4 }),
+            ("another file name for the GFF", { $0["gff"] = "/x/annotations.gff" }),
+            ("a changed path inside genomes", { $0["genomes"] = ["MN908947.3": ["fasta": "https://example.org/genome/other.fa"]] }),
+        ]
+        for mutation in mutations {
+            let text = try Self.normalizedParameters(try file(folder: "v1b.lungfish/Analyses/viralrecon.lungfishrun", stamp: "2026-10-13_20-11-16", changing: mutation.change))
+            XCTAssertNotEqual(text, v1b, "\(mutation.what) must move the text")
+        }
     }
 
     // MARK: - Helpers
@@ -366,6 +440,37 @@ final class ViralReconLiveConformanceTests: XCTestCase {
 
     private static func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The text of a `pipeline_info/params_*.json` without what differs from run to run. `outdir` and `trace_report_suffix`
+    /// are left out, the five parameters that name a file the run reads (`input`, `fasta`, `gff`, `primer_bed` and
+    /// `primer_fasta`) keep their last path component, and every other parameter, the pipeline's defaults included, is
+    /// written with sorted keys and no spaces. `V1b.parameters` digests that text. Foundation writes the one fractional
+    /// default (`min_perc_contig_aligned`) with 17 digits, 0.69999999999999996.
+    private static func normalizedParameters(_ data: Data) throws -> String {
+        var parameters = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], "the params file is not a JSON object")
+        for key in ["outdir", "trace_report_suffix"] { parameters[key] = nil }
+        for key in ["input", "fasta", "gff", "primer_bed", "primer_fasta"] {
+            if let path = parameters[key] as? String { parameters[key] = (path as NSString).lastPathComponent }
+        }
+        return try sortedJSON(parameters)
+    }
+
+    /// JSON text with the keys of every object in UTF-8 byte order. `JSONSerialization.sortedKeys` is not used because it
+    /// puts `codfreq` before `KY484034.1`, the names `genomes` holds, an order that a locale or a Foundation release could move.
+    private static func sortedJSON(_ value: Any) throws -> String {
+        switch value {
+        case let object as [String: Any]:
+            let members = try object.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { key in
+                try sortedJSON(key) + ":" + sortedJSON(object[key] ?? NSNull())
+            }
+            return "{" + members.joined(separator: ",") + "}"
+        case let array as [Any]:
+            return "[" + (try array.map(sortedJSON)).joined(separator: ",") + "]"
+        default:
+            let scalar = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
+            return String(decoding: scalar, as: UTF8.self)
+        }
     }
 
     private struct TraceRow {
