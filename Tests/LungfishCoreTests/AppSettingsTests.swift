@@ -4,10 +4,10 @@
 
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 @MainActor private var appSettingsTestsManagedStorageHomeDirectory: URL?
 @MainActor private var appSettingsTestsDefaults: UserDefaults?
-@MainActor private var appSettingsTestsSuiteName: String?
 @MainActor private var appSettingsTestsRestoreSettings: (@MainActor () -> Void)?
 @MainActor private var appSettingsTestsPreviousStorage: ManagedStorageConfigStore?
 
@@ -16,18 +16,18 @@ final class AppSettingsTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // Made here and not in the closure, which runs on the main actor and must not capture the test case.
+        let suite = makeTestDefaultsSuite(prefix: "AppSettingsTests")
         try MainActor.assumeIsolated {
             let home = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-            let suiteName = "org.lungfish.tests.AppSettings.\(UUID().uuidString)"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            let defaults = suite.defaults
             let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
             store.overrideLegacyDefaultsForTesting(defaults)
 
             appSettingsTestsManagedStorageHomeDirectory = home
             appSettingsTestsDefaults = defaults
-            appSettingsTestsSuiteName = suiteName
             appSettingsTestsPreviousStorage = ManagedStorageConfigStore.shared
             ManagedStorageConfigStore.overrideSharedForTesting(store)
             appSettingsTestsRestoreSettings = AppSettings.isolateForTesting(defaults: defaults)
@@ -45,11 +45,7 @@ final class AppSettingsTests: XCTestCase {
             if let home = appSettingsTestsManagedStorageHomeDirectory {
                 try? FileManager.default.removeItem(at: home)
             }
-            if let suiteName = appSettingsTestsSuiteName {
-                appSettingsTestsDefaults?.removePersistentDomain(forName: suiteName)
-            }
             appSettingsTestsDefaults = nil
-            appSettingsTestsSuiteName = nil
             appSettingsTestsManagedStorageHomeDirectory = nil
         }
         try super.tearDownWithError()
@@ -74,9 +70,7 @@ final class AppSettingsTests: XCTestCase {
 
     @MainActor
     func testIsolatedSettingsScopeRestoresRawValuesWithoutWritingPreviousDefaults() throws {
-        let suiteName = "org.lungfish.tests.AppSettings.nested.\(UUID().uuidString)"
-        let nestedDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { nestedDefaults.removePersistentDomain(forName: suiteName) }
+        let nestedDefaults = makeTestDefaultsSuite(prefix: "AppSettingsTests").defaults
         let retainedData = Data("retained-fixture-settings".utf8)
         defaults.set(retainedData, forKey: "com.lungfish.appSettings")
         AppSettings.shared.defaultZoomWindow = -123

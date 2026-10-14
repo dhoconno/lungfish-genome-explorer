@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class ManagedStorageConfigStoreTests: XCTestCase {
     private func makeTemporaryHomeDirectory() throws -> URL {
@@ -74,7 +75,7 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
         let shared = home.appendingPathComponent("shared-preview")
         try preview.setActiveRoot(shared)
         let stable = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .stable, environmentProvider: { [:] })
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = makeTestDefaultsSuite(prefix: "ManagedStorageConfigStoreTests").defaults
         defaults.set(shared.path, forKey: "DatabaseStorageLocation")
         stable.overrideLegacyDefaultsForTesting(defaults)
         XCTAssertEqual(stable.configURL.path, home.appendingPathComponent(".config/lungfish-stable/storage-location.json").path)
@@ -355,9 +356,7 @@ extension ManagedStorageConfigStoreTests {
             "CFBundleIdentifier": "org.example.genome.preview", "LungfishReleaseChannel": "preview",
             "LungfishIdentitySchemaVersion": 1, "LungfishRuntimeNamespace": "org.example.genome",
         ])
-        let suite = "org.example.storage-tests." + UUID().uuidString
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "ManagedStorageConfigStoreTests").defaults
         let legacy = home.appendingPathComponent("upstream-storage")
         defaults.set(legacy.path, forKey: "DatabaseStorageLocation")
         let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: identity, environmentProvider: { [:] })

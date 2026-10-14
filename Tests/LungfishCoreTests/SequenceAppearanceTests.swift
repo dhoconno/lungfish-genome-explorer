@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishCore
+import LungfishTestSupport
 
 final class SequenceAppearanceTests: XCTestCase {
     // SequenceAppearance.save/load/resetToDefaults default to the app's real
@@ -11,20 +12,17 @@ final class SequenceAppearanceTests: XCTestCase {
     // the app's own real bundle identity inside xctest. Never read or
     // write that domain from a test; use a suite-specific instance instead,
     // torn down via removePersistentDomain rather than left mutated.
-    private var suiteName = ""
-    private var defaults: UserDefaults!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var defaults: UserDefaults { preferencesSuite.defaults }
 
     override func setUp() {
         super.setUp()
-        suiteName = "lungfish-test-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        preferencesSuite = makeTestDefaultsSuite(prefix: "SequenceAppearanceTests")
         _ = SequenceAppearance.resetToDefaults(in: defaults)
     }
 
     override func tearDown() {
         _ = SequenceAppearance.resetToDefaults(in: defaults)
-        UserDefaults().removePersistentDomain(forName: suiteName)
-        defaults = nil
         super.tearDown()
     }
 

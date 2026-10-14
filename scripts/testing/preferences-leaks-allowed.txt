@@ -15,7 +15,6 @@
 #
 # One row per file: <prefix> <path from the repository root>.
 
-(none)                                  Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
 LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
 LungfishTypographyTests                 Tests/LungfishKitTests/BatchTableViewTests.swift
@@ -31,9 +30,4 @@ NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewCo
 TaxTriageFilterAlignment                Tests/LungfishTaxTriageUITests/TaxTriageDatabaseModeTests.swift
 TaxTriageLayoutTests                    Tests/LungfishTaxTriageUITests/TaxTriageResultViewControllerSmokeTests.swift
 assembly-layout-pref                    Tests/LungfishAssemblyUITests/AssemblyLayoutPreferenceTests.swift
-lungfish-test                           Tests/LungfishCoreTests/SequenceAppearanceTests.swift
-org.example.storage-tests               Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
 org.example.test                        Tests/LungfishCoreTests/AppIdentityTests.swift
-org.lungfish.tests.AppSettings          Tests/LungfishCoreTests/AppSettingsTests.swift
-org.lungfish.tests.AppSettings.nested   Tests/LungfishCoreTests/AppSettingsTests.swift
-sra-source-preference                   Tests/LungfishCoreTests/Services/SRADownloadSourcePreferenceTests.swift

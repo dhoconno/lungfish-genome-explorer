@@ -28,9 +28,7 @@ final class SRADownloadSourcePreferenceTests: XCTestCase {
     // MARK: - Stored choice
 
     func testTheStoredChoiceDefaultsToENAAndRoundTrips() throws {
-        let suite = "sra-source-preference-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "SRADownloadSourcePreferenceTests").defaults
 
         XCTAssertEqual(SRADownloadSourcePreference.stored(in: defaults), .ena)
         SRADownloadSourcePreference.ncbi.store(in: defaults)
