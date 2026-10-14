@@ -9,10 +9,14 @@
 // two runs is printed as `S36-OBSERVATION-DIFF`, and every leaf of the first run as `S36-OBSERVATION`, for the
 // golden normalizer ruling. A leaf that differs fails the test unless a ruled mask names it. The S36 M2 ruling masks none.
 //
-// Both cases read the configured managed storage. LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-golden/storage runs
-// the EsViritu case on the golden lock's environment and database, and that root holds no bracken environment, so
-// the Kraken2 case runs on the default root. A missing tool or database is a skip. With LUNGFISH_REQUIRE_TOOLS=1
-// both are hard failures.
+// Where each case finds its tool and its database. Both cases take their tools from the configured managed storage,
+// which a SwiftPM test resolves to ~/.lungfish-stable unless LUNGFISH_STORAGE_ROOT names another root. The Kraken2
+// case takes the Kraken2 Viral database from that storage too. The EsViritu case takes its database from that
+// storage when it holds one, and otherwise from the folder the golden lock installs under
+// /Users/Shared/lungfish-golden/storage, which it reads in place and never writes. The observation keeps ESVIRITU_DB
+// as a name only, so the folder of the database never enters the compared leaves. A missing tool or database is a
+// skip. With LUNGFISH_REQUIRE_TOOLS=1 each is a hard failure, so one run on the default storage root can pass both
+// cases.
 
 import XCTest
 import LungfishTestSupport
@@ -51,7 +55,7 @@ final class ClassifierObservationLiveConformanceTests: XCTestCase {
     func testTheEsVirituObservationsAgreeAcrossTwoRuns() async throws {
         _ = try await ToolAvailability.require("EsViritu", environment: "esviritu")
         let database = try await ToolAvailability.requireDatabase(
-            { await EsVirituDatabaseManager.shared.installedDatabaseInfo()?.path }, name: "EsViritu"
+            { await Self.esVirituDatabase() }, name: "EsViritu in the configured storage or the golden lock's folder"
         )
         let scratch = try ConformanceFixtures.tempDir("classifier-observation-esviritu")
         defer { try? FileManager.default.removeItem(at: scratch) }
@@ -72,6 +76,18 @@ final class ClassifierObservationLiveConformanceTests: XCTestCase {
         }
 
         try assertAgree(runs, tools: ["EsViritu"])
+    }
+
+    // MARK: - Finding the EsViritu database
+
+    /// The EsViritu database folder of the configured managed storage, else the one the golden lock installs under
+    /// `/Users/Shared/lungfish-golden/storage` (`Tests/Fixtures/golden-environment/lock.json`). The golden folder is
+    /// read in place and never written. Nil when neither root holds a database.
+    private static func esVirituDatabase() async -> URL? {
+        if let installed = await EsVirituDatabaseManager.shared.installedDatabaseInfo()?.path {
+            return installed
+        }
+        return ClassifierParityFixtures.esVirituDatabaseFiles(in: ClassifierParityFixtures.defaultEsVirituDatabase)
     }
 
     // MARK: - Comparing the runs
