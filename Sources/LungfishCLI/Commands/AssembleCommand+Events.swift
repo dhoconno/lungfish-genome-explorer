@@ -12,6 +12,33 @@ extension AssembleCommand {
     var eventsOn: Bool {
         jsonEvents || globalOptions.outputFormat == .json
     }
+
+    /// Runs ``execute(pipeline:)`` so that SIGTERM cancels the run instead of ending this command
+    /// (Phase 2.10, decision P2). The Reassemble route stops `lungfish-cli assemble` with SIGTERM
+    /// and gives it `operationGrace`. Cancelling the task stops the assembler's tree through
+    /// ToolProcess, the run ends with one `failed` line, `Assembly cancelled`, and the command exits
+    /// 125. A SIGTERM caught before the task exists cancels it once it starts, and a second SIGTERM
+    /// ends the command at once. `assemble` keeps no run record, so nothing records the cancel.
+    func runCancellingOnSIGTERM(pipeline: ManagedAssemblyPipeline) async throws {
+        let pendingCancel = PendingTaskCancel<(any Error)?>()
+        let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+        defer { termination.end() }
+        let task = Task { () -> (any Error)? in
+            do {
+                try await self.execute(pipeline: pipeline)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        pendingCancel.attach(task)
+        guard let error = await task.value else { return }
+        if error is CancellationError || pendingCancel.cancelRequested {
+            throw AssembleRunReporter(eventsOn: eventsOn, useColors: globalOptions.useColors)
+                .refusal("Assembly cancelled", exit: .cancelled)
+        }
+        throw error
+    }
 }
 
 /// What one run of `assemble` reports, which moved from standard error to standard output in Phase

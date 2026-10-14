@@ -110,8 +110,9 @@ struct AssembleCommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    /// Assembles so that SIGTERM cancels the run (decision P2, ``runCancellingOnSIGTERM(pipeline:)``).
     func run() async throws {
-        try await execute(pipeline: ManagedAssemblyPipeline())
+        try await runCancellingOnSIGTERM(pipeline: ManagedAssemblyPipeline())
     }
 
     /// The body of ``run()`` with the pipeline passed in, so a test can run a stand-in assembler.
@@ -220,6 +221,7 @@ struct AssembleCommand: AsyncParsableCommand {
             throw reporter.refusal(error.localizedDescription, exit: .inputError)
         } catch {
             try? FileManager.default.removeItem(at: materializationDirectory)
+            if Task.isCancelled { throw CancellationError() }
             throw reporter.refusal(error.localizedDescription, exit: .workflowError)
         }
         // Every read a bundle holds, as `map` hands the mapper: one original
@@ -298,6 +300,8 @@ struct AssembleCommand: AsyncParsableCommand {
                 }
             )
         } catch {
+            // An assembler stopped by the cancel can fail on its own, so the cancel decides.
+            if Task.isCancelled { throw CancellationError() }
             throw reporter.refusal(error.localizedDescription, exit: .workflowError)
         }
         do {
