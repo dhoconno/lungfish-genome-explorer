@@ -20,11 +20,13 @@ extension DatabaseBrowserViewModel {
     /// title the Downloads popover shows, built from the first accessions.
     ///
     /// The command comes from `batchDownloadCLICommand`. NCBI genome
-    /// assemblies record one, with a project in the route context or none.
-    /// Every other download records no command until a command covers it, as
-    /// that function describes.
+    /// assemblies with a project in the route context record one. Every other
+    /// download records no command until a command covers it, as that
+    /// function describes.
     ///
     /// - cli-parity-gap: download-sra. Every SRA run download.
+    /// - cli-parity-gap: download-genome-no-project. NCBI genome assemblies
+    ///   with no project in the route context.
     /// - cli-parity-gap: download-ncbi-bundle. NCBI nucleotide and virus
     ///   records, and any other source `fetch` cannot read.
     /// - cli-parity-gap: download-pathoplexus. Pathoplexus records.
@@ -68,10 +70,13 @@ extension DatabaseBrowserViewModel {
     ///   DatabaseBrowserViewModel+GenomeRowDownload.swift), and each bundle's
     ///   record names its own accession, so one line with every accession
     ///   builds the same bundles. The folder is the project's Downloads folder,
-    ///   or the user's Downloads folder with no project in the route context
-    ///   (`genomeRowFolder(projectURL:userDownloads:)`), which the run writes
-    ///   into. The in-process route behind the hidden key builds the same
-    ///   bundles with no record, a difference the parity class declares.
+    ///   which the run writes into and the import keeps in place. With no
+    ///   project in the route context the row records nil and runs in process,
+    ///   because the import copies a bundle from outside a project into its own
+    ///   folder and deletes the one it was given
+    ///   (AppDelegate+Classification.swift). The in-process route behind the
+    ///   hidden key builds the same bundles with no record, a difference the
+    ///   parity class declares.
     /// - SRA runs record nil. `fetch sra download` downloads one run, and the
     ///   run then imports the FASTQ files into the project with the settings
     ///   the user confirmed in the import sheet, which no command does.
@@ -86,11 +91,10 @@ extension DatabaseBrowserViewModel {
         source: DatabaseSource,
         searchType: NCBISearchType,
         accessions: [String],
-        projectURL: URL?,
-        userDownloads: URL = userDownloadsFolder
+        projectURL: URL?
     ) -> String? {
-        guard source == .ncbi, searchType == .genome, !accessions.isEmpty else { return nil }
-        let folder = genomeRowFolder(projectURL: projectURL, userDownloads: userDownloads)
+        guard source == .ncbi, searchType == .genome, !accessions.isEmpty, let projectURL else { return nil }
+        let folder = genomeRowFolder(projectURL: projectURL)
         return OperationCenter.buildCLICommand(
             subcommand: "fetch genome",
             args: Array(genomeFetchArguments(accessions: accessions, folder: folder).dropFirst(2))

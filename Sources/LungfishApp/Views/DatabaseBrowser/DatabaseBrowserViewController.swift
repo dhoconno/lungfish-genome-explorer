@@ -2513,7 +2513,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             if searchType == .genome {
                                 fileURL = try await Self.downloadGenomeRow(
                                     record, index: index, totalCount: totalCount,
-                                    operationID: downloadCenterTaskID, route: self.genomeRowRoute,
+                                    operationID: downloadCenterTaskID, route: batchProjectURL == nil ? .legacy : self.genomeRowRoute,
                                     ncbi: ncbi, genomeVM: genomeVM,
                                     batchDirectory: batchDir, projectURL: batchProjectURL
                                 )

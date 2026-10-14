@@ -5,13 +5,13 @@
 // The database browser registers its batch download row through a static begin
 // helper (R4). The row is a download row and locks no bundle, so a reporter
 // that refuses every begin stands in for a refusal and proves the launch
-// closure sits behind the `.started` case. NCBI genome assemblies, one or a
-// batch, with a project or none, record `fetch genome`, which must parse with
-// the values the run uses and names the folder the run writes the bundles
-// into (R3, lane A44). SRA runs, NCBI nucleotide and virus records and
-// Pathoplexus records record no command, and the tests pin each as a CLI
-// parity gap. A command added later fails a pin and prompts a parse test in
-// its place.
+// closure sits behind the `.started` case. NCBI genome assemblies with a
+// project, one or a batch, record `fetch genome`, which must parse with the
+// values the run uses and names the folder the run writes the bundles into
+// (R3, lane A44). SRA runs, genome rows with no project, NCBI nucleotide and
+// virus records and Pathoplexus records record no command, and the tests pin
+// each as a CLI parity gap. A command added later fails a pin and prompts a
+// parse test in its place.
 
 import XCTest
 @testable import LungfishApp
@@ -122,10 +122,11 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         XCTAssertNil(command.name)
     }
 
-    func testGenomeAssemblyWithNoProjectRecordsTheUsersDownloadsFolder() throws {
-        // With no project in the route context the run writes into the
-        // user's Downloads folder, never a system scratch folder (UX 8), so
-        // the command names that absolute folder.
+    func testGenomeAssemblyWithNoProjectRecordsNoCommandAsAParityGap() throws {
+        // With no project in the route context the run picks the Downloads
+        // folder of the window the download lands in, which the row cannot
+        // know before the run. A relative `--output-dir .` would break the
+        // absolute-path rule, so the row records no command.
         let reporter = RecordingOperationReporter()
         DatabaseBrowserViewModel.beginBatchDownloadOperation(
             title: "GCF_003047895.1",
@@ -136,11 +137,8 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
             reporter: reporter
         ) { _ in }
         let item = try XCTUnwrap(reporter.items.first)
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: GenomeSubcommand.self)
-        XCTAssertEqual(command.accessions, ["GCF_003047895.1"])
-        XCTAssertEqual(command.outputDir, DatabaseBrowserViewModel.userDownloadsFolder.path)
-        XCTAssertTrue(command.outputDir.hasPrefix("/"), command.outputDir)
-        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
     }
 
     // MARK: - NCBI nucleotide and virus records, and Pathoplexus
