@@ -331,6 +331,8 @@ extension DemoCommand {
             output, a start line, progress lines, then one complete line that names
             the installed project folder or one failed line. 'demo info <id>
             --format json' prints the project's record.
+
+            SIGTERM stops the run, removes the hidden staging folder and exits 125.
             """
         )
 
@@ -344,6 +346,11 @@ extension DemoCommand {
         @OptionGroup var location: DemoLocationOptions
 
         /// The run and what it prints are in `DemoFetchRun` and `DemoFetchReporter` (Phase 2.10 lane A45 M4).
+        /// SIGTERM, which the Operations panel's Cancel sends, cancels the install, so the installer's hidden
+        /// staging folder is removed before the command exits 125. It listens before the task starts, and a
+        /// SIGTERM caught before then cancels the task as soon as it exists. A second SIGTERM ends the command
+        /// at once. Before this the command named no signal, and SIGTERM ended it with the default action, so
+        /// the `defer` that removes the staging folder never ran.
         func run() async throws {
             let resolved = try globalOptions.resolved(with: CommandLine.arguments)
             let reporter = DemoFetchReporter(
@@ -353,7 +360,13 @@ extension DemoCommand {
                 id: id, force: force, destination: location.destinationURL(),
                 manifest: Result { try location.loadManifest() }, reporter: reporter)
             reporter.start()
-            try reporter.finish(await run.fetch())
+            let pendingCancel = PendingTaskCancel<DemoFetchOutcome>()
+            let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+            let task = Task { await run.fetch() }
+            pendingCancel.attach(task)
+            let outcome = await task.value
+            termination.end()
+            try reporter.finish(outcome)
         }
     }
 

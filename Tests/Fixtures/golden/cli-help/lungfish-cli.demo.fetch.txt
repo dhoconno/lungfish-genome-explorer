@@ -10,6 +10,8 @@ output, a start line, progress lines, then one complete line that names
 the installed project folder or one failed line. 'demo info <id>
 --format json' prints the project's record.
 
+SIGTERM stops the run, removes the hidden staging folder and exits 125.
+
 USAGE: lungfish-cli demo fetch <id> [--force] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>] [--dest <dest>]
 
 ARGUMENTS:
