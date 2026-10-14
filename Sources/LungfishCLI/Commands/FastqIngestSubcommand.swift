@@ -14,7 +14,8 @@ import LungfishWorkflow
 /// It runs the same `FASTQIngestionPipeline` as `debug fastq-ingest`, with three differences
 /// that matter because the run can delete the user's original file.
 ///
-/// - The pipeline builds its output in a hidden folder beside the input and never deletes. The
+/// - The pipeline builds its output in a hidden folder, under the project's `.tmp` folder when the
+///   input sits in a project and beside the input otherwise, and never deletes. The
 ///   output is synced and renamed into place only when it is whole, so a cancel or a failure
 ///   leaves the original in place and no half-written output.
 /// - The metadata sidecar is written, as the app's run does.
@@ -30,8 +31,9 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
             Runs the FASTQ ingestion pipeline that the app runs when a FASTQ file is
             copied into a project. The processed file is a .fastq.gz in the folder of
             the input, named for the input without its extension and its _R1, _R2, _1
-            or _2 suffix. It is built in a hidden folder beside the input and moved
-            into place only when it is whole.
+            or _2 suffix. It is built in a hidden folder, under the project's .tmp
+            folder when the input sits in a project and beside the input otherwise,
+            and moved into place only when it is whole.
 
             The command then writes the FASTQ metadata sidecar and a provenance record
             that names each original file with its SHA-256. Only after that does
