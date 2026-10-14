@@ -7,7 +7,7 @@
 // with the managed tools, the Kraken2 Viral database, the installed EsViritu database and the shared SARS-CoV-2
 // reads, and compares the `observation` key each record writes, leaf by leaf. Every leaf that differs between the
 // two runs is printed as `S36-OBSERVATION-DIFF`, and every leaf of the first run as `S36-OBSERVATION`, for the
-// golden normalizer ruling. A leaf that differs fails the test unless a ruled mask names it, and no mask is ruled yet.
+// golden normalizer ruling. A leaf that differs fails the test unless a ruled mask names it. The S36 M2 ruling masks none.
 //
 // Both cases read the configured managed storage. LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-golden/storage runs
 // the EsViritu case on the golden lock's environment and database, and that root holds no bracken environment, so
@@ -20,7 +20,7 @@ import LungfishTestSupport
 
 final class ClassifierObservationLiveConformanceTests: XCTestCase {
 
-    /// The observation leaves a golden normalizer rule masks. Empty until the manager rules on the S36 M1 report.
+    /// The observation leaves a golden normalizer rule masks. Empty, because the S36 M2 ruling found no leaf that varies.
     private static let ruledMasks: Set<String> = []
 
     func testTheKraken2AndBrackenObservationsAgreeAcrossTwoRuns() async throws {
