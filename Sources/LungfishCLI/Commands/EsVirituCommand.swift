@@ -265,7 +265,10 @@ extension EsVirituCommand {
                     quiet: globalOptions.quiet,
                     namesResultFolder: batch || project != nil
                 ))
-            let services = AnalysisRunServices(indexing: EsVirituResultIndexing(), cancelRequested: cancelRequested)
+            let services = AnalysisRunServices(
+                indexing: Self.resultIndexer(cancelRequested: cancelRequested),
+                cancelRequested: cancelRequested
+            )
             return await AnalysisRunExecutor(services: services).execute(tool, request, events: events).exitCode
         }
 

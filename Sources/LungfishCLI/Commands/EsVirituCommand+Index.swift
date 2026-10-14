@@ -56,3 +56,12 @@ struct EsVirituResultIndexing: AnalysisResultIndexing {
         )
     }
 }
+
+extension EsVirituCommand.DetectSubcommand {
+    /// The index builder `esviritu detect` gives the analysis run executor. Its core reads the command's cancel
+    /// request beside the run's task, so a SIGTERM counted before the task is cancelled stops it at its next check
+    /// (2.8 row 266, lane S33).
+    static func resultIndexer(cancelRequested: @escaping @Sendable () -> Bool) -> EsVirituResultIndexing {
+        EsVirituResultIndexing(cancelRequested: cancelRequested)
+    }
+}

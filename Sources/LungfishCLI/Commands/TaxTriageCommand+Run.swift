@@ -326,7 +326,7 @@ extension TaxTriageCommand {
             // as soon as it exists, and a second SIGTERM ends the command at once.
             let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
             let executor = AnalysisRunExecutor(services: AnalysisRunServices(
-                indexing: TaxTriageResultIndexer(),
+                indexing: Self.resultIndexer(cancelRequested: cancelRequested),
                 cancelRequested: cancelRequested
             ))
             let task = Task { await executor.execute(tool, request, events: events) }

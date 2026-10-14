@@ -34,7 +34,7 @@ final class BuildDbCoreStepHandOverTests: XCTestCase {
             .kraken2, prepared: try BuildDbIndexFixtures.kraken2(in: scratch), in: scratch,
             fault: .requestAtLine { $0.hasPrefix("Parsed ") }
         ) { hook in
-            Kraken2ResultIndexer(cancelRequested: hook)
+            ClassifyCommand.resultIndexer(cancelRequested: hook)
         }
 
         try run.assertCancelledKeepingTheHandedOverSteps()
@@ -54,7 +54,7 @@ final class BuildDbCoreStepHandOverTests: XCTestCase {
             home: try BuildDbIndexFixtures.samtoolsHome(in: scratch),
             fault: .requestAtLine { $0.hasSuffix("detection rows from EsViritu results") }
         ) { hook in
-            EsVirituResultIndexing(cancelRequested: hook)
+            EsVirituCommand.DetectSubcommand.resultIndexer(cancelRequested: hook)
         }
 
         try run.assertCancelledKeepingTheHandedOverSteps()
@@ -72,7 +72,7 @@ final class BuildDbCoreStepHandOverTests: XCTestCase {
             home: try BuildDbIndexFixtures.samtoolsHome(in: scratch),
             fault: .requestAtLine { $0.hasPrefix("Parsed ") }
         ) { hook in
-            TaxTriageResultIndexer(cancelRequested: hook)
+            TaxTriageCommand.RunSubcommand.resultIndexer(cancelRequested: hook)
         }
 
         try run.assertCancelledKeepingTheHandedOverSteps()

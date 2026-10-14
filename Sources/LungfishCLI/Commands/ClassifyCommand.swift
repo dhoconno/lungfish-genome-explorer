@@ -200,7 +200,7 @@ struct ClassifyCommand: AsyncParsableCommand {
 
         let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
         let executor = AnalysisRunExecutor(services: AnalysisRunServices(
-            indexing: Kraken2ResultIndexer(),
+            indexing: Self.resultIndexer(cancelRequested: cancelRequested),
             cancelRequested: cancelRequested
         ))
         let task = Task { await executor.execute(tool, request, events: events) }
