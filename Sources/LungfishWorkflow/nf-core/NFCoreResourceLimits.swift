@@ -35,7 +35,8 @@ package enum NFCoreResourceLimits {
 
     /// Builds the plan, writing a config into `directory` when required.
     package static func plan(for request: NFCoreRunRequest, in directory: URL) throws -> Plan {
-        guard usesResourceLimits(workflow: request.workflow.name, version: request.version) else {
+        guard usesResourceLimits(workflow: request.workflow.name, version: request.viralReconReleaseVersion(
+            pin: try? NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()) ?? request.version) else {
             return Plan(request: request, configURL: nil)
         }
 

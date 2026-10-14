@@ -48,7 +48,7 @@ final class ViralReconRecordShapeGapTests: XCTestCase {
             "--input", samplesheet.path,
             "--results-dir", root.appendingPathComponent("results", isDirectory: true).path,
             "--bundle-path", runBundle.path,
-            "--version", pin.releaseVersion,
+            "--version", pin.revision,
             "--prepare-only",
             "--quiet",
         ]).run()
@@ -145,9 +145,10 @@ struct ViralReconLaunchedRun {
         }
     }
 
-    /// Runs one paired Illumina amplicon sample with two CPUs and 4 GB, as the app's wizard asks, in `root`.
+    /// Runs one paired Illumina amplicon sample with two CPUs and 4 GB, as the app's wizard asks, in `root`, with
+    /// `--version` naming `version`, or with no `--version` when it is nil.
     static func run(
-        in root: URL, debugLog: [String]? = debugLogLines, extraArguments: [String] = [],
+        in root: URL, debugLog: [String]? = debugLogLines, version: String? = "3.0.0", extraArguments: [String] = [],
         using other: (any NFCoreWorkflowProcessRunning)? = nil
     ) async throws -> ViralReconLaunchedRun {
         let reads = ["S1_R1.fastq", "S1_R2.fastq"].map { root.appendingPathComponent("reads/\($0)") }
@@ -170,7 +171,6 @@ struct ViralReconLaunchedRun {
             "--results-dir", results.path,
             "--expected-output", results.path,
             "--bundle-path", bundle.path,
-            "--version", "3.0.0",
             "--param", "platform=illumina",
             "--param", "protocol=amplicon",
             "--param", "genome=MN908947.3",
@@ -178,7 +178,7 @@ struct ViralReconLaunchedRun {
             "--param", "max_cpus=2",
             "--param", "max_memory=4.GB",
             "--quiet",
-        ] + extraArguments).run(nfCoreRunner: other ?? runner)
+        ] + (version.map { ["--version", $0] } ?? []) + extraArguments).run(nfCoreRunner: other ?? runner)
         return ViralReconLaunchedRun(
             bundle: bundle, results: results, samplesheet: samplesheet, reads: reads, primerBED: primerBED, runner: runner)
     }

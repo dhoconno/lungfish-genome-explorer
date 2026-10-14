@@ -194,7 +194,9 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             params: effectiveParams,
             outputDirectoryName: outputDirectory.lastPathComponent,
             workflowPinnedVersion: workflow.pinnedVersion,
-            workflowGithubReleaseVersion: version,
+            // The lock pins a commit, so the tag that names it is the release, never the commit (Phase 2.10 N2).
+            workflowGithubReleaseVersion: viralReconReleaseVersion(
+                pin: try? NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()) ?? version,
             resume: resume,
             workDirectory: workDirectory,
             executionStatus: executionStatus,

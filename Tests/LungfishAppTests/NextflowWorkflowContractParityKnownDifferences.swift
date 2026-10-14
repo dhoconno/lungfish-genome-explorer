@@ -34,15 +34,9 @@ struct ViralReconContractKnownDifference: Sendable {
 }
 
 enum ViralReconContractKnownDifferences {
-    static let all: [ViralReconContractKnownDifference] = [
-        // Fit difference 3 of the contract (section 1).
-        ViralReconContractKnownDifference(
-            counts: [.lockWithoutPin: 1],
-            id: "lock without the pin: the route launches -r 3.0.0 where the contract refuses with 126",
-            reason: "NFCoreSupportedWorkflowCatalog falls back to 3.0.0 when the lock holds no nf-core-viralrecon pin, where the descriptor refuses the run (N4)",
-            closedBy: "B31, the commit that retires the four 3.0.0 homes (N2)"
-        ),
-    ]
+    // B31's pin commit closed fit difference 3 of the contract (section 1), the last entry (N2). A lock without the
+    // pin now refuses the run with 126, as the descriptor does, so any difference found again fails as not declared.
+    static let all: [ViralReconContractKnownDifference] = []
 
     /// One line per found difference no entry declares, and per entry of `parityCase` that matches another number
     /// of found differences than its count.

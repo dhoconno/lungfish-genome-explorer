@@ -74,17 +74,19 @@ final class NextflowWorkflowContractParityReplayTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("foreign-cli/Project").path))
     }
 
-    /// Fit difference 3. A bare `workflow run` call, with no `--version`, on a built CLI whose lock holds no Viral
-    /// Recon pin still launches release 3.0.0, where the descriptor refuses the run with 126 (N4).
-    func testALockWithoutThePinStillLaunchesTheFallbackRelease() throws {
+    /// Fit difference 3, closed by B31's pin commit (N2). A bare `workflow run` call, with no `--version`, on a built
+    /// CLI whose lock holds no Viral Recon pin is refused with 126 before the engine starts or the run bundle exists,
+    /// as the descriptor refuses it (N4), and no fallback release launches.
+    func testALockWithoutThePinIsRefusedWith126() throws {
         let cli = try copyOfTheCLIWithoutThePin()
         let run = try runRoute(.docker, case: "lock-without-pin", cli: cli, passesVersion: false)
         var found: [String] = []
-        if let launch = run.launches.first, run.status == 0 {
+        if let launch = run.launches.first {
             found.append("lock without the pin: the route launches -r \(launch.revision ?? "nothing") where the contract refuses with 126")
-        } else {
-            XCTAssertEqual(run.status, 126, "a run on a lock without the pin either launches or is refused with 126: \(run.stderr)")
         }
+        XCTAssertEqual(run.status, 126, run.stderr)
+        XCTAssertTrue(run.stderr.contains("LGE's tool lock has no pinned version of"), run.stderr)
+        XCTAssertFalse(run.tree.contains { $0.contains("viralrecon.lungfishrun") }, "no run bundle: \(run.tree)")
         assertDeclared(found, .lockWithoutPin)
     }
 

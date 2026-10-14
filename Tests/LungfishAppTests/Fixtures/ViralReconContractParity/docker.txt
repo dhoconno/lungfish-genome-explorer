@@ -9,7 +9,7 @@ argv:
 run
 nf-core/viralrecon
 -r
-3.0.0
+395079f1d24dce731ac22e03d7a5e71f110103fc
 -work-dir
 <scratch>/work
 -profile
@@ -136,7 +136,7 @@ records:
     "--bundle-path",
     "<root>/Project/Analyses/viralrecon.lungfishrun",
     "--version",
-    "3.0.0",
+    "395079f1d24dce731ac22e03d7a5e71f110103fc",
     "--input",
     "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
     "--expected-output",
@@ -380,13 +380,13 @@ records:
       "role" : "output"
     }
   ],
-  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
   "runtimeIdentity" : {
     "appVersion" : "<appversion>",
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "managedToolLockSHA256" : "7e812c4966d81884f8c5ce03a6aea1bf195aa1b94adff3edb8c225e1ef104c48",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
@@ -409,7 +409,7 @@ records:
         "--bundle-path",
         "<root>/Project/Analyses/viralrecon.lungfishrun",
         "--version",
-        "3.0.0",
+        "395079f1d24dce731ac22e03d7a5e71f110103fc",
         "--input",
         "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
         "--expected-output",
@@ -498,7 +498,7 @@ records:
           "role" : "output"
         }
       ],
-      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
         "nextflowVersion" : {
           "type" : "string",
@@ -507,26 +507,22 @@ records:
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
-        },
-        "resolvedCommit" : {
-          "type" : "string",
-          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
       "stderr" : "",
       "toolName" : "nf-core-viralrecon",
-      "toolVersion" : "3.0.0",
+      "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
     "name" : "nf-core-viralrecon",
-    "version" : "3.0.0"
+    "version" : "395079f1d24dce731ac22e03d7a5e71f110103fc"
   },
   "toolName" : "nf-core-viralrecon",
-  "toolVersion" : "3.0.0",
+  "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"
@@ -545,7 +541,7 @@ records:
     "--bundle-path",
     "<root>/Project/Analyses/viralrecon.lungfishrun",
     "--version",
-    "3.0.0",
+    "395079f1d24dce731ac22e03d7a5e71f110103fc",
     "--input",
     "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
     "--expected-output",
@@ -825,13 +821,13 @@ records:
       "role" : "output"
     }
   ],
-  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
   "runtimeIdentity" : {
     "appVersion" : "<appversion>",
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "managedToolLockSHA256" : "7e812c4966d81884f8c5ce03a6aea1bf195aa1b94adff3edb8c225e1ef104c48",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
@@ -854,7 +850,7 @@ records:
         "--bundle-path",
         "<root>/Project/Analyses/viralrecon.lungfishrun",
         "--version",
-        "3.0.0",
+        "395079f1d24dce731ac22e03d7a5e71f110103fc",
         "--input",
         "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
         "--expected-output",
@@ -957,7 +953,7 @@ records:
           "role" : "output"
         }
       ],
-      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
         "nextflowVersion" : {
           "type" : "string",
@@ -966,26 +962,22 @@ records:
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
-        },
-        "resolvedCommit" : {
-          "type" : "string",
-          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
       "stderr" : "",
       "toolName" : "nf-core-viralrecon",
-      "toolVersion" : "3.0.0",
+      "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
     "name" : "nf-core-viralrecon",
-    "version" : "3.0.0"
+    "version" : "395079f1d24dce731ac22e03d7a5e71f110103fc"
   },
   "toolName" : "nf-core-viralrecon",
-  "toolVersion" : "3.0.0",
+  "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"
@@ -1008,7 +1000,7 @@ records:
   "adapterIDs" : [
     "viralrecon"
   ],
-  "commandPreview" : "nextflow -c <scratch>/lungfish-resource-limits.config run nf-core/viralrecon -r 3.0.0 -work-dir <scratch>/work -profile docker --consensus_caller bcftools --genome MN908947.3 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --min_mapped_reads 1 --outdir <root>/Project/Analyses/viralrecon-results --platform illumina --primer_bed <repository>/Tests/Fixtures/sarscov2/test.bed --primer_left_suffix _LEFT --primer_right_suffix _RIGHT --protocol amplicon --skip_assembly true --skip_freyja true --skip_freyja_boot true --skip_kraken2 true --variant_caller ivar",
+  "commandPreview" : "nextflow -c <scratch>/lungfish-resource-limits.config run nf-core/viralrecon -r 395079f1d24dce731ac22e03d7a5e71f110103fc -work-dir <scratch>/work -profile docker --consensus_caller bcftools --genome MN908947.3 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --min_mapped_reads 1 --outdir <root>/Project/Analyses/viralrecon-results --platform illumina --primer_bed <repository>/Tests/Fixtures/sarscov2/test.bed --primer_left_suffix _LEFT --primer_right_suffix _RIGHT --protocol amplicon --skip_assembly true --skip_freyja true --skip_freyja_boot true --skip_kraken2 true --variant_caller ivar",
   "completedAt" : "<time>",
   "createdAt" : "<time>",
   "executionStatus" : "completed",
@@ -1045,12 +1037,12 @@ records:
   "startedAt" : "<time>",
   "stderrLogPath" : "logs/stderr.log",
   "stdoutLogPath" : "logs/stdout.log",
-  "version" : "3.0.0",
+  "version" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
   "workflowDescription" : "Generate viral consensus sequences, coverage summaries, alignments, and mutation tables.",
   "workflowDisplayName" : "nf-core/viralrecon",
   "workflowGithubReleaseVersion" : "3.0.0",
   "workflowName" : "viralrecon",
-  "workflowPinnedVersion" : "3.0.0"
+  "workflowPinnedVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc"
 }
 == Analyses/viralrecon.lungfishrun/provenance/bundle.lungfish-provenance.json
 {
@@ -1066,7 +1058,7 @@ records:
     "--bundle-path",
     "<root>/Project/Analyses/viralrecon.lungfishrun",
     "--version",
-    "3.0.0",
+    "395079f1d24dce731ac22e03d7a5e71f110103fc",
     "--input",
     "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
     "--expected-output",
@@ -1303,13 +1295,13 @@ records:
       "role" : "output"
     }
   ],
-  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
   "runtimeIdentity" : {
     "appVersion" : "<appversion>",
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "managedToolLockSHA256" : "7e812c4966d81884f8c5ce03a6aea1bf195aa1b94adff3edb8c225e1ef104c48",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
@@ -1332,7 +1324,7 @@ records:
         "--bundle-path",
         "<root>/Project/Analyses/viralrecon.lungfishrun",
         "--version",
-        "3.0.0",
+        "395079f1d24dce731ac22e03d7a5e71f110103fc",
         "--input",
         "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
         "--expected-output",
@@ -1414,7 +1406,7 @@ records:
           "role" : "output"
         }
       ],
-      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
         "nextflowVersion" : {
           "type" : "string",
@@ -1423,26 +1415,22 @@ records:
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
-        },
-        "resolvedCommit" : {
-          "type" : "string",
-          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
       "stderr" : "",
       "toolName" : "nf-core-viralrecon",
-      "toolVersion" : "3.0.0",
+      "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
     "name" : "nf-core-viralrecon",
-    "version" : "3.0.0"
+    "version" : "395079f1d24dce731ac22e03d7a5e71f110103fc"
   },
   "toolName" : "nf-core-viralrecon",
-  "toolVersion" : "3.0.0",
+  "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"
@@ -1461,7 +1449,7 @@ records:
     "--bundle-path",
     "<root>/Project/Analyses/viralrecon.lungfishrun",
     "--version",
-    "3.0.0",
+    "395079f1d24dce731ac22e03d7a5e71f110103fc",
     "--input",
     "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
     "--expected-output",
@@ -1698,13 +1686,13 @@ records:
       "role" : "output"
     }
   ],
-  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+  "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
   "runtimeIdentity" : {
     "appVersion" : "<appversion>",
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077",
+    "managedToolLockSHA256" : "7e812c4966d81884f8c5ce03a6aea1bf195aa1b94adff3edb8c225e1ef104c48",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
@@ -1727,7 +1715,7 @@ records:
         "--bundle-path",
         "<root>/Project/Analyses/viralrecon.lungfishrun",
         "--version",
-        "3.0.0",
+        "395079f1d24dce731ac22e03d7a5e71f110103fc",
         "--input",
         "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
         "--expected-output",
@@ -1809,7 +1797,7 @@ records:
           "role" : "output"
         }
       ],
-      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 3.0.0 --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
+      "reproducibleCommand" : "lungfish-cli workflow run nf-core/viralrecon --executor docker --results-dir <root>/Project/Analyses/viralrecon-results --bundle-path <root>/Project/Analyses/viralrecon.lungfishrun --version 395079f1d24dce731ac22e03d7a5e71f110103fc --input <root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv --expected-output <root>/Project/Analyses/viralrecon-results --param consensus_caller=bcftools --param genome=MN908947.3 --param max_cpus=2 --param max_memory=4.GB --param min_mapped_reads=1 --param platform=illumina --param primer_bed=<repository>/Tests/Fixtures/sarscov2/test.bed --param primer_left_suffix=_LEFT --param primer_right_suffix=_RIGHT --param protocol=amplicon --param skip_assembly=true --param skip_freyja=true --param skip_freyja_boot=true --param skip_kraken2=true --param variant_caller=ivar",
       "resolvedOptions" : {
         "nextflowVersion" : {
           "type" : "string",
@@ -1818,26 +1806,22 @@ records:
         "pipelineSource" : {
           "type" : "string",
           "value" : "remote"
-        },
-        "resolvedCommit" : {
-          "type" : "string",
-          "value" : "395079f1d2"
         }
       },
       "startedAt" : "<time>",
       "stderr" : "",
       "toolName" : "nf-core-viralrecon",
-      "toolVersion" : "3.0.0",
+      "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
       "wallTimeSeconds" : "<seconds>"
     }
   ],
   "tool" : {
     "kind" : "cli",
     "name" : "nf-core-viralrecon",
-    "version" : "3.0.0"
+    "version" : "395079f1d24dce731ac22e03d7a5e71f110103fc"
   },
   "toolName" : "nf-core-viralrecon",
-  "toolVersion" : "3.0.0",
+  "toolVersion" : "395079f1d24dce731ac22e03d7a5e71f110103fc",
   "wallTimeSeconds" : "<seconds>",
   "workflowName" : "Run nf-core/viralrecon",
   "workflowVersion" : "<workflowversion>"

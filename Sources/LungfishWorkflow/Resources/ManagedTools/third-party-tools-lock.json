@@ -63,7 +63,7 @@
   ],
   "pipelines": [
     { "id": "taxtriage", "repository": "jhuapl-bio/taxtriage", "revision": "e10bfebda32a62711f38a4e23ab03b61725a9675", "releaseVersion": "v3.3.8" },
-    { "id": "nf-core-viralrecon", "repository": "nf-core/viralrecon", "revision": "3.0.0", "releaseVersion": "3.0.0" }
+    { "id": "nf-core-viralrecon", "repository": "nf-core/viralrecon", "revision": "395079f1d24dce731ac22e03d7a5e71f110103fc", "releaseVersion": "3.0.0" }
   ],
   "databases": [
     { "id": "kraken2-standard", "sourcePolicy": "unpinnedArchive", "tool": "kraken2", "collection": "standard", "displayName": "Standard", "version": "20260626", "url": "https://genome-idx.s3.amazonaws.com/kraken/k2_standard_20260626.tar.gz" },

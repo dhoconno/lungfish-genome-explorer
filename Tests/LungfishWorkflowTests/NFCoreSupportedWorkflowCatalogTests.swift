@@ -33,6 +33,9 @@ final class NFCoreSupportedWorkflowCatalogTests: XCTestCase {
         // legacy parser resolves profile includes lazily like older releases did.
         XCTAssertEqual(workflow.launchEnvironment(forVersion: "3.0.0"), ["NXF_SYNTAX_PARSER": "v1"])
         XCTAssertEqual(workflow.launchEnvironment(forVersion: "3.1.0"), [:])
+        // Phase 2.10 N2. The lock pins the commit tag 3.0.0 names, which takes the tag's override, and no other commit does.
+        XCTAssertEqual(workflow.launchEnvironment(forVersion: workflow.pinnedVersion), ["NXF_SYNTAX_PARSER": "v1"])
+        XCTAssertEqual(workflow.launchEnvironment(forVersion: "0123456789abcdef0123456789abcdef01234567"), [:])
         XCTAssertEqual(
             workflow.launchEnvironment(forVersion: ""),
             workflow.launchEnvironment(forVersion: workflow.pinnedVersion),

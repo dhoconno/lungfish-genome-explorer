@@ -17,6 +17,13 @@ extension RunSubcommand {
         guard let supportedWorkflow = NFCoreSupportedWorkflowCatalog.workflow(named: normalizedWorkflow) else {
             throw CLIError.workflowFailed(reason: "Unsupported nf-core workflow: \(workflow)")
         }
+        // N2 and N4. The lock's pin is the one source of the revision, so a lock without it refuses the run with 126
+        // before anything is written, and no fallback release takes the pin's place.
+        do {
+            _ = try NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()
+        } catch let refusal as NextflowDescriptorRefusal {
+            throw CLIError.missingTool(reason: refusal.message)
+        }
         guard !input.isEmpty else {
             throw CLIError.workflowFailed(reason: "nf-core/viralrecon needs one --input samplesheet.csv, or one or more --input .lungfishfastq bundles or FASTQ files")
         }

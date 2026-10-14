@@ -61,6 +61,24 @@ final class ViralReconRunRecordTests: XCTestCase {
         XCTAssertNil(tag("0123456789abcdef0123456789abcdef01234567", pin))
     }
 
+    /// Phase 2.10 N2. A run that names no `--version` launches the commit the lock pins with the legacy syntax parser
+    /// its tag 3.0.0 needs, and its record and manifest name that commit as the revision and the tag as the release.
+    func testABareRunLaunchesThePinnedCommitWithItsTagsEnvironment() async throws {
+        let pin = try NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()
+        let run = try await ViralReconLaunchedRun.run(in: root, debugLog: nil, version: nil)
+        let launch = try XCTUnwrap(run.runner.launches.first, "the run launched nothing")
+        let revision = try XCTUnwrap(launch.arguments.firstIndex(of: "-r")).advanced(by: 1)
+        XCTAssertEqual(launch.arguments[revision], pin.revision, "-r takes the commit")
+        XCTAssertEqual(launch.environment["NXF_SYNTAX_PARSER"], "v1", "the commit of tag 3.0.0 keeps the tag's parser")
+        let step = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: run.bundle)?.steps.first)
+        XCTAssertEqual(step.toolVersion, pin.revision)
+        XCTAssertEqual(step.githubReleaseVersion, "3.0.0")
+        XCTAssertNil(step.resolvedOptions["resolvedCommit"], "the revision is the full commit already")
+        let manifest = try NFCoreRunBundleStore.read(from: run.bundle)
+        XCTAssertEqual([manifest.version, manifest.workflowPinnedVersion], [pin.revision, pin.revision])
+        XCTAssertEqual(manifest.workflowGithubReleaseVersion, "3.0.0", "the release is the tag, never the commit")
+    }
+
     /// N3, absent beats a guess. A debug log that names no version, with no probe to ask, leaves the version out, and a
     /// log with no `Launching` line leaves the commit out.
     func testALogNamingNoVersionLeavesTheVersionAbsent() async throws {

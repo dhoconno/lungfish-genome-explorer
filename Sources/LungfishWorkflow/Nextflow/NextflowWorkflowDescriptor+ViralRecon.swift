@@ -49,11 +49,11 @@ extension NFCoreRunRequest {
     ///
     /// The samplesheet is one file by type, so a launch writes exactly one `--input` whatever the
     /// request's inputs are (Phase 2.10 N1, fit difference 1). The target is the workflow's repository
-    /// at the request's version, which is the catalog's pinned release when the caller names none, so
-    /// a lock without the Viral Recon pin still launches the catalog's fallback until B31 retires it
-    /// (fit difference 3, N2). The profile is the executor. The workflow's options are the request's
-    /// other effective parameters that have a value, the forced step skips among them, as `--name
-    /// value` pairs.
+    /// at the request's version, which is the commit the lock pins when the caller names none, with the
+    /// tag that names that revision as its release, so a commit launch keeps its tag's environment (N2).
+    /// A lock without the Viral Recon pin never gets here, since `workflow run` refuses it first (N4).
+    /// The profile is the executor. The workflow's options are the request's other effective
+    /// parameters that have a value, the forced step skips among them, as `--name value` pairs.
     package func viralReconLaunch(samplesheet: URL, configFiles: [URL] = []) -> NextflowLaunchRequest {
         let options = effectiveParams
             .filter { $0.key != "input" && $0.key != "outdir" && !$0.value.isEmpty }
@@ -65,7 +65,8 @@ extension NFCoreRunRequest {
                 pipelineID: NextflowWorkflowDescriptor.viralRecon.lockPipelineID,
                 repository: workflow.fullName,
                 revision: version,
-                releaseVersion: version)),
+                releaseVersion: viralReconReleaseVersion(
+                    pin: try? NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()) ?? version)),
             samplesheet: samplesheet,
             outputDirectory: outputDirectory,
             workDirectory: workDirectory,

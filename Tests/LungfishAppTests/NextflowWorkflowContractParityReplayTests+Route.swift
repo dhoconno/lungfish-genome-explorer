@@ -213,7 +213,8 @@ extension NextflowWorkflowContractParityReplayTests {
             samplesheetURL: try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(
                 samples: [sample], in: analyses.appendingPathComponent(".viralrecon-inputs", isDirectory: true)),
             outputDirectory: analyses.appendingPathComponent("viralrecon-results", isDirectory: true),
-            executor: executor, version: "3.0.0", reference: .genome("MN908947.3"),
+            executor: executor, version: try NextflowWorkflowDescriptor.viralRecon.resolveBundledPin().revision,
+            reference: .genome("MN908947.3"),
             primer: ViralReconPrimerSelection(
                 bundleURL: reads, displayName: "test", bedURL: reads.appendingPathComponent("test.bed"), fastaURL: nil,
                 leftSuffix: "_LEFT", rightSuffix: "_RIGHT", derivedFasta: false),
@@ -297,14 +298,26 @@ extension NextflowWorkflowContractParityReplayTests {
         throw ParityError.cliIgnoresDockerStandIn(variable: Self.dockerStandInVariable)
     }
 
-    /// A hard link of the built CLI in a folder of its own, beside links to its resource bundles, except that the
-    /// workflow bundle's lock holds no `nf-core-viralrecon` pin. The CLI finds its resources beside its own path.
+    /// A hard link of the built CLI in an app of its own, `cli-without-pin/Lungfish.app/Contents/MacOS`, beside links to
+    /// its resource bundles in `Contents/Resources`, except that the workflow bundle's lock holds no
+    /// `nf-core-viralrecon` pin. Outside an app a Debug CLI reads the lock from the source tree
+    /// (`ManagedToolLock.resourceURL()`), so only an app's layout makes it read this one (`RuntimeResourceLocator`).
     func copyOfTheCLIWithoutThePin() throws -> URL {
         let cli = try builtCLI()
         let products = cli.deletingLastPathComponent()
-        let folder = root.appendingPathComponent("cli-without-pin", isDirectory: true)
+        let contents = root.appendingPathComponent("cli-without-pin/Lungfish.app/Contents", isDirectory: true)
+        let folder = contents.appendingPathComponent("Resources", isDirectory: true)
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: contents.appendingPathComponent("MacOS", isDirectory: true), withIntermediateDirectories: true)
+        // A CLI in an app takes the app's identity (AppIdentity), so the app states the Stable one a standalone CLI has.
+        let identity = LungfishAppIdentity.stable
+        let info: [String: Any] = [
+            "CFBundleDisplayName": identity.fullName, "CFBundleName": identity.shortName,
+            "CFBundleIdentifier": identity.bundleIdentifier, "LungfishReleaseChannel": identity.releaseChannel.rawValue,
+        ]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
         let lock = ["LungfishGenomeBrowser_LungfishWorkflow.bundle", "Contents", "Resources", "ManagedTools", "third-party-tools-lock.json"]
         func mirror(_ source: URL, _ destination: URL, _ remaining: ArraySlice<String>) throws {
             guard let next = remaining.first else {
@@ -327,7 +340,7 @@ extension NextflowWorkflowContractParityReplayTests {
             try fileManager.createSymbolicLink(at: folder.appendingPathComponent(item), withDestinationURL: products.appendingPathComponent(item))
         }
         try mirror(products.appendingPathComponent(lock[0]), folder.appendingPathComponent(lock[0]), lock.dropFirst())
-        let copy = folder.appendingPathComponent("lungfish-cli")
+        let copy = contents.appendingPathComponent("MacOS/lungfish-cli")
         try fileManager.linkItem(at: cli, to: copy)
         return copy
     }

@@ -121,10 +121,14 @@ extension NFCoreSupportedWorkflow {
     /// The overrides are keyed on the release because they paper over defects
     /// in a specific tag; bumping the pin in the managed-tool lock is the cue
     /// to re-check whether an override is still needed. An empty revision
-    /// means the pinned release.
+    /// means the pinned release. The lock pins the commit a tag names, so that
+    /// commit takes the overrides of the tag the lock records beside it
+    /// (Phase 2.10 N2).
     public func launchEnvironment(forVersion version: String) -> [String: String] {
-        let effectiveVersion = version.isEmpty ? pinnedVersion : version
-        switch (name, effectiveVersion) {
+        let revision = version.isEmpty ? pinnedVersion : version
+        let pin = name == "viralrecon" ? (try? NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()) : nil
+        let release = pin.map { revision == $0.revision && !$0.releaseVersion.isEmpty ? $0.releaseVersion : revision } ?? revision
+        switch (name, release) {
         case ("viralrecon", "3.0.0"):
             // Tag 3.0.0's nextflow.config includes conf/test_full_sispa.config,
             // which the tag does not ship. Nextflow 25+ parses every
@@ -145,7 +149,9 @@ public enum NFCoreSupportedWorkflowCatalog {
             name: "viralrecon",
             displayName: "Analyze viral amplicon samples",
             description: "Generate viral consensus sequences, coverage summaries, alignments, and mutation tables.",
-            pinnedVersion: ManagedToolLock.bundled.pipeline(id: "nf-core-viralrecon")?.revision ?? "3.0.0",
+            // The lock's pin is the one source of the revision, read through the descriptor. With no pin this is empty,
+            // and `workflow run` refuses the run with 126 before it writes anything, as the descriptor does (N2, N4).
+            pinnedVersion: (try? NextflowWorkflowDescriptor.viralRecon.resolveBundledPin())?.revision ?? "",
             whenToUse: "Use this for viral sequencing reads, especially SARS-CoV-2-style amplicon samples, when you want consensus genomes, coverage, and variants.",
             notFor: "Do not use this for whole-organism genomes, RNA-seq, non-viral samples, or generic nanopore QC.",
             requiredInputs: "Choose viral FASTQ reads. A matching viral reference and primer scheme may be required for final analysis.",

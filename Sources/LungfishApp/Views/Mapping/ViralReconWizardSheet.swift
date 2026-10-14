@@ -511,7 +511,8 @@ struct ViralReconWizardSheet: View {
             samplesheetURL: samplesheetURL,
             outputDirectory: outputDirectory,
             executor: Self.fixedExecutor,
-            version: Self.fixedVersion,
+            // The commit the lock pins, the one source of the revision (Phase 2.10 N2). A lock without it refuses here.
+            version: try NextflowWorkflowDescriptor.viralRecon.resolveBundledPin().revision,
             reference: .genome(ViralReconReferenceCatalog.canonicalAccession),
             primer: primer,
             minimumMappedReads: minimumMappedReads,
@@ -665,7 +666,6 @@ struct ViralReconWizardSheet: View {
     /// Docker is the only executor that reaches a working run, so it is fixed
     /// here rather than offered. The launch path refuses the others outright.
     private static let fixedExecutor: NFCoreExecutor = .docker
-    private static let fixedVersion = "3.0.0"
     private static let defaultVariantCaller: ViralReconVariantCaller = .ivar
     private static let defaultConsensusCaller: ViralReconConsensusCaller = .bcftools
 

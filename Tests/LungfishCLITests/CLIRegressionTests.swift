@@ -986,7 +986,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(manifest.workflowName, "viralrecon")
         XCTAssertEqual(manifest.workflowDisplayName, "nf-core/viralrecon")
         XCTAssertEqual(manifest.version, "3.0.0")
-        XCTAssertEqual(manifest.workflowPinnedVersion, "3.0.0")
+        XCTAssertEqual(manifest.workflowPinnedVersion, "395079f1d24dce731ac22e03d7a5e71f110103fc", "2.10 N2, the commit of tag 3.0.0")
         XCTAssertEqual(manifest.params["input"], samplesheet.path)
         XCTAssertEqual(manifest.params["platform"], "illumina")
         XCTAssertEqual(manifest.params["protocol"], "amplicon")
