@@ -76,12 +76,15 @@ extension AppDelegate {
     /// `Analyses/<tool>-<timestamp>/` directory. If every child fails and
     /// leaves nothing behind, the now-empty batch directory is removed after
     /// the loop completes (spec §6).
+    ///
+    /// `routeSettings` reads the mapping key, the user's defaults unless a test passes its own suite.
     func runManagedMapping(
         plan: MappingRunPlan,
-        routeContext explicitRouteContext: OperationRouteContext? = nil
+        routeContext explicitRouteContext: OperationRouteContext? = nil,
+        routeSettings: ReadsLaunchRouteSettings = ReadsLaunchRouteSettings()
     ) {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
-        let route = ReadsLaunchRouteSettings().route(for: .mapping)
+        let route = routeSettings.route(for: .mapping)
         guard canWriteProjectOutputs(
             projectURL: routeContext?.projectURL,
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
