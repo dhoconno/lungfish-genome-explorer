@@ -153,12 +153,12 @@ final class GenotypeCohortIdCollisionTests: XCTestCase {
 
     // MARK: - What the refusal leaves alone
 
-    /// The second case of the brief, two cohorts with one scope and name that
-    /// derive one id, cannot be built. A cohort that stores no id derives the id
-    /// of its place among the cohorts of its scope and name, and moves past any
-    /// id that a cohort stores or an earlier cohort derived (`resolvedIDs`). So
-    /// only two stored ids can be equal, and these arrangements give distinct
-    /// ids that the export writes, as it did before the refusal.
+    /// Two cohorts with one scope and name that derive one id cannot be built.
+    /// A cohort that stores no id derives the id of its place among the cohorts
+    /// of its scope and name, and moves past any id that a cohort stores or an
+    /// earlier cohort derived (`resolvedIDs`). So only two stored ids can be
+    /// equal, and these arrangements give distinct ids that the export writes,
+    /// as it did before the refusal.
     func testCohortsOfOneScopeAndNameThatStoreNoSharedIdAreStillExported() async throws {
         let root = try TestTempDirectory.make(prefix: "cohort-refuse-derived")
         defer { TestTempDirectory.cleanup(root) }
