@@ -162,7 +162,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 startedAt: request.transaction.startedAt,
                 completedAt: completedAt
             )
-            _ = try ProvenanceWriter(signingProvider: nil).write(
+            _ = try ProvenanceWriter().write(
                 envelope,
                 to: publicationStagingURL
             )
