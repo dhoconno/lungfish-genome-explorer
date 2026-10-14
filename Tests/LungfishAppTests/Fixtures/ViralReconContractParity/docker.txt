@@ -252,10 +252,6 @@ records:
         "type" : "string",
         "value" : "illumina"
       },
-      "prepareOnly" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "primer_bed" : {
         "type" : "string",
         "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
@@ -267,6 +263,10 @@ records:
       "primer_right_suffix" : {
         "type" : "string",
         "value" : "_RIGHT"
+      },
+      "profile" : {
+        "type" : "string",
+        "value" : "docker"
       },
       "protocol" : {
         "type" : "string",
@@ -311,10 +311,6 @@ records:
           }
         ]
       },
-      "resume" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "skip_assembly" : {
         "type" : "string",
         "value" : "true"
@@ -337,7 +333,14 @@ records:
       }
     },
     "resolvedDefaults" : {
-
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      }
     }
   },
   "output" : {
@@ -623,10 +626,6 @@ records:
         "type" : "string",
         "value" : "illumina"
       },
-      "prepareOnly" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "primer_bed" : {
         "type" : "string",
         "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
@@ -638,6 +637,10 @@ records:
       "primer_right_suffix" : {
         "type" : "string",
         "value" : "_RIGHT"
+      },
+      "profile" : {
+        "type" : "string",
+        "value" : "docker"
       },
       "protocol" : {
         "type" : "string",
@@ -682,10 +685,6 @@ records:
           }
         ]
       },
-      "resume" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "skip_assembly" : {
         "type" : "string",
         "value" : "true"
@@ -708,7 +707,14 @@ records:
       }
     },
     "resolvedDefaults" : {
-
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      }
     }
   },
   "output" : {
@@ -1069,10 +1075,6 @@ records:
         "type" : "string",
         "value" : "illumina"
       },
-      "prepareOnly" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "primer_bed" : {
         "type" : "string",
         "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
@@ -1084,6 +1086,10 @@ records:
       "primer_right_suffix" : {
         "type" : "string",
         "value" : "_RIGHT"
+      },
+      "profile" : {
+        "type" : "string",
+        "value" : "docker"
       },
       "protocol" : {
         "type" : "string",
@@ -1128,10 +1134,6 @@ records:
           }
         ]
       },
-      "resume" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "skip_assembly" : {
         "type" : "string",
         "value" : "true"
@@ -1154,7 +1156,14 @@ records:
       }
     },
     "resolvedDefaults" : {
-
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      }
     }
   },
   "output" : {
@@ -1411,10 +1420,6 @@ records:
         "type" : "string",
         "value" : "illumina"
       },
-      "prepareOnly" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "primer_bed" : {
         "type" : "string",
         "value" : "<repository>/Tests/Fixtures/sarscov2/test.bed"
@@ -1426,6 +1431,10 @@ records:
       "primer_right_suffix" : {
         "type" : "string",
         "value" : "_RIGHT"
+      },
+      "profile" : {
+        "type" : "string",
+        "value" : "docker"
       },
       "protocol" : {
         "type" : "string",
@@ -1470,10 +1479,6 @@ records:
           }
         ]
       },
-      "resume" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "skip_assembly" : {
         "type" : "string",
         "value" : "true"
@@ -1496,7 +1501,14 @@ records:
       }
     },
     "resolvedDefaults" : {
-
+      "prepareOnly" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "resume" : {
+        "type" : "boolean",
+        "value" : false
+      }
     }
   },
   "output" : {

@@ -508,11 +508,11 @@ extension RunSubcommand {
                 role: .output
             )
         ] + expectedOutputRecords(for: request.expectedOutputURLs)
-        var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
-        parameters["executor"] = .string(request.executor.rawValue)
-        parameters["github_release_version"] = .string(request.version)
-        parameters["resume"] = .boolean(request.resume)
-        parameters["prepareOnly"] = .boolean(prepareOnly)
+        // 2.9 R1. The step is the pipeline at the revision that ran, with its tag and launch source, and LGE's command
+        // is the run's argv. The options split by 2.7 E12.
+        let facts = Self.viralReconStepFacts(for: request)
+        let options = viralReconRunOptions(request: request, prepareOnly: prepareOnly, releaseVersion: facts.githubReleaseVersion)
+        var parameters = options.explicit
         if !request.expectedOutputURLs.isEmpty {
             parameters["expectedOutputs"] = .array(request.expectedOutputURLs.map { .file($0) })
         }
@@ -529,9 +529,6 @@ extension RunSubcommand {
             parameters[ViralReconAnnotationStaging.provenanceKey] = stagedAnnotation.provenanceValue
         }
 
-        // 2.9 R1. The step is the pipeline at the revision that ran, with its tag and launch source, and LGE's command
-        // is the run's argv.
-        let facts = Self.viralReconStepFacts(for: request)
         let recordedAt = Date(), step = StepExecution(
             toolName: facts.toolName,
             toolVersion: facts.toolVersion,
@@ -552,9 +549,9 @@ extension RunSubcommand {
             steps: [step],
             parameters: parameters
         )
-        try ProvenanceWriter().write(run.canonicalEnvelope(), to: bundleURL)
+        try ProvenanceWriter().write(run.canonicalEnvelope(resolvedDefaults: options.resolvedDefaults), to: bundleURL)
         if !prepareOnly, status == .completed {
-            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
+            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs, resolvedDefaults: options.resolvedDefaults)
         }
     }
 }

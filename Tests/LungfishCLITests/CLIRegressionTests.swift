@@ -1034,7 +1034,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(provenance.exitStatus, 0)
         XCTAssertEqual(provenance.toolName, "nf-core-viralrecon", "2.9 R1, the step and the run name the pipeline")
         XCTAssertEqual(provenance.githubReleaseVersion, "3.0.0")
-        XCTAssertEqual(provenance.options.explicit["github_release_version"], .string("3.0.0"))
+        XCTAssertEqual(provenance.options.resolvedDefaults["github_release_version"], .string("3.0.0"), "2.7 E12, the pin named it")
         XCTAssertTrue(provenance.argv.contains("--prepare-only"))
         XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
             input.path == samplesheet.path && input.checksumSHA256 != nil && input.fileSize != nil

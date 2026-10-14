@@ -65,9 +65,14 @@ final class ViralReconRecordShapeGapTests: XCTestCase {
         XCTAssertEqual(record.options.explicit["github_release_version"], .string(pin.releaseVersion))
         XCTAssertNil(step.resolvedOptions["nextflowVersion"], "gap, no Nextflow version")
         XCTAssertEqual(step.resolvedOptions["pipelineSource"], .string("remote"), "the repository, launched with -r")
-        XCTAssertEqual(record.options.explicit["executor"], .string("docker"), "gap, the profile is recorded only as the executor")
-        XCTAssertNil(record.options.explicit["profile"], "gap, no profile")
-        XCTAssertEqual(record.options.resolvedDefaults, [:], "gap, every value is an explicit option, with no home for what LGE passed unasked")
+        XCTAssertEqual(record.options.explicit["executor"], .string("docker"))
+        XCTAssertEqual(record.options.explicit["profile"], .string("docker"), "the profile -profile passes, an explicit option")
+        // 2.7 E12. What LGE passes unasked, the forced Freyja skips and a flag left at its default, is a resolved default.
+        XCTAssertEqual(record.options.resolvedDefaults["skip_freyja"], .string("true"))
+        XCTAssertEqual(record.options.resolvedDefaults["skip_freyja_boot"], .string("true"))
+        XCTAssertNil(record.options.explicit["skip_freyja"])
+        XCTAssertEqual(record.options.resolvedDefaults["resume"], .boolean(false))
+        XCTAssertEqual(record.options.explicit["prepareOnly"], .boolean(true))
         XCTAssertEqual(step.inputs.count, 1, "gap, the samplesheet is the one input with a digest, and the FASTQs it names are not inputs")
     }
 
