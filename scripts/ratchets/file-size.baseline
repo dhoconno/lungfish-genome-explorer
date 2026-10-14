@@ -1,5 +1,5 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3391
+Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 3257
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1026
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 812
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1475
@@ -32,7 +32,7 @@ Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1362
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1050
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1072
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1055
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1331
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 833
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1121
