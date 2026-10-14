@@ -215,6 +215,23 @@ final class TaxTriageCompletionStateTests: XCTestCase {
         )
     }
 
+    // MARK: - The row's bar
+
+    /// The database stage owns the last tenth of the bar (W3, U38 M3), so the runner's own end, 1.0,
+    /// reads 0.9 on the row and the stage has room to move the bar before the row completes. The
+    /// engine's values lie below 0.9 and stay as they were.
+    func testTheRunnersEndReadsWhereTheDatabaseStagesShareBegins() {
+        for engineValue in [0.0, 0.05, 0.1, 0.43, 0.86] {
+            XCTAssertEqual(AppDelegate.taxTriageEngineBar(engineValue), engineValue)
+        }
+        let engineEnd = 1 - NextflowWorkflowDescriptor.taxTriage.finalizeProgressShare
+        XCTAssertEqual(engineEnd, 0.9, accuracy: 1e-12)
+        for runnerValue in [0.9, 1.0, 7.0] {
+            XCTAssertEqual(AppDelegate.taxTriageEngineBar(runnerValue), engineEnd, accuracy: 1e-12)
+        }
+        XCTAssertEqual(AppDelegate.taxTriageEngineBar(-1), 0)
+    }
+
     // MARK: - Exclude host taxa field
 
     func testExcludeHostTaxaFollowsSampleRolesUntilEdited() {

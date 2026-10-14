@@ -166,11 +166,12 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
         // The bar never moves back (T9). In the engine stage it follows the completed rows of
         // trace.txt against 29 tasks, so the stand-in's 29 rows take it to its stop at 0.86 (2.9 W2).
-        // The runner reports 1.0 and the database build keeps the bar there. Before the fix the app
-        // showed 0.95 while it built the database.
+        // The database stage owns the last tenth of the bar (W3, U38 M3), so the runner's last report,
+        // 1.0, reads 0.9 on the row, the stage moves the bar to the middle of its share, 0.95, and the
+        // row completes at 1.0. The stage sat on 1.0 before.
         XCTAssertEqual(
             Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.1, 0.86)]),
-            [0, 0.05, 0.1, 0.86, 0.9, 1.0],
+            [0, 0.05, 0.1, 0.86, 0.9, 0.95, 1.0],
             "\(run.trace.bars)"
         )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
@@ -340,11 +341,12 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
         // The bar never moves back (T9). Each sample's engine stage follows its completed trace rows
         // against 29 tasks (2.9 W2). S1's 29 rows stop it at 0.86 of its half, and S2's run ends after
-        // 7 completed rows and its failed one. The failed sample ends the bar at 1.0 and the database
-        // build keeps it there.
+        // 7 completed rows and its failed one. The failed sample's end reads 0.9 on the row, because the
+        // database stage owns the last tenth of the bar, which the stage moves to 0.95 before the row
+        // completes at 1.0 (U38 M3). The failed sample ended the bar at 1.0 and the build kept it there.
         XCTAssertEqual(
             Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.05, 0.43), (0.55, 0.6466)]),
-            [0, 0.025, 0.05, 0.43, 0.45, 0.5, 0.525, 0.55, 0.6466, 1.0],
+            [0, 0.025, 0.05, 0.43, 0.45, 0.5, 0.525, 0.55, 0.6466, 0.9, 0.95, 1.0],
             "\(run.trace.bars)"
         )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
@@ -443,15 +445,15 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: analysis.appendingPathComponent("taxtriage-result.json").path))
 
         // The row on its way to Cancelled. The bar stays where the database build left it, which is
-        // 1.0 because the bar never moves back (T9). The build the cancel stopped logs no warning,
-        // because a cancel is no failure (T10). The stage told the overlay its line before the cancel,
-        // and the cancel shows the row's own `Cancelling...` over it, so no later engine line reaches
-        // the overlay (U38 M3).
+        // 0.95, the middle of the stage's share (U38 M3), because the bar never moves back (T9). The
+        // build the cancel stopped logs no warning, because a cancel is no failure (T10). The stage
+        // told the overlay its line before the cancel, and the cancel shows the row's own
+        // `Cancelling...` over it, so no later engine line reaches the overlay.
         XCTAssertEqual(
             Array(run.trace.details.suffix(3)),
             ["Building TaxTriage database\u{2026}", "Cancelling...", "Cancelled by user"]
         )
-        XCTAssertEqual(run.trace.bars.last, 1.0)
+        XCTAssertEqual(run.trace.bars.last, 0.95)
         XCTAssertEqual(
             run.viewer.overlayLines.last { $0 != "Cancelling..." },
             "Building TaxTriage database\u{2026}",

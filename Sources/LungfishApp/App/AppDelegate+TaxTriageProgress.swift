@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishKit
+import LungfishWorkflow
 
 extension AppDelegate {
     /// Shows a progress message of a TaxTriage run in its row, shows it on the viewer's overlay only
@@ -19,10 +20,22 @@ extension AppDelegate {
         for operationID: UUID,
         on viewer: ViewerViewController
     ) {
-        if OperationCenter.shared.update(id: operationID, progress: max(0, min(1, progress)), detail: message) {
+        if OperationCenter.shared.update(id: operationID, progress: taxTriageEngineBar(progress), detail: message) {
             viewer.showProgress(message)
         }
         logTaxTriageProgress(message, for: operationID)
+    }
+
+    /// The row's bar for a fraction the runner reports.
+    ///
+    /// The runner's scale ends on 1.0 at its last message, `TaxTriage pipeline complete`, and the
+    /// database stage that follows owns the last tenth of the bar (W3, U38 M3). So the bar holds at
+    /// `1 - s`, with `s` the descriptor's finalize share, until the stage moves it into its share and
+    /// the row completes at 1.0, and a bar that was on 1.0 would leave the stage no room to move and
+    /// never move back. The engine's own values lie below `1 - s` and stay as they were.
+    static func taxTriageEngineBar(_ progress: Double) -> Double {
+        let engineEnd = 1 - NextflowWorkflowDescriptor.taxTriage.finalizeProgressShare
+        return max(0, min(engineEnd, progress))
     }
 
     /// Shows the row's own `Cancelling...` on the viewer's overlay once a cancel has moved the row
