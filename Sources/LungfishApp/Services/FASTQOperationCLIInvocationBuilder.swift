@@ -229,7 +229,6 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 arguments += ["--read-layout", readLayout]
             }
             arguments += [
-                "--json-events",
                 "--assembler", executionRequest.tool.rawValue,
                 "--read-type", executionRequest.readType.cliArgument,
                 "--project-name", executionRequest.projectName,
@@ -254,6 +253,10 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if !executionRequest.extraArguments.isEmpty {
                 arguments += ["--extra-args", AdvancedCommandLineOptions.join(executionRequest.extraArguments)]
             }
+            // `assemble` prints events behind --format json on standard output since 2.10 (lane
+            // A46, decision C7), where the runner reads them. A row recorded with --json-events
+            // before then still parses, since that switch stays as a hidden alias.
+            arguments += ["--format", "json"]
             return FASTQCLIInvocation(subcommand: "assemble", arguments: arguments)
 
         case .pbaa(let request):

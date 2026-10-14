@@ -55,8 +55,6 @@ OPTIONS:
                           Additional assembler options, written exactly as they
                           should be passed to the underlying tool
   --extra-arg <extra-arg> Additional assembler argument (repeatable)
-  --json-events           Stream newline-delimited status and log events to
-                          stderr
   --format <format>       Output format: text, json, tsv (default: text)
                           (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,

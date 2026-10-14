@@ -13,7 +13,9 @@ final class AssemblyLiveProgressTests: XCTestCase {
         let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
             for: .assemble(request: request, outputMode: .groupedResult))
         XCTAssertEqual(invocation.subcommand, "assemble")
-        XCTAssertTrue(invocation.arguments.contains("--json-events"))
+        // `--format json` since 2.10 A46 (C7), whose events the runner reads on standard output.
+        XCTAssertEqual(Array(invocation.arguments.suffix(2)), ["--format", "json"])
+        XCTAssertFalse(invocation.arguments.contains("--json-events"))
     }
 
     func testSharedLogEventIsDeliveredWithoutInventingProgress() throws {
@@ -30,10 +32,10 @@ final class AssemblyLiveProgressTests: XCTestCase {
         let executable = directory.appendingPathComponent("fake-cli")
         try """
         #!/bin/sh
-        printf '%s\\n' '{"event":"start","message":"Starting"}' >&2
-        printf '%s\\n' '{"event":"progress","progress":0,"message":"Building graph"}' >&2
-        printf '%s\\n' '{"event":"log","level":"debug","message":"raw diagnostic"}' >&2
-        printf '%s' '{"event":"log","level":"warning","message":"low support"}' >&2
+        printf '%s\\n' '{"event":"start","message":"Starting"}'
+        printf '%s\\n' '{"event":"progress","progress":0,"message":"Building graph"}'
+        printf '%s\\n' '{"event":"log","level":"debug","message":"raw diagnostic"}'
+        printf '%s' '{"event":"log","level":"warning","message":"low support"}'
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let center = OperationCenter()
@@ -73,7 +75,7 @@ final class AssemblyLiveProgressTests: XCTestCase {
         let ready = directory.appendingPathComponent("ready")
         try """
         #!/bin/sh
-        printf '%s' '{"event":"log","level":"warning","message":"final diagnostic"}' >&2
+        printf '%s' '{"event":"log","level":"warning","message":"final diagnostic"}'
         touch ready
         exec sleep 30
         """.write(to: executable, atomically: true, encoding: .utf8)
@@ -117,14 +119,14 @@ final class AssemblyLiveProgressTests: XCTestCase {
         let acknowledged = directory.appendingPathComponent("acknowledged")
         try """
         #!/bin/sh
-        printf '%s\\n' '{"event":"log","level":"info","message":"Building graph"}' >&2
+        printf '%s\\n' '{"event":"log","level":"info","message":"Building graph"}'
         attempts=0
         while [ ! -f acknowledged ] && [ "$attempts" -lt 1500 ]; do
           sleep 0.02
           attempts=$((attempts + 1))
         done
         test -f acknowledged || exit 19
-        printf '%s' '{"event":"log","level":"info","message":"Final line"}' >&2
+        printf '%s' '{"event":"log","level":"info","message":"Final line"}'
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let finalLine = expectation(description: "Unterminated final log is drained")

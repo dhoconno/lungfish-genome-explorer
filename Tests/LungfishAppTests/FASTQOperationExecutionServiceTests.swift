@@ -3612,12 +3612,12 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 subcommand: "assemble",
                 arguments: [
                     "/tmp/sample.fastq.gz",
-                    "--json-events",
                     "--assembler", "spades",
                     "--read-type", "illumina-short-reads",
                     "--project-name", "Demo",
                     "--threads", "8",
                     "--output", "<derived>",
+                    "--format", "json",
                 ]
             )
         )
@@ -3652,12 +3652,12 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "/tmp/sample_R1.fastq.gz",
                 "/tmp/sample_R2.fastq.gz",
                 "--paired",
-                "--json-events",
                 "--assembler", "spades",
                 "--read-type", "illumina-short-reads",
                 "--project-name", "Demo",
                 "--threads", "8",
                 "--output", "<derived>",
+                "--format", "json",
             ]
         )
     }
@@ -3717,7 +3717,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             invocation.arguments,
             [
                 "/tmp/sample.fastq.gz",
-                "--json-events",
                 "--assembler", "megahit",
                 "--read-type", "illumina-short-reads",
                 "--project-name", "Demo",
@@ -3727,6 +3726,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "--min-contig-length", "1000",
                 "--profile", "meta-sensitive",
                 "--extra-args", "--k-min 21",
+                "--format", "json",
             ]
         )
     }
@@ -3754,7 +3754,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             invocation.arguments,
             [
                 "/tmp/sample.fastq.gz",
-                "--json-events",
                 "--assembler", "hifiasm",
                 "--read-type", "pacbio-hifi",
                 "--project-name", "Demo",
@@ -3762,6 +3761,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "--output", "<derived>",
                 "--profile", "haploid-viral",
                 "--extra-args", "--primary",
+                "--format", "json",
             ]
         )
         XCTAssertFalse(invocation.arguments.contains("--n-hap"))

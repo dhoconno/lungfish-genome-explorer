@@ -106,14 +106,16 @@ final class CLIEventContractCoverageTests: XCTestCase {
         let options = Self.optionBlocks(in: help)
         XCTAssertNotNil(options["--format"])
         XCTAssertTrue(options["--format"]?.contains("json") == true)
-        XCTAssertNil(options["--json-events"], "Only assemble lists --json-events")
+        XCTAssertNil(options["--json-events"], "No leaf lists --json-events")
         XCTAssertFalse(options["--format"]?.contains("yaml") == true)
 
         let wrapped = Self.optionBlocks(in: try Self.helpText(forLeaf: "bam primer-trim"))
         XCTAssertTrue(wrapped["--format"]?.contains("json") == true, "A value list that wraps onto the next line still counts")
 
+        // `--json-events` is a hidden alias of `--format json` since 2.10 (lane A46, decision C7).
         let assemble = Self.optionBlocks(in: try Self.helpText(forLeaf: "assemble"))
-        XCTAssertNotNil(assemble["--json-events"])
+        XCTAssertNil(assemble["--json-events"])
+        XCTAssertTrue(assemble["--format"]?.contains("json") == true)
     }
 
     func testEveryEventsRowDeclaresAKnownSwitchAndChannel() {
@@ -125,7 +127,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
             XCTAssertEqual(
                 channel == .standardError,
                 flag != "--format json",
-                "Only assemble and the two ONT FASTQ commands keep their events on standard error until 2.8"
+                "Only the two ONT FASTQ commands keep their events on standard error, and assemble moved in 2.10"
             )
             if flag == CLIEventContractTable.alwaysOn { alwaysOn.append(path) }
         }

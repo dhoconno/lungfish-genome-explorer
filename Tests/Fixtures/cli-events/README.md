@@ -116,7 +116,7 @@ The run followed `scripts/golden/captures.py`. The current folder was a scratch 
 | `variants-call` | `variants call --bundle <reference bundle> --alignment-track <track id> --caller lofreq --name "Sample LoFreq" --format json` | `Tests/Fixtures/sarscov2/genome.fasta` and `test.paired_end.sorted.bam`, imported with `import fasta` and `import bam`, which took the bundle as its output folder so the alignment joined its manifest |
 | `bam-primer-trim` | `bam primer-trim --bundle <reference bundle> --alignment-track <track id> --scheme /work/inputs/mt192765-integration.lungfishprimers --name "Primer-trimmed Sample" --format json` | the same bundle and `Tests/Fixtures/primerschemes/mt192765-integration.lungfishprimers` |
 
-Four of the five print their events on standard output. `assemble` prints them on standard error, where its transcript was read, and keeps its human report on standard output. In every run the other stream held no event line. All five write through the shared emitter, which sorts the keys of each line, and a reader never depends on their order.
+Four of the five print their events on standard output. `assemble` printed them on standard error, where its transcript was read, and kept its human report on standard output. Since 2.10 it prints the same lines on standard output behind `--format json`, which its hidden `--json-events` also turns on, so the file still holds its run. In every run the other stream held no event line. All five write through the shared emitter, which sorts the keys of each line, and a reader never depends on their order.
 
 These five files are not captured again by a test. A lane that changes one of these emitters runs the command again and replaces the file.
 

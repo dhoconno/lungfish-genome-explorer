@@ -79,7 +79,9 @@ final class AssemblyConfigurationViewModelOperationTests: XCTestCase {
         XCTAssertEqual(command.minContigLength, 500)
         XCTAssertEqual(command.profile, "meta")
         XCTAssertEqual(command.extraArgs, AdvancedCommandLineOptions.join(request.extraArguments))
-        XCTAssertTrue(command.jsonEvents)
+        // Events on standard output behind --format json since 2.10 A46 (C7).
+        XCTAssertTrue(command.eventsOn)
+        XCTAssertFalse(command.jsonEvents)
         // The root command's global `--threads` option consumes the flag, so the
         // parsed command cannot show it. The recorded string carries it.
         let words = try RecordedCLICommand.arguments(of: item.cliCommand)

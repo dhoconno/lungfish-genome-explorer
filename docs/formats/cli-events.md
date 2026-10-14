@@ -4,7 +4,7 @@ A `lungfish-cli` command can report its progress as a stream of JSON lines. The 
 
 ## Switching events on
 
-A command prints events when it runs with `--format json`. `assemble` uses `--json-events` instead, and `fastq ont-fluidigm-samples` and `fastq ont-pacbio-barcode-demux` print events on every run until 2.8, because the app runs them with no switch. With the switch off, any other command prints human text only. Recorded commands carry `--format json` and replay on later builds, so the switch keeps its name.
+A command prints events when it runs with `--format json`. `fastq ont-fluidigm-samples` and `fastq ont-pacbio-barcode-demux` print events on every run, because the app runs them with no switch. `assemble` used `--json-events` until 2.10 and keeps it as a hidden alias of `--format json`. With the switch off, any other command prints human text only. Recorded commands carry `--format json` and replay on later builds, so the switch keeps its name.
 
 ## One line, one event
 
@@ -105,7 +105,7 @@ While events are on, standard output holds event lines and nothing else. Human t
 
 The app's subprocess transport shows each line of standard error that is not blank in the operation log at info level. The text stays visible there and never counts as a warning.
 
-A few older commands write events to standard error instead. `assemble` and the two ONT FASTQ commands do, and they move to standard output in 2.8.
+The two ONT FASTQ commands write events to standard error instead. `assemble` wrote them there until 2.10.
 
 ## Warnings
 
@@ -190,13 +190,19 @@ The `complete` line names the result folder in `outputs`. The folder holds `mapp
 
 While the switch is on, the warnings about the mapper's settings and the notes go to standard error. In text mode the command prints its tables and progress lines on standard output as before and no event. Before 2.10 `map --format json` printed one JSON report, the schema `r5-map-report`, with the resolver's messages as text in front of it.
 
+## Assembling reads
+
+`assemble` assembles the reads of one sample with a managed assembler. With `--format json` a run is one `start` line once the assembler is known, a `progress` line for each stage the pipeline reports, a `log` line at level `info` for each line the assembler prints, and one `complete` line that names the output folder, or one `failed` line. A refusal, such as an input that is missing or a read layout the assembler cannot take, prints its words for a person on standard error and ends with a `failed` line that holds the same words. A run that finds no contigs logs a warning before `complete`.
+
+Before 2.10 the command printed the same lines on standard error behind `--json-events`, and the Reassemble and FASTQ operation rows recorded that switch. It stays as a hidden alias of `--format json`, so a recorded command still replays, and its events now go to standard output too. The summary tables go to standard error while the switch is on.
+
 ## The contract table
 
 `CLIEventContractTable` in `Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift` holds one row for each leaf command of `lungfish-cli`. A leaf is a command with no subcommands. A row is keyed by the leaf's path without the program name, such as `msa annotate add`, and it says in one of four cases what the leaf writes for a machine reader.
 
 | Case | What the leaf does |
 | --- | --- |
-| `.events` | Prints the event lines of this page when its switch is on, and names the switch and the stream. `assemble` uses `--json-events` on standard error until 2.8, the two ONT FASTQ commands print on standard error with no switch until 2.8, and the others use `--format json` on standard output |
+| `.events` | Prints the event lines of this page when its switch is on, and names the switch and the stream. the two ONT FASTQ commands print on standard error with no switch, and the others, `assemble` among them since 2.10, use `--format json` on standard output |
 | `.result` | Prints one JSON document to standard output, under its JSON switch or on every run. The row names the schema of that document |
 | `.legacy` | Prints a private stream shape that a later sub-phase retires. The row names the shape and the sub-phase |
 | `.text` | Prints human text only, or prints text for a switch it lists. The row gives the reason |

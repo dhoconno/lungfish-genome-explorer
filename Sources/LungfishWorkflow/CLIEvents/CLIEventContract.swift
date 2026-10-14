@@ -32,8 +32,8 @@
 /// What a leaf command writes for a machine reader (plan decision S18).
 package enum CLIEventContract: Sendable, Equatable {
     /// Emits `CLIEvent` lines. `flag` is the switch that turns them on
-    /// (`--format json`, or `--json-events` for `assemble`, or
-    /// ``CLIEventContractTable/alwaysOn`` for a leaf that prints them on every run),
+    /// (`--format json`, or ``CLIEventContractTable/alwaysOn`` for a leaf that prints them
+    /// on every run),
     /// and `channel` is where they go.
     case events(flag: String, channel: Channel)
     /// Prints one JSON result object, named by a schema id, not a Swift type,
@@ -65,7 +65,6 @@ package enum CLIEventContractTable {
     // MARK: Switches and reasons
 
     private static let formatJSON = "--format json"
-    private static let jsonEvents = "--json-events"
     /// The two ONT FASTQ commands print events on every run, with no switch, because the FASTQ
     /// operations dialog runs them without `--format json`. Its runner reads the channel each row names.
     package static let alwaysOn = "no switch, every run"
@@ -78,7 +77,8 @@ package enum CLIEventContractTable {
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
-        "assemble": .events(flag: jsonEvents, channel: .standardError),
+        // `--json-events` is a hidden alias since 2.10 (lane A46, decision C7).
+        "assemble": .events(flag: formatJSON, channel: .standardOutput),
         "bam annotate": .events(flag: formatJSON, channel: .standardOutput),
         "bam consensus": .events(flag: formatJSON, channel: .standardOutput),
         "bam filter": .events(flag: formatJSON, channel: .standardOutput),

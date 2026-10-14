@@ -60,11 +60,13 @@ final class AssemblyRouteFreezeTests: XCTestCase {
     func testThePairedRowRecordsTheBuildersArgvWithTheRunsThreadsAndMemory() throws {
         let request = Self.pairedRequest
         let words = try RecordedCLICommand.arguments(of: Self.recordedCommand(request))
+        // `--format json` closes the argv since `assemble` moved its events to standard output (C7).
         XCTAssertEqual(words, [
-            "assemble", Self.r1.path, Self.r2.path, "--paired", "--json-events",
+            "assemble", Self.r1.path, Self.r2.path, "--paired",
             "--assembler", "spades", "--read-type", "illumina-short-reads", "--project-name", "Mito Assembly",
             "--threads", "4", "--output", "/tmp/lane a46/Assembly Output/Mito Assembly",
             "--memory-gb", "8", "--min-contig-length", "500", "--profile", "meta", "--extra-args", "--only-assembler",
+            "--format", "json",
         ])
         // BIO. The recorded threads and memory are the ones the in-process pipeline runs with.
         let execution = AssemblyRunner.executionRequest(for: request)
@@ -83,9 +85,9 @@ final class AssemblyRouteFreezeTests: XCTestCase {
             inputLayout: .strictlyInterleaved
         ).normalizedForExecution()
         XCTAssertEqual(try RecordedCLICommand.arguments(of: Self.recordedCommand(request)), [
-            "assemble", Self.r1.path, "--read-layout", "interleaved", "--json-events",
+            "assemble", Self.r1.path, "--read-layout", "interleaved",
             "--assembler", "megahit", "--read-type", "illumina-short-reads", "--project-name", "Interleaved",
-            "--threads", "2", "--output", "/tmp/lane a46/Assembly Output/Interleaved",
+            "--threads", "2", "--output", "/tmp/lane a46/Assembly Output/Interleaved", "--format", "json",
         ])
     }
 
@@ -113,11 +115,12 @@ final class AssemblyRouteFreezeTests: XCTestCase {
     }
 
     /// QA's parse test of C7. The command a row recorded at the base, with `--json-events`, parses
-    /// with the values the run used.
+    /// with the values the run used, and its hidden alias turns on the events on standard output.
     func testACommandRecordedAtTheBaseParses() throws {
-        XCTAssertEqual(Self.recordedCommand(Self.pairedRequest), Self.recordedAtTheBase)
         let command = try RecordedCLICommand.parse(Self.recordedAtTheBase, as: AssembleCommand.self)
         XCTAssertTrue(command.jsonEvents)
+        XCTAssertTrue(command.eventsOn)
+        XCTAssertEqual(CLIEventContractTable.entries["assemble"], .events(flag: "--format json", channel: .standardOutput))
         XCTAssertEqual(command.fastqFiles, [Self.r1.path, Self.r2.path])
         XCTAssertTrue(command.pairedEnd)
         XCTAssertEqual(command.assembler, "spades")

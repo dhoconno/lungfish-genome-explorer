@@ -105,7 +105,7 @@ struct AssembleCommand: AsyncParsableCommand {
     @Option(name: .customLong("extra-arg"), parsing: .unconditionalSingleValue, help: "Additional assembler argument (repeatable)")
     var extraArg: [String] = []
 
-    @Flag(name: .customLong("json-events"), help: "Stream newline-delimited status and log events to stderr")
+    @Flag(name: .customLong("json-events"), help: .hidden)
     var jsonEvents = false
 
     @OptionGroup var globalOptions: GlobalOptions
@@ -118,24 +118,23 @@ struct AssembleCommand: AsyncParsableCommand {
     func execute(pipeline: ManagedAssemblyPipeline) async throws {
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        let reporter = AssembleRunReporter(eventsOn: eventsOn, useColors: globalOptions.useColors)
         warnIfDeprecatedAdvancedOptionsUsed()
 
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
-            print(formatter.error("Input file not found: \(inputURL.path)"))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal("Input file not found: \(inputURL.path)", exit: .inputError)
         }
         guard let tool = Self.resolveTool(assembler, readType: readType, inputURLs: inputURLs, quiet: globalOptions.quiet) else {
-            print(formatter.error("Unknown assembler: \(assembler ?? "")"))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal("Unknown assembler: \(assembler ?? "")", exit: .inputError)
         }
 
+        reporter.start("Launching \(tool.displayName)")
         let projectName = resolvedProjectName(from: inputURLs)
         let outputDirectory = resolvedOutputDirectory(projectName: projectName)
 
         if pairedEnd && inputURLs.count != 2 {
-            print(formatter.error("Paired-end assembly requires exactly two sequence inputs."))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal("Paired-end assembly requires exactly two sequence inputs.", exit: .inputError)
         }
         if let readLayoutError = Self.validateReadLayoutOption(
             readLayout,
@@ -143,16 +142,14 @@ struct AssembleCommand: AsyncParsableCommand {
             pairedEnd: pairedEnd,
             inputCount: inputURLs.count
         ) {
-            print(formatter.error(readLayoutError))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal(readLayoutError, exit: .inputError)
         }
 
         let advancedArguments: [String]
         do {
             advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions) + extraArg
         } catch {
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal(error.localizedDescription, exit: .inputError)
         }
 
         if tool == .spades,
@@ -160,16 +157,14 @@ struct AssembleCommand: AsyncParsableCommand {
                 profileID: profile,
                 extraArguments: advancedArguments
            ) {
-            print(formatter.error(rejection))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal(rejection, exit: .inputError)
         }
 
         let explicitReadType: AssemblyReadType?
         do {
             explicitReadType = try Self.parseExplicitReadType(readType)
         } catch {
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal(error.localizedDescription, exit: .inputError)
         }
 
         do {
@@ -179,8 +174,7 @@ struct AssembleCommand: AsyncParsableCommand {
                 pairedEnd: pairedEnd
             )
         } catch {
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal(error.localizedDescription, exit: .inputError)
         }
 
         let preMaterialization = Self.preMaterializationReadTypeDecision(
@@ -202,7 +196,7 @@ struct AssembleCommand: AsyncParsableCommand {
                 materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
                 progress: { message in
                     if !globalOptions.quiet {
-                        print(formatter.info(message))
+                        reporter.text(formatter.info(message))
                     }
                 }
             )
@@ -220,16 +214,13 @@ struct AssembleCommand: AsyncParsableCommand {
             throw exit
         } catch CLISequenceInputMaterializationError.unreadableSequenceInput(let path) {
             try? FileManager.default.removeItem(at: materializationDirectory)
-            print(formatter.error(AssembleInputResolutionError.unreadableBundlePayload(path).localizedDescription))
-            throw CLIExitCode.formatError.exitCode
+            throw reporter.refusal(AssembleInputResolutionError.unreadableBundlePayload(path).localizedDescription, exit: .formatError)
         } catch let error as AssemblyReadSetResolutionError {
             try? FileManager.default.removeItem(at: materializationDirectory)
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal(error.localizedDescription, exit: .inputError)
         } catch {
             try? FileManager.default.removeItem(at: materializationDirectory)
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.workflowError.exitCode
+            throw reporter.refusal(error.localizedDescription, exit: .workflowError)
         }
         // Every read a bundle holds, as `map` hands the mapper: one original
         // per execution file. A bundle that holds the R1 and R2 of a mate pair
@@ -240,8 +231,7 @@ struct AssembleCommand: AsyncParsableCommand {
         let executionInputURLs = resolvedInputs.executionInputURLs
         let executionOriginalInputURLs = resolvedInputs.originalInputURLs
         if readLayout != .auto, resolvedInputs.resolvedAsMatePair {
-            print(formatter.error("--read-layout describes one input file; \(inputURLs[0].lastPathComponent) holds R1 and R2 files."))
-            throw CLIExitCode.inputError.exitCode
+            throw reporter.refusal("--read-layout describes one input file; \(inputURLs[0].lastPathComponent) holds R1 and R2 files.", exit: .inputError)
         }
 
         let resolvedProfile = await Self.resolveProfile(
@@ -275,9 +265,9 @@ struct AssembleCommand: AsyncParsableCommand {
             FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
         }
 
-        print(formatter.header("Managed Assembly"))
-        print("")
-        print(formatter.keyValueTable([
+        reporter.text(formatter.header("Managed Assembly"))
+        reporter.text("")
+        reporter.text(formatter.keyValueTable([
             ("Assembler", tool.displayName),
             ("Read type", resolvedReadType.displayName),
             ("Inputs", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
@@ -291,32 +281,24 @@ struct AssembleCommand: AsyncParsableCommand {
             ("Extra arguments", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
             ("Output", outputDirectory.path),
         ]))
-        print("")
+        reporter.text("")
 
-        // Use the same newline-delimited event contract as the other workflows.
-        // stderr remains live even when stdout is block-buffered by a GUI pipe.
-        let events = CLIEventEmitter(enabled: jsonEvents) { line in
-            FileHandle.standardError.write(Data((line + "\n").utf8))
-        }
-        events.emitStart("Launching \(tool.displayName)")
-        let showHumanOutput = !jsonEvents && !globalOptions.quiet
+        let showHumanOutput = !eventsOn && !globalOptions.quiet
         let result: AssemblyResult
         do {
             result = try await pipeline.run(
                 request: executionRequest,
                 onOutput: { line in
-                    events.emitLog(.info, line)
+                    reporter.log(.info, line)
                     if showHumanOutput { FileHandle.standardError.write(Data((line + "\n").utf8)) }
                 },
                 progress: { _, message in
-                    events.emitProgress(0, message: message)
+                    reporter.progress(0, message)
                     if showHumanOutput { FileHandle.standardError.write(Data((message + "\n").utf8)) }
                 }
             )
         } catch {
-            events.emitFailed(error.localizedDescription)
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.workflowError.exitCode
+            throw reporter.refusal(error.localizedDescription, exit: .workflowError)
         }
         do {
             _ = try Self.writeProvenance(
@@ -333,44 +315,44 @@ struct AssembleCommand: AsyncParsableCommand {
                 readSets: readSets
             )
         } catch {
-            events.emitFailed(error.localizedDescription)
+            reporter.failed(error.localizedDescription)
             throw error
         }
         if result.outcome == .completedWithNoContigs {
-            events.emitLog(.warning, "Assembly completed, but no contigs were generated.")
+            reporter.log(.warning, "Assembly completed, but no contigs were generated.")
         }
-        events.emitComplete(outputs: [result.outputDirectory.path], message: "Assembly completed")
+        reporter.complete(outputs: [result.outputDirectory.path], message: "Assembly completed")
 
         if !globalOptions.quiet {
-            print("")
-            print("")
+            reporter.text("")
+            reporter.text("")
         }
 
-        print(formatter.header("Assembly Results"))
-        print("")
+        reporter.text(formatter.header("Assembly Results"))
+        reporter.text("")
         if result.outcome == .completed {
             let stats = result.statistics
-            print(formatter.keyValueTable([
+            reporter.text(formatter.keyValueTable([
                 ("Contigs", "\(stats.contigCount)"),
                 ("Total length", "\(stats.totalLengthBP) bp"),
                 ("N50", "\(stats.n50) bp"),
                 ("Largest contig", "\(stats.largestContigBP) bp"),
                 ("GC content", String(format: "%.1f%%", stats.gcPercent)),
             ]))
-            print("")
+            reporter.text("")
         }
-        print("Contigs: \(formatter.path(result.contigsPath.path))")
+        reporter.text("Contigs: \(formatter.path(result.contigsPath.path))")
         if let graphPath = result.graphPath {
-            print("Graph:   \(formatter.path(graphPath.path))")
+            reporter.text("Graph:   \(formatter.path(graphPath.path))")
         }
         if let logPath = result.logPath {
-            print("Log:     \(formatter.path(logPath.path))")
+            reporter.text("Log:     \(formatter.path(logPath.path))")
         }
-        print("")
+        reporter.text("")
         if result.outcome == .completedWithNoContigs {
-            print(formatter.success("Assembly completed, but no contigs were generated."))
+            reporter.text(formatter.success("Assembly completed, but no contigs were generated."))
         } else {
-            print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
+            reporter.text(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
         }
     }
 

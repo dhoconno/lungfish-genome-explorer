@@ -190,8 +190,9 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
                 outcome: .builds(
                     subcommand: "assemble",
                     words: [
-                        "assemble", reads, "--json-events", "--assembler", "spades", "--read-type", "illumina-short-reads",
-                        "--project-name", "demo", "--threads", "2", "--output", "<derived>",
+                        // `--format json` since 2.10 A46, which moved assemble's events to standard output (C7).
+                        "assemble", reads, "--assembler", "spades", "--read-type", "illumina-short-reads",
+                        "--project-name", "demo", "--threads", "2", "--output", "<derived>", "--format", "json",
                     ],
                     command: AssembleCommand.self
                 ),
@@ -362,7 +363,8 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
     /// Every leaf the dialog launches, with what its contract row said at
     /// program commit c68381a62.
     private static let leafChannels: [String: LeafChannel] = [
-        "assemble": .events(flag: "--json-events", channel: .standardError),
+        // Lane A46 of 2.10 moved `assemble` to --format json on standard output (decision C7).
+        "assemble": .events(flag: "--format json", channel: .standardOutput),
         "fastq adapter-trim": .text,
         "fastq contaminant-filter": .text,
         "fastq deacon-ribo": .text,
