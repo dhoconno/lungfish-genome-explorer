@@ -248,7 +248,7 @@ extension CondaCommand {
         @Option(name: .shortAndLong, help: "Requested specification JSON output path")
         var output: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -282,7 +282,7 @@ extension CondaCommand {
         @Argument(help: "Environment name(s) to remove")
         var environments: [String]
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -313,7 +313,7 @@ extension CondaCommand {
         @Option(name: .shortAndLong, help: "Environment name (lists all envs if omitted)")
         var env: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -353,7 +353,7 @@ extension CondaCommand {
         @Argument(help: "Search query")
         var query: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -402,7 +402,7 @@ extension CondaCommand {
         @Argument(help: "Tool name followed by its arguments")
         var toolAndArgs: [String]
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             guard let toolName = toolAndArgs.first else {
@@ -443,7 +443,7 @@ extension CondaCommand {
             abstract: "List conda environments"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -473,7 +473,7 @@ extension CondaCommand {
             abstract: "Download and set up micromamba"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -497,7 +497,7 @@ extension CondaCommand {
             abstract: "List available plugin packs"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -532,7 +532,7 @@ extension CondaCommand {
         @Option(name: .customLong("conda-root"), help: "Conda root to export from (default: managed storage conda root)")
         var condaRoot: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             try await CondaCommand.exportOfflinePack(
@@ -559,7 +559,7 @@ extension CondaCommand {
         @Option(name: .customLong("conda-root"), help: "Conda root to export from (default: managed storage conda root)")
         var condaRoot: String?
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             try await CondaCommand.exportOfflinePack(
@@ -586,7 +586,7 @@ extension CondaCommand {
         @Flag(name: .long, help: "Replace existing environments with matching names")
         var overwrite: Bool = false
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             try await CondaCommand.installOfflinePack(

@@ -89,7 +89,7 @@ extension DbCommand {
         @Flag(name: .customLong("reinstall"), help: "Reinstall even if the database is already present")
         var reinstall: Bool = false
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -152,7 +152,7 @@ extension DbCommand {
             abstract: "List available and installed databases"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -197,7 +197,7 @@ extension DbCommand {
         @Argument(help: "Database name (e.g., 'Viral', 'Standard-8', 'PlusPF')")
         var name: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -252,7 +252,7 @@ extension DbCommand {
         @Argument(help: "Database name (e.g., 'Viral', 'SILVA', 'Greengenes')")
         var name: String
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -306,7 +306,7 @@ extension DbCommand {
         @Flag(name: .customLong("delete-files"), help: "Also delete database files from disk")
         var deleteFiles: Bool = false
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -339,7 +339,7 @@ extension DbCommand {
             abstract: "Show recommended database for this system"
         )
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)

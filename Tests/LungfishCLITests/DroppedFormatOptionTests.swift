@@ -48,20 +48,6 @@ final class DroppedFormatOptionTests: XCTestCase {
         XCTAssertEqual(listing, [], "A leaf with a humanTextOnly row lists no --format, so its help promises no JSON")
     }
 
-    func testEveryLeafWhoseRowSaysItIgnoresFormatStillListsIt() {
-        let leaves = Self.leafTypes()
-        var notListing: [String] = []
-        var checked = 0
-        for (path, contract) in CLIEventContractTable.entries.sorted(by: { $0.key < $1.key }) {
-            guard case let .text(reason) = contract, reason.hasPrefix("lists --format json and ignores it"),
-                  let type = leaves[path] else { continue }
-            checked += 1
-            if !type.helpMessage(columns: 100).contains("--format") { notListing.append(path) }
-        }
-        XCTAssertGreaterThan(checked, 0)
-        XCTAssertEqual(notListing, [], "A leaf that dropped --format moves its row to humanTextOnly")
-    }
-
     func testADroppedLeafStillParsesTheGlobalOptionsAfterItsName() throws {
         // `workflow list` is the smallest of the leaves dropped in 2.10.
         let parsed = try LungfishCLI.parseAsRoot(["workflow", "list", "--format", "json", "--quiet", "--threads", "3"])

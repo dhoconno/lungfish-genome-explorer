@@ -65,7 +65,7 @@ struct ExtractSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("no-read-pairs"), help: "Extract only exact read IDs (don't pair /1 and /2 mates)")
     var noReadPairs: Bool = false
 
-    @OptionGroup var globalOptions: GlobalOptions
+    @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
     /// Deprecation notice printed to stderr on every invocation, pointing users
     /// at the true functional replacement in `extract reads --by-classifier`.

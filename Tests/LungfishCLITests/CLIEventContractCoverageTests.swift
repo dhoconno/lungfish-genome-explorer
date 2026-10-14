@@ -240,8 +240,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
     }
 
     /// 2.6 row 213, lane A55 (Phase 2.10 decision C6). A leaf that lists `--format json` and ignores it
-    /// either honours the option or drops it, and its row says `ignoresFormat` until then. The count
-    /// falls by exactly the leaves a lane converts, and no lane adds a row with this reason.
+    /// either honours the option or drops it. The count was 53 at the lane base, 18 after M3 and is 0 after
+    /// M4, and the table keeps no reason for it. No lane adds a row with that reason back.
     func testTheLeavesThatListFormatJSONAndIgnoreItAreCounted() {
         let ignoring = CLIEventContractTable.entries.compactMap { path, contract -> String? in
             guard case let .text(reason) = contract, reason.hasPrefix("lists --format json and ignores it") else {
@@ -250,8 +250,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             return path
         }
         XCTAssertEqual(
-            ignoring.count, 18,
-            "Only the 18 conda leaves list --format json and ignore it after A55 M3 (53 at its base): \(ignoring.sorted())"
+            ignoring.count, 0,
+            "No leaf lists --format json and ignores it after A55 M4 (53 at its base): \(ignoring.sorted())"
         )
     }
 
