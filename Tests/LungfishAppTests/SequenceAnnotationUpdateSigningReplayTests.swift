@@ -37,4 +37,44 @@ final class SequenceAnnotationUpdateSigningReplayTests: XCTestCase {
         XCTAssertTrue(RouteParityHarness.isSigned(record), "\(record.lastPathComponent) has no signature and public key though a key is set")
         try await SigningRecordVerification.assertVerifies(record, in: scratch, testClass: Self.self)
     }
+
+    /// Phase 2.10 fix FX-QSIGN, ARCH Fix 3. With a key set the writer replaces the record, publishes
+    /// `<record>.signature.json` and then `<record>.pub`. A failure on the key reaches the update's rollback, which
+    /// put back the record and `provenance/` and left the new signature beside the old record, whose bytes it no
+    /// longer signs. A non-empty folder at the key's name makes the key's publication fail after the signature's.
+    func testAFailedSignedUpdateLeavesNoSignatureBesideTheRestoredRecord() async throws {
+        let scratch = try TestTempDirectory.make(prefix: "annotation-update-signing-rollback")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let root = scratch.appendingPathComponent("root", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundle = try AnnotationEditRouteParityTests.makeBundle(in: root, inputs: scratch)
+        let location = ReferenceBundleAnnotationRowLocation(trackID: "imported", rowID: try AnnotationEditRouteParityTests.firstRowID(in: bundle))
+        let service = ReferenceBundleManualAnnotationService()
+
+        // An update with no key leaves an unsigned record, which a failed signed update must give back as it was.
+        XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the first update")
+        _ = try await service.updateAnnotation(location, name: "first", type: "gene", strand: "+", note: "before the key", bundleURL: bundle)
+        let record = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let before = try Data(contentsOf: record)
+
+        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        defer { saved.restore() }
+        let keyURL = ProvenanceSigningConfiguration.publicKeyURL(for: record)
+        try FileManager.default.createDirectory(at: keyURL, withIntermediateDirectories: true)
+        try "blocks the key".write(to: keyURL.appendingPathComponent("blocker.txt"), atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await service.updateAnnotation(location, name: "second", type: "gene", strand: "-", note: "signed, key blocked", bundleURL: bundle)
+            XCTFail("the update succeeded though the public key could not be published")
+        } catch {
+            XCTAssertTrue("\(error)".contains(keyURL.lastPathComponent), "the update failed for another reason: \(error)")
+        }
+
+        let signature = ProvenanceSigningConfiguration.signatureURL(for: record)
+        XCTAssertEqual(try Data(contentsOf: record), before, "the failed update did not give back the record it replaced")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: signature.path),
+            "\(signature.lastPathComponent) stays beside the restored record, a signature over bytes the record no longer holds"
+        )
+    }
 }

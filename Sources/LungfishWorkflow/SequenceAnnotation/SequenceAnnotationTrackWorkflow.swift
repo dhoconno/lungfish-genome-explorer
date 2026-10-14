@@ -247,15 +247,14 @@ public enum SequenceAnnotationTrackWorkflow {
     }
 
     private struct ProvenanceSnapshot {
-        let rootProvenanceURL: URL
-        let originalRootProvenanceData: Data?
+        let rootArtifacts: [(url: URL, data: Data?)] // the root record, its signature and its public key, nil data when absent
         let provenanceDirectoryURL: URL
         let provenanceDirectoryBackupURL: URL
         let hadProvenanceDirectory: Bool
 
         static func capture(bundleURL: URL, backupRoot: URL) throws -> ProvenanceSnapshot {
-            let rootProvenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
-            let originalRootProvenanceData = try? Data(contentsOf: rootProvenanceURL)
+            let record = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+            let rootArtifacts = ProvenancePublicationArtifacts.sidecarArtifacts(for: record).map { (url: $0, data: try? Data(contentsOf: $0)) }
             let provenanceDirectoryURL = bundleURL.appendingPathComponent(
                 ProvenanceWriter.bundleProvenanceDirectoryName,
                 isDirectory: true
@@ -266,8 +265,7 @@ public enum SequenceAnnotationTrackWorkflow {
                 try FileManager.default.copyItem(at: provenanceDirectoryURL, to: provenanceDirectoryBackupURL)
             }
             return ProvenanceSnapshot(
-                rootProvenanceURL: rootProvenanceURL,
-                originalRootProvenanceData: originalRootProvenanceData,
+                rootArtifacts: rootArtifacts,
                 provenanceDirectoryURL: provenanceDirectoryURL,
                 provenanceDirectoryBackupURL: provenanceDirectoryBackupURL,
                 hadProvenanceDirectory: hadProvenanceDirectory
@@ -275,10 +273,12 @@ public enum SequenceAnnotationTrackWorkflow {
         }
 
         func restore() throws {
-            if let originalRootProvenanceData {
-                try originalRootProvenanceData.write(to: rootProvenanceURL, options: .atomic)
-            } else if FileManager.default.fileExists(atPath: rootProvenanceURL.path) {
-                try FileManager.default.removeItem(at: rootProvenanceURL)
+            for (url, data) in rootArtifacts {
+                if let data {
+                    try data.write(to: url, options: .atomic)
+                } else if FileManager.default.fileExists(atPath: url.path) {
+                    try FileManager.default.removeItem(at: url)
+                }
             }
             if FileManager.default.fileExists(atPath: provenanceDirectoryURL.path) {
                 try FileManager.default.removeItem(at: provenanceDirectoryURL)
