@@ -336,6 +336,11 @@ extension RenamedClassifierBatchRoutingTests {
                     installedViewer(of: controller), metadata.family,
                     "metadata \(metadata.tool) in a folder named \(batch.lastPathComponent)"
                 )
+                XCTAssertEqual(
+                    controller.inspectorController.viewModel.provenanceSectionViewModel.currentItem?.sidebarType,
+                    metadata.family.sidebarType,
+                    "provenance type of metadata \(metadata.tool) in a folder named \(batch.lastPathComponent)"
+                )
             }
         }
     }
