@@ -136,11 +136,11 @@ final class KrakenWrapperEdgeTests: XCTestCase {
 
     // MARK: - The kraken2 step's replay argv
 
-    /// A durable replay argv names only files that outlive the run. A run that
-    /// stages a file for kraken2 and deletes it afterwards, the header-only
-    /// mates, a copy in R1's compression or the halves of an interleaved
-    /// file, has no kraken2 command over durable files, so the step records
-    /// none. Its argv still records what ran, and the run's recorded command
+    /// A run that stages a file for kraken2, the halves of an interleaved
+    /// file that it removes after the run, or the header-only mates and a
+    /// copy in R1's compression that it keeps with the kept inputs (O1 of
+    /// Phase 2.8), records no durable replay argv for the kraken2 step. Its
+    /// argv still records what ran, and the run's recorded command
     /// reproduces it.
     func testTheKraken2StepRecordsNoReplayArgvNamingFilesTheRunDeletes() async throws {
         let pair = try loosePair()
