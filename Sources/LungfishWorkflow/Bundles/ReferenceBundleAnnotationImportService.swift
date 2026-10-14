@@ -638,7 +638,7 @@ public final class ReferenceBundleAnnotationImportService {
         } catch ProvenanceRehydrationError.missingSourceProvenance {
             mergedEnvelope = wrappingEnvelope
         }
-        try ProvenanceWriter(signingProvider: nil).write(mergedEnvelope, to: bundleURL)
+        try ProvenanceWriter().write(mergedEnvelope, to: bundleURL)
     }
 
     private static func mergedProvenanceFiles(
