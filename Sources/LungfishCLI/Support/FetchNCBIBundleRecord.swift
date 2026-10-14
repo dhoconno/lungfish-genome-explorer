@@ -50,8 +50,8 @@ enum FetchNCBIBundleRecord {
     }
 
     /// States the digest and size of each file of `paths` as the file stands, wherever the record
-    /// lists it.
-    private static func refreshDigests(of paths: Set<String>, in envelope: inout ProvenanceEnvelope) throws {
+    /// lists it. `fetch sra download --bundle` uses it for the metadata sidecar (lane A45 M3c).
+    static func refreshDigests(of paths: Set<String>, in envelope: inout ProvenanceEnvelope) throws {
         func refreshed(_ descriptor: ProvenanceFileDescriptor) throws -> ProvenanceFileDescriptor {
             guard paths.contains(descriptor.path) else { return descriptor }
             let current = try ProvenanceFileDescriptor.file(url: URL(fileURLWithPath: descriptor.path), role: descriptor.role)

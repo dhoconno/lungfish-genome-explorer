@@ -161,6 +161,7 @@ struct SRADownloadBundleRun: Sendable {
         metadata.downloadDate = Date()
         metadata.downloadSource = trace.downloadSource.rawValue
         FASTQMetadataStore.save(metadata, for: fastqURL)
+        let sidecarName = FASTQMetadataStore.metadataURL(for: fastqURL).lastPathComponent
 
         // 5. The record, written last, in the staged bundle.
         try writeRecord(
@@ -180,7 +181,7 @@ struct SRADownloadBundleRun: Sendable {
         _ = try PortableRename.exclusive(stagedBundle, to: finalBundle)
         // A bundle in its final place is finished, so a record that cannot be rewritten removes it.
         do {
-            try relocateRecord(of: finalBundle, from: stagedBundle)
+            try relocateRecord(of: finalBundle, from: stagedBundle, refreshingDigestsOf: [sidecarName])
         } catch {
             try? FileManager.default.removeItem(at: finalBundle)
             throw error
@@ -249,12 +250,16 @@ struct SRADownloadBundleRun: Sendable {
     }
 
     /// Rewrites the record of `bundle`, which was staged at `staged`, with the final place in every
-    /// path (ruling A45-M3 section 3).
-    private func relocateRecord(of bundle: URL, from staged: URL) throws {
+    /// path (ruling A45-M3 section 3). The import wrote the record it merges in before the sidecar took
+    /// the download's facts, so each file of `names`, by its name inside the bundle, is stated with
+    /// its digest and size as it stands now (ruling A45-M3 section 1, B-5).
+    private func relocateRecord(of bundle: URL, from staged: URL, refreshingDigestsOf names: [String]) throws {
         guard let envelope = ProvenanceRecorder.loadEnvelope(from: bundle) else { return }
+        var relocated = envelope.relocated(from: staged, to: bundle)
+        try FetchNCBIBundleRecord.refreshDigests(
+            of: Set(names.map { bundle.appendingPathComponent($0).path }), in: &relocated)
         try ProvenanceWriter(signingProvider: nil).write(
-            envelope.relocated(from: staged, to: bundle),
-            toSidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+            relocated, toSidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
     }
 }
 
