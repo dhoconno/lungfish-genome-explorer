@@ -489,7 +489,24 @@ public actor SRAService {
         }
     }
 
+    /// The variable a debug build reads to run two scripts in place of the managed sra-tools
+    /// environment. It names a folder holding executable `prefetch` and `fasterq-dump` files, so a
+    /// parity test serves a run to the built CLI without the real tools (Phase 2.10 lane A45 M3, G1).
+    /// A release build ignores it.
+    package static let toolkitStandInVariable = "LUNGFISH_SRA_TOOLKIT_STAND_IN_DIR"
+
     private func managedToolkitRunner() -> SRAToolkitRunner? {
+        #if DEBUG
+        if let folder = ProcessInfo.processInfo.environment[Self.toolkitStandInVariable], !folder.isEmpty {
+            let standIn = URL(fileURLWithPath: folder, isDirectory: true)
+            return SRAToolkitRunner(
+                prefetch: standIn.appendingPathComponent("prefetch"),
+                fasterqDump: standIn.appendingPathComponent("fasterq-dump")
+            ) { executable, arguments in
+                try await self.runCommand(executable.path, arguments: arguments)
+            }
+        }
+        #endif
         let homeDirectory = homeDirectoryProvider()
         let prefetchURL = Self.managedExecutableURL(
             executableName: "prefetch",
