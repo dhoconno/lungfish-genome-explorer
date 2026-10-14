@@ -40,6 +40,7 @@ extension FASTQIngestionService {
     static func beginInPlaceIngestionOperation(
         url: URL,
         routeContext: OperationRouteContext?,
+        cliArguments: [String]? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -47,7 +48,9 @@ extension FASTQIngestionService {
             title: "FASTQ Ingestion: \(FASTQIngestionPipeline.deriveBaseName(from: url))",
             detail: "Preparing...",
             operationType: .ingestion,
-            cliCommand: nil,
+            // The CLI route passes the argv it runs, so the row records the command it ran. The
+            // in-process route passes none and records none (lane A47 M3).
+            cliCommand: cliArguments.map { OperationCenter.buildCLICommand(subcommand: "", args: $0) },
             routeContext: routeContext
         )
         switch result {

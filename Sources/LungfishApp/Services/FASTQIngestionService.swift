@@ -136,40 +136,13 @@ public enum FASTQIngestionService {
             return
         }
 
-        let inputFiles: [URL]
-        if let pairedFile, pairingMode == .pairedEnd {
-            inputFiles = [url, pairedFile]
-        } else {
-            inputFiles = [url]
-        }
-
-        let outputDir = url.deletingLastPathComponent()
-        let config = FASTQIngestionConfig(
-            inputFiles: inputFiles,
-            pairingMode: pairingMode,
-            outputDirectory: outputDir,
-            threads: ProcessInfo.processInfo.activeProcessorCount,
-            deleteOriginals: true
-        )
-
-        // Register the operation FIRST so we have a stable ID to pass to the detached task.
-        // The launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
-        // launches nothing, and the panel already shows the refused row.
-        Self.beginInPlaceIngestionOperation(
+        Self.startInPlaceIngestionInProcess(
             url: url,
+            pairingMode: pairingMode,
+            pairedFile: pairedFile,
+            existingMetadata: existingMetadata,
             routeContext: routeContext
-        ) { opID in
-            let task = Task.detached {
-                await Self.runIngestion(
-                    config: config,
-                    operationID: opID,
-                    existingMetadata: existingMetadata
-                )
-            }
-
-            // Store cancellation callback now that we have the task handle.
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-        }
+        )
     }
 
     // MARK: - Ingest and Bundle
@@ -217,7 +190,7 @@ public enum FASTQIngestionService {
 
     // MARK: - Pipeline Runners
 
-    nonisolated private static func withImportSlot<Value>(
+    nonisolated static func withImportSlot<Value>(
         _ body: () async throws -> Value
     ) async throws -> Value {
         let activity = ProcessInfo.processInfo.beginActivity(
@@ -242,7 +215,7 @@ public enum FASTQIngestionService {
     /// Must be `nonisolated` — the cooperative executor does not reliably schedule
     /// `@MainActor` methods called from `Task.detached`. OperationCenter mutations
     /// use the main queue with `MainActor.assumeIsolated`.
-    nonisolated private static func runIngestion(
+    nonisolated static func runIngestion(
         config: FASTQIngestionConfig,
         operationID opID: UUID,
         existingMetadata: PersistedFASTQMetadata?
