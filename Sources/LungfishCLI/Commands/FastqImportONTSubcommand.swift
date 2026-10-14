@@ -261,6 +261,11 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         if qualityBinning != .none {
             cliArguments += ["--quality-binning", qualityBinning.rawValue]
         }
+        // The window launches the leaf with this option and its row records the argv it ran, so the record
+        // names the same command (CLI-EQUIVALENCE, same provenance).
+        if globalOptions.outputFormat == .json {
+            cliArguments += ["--format", "json"]
+        }
         return cliArguments
     }
 }

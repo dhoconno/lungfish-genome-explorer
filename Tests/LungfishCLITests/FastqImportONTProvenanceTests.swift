@@ -285,6 +285,27 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.steps.map(\.toolVersion), [LungfishAppVersion.short])
     }
 
+    /// Phase 2.10 lane A53 M3 (the L6 family's record names its row's command, BIO's ruling D8 on lane A46).
+    /// The window launches the leaf with `--format json`, and the row records that argv. The record names the
+    /// command the run was given, so a run with `--format json` records it, and a text run records none.
+    func testARunWithJSONEventsRecordsTheFormatItWasGiven() async throws {
+        let sourceURL = try makeONTSource()
+        let outputURL = tempDir.appendingPathComponent("json-project", isDirectory: true)
+
+        try await FastqImportONTSubcommand.parse([
+            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--format", "json",
+        ]).run()
+
+        let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        let expected = [
+            CLICommandIdentity.executableName, "fastq", "import-ont",
+            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--format", "json",
+        ]
+        XCTAssertEqual(envelope.argv, expected)
+        XCTAssertEqual(envelope.reproducibleCommand, expected.map(shellEscape).joined(separator: " "))
+        XCTAssertEqual(envelope.steps.map(\.argv), [expected])
+    }
+
     private func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {
         let data = try Data(contentsOf: url)
         return try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
