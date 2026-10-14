@@ -14,8 +14,8 @@
 // - A result folder. The rehydrator looks for a record beside the folder, at the project root and in the project's
 //   `provenance/` folder (`GUIImportedProvenanceRehydrator.loadSourceEnvelopeRecord`), and never for the folder's own
 //   `.lungfish-provenance.json`, so `:948` ends in `missingSourceProvenance`, the relocated path finds nothing either
-//   and the copy keeps every record of the source as it was. What the user sees of a copied folder is therefore the
-//   records of the source, and each must name files that exist with the digests it states.
+//   and the copy keeps every record of the source as it was. Those records hold project-relative paths, which name the
+//   source folder's files, so the folder half of each test checks the source as `build-db` left it, not the copy.
 //
 // Both results are built in process with stand-ins, `build-db esviritu` over placeholder BAMs and `build-db kraken2`
 // over `Tests/Fixtures/kraken2-mini`, so no real tool runs. The class name ends in ReplayTests, which sends it to the
@@ -93,7 +93,7 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
         let classifier = try XCTUnwrap(records.first { $0.name == ".lungfish-provenance.json" }, "the sample's own record")
         XCTAssertEqual(classifier.envelope.workflowName, "Metagenomics Classification", "build-db leaves the classifier's record")
         XCTAssertEqual(problems(of: records), [])
-        try assertFilesWithASidecarRehydrate(in: batch, ["kraken2.sqlite", "SRR35517702/classification-result.json"])
+        try assertFilesWithASidecarRehydrate(in: batch, ["kraken2.sqlite", "SRR35517703/classification-result.json"])
     }
 
     // MARK: - The sidebar's copy
