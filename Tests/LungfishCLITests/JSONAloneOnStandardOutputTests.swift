@@ -4,9 +4,9 @@
 //
 // Phase 2.10 lane A55 (2.6 row 213), milestone M2. Under `--format json` these three leaves write their
 // JSON result on standard output and nothing else. A person's text (the progress and success lines) goes
-// to standard error, and the FASTA that `translate` and `extract sequence` would print without `-o` goes
-// to standard error as well, so a script can hand standard output to a JSON parser. The text-mode bytes
-// are pinned apart, in `FASTATextModePinTests`, and do not move.
+// to standard error, and `translate` and `extract sequence` refuse `--format json` without `-o` with exit
+// status 3, so the FASTA always lands in a file the JSON names and a script can hand standard output to a
+// JSON parser. The text-mode bytes are pinned apart, in `FASTATextModePinTests`, and do not move.
 //
 // Standard output is read as a whole by `JSONSerialization`, which refuses a byte before the object and a
 // byte after it, so one parse is the whole check that the JSON is alone.
@@ -82,19 +82,19 @@ final class JSONAloneOnStandardOutputTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output), Data(FASTATextModePinTests.translatedFASTA.utf8))
     }
 
-    func testTranslateWithoutAFileKeepsTheFASTAOffStandardOutput() async throws {
+    func testTranslateRefusesFormatJSONWithoutAFile() async throws {
         let command = try TranslateCommand.parse([input.path, "--frame", "1", "--format", "json", "--no-color"])
 
-        let streams = try await StandardStreamCapture.capture(in: folder) { try await command.run() }
+        var thrown: Error?
+        let streams = try await StandardStreamCapture.capture(in: folder) {
+            do { try await command.run() } catch { thrown = error }
+        }
 
-        let json = try jsonObject(streams.standardOutput)
-        XCTAssertEqual(json["translationCount"] as? Int, 2)
-        XCTAssertNil(json["outputFile"], "No file was asked for")
-        XCTAssertEqual(
-            streams.standardErrorText,
-            FASTATextModePinTests.translatingLine + FASTATextModePinTests.translatedFASTA,
-            "The FASTA reaches standard error with the same bytes, and nothing of it is lost"
-        )
+        let refusal = try XCTUnwrap(thrown as? CLIError, "The command refuses before any work")
+        XCTAssertEqual(refusal.exitCode, .inputError)
+        XCTAssertTrue((refusal.errorDescription ?? "").contains("-o <file>"))
+        XCTAssertEqual(streams.standardOutput, Data(), "Nothing reaches standard output")
+        XCTAssertEqual(streams.standardErrorText, "", "The refusal comes before the status line")
     }
 
     func testTranslateQuietWritesTheJSONAloneAndNoText() async throws {
@@ -129,19 +129,19 @@ final class JSONAloneOnStandardOutputTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output), Data(FASTATextModePinTests.extractedFASTA.utf8))
     }
 
-    func testExtractSequenceWithoutAFileKeepsTheFASTAOffStandardOutput() async throws {
+    func testExtractSequenceRefusesFormatJSONWithoutAFile() async throws {
         let command = try ExtractSequenceSubcommand.parse([input.path, "seqA:1-90", "--format", "json", "--no-color"])
 
-        let streams = try await StandardStreamCapture.capture(in: folder) { try await command.run() }
+        var thrown: Error?
+        let streams = try await StandardStreamCapture.capture(in: folder) {
+            do { try await command.run() } catch { thrown = error }
+        }
 
-        let json = try jsonObject(streams.standardOutput)
-        XCTAssertEqual(json["length"] as? Int, 90)
-        XCTAssertNil(json["outputFile"], "No file was asked for")
-        XCTAssertEqual(
-            streams.standardErrorText,
-            FASTATextModePinTests.extractingLine + FASTATextModePinTests.extractedFASTA,
-            "The FASTA reaches standard error with the same bytes, and nothing of it is lost"
-        )
+        let refusal = try XCTUnwrap(thrown as? CLIError, "The command refuses before any work")
+        XCTAssertEqual(refusal.exitCode, .inputError)
+        XCTAssertTrue((refusal.errorDescription ?? "").contains("-o <file>"))
+        XCTAssertEqual(streams.standardOutput, Data(), "Nothing reaches standard output")
+        XCTAssertEqual(streams.standardErrorText, "", "The refusal comes before the status line")
     }
 
     func testExtractSequenceQuietWritesTheJSONAloneAndNoText() async throws {

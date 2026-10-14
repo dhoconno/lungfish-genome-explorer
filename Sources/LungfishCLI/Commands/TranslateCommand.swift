@@ -45,7 +45,7 @@ struct TranslateCommand: AsyncParsableCommand {
 
     @Option(
         name: .shortAndLong,
-        help: "Output file path (default: stdout)"
+        help: "Output file path (default: stdout). Required with --format json"
     )
     var output: String?
 
@@ -72,6 +72,13 @@ struct TranslateCommand: AsyncParsableCommand {
     func run() async throws {
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+
+        // Under --format json the JSON result takes standard output, so the FASTA needs a file (2.6 row 213).
+        if globalOptions.outputFormat == .json && output == nil {
+            throw CLIError.validationFailed(errors: [
+                "--format json prints the JSON result on standard output, so the FASTA needs a file. Add -o <file>, or leave out --format json to print the FASTA."
+            ])
+        }
 
         // Validate input file exists
         guard FileManager.default.fileExists(atPath: input) else {
@@ -223,9 +230,6 @@ struct TranslateCommand: AsyncParsableCommand {
                     eventsOn: globalOptions.outputFormat == .json
                 )
             }
-        } else if globalOptions.outputFormat == .json {
-            // Standard output holds the JSON result alone (2.6 row 213), so the FASTA goes to standard error.
-            FileHandle.standardError.write(Data(outputText.utf8))
         } else {
             print(outputText, terminator: "")
         }
