@@ -2262,7 +2262,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
             source: currentSource,
             searchType: searchType,
             routeContext: routeContext,
-            includeGFF3Annotations: includeGFF3Annotations
+            includeGFF3Annotations: includeGFF3Annotations,
+            pathoplexusOrganism: currentSource == .pathoplexus ? ppOrganism : nil
         ) { downloadCenterTaskID in
             isDownloading = true
             downloadProgress = 0
@@ -2363,6 +2364,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             let batchProjectURL = routeContext?.projectURL
             let genomeRoute = batchProjectURL == nil ? GenomeRowDownloadRoute.legacy : genomeRowRoute
             let nucleotideRoute = batchProjectURL == nil ? NucleotideRowDownloadRoute.legacy : nucleotideRowRoute
+            let pathoplexusRoute = batchProjectURL == nil ? PathoplexusRowDownloadRoute.legacy : pathoplexusRowRoute
 
             // Use Task.detached to break out of MainActor context.
             // This is critical when running in a modal sheet - regular Task {}
@@ -2429,13 +2431,14 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             )
 
                         case .pathoplexus:
-                            // A Pathoplexus row builds its bundle in the batch folder (lane A45,
-                            // DatabaseBrowserViewModel+PathoplexusRowDownload.swift).
+                            // A Pathoplexus row runs `lungfish-cli fetch pathoplexus` into the folder
+                            // the row's command names, or the in-process build behind the hidden key
+                            // (lane A45, DatabaseBrowserViewModel+PathoplexusRowDownload.swift).
                             fileURL = try await Self.downloadPathoplexusRow(
                                 record, index: index, totalCount: totalCount,
-                                operationID: downloadCenterTaskID, organism: ppOrganism,
-                                genBankVM: genBankVM, includeGFF3Annotations: includeGFF3Annotations,
-                                batchFolder: batchFolder
+                                operationID: downloadCenterTaskID, route: pathoplexusRoute, organism: ppOrganism,
+                                ncbi: ncbi, genBankVM: genBankVM, includeGFF3Annotations: includeGFF3Annotations,
+                                batchFolder: batchFolder, projectURL: batchProjectURL
                             )
 
                         default:

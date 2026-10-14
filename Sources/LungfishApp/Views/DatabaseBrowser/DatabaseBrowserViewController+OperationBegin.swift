@@ -20,15 +20,16 @@ extension DatabaseBrowserViewModel {
     /// title the Downloads popover shows, built from the first accessions.
     ///
     /// The command comes from `batchDownloadCLICommand`. NCBI genome
-    /// assemblies with a project in the route context record one. Every other
-    /// download records no command until a command covers it, as that
-    /// function describes.
+    /// assemblies, nucleotide and virus records and Pathoplexus records with
+    /// a project in the route context record one. Every other download
+    /// records no command until a command covers it, as that function
+    /// describes.
     ///
     /// - cli-parity-gap: download-sra. Every SRA run download.
     /// - cli-parity-gap: download-genome-no-project. NCBI genome assemblies,
-    ///   nucleotide records and virus records with no project in the route
-    ///   context (lane A45 widened it from genome assemblies).
-    /// - cli-parity-gap: download-pathoplexus. Pathoplexus records.
+    ///   nucleotide records, virus records and Pathoplexus records with no
+    ///   project in the route context (lane A45 widened it from genome
+    ///   assemblies).
     @discardableResult
     static func beginBatchDownloadOperation(
         title: String,
@@ -37,6 +38,7 @@ extension DatabaseBrowserViewModel {
         searchType: NCBISearchType,
         routeContext: OperationRouteContext?,
         includeGFF3Annotations: Bool = true,
+        pathoplexusOrganism: String? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -49,7 +51,8 @@ extension DatabaseBrowserViewModel {
                 searchType: searchType,
                 accessions: accessions,
                 projectURL: routeContext?.projectURL,
-                includeGFF3Annotations: includeGFF3Annotations
+                includeGFF3Annotations: includeGFF3Annotations,
+                pathoplexusOrganism: pathoplexusOrganism
             ),
             routeContext: routeContext
         )
@@ -89,17 +92,35 @@ extension DatabaseBrowserViewModel {
     ///   `--no-gff3` is the browser's GFF3 setting turned off. With no project
     ///   the row records nil and runs in process, for the reason the genome
     ///   assemblies give.
-    /// - Pathoplexus records record nil. No fetch command reads Pathoplexus,
-    ///   and its accessions are not NCBI accessions.
+    /// - Pathoplexus records, with a project, record `fetch pathoplexus
+    ///   <accessions> --organism <id> --output-dir <folder> [--no-gff3]
+    ///   --format json` (lane A45). Its accessions are not NCBI accessions, so
+    ///   the organism names the Pathoplexus the records are read from. The run
+    ///   launches it for each row in turn into the project's Downloads folder,
+    ///   and each bundle's record names its own accession, so one line with
+    ///   every accession builds the same bundles. With no project the row
+    ///   records nil and runs in process, for the reason the genome
+    ///   assemblies give.
     static func batchDownloadCLICommand(
         source: DatabaseSource,
         searchType: NCBISearchType,
         accessions: [String],
         projectURL: URL?,
-        includeGFF3Annotations: Bool = true
+        includeGFF3Annotations: Bool = true,
+        pathoplexusOrganism: String? = nil
     ) -> String? {
-        guard source == .ncbi, !accessions.isEmpty, let projectURL else { return nil }
+        guard !accessions.isEmpty, let projectURL else { return nil }
         let folder = genomeRowFolder(projectURL: projectURL)
+        if source == .pathoplexus {
+            guard let organism = pathoplexusOrganism, !organism.isEmpty else { return nil }
+            return OperationCenter.buildCLICommand(
+                subcommand: "fetch pathoplexus",
+                args: Array(pathoplexusFetchArguments(
+                    accessions: accessions, organism: organism, folder: folder, includeGFF3Annotations: includeGFF3Annotations
+                ).dropFirst(2))
+            )
+        }
+        guard source == .ncbi else { return nil }
         switch searchType {
         case .genome:
             return OperationCenter.buildCLICommand(

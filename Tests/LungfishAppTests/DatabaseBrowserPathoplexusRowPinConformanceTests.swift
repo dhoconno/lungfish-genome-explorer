@@ -102,9 +102,9 @@ final class DatabaseBrowserPathoplexusRowPinConformanceTests: XCTestCase {
         let record = SearchResultRecord(
             id: accession, accession: accession, title: "Stand-in Pathoplexus record", source: .pathoplexus)
         return try await DatabaseBrowserViewModel.downloadPathoplexusRow(
-            record, index: 0, totalCount: 1, operationID: UUID(), organism: PathoplexusLAPISStandIn.organism,
-            genBankVM: GenBankBundleDownloadViewModel(ncbiService: NCBIService()), includeGFF3Annotations: true,
-            batchFolder: BatchDownloadFolder(projectURL: project))
+            record, index: 0, totalCount: 1, operationID: UUID(), route: .legacy, organism: PathoplexusLAPISStandIn.organism,
+            ncbi: NCBIService(), genBankVM: GenBankBundleDownloadViewModel(ncbiService: NCBIService()),
+            includeGFF3Annotations: true, batchFolder: BatchDownloadFolder(projectURL: project), projectURL: project)
     }
 
     /// A bundle built from the Pathoplexus FASTA: its one sequence named by the accession, the source

@@ -9,10 +9,11 @@
 // project, one or a batch, record `fetch genome`, which must parse with the
 // values the run uses and names the folder the run writes the bundles into
 // (R3, lane A44). NCBI nucleotide and virus records with a project record
-// `fetch ncbi --bundle`, which must parse the same way (lane A45). SRA runs,
-// rows with no project and Pathoplexus records record no command, and the
-// tests pin each as a CLI parity gap. A command added later fails a pin and
-// prompts a parse test in its place.
+// `fetch ncbi --bundle`, which must parse the same way (lane A45), and
+// Pathoplexus records with a project record `fetch pathoplexus` (lane A45).
+// SRA runs and rows with no project record no command, and the tests pin each
+// as a CLI parity gap. A command added later fails a pin and prompts a parse
+// test in its place.
 
 import XCTest
 @testable import LungfishApp
@@ -34,7 +35,8 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         title: String,
         accessions: [String],
         source: DatabaseSource,
-        searchType: NCBISearchType = .nucleotide
+        searchType: NCBISearchType = .nucleotide,
+        pathoplexusOrganism: String? = nil
     ) throws -> RecordingOperationReporter.Item {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
@@ -45,6 +47,7 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
             source: source,
             searchType: searchType,
             routeContext: routeContext,
+            pathoplexusOrganism: pathoplexusOrganism,
             reporter: reporter
         ) { launchedID = $0 }
 
@@ -206,17 +209,69 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
     }
 
-    func testPathoplexusRowRecordsNoCommandAsAParityGap() throws {
+    func testPathoplexusRowsRecordTheFetchPathoplexusCommand() throws {
         let item = try recordedRow(
-            title: "LOC_0001GA1.1",
-            accessions: ["LOC_0001GA1.1"],
-            source: .pathoplexus
+            title: "PP_0012345, PP_0012346",
+            accessions: ["PP_0012345", "PP_0012346"],
+            source: .pathoplexus,
+            pathoplexusOrganism: "mpox"
         )
 
-        // No fetch command reads Pathoplexus, and its accessions are not NCBI
-        // accessions.
+        // Its accessions are not NCBI accessions, so the organism names the Pathoplexus the records
+        // are read from, and the run writes the bundles into the project's Downloads folder.
+        XCTAssertEqual(
+            item.cliCommand,
+            "lungfish-cli fetch pathoplexus PP_0012345 PP_0012346 --organism mpox "
+                + "--output-dir '/tmp/lane 1a2g/Project.lungfish/Downloads' --format json")
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: PathoplexusSubcommand.self)
+        XCTAssertEqual(command.accessions, ["PP_0012345", "PP_0012346"])
+        XCTAssertEqual(command.organism, "mpox")
+        XCTAssertEqual(command.outputDir, "/tmp/lane 1a2g/Project.lungfish/Downloads")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        XCTAssertFalse(command.noGFF3)
+        XCTAssertNil(command.apiKey, "the key reaches the child through its environment")
+    }
+
+    func testThePathoplexusGFF3SettingTurnedOffRecordsNoGFF3() throws {
+        let reporter = RecordingOperationReporter()
+        DatabaseBrowserViewModel.beginBatchDownloadOperation(
+            title: "PP_0012345",
+            accessions: ["PP_0012345"],
+            source: .pathoplexus,
+            searchType: .nucleotide,
+            routeContext: routeContext,
+            includeGFF3Annotations: false,
+            pathoplexusOrganism: "mpox",
+            reporter: reporter
+        ) { _ in }
+        let command = try RecordedCLICommand.parse(
+            try XCTUnwrap(reporter.items.first).cliCommand, as: PathoplexusSubcommand.self)
+        XCTAssertTrue(command.noGFF3)
+    }
+
+    func testPathoplexusRowWithNoProjectRecordsNoCommandAsAParityGap() throws {
+        // With no project the run builds in a scratch folder and the import copies the bundle out, as
+        // for a genome assembly, so the row records nil and runs in process.
+        let reporter = RecordingOperationReporter()
+        DatabaseBrowserViewModel.beginBatchDownloadOperation(
+            title: "PP_0012345",
+            accessions: ["PP_0012345"],
+            source: .pathoplexus,
+            searchType: .nucleotide,
+            routeContext: nil,
+            pathoplexusOrganism: "mpox",
+            reporter: reporter
+        ) { _ in }
+        let item = try XCTUnwrap(reporter.items.first)
         XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "download-pathoplexus")
+        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
+    }
+
+    func testPathoplexusRowWithNoOrganismRecordsNoCommand() throws {
+        // The browser refuses a Pathoplexus download with no organism selected, so a row never gets
+        // here without one. The command would not parse without it, so it records nil.
+        let item = try recordedRow(title: "PP_0012345", accessions: ["PP_0012345"], source: .pathoplexus)
+        XCTAssertNil(item.cliCommand)
     }
 
     // MARK: - Refusal
