@@ -265,18 +265,92 @@ final class ViralReconLiveConformanceTests: XCTestCase {
         let stdoutLines = stdoutLog.components(separatedBy: "\n")
         let agentLines = stdoutLines.filter { $0.hasPrefix("[PIPELINE] ") || $0.hasPrefix("[WORKDIR] ") || $0.hasPrefix("[PROCESS ") }
         XCTAssertEqual(agentLines.count, 0, "logs/stdout.log holds Nextflow's agent log, so the engine saw an agent switch: \(agentLines.prefix(3))")
+
+        // Item 6. logs/stdout.log holds the lines of the console in the order a real run prints them (V1-BIO 2, commit 2):
+        // the version line first, the `Launching` line, the logo as eight lines in a row, the `[xx/nnnnnn] Submitted process`
+        // line of every task of the trace, and nf-core's completion line last. The warnings, plugin downloads and the
+        // parameter summary between them depend on the machine, and the blank lines are not kept, so neither is pinned.
         note("logs/stdout.log \(stdoutLines.count) lines")
-        for (index, line) in stdoutLines.enumerated().prefix(14) { note("stdout \(index + 1): \(line.prefix(130))") }
-        for line in stdoutLines.suffix(3) { note("stdout last: \(line.prefix(130))") }
-        let nextflowLog = try? String(contentsOf: result.bundleURL.appendingPathComponent("logs/nextflow.log"), encoding: .utf8)
-        note("logs/nextflow.log line 1: \(nextflowLog?.components(separatedBy: "\n").first ?? "absent")")
-        note("manifest nextflowLogPath \(manifest.nextflowLogPath ?? "nil") version \(manifest.version) pinned \(manifest.workflowPinnedVersion ?? "nil")")
-        note("manifest.commandPreview \(manifest.commandPreview)")
+        let version = Self.firstLine(matching: #"^N E X T F L O W  ~  version ([0-9][0-9A-Za-z.\-]*)$"#, in: stdoutLines)
+        let launching = Self.firstLine(
+            matching: #"^Launching `https://github\.com/nf-core/viralrecon` \[[a-z_]+\] - revision: ([0-9a-f]{10}) \[3\.0\.0\]$"#,
+            in: stdoutLines
+        )
+        let logoStart = stdoutLines.firstIndex(of: Self.logo[0])
+        let submitted = stdoutLines.enumerated().compactMap { index, line in
+            Self.firstLine(matching: #"^\[[0-9a-f]{2}/[0-9a-f]{6}\] Submitted process > (.+)$"#, in: [line]).map { (index: index, name: $0.capture) }
+        }
+        let completion = stdoutLines.lastIndex { !$0.isEmpty }
+        XCTAssertEqual(version?.index, stdoutLines.firstIndex { !$0.isEmpty }, "the version line is not the first line")
+        if let logoStart {
+            XCTAssertEqual(Array(stdoutLines[logoStart..<min(logoStart + Self.logo.count, stdoutLines.count)]), Self.logo, "the logo")
+        }
+        XCTAssertEqual(completion.map { stdoutLines[$0] }, Self.completionLine, "the last line is not nf-core's completion line")
+        let order = [version?.index, launching?.index, logoStart, submitted.first?.index, submitted.last?.index, completion]
+        XCTAssertEqual(order.compactMap { $0 }.count, order.count, "a line is missing, in order \(order)")
+        XCTAssertEqual(order.compactMap { $0 }, order.compactMap { $0 }.sorted(), "the version, Launching, logo, first and last task and completion lines are out of order")
+        XCTAssertEqual(submitted.map(\.name).sorted(), ran.sorted(), "logs/stdout.log submits the tasks of the trace, once each")
+
+        // N2, N3 and Q33 fix 8, each a fact of the record at this head (V3-BIO 1, Q33 fix 8). The step names the full commit
+        // the wizard sent, whose first ten characters the engine's Launching line prints and the stand-in's writer carries.
+        // It names the Nextflow that ran, as the banner does, and the manifest records the command the launch ran, which
+        // the engine's own log opens with.
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: result.bundleURL))
-        for step in provenance.steps { note("step \(step.toolName) toolVersion \(step.toolVersion) resolvedOptions \(step.resolvedOptions)") }
+        let step = try XCTUnwrap(provenance.steps.first)
+        XCTAssertEqual(step.toolVersion, pinnedRelease.revision, "N2, the record names the commit that was sent")
+        XCTAssertEqual(String(step.toolVersion.prefix(10)), "395079f1d2", "N2, the commit of tag 3.0.0")
+        XCTAssertEqual(launching?.capture, String(step.toolVersion.prefix(10)), "N2, the Launching line and the record name one commit")
+        XCTAssertEqual(launching?.capture, workflow.pinnedCommit, "N2, the stand-in writer prints the commit the real run printed")
+        XCTAssertNil(step.resolvedOptions["resolvedCommit"], "N2, a step that names a full commit has nothing to resolve")
+        XCTAssertEqual(version?.capture, "26.04.6", "N3, the managed Nextflow of V1b")
+        XCTAssertEqual(step.resolvedOptions["nextflowVersion"], .string(version?.capture ?? ""), "N3, the record names the Nextflow that ran")
+        let engineLog = try String(contentsOf: result.bundleURL.appendingPathComponent("logs/nextflow.log"), encoding: .utf8)
+        let launchLine = try XCTUnwrap(engineLog.components(separatedBy: "\n").first { $0.hasPrefix("nextflow_command: ") }, "logs/nextflow.log opens with no command")
+        XCTAssertEqual(manifest.nextflowLogPath, "logs/nextflow.log")
+        XCTAssertEqual(
+            manifest.commandPreview,
+            "nextflow" + launchLine.dropFirst("nextflow_command: ".count).drop { $0 != " " },
+            "Q33 fix 8, the manifest records the launch argv after the executable"
+        )
+        for part in [" -c ", " -work-dir ", " --gff "] {
+            XCTAssertTrue(manifest.commandPreview.contains(part), "Q33 fix 8, the recorded command lacks \(part)")
+        }
+        for part in [" --max_cpus", " --max_memory"] {
+            XCTAssertFalse(manifest.commandPreview.contains(part), "Q33 fix 8, the recorded command passes \(part), which the launch does not")
+        }
     }
 
     // MARK: - Helpers
+
+    /// The logo Viral Recon 3.0.0 prints, with its escapes, as the eight lines of Q35's V1 `logs/stdout.log`
+    /// (`before_text` of `subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf`). The stand-in writer prints the same.
+    private static let logo: [String] = {
+        let esc = "\u{1B}"
+        return [
+            "-\(esc)[2m----------------------------------------------------\(esc)[0m-",
+            "                                        \(esc)[0;32m,--.\(esc)[0;30m/\(esc)[0;32m,-.\(esc)[0m",
+            "\(esc)[0;34m        ___     __   __   __   ___     \(esc)[0;32m/,-._.--~'\(esc)[0m",
+            "\(esc)[0;34m  |\\ | |__  __ /  ` /  \\ |__) |__         \(esc)[0;33m}  {\(esc)[0m",
+            "\(esc)[0;34m  | \\| |       \\__, \\__/ |  \\ |___     \(esc)[0;32m\\`-._,-`-,\(esc)[0m",
+            "                                        \(esc)[0;32m`._,._,'\(esc)[0m",
+            "\(esc)[0;35m  nf-core/viralrecon 3.0.0\(esc)[0m",
+            "-\(esc)[2m----------------------------------------------------\(esc)[0m-",
+        ]
+    }()
+
+    /// The last line of a completed run, the one the stand-in prints.
+    private static let completionLine = "-\u{1B}[0;35m[nf-core/viralrecon]\u{1B}[0;32m Pipeline completed successfully\u{1B}[0m-"
+
+    /// The first line that matches `pattern` as a whole, with its position and its first capture group.
+    private static func firstLine(matching pattern: String, in lines: [String]) -> (index: Int, capture: String)? {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        for (index, line) in lines.enumerated() {
+            guard let match = expression.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) else { continue }
+            let capture = match.numberOfRanges > 1 ? Range(match.range(at: 1), in: line).map { String(line[$0]) } : nil
+            return (index, capture ?? "")
+        }
+        return nil
+    }
 
     private func note(_ message: String) {
         print("[live-viralrecon] \(message)")
@@ -319,7 +393,7 @@ final class ViralReconLiveConformanceTests: XCTestCase {
         var lines = text.components(separatedBy: "\n")
         let endsWithNewline = lines.last == ""
         if endsWithNewline { lines.removeLast() }
-        let kept = lines.filter { !($0.hasPrefix("##") && $0.contains("Date=")) }
+        let kept = lines.filter { !($0.hasPrefix("##") && $0.range(of: "Date=") != nil) }
         return (
             kept.joined(separator: "\n") + (endsWithNewline ? "\n" : ""),
             kept.filter { $0.hasPrefix("#") }.count,
