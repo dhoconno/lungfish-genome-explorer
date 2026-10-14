@@ -279,7 +279,46 @@ final class BuildDbCancellationTests: XCTestCase {
         Self.assertCancelled(outcome, "The markdup of a BAM after a cancel")
     }
 
+    /// The read count pass turns the failure of one markdup into a warning and goes on to the next BAM. A
+    /// cancel that arrives as the loop starts fails the markdup of every BAM, so at the base the pass logs one
+    /// "markdup failed" warning for each BAM left (lane S33 M1 pins that count, M2 ends it) and the core ends
+    /// at the check after the pass.
+    func testACancelInTheMarkdupLoopLogsOneWarningForEachBAMLeft() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let result = try BuildDbStreamCapture.esVirituResultWithoutBAMs(in: scratch)
+        for sample in Self.fixtureSamples {
+            let temp = result.appendingPathComponent("\(sample)/\(sample)_temp", isDirectory: true)
+            try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+            try Data("BAM".utf8).write(to: temp.appendingPathComponent("\(sample).third.filt.sorted.bam"))
+        }
+        let samtools = try ManagedSamtoolsHome.makeStub(rootURL: scratch.root, namePrefix: "Home")
+
+        let run = await Self.withHome(samtools.homeURL) {
+            await Self.run(cancellingAt: { $0.hasPrefix("Running markdup on ") }) { sink in
+                try await BuildDbCommand.EsVirituSubcommand.buildDatabase(in: result, options: try Self.options(), events: sink)
+            }
+        }
+
+        run.assertEndedCancelled()
+        XCTAssertTrue(run.lines.contains("Running markdup on 3 BAM file(s)..."), "The three BAMs reached the loop")
+        XCTAssertEqual(
+            run.lines.filter { $0.contains("markdup failed on ") }.count, 3,
+            "The loop logged one warning for each BAM the cancel left"
+        )
+    }
+
     // MARK: Running a core under a cancel
+
+    /// Runs `body` with `HOME` at `home`, where `build-db` finds its managed samtools.
+    private static func withHome<T>(_ home: URL, _ body: () async -> T) async -> T {
+        let original = ProcessInfo.processInfo.environment["HOME"]
+        setenv("HOME", home.path, 1)
+        defer {
+            if let original { setenv("HOME", original, 1) } else { unsetenv("HOME") }
+        }
+        return await body()
+    }
 
     private static func options(force: Bool = false, noCleanup: Bool = false) throws -> BuildDbRunOptions {
         BuildDbRunOptions(force: force, noCleanup: noCleanup, globalOptions: try GlobalOptions.parse([]))
