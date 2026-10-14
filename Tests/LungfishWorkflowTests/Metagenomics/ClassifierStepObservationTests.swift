@@ -153,6 +153,21 @@ final class ClassifierStepObservationTests: XCTestCase {
             PortablePath.sanitize(path: manager.rootPrefix.path, context: manager.environmentChangeContext),
             tool, file: file, line: line
         )
+        // The stand-in's conda root sits in the temporary folder, where PortablePath reads a path as `<workspace>`
+        // before it reads it as `<tool-root>` (rules 4 and 5 in PortablePath.swift). The golden pins `<tool-root>`.
+        XCTAssertEqual(
+            (environment?["values"] as? [String: String])?["MAMBA_ROOT_PREFIX"],
+            "<workspace>/" + manager.rootPrefix.pathComponents.suffix(2).joined(separator: "/"),
+            "\(tool) keeps the workspace token, never the scratch path", file: file, line: line
+        )
+        // Outside the temporary folder the same context reads the root as `<tool-root>`, as a managed root reads on
+        // the real routes, so a context that stopped naming the root fails here.
+        var rootOnly = manager.environmentChangeContext
+        rootOnly.temporaryRootURLs = []
+        XCTAssertEqual(
+            PortablePath.sanitize(path: manager.rootPrefix.path, context: rootOnly), "<tool-root>",
+            "\(tool) sanitizes with a context that names its own root", file: file, line: line
+        )
     }
 
     /// A probe through `runTool`, whose last argument asks for help or a version.
