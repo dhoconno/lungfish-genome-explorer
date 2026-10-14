@@ -121,12 +121,12 @@ struct GenomeFetchProvenanceWriter {
         var defaults = provenanceDefaults()
         defaults["intoBundle"] = .null
         let recordFolder = target.appendingPathComponent("genome", isDirectory: true)
+        // Each path is built from the target's own spelling, so the record names one folder one
+        // way (A44 M2 review, F10).
         let merged = ["genome", "annotations"].flatMap { folder -> [URL] in
             let url = target.appendingPathComponent(folder, isDirectory: true)
-            guard let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey]) else {
-                return []
-            }
-            return files.compactMap { $0 as? URL }.filter {
+            guard let names = FileManager.default.enumerator(atPath: url.path) else { return [] }
+            return names.compactMap { $0 as? String }.map { url.appendingPathComponent($0) }.filter {
                 (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
                     && !$0.lastPathComponent.hasSuffix(ProvenanceRecorder.provenanceFilename)
             }.sorted { $0.path < $1.path }

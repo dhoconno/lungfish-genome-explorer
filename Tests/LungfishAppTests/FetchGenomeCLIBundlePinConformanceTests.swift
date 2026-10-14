@@ -115,11 +115,10 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         // Since lane A44 M2 the leaf builds an assembly through the genome download builder, so the
         // assembly bundle is named `<organism> - <assembly name>` and carries the record of what was
         // fetched. A nucleotide bundle still builds through NativeBundleBuilder (A44 M2 review,
-        // ruling 2), and gets the same record in its final place (F9). A merge's record names its outputs as the file
-        // system lists them, with `/private` before a temporary path.
+        // ruling 2), and gets the same record in its final place (F9).
         var snapshot = try await DownloadedBundleSnapshot.text(
             of: bundle,
-            replacing: [(server.baseURL.absoluteString, "<STAND-IN>"), ("/private" + output.standardizedFileURL.path, "<OUT>")]
+            replacing: [(server.baseURL.absoluteString, "<STAND-IN>")]
                 + DownloadedBundleSnapshot.directoryReplacements(output, as: "<OUT>")
                 + DownloadedBundleSnapshot.directoryReplacements(FileManager.default.temporaryDirectory, as: "<TMP>"))
         snapshot = snapshot.replacingOccurrences(
