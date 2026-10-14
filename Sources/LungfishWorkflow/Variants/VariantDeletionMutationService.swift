@@ -50,10 +50,56 @@ package struct VariantDeletionMutationService {
         self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
+    /// The `lungfish-cli` argv, from the `variants delete` words on, that deletes every variant of
+    /// every variant track of the bundle, as ``deleteAllVariants(bundleURL:targets:invocationArgv:)``
+    /// does. The drawer's row records it and the command records it when it runs inside another
+    /// process. The builder touches no state, so any isolation can call it.
+    package static func deleteAllArguments(bundleURL: URL) -> [String] {
+        ["variants", "delete", bundleURL.path, "--all"]
+    }
+
+    /// The `lungfish-cli` argv, from the `variants delete` words on, that deletes the selected
+    /// variants, as ``deleteVariants(idsByTrack:bundleURL:targets:invocationArgv:)`` does. Each
+    /// selected row travels with its track, as `--variant-id=<track-id>:<row-id>`, tracks in name
+    /// order and row IDs ascending, so one command reproduces any selection. The value is joined to
+    /// its option, so a hyphen-leading track ID replays.
+    package static func deleteSelectedArguments(bundleURL: URL, idsByTrack: [String: [Int64]]) -> [String] {
+        var arguments = ["variants", "delete", bundleURL.path]
+        for trackId in idsByTrack.keys.sorted() {
+            for id in Set(idsByTrack[trackId] ?? []).sorted() {
+                arguments.append("--variant-id=\(trackId):\(id)")
+            }
+        }
+        return arguments
+    }
+
+    /// The selection that `--variant-id` values name, by track. A value is `<track-id>:<row-id>`
+    /// and splits on its last colon, since the row ID is an integer.
+    package static func selection(fromVariantIDs values: [String]) throws -> [String: [Int64]] {
+        var idsByTrack: [String: [Int64]] = [:]
+        for value in values {
+            guard let colon = value.lastIndex(of: ":"), colon != value.startIndex,
+                  let rowID = Int64(value[value.index(after: colon)...]), rowID >= 0 else {
+                throw NSError(
+                    domain: "VariantDeletionMutationService",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "'\(value)' is not <track-id>:<row-id>. Pass the track a variant belongs to, a colon and its row ID."]
+                )
+            }
+            idsByTrack[String(value[..<colon]), default: []].append(rowID)
+        }
+        return idsByTrack.mapValues { Array(Set($0)).sorted() }
+    }
+
+    /// Deletes the variants `rawIDsByTrack` names from their tracks' databases and records the
+    /// step, which names every row that went. `invocationArgv` is the command that made the edit,
+    /// such as `lungfish-cli variants delete`. With none it records the `lungfish-gui` form, as it
+    /// always has.
     package func deleteVariants(
         idsByTrack rawIDsByTrack: [String: [Int64]],
         bundleURL rawBundleURL: URL,
-        targets rawTargets: [VariantDeletionMutationTarget]
+        targets rawTargets: [VariantDeletionMutationTarget],
+        invocationArgv: [String]? = nil
     ) throws -> VariantDeletionMutationResult {
         let idsByTrack = rawIDsByTrack.reduce(into: [String: [Int64]]()) { partialResult, entry in
             let ids = Array(Set(entry.value)).sorted()
@@ -64,20 +110,25 @@ package struct VariantDeletionMutationService {
         return try performMutation(
             kind: .selected(idsByTrack: idsByTrack),
             bundleURL: rawBundleURL,
-            targets: targets
+            targets: targets,
+            invocationArgv: invocationArgv
         ) { database, target in
             try database.deleteVariants(ids: idsByTrack[target.trackId] ?? [])
         }
     }
 
+    /// Deletes every variant of the databases `rawTargets` name and records the step. See
+    /// ``deleteVariants(idsByTrack:bundleURL:targets:invocationArgv:)`` for `invocationArgv`.
     package func deleteAllVariants(
         bundleURL rawBundleURL: URL,
-        targets rawTargets: [VariantDeletionMutationTarget]
+        targets rawTargets: [VariantDeletionMutationTarget],
+        invocationArgv: [String]? = nil
     ) throws -> VariantDeletionMutationResult {
         try performMutation(
             kind: .all,
             bundleURL: rawBundleURL,
-            targets: uniqueTargets(rawTargets)
+            targets: uniqueTargets(rawTargets),
+            invocationArgv: invocationArgv
         ) { database, _ in
             try database.deleteAllVariants()
         }
@@ -87,6 +138,7 @@ package struct VariantDeletionMutationService {
         kind: DeletionKind,
         bundleURL rawBundleURL: URL,
         targets rawTargets: [VariantDeletionMutationTarget],
+        invocationArgv: [String]?,
         mutate: (VariantDatabase, VariantDeletionMutationTarget) throws -> Int
     ) throws -> VariantDeletionMutationResult {
         let bundleURL = rawBundleURL.standardizedFileURL
@@ -132,6 +184,7 @@ package struct VariantDeletionMutationService {
             let completedAt = runClock.now
             let envelope = try provenanceEnvelope(
                 kind: kind,
+                invocationArgv: invocationArgv,
                 bundleURL: bundleURL,
                 targets: updatedTargets,
                 contextInputs: contextInputs,
@@ -156,6 +209,7 @@ package struct VariantDeletionMutationService {
 
     private func provenanceEnvelope(
         kind: DeletionKind,
+        invocationArgv: [String]?,
         bundleURL: URL,
         targets: [VariantDeletionMutationTarget],
         contextInputs: [ProvenanceFileDescriptor],
@@ -166,7 +220,7 @@ package struct VariantDeletionMutationService {
         startedAt: Date,
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
-        let argv = kind.argv(bundleURL: bundleURL)
+        let argv = invocationArgv ?? kind.argv(bundleURL: bundleURL)
         let trackOptions = Dictionary(
             uniqueKeysWithValues: targets.map {
                 ($0.trackId, ParameterValue.string($0.trackName ?? $0.trackId))

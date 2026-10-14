@@ -51,11 +51,29 @@ package struct VariantSampleMetadataImportService {
         self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
+    /// The `lungfish-cli` argv, from the `variants import-sample-metadata` words on, that imports
+    /// `metadataURL` as ``importMetadata(from:format:bundleURL:targets:invocationArgv:shouldCancel:)``
+    /// does. The drawer's row records it and launches it, and the command records it when it runs
+    /// inside another process. The format is always named, so the command reads the file as the
+    /// drawer did whatever its extension. The builder touches no state, so any isolation can call it.
+    package static func importMetadataArguments(metadataURL: URL, format: MetadataFormat, bundleURL: URL) -> [String] {
+        ["variants", "import-sample-metadata", bundleURL.path, metadataURL.path, "--metadata-format", format.rawValue]
+    }
+
+    /// Imports the sample metadata of `metadataURL` into every target database and records the
+    /// step. `invocationArgv` is the command that made the edit, such as `lungfish-cli variants
+    /// import-sample-metadata`. With none it records the `lungfish-gui` form, as it always has.
+    ///
+    /// `shouldCancel` is asked after the publication is built, before each target's import and
+    /// before the record is written. A true answer throws `CancellationError` there, and the
+    /// rollback leaves every database and record as it was.
     package func importMetadata(
         from metadataURL: URL,
         format: MetadataFormat,
         bundleURL: URL,
-        targets rawTargets: [VariantSampleMetadataImportTarget]
+        targets rawTargets: [VariantSampleMetadataImportTarget],
+        invocationArgv: [String]? = nil,
+        shouldCancel: () -> Bool = { false }
     ) throws -> VariantSampleMetadataImportResult {
         let metadataURL = metadataURL.standardizedFileURL
         let bundleURL = bundleURL.standardizedFileURL
@@ -73,6 +91,7 @@ package struct VariantSampleMetadataImportService {
             bundleURL: bundleURL, fileManager: fileManager)
 
         do {
+            try Self.throwIfCancelled(shouldCancel)
             let retainedMetadataURL = publication.inputDirectory.appendingPathComponent("metadata-" + metadataURL.lastPathComponent)
             try fileManager.copyItem(at: metadataURL, to: retainedMetadataURL)
             let retained = try ProvenanceFileDescriptor.file(url: retainedMetadataURL, format: .text, role: .input)
@@ -82,6 +101,7 @@ package struct VariantSampleMetadataImportService {
             let databaseInputs = try targets.map { try publication.inputDescriptor(for: $0.databaseURL) }
             var updatedCounts: [String: Int] = [:]
             for target in targets {
+                try Self.throwIfCancelled(shouldCancel)
                 let database = publication.database(at: target.databaseURL)
                 let count = try database.importSampleMetadata(from: retainedMetadataURL, format: format)
                 updatedCounts[target.databaseURL.path] = count
@@ -95,6 +115,7 @@ package struct VariantSampleMetadataImportService {
             let envelope = try provenanceEnvelope(
                 metadataURL: metadataURL,
                 format: format,
+                invocationArgv: invocationArgv,
                 bundleURL: bundleURL,
                 targets: targets,
                 metadataInput: metadataInput,
@@ -105,6 +126,7 @@ package struct VariantSampleMetadataImportService {
                 startedAt: runClock.startedAt,
                 completedAt: completedAt
             )
+            try Self.throwIfCancelled(shouldCancel)
             let provenanceURL = try writeProvenance(envelope, bundleURL, publication)
             publication.commit()
             return VariantSampleMetadataImportResult(
@@ -116,9 +138,14 @@ package struct VariantSampleMetadataImportService {
         }
     }
 
+    private static func throwIfCancelled(_ shouldCancel: () -> Bool) throws {
+        if shouldCancel() { throw CancellationError() }
+    }
+
     private func provenanceEnvelope(
         metadataURL: URL,
         format: MetadataFormat,
+        invocationArgv: [String]?,
         bundleURL: URL,
         targets: [VariantSampleMetadataImportTarget],
         metadataInput: ProvenanceFileDescriptor,
@@ -129,7 +156,7 @@ package struct VariantSampleMetadataImportService {
         startedAt: Date,
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
-        let argv = [
+        let argv = invocationArgv ?? [
             "lungfish-gui",
             "variant-sample-metadata",
             "import",
