@@ -117,6 +117,64 @@ final class BuildDbCoreCancelRemovalTests: XCTestCase {
         try run.assertEachGoneFileHasARemovalStep()
     }
 
+    // MARK: A failure after a hand-over (A18 review ruling 1)
+
+    /// A `--project` EsViritu run whose finalize finds no managed samtools. Its build fails after it moved the BAM,
+    /// with no cancel. The core keeps the steps it handed over, the move and the removal of the BAM's old path,
+    /// and EsViritu's finalize turns the failure into a warning, so the completed record names a move that
+    /// happened before the build failed, and no database. Pins that record.
+    func testAnEsVirituBuildThatFailsAfterTheMoveLeavesACompletedRecordThatNamesTheMove() async throws {
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let shapes = try BundleShapeFixtures(in: project.appendingPathComponent("Imports", isDirectory: true))
+        let sample = BuildDbStreamCapture.fixturesFolder.appendingPathComponent("esviritu-mini/SRR35517705", isDirectory: true)
+        let esviritu = try StandInEsViritu(root: scratch.appendingPathComponent("tool"), tables: sample.appendingPathComponent("SRR35517705"))
+        let home = scratch.appendingPathComponent("HomeWithoutSamtools", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let tool = EsVirituWithItsBAMs(
+            base: EsVirituAnalysisRunTool(
+                options: EsVirituAnalysisRunOptions(sampleName: "S1", readFormat: .unpaired, databasePath: esviritu.databaseURL, threads: 2),
+                groupsSamples: false,
+                pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+                materializer: FASTQCLIMaterializer(runner: .shared),
+                installedDatabase: { [databaseURL = esviritu.databaseURL] in databaseURL }
+            ),
+            bam: sample.appendingPathComponent("SRR35517705_temp/SRR35517705.third.filt.sorted.bam"),
+            home: home
+        )
+        let request = AnalysisRunRequest(
+            inputs: [shapes.single], destination: .project(project), commandLine: ["lungfish-cli", "esviritu", "detect"]
+        )
+
+        let report = await Task {
+            await AnalysisRunExecutor(services: AnalysisRunServices(indexing: EsVirituResultIndexing()))
+                .execute(tool, request, events: AnalysisRunEvents { _ in })
+        }.value
+
+        XCTAssertEqual(report.status, .completed, report.message)
+        XCTAssertTrue(report.warnings.contains { $0.contains("Managed samtools is required") }, "\(report.warnings)")
+        let run = BuildDbIndexRun(report: report, handedOver: [], afterTheFault: nil)
+        let record = try run.record()
+        XCTAssertEqual(record.status, .completed)
+        XCTAssertTrue(record.steps.contains { $0.toolName == "EsViritu" }, "\(record.steps.map(\.toolName))")
+        XCTAssertEqual(
+            Array(record.steps.map(\.toolName).suffix(2)),
+            ["Lungfish EsViritu BAM Relocation", "Lungfish EsViritu BAM Relocation Source Removal"]
+        )
+        XCTAssertFalse(record.steps.contains { $0.toolName.hasPrefix("lungfish build-db") }, "\(record.steps.map(\.toolName))")
+        let move = try XCTUnwrap(record.steps.first { $0.toolName == "Lungfish EsViritu BAM Relocation" })
+        let removal = try XCTUnwrap(record.steps.last)
+        XCTAssertFalse(move.outputs.isEmpty)
+        for output in move.outputs {
+            XCTAssertTrue(BuildDbIndexRun.isOnDisk(output), "\(output.path) is where the move put it, with its digest")
+        }
+        XCTAssertEqual(removal.inputs.count, move.inputs.count)
+        for (gone, moved) in zip(removal.inputs, move.inputs) {
+            XCTAssertTrue(BuildDbIndexRun.same(gone, moved), gone.path)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: gone.path), gone.path)
+        }
+        try run.assertNoDigestOf("esviritu.sqlite")
+    }
+
     // MARK: Runs
 
     private func esVirituRun(cancellingAfter step: String, ordinal: Int = 1) async throws -> BuildDbIndexRun {
@@ -148,5 +206,48 @@ final class BuildDbCoreCancelRemovalTests: XCTestCase {
         try run.assertEachBuildOutputIsOnDisk(file: file, line: line)
         try run.assertEachGoneFileHasARemovalStep(file: file, line: line)
         try run.assertNoDigestOf("esviritu.sqlite", file: file, line: line)
+    }
+}
+
+/// The EsViritu tool, with a copy of `bam` put where EsViritu leaves each sample's BAM, in `<sample>_temp` beside
+/// the sample's detection table, before its finalize builds the index, as a run that keeps its BAMs leaves them.
+/// The finalize runs with `home` as its HOME, where the build looks for its managed samtools.
+private struct EsVirituWithItsBAMs: AnalysisRunTool {
+    typealias Unit = EsVirituAnalysisRunTool.Unit
+    typealias UnitResult = EsVirituAnalysisRunTool.UnitResult
+
+    let base: EsVirituAnalysisRunTool
+    let bam: URL
+    let home: URL
+
+    var identity: AnalysisRunIdentity { base.identity }
+    var terminalPolicy: AnalysisRunTerminalPolicy { base.terminalPolicy }
+    var finalizeProgressShare: Double { base.finalizeProgressShare }
+
+    func finalizeProgressShare(for layout: AnalysisRunLayout) -> Double {
+        base.finalizeProgressShare(for: layout)
+    }
+
+    func plan(_ request: AnalysisRunRequest, context: AnalysisRunPlanningContext) async throws -> AnalysisRunPlan<Unit> {
+        try await base.plan(request, context: context)
+    }
+
+    func run(_ unit: AnalysisRunUnit<Unit>, context: AnalysisRunUnitContext) async throws -> AnalysisUnitOutcome<UnitResult> {
+        try await base.run(unit, context: context)
+    }
+
+    func finalize(_ units: [AnalysisUnitReport<UnitResult>], context: AnalysisRunFinalizeContext) async throws -> AnalysisRunFinalization {
+        let fileManager = FileManager.default
+        let suffix = ".detected_virus.info.tsv"
+        let files = fileManager.enumerator(at: context.rootDirectory, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? []
+        for table in files where table.lastPathComponent.hasSuffix(suffix) {
+            let sample = String(table.lastPathComponent.dropLast(suffix.count))
+            let temp = table.deletingLastPathComponent().appendingPathComponent("\(sample)_temp", isDirectory: true)
+            try fileManager.createDirectory(at: temp, withIntermediateDirectories: true)
+            try fileManager.copyItem(at: bam, to: temp.appendingPathComponent("\(sample).third.filt.sorted.bam"))
+        }
+        return try await BuildDbIndexRun.withHome(home) {
+            try await base.finalize(units, context: context)
+        }
     }
 }
