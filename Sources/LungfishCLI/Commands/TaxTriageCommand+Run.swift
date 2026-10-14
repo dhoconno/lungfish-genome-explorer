@@ -112,7 +112,7 @@ extension TaxTriageCommand {
             name: .customLong("project"),
             help: ArgumentHelp(
                 "The .lungfish project the run belongs to. The result lands in its Analyses/taxtriage-batch-<timestamp>/ folder, where the app's TaxTriage runs put it",
-                discussion: "One sample runs in that folder itself. Several samples each run alone, in a folder named after the sample and made safe for a folder name. The run then builds taxtriage.sqlite for the viewer and removes the intermediate files the viewer does not read, keeping top/. Not with --output."
+                discussion: "One sample runs in that folder itself. Several samples each run alone, in a folder named after the sample and made safe for a folder name. The run then builds taxtriage.sqlite for the viewer and removes the intermediate files the viewer does not read, keeping top/. The bundle of each sample that completes then lists the run among its analyses, which a plain --output result never does. Not with --output."
             )
         )
         var project: String?
