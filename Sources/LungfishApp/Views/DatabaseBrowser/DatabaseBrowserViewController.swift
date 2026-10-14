@@ -21,7 +21,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrow
 ///
 /// Reads the existing manifest, creates a new one with appended Pathoplexus metadata group,
 /// and writes it back. This preserves all GenBank metadata while adding provenance info.
-private func appendPathoplexusMetadata(_ meta: PathoplexusMetadata, organism: String, toBundleAt bundleURL: URL) {
+package func appendPathoplexusMetadata(_ meta: PathoplexusMetadata, organism: String, toBundleAt bundleURL: URL) {
     do {
         let existing = try BundleManifest.load(from: bundleURL)
 
