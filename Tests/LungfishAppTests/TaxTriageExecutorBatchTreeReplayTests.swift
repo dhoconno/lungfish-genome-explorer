@@ -308,6 +308,17 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
             },
             "the root record gains the build step, which names the database it wrote: \(after.steps.map(\.toolName))"
         )
+
+        // The --force rebuild names the database it replaced with the digest the first build's step holds,
+        // since a plain --output result's run level names no database (2.8 P1, BIO 6).
+        let rebuild = try BuildDbCommand.TaxTriageSubcommand.parse([output.path, "--force", "-q"])
+        try await rebuild.run()
+        XCTAssertFalse(try Self.topReports(in: top).isEmpty, "X7: the --force rebuild keeps top/ (2.8 T5)")
+        let rebuilt = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: output))
+        let replacement = try XCTUnwrap(rebuilt.steps.dropFirst(after.steps.count).first, "the rebuild added no step")
+        XCTAssertEqual(replacement.toolName, "Lungfish TaxTriage Index Removal")
+        XCTAssertEqual(replacement.inputs.map { Self.resolved(URL(fileURLWithPath: $0.path)) }, [Self.resolved(database)])
+        XCTAssertEqual(replacement.inputs.map(\.checksumSHA256), [digest], "the digest the first build's step recorded")
     }
 
     private static func names(_ descriptor: ProvenanceFileDescriptor, _ file: URL) -> Bool {
