@@ -461,37 +461,33 @@ extension InspectorViewController {
             break
         }
 
-        // The hidden key picks the route (default in process, Phase 2.10 lane A54). The CLI route shows the
-        // count read here, before the row begins, because the leaf's `complete` message is text and the
-        // app parses no number out of it.
-        let route = InspectorDuplicateWorkflowRouteSettings().route()
-        let trackCount = Self.duplicateWorkflowTrackCount(kind: kind, bundleURL: bundleURL)
-        let launch = Self.duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL, route: route)
-
         final class TaskHandle: @unchecked Sendable {
             var task: Task<Void, Never>?
         }
         let handle = TaskHandle()
-        let operationID: UUID
-        switch Self.startDuplicateWorkflowOperation(
+        // The hidden key picks the route (default in process, Phase 2.10 lane A54). The plan holds the count
+        // read before the row begins, because the leaf's `complete` message is text and the app parses no
+        // number out of it.
+        let plan: DuplicateWorkflowPlan
+        switch Self.beginDuplicateWorkflow(
             kind: kind,
             bundleURL: bundleURL,
-            route: route,
             routeContext: operationRouteContext(for: bundleURL),
             // The CLI route replaces this with the runner's cancel once its run starts.
             onCancel: { handle.task?.cancel() }
         ) {
-        case .started(let id):
-            operationID = id
+        case .started(let started):
+            plan = started
         case .refused(let refusal):
             presentSimpleAlert(title: "Operation in Progress", message: refusal.message)
             return
         }
+        let operationID = plan.operationID
 
         viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
         split.activityIndicator.show(message: kind.startingDetail, style: .indeterminate)
 
-        if case .leaf(let arguments) = launch {
+        if case .leaf(let arguments) = plan.launch {
             // The leaf marks or copies the bundle and writes its record before it exits. The row completes
             // before the bundle opens or an alert shows, so the result stays hidden until then.
             Self.runAlignmentLeafThroughCLI(
@@ -500,7 +496,7 @@ extension InspectorViewController {
                 cancelled: { [weak self] in self?.resetDuplicateWorkflowUI() }
             ) { [weak self] outcome in
                 self?.finishDuplicateWorkflowThroughCLI(
-                    kind: kind, bundleURL: bundleURL, trackCount: trackCount, operationID: operationID, outcome: outcome
+                    kind: kind, bundleURL: bundleURL, trackCount: plan.trackCount, operationID: operationID, outcome: outcome
                 )
             }
             return

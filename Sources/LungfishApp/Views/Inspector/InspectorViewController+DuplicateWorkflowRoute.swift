@@ -33,6 +33,44 @@ extension InspectorViewController {
         }
     }
 
+    /// What a duplicate workflow's launch decides before any window work (Phase 2.10 lane A54 M3): the route the
+    /// hidden key names, what that route runs, the track count read before the row begins, and the row itself.
+    struct DuplicateWorkflowPlan {
+        let route: InspectorDuplicateWorkflowRoute
+        let launch: DuplicateWorkflowLaunch
+        let trackCount: Int
+        let operationID: UUID
+    }
+
+    enum DuplicateWorkflowBegin {
+        case started(DuplicateWorkflowPlan)
+        case refused(OperationStartRefusal)
+    }
+
+    /// Reads the key from `settings`, counts the tracks and begins the row of the route the key names. The
+    /// Inspector's launch calls it with the user's defaults and runs what the plan says. A test passes a suite
+    /// of its own, so each value of the key is tried through the call the Inspector makes.
+    static func beginDuplicateWorkflow(
+        kind: DuplicateWorkflowKind,
+        bundleURL: URL,
+        settings: InspectorDuplicateWorkflowRouteSettings = InspectorDuplicateWorkflowRouteSettings(),
+        routeContext: OperationRouteContext?,
+        center: OperationCenter = .shared,
+        onCancel: (@Sendable () -> Void)? = nil
+    ) -> DuplicateWorkflowBegin {
+        let route = settings.route()
+        let trackCount = duplicateWorkflowTrackCount(kind: kind, bundleURL: bundleURL)
+        let launch = duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL, route: route)
+        switch startDuplicateWorkflowOperation(
+            kind: kind, bundleURL: bundleURL, route: route, routeContext: routeContext, center: center, onCancel: onCancel
+        ) {
+        case .started(let id):
+            return .started(DuplicateWorkflowPlan(route: route, launch: launch, trackCount: trackCount, operationID: id))
+        case .refused(let refusal):
+            return .refused(refusal)
+        }
+    }
+
     /// The number of alignment tracks the run will process, read from the bundle before the row begins.
     /// The service processes every one of them or throws, so this is the count the final detail names on
     /// either route. The CLI route reads it here because the leaf's `complete` message is text, and the

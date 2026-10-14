@@ -216,6 +216,63 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
         }
     }
 
+    /// The launch is the part of `launchDuplicateWorkflow` that decides (Phase 2.10 lane A54 M3). It reads the key
+    /// from the defaults it is given, counts the tracks before the row begins, and begins the row of the route the key
+    /// names. The window code runs what `plan.launch` says. A suite of the test's own keeps the user's defaults out
+    /// of it, so each value of the key is tried for each kind through the same call the Inspector makes.
+    func testTheLaunchPicksItsEngineFromTheKeyAtEveryValue() throws {
+        let root = try TestTempDirectory.make(prefix: "duplicate-launch-key")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundle = try DerivedAlignmentTrackFixture.make(in: root).bundleURL
+        let key = InspectorDuplicateWorkflowRouteSettings.defaultsKey
+        let fallback = InspectorDuplicateWorkflowRouteSettings.defaultRoute
+        let values: [(Any?, InspectorDuplicateWorkflowRoute)] = [
+            (nil, fallback), ("legacy", .legacy), ("cli", .cli), ("CLI", .cli), (true, .cli), (false, .legacy), ("sideways", fallback),
+        ]
+        for (value, expected) in values {
+            for kind in [InspectorViewController.DuplicateWorkflowKind.markDuplicates, .createDeduplicatedBundle] {
+                let defaults = makeTestDefaultsSuite(prefix: "InspectorDuplicateLaunchTests").defaults
+                if let value { defaults.set(value, forKey: key) }
+                let center = OperationCenter()
+                guard case .started(let plan) = InspectorViewController.beginDuplicateWorkflow(
+                    kind: kind, bundleURL: bundle, settings: InspectorDuplicateWorkflowRouteSettings(defaults: defaults),
+                    routeContext: nil, center: center
+                ) else {
+                    return XCTFail("the row did not start with the key at \(String(describing: value))")
+                }
+                let label = "\(kind) with the key at \(String(describing: value))"
+                XCTAssertEqual(plan.route, expected, label)
+                XCTAssertEqual(plan.trackCount, 2, "\(label) reads the count before the row begins")
+                let row = try XCTUnwrap(center.items.first { $0.id == plan.operationID })
+                XCTAssertEqual(row.cliCommand, kind.cliCommand(bundleURL: bundle, route: expected), label)
+                XCTAssertEqual(row.detail, kind.startingDetail, label)
+                switch expected {
+                case .legacy:
+                    XCTAssertEqual(plan.launch, .service, "\(label) runs the service in process")
+                case .cli:
+                    XCTAssertEqual(plan.launch, .leaf(arguments: kind.cliArguments(bundleURL: bundle)), "\(label) runs the leaf")
+                }
+            }
+        }
+    }
+
+    /// A bundle another operation holds is refused at the launch, whatever the key says.
+    func testTheLaunchRefusesABundleAnotherOperationHolds() throws {
+        let center = OperationCenter()
+        guard case .started = center.begin(
+            title: "Holder", detail: "Running", operationType: .bamImport, targetBundleURL: bundleURL, cliCommand: nil
+        ) else {
+            return XCTFail("the holder did not start")
+        }
+        let defaults = makeTestDefaultsSuite(prefix: "InspectorDuplicateLaunchTests").defaults
+        defaults.set("cli", forKey: InspectorDuplicateWorkflowRouteSettings.defaultsKey)
+        let begun = InspectorViewController.beginDuplicateWorkflow(
+            kind: .markDuplicates, bundleURL: bundleURL, settings: InspectorDuplicateWorkflowRouteSettings(defaults: defaults),
+            routeContext: nil, center: center
+        )
+        guard case .refused = begun else { return XCTFail("a held bundle is refused, got \(begun)") }
+    }
+
     func testTheCLIRouteRecordsTheArgvItRunsForEachKind() throws {
         let mark = try recordedCommand(of: .markDuplicates, bundle: spacedBundleURL, route: .cli)
         XCTAssertEqual(mark, "lungfish-cli bundle mark-duplicates '/tmp/duplicate lane/Sample.lungfishref' --format json")
