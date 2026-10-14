@@ -17,9 +17,9 @@ import LungfishTestSupport
 /// after the assembler, the `.lungfishref` bundle the app's Reassemble route builds, beside
 /// `--output` and named after the project, through `AssemblyReferenceBundle.publish`, so its words
 /// and fractions from 0.92 are the app's. The run record names the bundle and each of its files with
-/// its SHA-256 in an `Assembly Bundle Wrapping` step, and the recorded command builds the bundle
-/// again. A stand-in SPAdes lets the whole command run in this process, on the seam
-/// `AssembleCommandRecordedCommandLineTests` uses.
+/// its SHA-256 in an `Assembly Bundle Wrapping` step. A stand-in SPAdes lets the whole command run
+/// in this process, on the seam `AssembleCommandRecordedCommandLineTests` uses. The replay of the
+/// recorded command needs bgzip, so it runs in `AssemblyRouteParityReplayTests` (integration tier).
 final class AssembleCommandReferenceBundleTests: XCTestCase {
     private var root: URL!
 
@@ -79,27 +79,6 @@ final class AssembleCommandReferenceBundleTests: XCTestCase {
         XCTAssertEqual(run.failed, "Output assembly bundle already exists: \(bundle.path)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: run.output.path), "the assembler never ran")
         XCTAssertEqual(try String(contentsOf: sentinel, encoding: .utf8), "keep me\n", "the existing bundle is untouched")
-    }
-
-    func testTheRecordedCommandRebuildsTheBundle() async throws {
-        _ = try await ToolAvailability.require("bgzip", environment: "htslib")
-        let sideA = root.appendingPathComponent("A", isDirectory: true)
-        let first = try await assemble(in: sideA)
-        XCTAssertNil(first.error)
-        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: first.output))
-
-        let sideB = root.appendingPathComponent("B", isDirectory: true)
-        try FileManager.default.createDirectory(at: sideB, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: first.reads, to: sideB.appendingPathComponent(first.reads.lastPathComponent))
-        let replay = record.argv.dropFirst(2).map { $0.replacingOccurrences(of: sideA.path, with: sideB.path) }
-        let command = try AssembleCommand.parse(Array(replay))
-        let spades = try StandInSPAdesConda(root: root.appendingPathComponent("tool-B", isDirectory: true))
-        let (_, error) = await Self.capturingStandardOutput {
-            try await command.execute(pipeline: ManagedAssemblyPipeline(condaManager: spades.condaManager))
-        }
-        XCTAssertNil(error)
-
-        OutputEquivalence.assertSame(sideA, sideB, kind: .bundle)
     }
 
     // MARK: - Running the command
