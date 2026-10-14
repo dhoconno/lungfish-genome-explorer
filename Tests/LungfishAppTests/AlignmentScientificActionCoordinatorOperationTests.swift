@@ -246,4 +246,33 @@ final class AlignmentScientificActionCoordinatorOperationTests: XCTestCase {
         XCTAssertEqual(recorder.items.map(\.state), [.refused, .refused])
         XCTAssertTrue(recorder.items.allSatisfy { $0.logs.isEmpty && !$0.hasCancelCallback })
     }
+
+    /// The rows the viewer begins before `extract reads` runs. A reporter that refuses every begin
+    /// proves each row launches nothing and logs no evidence behind a refused row.
+    func testARefusedReadExtractionRowLaunchesNothing() throws {
+        let context = try makeContext()
+        let invocations = [
+            ViewerViewController.alignmentRegionExtractionInvocation(
+                context: context, region: region, destination: .bundle(finalURL), outputBaseName: "selected-region"
+            ),
+            ViewerViewController.selectedReadsExtractionInvocation(
+                context: context, records: [makeRead()], namesFile: URL(fileURLWithPath: "/out/final.read-names.txt"),
+                destination: .bundle(finalURL), outputBaseName: "evidence_selected_1reads"
+            ),
+        ]
+        let recorder = RecordingOperationReporter(lockHeldBy: "Importing BAM")
+        var launched = false
+
+        for invocation in invocations {
+            let result = ViewerViewController.beginAlignmentReadExtractionOperation(
+                title: "Extract", detail: "Preparing…", invocation: invocation, evidence: context.identity,
+                routeContext: routeContext, reporter: recorder
+            ) { _ in launched = true }
+            guard case .refused = result else { return XCTFail("the row was not refused: \(result)") }
+        }
+
+        XCTAssertFalse(launched, "a refused row launches nothing")
+        XCTAssertEqual(recorder.items.map(\.state), [.refused, .refused])
+        XCTAssertTrue(recorder.items.allSatisfy { $0.logs.isEmpty && !$0.hasCancelCallback })
+    }
 }

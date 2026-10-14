@@ -1,25 +1,36 @@
-// AlignmentReadExtractionPublicationPinTests.swift - Today's region and selected-read bundles and records, before extract reads
+// AlignmentReadExtractionPublicationPinTests.swift - The region and selected-read bundles and records extract reads publishes
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A51 M3, the freeze before `lungfish-cli extract reads` publishes the viewer's
-// Extract Reads in Selected Region and Extract Selected Reads (census row 22, gaps
-// alignment-region-reads and alignment-selected-reads, QA 1). It pins, from the coordinator the
-// base runs in the app, what each run hands its stager, the files the bundle destination leaves
-// and the record the publisher writes, read back from disk. The stagers are stand-ins that stage
-// a known FASTQ with one samtools record, so the pin needs no tool. The text names the scratch
-// folder `<root>`, `LungfishAppVersion.short` `<app version>` and each staging UUID `<uuid>`.
+// Phase 2.10 lane A51 M3 (census row 22, QA 1). The viewer's Extract Reads in Selected Region and
+// Extract Selected Reads run `lungfish-cli extract reads` with the evidence's index. For the command
+// each row records, parsed as the leaf parses it, this pins what the run hands its stager, the files
+// the bundle destination leaves and the record the publisher writes, read back from disk. The runs
+// go through `ExtractReadsSubcommand.extractEvidence(_:stages:)` with stand-in stagers that stage a
+// known FASTQ with one samtools record, so the pin needs no tool. The text names the scratch folder
+// `<root>`, `LungfishAppVersion.short` `<app version>` and each staging UUID `<uuid>`.
 
 import Foundation
 import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
+@testable import LungfishCLI
 @testable import LungfishWorkflow
 @testable import LungfishApp
 
 @MainActor
 final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
+    /// What the run handed its stagers.
+    private actor Staged {
+        private(set) var region: BAMRegionExtractionConfig?
+        private(set) var alignment: (config: ReadIDBAMExtractionConfig, missing: Int, message: String?)?
+        private(set) var sources: ReadIDExtractionConfig?
+        func record(region config: BAMRegionExtractionConfig) { region = config }
+        func record(alignment config: ReadIDBAMExtractionConfig, missing: Int, message: String?) { alignment = (config, missing, message) }
+        func record(sources config: ReadIDExtractionConfig) { sources = config }
+    }
+
     private var root: URL!
 
     override func setUpWithError() throws {
@@ -32,7 +43,7 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
     }
 
     /// Evidence with known bytes and every filter set, as the viewer holds it.
-    private func context() throws -> AlignmentActionContext {
+    private func context(sourceReads: AlignmentSourceReadResolution = .bamFallback) throws -> AlignmentActionContext {
         let evidence = root.appendingPathComponent("evidence", isDirectory: true)
         try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true)
         let bam = evidence.appendingPathComponent("sample.bam")
@@ -47,13 +58,22 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
             indexSnapshot: .init(url: index, byteCount: 11, sha256: try ProvenanceFileHasher.sha256(of: index)),
             decodingReferenceSnapshot: nil,
             filters: .init(minimumDepth: 3, minimumMapQ: 20, minimumBaseQuality: 12, excludedFlags: 0x904, readGroups: ["rg2", "rg1"]),
-            outputCapability: .userSelectedDestination, sourceReads: .bamFallback,
+            outputCapability: .userSelectedDestination, sourceReads: sourceReads,
             presentationLabel: "S1 virus"
         )
     }
 
+    /// The reads the user selected: two with sequence and a secondary record of the first without.
+    private let reads = [
+        AlignedRead(name: "read-2", flag: 0, chromosome: "virus", position: 12, mapq: 60, cigar: [], sequence: "TTGA", qualities: [40, 40, 40, 40]),
+        AlignedRead(name: "read-1", flag: 0, chromosome: "virus", position: 10, mapq: 60, cigar: [], sequence: "ACGT", qualities: [40, 40, 40, 40]),
+        AlignedRead(name: "read-1", flag: 256, chromosome: "virus", position: 20, mapq: 0, cigar: [], sequence: "*", qualities: []),
+    ]
+
     /// What a stager hands back: two reads staged as `<name>.fastq` with the samtools record that wrote them.
-    private func transaction(named name: String, missing: Int = 0, message: String? = nil) throws -> AlignmentReadExtractionTransaction {
+    nonisolated private static func transaction(
+        in root: URL, named name: String, missing: Int = 0, message: String? = nil
+    ) throws -> AlignmentReadExtractionTransaction {
         let staging = root.appendingPathComponent("staging-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         let payload = staging.appendingPathComponent("\(name).fastq")
@@ -72,6 +92,22 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
             recordsWithoutSequence: missing, missingSequenceMessage: message,
             executionRecords: [record]
         )
+    }
+
+    /// The run the row's command asks for, parsed as the leaf parses it.
+    private func leafInvocation(_ invocation: AlignmentReadExtractionInvocation) throws -> AlignmentReadExtractionInvocation {
+        let arguments = ViewerViewController.alignmentReadExtractionCLIArguments(invocation)
+        return try ExtractReadsSubcommand.parse(Array(arguments.dropFirst(2))).evidenceInvocation
+    }
+
+    /// The selected reads' run, with the names file the route writes beside the bundle before its row begins.
+    private func selectedReadsInvocation(context: AlignmentActionContext, name: String) throws -> AlignmentReadExtractionInvocation {
+        let destination = AlignmentReadExtractionPublicationDestination.bundle(root.appendingPathComponent("out/\(name).lungfishfastq"))
+        let namesFile = AlignmentReadExtractionInvocation.readNamesFileURL(forBundle: destination.finalURL)
+        try AlignmentReadExtractionInvocation.writeReadNames(reads.map(\.name), to: namesFile)
+        return try leafInvocation(ViewerViewController.selectedReadsExtractionInvocation(
+            context: context, records: reads, namesFile: namesFile, destination: destination, outputBaseName: name
+        ))
     }
 
     private func masked(_ text: String) -> String {
@@ -120,24 +156,23 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
 
     // MARK: - Cases
 
-    func testARegionExtractionStagesTheEvidenceFiltersAndPublishesTodaysBundleAndRecord() async throws {
-        var staged: BAMRegionExtractionConfig?
-        let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in },
-            regionStager: { config in
-                staged = config
-                return try self.transaction(named: "selected-region")
-            }
-        )
-        let destination = root.appendingPathComponent("out/selected-region.lungfishfastq")
-        let result = try await coordinator.extractRegion(
-            context: try context(),
-            region: .init(scope: .selectedRegion, contig: "virus", start: 10, end: 15),
-            destination: .bundle(destination),
-            outputBaseName: "selected-region"
-        )
+    func testARegionExtractionStagesTheEvidenceFiltersAndPublishesTheBundleAndRecord() async throws {
+        let root = self.root!
+        let staged = Staged()
+        var stages = ExtractReadsEvidenceStages()
+        stages.region = { config in
+            await staged.record(region: config)
+            return try Self.transaction(in: root, named: "selected-region")
+        }
+        let invocation = try leafInvocation(ViewerViewController.alignmentRegionExtractionInvocation(
+            context: try context(), region: .init(scope: .selectedRegion, contig: "virus", start: 10, end: 15),
+            destination: .bundle(root.appendingPathComponent("out/selected-region.lungfishfastq")), outputBaseName: "selected-region"
+        ))
 
-        let config = try XCTUnwrap(staged)
+        let result = try await ExtractReadsSubcommand.extractEvidence(invocation, stages: stages)
+
+        let region = await staged.region
+        let config = try XCTUnwrap(region)
         XCTAssertEqual([
             "bam \(config.bamURL.path)", "index \(config.indexURL?.path ?? "nil")", "reference \(config.decodingReferenceURL?.path ?? "nil")",
             "regions \(config.regions.joined(separator: " ")) fallbackToAll \(config.fallbackToAll)",
@@ -150,26 +185,20 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
         XCTAssertEqual(try describe(record), Self.regionRecord)
     }
 
-    func testASelectedReadsExtractionStagesTheNamesAndPublishesTodaysBundleAndRecord() async throws {
-        var staged: (config: ReadIDBAMExtractionConfig, missing: Int, message: String?)?
-        let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in },
-            bamStager: { config, missing, message in
-                staged = (config, missing, message)
-                return try self.transaction(named: "S1_virus_selected_2reads", missing: missing, message: message)
-            }
-        )
-        let reads = [
-            AlignedRead(name: "read-2", flag: 0, chromosome: "virus", position: 12, mapq: 60, cigar: [], sequence: "TTGA", qualities: [40, 40, 40, 40]),
-            AlignedRead(name: "read-1", flag: 0, chromosome: "virus", position: 10, mapq: 60, cigar: [], sequence: "ACGT", qualities: [40, 40, 40, 40]),
-            AlignedRead(name: "read-1", flag: 256, chromosome: "virus", position: 20, mapq: 0, cigar: [], sequence: "*", qualities: []),
-        ]
-        let destination = root.appendingPathComponent("out/S1_virus_selected_2reads.lungfishfastq")
-        let result = try await coordinator.extractSelectedReads(
-            context: try context(), records: reads, destination: .bundle(destination), outputBaseName: "S1_virus_selected_2reads"
-        )
+    func testASelectedReadsExtractionStagesTheNamesAndPublishesTheBundleAndRecord() async throws {
+        let root = self.root!
+        let staged = Staged()
+        var stages = ExtractReadsEvidenceStages()
+        stages.alignment = { config, missing, message in
+            await staged.record(alignment: config, missing: missing, message: message)
+            return try Self.transaction(in: root, named: "S1_virus_selected_2reads", missing: missing, message: message)
+        }
+        let invocation = try selectedReadsInvocation(context: try context(), name: "S1_virus_selected_2reads")
 
-        let stage = try XCTUnwrap(staged)
+        let result = try await ExtractReadsSubcommand.extractEvidence(invocation, stages: stages)
+
+        let alignment = await staged.alignment
+        let stage = try XCTUnwrap(alignment)
         XCTAssertEqual([
             "bam \(stage.config.bamURL.path)", "names \(stage.config.readIDs.sorted().joined(separator: ","))",
             "includeSecondary \(stage.config.includeSecondary) excludeDuplicates \(stage.config.excludeDuplicates)",
@@ -181,7 +210,36 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
         XCTAssertEqual(try describe(record), Self.selectedRecord)
     }
 
-    // MARK: - Today's values
+    /// The run takes selected reads from the evidence's original FASTQs, with both mates of each
+    /// pair, when the evidence names them, and from the alignment only otherwise.
+    func testSelectedReadsComeFromTheOriginalFASTQsWhenTheEvidenceNamesThem() async throws {
+        let root = self.root!
+        let staged = Staged()
+        var stages = ExtractReadsEvidenceStages()
+        stages.sources = { config, _, _ in
+            await staged.record(sources: config)
+            return try Self.transaction(in: root, named: "S1_sources")
+        }
+        stages.alignment = { config, missing, message in
+            await staged.record(alignment: config, missing: missing, message: message)
+            return try Self.transaction(in: root, named: "S1_sources")
+        }
+        let source = root.appendingPathComponent("evidence/S1_R1.fastq")
+        let context = try context(sourceReads: .sourceFASTQs([source]))
+        try "@read-1\nACGT\n+\nIIII\n".write(to: source, atomically: true, encoding: .utf8)
+
+        _ = try await ExtractReadsSubcommand.extractEvidence(try selectedReadsInvocation(context: context, name: "S1_sources"), stages: stages)
+
+        let sources = await staged.sources
+        let config = try XCTUnwrap(sources)
+        XCTAssertEqual(config.sourceFASTQs.map(\.path), [source.standardizedFileURL.path])
+        XCTAssertEqual(config.readIDs, ["read-1", "read-2"])
+        XCTAssertTrue(config.keepReadPairs)
+        let tookTheAlignment = await staged.alignment != nil
+        XCTAssertFalse(tookTheAlignment, "the run takes no read from the alignment when the evidence names its FASTQs")
+    }
+
+    // MARK: - The values
 
     private static let regionConfig: [String] = [
         "bam <root>/evidence/sample.bam",
@@ -200,10 +258,10 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
     ]
     private static let regionRecord: [String] = [
         "workflow lungfish alignment read extraction <app version>",
-        "tool Lungfish.app <app version> kind app",
-        "argv Lungfish.app alignment extract-region virus 10 15",
-        "replay nil",
-        "explicit ",
+        "tool lungfish-cli <app version> kind cli",
+        "argv lungfish-cli extract reads --by-region --bam <root>/evidence/sample.bam --index <root>/evidence/sample.bam.bai --region virus:11-15 --min-mapq 20 --exclude-flags 2308 --read-group rg1 --read-group rg2 --bundle-name selected-region --output <root>/out/selected-region.lungfishfastq",
+        "replay lungfish-cli extract reads --by-region --bam <root>/evidence/sample.bam --index <root>/evidence/sample.bam.bai --region virus:11-15 --min-mapq 20 --exclude-flags 2308 --read-group rg1 --read-group rg2 --bundle-name selected-region --output <root>/out/selected-region.lungfishfastq",
+        "explicit alignment={\"type\":\"file\",\"value\":\"<root>/evidence/sample.bam\"} decodingReference={\"type\":\"null\"} excludedFlags={\"type\":\"integer\",\"value\":2308} index={\"type\":\"file\",\"value\":\"<root>/evidence/sample.bam.bai\"} minimumMapQ={\"type\":\"integer\",\"value\":20} output={\"type\":\"file\",\"value\":\"<root>/out/selected-region.lungfishfastq\"} readGroups={\"type\":\"array\",\"value\":[{\"type\":\"string\",\"value\":\"rg1\"},{\"type\":\"string\",\"value\":\"rg2\"}]} readsName={\"type\":\"string\",\"value\":\"selected-region\"} regionsOneBasedInclusive={\"type\":\"array\",\"value\":[{\"type\":\"string\",\"value\":\"virus:11-15\"}]}",
         "defaults ",
         "resolved missingSequenceMessage={\"type\":\"null\"} pairedEnd={\"type\":\"boolean\",\"value\":false} publicationMode={\"type\":\"string\",\"value\":\"hidden-sibling-directory-rename-with-rollback\"} readCount={\"type\":\"integer\",\"value\":2} recordsWithoutSequence={\"type\":\"integer\",\"value\":0} stagingToFinalMapping={\"type\":\"dictionary\",\"value\":{\"<root>/staging-selected-region/selected-region.fastq\":{\"type\":\"string\",\"value\":\"<root>/out/selected-region.lungfishfastq/selected-region.fastq\"}}}",
         "runtime <app version>",
@@ -228,18 +286,20 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
         "S1_virus_selected_2reads.lungfishfastq/S1_virus_selected_2reads.fastq",
         "S1_virus_selected_2reads.lungfishfastq/extraction-metadata.json",
         "S1_virus_selected_2reads.lungfishfastq/provenance/bundle.lungfish-provenance.json",
+        "S1_virus_selected_2reads.read-names.txt",
     ]
     private static let selectedRecord: [String] = [
         "workflow lungfish alignment read extraction <app version>",
-        "tool Lungfish.app <app version> kind app",
-        "argv Lungfish.app alignment extract-selected-reads",
-        "replay nil",
-        "explicit ",
+        "tool lungfish-cli <app version> kind cli",
+        "argv lungfish-cli extract reads --by-id --ids <root>/out/S1_virus_selected_2reads.read-names.txt --bam <root>/evidence/sample.bam --index <root>/evidence/sample.bam.bai --records-without-sequence 1 --bundle-name S1_virus_selected_2reads --output <root>/out/S1_virus_selected_2reads.lungfishfastq",
+        "replay lungfish-cli extract reads --by-id --ids <root>/out/S1_virus_selected_2reads.read-names.txt --bam <root>/evidence/sample.bam --index <root>/evidence/sample.bam.bai --records-without-sequence 1 --bundle-name S1_virus_selected_2reads --output <root>/out/S1_virus_selected_2reads.lungfishfastq",
+        "explicit alignment={\"type\":\"file\",\"value\":\"<root>/evidence/sample.bam\"} decodingReference={\"type\":\"null\"} excludeDuplicates={\"type\":\"boolean\",\"value\":false} includeSecondary={\"type\":\"boolean\",\"value\":false} index={\"type\":\"file\",\"value\":\"<root>/evidence/sample.bam.bai\"} output={\"type\":\"file\",\"value\":\"<root>/out/S1_virus_selected_2reads.lungfishfastq\"} readNames={\"type\":\"file\",\"value\":\"<root>/out/S1_virus_selected_2reads.read-names.txt\"} readsName={\"type\":\"string\",\"value\":\"S1_virus_selected_2reads\"} recordsWithoutSequence={\"type\":\"integer\",\"value\":1} sourceFASTQs={\"type\":\"array\",\"value\":[]}",
         "defaults ",
         "resolved missingSequenceMessage={\"type\":\"string\",\"value\":\"1 selected alignment record(s) did not contain sequence.\"} pairedEnd={\"type\":\"boolean\",\"value\":false} publicationMode={\"type\":\"string\",\"value\":\"hidden-sibling-directory-rename-with-rollback\"} readCount={\"type\":\"integer\",\"value\":2} recordsWithoutSequence={\"type\":\"integer\",\"value\":1} stagingToFinalMapping={\"type\":\"dictionary\",\"value\":{\"<root>/staging-S1_virus_selected_2reads/S1_virus_selected_2reads.fastq\":{\"type\":\"string\",\"value\":\"<root>/out/S1_virus_selected_2reads.lungfishfastq/S1_virus_selected_2reads.fastq\"}}}",
         "runtime <app version>",
         "file input nil <root>/evidence/sample.bam",
         "file input nil <root>/evidence/sample.bam.bai",
+        "file input nil <root>/out/S1_virus_selected_2reads.read-names.txt",
         "file output fastq <root>/out/S1_virus_selected_2reads.lungfishfastq/S1_virus_selected_2reads.fastq",
         "file output json <root>/out/S1_virus_selected_2reads.lungfishfastq/extraction-metadata.json",
         "output <root>/out/S1_virus_selected_2reads.lungfishfastq/S1_virus_selected_2reads.fastq",
