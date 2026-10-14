@@ -172,27 +172,31 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         XCTAssertNil(launch.environment["NXF_HOME"])
     }
 
-    /// Phase 2.10 V3-BIO 4. Nextflow 26.04 reads `NXF_AGENT_MODE` and `CLAUDECODE` (`nextflow.SysEnv`) and then prints its
-    /// agent log, which has no banner, no `Launching` line and none of the task lines the progress reader reads. A coding
-    /// agent's shell sets `CLAUDECODE`, and a launch copies its parent's environment, so a run started from one lost the
-    /// record's `resolvedCommit` and its progress. The Nextflow launch drops both switches, the managed copy's and the
-    /// `PATH` lookup's alike, and keeps every other variable of the base.
+    /// Phase 2.10 V3-BIO 4. Nextflow 26.04 prints its agent log, which has no banner, no `Launching` line and none of the
+    /// task lines the progress reader reads, when `NXF_AGENT_MODE`, `AGENT` or `CLAUDECODE` holds `true` or `1`
+    /// (`nextflow.SysEnv.isAgentMode`). A coding agent's shell sets `CLAUDECODE`, and a launch copies its parent's
+    /// environment, so a run started from one lost the record's `resolvedCommit` and its progress. The Nextflow launch
+    /// switches all three off, the managed copy's and the `PATH` lookup's alike, and keeps every other variable of the
+    /// base. They are set to `false` and not taken out, because the spawn lays the launch over its own process's
+    /// environment, which a name left out of the launch does not change (the next test).
     func testTheNextflowLaunchDropsTheAgentModeSwitches() throws {
         let home = try makeTemporaryHome("agent-mode")
         defer { try? FileManager.default.removeItem(at: home) }
         let managedBin = home.appendingPathComponent(".lungfish/conda/envs/nextflow/bin", isDirectory: true)
         _ = try installStubExecutable(named: "nextflow", in: managedBin)
         let base = [
-            "PATH": "/usr/bin:/bin", "CLAUDECODE": "1", "NXF_AGENT_MODE": "true", "NXF_OPTS": "-Xmx1g", "NO_COLOR": "1",
+            "PATH": "/usr/bin:/bin", "CLAUDECODE": "1", "NXF_AGENT_MODE": "true", "AGENT": "1", "NXF_OPTS": "-Xmx1g", "NO_COLOR": "1",
         ]
+        let switches = ["CLAUDECODE", "NXF_AGENT_MODE", "AGENT"]
 
         let managed = try WorkflowEngineLaunch.resolveManaged(
             executableName: "nextflow", homeDirectory: home, appIdentity: .preview, baseEnvironment: base)
         XCTAssertTrue(managed.usesManagedExecutable)
-        XCTAssertNil(managed.environment["CLAUDECODE"], "the managed launch kept the agent switch")
-        XCTAssertNil(managed.environment["NXF_AGENT_MODE"], "the managed launch kept the agent switch")
-        XCTAssertEqual(managed.environment["NXF_OPTS"], "-Xmx1g", "only the two switches are dropped")
-        XCTAssertEqual(managed.environment["NO_COLOR"], "1", "only the two switches are dropped")
+        for name in switches {
+            XCTAssertEqual(managed.environment[name], "false", "the managed launch left \(name) on")
+        }
+        XCTAssertEqual(managed.environment["NXF_OPTS"], "-Xmx1g", "only the three switches change")
+        XCTAssertEqual(managed.environment["NO_COLOR"], "1", "only the three switches change")
         XCTAssertEqual(managed.environment["NXF_ANSI_LOG"], "false")
 
         let lookupHome = try makeTemporaryHome("agent-mode-lookup")
@@ -200,8 +204,59 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         let lookup = WorkflowEngineLaunch.resolve(
             executableName: "nextflow", homeDirectory: lookupHome, appIdentity: .preview, baseEnvironment: base)
         XCTAssertFalse(lookup.usesManagedExecutable)
-        XCTAssertNil(lookup.environment["CLAUDECODE"], "the PATH lookup kept the agent switch")
-        XCTAssertNil(lookup.environment["NXF_AGENT_MODE"], "the PATH lookup kept the agent switch")
+        for name in switches {
+            XCTAssertEqual(lookup.environment[name], "false", "the PATH lookup left \(name) on")
+        }
         XCTAssertEqual(lookup.environment["NXF_OPTS"], "-Xmx1g")
+
+        // A base that holds no switch gets them off as well, since the spawn lays the launch over its own process's.
+        let bare = WorkflowEngineLaunch.resolve(
+            executableName: "nextflow", homeDirectory: lookupHome, appIdentity: .preview, baseEnvironment: ["PATH": "/usr/bin:/bin"])
+        for name in switches {
+            XCTAssertEqual(bare.environment[name], "false", "a bare base left \(name) unset")
+        }
+    }
+
+    /// FXV3 item 4, the live confirmation. `ProcessManager` lays a launch's environment over the environment of the process
+    /// that spawns it, so a name taken out of the launch is still inherited, and the first fix, which only removed
+    /// `CLAUDECODE` from the launch, left the Nextflow that `lungfish-cli` started in agent mode (FXV3 live run, no banner
+    /// and no `Launching` line). This test holds the three switches on in its own process, runs a stand-in `nextflow`
+    /// through the real runner, and reads what that child sees.
+    func testTheSpawnedNextflowSeesTheAgentModeSwitchesOff() async throws {
+        let home = try makeTemporaryHome("agent-mode-spawn")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bin = home.appendingPathComponent("stub-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let stub = bin.appendingPathComponent("nextflow")
+        try """
+        #!/bin/bash
+        echo "CLAUDECODE=${CLAUDECODE-unset} NXF_AGENT_MODE=${NXF_AGENT_MODE-unset} AGENT=${AGENT-unset}"
+        """.write(to: stub, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+
+        let names = ["CLAUDECODE", "NXF_AGENT_MODE", "AGENT"]
+        let saved = names.map { ProcessInfo.processInfo.environment[$0] }
+        for name in names { setenv(name, "1", 1) }
+        defer {
+            for (name, value) in zip(names, saved) {
+                if let value { setenv(name, value, 1) } else { unsetenv(name) }
+            }
+        }
+        let base = ProcessInfo.processInfo.environment.merging(["PATH": "\(bin.path):/usr/bin:/bin"]) { _, path in path }
+        let launch = WorkflowEngineLaunch.resolve(
+            executableName: "nextflow", homeDirectory: home, appIdentity: .preview, baseEnvironment: base)
+        XCTAssertFalse(launch.usesManagedExecutable, "the stand-in is found on PATH, so no managed engine is repaired")
+        let runner = ProcessNFCoreWorkflowProcessRunner(homeDirectory: home, resolveLaunch: { _, _ in launch })
+
+        let result = try await runner.runNextflow(NFCoreWorkflowLaunch(
+            arguments: [], profile: "docker",
+            workingDirectory: home.appendingPathComponent("launch", isDirectory: true),
+            workDirectory: home.appendingPathComponent("work", isDirectory: true),
+            environment: [:], logFile: home.appendingPathComponent("logs/nextflow.log")))
+
+        XCTAssertEqual(result.exitCode, 0, result.standardError)
+        XCTAssertEqual(
+            result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines),
+            "CLAUDECODE=false NXF_AGENT_MODE=false AGENT=false", "the spawned Nextflow inherited an agent switch")
     }
 }

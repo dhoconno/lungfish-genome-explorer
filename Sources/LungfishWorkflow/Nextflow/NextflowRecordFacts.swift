@@ -64,9 +64,9 @@ package struct NextflowRecordFacts: Sendable, Equatable {
     /// The version of the Nextflow that ran, from the first line of `text` that names it, or nil.
     ///
     /// Two lines name it. Nextflow starts its output with the banner `N E X T F L O W  ~  version 25.04.6`, and 26.04
-    /// prints it the same way (line 1 of Q35's V3 run A). A Nextflow that finds `CLAUDECODE` or `NXF_AGENT_MODE` in its
-    /// environment prints an agent log with no banner and no `Launching` line instead (V3-BIO 4), which is why LGE's
-    /// launch removes both (``WorkflowEngineLaunch``). The line `Nextflow version: 26.04.6` is the one TaxTriage's
+    /// prints it the same way (line 1 of Q35's V3 run A). A Nextflow that finds `NXF_AGENT_MODE`, `AGENT` or `CLAUDECODE`
+    /// at `true` or `1` in its environment prints an agent log with no banner and no `Launching` line instead (V3-BIO 4),
+    /// which is why LGE's launch sets all three to `false` (``WorkflowEngineLaunch``). The line `Nextflow version: 26.04.6` is the one TaxTriage's
     /// workflow prints from `workflow.nextflow.version`, the engine that ran (`workflows/taxtriage.nf:537` at v3.3.8),
     /// so a log from an engine run in agent mode names it only when the workflow's own code prints that line. A
     /// line counts only when it starts with one of the two, so a path or an argument in the preamble LGE writes at the

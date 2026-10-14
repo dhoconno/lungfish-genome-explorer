@@ -143,12 +143,17 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
             environment["NXF_HOME"] = appIdentity
                 .nextflowHomeURL(homeDirectory: homeDirectory)
                 .path
-            // Nextflow 26.04 reads these two (`nextflow.SysEnv`) and then prints its agent log in place of its own: no
-            // banner, no `Launching` line, and the `[PIPELINE]`, `[WORKDIR]` and `[PROCESS ` lines for the task lines
-            // the progress reader reads. A coding agent's shell sets `CLAUDECODE`, and the base environment is the
-            // parent's, so a run started from one lost the record's `resolvedCommit` and its progress (Phase 2.10, V3-BIO 4).
-            environment.removeValue(forKey: "CLAUDECODE")
-            environment.removeValue(forKey: "NXF_AGENT_MODE")
+            // Nextflow 26.04 prints its agent log in place of its own, with no banner, no `Launching` line and the
+            // `[PIPELINE]`, `[WORKDIR]` and `[PROCESS ` lines for the task lines the progress reader reads, when
+            // `NXF_AGENT_MODE`, `AGENT` or `CLAUDECODE` holds `true` or `1` (`nextflow.SysEnv.isAgentMode`). A coding
+            // agent's shell sets `CLAUDECODE`, and the base environment is the parent's, so a run started from one lost
+            // the record's `resolvedCommit` and its progress (Phase 2.10, V3-BIO 4). The three are set off and not taken
+            // out, because the spawn lays this environment over its own process's (`ProcessManager.launch`), and a name
+            // left out of it keeps the parent's value. FXV3's live run showed it, with `CLAUDECODE` removed and the agent
+            // log still printed.
+            for name in ["NXF_AGENT_MODE", "AGENT", "CLAUDECODE"] {
+                environment[name] = "false"
+            }
         }
 
         if hasManagedExecutable {
