@@ -1,18 +1,10 @@
 {
-  "bamIndex" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam.bai",
-  "inputFiles" : [
-    "<RUN_ROOT>\/mapping\/inputs\/test_1.fastq.gz",
-    "<RUN_ROOT>\/mapping\/inputs\/test_2.fastq.gz"
+  "event": "complete",
+  "message": "Mapping complete: 197/200 reads mapped",
+  "output": "<RUN_ROOT>/mapping/out",
+  "outputs": [
+    "<RUN_ROOT>/mapping/out"
   ],
-  "mappedReads" : 197,
-  "mapper" : "minimap2",
-  "mappingRate" : 0.985,
-  "mode" : "short-read-default",
-  "outputDirectory" : "<RUN_ROOT>\/mapping\/out",
-  "reference" : "<RUN_ROOT>\/mapping\/inputs\/genome.fasta",
-  "runtimeSeconds" : "<DURATION>",
-  "sampleName" : "sarscov2-test",
-  "sortedBAM" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
-  "totalReads" : 200,
-  "unmappedReads" : 3
+  "progress": 1,
+  "schemaVersion": 2
 }

@@ -647,6 +647,33 @@ def test_during_run_copies_keep_the_last_bytes_of_a_file_deleted_before_exit(tmp
     assert copies.missing() == [never]
 
 
+def test_the_mapping_report_is_the_one_complete_event_that_ends_the_map_stream():
+    def stream(*events: dict) -> str:
+        return "".join(json.dumps(event) + "\n" for event in events)
+
+    def refused(text: str) -> str:
+        try:
+            captures.mapping_complete_event(text)
+        except captures.CaptureError as error:
+            return str(error)
+        raise AssertionError("the stream was accepted")
+
+    start = {"event": "start", "message": "Mapping 2 file(s) to genome.fasta", "progress": 0, "schemaVersion": 2}
+    progress = {"event": "progress", "message": "Running minimap2...", "progress": 0.1, "schemaVersion": 2}
+    complete = {"event": "complete", "message": "Mapping complete: 197/200 reads mapped", "output": "/work/out",
+                "outputs": ["/work/out"], "progress": 1, "schemaVersion": 2}
+    failed = {"event": "failed", "message": "minimap2 exited 1", "schemaVersion": 2}
+    assert captures.mapping_complete_event(stream(start, progress, complete)) == complete
+    assert captures.mapping_complete_event("\n" + stream(start, complete) + "\n") == complete
+    assert "found []" in refused("")
+    assert "found ['start', 'progress']" in refused(stream(start, progress))
+    assert "found ['start', 'complete', 'complete']" in refused(stream(start, complete, complete))
+    assert "found ['complete', 'progress']" in refused(stream(complete, progress))
+    assert "failed event" in refused(stream(start, failed, complete))
+    assert "line 2 of the map output is not a JSON event" in refused(stream(start) + "Mapping complete\n")
+    assert "line 1 of the map output is not a JSON object" in refused("[1]\n")
+
+
 def test_run_dependent_test_ignores_values_copied_from_inputs_and_the_app_version():
     n = normalizer()
     n.add_stable_values('{"lastModified" : "2026-09-29T11:46:53Z"}')

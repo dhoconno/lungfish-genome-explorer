@@ -581,13 +581,42 @@ def run_mapping(ctx: CaptureContext) -> None:
     )
 
 
+def mapping_complete_event(stdout: str) -> dict:
+    """The one `complete` event that ends the standard output of `map --format json`.
+
+    That output is a stream of JSON events, one a line (CLIEventContract). The
+    golden keeps the `complete` event, whose message and output folder are the
+    result the CLI reports. The earlier events are progress, and the counts are
+    held by mapping-result.json and counts.json. Anything else is an error: a
+    line that is not an event, a `failed` event, no `complete` event, more than
+    one, or one that is not last.
+    """
+    events = []
+    for number, line in enumerate(stdout.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise CaptureError(f"mapping: line {number} of the map output is not a JSON event ({error})") from error
+        if not isinstance(event, dict):
+            raise CaptureError(f"mapping: line {number} of the map output is not a JSON object")
+        events.append(event)
+    names = [event.get("event") for event in events]
+    if "failed" in names:
+        raise CaptureError(f"mapping: map reported a failed event: {events[names.index('failed')]}")
+    if names.count("complete") != 1 or names[-1] != "complete":
+        raise CaptureError(f"mapping: the map output needs one complete event, and last, found {names}")
+    return events[-1]
+
+
 def collect_mapping(ctx: CaptureContext) -> None:
     # R8: minimap2 records the per-run reference staging folder in the @PG CL
     # line, so the bytes of every SAM, BAM and BAI change from run to run. The
     # header and records goldens below cover their content.
     ctx.normalizer.add_path_rule(normalize.ALIGNMENT_RECORDS)
     out = ctx.work / "out"
-    ctx.put_text("cli-report.json", ctx.stdout("map"))
+    ctx.put_json("cli-report.json", mapping_complete_event(ctx.stdout("map")))
     bam = out / "sarscov2-test.sorted.bam"
     put_alignment(ctx, "", bam)
     samtools = managed_samtools(ctx)

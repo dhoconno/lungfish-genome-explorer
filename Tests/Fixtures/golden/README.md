@@ -29,7 +29,7 @@ The captures run the CLI with `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-gold
 
 ### mapping
 
-The capture copies `Tests/Fixtures/sarscov2` into the scratch folder and runs `lungfish-cli map` with minimap2, the `sr` preset, paired reads and two threads. The goldens hold the CLI report, the BAM header without the `@PG` line samtools adds for itself, a SHA-256 of the alignment records as `samtools view --no-PG` prints them in BAM order, the read counts (total, primary, mapped, unmapped, secondary, supplementary, per contig and the full flagstat), `mapping-result.json`, both provenance files and the list of output files.
+The capture copies `Tests/Fixtures/sarscov2` into the scratch folder and runs `lungfish-cli map` with minimap2, the `sr` preset, paired reads, two threads and `--format json`, which writes the events of the run to standard output. The goldens hold the CLI report, the BAM header without the `@PG` line samtools adds for itself, a SHA-256 of the alignment records as `samtools view --no-PG` prints them in BAM order, the read counts (total, primary, mapped, unmapped, secondary, supplementary, per contig and the full flagstat), `mapping-result.json`, both provenance files and the list of output files. The CLI report is the `complete` event that ends the event stream. The capture fails unless the stream holds exactly one `complete` event, as its last line, and no `failed` event. The earlier events are progress, and the counts stay in `counts.json` and `mapping-result.json`.
 
 ### classifiers
 

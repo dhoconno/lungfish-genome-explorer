@@ -183,9 +183,11 @@ enum MappingRouteGolden {
             "the header differs from the golden's",
             file: file, line: line
         )
-        let report = try jsonObject(golden.appendingPathComponent("cli-report.json"))
-        XCTAssertEqual(totalReads, report["totalReads"] as? Int, file: file, line: line)
-        XCTAssertEqual(mappedReads, report["mappedReads"] as? Int, file: file, line: line)
+        // cli-report.json is the CLI's `complete` event, which holds no totals, so both come from
+        // the golden's mapping-result.json.
+        let goldenResult = try jsonObject(golden.appendingPathComponent("mapping-result.json"))
+        XCTAssertEqual(totalReads, goldenResult["totalReads"] as? Int, file: file, line: line)
+        XCTAssertEqual(mappedReads, goldenResult["mappedReads"] as? Int, file: file, line: line)
 
         let record = try jsonObject(outputDirectory.appendingPathComponent("mapping-provenance.json"))
         let goldenRecord = try jsonObject(golden.appendingPathComponent("mapping-provenance.json"))
