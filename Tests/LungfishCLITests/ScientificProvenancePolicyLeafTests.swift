@@ -319,6 +319,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "fastq genotype": "cli.fastq",
         "fastq genotype-cohort": "cli.fastq",
         "fastq import-ont": "cli.fastq",
+        "fastq ingest": "cli.fastq.ingest",
         "fastq interleave": "cli.fastq",
         "fastq length-filter": "cli.fastq",
         "fastq materialize": "cli.fastq",

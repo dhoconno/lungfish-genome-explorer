@@ -41,6 +41,7 @@ lungfish-cli fastq ont-fluidigm-samples	shown	0	lungfish-cli.fastq.ont-fluidigm-
 lungfish-cli fastq ont-pacbio-barcode-demux	shown	0	lungfish-cli.fastq.ont-pacbio-barcode-demux.txt
 lungfish-cli fastq scout	shown	0	lungfish-cli.fastq.scout.txt
 lungfish-cli fastq import-ont	shown	0	lungfish-cli.fastq.import-ont.txt
+lungfish-cli fastq ingest	shown	0	lungfish-cli.fastq.ingest.txt
 lungfish-cli fastq materialize	shown	0	lungfish-cli.fastq.materialize.txt
 lungfish-cli fastq platform	shown	0	lungfish-cli.fastq.platform.txt
 lungfish-cli fastq qc-summary	shown	0	lungfish-cli.fastq.qc-summary.txt

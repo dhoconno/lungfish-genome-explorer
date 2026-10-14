@@ -1,0 +1,6 @@
+{"event":"start","message":"Ingesting SRR9...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Sorting reads by k-mer similarity...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Compressing...","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Recording the digest of the original file...","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"Writing the record...","progress":0.98,"schemaVersion":2}
+{"event":"complete","message":"Clumpified and compressed (saved 1 KB)","output":"\/work\/SRR9.fastq.gz","outputs":["\/work\/SRR9.fastq.gz"],"progress":1,"schemaVersion":2}

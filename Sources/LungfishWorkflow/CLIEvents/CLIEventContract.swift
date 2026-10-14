@@ -73,7 +73,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (54)
+    // MARK: Leaves that emit events (55)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -95,6 +95,7 @@ package enum CLIEventContractTable {
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "extract reads": .events(flag: formatJSON, channel: .standardOutput),
         "fastq import-ont": .events(flag: formatJSON, channel: .standardOutput),
+        "fastq ingest": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),

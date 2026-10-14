@@ -1,0 +1,2 @@
+{"event":"start","message":"Ingesting SRR9...","progress":0,"schemaVersion":2}
+{"error":"Input file not found: \/work\/SRR9_1.fastq","event":"failed","schemaVersion":2}

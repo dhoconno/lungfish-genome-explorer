@@ -1,0 +1,47 @@
+OVERVIEW: Clumpify and compress a FASTQ file in place and write its metadata
+sidecar
+
+Runs the FASTQ ingestion pipeline that the app runs when a FASTQ file is
+copied into a project. The processed file is a .fastq.gz in the folder of
+the input, named for the input without its extension and its _R1, _R2, _1
+or _2 suffix. It is built in a hidden folder beside the input and moved
+into place only when it is whole.
+
+The command then writes the FASTQ metadata sidecar and a provenance record
+that names each original file with its SHA-256. Only after that does
+--delete-originals remove the original files. A cancel (SIGTERM) or a
+failure leaves the originals in place.
+
+Quality binning is off unless --binning asks for it. With --format json the
+command prints progress as events.
+
+Examples:
+  lungfish-cli fastq ingest ./SRR1770413_1.fastq.gz --delete-originals
+  lungfish-cli fastq ingest ./R1.fastq.gz --pair ./R2.fastq.gz --format json
+
+USAGE: lungfish-cli fastq ingest [<options>] <input>
+
+ARGUMENTS:
+  <input>                 Input FASTQ file (R1 for paired-end)
+
+OPTIONS:
+  --pair <pair>           Optional R2 FASTQ file for paired-end mode
+  --binning <binning>     Quality binning scheme (values: illumina4,
+                          eightLevel, none; default: none)
+  --skip-clumpify         Skip read clumpification step
+  --delete-originals      Delete the original FASTQ file(s) once the output,
+                          its sidecar and its record are written
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

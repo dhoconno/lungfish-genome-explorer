@@ -52,6 +52,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqONTPacBioBarcodeDemuxSubcommand.self,
             FastqScoutSubcommand.self,
             FastqImportONTSubcommand.self,
+            FastqIngestSubcommand.self,
             FastqMaterializeSubcommand.self,
             FastqPlatformSubcommand.self,
             FastqQCSummarySubcommand.self,

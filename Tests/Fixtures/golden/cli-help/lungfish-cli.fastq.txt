@@ -45,6 +45,8 @@ SUBCOMMANDS:
                           barcode pairs
   scout                   Scout barcode assignments before FASTQ demultiplexing
   import-ont              Import ONT output directory into per-barcode bundles
+  ingest                  Clumpify and compress a FASTQ file in place and write
+                          its metadata sidecar
   materialize             Materialize a virtual FASTQ bundle to a physical
                           FASTQ file
   platform                Show, check or correct the sequencing platform

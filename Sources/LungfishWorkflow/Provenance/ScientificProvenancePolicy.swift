@@ -222,6 +222,7 @@ public enum ScientificProvenancePolicy {
         // the leaf write their own records (`--offline`, `--from-lockfile`) or none (packages).
         "conda install": metadataOnly("cli.conda.install", requiresProvenance: true, writer: "CondaInstallPackLeaf"),
         "debug fastq-ingest": dataWriting("cli.debug.fastq-ingest", writer: "FASTQIngestSubcommand"),
+        "fastq ingest": dataWriting("cli.fastq.ingest", writer: "FastqIngestSubcommand"),
         "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline"),
         "fastq savont-cluster": dataWriting(
             "cli.fastq.savont-cluster",
