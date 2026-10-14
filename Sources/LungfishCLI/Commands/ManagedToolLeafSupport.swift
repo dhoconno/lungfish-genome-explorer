@@ -84,7 +84,7 @@ enum ManagedToolLeaf {
         let names = (try? FileManager.default.contentsOfDirectory(
             atPath: recordDirectory(storageRoot: storageRoot, folder: folder).path
         )) ?? []
-        return Set(names.filter { $0.hasSuffix(".lungfish-provenance.json") })
+        return Set(names.filter { $0.hasSuffix(ProvenanceRecorder.provenanceFilename) })
     }
 
     /// Writes `record` and returns its file, or nil when it could not be written. A record is an
@@ -92,7 +92,9 @@ enum ManagedToolLeaf {
     @discardableResult
     static func writeRecord(_ record: Record, storageRoot: URL) -> URL? {
         let url = recordDirectory(storageRoot: storageRoot, folder: record.folder)
-            .appendingPathComponent("\(stamp(record.startedAt))-\(filenameSafe(record.label)).lungfish-provenance.json")
+            .appendingPathComponent(
+                "\(stamp(record.startedAt))-\(filenameSafe(record.label))\(ProvenanceRecorder.provenanceFilename)"
+            )
         do {
             return try ProvenanceWriter().write(envelope(for: record), toSidecar: url)
         } catch {
