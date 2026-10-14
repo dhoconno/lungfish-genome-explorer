@@ -873,10 +873,16 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(mappingBody.contains("SequentialAnalysisBatchHold("))
         XCTAssertFalse(mappingBody.contains("holdAnalysisOutput("))
         // Released from registerCancel, which runs right after the child
-        // starts and tracks its output, before its mapping is awaited.
-        let registerCancel = try XCTUnwrap(mappingBody.range(of: "registerCancel: { @MainActor opID in"))
-        let mappingLaunched = try XCTUnwrap(mappingBody.range(of: "batchOutputHold.didLaunchChild()"))
-        XCTAssertLessThan(registerCancel.lowerBound, mappingLaunched.lowerBound)
+        // starts and tracks its output, before its mapping is awaited. Each
+        // route behind the mapping key (2.10 A46) passes its own registerCancel,
+        // so the text after each one releases the hold before the next begins.
+        let afterEachRegisterCancel = mappingBody
+            .components(separatedBy: "registerCancel: { @MainActor opID in")
+            .dropFirst()
+        XCTAssertEqual(afterEachRegisterCancel.count, 2, "the CLI route and the in-process route")
+        for piece in afterEachRegisterCancel {
+            XCTAssertNotNil(piece.range(of: "batchOutputHold.didLaunchChild()"))
+        }
     }
 
     func testAssembleLaunchFansOutBeforeOperationRegistrationAndDispatchesChildrenSequentially() throws {
