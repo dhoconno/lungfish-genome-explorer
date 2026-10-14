@@ -37,6 +37,8 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
     var threads: Int { globalOptions.threads ?? 1 }
 
+    // Keep "(default: active cores)" in this help. Golden rule H2 (scripts/golden/normalize.py) masks the
+    // core count that ArgumentParser prints after those words, and only after them.
     @Option(name: .customLong("chunk-jobs"), help: "Compatibility option for legacy chunked demux paths (default: active cores)")
     var chunkJobs: Int = ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs
 
