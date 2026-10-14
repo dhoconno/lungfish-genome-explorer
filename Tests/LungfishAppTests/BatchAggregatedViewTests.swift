@@ -1417,7 +1417,7 @@ final class BatchGroupRoutingTests: XCTestCase {
         }
     }
 
-    func testUnknownPrefixNotMatchedByAnyClassifierTool() {
+    func testNaoMgsAndNvdPrefixesNameTheirToolsAndAnUnknownNameNamesNone() {
         XCTAssertEqual(tool("naomgs-batch-001"), .naomgs)
         XCTAssertEqual(tool("nvd-batch-run"), .nvd)
         XCTAssertNil(tool("unknown-tool-batch"), "an unknown name names no tool")
