@@ -114,13 +114,14 @@ enum MappingRouteGolden {
         }
 
         /// The request the Map Reads window builds for the golden's run, bound to the run's folder.
-        func windowRequest() -> MappingRunRequest {
+        /// `referenceFASTA` replaces the fixture's plain FASTA, such as the FASTA of a `.lungfishref`.
+        func windowRequest(referenceFASTA: URL? = nil) -> MappingRunRequest {
             let modeID = MappingMode.defaultShortRead.id
             return MappingRunRequest(
                 tool: .minimap2,
                 modeID: modeID,
                 inputFASTQURLs: [readOne, readTwo],
-                referenceFASTAURL: reference,
+                referenceFASTAURL: referenceFASTA ?? reference,
                 projectURL: project,
                 outputDirectory: analysisDirectory,
                 sampleName: MappingRouteGolden.sampleName,
