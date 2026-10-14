@@ -45,7 +45,9 @@ public enum OutputEquivalence {
     /// than by bytes, and of the folders that hold a file in each tree.
     /// `recordFolder` is the unmasked relative folder of the file a mask
     /// reads, "" at the root, which a record's checksum and size maps are
-    /// read from.
+    /// read from. `recordProject` is the path of the nearest `.lungfish`
+    /// project folder that holds that file, nil when none does, which a
+    /// record's `@/` paths are read from.
     public struct MaskContext: Sendable {
         public let rootA: URL
         public let rootB: URL
@@ -53,6 +55,7 @@ public enum OutputEquivalence {
         public let uuidNumbers: [String: Int]
         public let contentComparedPaths: Set<String>
         public let recordFolder: String
+        public let recordProject: String?
 
         public init(
             rootA: URL,
@@ -60,7 +63,8 @@ public enum OutputEquivalence {
             runIDNumbers: [String: Int] = [:],
             uuidNumbers: [String: Int] = [:],
             contentComparedPaths: Set<String> = [],
-            recordFolder: String = ""
+            recordFolder: String = "",
+            recordProject: String? = nil
         ) {
             self.rootA = rootA
             self.rootB = rootB
@@ -68,14 +72,22 @@ public enum OutputEquivalence {
             self.uuidNumbers = uuidNumbers
             self.contentComparedPaths = contentComparedPaths
             self.recordFolder = recordFolder
+            self.recordProject = recordProject
         }
 
-        /// This side's context for the file whose unmasked relative path is
-        /// `name`, so a record's maps are read from its own folder.
-        func reading(_ name: String) -> MaskContext {
-            MaskContext(
+        /// This side's context for `file`, whose unmasked relative path is
+        /// `name`, so a record's maps are read from its own folder and its
+        /// `@/` paths from the nearest folder above it whose extension is
+        /// `lungfish`, as LGE writes a path inside its project.
+        func reading(_ name: String, file: URL) -> MaskContext {
+            var folder = (file.path as NSString).deletingLastPathComponent
+            while folder.count > 1, (folder as NSString).pathExtension != "lungfish" {
+                folder = (folder as NSString).deletingLastPathComponent
+            }
+            return MaskContext(
                 rootA: rootA, rootB: rootB, runIDNumbers: runIDNumbers, uuidNumbers: uuidNumbers,
-                contentComparedPaths: contentComparedPaths, recordFolder: (name as NSString).deletingLastPathComponent
+                contentComparedPaths: contentComparedPaths, recordFolder: (name as NSString).deletingLastPathComponent,
+                recordProject: folder.count > 1 ? folder : nil
             )
         }
     }
@@ -241,8 +253,8 @@ public enum OutputEquivalence {
         var differing: [DifferingFile] = []
         for name in Set(keyedA.keys).intersection(keyedB.keys).sorted() {
             guard let fileA = keyedA[name], let fileB = keyedB[name] else { continue }
-            let normalA = try normalized(fileA, kind: kind, masks: masks, context: contextA.reading(rawNameA[fileA.path] ?? name))
-            let normalB = try normalized(fileB, kind: kind, masks: masks, context: contextB.reading(rawNameB[fileB.path] ?? name))
+            let normalA = try normalized(fileA, kind: kind, masks: masks, context: contextA.reading(rawNameA[fileA.path] ?? name, file: fileA))
+            let normalB = try normalized(fileB, kind: kind, masks: masks, context: contextB.reading(rawNameB[fileB.path] ?? name, file: fileB))
             if normalA != normalB {
                 found.append("differs: \(name)\n" + firstDifference(normalA, normalB))
                 differing.append(DifferingFile(name: name, normalizedA: normalA, normalizedB: normalB))

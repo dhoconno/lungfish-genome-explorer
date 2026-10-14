@@ -407,6 +407,34 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertEqual(try firstLines(), ["only in A: rows.lungfishmsa/metadata/extra.json", "differs: rows.lungfishmsa/manifest.json"])
     }
 
+    /// A record inside a project names its outputs as `@/` paths, read from the `.lungfish` project
+    /// that holds the record. The digest it states for a content-compared file both trees hold is
+    /// masked, and a file compared byte for byte keeps its digest (lane A44 M2c P1, its QA ruling).
+    func testARecordReadsAnAtSlashPathFromItsProject() throws {
+        let (a, b) = try makeRoots()
+        let bundle = "Project.lungfish/Downloads/out.lungfishref"
+        let record = { (manifestDigest: String, reportDigest: String) in
+            #"{"outputs":[{"path":"@/Downloads/out.lungfishref/manifest.json","checksumSHA256":"\#(manifestDigest)"},"#
+                + #"{"path":"@/Downloads/out.lungfishref/report.txt","checksumSHA256":"\#(reportDigest)"}]}"#
+        }
+        let (digestA, digestB, digestF) = (String(repeating: "a", count: 64), String(repeating: "b", count: 64), String(repeating: "f", count: 64))
+        // Each manifest holds its own random id, so the two raw manifests, and their digests, differ.
+        for (root, digest) in [(a, digestA), (b, digestB)] {
+            try write(#"{"id":"\#(UUID().uuidString)"}"#, to: root, "\(bundle)/manifest.json")
+            try write("report\n", to: root, "\(bundle)/report.txt")
+            try write(record(digest, digestF), to: root, "\(bundle)/.lungfish-provenance.json")
+            try write(record(digest, digestF), to: root, "\(bundle)/provenance/bundle.lungfish-provenance.json")
+        }
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // The report is compared byte for byte, so the digest a record states for it is compared too.
+        try write(record(digestB, String(repeating: "e", count: 64)), to: b, "\(bundle)/.lungfish-provenance.json")
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .bundle).map { $0.components(separatedBy: "\n")[0] },
+            ["differs: \(bundle)/.lungfish-provenance.json"]
+        )
+    }
+
     // MARK: - Fixture helpers
 
     private func makeRoots() throws -> (URL, URL) {

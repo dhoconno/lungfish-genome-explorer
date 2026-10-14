@@ -153,8 +153,9 @@ extension OutputEquivalence {
         /// file, a SQLite database, an index or a JSON manifest compared after
         /// masks), or a folder that holds a file in each tree, replaces the
         /// checksum and size the record states. The record names it by a path
-        /// beside a checksum or size key, or by a key of a `checksums` or
-        /// `fileSizes` map read from the record's own folder. That file, and
+        /// beside a checksum or size key, absolute or from the `.lungfish`
+        /// project that holds the record as `@/`, or by a key of a `checksums`
+        /// or `fileSizes` map read from the record's own folder. That file, and
         /// each file in that folder, is still compared under its own kind, so
         /// only the record's copy of a byte-level digest is masked. A record
         /// that names a run's scratch intermediate, a content-compared file
@@ -168,7 +169,10 @@ extension OutputEquivalence {
             else { return text }
             var changed = false
             let roots = rootSpellings(context.rootA) + rootSpellings(context.rootB)
-            let masked = maskDigests(in: value, paths: context.contentComparedPaths, roots: roots, folder: context.recordFolder, changed: &changed)
+            let masked = maskDigests(
+                in: value, paths: context.contentComparedPaths, roots: roots, folder: context.recordFolder,
+                project: context.recordProject, changed: &changed
+            )
             guard changed,
                   let encoded = try? JSONSerialization.data(
                       withJSONObject: masked,
@@ -202,14 +206,23 @@ extension OutputEquivalence {
 
         /// Runs before every other mask, on unmasked text, so a path is
         /// checked as the run wrote it. `folder` is the record's own folder,
-        /// which the keys of a checksum or size map are read from.
-        static func maskDigests(in value: Any, paths: Set<String>, roots: [String], folder: String, changed: inout Bool) -> Any {
+        /// which the keys of a checksum or size map are read from. `project`
+        /// is the `.lungfish` project folder that holds the record, which a
+        /// `@/` path is read from. Without one a `@/` path stays as written,
+        /// and a `<bundle>/` or `<workspace>/` path is never read, so the
+        /// digest a record states beside it is kept.
+        static func maskDigests(
+            in value: Any, paths: Set<String>, roots: [String], folder: String, project: String?, changed: inout Bool
+        ) -> Any {
             if let array = value as? [Any] {
-                return array.map { maskDigests(in: $0, paths: paths, roots: roots, folder: folder, changed: &changed) }
+                return array.map {
+                    maskDigests(in: $0, paths: paths, roots: roots, folder: folder, project: project, changed: &changed)
+                }
             }
             guard var object = value as? [String: Any] else { return value }
             let namesContentComparedFile = object.values.contains { item in
-                guard let path = item as? String else { return false }
+                guard let written = item as? String else { return false }
+                let path = written.hasPrefix("@/") ? project.map { $0 + "/" + String(written.dropFirst(2)) } ?? written : written
                 var relative = path
                 if let root = roots.first(where: { path.hasPrefix($0 + "/") }) {
                     relative = String(path.dropFirst(root.count + 1))
@@ -233,7 +246,9 @@ extension OutputEquivalence {
                     }
                     object[key] = map
                 } else {
-                    object[key] = maskDigests(in: item, paths: paths, roots: roots, folder: folder, changed: &changed)
+                    object[key] = maskDigests(
+                        in: item, paths: paths, roots: roots, folder: folder, project: project, changed: &changed
+                    )
                 }
             }
             return object
