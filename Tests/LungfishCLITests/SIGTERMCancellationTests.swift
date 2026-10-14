@@ -70,6 +70,25 @@ final class SIGTERMCancellationTests: XCTestCase {
         XCTAssertTrue(cancelled, "a SIGTERM caught before the source listens still cancels")
     }
 
+    /// Phase 2.10 FXS (SWIFT, review A54 Finding 2). The kernel notes a SIGTERM at the `kill`, and a thread
+    /// takes it and runs the handler later. Under load a leaf can find its tool dead on the group's SIGTERM
+    /// and read `signalCaught` between the two, so the flag must read a post the handler has not counted.
+    /// SIGTERM is ignored again after the instance began, so no handler can run and the post is all there is
+    /// to see. The test ignores SIGTERM first and puts the earlier action back last, so no case can end the
+    /// unit process.
+    func testAPostReadsAsCaughtBeforeItsHandlerRuns() {
+        let previous = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previous) }
+        let termination = SIGTERMCancellation { }
+        defer { termination.end() }
+        signal(SIGTERM, SIG_IGN) // the handler is out of reach from here on
+        XCTAssertFalse(SIGTERMCancellation.signalCaught, "nothing was posted yet")
+
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+
+        XCTAssertTrue(SIGTERMCancellation.signalCaught, "the kernel noted the post, so it reads as caught though no handler counted it")
+    }
+
     func testAToolTheCommandLaunchesStillStopsOnSIGTERM() async throws {
         let task = Task<Bool, Never> { false }
         let termination = SIGTERMCancellation(cancelling: task)
