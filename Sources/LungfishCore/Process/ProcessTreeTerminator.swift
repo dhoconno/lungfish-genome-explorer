@@ -113,7 +113,9 @@ public enum ProcessTreeTerminator {
     }
 
     /// Whether `pid` names a process that has not exited. An unreaped zombie
-    /// has exited, so it does not exist.
+    /// has exited, so it does not exist. A live process that runs as another
+    /// effective user, such as a setuid tool, also reads as gone, since
+    /// libproc refuses to read it.
     public static func processExists(pid: Int32) -> Bool {
         guard pid > 0 else { return false }
         if kill(pid, 0) == 0 {
@@ -132,10 +134,11 @@ public enum ProcessTreeTerminator {
         }
         // The kernel looks a zombie up for this flavor only when `arg` is
         // nonzero, so the lookup fails (ESRCH) for a zombie that `kill`
-        // still reached. A pid that `kill` reached and libproc cannot read
-        // is an unreaped zombie, or a process that exited and was reaped
-        // since the `kill`. Both have exited, which is how
-        // `ToolProcessSpawn.runningStartTime` reads it too.
+        // still reached. It fails the same way for a process that exited
+        // and was reaped since the `kill`, and both have exited. It also
+        // fails (EPERM) for a live process that runs as another effective
+        // user, such as a setuid tool, which then reads as gone.
+        // `ToolProcessSpawn.runningStartTime` reads all three the same way.
         guard result == Int32(MemoryLayout<proc_bsdinfo>.size) else { return true }
         return info.pbi_status == UInt32(SZOMB)
     }
