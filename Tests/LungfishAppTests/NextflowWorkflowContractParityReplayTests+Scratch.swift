@@ -31,9 +31,9 @@ extension NextflowWorkflowContractParityReplayTests {
     }
 
     /// A SIGTERM while the engine runs cancels the run. The command exits 125 inside the app's grace with no process
-    /// of its tree left. Today's `defer` removes the launch scratch on this exit too, and the manifest still reads
-    /// `running`, since the route writes no record for a cancel.
-    func testACancelledRunExits125AndRemovesItsLaunchScratch() async throws {
+    /// of its tree left and the run's container stopped. The launch scratch stays for the abandoned-scratch sweep
+    /// (P3), and the manifest still reads `running`, since the route writes no record for a cancel.
+    func testACancelledRunExits125AndLeavesItsScratchForTheSweep() async throws {
         let caseRoot = root.appendingPathComponent("scratch-cancelled", isDirectory: true)
         let (engine, arguments, environment) = try routeCommand(.docker, caseRoot: caseRoot, behaviour: .waitsUntilCancelled)
         let project = caseRoot.appendingPathComponent("Project", isDirectory: true)
@@ -61,7 +61,8 @@ extension NextflowWorkflowContractParityReplayTests {
         CLISIGTERMHarness.assertCancelledExit(stop)
         CLISIGTERMHarness.assertNoProcessLeft(stop)
         XCTAssertTrue(stop.standardError.contains("Workflow cancelled"), stop.diagnostics)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: launch.workingDirectory), "today's defer removes the scratch of a cancelled run")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: launch.workingDirectory), "a cancelled run leaves its scratch for the sweep (P3)")
+        try? FileManager.default.removeItem(atPath: launch.workingDirectory)
         XCTAssertTrue(((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("\n--- stderr ---\n"), "the log is whole once the tree is gone")
         let calls = dockerStandInCalls(case: "scratch-cancelled")
         XCTAssertTrue(calls.contains("kill \(container)") && calls.contains("rm \(container)"), "the cancel stops and removes the run's container: \(calls)")

@@ -166,13 +166,16 @@ extension RunSubcommand {
         // caller did not pin --work-dir, the work tree follows the scratch.
         let scratchEngine = ProcessNFCoreWorkflowProcessRunner.engine(profile: request.executor.rawValue)
         let scratch = try scratchEngine.makeScratch(contextURL: runBundleURL)
-        defer { scratchEngine.finish(scratch, .remove) }
+        // A cancelled run leaves its scratch for the abandoned-scratch sweep, and
+        // every other run removes it (P3, 2.9 N7).
+        defer { scratchEngine.finish(scratch, Task.isCancelled ? .leaveForSweep : .remove) }
         let launchScratch = scratch.launchDirectory
         // Tasks run inside the work tree, and QUAST refuses a path containing a
         // space, so the tree leaves the scratch when the project name has one.
+        // A fallback folder goes or stays with the scratch.
         let scratchWork = try NFCoreLaunchStaging.workDirectory(preferring: launchScratch)
         defer {
-            if scratchWork.isFallback {
+            if scratchWork.isFallback, !Task.isCancelled {
                 try? FileManager.default.removeItem(at: scratchWork.root)
             }
         }
@@ -186,7 +189,7 @@ extension RunSubcommand {
         // the staged copies go to a system temp directory of their own.
         let stagingRoot = try NFCoreLaunchStaging.stagingRoot(preferring: launchScratch)
         defer {
-            if stagingRoot.isFallback {
+            if stagingRoot.isFallback, !Task.isCancelled {
                 try? FileManager.default.removeItem(at: stagingRoot.root)
             }
         }

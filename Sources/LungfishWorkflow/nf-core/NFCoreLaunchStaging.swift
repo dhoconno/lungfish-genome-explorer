@@ -44,9 +44,11 @@ package enum NFCoreLaunchStaging {
     package struct StagingRoot: Equatable {
         /// Directory that `stage(_:in:)` will copy inputs into.
         package let root: URL
-        /// True when `root` is a system temp directory the caller must remove
-        /// itself; false when it sits under the launch scratch and is cleaned
-        /// up with it.
+        /// True when `root` is a system temp directory (`nfcore-inputs-` or
+        /// `nfcore-work-`) that the caller removes when it removes the launch
+        /// scratch, and leaves for the abandoned-scratch sweep when a cancel
+        /// leaves the scratch (P3, 2.9 N7); false when it sits under the
+        /// launch scratch and goes or stays with it.
         package let isFallback: Bool
     }
 
