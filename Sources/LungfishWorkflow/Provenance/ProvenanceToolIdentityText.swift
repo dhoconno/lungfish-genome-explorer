@@ -153,6 +153,17 @@ public struct ProvenanceToolIdentityText: Sendable, Equatable {
         self.isDevelopmentBuild = isDevelopmentBuild
     }
 
+    /// True when `text` is a full git commit, 40 hexadecimal digits, as a Nextflow pipeline's record holds the
+    /// revision it ran (`8fd1fb5bb236e4978f5734e522e6b89e0640a2aa`). A release number or a branch name is not.
+    public static func isCommit(_ text: String) -> Bool {
+        text.utf8.count == 40 && text.utf8.allSatisfy {
+            ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x41 && $0 <= 0x46) || ($0 >= 0x61 && $0 <= 0x66)
+        }
+    }
+
+    /// True when the version is a full git commit.
+    public var versionIsCommit: Bool { Self.isCommit(version) }
+
     /// `v1.24` when the version starts with a digit, `(development build)`
     /// or `v2026.9.72 (development build)` for a development build, the
     /// version otherwise.

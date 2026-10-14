@@ -101,13 +101,12 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
     private static let letterCommit = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
     private static let digitCommit = "3a5c9d1e7b2f40886d9a1c3e5f7092b4d6e8a0c2"
 
-    /// T12. A record the CLI route writes for a TaxTriage run holds the tool `taxtriage` at the revision, a commit,
-    /// and the release tag beside it. Step Tools prints the step's version as recorded, so it reads the 40 characters.
-    func testATaxTriageExecutorRecordShowsTheFortyHexCommitInStepTools() async throws {
+    /// T12. At the base a record the CLI route writes for a TaxTriage run, the tool `taxtriage` at a commit with the
+    /// release tag beside it, read the 40 characters in Step Tools. W5 moved that shape to `<tool> <tag> (<7 chars>)`,
+    /// so this case holds the record that names the commit and no tag, an older one, which still prints it as recorded.
+    func testATaxTriageRecordWithACommitAndNoTagShowsTheFortyHexCommitInStepTools() async throws {
         let commit = Self.letterCommit
-        let model = try await loadedModel(
-            try commandLineRecord(steps: [("taxtriage", commit)], releases: ["taxtriage": "v3.3.8"])
-        )
+        let model = try await loadedModel(try commandLineRecord(steps: [("taxtriage", commit)]))
 
         XCTAssertEqual(model.stepToolsText, "taxtriage \(commit)")
         XCTAssertTrue(model.copyableText.contains("Step Tools: taxtriage \(commit)\n"), model.copyableText)
@@ -116,12 +115,10 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
     }
 
     /// T12. A commit that starts with a digit reads `v<commit>` in Step Tools, in the Lineage and in the Copy text,
-    /// as a version such as `1.24` reads `v1.24`.
+    /// as a version such as `1.24` reads `v1.24`. The record names no tag, since W5 shows a tagged commit as its tag.
     func testACommitThatStartsWithADigitReadsVBeforeItInStepToolsAndTheLineage() async throws {
         let commit = Self.digitCommit
-        let model = try await loadedModel(
-            try commandLineRecord(steps: [("taxtriage", commit)], releases: ["taxtriage": "v3.3.8"])
-        )
+        let model = try await loadedModel(try commandLineRecord(steps: [("taxtriage", commit)]))
 
         XCTAssertEqual(model.stepToolsText, "taxtriage v\(commit)")
         XCTAssertEqual(model.lineageRuns.last?.steps.first?.toolVersion, "v\(commit)")
@@ -164,6 +161,95 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         XCTAssertTrue(model.copyableText.contains("\nCommand: \(step.command)\n"), model.copyableText)
     }
 
+    // MARK: - W5, a commit shown as its release tag (Phase 2.10 lane U35, M1 item 2)
+
+    /// 2.9 W5. A step with a 40-hex `toolVersion` and a `githubReleaseVersion` reads `<tool> <tag> (<7 chars>)`, the
+    /// tag as recorded and the first seven characters of the commit. A second step of the same tool at the same
+    /// commit adds nothing, as before.
+    func testAStepWithACommitAndATagShowsTheTagAndTheFirstSevenCharacters() async throws {
+        let model = try await loadedModel(try commandLineRecord(
+            steps: [("taxtriage", Self.letterCommit), ("taxtriage", Self.letterCommit), ("samtools", "1.21")],
+            releases: ["taxtriage": "v3.3.8"]
+        ))
+
+        XCTAssertEqual(model.stepToolsText, "taxtriage v3.3.8 (a1b2c3d), samtools v1.21")
+        XCTAssertTrue(
+            model.copyableText.contains("Step Tools: taxtriage v3.3.8 (a1b2c3d), samtools v1.21\n"), model.copyableText
+        )
+        let texts = try summaryTexts(of: model)
+        XCTAssertTrue(texts.contains("taxtriage v3.3.8 (a1b2c3d), samtools v1.21"), "\(texts)")
+    }
+
+    /// BIO. The full commit stays in the Copy text, in the Lineage step that the row abbreviates, and a commit that
+    /// starts with a digit reads the same way as any other.
+    func testTheCopyTextKeepsTheFullCommitOfAStepTheRowAbbreviates() async throws {
+        let commit = Self.digitCommit
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", commit)], releases: ["taxtriage": "v3.3.8"])
+        )
+
+        XCTAssertEqual(model.stepToolsText, "taxtriage v3.3.8 (3a5c9d1)")
+        let copy = model.copyableText
+        XCTAssertTrue(copy.contains("Step Tools: taxtriage v3.3.8 (3a5c9d1)\n"), copy)
+        let lineage = try XCTUnwrap(copy.range(of: "\nLineage\n"), copy)
+        XCTAssertTrue(copy[lineage.upperBound...].contains(commit), "the Lineage holds the full commit\n\(copy)")
+    }
+
+    /// A step that has no tag, or whose version is not a commit, shows as it did. An older TaxTriage record has
+    /// one or the other, and the tag is never guessed from a commit (BIO 4).
+    func testAnOlderRecordWithoutBothFactsShowsAsToday() async throws {
+        let tagOnly = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", "3.3.6")], releases: ["taxtriage": "v3.3.6"])
+        )
+        XCTAssertEqual(tagOnly.stepToolsText, "taxtriage v3.3.6")
+
+        let blankTag = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", Self.letterCommit)], releases: ["taxtriage": " "])
+        )
+        XCTAssertEqual(blankTag.stepToolsText, "taxtriage \(Self.letterCommit)")
+
+        let tagThatIsACommit = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", Self.letterCommit)], releases: ["taxtriage": Self.digitCommit])
+        )
+        XCTAssertEqual(tagThatIsACommit.stepToolsText, "taxtriage \(Self.letterCommit)")
+    }
+
+    /// 2.9 W5. Viral Recon and pbAA show as they did. A Viral Recon record names `nf-core-viralrecon` as its own
+    /// tool, so it shows no Step Tools row and its Tool row reads as recorded, and a pbAA run shows its container
+    /// tool at its release number.
+    func testViralReconAndPBAARecordsShowAsToday() async throws {
+        let commit = Self.letterCommit
+        let viralRecon = try await loadedModel(try commandLineRecord(
+            steps: [("nf-core-viralrecon", commit)], releases: ["nf-core-viralrecon": "3.0.0"],
+            runTool: ("nf-core-viralrecon", commit)
+        ))
+        XCTAssertNil(viralRecon.stepToolsText)
+        XCTAssertEqual(viralRecon.toolText, "nf-core-viralrecon \(commit)")
+        XCTAssertFalse(viralRecon.copyableText.contains("Step Tools"), viralRecon.copyableText)
+        XCTAssertTrue(viralRecon.copyableText.contains("\n1. nf-core-viralrecon \(commit)\n"), viralRecon.copyableText)
+
+        let pbaa = try await loadedModel(try commandLineRecord(steps: [("pbaa", "1.2.0"), ("nextflow", "unknown")]))
+        XCTAssertEqual(pbaa.stepToolsText, "pbaa v1.2.0, nextflow")
+    }
+
+    /// UX 6. Showing the row reads the record and writes nothing, not a byte and not a file.
+    func testDisplayingAW5RecordWritesNothing() async throws {
+        let placed = try place(
+            try commandLineRecord(steps: [("taxtriage", Self.letterCommit)], releases: ["taxtriage": "v3.3.8"])
+        )
+        let before = try fileSnapshot(of: placed.root)
+
+        let model = try await load(placed)
+        XCTAssertEqual(model.stepToolsText, "taxtriage v3.3.8 (a1b2c3d)")
+        XCTAssertFalse(model.copyableText.isEmpty)
+
+        let after = try fileSnapshot(of: placed.root)
+        XCTAssertEqual(Set(after.keys), Set(before.keys), "displaying added or removed a file")
+        for (path, file) in before where after[path] != file {
+            XCTFail("displaying changed \(path)")
+        }
+    }
+
     // MARK: - Order
 
     /// The row comes right after Tool in the Copy text, in the order the view lists its rows, and so in the order
@@ -171,17 +257,32 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
     func testTheRowSitsRightAfterToolInTheCopyTextTheViewAndWhatVoiceOverReads() async throws {
         let model = try await loadedModel(try commandLineRecord(steps: [("EsViritu", "1.3.3")]))
 
+        try assertTheRowSitsRightAfterTool(of: model, reading: "EsViritu v1.3.3")
+    }
+
+    /// The abbreviated TaxTriage row keeps the place and the words in all three orders (UX 5).
+    func testTheAbbreviatedRowSitsRightAfterToolInTheCopyTextTheViewAndWhatVoiceOverReads() async throws {
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", Self.letterCommit)], releases: ["taxtriage": "v3.3.8"])
+        )
+
+        try assertTheRowSitsRightAfterTool(of: model, reading: "taxtriage v3.3.8 (a1b2c3d)")
+    }
+
+    private func assertTheRowSitsRightAfterTool(
+        of model: ProvenanceInspectorViewModel, reading rowText: String, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
         let copy = model.copyableText
-        let tool = try XCTUnwrap(copy.range(of: "\nTool: "), copy)
-        let steps = try XCTUnwrap(copy.range(of: "\nStep Tools: "), copy)
-        let created = try XCTUnwrap(copy.range(of: "\nCreated: "), copy)
-        XCTAssertLessThan(tool.lowerBound, steps.lowerBound)
-        XCTAssertLessThan(steps.lowerBound, created.lowerBound)
+        let tool = try XCTUnwrap(copy.range(of: "\nTool: "), copy, file: file, line: line)
+        let steps = try XCTUnwrap(copy.range(of: "\nStep Tools: \(rowText)\n"), copy, file: file, line: line)
+        let created = try XCTUnwrap(copy.range(of: "\nCreated: "), copy, file: file, line: line)
+        XCTAssertLessThan(tool.lowerBound, steps.lowerBound, file: file, line: line)
+        XCTAssertLessThan(steps.lowerBound, created.lowerBound, file: file, line: line)
 
         let texts = try summaryTexts(of: model)
-        let shown = ["Tool", "Step Tools", "EsViritu v1.3.3", "Created"].compactMap { texts.firstIndex(of: $0) }
-        XCTAssertEqual(shown.count, 4, "\(texts)")
-        XCTAssertEqual(shown, shown.sorted(), "\(texts)")
+        let shown = ["Tool", "Step Tools", rowText, "Created"].compactMap { texts.firstIndex(of: $0) }
+        XCTAssertEqual(shown.count, 4, "\(texts)", file: file, line: line)
+        XCTAssertEqual(shown, shown.sorted(), "\(texts)", file: file, line: line)
 
         let window = AccessibilityTreeProbe.host(ProvenanceSection(viewModel: model))
         defer { window.orderOut(nil) }
@@ -192,9 +293,9 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         }
         AccessibilityTreeProbe.waitUntil { spoken().contains("Step Tools") }
         let heard = spoken()
-        let heardAt = ["Tool", "Step Tools", "EsViritu v1.3.3", "Created"].compactMap { heard.firstIndex(of: $0) }
-        XCTAssertEqual(heardAt.count, 4, "\(heard)\n" + AccessibilityTreeProbe.dump(window))
-        XCTAssertEqual(heardAt, heardAt.sorted(), "\(heard)")
+        let heardAt = ["Tool", "Step Tools", rowText, "Created"].compactMap { heard.firstIndex(of: $0) }
+        XCTAssertEqual(heardAt.count, 4, "\(heard)\n" + AccessibilityTreeProbe.dump(window), file: file, line: line)
+        XCTAssertEqual(heardAt, heardAt.sorted(), "\(heard)", file: file, line: line)
     }
 
     // MARK: - Harness
@@ -205,17 +306,19 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
             .appendingPathComponent("Analyses/fastq-trim-cancelled/.lungfish-provenance.json"))
     }
 
-    /// The cancelled record after it names `lungfish-cli` as its own tool and holds one step per pair. A tool named
-    /// in `releases` records that release tag as its step's `githubReleaseVersion`.
+    /// The cancelled record after it names `runTool` (`lungfish-cli` unless a case says otherwise) as its own tool
+    /// and holds one step per pair. A tool named in `releases` records that release tag as its step's
+    /// `githubReleaseVersion`.
     private func commandLineRecord(
         steps: [(tool: String, version: String)],
-        releases: [String: String] = [:]
+        releases: [String: String] = [:],
+        runTool: (name: String, version: String) = ("lungfish-cli", "2026.10.14")
     ) throws -> Data {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try recordBytes()) as? [String: Any])
         let template = try XCTUnwrap((object["steps"] as? [[String: Any]])?.first)
-        object["toolName"] = "lungfish-cli"
-        object["toolVersion"] = "2026.10.14"
-        object["tool"] = ["kind": "cli", "name": "lungfish-cli", "version": "2026.10.14"]
+        object["toolName"] = runTool.name
+        object["toolVersion"] = runTool.version
+        object["tool"] = ["kind": "cli", "name": runTool.name, "version": runTool.version]
         object["steps"] = steps.map { pair -> [String: Any] in
             var step = template
             step["id"] = UUID().uuidString
@@ -227,14 +330,42 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
     }
 
-    private func loadedModel(_ bytes: Data, projectName: String = "Runs.lungfish") async throws -> ProvenanceInspectorViewModel {
+    /// A temporary folder that holds a project with `bytes` as the sidecar of its `classify-run` result.
+    private struct PlacedRecord {
+        let root: URL
+        let sidecar: URL
+    }
+
+    private func place(_ bytes: Data, projectName: String = "Runs.lungfish") throws -> PlacedRecord {
         let root = try TestTempDirectory.make(prefix: "provenance-step-tools")
         addTeardownBlock { TestTempDirectory.cleanup(root) }
         let project = root.appendingPathComponent(projectName, isDirectory: true)
         let sidecar = project.appendingPathComponent("Analyses/classify-run/.lungfish-provenance.json")
         try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
         try bytes.write(to: sidecar, options: .atomic)
+        return PlacedRecord(root: root, sidecar: sidecar)
+    }
 
+    /// Every file under `root` with its bytes and modification date, to show that reading changed none.
+    private func fileSnapshot(of root: URL) throws -> [String: [Data?]] {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
+        let walker = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys))
+        var files: [String: [Data?]] = [:]
+        for case let url as URL in walker {
+            let values = try url.resourceValues(forKeys: Set(keys))
+            guard values.isRegularFile == true else { continue }
+            let stamp = values.contentModificationDate.map { Data(String($0.timeIntervalSinceReferenceDate).utf8) }
+            files[String(url.path.dropFirst(root.path.count))] = [try Data(contentsOf: url), stamp]
+        }
+        return files
+    }
+
+    private func loadedModel(_ bytes: Data, projectName: String = "Runs.lungfish") async throws -> ProvenanceInspectorViewModel {
+        try await load(try place(bytes, projectName: projectName))
+    }
+
+    private func load(_ placed: PlacedRecord) async throws -> ProvenanceInspectorViewModel {
+        let sidecar = placed.sidecar
         let model = ProvenanceInspectorViewModel()
         model.load(item: ProvenanceInspectableItem(
             url: sidecar.deletingLastPathComponent(),
