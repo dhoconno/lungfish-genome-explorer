@@ -69,14 +69,16 @@ extension OutputEquivalence {
     }
 
     /// What a text file is to a comparison, which decides its masks.
-    enum TextRole {
+    package enum TextRole {
         case provenance
         case record
         case payload
     }
 
-    /// The role of a text file, from its name without a compression suffix.
-    static func role(ofFileNamed name: String) -> TextRole {
+    /// The role of a text file, from its name without a compression suffix. Package access, so the
+    /// route parity harness explains a provenance envelope under the role the comparison read it
+    /// under, with no second copy of the rule (lane A45).
+    package static func role(ofFileNamed name: String) -> TextRole {
         let lowered = name.lowercased()
         guard lowered.hasSuffix(".json") else { return .payload }
         if lowered.contains("provenance") { return .provenance }

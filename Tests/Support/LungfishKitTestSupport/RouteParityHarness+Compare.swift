@@ -30,8 +30,7 @@
 
 import CryptoKit
 import Foundation
-// Testable, so that the role of a file is the one the comparison read it under (`OutputEquivalence.role`).
-@testable import LungfishTestSupport
+import LungfishTestSupport
 
 extension RouteParityHarness {
     /// The most differences one file is explained as. A file that differs in more is one
