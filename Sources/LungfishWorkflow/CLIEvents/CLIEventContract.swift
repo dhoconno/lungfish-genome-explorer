@@ -74,17 +74,21 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (45)
+    // MARK: Leaves that emit events (49)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
         "assemble": .events(flag: jsonEvents, channel: .standardError),
+        "bam annotate": .events(flag: formatJSON, channel: .standardOutput),
         "bam consensus": .events(flag: formatJSON, channel: .standardOutput),
+        "bam filter": .events(flag: formatJSON, channel: .standardOutput),
         "bam primer-trim": .events(flag: formatJSON, channel: .standardOutput),
         "bam remove-track": .events(flag: formatJSON, channel: .standardOutput),
         "build-db esviritu": .events(flag: formatJSON, channel: .standardOutput),
         "build-db kraken2": .events(flag: formatJSON, channel: .standardOutput),
         "build-db taxtriage": .events(flag: formatJSON, channel: .standardOutput),
+        "bundle deduplicate-alignments": .events(flag: formatJSON, channel: .standardOutput),
+        "bundle mark-duplicates": .events(flag: formatJSON, channel: .standardOutput),
         "conda classify": .events(flag: formatJSON, channel: .standardOutput),
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "extract reads": .events(flag: formatJSON, channel: .standardOutput),
@@ -124,7 +128,7 @@ package enum CLIEventContractTable {
         "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]
 
-    // MARK: Leaves that print one JSON result (72)
+    // MARK: Leaves that print one JSON result (70)
 
     private static let results: [String: CLIEventContract] = [
         "analyze composition": .result(schemaID: "analyze-composition"),
@@ -133,10 +137,8 @@ package enum CLIEventContractTable {
         "bam markdup": .result(schemaID: "markdup-summary"),
         "blast verify": .result(schemaID: "blast-verify"),
         "bundle create": .result(schemaID: "bundle-create"),
-        "bundle deduplicate-alignments": .result(schemaID: "bundle-deduplicate-alignments"),
         "bundle info": .result(schemaID: "bundle-info"),
         "bundle list": .result(schemaID: "bundle-list"),
-        "bundle mark-duplicates": .result(schemaID: "bundle-mark-duplicates"),
         "bundle validate": .result(schemaID: "bundle-validate"),
         "convert": .result(schemaID: "convert"),
         "cz-id summary": .result(schemaID: "cz-id-summary"),
@@ -201,16 +203,14 @@ package enum CLIEventContractTable {
         "workflow validate": .result(schemaID: "workflow-validate"),
     ]
 
-    // MARK: Private stream shapes still in use (9 leaves)
+    // MARK: Private stream shapes still in use (7 leaves)
 
     // `fastq genotype`, `genotype-cohort`, `ont-barcode-genotype` and `full-length-ont-mhc-genotype`
     // also print R3 on standard error beside their document, so the lane that retires R3 converts
     // all six leaves.
     private static let legacy: [String: CLIEventContract] = [
-        "bam annotate": .legacy(schemaID: "s11-bam-annotate", removeBy: "2.9"),
         "bam annotate-best": .legacy(schemaID: "s12-bam-annotate-best", removeBy: "2.9"),
         "bam annotate-cds-best": .legacy(schemaID: "s13-bam-annotate-cds-best", removeBy: "2.9"),
-        "bam filter": .legacy(schemaID: "s10-bam-filter", removeBy: "2.9"),
         "extract contigs": .legacy(schemaID: "r4-reference-bundle-path-line", removeBy: "2.9"),
         "fastq 12s-match": .legacy(schemaID: "r3-twelve-s-progress-text", removeBy: "2.8"),
         "fastq 12s-reference-bundle": .legacy(schemaID: "r3-twelve-s-progress-text", removeBy: "2.8"),

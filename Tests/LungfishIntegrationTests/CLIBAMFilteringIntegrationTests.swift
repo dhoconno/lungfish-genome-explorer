@@ -4,6 +4,7 @@ import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class CLIBAMFilteringIntegrationTests: XCTestCase {
     private var tempDir: URL!
@@ -141,13 +142,14 @@ final class CLIBAMFilteringIntegrationTests: XCTestCase {
             .map(String.init)
         XCTAssertGreaterThanOrEqual(outputLines.count, 2)
 
+        // Since Phase 2.10 lane A54 the leaf prints CLIEvent lines: a start, the service's stages as
+        // progress events, and a complete that names the derived BAM first.
         let events = try outputLines.map {
-            try XCTUnwrap(
-                try? JSONDecoder().decode(BAMCommand.FilterEvent.self, from: Data($0.utf8))
-            )
+            try XCTUnwrap(try CLIEventLineDecoder().decode(line: $0))
         }
-        XCTAssertEqual(events.first?.event, "runStart")
-        XCTAssertEqual(events.last?.event, "runComplete")
+        guard case .start = events.first else { return XCTFail("the stream does not begin with start") }
+        guard case let .complete(outputs, _) = events.last else { return XCTFail("the stream does not end in complete") }
+        XCTAssertTrue(outputs.first?.hasSuffix(".bam") == true, "\(outputs)")
     }
 
     func testRootLevelTSVFormatIsRejectedForBamFilterExecutable() async throws {

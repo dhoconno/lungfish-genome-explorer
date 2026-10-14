@@ -1,0 +1,8 @@
+{"event":"start","message":"Preparing Mapped Primary...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Checking required SAM tags...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Filtering alignments...","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"Sorting filtered BAM...","progress":0.72,"schemaVersion":2}
+{"event":"progress","message":"Indexing filtered BAM...","progress":0.84,"schemaVersion":2}
+{"event":"progress","message":"Attaching filtered BAM...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Filtered alignment attached.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Created filtered alignment track \"Mapped Primary\".","output":"\/work\/Sample.lungfishref\/alignments\/filtered\/aln_1a2b3c4d.bam","outputs":["\/work\/Sample.lungfishref\/alignments\/filtered\/aln_1a2b3c4d.bam","\/work\/Sample.lungfishref\/alignments\/filtered\/aln_1a2b3c4d.bam.bai","\/work\/Sample.lungfishref\/alignments\/filtered\/aln_1a2b3c4d.stats.db"],"progress":1,"schemaVersion":2}

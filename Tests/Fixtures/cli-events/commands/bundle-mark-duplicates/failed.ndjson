@@ -1,0 +1,2 @@
+{"event":"start","message":"Marking duplicates...","progress":0,"schemaVersion":2}
+{"error":"Every alignment track in this bundle already has a duplicate-marked version. Nothing to do.","event":"failed","schemaVersion":2}

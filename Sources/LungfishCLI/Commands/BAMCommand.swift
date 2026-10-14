@@ -16,37 +16,6 @@ struct BAMCommand: AsyncParsableCommand {
         subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, AnnotateBestSubcommand.self, AnnotateCDSBestSubcommand.self, MarkdupSubcommand.self, PrimerTrimSubcommand.self, AdoptMappingSubcommand.self, RemoveTrackSubcommand.self, BAMConsensusSubcommand.self]
     )
 
-    struct FilterEvent: Codable, Sendable {
-        let event: String
-        let progress: Double?
-        let message: String
-        let bundlePath: String?
-        let mappingResultPath: String?
-        let sourceAlignmentTrackID: String?
-        let outputAlignmentTrackID: String?
-        let outputAlignmentTrackName: String?
-        let bamPath: String?
-        let baiPath: String?
-        let metadataDBPath: String?
-    }
-
-    struct AnnotateEvent: Codable, Sendable {
-        let event: String
-        let progress: Double?
-        let message: String
-        let bundlePath: String?
-        let sourceAlignmentTrackID: String?
-        let sourceAlignmentTrackName: String?
-        let outputAnnotationTrackID: String?
-        let outputAnnotationTrackName: String?
-        let databasePath: String?
-        let convertedRecordCount: Int?
-        let skippedUnmappedCount: Int?
-        let skippedSecondarySupplementaryCount: Int?
-        let includedSequence: Bool?
-        let includedQualities: Bool?
-    }
-
     struct AnnotateBestEvent: Codable, Sendable {
         let event: String
         let progress: Double?
@@ -102,15 +71,21 @@ extension BAMCommand {
             abstract: "Convert mapped reads to annotations in a reference bundle"
         )
 
-        struct Runtime {
-            typealias AnnotateRunner = (MappedReadsAnnotationRequest) async throws -> MappedReadsAnnotationResult
+        struct Runtime: Sendable {
+            typealias AnnotateRunner = @Sendable (
+                MappedReadsAnnotationRequest,
+                @escaping @Sendable (Double, String) -> Void
+            ) async throws -> MappedReadsAnnotationResult
 
             let runAnnotate: AnnotateRunner
 
             static func live() -> Runtime {
                 Runtime(
-                    runAnnotate: { request in
-                        try await MappedReadsAnnotationService().convertMappedReads(request: request)
+                    runAnnotate: { request, progress in
+                        try await MappedReadsAnnotationService().convertMappedReads(
+                            request: request,
+                            progressHandler: progress
+                        )
                     }
                 )
             }
@@ -201,77 +176,14 @@ extension BAMCommand {
             resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
             emit: @escaping (String) -> Void
         ) async throws -> MappedReadsAnnotationResult {
-            let resolvedGlobalOptions = resolvedGlobalOptions
+            let options = resolvedGlobalOptions
                 ?? (try? globalOptions.resolved())
-                ?? ResolvedTextAndJSONGlobalOptions(
-                    outputFormat: globalOptions.outputFormat,
-                    quiet: globalOptions.quiet
-                )
-
-            if resolvedGlobalOptions.outputFormat == .json {
-                return try await execute(runtime: runtime) { event in
-                    if let line = encode(event: event) {
-                        emit(line)
-                    }
-                }
-            }
-
-            return try await execute(runtime: runtime) { event in
-                for line in textLines(for: event) {
-                    emit(line)
-                }
-            }
-        }
-
-        private func execute(
-            runtime: Runtime,
-            emitEvent: @escaping (BAMCommand.AnnotateEvent) -> Void
-        ) async throws -> MappedReadsAnnotationResult {
-            let request = makeRequest()
-            emitEvent(
-                BAMCommand.AnnotateEvent(
-                    event: "runStart",
-                    progress: 0.0,
-                    message: "Converting mapped reads from '\(alignmentTrackID)' into '\(normalizedOutputTrackName())'.",
-                    bundlePath: request.bundleURL.path,
-                    sourceAlignmentTrackID: alignmentTrackID,
-                    sourceAlignmentTrackName: nil,
-                    outputAnnotationTrackID: nil,
-                    outputAnnotationTrackName: normalizedOutputTrackName(),
-                    databasePath: nil,
-                    convertedRecordCount: nil,
-                    skippedUnmappedCount: nil,
-                    skippedSecondarySupplementaryCount: nil,
-                    includedSequence: includeSequence,
-                    includedQualities: includeQualities
-                )
-            )
-
-            do {
-                let result = try await runtime.runAnnotate(request)
-                emitEvent(makeRunCompleteEvent(from: result))
-                return result
-            } catch {
-                emitEvent(
-                    BAMCommand.AnnotateEvent(
-                        event: "runFailed",
-                        progress: nil,
-                        message: error.localizedDescription,
-                        bundlePath: request.bundleURL.path,
-                        sourceAlignmentTrackID: alignmentTrackID,
-                        sourceAlignmentTrackName: nil,
-                        outputAnnotationTrackID: nil,
-                        outputAnnotationTrackName: normalizedOutputTrackName(),
-                        databasePath: nil,
-                        convertedRecordCount: nil,
-                        skippedUnmappedCount: nil,
-                        skippedSecondarySupplementaryCount: nil,
-                        includedSequence: includeSequence,
-                        includedQualities: includeQualities
-                    )
-                )
-                throw error
-            }
+                ?? ResolvedTextAndJSONGlobalOptions(outputFormat: globalOptions.outputFormat, quiet: globalOptions.quiet)
+            return try await BAMAnnotateRun(
+                request: makeRequest(),
+                sourceTrackID: trimmedValue(alignmentTrackID),
+                runtime: runtime
+            ).execute(output: AlignmentWorkflowLeafOutput(eventsOn: options.outputFormat == .json, quiet: options.quiet, emit: emit))
         }
 
         private func makeRequest() -> MappedReadsAnnotationRequest {
@@ -297,75 +209,6 @@ extension BAMCommand {
 
         private func trimmedValue(_ value: String) -> String {
             value.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        private func makeRunCompleteEvent(
-            from result: MappedReadsAnnotationResult
-        ) -> BAMCommand.AnnotateEvent {
-            BAMCommand.AnnotateEvent(
-                event: "runComplete",
-                progress: 1.0,
-                message: "Created annotation track '\(result.annotationTrackInfo.name)' (\(result.annotationTrackInfo.id)) from mapped reads.",
-                bundlePath: result.bundleURL.path,
-                sourceAlignmentTrackID: result.sourceAlignmentTrackID,
-                sourceAlignmentTrackName: result.sourceAlignmentTrackName,
-                outputAnnotationTrackID: result.annotationTrackInfo.id,
-                outputAnnotationTrackName: result.annotationTrackInfo.name,
-                databasePath: absolutePath(for: result.databasePath, within: result.bundleURL),
-                convertedRecordCount: result.convertedRecordCount,
-                skippedUnmappedCount: result.skippedUnmappedCount,
-                skippedSecondarySupplementaryCount: result.skippedSecondarySupplementaryCount,
-                includedSequence: result.includedSequence,
-                includedQualities: result.includedQualities
-            )
-        }
-
-        private func absolutePath(for path: String, within bundleURL: URL) -> String {
-            let candidate = URL(fileURLWithPath: path)
-            if candidate.isFileURL && path.hasPrefix("/") {
-                return candidate.path
-            }
-            return bundleURL.appendingPathComponent(path).path
-        }
-
-        private func textLines(for event: BAMCommand.AnnotateEvent) -> [String] {
-            switch event.event {
-            case "runComplete":
-                var lines = [event.message]
-                if let bundlePath = event.bundlePath {
-                    lines.append("Bundle: \(bundlePath)")
-                }
-                if let id = event.sourceAlignmentTrackID {
-                    if let name = event.sourceAlignmentTrackName {
-                        lines.append("Source alignment track: \(id) (\(name))")
-                    } else {
-                        lines.append("Source alignment track: \(id)")
-                    }
-                }
-                if let databasePath = event.databasePath {
-                    lines.append("Database: \(databasePath)")
-                }
-                if let convertedRecordCount = event.convertedRecordCount {
-                    lines.append("Converted reads: \(convertedRecordCount)")
-                }
-                if let skippedUnmappedCount = event.skippedUnmappedCount {
-                    lines.append("Skipped unmapped reads: \(skippedUnmappedCount)")
-                }
-                if let skippedSecondarySupplementaryCount = event.skippedSecondarySupplementaryCount {
-                    lines.append("Skipped secondary/supplementary reads: \(skippedSecondarySupplementaryCount)")
-                }
-                return lines
-            default:
-                return [event.message]
-            }
-        }
-
-        private func encode(event: BAMCommand.AnnotateEvent) -> String? {
-            let encoder = JSONEncoder()
-            guard let data = try? encoder.encode(event) else {
-                return nil
-            }
-            return String(data: data, encoding: .utf8)
         }
     }
 
@@ -1010,26 +853,28 @@ extension BAMCommand {
             abstract: "Derive a filtered BAM alignment track from a bundle or mapping analysis directory"
         )
 
-        struct Runtime {
-            typealias FilterRunner = (
+        struct Runtime: Sendable {
+            typealias FilterRunner = @Sendable (
                 AlignmentFilterTarget,
                 String,
                 String,
                 String?,
-                AlignmentFilterRequest
+                AlignmentFilterRequest,
+                @escaping @Sendable (Double, String) -> Void
             ) async throws -> BundleAlignmentFilterResult
 
             let runFilter: FilterRunner
 
             static func live() -> Runtime {
                 Runtime(
-                    runFilter: { target, sourceTrackID, outputTrackName, outputTrackID, request in
+                    runFilter: { target, sourceTrackID, outputTrackName, outputTrackID, request, progress in
                         try await BundleAlignmentFilterService().deriveFilteredAlignment(
                             target: target,
                             sourceTrackID: sourceTrackID,
                             outputTrackName: outputTrackName,
                             outputTrackID: outputTrackID,
-                            filterRequest: request
+                            filterRequest: request,
+                            progressHandler: progress
                         )
                     }
                 )
@@ -1157,79 +1002,17 @@ extension BAMCommand {
             resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
             emit: @escaping (String) -> Void
         ) async throws -> BundleAlignmentFilterResult {
-            let resolvedGlobalOptions = resolvedGlobalOptions
+            let options = resolvedGlobalOptions
                 ?? (try? globalOptions.resolved())
-                ?? ResolvedTextAndJSONGlobalOptions(
-                    outputFormat: globalOptions.outputFormat,
-                    quiet: globalOptions.quiet
-                )
-
-            if resolvedGlobalOptions.outputFormat == .json {
-                return try await execute(runtime: runtime) { event in
-                    if let line = encode(event: event) {
-                        emit(line)
-                    }
-                }
-            }
-
-            return try await execute(runtime: runtime) { event in
-                for line in textLines(for: event) {
-                    emit(line)
-                }
-            }
-        }
-
-        private func execute(
-            runtime: Runtime,
-            emitEvent: @escaping (BAMCommand.FilterEvent) -> Void
-        ) async throws -> BundleAlignmentFilterResult {
-            let target = try resolvedTarget()
-            let request = makeFilterRequest()
-
-            emitEvent(
-                BAMCommand.FilterEvent(
-                    event: "runStart",
-                    progress: 0.0,
-                    message: "Filtering alignment track '\(alignmentTrackID)' into '\(normalizedOutputTrackName())'.",
-                    bundlePath: bundlePath,
-                    mappingResultPath: mappingResultPath,
-                    sourceAlignmentTrackID: alignmentTrackID,
-                    outputAlignmentTrackID: nil,
-                    outputAlignmentTrackName: normalizedOutputTrackName(),
-                    bamPath: nil,
-                    baiPath: nil,
-                    metadataDBPath: nil
-                )
-            )
-
-            do {
-                let result = try await runtime.runFilter(
-                    target,
-                    alignmentTrackID,
-                    normalizedOutputTrackName(),
-                    normalizedOutputTrackID(),
-                    request
-                )
-                emitEvent(makeRunCompleteEvent(from: result))
-                return result
-            } catch {
-                emitEvent(
-                    BAMCommand.FilterEvent(
-                        event: "runFailed",
-                        progress: nil,
-                        message: error.localizedDescription,
-                        bundlePath: bundlePath,
-                        mappingResultPath: mappingResultPath,
-                        sourceAlignmentTrackID: alignmentTrackID,
-                        outputAlignmentTrackID: nil,
-                        outputAlignmentTrackName: normalizedOutputTrackName(),
-                        bamPath: nil,
-                        baiPath: nil,
-                        metadataDBPath: nil
-                    )
-                )
-                throw error
-            }
+                ?? ResolvedTextAndJSONGlobalOptions(outputFormat: globalOptions.outputFormat, quiet: globalOptions.quiet)
+            return try await BAMFilterRun(
+                target: try resolvedTarget(),
+                sourceTrackID: alignmentTrackID,
+                outputTrackName: normalizedOutputTrackName(),
+                outputTrackID: normalizedOutputTrackID(),
+                request: makeFilterRequest(),
+                runtime: runtime
+            ).execute(output: AlignmentWorkflowLeafOutput(eventsOn: options.outputFormat == .json, quiet: options.quiet, emit: emit))
         }
 
         private func resolvedTarget() throws -> AlignmentFilterTarget {
@@ -1283,68 +1066,6 @@ extension BAMCommand {
 
         private func trimmedValue(_ value: String) -> String {
             value.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        private func makeRunCompleteEvent(
-            from result: BundleAlignmentFilterResult
-        ) -> BAMCommand.FilterEvent {
-            BAMCommand.FilterEvent(
-                event: "runComplete",
-                progress: 1.0,
-                message: "Created filtered BAM track '\(result.trackInfo.name)' (\(result.trackInfo.id)).",
-                bundlePath: result.bundleURL.path,
-                mappingResultPath: result.mappingResultURL?.path,
-                sourceAlignmentTrackID: alignmentTrackID,
-                outputAlignmentTrackID: result.trackInfo.id,
-                outputAlignmentTrackName: result.trackInfo.name,
-                bamPath: absolutePath(for: result.trackInfo.sourcePath, within: result.bundleURL),
-                baiPath: absolutePath(for: result.trackInfo.indexPath, within: result.bundleURL),
-                metadataDBPath: result.trackInfo.metadataDBPath.map { absolutePath(for: $0, within: result.bundleURL) }
-            )
-        }
-
-        private func absolutePath(for path: String, within bundleURL: URL) -> String {
-            let candidate = URL(fileURLWithPath: path)
-            if candidate.isFileURL && path.hasPrefix("/") {
-                return candidate.path
-            }
-            return bundleURL.appendingPathComponent(path).path
-        }
-
-        private func textLines(for event: BAMCommand.FilterEvent) -> [String] {
-            switch event.event {
-            case "runComplete":
-                var lines = [event.message]
-                if let bundlePath = event.bundlePath {
-                    lines.append("Bundle: \(bundlePath)")
-                }
-                if let mappingResultPath = event.mappingResultPath {
-                    lines.append("Mapping result: \(mappingResultPath)")
-                }
-                if let sourceAlignmentTrackID = event.sourceAlignmentTrackID {
-                    lines.append("Source alignment track: \(sourceAlignmentTrackID)")
-                }
-                if let bamPath = event.bamPath {
-                    lines.append("BAM: \(bamPath)")
-                }
-                if let baiPath = event.baiPath {
-                    lines.append("BAI: \(baiPath)")
-                }
-                if let metadataDBPath = event.metadataDBPath {
-                    lines.append("Metadata DB: \(metadataDBPath)")
-                }
-                return lines
-            default:
-                return [event.message]
-            }
-        }
-
-        private func encode(event: BAMCommand.FilterEvent) -> String? {
-            let encoder = JSONEncoder()
-            guard let data = try? encoder.encode(event) else {
-                return nil
-            }
-            return String(data: data, encoding: .utf8)
         }
     }
 }

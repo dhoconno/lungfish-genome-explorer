@@ -1,0 +1,8 @@
+{"event":"start","message":"Preparing Mapped Reads...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Opening bundle...","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Reading mapped alignments...","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Converting reads to annotations...","progress":0.35,"schemaVersion":2}
+{"event":"progress","message":"Writing annotation database...","progress":0.78,"schemaVersion":2}
+{"event":"progress","message":"Updating bundle manifest...","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"Mapped reads annotation track created.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Created annotation track \"Mapped Reads\".","output":"\/work\/Sample.lungfishref\/annotations\/ann_1a2b3c4d.db","outputs":["\/work\/Sample.lungfishref\/annotations\/ann_1a2b3c4d.db"],"progress":1,"schemaVersion":2}

@@ -16,6 +16,7 @@ enum CLIDeduplicatedBundleSupport {
         outputFormat: OutputFormat,
         quiet: Bool,
         command: [String],
+        progress: (@Sendable (Double, String) -> Void)? = nil,
         emit: @escaping (String) -> Void
     ) async throws -> AlignmentDuplicateService.WorkflowResult {
         let sourceBundleURL = URL(fileURLWithPath: sourceBundlePath)
@@ -35,7 +36,8 @@ enum CLIDeduplicatedBundleSupport {
         let runClock = ProvenanceRunClock()
         let result = try await AlignmentDuplicateService.createDeduplicatedBundle(
             from: sourceBundleURL,
-            outputBundleURL: outputBundleURL
+            outputBundleURL: outputBundleURL,
+            progressHandler: progress
         )
 
         try await CLIProvenanceSupport.recordSingleStepRun(

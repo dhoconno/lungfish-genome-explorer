@@ -1,0 +1,2 @@
+{"event":"start","message":"Preparing Mapped Reads...","progress":0,"schemaVersion":2}
+{"error":"An annotation track named 'Mapped Reads' already exists. Use --replace to overwrite it.","event":"failed","schemaVersion":2}

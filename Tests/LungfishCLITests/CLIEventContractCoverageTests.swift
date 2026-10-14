@@ -146,8 +146,6 @@ final class CLIEventContractCoverageTests: XCTestCase {
     /// also print R3 on standard error beside their document, so the lane that retires R3 converts
     /// all six leaves.
     private static let shapesLeft: [String: (removeBy: String, leaves: [String])] = [
-        "s10-bam-filter": ("2.9", ["bam filter"]),
-        "s11-bam-annotate": ("2.9", ["bam annotate"]),
         "s12-bam-annotate-best": ("2.9", ["bam annotate-best"]),
         "s13-bam-annotate-cds-best": ("2.9", ["bam annotate-cds-best"]),
         "r1-ont-barcode-genotyping": ("2.8", ["fastq ont-barcode-genotype"]),
@@ -181,9 +179,9 @@ final class CLIEventContractCoverageTests: XCTestCase {
             if case .legacy = $0 { return true }
             return false
         }
-        XCTAssertEqual(found.count, 8, "Eight private shapes are left")
+        XCTAssertEqual(found.count, 6, "Six private shapes are left")
         XCTAssertEqual(legacyRows.count, Self.shapesLeft.values.map(\.leaves.count).reduce(0, +))
-        XCTAssertEqual(legacyRows.count, 9, "Nine leaves still print one of them")
+        XCTAssertEqual(legacyRows.count, 7, "Seven leaves still print one of them")
     }
 
     func testEveryLegacyRowNamesAFutureSubPhase() {
@@ -232,10 +230,10 @@ final class CLIEventContractCoverageTests: XCTestCase {
             }
         }
         XCTAssertEqual(
-            counts["events"], 45,
-            "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42, fetch genome since 2.10 A44, variants delete and import-sample-metadata since 2.10 A43, bam remove-track, bam consensus and extract reads since 2.10 A51, workflow run since 2.10 A30"
+            counts["events"], 49,
+            "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42, fetch genome since 2.10 A44, variants delete and import-sample-metadata since 2.10 A43, bam remove-track, bam consensus and extract reads since 2.10 A51, workflow run since 2.10 A30, and bam filter, bam annotate and the two duplicate leaves since A54"
         )
-        XCTAssertEqual(counts["legacy"], 9)
+        XCTAssertEqual(counts["legacy"], 7)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }
 
@@ -454,7 +452,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
         (
             "No Swift type decodes the document. The CLI builds it as a dictionary, or its type is private or only encodes",
             [
-                "blast-verify", "bundle-create", "bundle-deduplicate-alignments", "bundle-mark-duplicates",
+                "blast-verify", "bundle-create",
                 "markdup-summary", "debug-fastq-ingest", "fastq-ont-genotype", "fastq-pbaa-cluster",
                 "fastq-savont-cluster", "genotype-apply-annotations", "genotype-export",
                 "genotype-export-labkey", "genotype-export-pivot-xlsx", "genotype-export-xlsx",

@@ -19,7 +19,8 @@ final class BAMAnnotateCommandTests: XCTestCase {
         ])
 
         let runtime = BAMCommand.AnnotateSubcommand.Runtime(
-            runAnnotate: { request in
+            runAnnotate: { request, progress in
+                progress(0.1, "Reading mapped alignments...")
                 XCTAssertEqual(request.bundleURL, URL(fileURLWithPath: "/tmp/Test.lungfishref"))
                 XCTAssertEqual(request.sourceTrackID, "aln-1")
                 XCTAssertEqual(request.outputTrackID, "mapped_reads_custom")
@@ -54,22 +55,21 @@ final class BAMAnnotateCommandTests: XCTestCase {
         var lines: [String] = []
         _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
 
-        let runComplete = try XCTUnwrap(
-            lines
-                .compactMap(decodeAnnotateEvent)
-                .first(where: { $0.event == "runComplete" })
+        // Since Phase 2.10 lane A54 the leaf prints CLIEvent lines under --format json: a start with the
+        // row's first detail, the service's stages as progress events, and a complete that names the database.
+        let events = try lines.compactMap { try CLIEventLineDecoder().decode(line: $0) }
+        XCTAssertEqual(
+            events,
+            [
+                .start(message: "Preparing Mapped Reads..."),
+                .progress(fraction: 0.1, message: "Reading mapped alignments..."),
+                .complete(
+                    outputs: ["/tmp/Test.lungfishref/annotations/ann-mapped.db"],
+                    message: "Created annotation track \"Mapped Reads\"."
+                ),
+            ]
         )
-        XCTAssertEqual(runComplete.bundlePath, "/tmp/Test.lungfishref")
-        XCTAssertEqual(runComplete.sourceAlignmentTrackID, "aln-1")
-        XCTAssertEqual(runComplete.sourceAlignmentTrackName, "Source BAM")
-        XCTAssertEqual(runComplete.outputAnnotationTrackID, "ann-mapped")
-        XCTAssertEqual(runComplete.outputAnnotationTrackName, "Mapped Reads")
-        XCTAssertEqual(runComplete.databasePath, "/tmp/Test.lungfishref/annotations/ann-mapped.db")
-        XCTAssertEqual(runComplete.convertedRecordCount, 11)
-        XCTAssertEqual(runComplete.skippedUnmappedCount, 2)
-        XCTAssertEqual(runComplete.skippedSecondarySupplementaryCount, 3)
-        XCTAssertEqual(runComplete.includedSequence, true)
-        XCTAssertEqual(runComplete.includedQualities, true)
+        XCTAssertEqual(lines.count, 3, "standard output holds event lines and nothing else")
     }
 
     func testAnnotateCommandEmitsTextSummary() async throws {
@@ -80,7 +80,7 @@ final class BAMAnnotateCommandTests: XCTestCase {
             "--output-track-name", "Mapped Reads",
         ])
         let runtime = BAMCommand.AnnotateSubcommand.Runtime(
-            runAnnotate: { _ in
+            runAnnotate: { _, _ in
                 MappedReadsAnnotationResult(
                     bundleURL: URL(fileURLWithPath: "/tmp/Test.lungfishref"),
                     sourceAlignmentTrackID: "aln-1",
@@ -241,13 +241,6 @@ final class BAMAnnotateCommandTests: XCTestCase {
         XCTAssertEqual(runComplete.candidateRecordCount, 20)
         XCTAssertEqual(runComplete.selectedLocusCount, 5)
     }
-}
-
-private func decodeAnnotateEvent(_ line: String) -> BAMCommand.AnnotateEvent? {
-    guard let data = line.data(using: .utf8) else {
-        return nil
-    }
-    return try? JSONDecoder().decode(BAMCommand.AnnotateEvent.self, from: data)
 }
 
 private func decodeAnnotateBestEvent(_ line: String) -> BAMCommand.AnnotateBestEvent? {

@@ -1,0 +1,5 @@
+{"event":"start","message":"Creating deduplicated bundle...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Created deduplicated bundle copy.","progress":0.08,"schemaVersion":2}
+{"event":"progress","message":"Sample BAM: removing duplicates...","progress":0.54,"schemaVersion":2}
+{"event":"progress","message":"Deduplicated bundle ready.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Created Sample-deduplicated.lungfishref from 1 alignment track.","output":"\/work\/Sample-deduplicated.lungfishref","outputs":["\/work\/Sample-deduplicated.lungfishref"],"progress":1,"schemaVersion":2}

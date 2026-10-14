@@ -1,0 +1,2 @@
+{"event":"start","message":"Preparing Mapped Primary...","progress":0,"schemaVersion":2}
+{"error":"Could not find alignment track 'aln-missing' in the bundle.","event":"failed","schemaVersion":2}

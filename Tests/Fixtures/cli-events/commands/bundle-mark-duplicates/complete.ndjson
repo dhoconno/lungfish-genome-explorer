@@ -1,0 +1,5 @@
+{"event":"start","message":"Marking duplicates...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing Sample BAM...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Sample BAM: marking duplicates...","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Duplicate marking complete.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Marked duplicates in 1 alignment track.","output":"\/work\/Sample.lungfishref","outputs":["\/work\/Sample.lungfishref"],"progress":1,"schemaVersion":2}

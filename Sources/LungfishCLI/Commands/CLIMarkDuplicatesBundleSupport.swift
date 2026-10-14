@@ -15,6 +15,7 @@ enum CLIMarkDuplicatesBundleSupport {
         outputFormat: OutputFormat,
         quiet: Bool,
         command: [String],
+        progress: (@Sendable (Double, String) -> Void)? = nil,
         emit: @escaping (String) -> Void
     ) async throws -> AlignmentDuplicateService.WorkflowResult {
         let bundleURL = URL(fileURLWithPath: bundlePath)
@@ -27,7 +28,10 @@ enum CLIMarkDuplicatesBundleSupport {
         }
 
         let runClock = ProvenanceRunClock()
-        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
+        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(
+            bundleURL: bundleURL,
+            progressHandler: progress
+        )
 
         let parameters: [String: ParameterValue] = [
             "bundle": .file(bundleURL),
