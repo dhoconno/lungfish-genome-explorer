@@ -202,4 +202,60 @@ struct ProvenanceStderrLineBoundaryTests {
         let kept = try #require(ProvenanceStderr.truncated(log))
         #expect(ProvenanceStderr.truncated(kept) == kept)
     }
+
+    // MARK: A capture that lost its start (Phase 2.10, S34)
+
+    @Test("a capture that did not hit its limit comes back as it is")
+    func anUntruncatedCaptureIsKept() {
+        for text in ["", "one\n", "no line break", "a\nb\nc", "\n\n", "tail of a line\n"] {
+            #expect(ProvenanceStderr.wholeLines(ofCapture: text, truncated: false) == text, "\(text.debugDescription)")
+        }
+    }
+
+    @Test("a truncated capture loses its first line, the one that lost its start")
+    func aTruncatedCaptureLosesItsFirstLine() {
+        let cases: [(capture: String, whole: String)] = [
+            ("ects/Study.lungfish/part-1.bam\n[bam_sort] part-2.bam\n[bam_sort] part-3.bam\n",
+             "[bam_sort] part-2.bam\n[bam_sort] part-3.bam\n"),
+            ("ects/Study.lungfish/part-1.bam\r\nwhole\r\n", "whole\r\n"),
+            ("\nwhole\n", "whole\n"),
+            ("tail of a line\nlast line without a break", "last line without a break"),
+            ("one line\n", ""),
+            ("\n", ""),
+        ]
+        for (capture, whole) in cases {
+            #expect(ProvenanceStderr.wholeLines(ofCapture: capture, truncated: true) == whole, "\(capture.debugDescription)")
+        }
+    }
+
+    @Test("a truncated capture with no line break lies inside one line and keeps nothing")
+    func aTruncatedCaptureInsideOneLineKeepsNothing() {
+        for text in ["", "x", String(repeating: "x", count: 100_000)] {
+            #expect(ProvenanceStderr.wholeLines(ofCapture: text, truncated: true) == "", "\(text.count) characters")
+        }
+    }
+
+    @Test("the cut of a capture keeps whole lines only once the first line of the capture is dropped")
+    func theCutKeepsWholeLinesOnceTheFirstLineIsDropped() throws {
+        let text = Self.pathLog(startPad: 300, endPad: 300)
+        let inputLines = Set(Self.lines(text))
+        // The capture limit fell 45 characters into the third line of the stderr, a path line.
+        let startOfCapture = Self.lines(text).prefix(2).reduce(0) { $0 + $1.count + 1 } + 45
+        let capture = String(text.dropFirst(startOfCapture))
+        #expect(capture.count > Self.bound)
+        let fragment = try #require(Self.lines(capture).first)
+        #expect(!inputLines.contains(fragment), "the first line of the capture lost its start")
+
+        // Cut as it is, the capture keeps the fragment at the start of the head.
+        let asCaptured = try #require(ProvenanceStderr.truncated(capture))
+        #expect(asCaptured.hasPrefix(fragment))
+
+        let whole = ProvenanceStderr.wholeLines(ofCapture: capture, truncated: true)
+        let kept = try #require(ProvenanceStderr.normalized(whole))
+        let (head, tail) = try Self.sides(of: kept)
+        for line in Self.lines(head) + Self.lines(tail) {
+            #expect(inputLines.contains(line), "kept a fragment: \(line.prefix(80))")
+        }
+        #expect(head.hasPrefix("[bam_sort] writing to "), "the head starts at the second line of the capture")
+    }
 }

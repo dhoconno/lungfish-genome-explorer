@@ -59,6 +59,28 @@ public enum ProvenanceStderr {
         return stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : stderr
     }
 
+    /// The stderr of a capture that may have lost its start, as whole lines.
+    ///
+    /// A capture that hit its limit keeps the last bytes of the stream, so the first
+    /// line it holds is the end of a line the tool printed, and on a path line that
+    /// end is folder names without their root, which the sanitizer that rewrites
+    /// paths cannot recognise. When `truncated` is true this drops everything up to
+    /// and including the first line break, and a capture with no line break lies
+    /// inside one line and keeps nothing. A capture that did not hit its limit comes
+    /// back as it is. Apply it before ``truncated(_:)`` and ``normalized(_:)``, so
+    /// that every line they keep is a whole line the tool printed. It drops one whole
+    /// line when the limit fell exactly at a line start, because the capture cannot
+    /// tell that case from a cut inside a line.
+    public static func wholeLines(ofCapture capture: String, truncated: Bool) -> String {
+        guard truncated else {
+            return capture
+        }
+        guard let lineBreak = capture.firstIndex(where: \.isNewline) else {
+            return ""
+        }
+        return String(capture[capture.index(after: lineBreak)...])
+    }
+
     /// Where the kept head ends in a text longer than `maxLength`, and the start
     /// of the text when the head keeps nothing. The window is the first
     /// `headLength` characters, and the character after it also counts, because

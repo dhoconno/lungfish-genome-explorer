@@ -33,16 +33,23 @@ public struct NativeToolResult: Sendable {
     /// Standard output from the process.
     public let stdout: String
     
-    /// Standard error from the process.
+    /// Standard error from the process. When ``stderrTruncated`` is true it holds
+    /// whole lines only, since the first line of the capture has been dropped.
     public let stderr: String
+
+    /// True when the capture limit dropped the start of the standard error.
+    public let stderrTruncated: Bool
 
     /// Exact argv used to launch the process, including the executable path as argv[0].
     public let arguments: [String]
 
-    public init(exitCode: Int32, stdout: String, stderr: String, arguments: [String] = []) {
+    public init(
+        exitCode: Int32, stdout: String, stderr: String, stderrTruncated: Bool = false, arguments: [String] = []
+    ) {
         self.exitCode = exitCode
         self.stdout = stdout
         self.stderr = stderr
+        self.stderrTruncated = stderrTruncated
         self.arguments = arguments
     }
     
@@ -52,6 +59,14 @@ public struct NativeToolResult: Sendable {
     /// Combined output (stdout + stderr).
     public var combinedOutput: String {
         [stdout, stderr].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+}
+
+extension ToolProcessResult {
+    /// ``stderrText`` as whole lines. A capture that hit its limit starts inside a line,
+    /// so its first line goes before any provenance cut (``ProvenanceStderr/wholeLines(ofCapture:truncated:)``).
+    var stderrWholeLines: String {
+        ProvenanceStderr.wholeLines(ofCapture: stderrText, truncated: stderrTruncated)
     }
 }
 
@@ -440,7 +455,8 @@ public actor NativeToolRunner {
         let result = NativeToolResult(
             exitCode: processResult.status,
             stdout: processResult.stdoutText,
-            stderr: processResult.stderrText,
+            stderr: processResult.stderrWholeLines,
+            stderrTruncated: processResult.stderrTruncated,
             arguments: spec.argv
         )
         if result.isSuccess {
@@ -513,7 +529,8 @@ public actor NativeToolRunner {
         let result = NativeToolResult(
             exitCode: processResult.status,
             stdout: "",
-            stderr: processResult.stderrText,
+            stderr: processResult.stderrWholeLines,
+            stderrTruncated: processResult.stderrTruncated,
             arguments: [toolPath.path] + arguments
         )
         guard result.isSuccess else {
@@ -652,7 +669,8 @@ public struct NativePipelineResult: Sendable {
     /// Exit codes from each stage (in order).
     public let exitCodes: [Int32]
 
-    /// Standard error from each stage (in order).
+    /// Standard error from each stage (in order), whole lines only. A stage whose
+    /// capture hit its limit has lost its first line, as ``NativeToolResult/stderr`` says.
     public let stderrByStage: [String]
 
     /// Standard output from the final stage.
@@ -747,7 +765,7 @@ extension NativeToolRunner {
         let pipeline = try await NativeToolProcessAdapter.runPipeline(specs, name: stageNames, timeout: actualTimeout)
         let result = NativePipelineResult(
             exitCodes: pipeline.stages.map(\.status),
-            stderrByStage: pipeline.stages.map(\.stderrText),
+            stderrByStage: pipeline.stages.map(\.stderrWholeLines),
             stdout: pipeline.stages.last?.stdoutText ?? ""
         )
         if result.isSuccess {

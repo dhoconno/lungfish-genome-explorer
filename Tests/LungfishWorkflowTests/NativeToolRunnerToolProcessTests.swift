@@ -269,6 +269,7 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
             let result = try await runStderrScript(count: count, maxStderrBytes: limit)
             XCTAssertEqual(result.exitCode, 0)
             XCTAssertEqual(result.stderr, expected, "capture limit \(limit)")
+            XCTAssertFalse(result.stderrTruncated, "capture limit \(limit)")
         }
     }
 
@@ -291,6 +292,102 @@ final class NativeToolRunnerToolProcessTests: XCTestCase {
         // and every line between is a whole line.
         XCTAssertEqual(head, (0..<head.count).map(printed))
         XCTAssertEqual(tail, ((count - tail.count)..<count).map(printed))
+    }
+
+    /// A capture over its limit keeps the end of the stream, so the first line it holds has lost
+    /// its start. With a project path on every line, that start can be the folder names of the
+    /// project, which no path sanitizer recognises once they have lost their root. The result
+    /// holds whole lines only, here the 1,015 lines the capture kept whole.
+    func testACaptureOverItsLimitDropsTheFirstLineThatLostItsStart() async throws {
+        let count = 4_000
+        let wholeLines = 1_015
+        let lineBytes = Self.stderrLine(0).utf8.count
+        // The limit falls 40 bytes into the line before the 1,015.
+        let result = try await runStderrScript(count: count, maxStderrBytes: wholeLines * lineBytes + 40)
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderrTruncated)
+        assertSameText(result.stderr, Self.stderrLines((count - wholeLines)..<count), "stderr")
+    }
+
+    /// A capture that holds no line break lies inside one line, so nothing of it is whole.
+    func testACaptureInsideOneLineKeepsNothing() async throws {
+        let result = try await NativeToolRunner().runProcess(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: ["-c", "/usr/bin/head -c 200000 /dev/zero | /usr/bin/tr '\\0' 'x' >&2"],
+            timeout: 60,
+            maxStderrBytes: 65_536
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderrTruncated)
+        assertSameText(result.stderr, "", "stderr")
+    }
+
+    /// 48,000 lines are 5.08 MiB, over the 4 MiB that the runner captures by default.
+    private static let noisyLineCount = 48_000
+
+    /// The lines of `noisyScript` that the default capture keeps whole, which are the last
+    /// ones that fit. The limit is not a multiple of the line width, so the capture also holds
+    /// the end of the line before them.
+    private static var noisyKeptLines: Range<Int> {
+        let limit = ToolProcessSpec.defaultStderrCaptureLimit
+        return (noisyLineCount - limit / stderrLine(0).utf8.count)..<noisyLineCount
+    }
+
+    /// A fake tool that prints the lines 0 up to `noisyLineCount` to stderr and nothing else.
+    private static var noisyScript: String {
+        """
+        #!/bin/sh
+        /usr/bin/awk -v n=\(noisyLineCount) 'BEGIN { for (i = 0; i < n; i++) printf "[bam_sort] %06d writing to \(stderrRoot)/part-%06d.sorted.bam\\n", i, i > "/dev/stderr" }'
+        """
+    }
+
+    func testRunWithFileOutputDropsTheFirstLineOfStderrOverTheDefaultLimit() async throws {
+        XCTAssertNotEqual(ToolProcessSpec.defaultStderrCaptureLimit % Self.stderrLine(0).utf8.count, 0)
+        let fixture = try FakeToolRoot()
+        defer { fixture.remove() }
+        try fixture.install(environment: "seqkit", executable: "seqkit", script: Self.noisyScript)
+        let output = fixture.root.appendingPathComponent("out.txt")
+
+        let result = try await fixture.runner.runWithFileOutput(
+            .seqkit, arguments: [], outputFile: output, timeout: 60
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stderrTruncated)
+        assertSameText(result.stderr, Self.stderrLines(Self.noisyKeptLines), "stderr")
+    }
+
+    func testRunPipelineDropsTheFirstLineOfStderrOfEveryStageOverTheDefaultLimit() async throws {
+        XCTAssertNotEqual(ToolProcessSpec.defaultStderrCaptureLimit % Self.stderrLine(0).utf8.count, 0)
+        let fixture = try FakeToolRoot()
+        defer { fixture.remove() }
+        try fixture.install(environment: "seqkit", executable: "seqkit", script: Self.noisyScript)
+        try fixture.install(environment: "samtools", executable: "samtools", script: "#!/bin/sh\ncat >/dev/null\n")
+
+        let result = try await fixture.runner.runPipeline(
+            [NativePipelineStage(.seqkit, arguments: []), NativePipelineStage(.samtools, arguments: [])],
+            timeout: 60
+        )
+
+        XCTAssertEqual(result.exitCodes, [0, 0])
+        XCTAssertEqual(result.stderrByStage.count, 2)
+        assertSameText(result.stderrByStage.first ?? "", Self.stderrLines(Self.noisyKeptLines), "stderr of stage one")
+        assertSameText(result.stderrByStage.last ?? "", "", "stderr of stage two")
+    }
+
+    /// Compares two texts that can be megabytes long without printing either one.
+    private func assertSameText(
+        _ actual: String, _ expected: String, _ label: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            actual == expected,
+            "\(label) is \(actual.utf8.count) bytes starting \(actual.prefix(90).debugDescription), "
+                + "expected \(expected.utf8.count) bytes starting \(expected.prefix(90).debugDescription)",
+            file: file, line: line
+        )
     }
 
     // MARK: Helpers
