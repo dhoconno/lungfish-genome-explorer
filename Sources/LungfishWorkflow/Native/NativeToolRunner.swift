@@ -62,14 +62,6 @@ public struct NativeToolResult: Sendable {
     }
 }
 
-extension ToolProcessResult {
-    /// ``stderrText`` as whole lines. A capture that hit its limit starts inside a line,
-    /// so its first line goes before any provenance cut (``ProvenanceStderr/wholeLines(ofCapture:truncated:)``).
-    var stderrWholeLines: String {
-        ProvenanceStderr.wholeLines(ofCapture: stderrText, truncated: stderrTruncated)
-    }
-}
-
 // MARK: - NativeToolError
 
 /// Errors that can occur when running native tools.

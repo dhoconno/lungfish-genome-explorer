@@ -164,6 +164,17 @@ public struct ToolProcessResult: Sendable {
     public var stderrText: String {
         String(decoding: stderr, as: UTF8.self)
     }
+
+    /// ``stderrText`` as whole lines. A capture that hit its limit keeps the last bytes of the
+    /// stream, so it starts inside a line, and on a path line that start is folder names without
+    /// their root, which the sanitizer that rewrites paths cannot recognise. Use this wherever the
+    /// text can reach a provenance record, since it drops that first line
+    /// (``ProvenanceStderr/wholeLines(ofCapture:truncated:)``). A capture that did not hit its
+    /// limit comes back as ``stderrText`` does. Text that only feeds a failure message can use
+    /// ``stderrText``.
+    public var stderrWholeLines: String {
+        ProvenanceStderr.wholeLines(ofCapture: stderrText, truncated: stderrTruncated)
+    }
 }
 
 /// The outcome of a pipeline, one result per stage in stage order.
