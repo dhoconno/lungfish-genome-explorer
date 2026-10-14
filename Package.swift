@@ -318,7 +318,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAssemblyUITests",
-            dependencies: ["LungfishAssemblyUI", "LungfishKit"],
+            dependencies: ["LungfishAssemblyUI", "LungfishKit", "LungfishTestSupport"],
             path: "Tests/LungfishAssemblyUITests"
         ),
 
