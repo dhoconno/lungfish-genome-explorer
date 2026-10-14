@@ -531,7 +531,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }()
 
     /// Cached list of related analysis items: (displayLabel, analysisType, bundleURL).
-    private var relatedAnalysisItems: [(String, String, URL)]?
+    private(set) var relatedAnalysisItems: [(String, String, URL)]?
 
     private let blastDrawer = BlastResultsDrawerTab()
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
