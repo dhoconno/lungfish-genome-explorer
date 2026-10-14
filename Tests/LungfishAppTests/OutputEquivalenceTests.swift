@@ -759,6 +759,78 @@ final class OutputEquivalenceTests: XCTestCase {
         XCTAssertEqual(try firstLines(), ["differs: .lungfish-provenance.json"])
     }
 
+    /// The BAM filter works in `lungfish-bam-filter-<UUID>` under the system temporary folder and deletes it. A
+    /// record writes that folder as `<workspace>/` (`PortablePath`), and the digest and size it states for a
+    /// scratch BAM there are masked as if it named the absolute path. A file of another kind, a `<bundle>/` path
+    /// and a file the temporary folder still holds keep theirs (lane A54 M3 finding 1, its QA ruling).
+    func testAWorkspaceScratchIntermediateIsMaskedAndNothingBesideIt() throws {
+        let (a, b) = try makeRoots()
+        let record = { (path: String, checksum: String, size: Int) in
+            #"{"files":[{"path":""# + path + #"","checksumSHA256":""# + checksum + #"","sizeBytes":"# + "\(size)}]}"
+        }
+        let (digestA, digestB) = (String(repeating: "a", count: 64), String(repeating: "b", count: 64))
+        let firstLines = { try OutputEquivalence.differences(a, b, kind: .bundle).map { $0.components(separatedBy: "\n")[0] } }
+        // Each run has its own workspace, so the two records name different folders.
+        let (folderA, folderB) = ("lungfish-bam-filter-\(UUID().uuidString)", "lungfish-bam-filter-\(UUID().uuidString)")
+        try write(record("<workspace>/\(folderA)/x.sorted.bam", digestA, 1), to: a, "provenance.json")
+        try write(record("<workspace>/\(folderB)/x.sorted.bam", digestB, 2), to: b, "provenance.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // A file of another kind in the same folder keeps its digest.
+        try write(record("<workspace>/\(folderA)/x.fastq", digestA, 1), to: a, "provenance.json")
+        try write(record("<workspace>/\(folderB)/x.fastq", digestB, 2), to: b, "provenance.json")
+        XCTAssertEqual(try firstLines(), ["differs: provenance.json"])
+
+        // A `<bundle>/` path is never read.
+        try write(record("<bundle>/x.bam", digestA, 1), to: a, "provenance.json")
+        try write(record("<bundle>/x.bam", digestB, 2), to: b, "provenance.json")
+        XCTAssertEqual(try firstLines(), ["differs: provenance.json"])
+
+        // A file the temporary folder still holds is a leaked scratch folder, so its digest is compared.
+        let leaked = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-bam-filter-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: leaked, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: leaked) }
+        try Data("bam placeholder\n".utf8).write(to: leaked.appendingPathComponent("x.sorted.bam"))
+        for (root, digest, size) in [(a, digestA, 1), (b, digestB, 2)] {
+            try write(record("<workspace>/\(leaked.lastPathComponent)/x.sorted.bam", digest, size), to: root, "provenance.json")
+        }
+        XCTAssertEqual(try firstLines(), ["differs: provenance.json"])
+    }
+
+    /// A manifest entry names a file by its path from the manifest's folder, as a `source_path` value, the way
+    /// a checksum map names it by a key. The size it states for a content-compared file both trees hold is
+    /// masked. The size it states for a file compared byte for byte, or for one only a tree holds, is kept (lane
+    /// A54 M3 finding 1, its QA ruling).
+    func testAManifestReadsAnEntrysPathFromItsFolder() throws {
+        let (a, b) = try makeRoots()
+        let manifest = { (path: String, size: Int) in
+            #"{"alignments":[{"source_path":""# + path + #"","file_size_bytes":"# + "\(size)}]}"
+        }
+        let firstLines = { try OutputEquivalence.differences(a, b, kind: .bundle).map { $0.components(separatedBy: "\n")[0] } }
+        for root in [a, b] {
+            try write("same rows\n", to: root, "S.lungfishref/tracks/x.db")
+            try write(">row\nACGT\n", to: root, "S.lungfishref/reads.fasta")
+        }
+        try write(manifest("tracks/x.db", 1), to: a, "S.lungfishref/manifest.json")
+        try write(manifest("tracks/x.db", 2), to: b, "S.lungfishref/manifest.json")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle), [])
+
+        // The FASTA is compared byte for byte, so the size a manifest states for it is compared too.
+        try write(manifest("reads.fasta", 1), to: a, "S.lungfishref/manifest.json")
+        try write(manifest("reads.fasta", 2), to: b, "S.lungfishref/manifest.json")
+        XCTAssertEqual(try firstLines(), ["differs: S.lungfishref/manifest.json"])
+
+        // A database only A holds keeps its stated size, and is reported on its own.
+        try write("only A\n", to: a, "S.lungfishref/tracks/only-a.db")
+        try write(manifest("tracks/only-a.db", 1), to: a, "S.lungfishref/manifest.json")
+        try write(manifest("tracks/only-a.db", 2), to: b, "S.lungfishref/manifest.json")
+        XCTAssertEqual(
+            try firstLines(),
+            ["only in A: S.lungfishref/tracks/only-a.db", "differs: S.lungfishref/manifest.json"]
+        )
+    }
+
     // MARK: - Fixture helpers
 
     private func makeRoots() throws -> (URL, URL) {

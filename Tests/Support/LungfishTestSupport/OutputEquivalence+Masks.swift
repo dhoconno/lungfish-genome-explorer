@@ -260,13 +260,14 @@ extension OutputEquivalence {
         /// checksum and size the record states. The record names it by a path
         /// beside a checksum or size key, absolute or from the `.lungfish`
         /// project that holds the record as `@/`, or by a key of a `checksums`
-        /// or `fileSizes` map read from the record's own folder. That file, and
+        /// or `fileSizes` map, or a value such as a manifest entry's
+        /// `source_path`, read from the record's own folder. That file, and
         /// each file in that folder, is still compared under its own kind, so
         /// only the record's copy of a byte-level digest is masked. A record
         /// that names a run's scratch intermediate, a content-compared file
-        /// or a SAM under the system temporary folder that no longer exists,
-        /// is masked the same way, because the run deleted it and it cannot
-        /// be compared.
+        /// or a SAM under the system temporary folder, absolute or as
+        /// `<workspace>/`, that no longer exists, is masked the same way,
+        /// because the run deleted it and it cannot be compared.
         /// A record that names any other file, such as an input outside the
         /// trees or a file compared byte for byte, keeps its digest.
         public static let contentComparedDigests = Mask(name: "contentComparedDigests") { text, context in
@@ -296,14 +297,22 @@ extension OutputEquivalence {
         /// suffixes and a SAM. A SAM that both trees keep is compared byte for byte, so `contentComparedSuffixes`,
         /// which the comparison reads to decide what a record's digest may hide, leaves it out.
         static let scratchIntermediateSuffixes = contentComparedSuffixes + [".sam"]
+        /// How `PortablePath` writes the system temporary folder in a record.
+        static let workspacePrefix = "<workspace>/"
 
         /// A content-compared file or a SAM under the system temporary folder
-        /// that no longer exists.
+        /// that no longer exists. The folder is spelled in full or, as
+        /// `PortablePath` writes it, as `<workspace>/`, which names a deleted
+        /// file when no temporary folder holds the rest of the path.
         static func isDeletedScratchIntermediate(_ path: String) -> Bool {
             let lowered = path.lowercased()
             guard scratchIntermediateSuffixes.contains(where: { lowered.hasSuffix($0) }) else { return false }
             let temporary = FileManager.default.temporaryDirectory
             let prefixes = rootSpellings(temporary) + ["/tmp", "/private/tmp"]
+            if path.hasPrefix(workspacePrefix) {
+                let rest = String(path.dropFirst(workspacePrefix.count))
+                return !prefixes.contains { FileManager.default.fileExists(atPath: $0 + "/" + rest) }
+            }
             guard prefixes.contains(where: { path.hasPrefix($0 + "/") }) else { return false }
             return !FileManager.default.fileExists(atPath: path)
         }
@@ -343,12 +352,14 @@ extension OutputEquivalence {
 
         /// Runs before every other mask, on unmasked text, so a path is
         /// checked as the run wrote it. `folder` is the record's own folder,
-        /// which the keys of a checksum or size map are read from. `project`
+        /// which the keys of a checksum or size map, and a value that starts
+        /// with none of `/`, `@/` and `<`, are read from. `project`
         /// is the `.lungfish` project folder that holds the record, which a
-        /// `@/` path is read from. Without one a `@/` path stays as written,
-        /// and a `<bundle>/` or `<workspace>/` path is never read, so the
-        /// digest a record states beside it is kept. A `@/` path lies inside
-        /// the project, so it is never read as a deleted scratch intermediate.
+        /// `@/` path is read from. Without one a `@/` path stays as written.
+        /// A `<bundle>/` path is never read, and a `<workspace>/` path only
+        /// as scratch, so the digest a record states beside any other is
+        /// kept. A `@/` path lies inside the project, so it is never read as
+        /// a deleted scratch intermediate.
         /// A SAM or BAM in the record's folder that one step wrote, a later
         /// step read and the run deleted is masked by `isDeletedRunIntermediate`.
         /// `intermediates` holds the paths that a step wrote and a later step read.
@@ -372,7 +383,9 @@ extension OutputEquivalence {
                 if let root = roots.first(where: { path.hasPrefix($0 + "/") }) {
                     relative = String(path.dropFirst(root.count + 1))
                 }
-                return paths.contains(relative) || isDeletedScratchIntermediate(written)
+                let fromFolder = !folder.isEmpty && !["/", "@/", "<"].contains(where: { written.hasPrefix($0) })
+                    && paths.contains(folder + "/" + written)
+                return paths.contains(relative) || fromFolder || isDeletedScratchIntermediate(written)
                     || intermediates.contains(written)
                     && isDeletedRunIntermediate(path, relative: relative, folder: folder)
             }
