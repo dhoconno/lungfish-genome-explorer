@@ -388,7 +388,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             tool: .init(
                 name: request.provenance.toolName,
                 version: request.provenance.toolVersion,
-                kind: "app"
+                kind: request.provenance.toolKind
             ),
             argv: request.provenance.argv,
             durableReplayArgv: request.provenance.durableReplayArgv,

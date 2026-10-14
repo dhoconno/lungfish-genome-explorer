@@ -69,6 +69,16 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
           plus a per-sample selection through ClassifierReadResolver. The same
           resolver backs the GUI extraction dialog, so the CLI and GUI produce
           byte-identical output for the same selection.
+
+        On Alignment Evidence (--index):
+          With --index, --by-region and --by-id --bam read the alignment
+          through that index and publish a .lungfishfastq bundle at --output
+          with its record. A region keeps the reads that pass --min-mapq,
+          --exclude-flags and --read-group. --by-id takes the names in --ids
+          from the alignment, or from the --source FASTQs when given.
+
+        With --format json the command prints CLIEvent lines on standard
+        output and its text on standard error.
         """
     )
 
@@ -175,6 +185,26 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("exclude-unmapped"), help: "Exclude unmapped reads (samtools -F 0x404 instead of -F 0x400) for --by-region")
     var excludeUnmapped: Bool = false
 
+    // MARK: - Alignment Evidence (Phase 2.10 A51, ExtractReadsCommand+Evidence.swift)
+
+    @Option(name: .customLong("index"), help: "The alignment's index (.bai, .csi or .crai). With it --by-region, or --by-id with --bam, publishes a .lungfishfastq bundle with its record at --output")
+    var indexFile: String?
+
+    @Option(name: .customLong("decoding-reference"), help: "FASTA that decodes a CRAM (with --index)")
+    var decodingReferenceFile: String?
+
+    @Option(name: .customLong("min-mapq"), help: "Lowest mapping quality of a read kept (--by-region with --index)")
+    var minimumMapQ: Int?
+
+    @Option(name: .customLong("exclude-flags"), help: "SAM flag bits of the records left out (--by-region with --index)")
+    var excludedFlags: Int?
+
+    @Option(name: .customLong("read-group"), help: "Read group to keep. Repeat for more. All when none is given (--by-region with --index)")
+    var readGroups: [String] = []
+
+    @Option(name: .customLong("records-without-sequence"), help: "How many of the selected alignment records held no sequence, kept in the record (--by-id with --index)")
+    var recordsWithoutSequence: Int = 0
+
     // MARK: - Common Options
 
     @Option(name: .shortAndLong, help: "Output FASTQ file path")
@@ -210,6 +240,12 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         guard strategyCount == 1 else {
             throw CLIError.validationFailed(errors: [
                 "Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified"
+            ])
+        }
+        if indexFile != nil { return try validateEvidenceRun() }
+        guard !evidenceOptionGiven else {
+            throw CLIError.validationFailed(errors: [
+                "--decoding-reference, --min-mapq, --exclude-flags, --read-group and --records-without-sequence need --index"
             ])
         }
 
@@ -326,6 +362,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
     /// The run's work, which `run()` scopes in a SIGTERM cancel (ExtractReadsCommand+Events.swift).
     func extract() async throws -> ExtractReadsOutcome {
+        if indexFile != nil { return try await extractEvidence() }
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let fm = FileManager.default

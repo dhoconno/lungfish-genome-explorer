@@ -93,6 +93,11 @@ extension ExtractReadsSubcommand {
     /// Records a run that a cancel stopped as cancelled, in the folder its record goes to. A
     /// failure to write it does not hide the cancel.
     private func recordCancelledRun(startedAt: Date) async {
+        if indexFile != nil {
+            // Beside the bundle the run would have published, which the next published run removes.
+            _ = try? AlignmentReadExtractionInvocation.recordCancelledRun(evidenceInvocation, startedAt: startedAt)
+            return
+        }
         let outputURL = URL(fileURLWithPath: output)
         _ = try? await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish extract reads",

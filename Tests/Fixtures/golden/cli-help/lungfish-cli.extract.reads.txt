@@ -24,6 +24,16 @@ By Classifier Selection (--by-classifier):
   resolver backs the GUI extraction dialog, so the CLI and GUI produce
   byte-identical output for the same selection.
 
+On Alignment Evidence (--index):
+  With --index, --by-region and --by-id --bam read the alignment
+  through that index and publish a .lungfishfastq bundle at --output
+  with its record. A region keeps the reads that pass --min-mapq,
+  --exclude-flags and --read-group. --by-id takes the names in --ids
+  from the alignment, or from the --source FASTQs when given.
+
+With --format json the command prints CLIEvent lines on standard
+output and its text on standard error.
+
 USAGE: lungfish-cli extract reads [<options>] --output <output>
 
 OPTIONS:
@@ -75,6 +85,23 @@ OPTIONS:
                           --by-classifier, non-kraken2)
   --exclude-unmapped      Exclude unmapped reads (samtools -F 0x404 instead of
                           -F 0x400) for --by-region
+  --index <index>         The alignment's index (.bai, .csi or .crai). With it
+                          --by-region, or --by-id with --bam, publishes a
+                          .lungfishfastq bundle with its record at --output
+  --decoding-reference <decoding-reference>
+                          FASTA that decodes a CRAM (with --index)
+  --min-mapq <min-mapq>   Lowest mapping quality of a read kept (--by-region
+                          with --index)
+  --exclude-flags <exclude-flags>
+                          SAM flag bits of the records left out (--by-region
+                          with --index)
+  --read-group <read-group>
+                          Read group to keep. Repeat for more. All when none is
+                          given (--by-region with --index)
+  --records-without-sequence <records-without-sequence>
+                          How many of the selected alignment records held no
+                          sequence, kept in the record (--by-id with --index)
+                          (default: 0)
   -o, --output <output>   Output FASTQ file path
   --bundle                Wrap output in a .lungfishfastq bundle
   --bundle-name <bundle-name>

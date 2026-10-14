@@ -121,6 +121,8 @@ public struct AlignmentReadExtractionProvenance: Sendable, Equatable {
     public let workflowVersion: String
     public let toolName: String
     public let toolVersion: String
+    /// `app` for the app, `cli` for `lungfish-cli`, as the record's tool names it.
+    public let toolKind: String
     public let argv: [String]
     public let durableReplayArgv: [String]?
     public let explicitOptions: [String: ParameterValue]
@@ -134,6 +136,7 @@ public struct AlignmentReadExtractionProvenance: Sendable, Equatable {
         workflowVersion: String = LungfishAppVersion.short,
         toolName: String = "Lungfish.app",
         toolVersion: String = LungfishAppVersion.short,
+        toolKind: String = "app",
         argv: [String],
         durableReplayArgv: [String]? = nil,
         explicitOptions: [String: ParameterValue] = [:],
@@ -146,6 +149,7 @@ public struct AlignmentReadExtractionProvenance: Sendable, Equatable {
         self.workflowVersion = workflowVersion
         self.toolName = toolName
         self.toolVersion = toolVersion
+        self.toolKind = toolKind
         self.argv = argv
         self.durableReplayArgv = durableReplayArgv
         self.explicitOptions = explicitOptions
