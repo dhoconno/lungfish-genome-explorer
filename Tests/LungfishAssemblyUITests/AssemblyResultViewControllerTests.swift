@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishAssemblyUI
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 private enum AssemblyResultViewControllerTestDefaults {
     static let layoutKey = "assemblyPanelLayout"
@@ -997,12 +998,11 @@ final class AssemblyResultViewControllerTests: XCTestCase {
 private func preservingContentTextSizePreference<T>(
     _ body: () async throws -> T
 ) async rethrows -> T {
-    let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-    let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
-    let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
+    let typographySuite = TestDefaultsSuite(prefix: "AssemblyResultViewControllerTests")
+    let restoreSettings = AppSettings.isolateForTesting(defaults: typographySuite.defaults)
     defer {
         restoreSettings()
-        typographyDefaults.removePersistentDomain(forName: typographySuiteName)
+        typographySuite.tearDown()
     }
     return try await body()
 }
@@ -1011,12 +1011,11 @@ private func preservingContentTextSizePreference<T>(
 private func preservingContentTextSizePreference<T>(
     _ body: () throws -> T
 ) rethrows -> T {
-    let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-    let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
-    let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
+    let typographySuite = TestDefaultsSuite(prefix: "AssemblyResultViewControllerTests")
+    let restoreSettings = AppSettings.isolateForTesting(defaults: typographySuite.defaults)
     defer {
         restoreSettings()
-        typographyDefaults.removePersistentDomain(forName: typographySuiteName)
+        typographySuite.tearDown()
     }
     return try body()
 }

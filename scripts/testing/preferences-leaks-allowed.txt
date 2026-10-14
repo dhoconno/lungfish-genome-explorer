@@ -15,6 +15,4 @@
 #
 # One row per file: <prefix> <path from the repository root>.
 
-LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
-assembly-layout-pref                    Tests/LungfishAssemblyUITests/AssemblyLayoutPreferenceTests.swift
 org.example.test                        Tests/LungfishCoreTests/AppIdentityTests.swift

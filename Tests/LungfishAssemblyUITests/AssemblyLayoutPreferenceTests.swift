@@ -1,13 +1,12 @@
 import XCTest
 import LungfishAssemblyUI
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class AssemblyLayoutPreferenceTests: XCTestCase {
     func testCurrentLayoutDoesNotReuseMetagenomicsDefaults() {
-        let suite = "assembly-layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "AssemblyLayoutPreferenceTests").defaults
 
         defaults.set(
             MetagenomicsPanelLayout.stacked.rawValue,
@@ -21,10 +20,8 @@ final class AssemblyLayoutPreferenceTests: XCTestCase {
     }
 
     func testPersistWritesAssemblyKeyWithoutTouchingMetagenomicsAndPostsNotification() {
-        let suite = "assembly-layout-pref-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = makeTestDefaultsSuite(prefix: "AssemblyLayoutPreferenceTests").defaults
         let center = NotificationCenter()
-        defer { defaults.removePersistentDomain(forName: suite) }
 
         let exp = expectation(description: "assembly layout notification")
         let token = center.addObserver(
