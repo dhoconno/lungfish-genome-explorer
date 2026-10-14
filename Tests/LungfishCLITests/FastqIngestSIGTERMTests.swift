@@ -114,4 +114,58 @@ final class FastqIngestSIGTERMTests: XCTestCase {
         XCTAssertTrue(record.outputs.isEmpty, "a cancelled run claims no output")
         XCTAssertTrue(stop.standardError.isEmpty || stop.standardError.contains("cancel"), stop.diagnostics)
     }
+
+    /// Lane A47 M3, ruling section 1. A file that holds a record already, here the sidecar of the
+    /// download it came with, has a history. The leaf finds it with the lookup the merge uses, so a
+    /// cancel writes nothing, since a merge would point the old outputs at a file never published,
+    /// and the folder stays as it was. M2 looked for a root record only and added a `cancelled` one.
+    func testSIGTERMWritesNothingWhereARecordStands() async throws {
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        try installStandInClumpify(in: condaRoot)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let pidFile = root.appendingPathComponent("clumpify.pid")
+        let fixture = try FastqIngestImportRecordFixture.makeSidecarOnly(in: root, reads: FastqIngestPublishDurabilityTests.reads)
+        let before = try digests(in: fixture.folder)
+        XCTAssertNil(before[ProvenanceRecorder.provenanceFilename], "no root record stands in the folder")
+        XCTAssertNotNil(
+            before[ProvenanceRecorder.fileSidecarURL(for: fixture.fastq).lastPathComponent],
+            "the download's record stands as the file's own sidecar"
+        )
+
+        let cli = try CLISIGTERMHarness.launchCLI(
+            ["fastq", "ingest", fixture.fastq.path, "--delete-originals", "--quiet"],
+            environment: [
+                "LUNGFISH_CONDA_ROOT": condaRoot.path,
+                "LUNGFISH_STORAGE_ROOT": root.appendingPathComponent("storage", isDirectory: true).path,
+                "LUNGFISH_CONDA_SHARED_PKGS": "0",
+                "CFFIXED_USER_HOME": home.path,
+                "CLUMPIFY_PID_FILE": pidFile.path,
+            ],
+            workingDirectory: root,
+            testClass: Self.self
+        )
+        defer { cli.stop() }
+        guard await CLISIGTERMHarness.waitForProcessID(in: pidFile) != nil else {
+            let stop = await CLISIGTERMHarness.cancel(cli)
+            return XCTFail("The leaf never started the stand-in clumpify.\(stop.diagnostics)")
+        }
+
+        let stop = await CLISIGTERMHarness.cancel(cli)
+        CLISIGTERMHarness.assertCancelledExit(stop)
+        CLISIGTERMHarness.assertNoProcessLeft(stop)
+        XCTAssertEqual(try digests(in: fixture.folder), before, "the folder is byte for byte as it was, with no record added and no hidden folder")
+    }
+
+    /// The SHA-256 of every file directly in `folder` by name, and a marker for a folder.
+    private func digests(in folder: URL) throws -> [String: String] {
+        var result: [String: String] = [:]
+        for name in try names(in: folder) {
+            let url = folder.appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            result[name] = isDirectory.boolValue ? "folder" : try ProvenanceFileHasher.sha256(of: url)
+        }
+        return result
+    }
 }

@@ -186,4 +186,94 @@ final class FastqIngestPublishDurabilityTests: XCTestCase {
         )
         XCTAssertEqual(try Data(contentsOf: input), Data(Self.reads.utf8), "the original is untouched")
     }
+
+    /// Lane A47 M3, ruling section 1. The one caller ingests a FASTQ file that the app has just
+    /// bundled with the download's record, and the app's route merges its run into that record.
+    /// The leaf did not, so a copy-in of a download lost the download's steps. The record keeps the
+    /// import step first, then the ingest, and the deleted original's output now names the gzip file.
+    func testTheRecordKeepsTheImportRecord() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-merge")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixture = try FastqIngestImportRecordFixture.makeBundle(in: root, reads: Self.reads)
+        let originalDigest = try ProvenanceFileHasher.sha256(of: fixture.fastq)
+        let output = fixture.folder.appendingPathComponent("Sample.fastq.gz")
+
+        try await runRoot(["fastq", "ingest", fixture.fastq.path, "--skip-clumpify", "--delete-originals", "--quiet"])
+
+        let record = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: fixture.folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        XCTAssertEqual(record.steps.first?.toolName, "lungfish-cli", "the download's step stays first: \(record.steps.map(\.toolName))")
+        XCTAssertTrue(record.steps.contains { $0.toolName == "FASTQIngestionPipeline" }, "the ingest adds its steps after it")
+        XCTAssertFalse(record.outputs.contains { $0.path == fixture.fastq.path }, "the removed original is no output of the record")
+        XCTAssertTrue(record.outputs.contains { $0.path == output.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(
+            record.files.first { $0.role == .input && $0.path == fixture.fastq.path }?.checksumSHA256,
+            originalDigest,
+            "the record still names the original with its digest"
+        )
+    }
+}
+
+/// A FASTQ file as the app leaves it after a copy-in of a download, which is the one place the
+/// in-place ingest runs. The download's record travels with the file (`rehydrateImportedCopy`). A
+/// `.lungfishfastq` bundle holds it as the folder's root record. A folder with no root record can hold
+/// it as the file's own sidecar alone, which the lookup of the merge finds as well.
+enum FastqIngestImportRecordFixture {
+    struct Imported {
+        /// The folder the ingest records into.
+        let folder: URL
+        let fastq: URL
+    }
+
+    static func makeBundle(in root: URL, reads: String) throws -> Imported {
+        try make(folder: root.appendingPathComponent("Sample.lungfishfastq", isDirectory: true), in: root, reads: reads, sidecarOnly: false)
+    }
+
+    static func makeSidecarOnly(in root: URL, reads: String) throws -> Imported {
+        try make(folder: root.appendingPathComponent("project", isDirectory: true), in: root, reads: reads, sidecarOnly: true)
+    }
+
+    private static func make(folder: URL, in root: URL, reads: String, sidecarOnly: Bool) throws -> Imported {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let imported = folder.appendingPathComponent("Sample.fastq")
+        try reads.write(to: imported, atomically: true, encoding: .utf8)
+
+        let download = root.appendingPathComponent("cli-download.fastq")
+        try reads.write(to: download, atomically: true, encoding: .utf8)
+        let argv = ["lungfish-cli", "fetch", "ncbi", "SRR123", "--output", download.path]
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Download",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(argv)
+        .output(download, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: argv,
+                outputs: [try ProvenanceFileDescriptor.file(url: download, format: .fastq, role: .output)],
+                exitStatus: 0,
+                wallTimeSeconds: 1
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11)
+        )
+        let writer = ProvenanceWriter(signingProvider: nil)
+        if sidecarOnly {
+            try writer.write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: imported))
+        } else {
+            try writer.write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: download))
+            try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(from: download, to: imported)
+        }
+        return Imported(folder: folder, fastq: imported)
+    }
 }

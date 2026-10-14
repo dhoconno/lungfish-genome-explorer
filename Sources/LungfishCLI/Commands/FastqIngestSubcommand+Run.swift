@@ -249,6 +249,11 @@ struct FastqIngestRun {
         parameters["wasClumpified"] = .boolean(result.wasClumpified)
         let outputRecord = ProvenanceRecorder.fileRecord(url: output, format: .fastq, role: .output)
         let sidecarRecord = ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output)
+        // The record that stands in the folder is the file's history, such as the download or the
+        // import it came with. The run joins it as the app's route does, with the removed originals'
+        // outputs pointing at the new file (ruling on A47 M3, section 1).
+        let existing = try Self.existingRecord(folder: folder, inputs: inputs)
+        let replaced = options.deleteOriginals ? inputs : []
         // The record takes each original's digest from the read above and never reopens the file,
         // which `--delete-originals` removes next. An input that stays as the output is read as usual.
         let consumed = Set(
@@ -257,7 +262,7 @@ struct FastqIngestRun {
                 .map { URL(fileURLWithPath: $0.path).canonicalFilePath }
         )
         try await CLIProvenanceSupport.recordSingleStepRun(
-            name: "lungfish fastq ingest",
+            name: Self.recordName,
             parameters: parameters,
             defaults: defaults,
             toolName: "FASTQIngestionPipeline",
@@ -275,8 +280,39 @@ struct FastqIngestRun {
             wallTime: clock.now.timeIntervalSince(clock.startedAt),
             stderr: nil,
             status: .completed,
-            outputDirectory: folder
+            outputDirectory: folder,
+            envelopeTransform: existing.map { found in
+                { fresh in
+                    try InPlaceIngestionProvenance.mergedInPlaceIngestionEnvelope(
+                        existingEnvelope: found.envelope,
+                        sourceProvenanceURL: found.sourceURL,
+                        ingestionEnvelope: fresh,
+                        replacedInputFiles: replaced,
+                        finalFASTQURL: output
+                    )
+                }
+            }
         )
+    }
+
+    /// The name the run's record carries, which a cancelled run's record carries too.
+    static let recordName = "lungfish fastq ingest"
+
+    /// The record that stands in `folder` for `inputs`, in the order the app's route looks
+    /// (`InPlaceIngestionProvenance`): the folder's root record, then a record of an input's own.
+    /// This command's own `cancelled` record is not history to join. A merge keeps the old record's
+    /// status and exit status, so a later run replaces it.
+    static func existingRecord(folder: URL, inputs: [URL]) throws -> (envelope: ProvenanceEnvelope, sourceURL: URL?)? {
+        guard let found = try InPlaceIngestionProvenance.existingInPlaceIngestionProvenance(
+            outputDirectory: folder,
+            inputFiles: inputs
+        ) else {
+            return nil
+        }
+        if found.envelope.status == .cancelled, found.envelope.workflowName == recordName {
+            return nil
+        }
+        return found
     }
 
     /// Removes each input except the one that is the output itself, which a skipped clumpify of one

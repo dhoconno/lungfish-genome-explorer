@@ -129,6 +129,7 @@ enum CLIProvenanceSupport {
         status: RunStatus,
         outputDirectory: URL,
         writeFileSidecars: Bool = true,
+        envelopeTransform: ((ProvenanceEnvelope) throws -> ProvenanceEnvelope)? = nil,
         publicationArtifactDidWrite:
             (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws -> ProvenanceEnvelope {
@@ -208,13 +209,16 @@ enum CLIProvenanceSupport {
             builder = builder.step(extraStep)
         }
 
-        let envelope = try builder.complete(
+        let completed = try builder.complete(
             exitStatus: Int(exitCode),
             stderr: stderr,
             startedAt: startedAt,
             endedAt: completedAt,
             legacyWorkflowRun: compatibilityRun
         )
+        // A command that adds its run to a record that stands in the folder merges it here, so the
+        // folder's record and every output's sidecar carry the history (`fastq ingest`, A47 M3).
+        let envelope = try envelopeTransform?(completed) ?? completed
 
         let writer = publicationArtifactDidWrite.map {
             ProvenanceWriter(publicationMutationDidOccur: $0)

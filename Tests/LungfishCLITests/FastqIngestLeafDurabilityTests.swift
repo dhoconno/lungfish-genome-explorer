@@ -285,6 +285,42 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         XCTAssertEqual(envelope.files.first { $0.role == .input && $0.path == input.path }?.checksumSHA256, digest)
     }
 
+    // MARK: - The record that stands
+
+    /// A cancelled run leaves its own `cancelled` record where no other record stood (M2). A merge
+    /// keeps the old record's status and exit status, so a later run replaces that record and does
+    /// not join it, and the finished run reads completed (ruling on A47 M3, section 1).
+    func testALaterRunReplacesItsOwnCancelledRecord() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-own-cancel")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: FastqIngestRun.recordName,
+            parameters: [:],
+            toolName: "FASTQIngestionPipeline",
+            toolVersion: "test",
+            command: [CLICommandIdentity.executableName, "fastq", "ingest", input.path],
+            inputs: [],
+            outputs: [],
+            exitCode: CLIExitCode.cancelled.rawValue,
+            wallTime: 0,
+            stderr: nil,
+            status: .cancelled,
+            outputDirectory: root
+        )
+        let recordURL = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertEqual(try ProvenanceEnvelopeReader.load(fromSidecar: recordURL)?.status, .cancelled)
+
+        try await execute([input.path, "--skip-clumpify", "--quiet"])
+
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: recordURL))
+        XCTAssertEqual(record.status, .completed, "a merge would have kept the cancelled status")
+        XCTAssertEqual(record.exitStatus, 0)
+        XCTAssertEqual(record.steps.filter { $0.toolName == "FASTQIngestionPipeline" }.count, 1, "the cancelled run's step is not joined")
+    }
+
     func testTheOutputNameDropsTheMateSuffixAndAvoidsTheInputsOwnName() {
         let folder = URL(fileURLWithPath: "/work/project", isDirectory: true)
         let mate = FastqIngestRun.finalOutputURL(folder: folder, inputs: [folder.appendingPathComponent("SRR9_1.fastq")])

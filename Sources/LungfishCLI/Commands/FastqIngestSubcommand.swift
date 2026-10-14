@@ -200,13 +200,24 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
     }
 
     /// Records the cancel in the input's folder, where a completed run records itself. A record
-    /// that stands there already is the folder's history, such as a bundle's import record, so a
-    /// cancelled run adds none rather than replace it. The write never checks cancellation, so it
-    /// finishes inside the grace the app gives the command before SIGKILL.
+    /// that stands there already is the folder's history, such as a bundle's import record or the
+    /// record an input carries, so a cancelled run writes nothing and the folder stays as it was.
+    /// A merge would point the old outputs at a file that was never published. The lookup is the
+    /// one the completed run merges into (ruling on A47 M3, section 1), and a record that cannot be
+    /// read counts as standing. The write never checks cancellation, so it finishes inside the
+    /// grace the app gives the command before SIGKILL.
     private func recordCancelled(inputs: [URL], clock: ProvenanceRunClock) async {
         let folder = inputs[0].deletingLastPathComponent()
-        let existing = folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        guard !FileManager.default.fileExists(atPath: existing.path) else {
+        let standing: Bool
+        do {
+            standing = try InPlaceIngestionProvenance.existingInPlaceIngestionProvenance(
+                outputDirectory: folder,
+                inputFiles: inputs
+            ) != nil
+        } catch {
+            standing = true
+        }
+        guard !standing else {
             FileHandle.standardError.write(Data(
                 "\(folder.lastPathComponent) holds a record already, so the cancelled run adds none.\n".utf8
             ))
@@ -214,7 +225,7 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
         }
         do {
             try await CLIProvenanceSupport.recordSingleStepRun(
-                name: "lungfish fastq ingest",
+                name: FastqIngestRun.recordName,
                 parameters: provenanceParameters(inputs: inputs),
                 defaults: Self.provenanceDefaults,
                 toolName: "FASTQIngestionPipeline",
