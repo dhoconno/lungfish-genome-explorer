@@ -10,6 +10,12 @@
 // on the built CLI with the managed clumpify and pins the result, the sidecar, the record and the
 // order: the original goes last. The in-process route is side A of `FastqIngestRouteParityReplayTests`.
 //
+// The command removes the original in its own process, which a `FileManagerDelegate` here never sees
+// (the first run of this class on the CLI route saw no removal). The class watches the folder from
+// outside and reads it whenever the folder changes with the original gone, and it holds the record's
+// digest of the original, which the command can only take while the original exists.
+// `FastqIngestPublishDurabilityTests` pins the exact moment in process.
+//
 // The class needs the managed clumpify, so it is named `Conformance` and never runs in the unit
 // tier. It skips without the tool, and fails under `LUNGFISH_REQUIRE_TOOLS=1`.
 
@@ -35,32 +41,44 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         }
     }
 
-    /// Reads the folder at the moment the watched original is asked to go.
-    private final class RemovalProbe: NSObject, FileManagerDelegate, @unchecked Sendable {
-        private let watched: String
-        private let snapshot: @Sendable () -> FolderSnapshot
+    /// Reads the folder whenever it changes while the watched original is gone. A reading comes a
+    /// moment after the change it follows, so it cannot name the exact moment of the removal. Every
+    /// reading with the original gone must still hold the output, the sidecar and the record, which
+    /// is true only if they were written before the original was removed.
+    private final class RemovalWitness: @unchecked Sendable {
+        private let queue = DispatchQueue(label: "ingest-live-removal-witness")
+        private let source: any DispatchSourceFileSystemObject
         private let lock = NSLock()
         private var seen: [FolderSnapshot] = []
 
-        init(watching original: URL, snapshot: @escaping @Sendable () -> FolderSnapshot) {
-            watched = original.standardizedFileURL.path
-            self.snapshot = snapshot
+        init?(watching folder: URL, snapshot: @escaping @Sendable () -> FolderSnapshot) {
+            let descriptor = open(folder.path, O_EVTONLY)
+            guard descriptor >= 0 else { return nil }
+            source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor, eventMask: .write, queue: queue
+            )
+            source.setCancelHandler { close(descriptor) }
+            source.setEventHandler { [weak self] in
+                let state = snapshot()
+                guard !state.original else { return }
+                self?.record(state)
+            }
+            source.resume()
         }
 
-        var removals: [FolderSnapshot] {
+        private func record(_ state: FolderSnapshot) {
+            lock.lock()
+            seen.append(state)
+            lock.unlock()
+        }
+
+        /// Stops watching, lets the readings in flight finish and returns those taken with the original gone.
+        func stop() -> [FolderSnapshot] {
+            source.cancel()
+            queue.sync {}
             lock.lock()
             defer { lock.unlock() }
             return seen
-        }
-
-        func fileManager(_ fileManager: FileManager, shouldRemoveItemAt URL: URL) -> Bool {
-            if URL.standardizedFileURL.path == watched {
-                let state = snapshot()
-                lock.lock()
-                seen.append(state)
-                lock.unlock()
-            }
-            return true
         }
     }
 
@@ -84,19 +102,20 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         return stride(from: 0, to: lines.count, by: 4).map { lines[$0..<min($0 + 4, lines.count)].joined(separator: "\n") + "\n" }
     }
 
-    func testInPlaceIngestReplacesTheFileWritesTheSidecarAndRecordAndRemovesTheOriginalFirst() async throws {
+    func testInPlaceIngestReplacesTheFileWritesTheSidecarAndRecordAndRemovesTheOriginalLast() async throws {
         try await requireClumpify()
         let root = try TestTempDirectory.make(prefix: "ingest-live-in-place")
         defer { TestTempDirectory.cleanup(root) }
         let input = root.appendingPathComponent("SRR9_1.fastq")
         try Self.reads.joined().write(to: input, atomically: true, encoding: .utf8)
         let originalSize = Int64(try Data(contentsOf: input).count)
+        let originalDigest = try ProvenanceFileHasher.sha256(of: input)
         // `deriveBaseName` drops the `_1`, so the file is replaced by a differently named one.
         let output = root.appendingPathComponent("SRR9.fastq.gz")
         let sidecar = FASTQMetadataStore.metadataURL(for: output)
         let recordFile = root.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
 
-        let probe = RemovalProbe(watching: input) {
+        let witness = try XCTUnwrap(RemovalWitness(watching: root) {
             let fm = FileManager.default
             return FolderSnapshot(
                 output: fm.fileExists(atPath: output.path),
@@ -104,9 +123,8 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
                 record: fm.fileExists(atPath: recordFile.path),
                 original: fm.fileExists(atPath: input.path)
             )
-        }
-        FileManager.default.delegate = probe
-        defer { FileManager.default.delegate = nil }
+        }, "the folder could not be watched")
+        defer { _ = witness.stop() }
 
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(
@@ -123,6 +141,7 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
             OperationCenter.shared.items.first { $0.title == title }.map { $0.state != .running } ?? false
         }
         XCTAssertTrue(finished, "the ingest row did not finish")
+        let readings = witness.stop()
         let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == title })
         XCTAssertEqual(row.state, .completed, "row detail: \(row.detail)")
 
@@ -157,13 +176,21 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         XCTAssertEqual(run.parameters["binning"]?.stringValue, QualityBinningScheme.none.rawValue)
         XCTAssertEqual(run.parameters["wasClumpified"]?.booleanValue, true)
 
-        // The order. The command removes the original last, once the output, the sidecar and the
-        // record that names the original's digest exist (BIO's objection 8).
-        XCTAssertEqual(probe.removals.count, 1, "the original is removed once")
+        // The order. The command removes the original last, in its own process, once the output, the
+        // sidecar and the record that names the original's digest exist (BIO's objection 8). Every
+        // reading of the folder with the original gone holds all three, and the record holds the
+        // digest the command took while the original still existed.
+        XCTAssertFalse(readings.isEmpty,"the folder was read at least once after the original went")
+        XCTAssertTrue(
+            readings.allSatisfy { $0.output && $0.sidecar && $0.record },
+            "the original goes after the output, the sidecar and the record: \(readings)"
+        )
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: recordFile))
         XCTAssertEqual(
-            probe.removals.first,
-            FolderSnapshot(output: true, sidecar: true, record: true, original: true),
-            "the order is output, sidecar, record, original removed"
+            envelope.files.first { $0.role == .input && URL(fileURLWithPath: $0.path).lastPathComponent == input.lastPathComponent }?
+                .checksumSHA256,
+            originalDigest,
+            "the record names the original with the digest taken before it was removed"
         )
     }
 }
