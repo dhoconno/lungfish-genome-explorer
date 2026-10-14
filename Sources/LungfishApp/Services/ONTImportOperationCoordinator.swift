@@ -9,26 +9,40 @@ import LungfishOperations
 import LungfishWorkflow
 import LungfishKit
 
+/// Runs the window's ONT import as `lungfish-cli fastq import-ont --format json` on the L6 runner
+/// (``CLIReadsRunner``) and reports it in the Operations panel (Phase 2.10 lane A53, panel decisions
+/// C11, C4 and C5). The row records the argv the runner launches, the command speaks the stage words
+/// the row showed when the import ran in the app, and the row's cancel signals the command, which
+/// stops at its next chunk and rolls its staged bundles back. The command writes the bundles, their
+/// manifest and every provenance record before it exits, so the app writes nothing of the result.
 @MainActor
 public final class ONTImportOperationCoordinator {
     /// Every report goes through this reporter, so a test can watch the row
-    /// without touching `OperationCenter.shared` (finding R4).
+    /// without touching `OperationCenter.shared` (finding R4). The command's own events reach
+    /// `OperationCenter.shared` through ``OperationCenterCLIBridge``, which names the row by its ID.
     private let operationCenter: any OperationReporting
-    private let workflow: ONTImportWorkflow
+    private let runner: CLIReadsRunner
 
-    public init(
-        operationCenter: any OperationReporting = OperationCenter.shared,
-        workflow: ONTImportWorkflow = ONTImportWorkflow()
-    ) {
+    public init(operationCenter: any OperationReporting = OperationCenter.shared) {
         self.operationCenter = operationCenter
-        self.workflow = workflow
+        self.runner = CLIReadsRunner()
     }
 
-    /// Imports an ONT output directory and reports the run in the Operations
-    /// panel. The row locks no bundle and records the
-    /// `lungfish-cli fastq import-ont` command that reproduces the run.
-    /// Throws `OperationRefusedError`, having imported nothing, when `begin`
-    /// is refused.
+    /// For a test that runs a stand-in or a built `lungfish-cli` that the bundle does not hold.
+    init(operationCenter: any OperationReporting, runner: CLIReadsRunner) {
+        self.operationCenter = operationCenter
+        self.runner = runner
+    }
+
+    /// Imports an ONT output directory with `lungfish-cli fastq import-ont` and reports the run in
+    /// the Operations panel. The row locks no bundle and records the command that ran, the one a user
+    /// can paste into a terminal. The bundles stay off the row until the command has finished.
+    ///
+    /// - Returns: The bundles the command's `complete` line named, in barcode order, and the words
+    ///   the row ended on, such as `3 barcode bundles, 6 reads`.
+    /// - Throws: `OperationRefusedError`, having imported nothing, when `begin` is refused.
+    ///   `CancellationError` when the row's cancel stopped the command. The command's own words
+    ///   (`error.localizedDescription`) when it failed.
     @discardableResult
     public func importDirectory(
         sourceURL: URL,
@@ -39,12 +53,13 @@ public final class ONTImportOperationCoordinator {
         optimizeStorage: Bool = false,
         qualityBinning: QualityBinningScheme = .none,
         routeContext: OperationRouteContext?
-    ) async throws -> ONTImportWorkflow.Result {
+    ) async throws -> (bundleURLs: [URL], detail: String) {
         let outputURL = try Self.resolvedOutputDirectory(
             sourceURL: sourceURL,
             projectURL: projectURL,
             includeUnclassified: includeUnclassified
         )
+        // The command prints events when asked, so the row shows the stage words the in-process row showed.
         let cliArgs = Self.cliArgs(
             sourceURL: sourceURL,
             outputURL: outputURL,
@@ -53,7 +68,7 @@ public final class ONTImportOperationCoordinator {
             storageMode: storageMode,
             optimizeStorage: optimizeStorage,
             qualityBinning: qualityBinning
-        )
+        ) + ["--format", "json"]
         let cliCommand = OperationCenter.buildCLICommand(
             subcommand: "fastq import-ont",
             args: cliArgs
@@ -65,48 +80,21 @@ public final class ONTImportOperationCoordinator {
             cliCommand: cliCommand,
             routeContext: routeContext
         ).requireStarted()
+        let runner = self.runner
+        operationCenter.setCancelCallback(for: opID) { runner.cancel() }
 
         do {
-            let config = ONTImportConfig(
-                sourceDirectory: sourceURL,
-                outputDirectory: outputURL,
-                maxConcurrentBarcodes: concurrency,
-                includeUnclassified: includeUnclassified,
-                storageMode: storageMode
-            )
-            let result = try await workflow.importDirectory(
-                config: config,
-                context: Self.commandContext(
-                    sourceURL: sourceURL,
-                    outputURL: outputURL,
-                    includeUnclassified: includeUnclassified,
-                    concurrency: concurrency,
-                    storageMode: storageMode,
-                    optimizeStorage: optimizeStorage,
-                    qualityBinning: qualityBinning,
-                    cliArgs: cliArgs,
-                    cliCommand: cliCommand
-                ),
-                optimization: ONTImportWorkflow.OptimizationConfig(
-                    optimizeStorage: optimizeStorage,
-                    qualityBinning: qualityBinning,
-                    threads: concurrency
-                )
-            ) { [operationCenter, opID] fraction, message in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = operationCenter.update(id: opID, progress: fraction, detail: message)
-                    }
-                }
-            }
-
-            let detail = "\(result.importResult.bundleURLs.count) barcode bundles, \(result.importResult.totalReadCount) reads"
-            _ = operationCenter.complete(
-                id: opID,
-                detail: detail,
-                bundleURLs: result.importResult.bundleURLs
-            )
-            return result
+            let run = try await runner.runEvents(arguments: ["fastq", "import-ont"] + cliArgs, operationID: opID)
+            let bundleURLs = run.outputs.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            let detail = run.message ?? "\(bundleURLs.count) barcode bundles"
+            // A cancel that came after the command finished ends the row Cancelled. The bundles exist,
+            // so they are returned and the window shows them.
+            _ = operationCenter.complete(id: opID, detail: detail, bundleURLs: bundleURLs)
+            return (bundleURLs, detail)
+        } catch is CancellationError {
+            // The command rolled its staged bundles back and exited 125. The row reads Cancelled, with no sheet.
+            _ = operationCenter.acknowledgeCancellation(id: opID)
+            throw CancellationError()
         } catch {
             // Show the user-facing localized message, not the raw
             // enum/struct description; keep the raw text for diagnostics.
@@ -222,6 +210,7 @@ public final class ONTImportOperationCoordinator {
         return sanitized.isEmpty ? "ONT Import" : sanitized
     }
 
+    /// The options of the command, without the `--format json` the route adds.
     nonisolated static func cliArgs(
         sourceURL: URL,
         outputURL: URL,
@@ -251,58 +240,5 @@ public final class ONTImportOperationCoordinator {
             args += ["--quality-binning", qualityBinning.rawValue]
         }
         return args
-    }
-
-    nonisolated static func commandContext(
-        sourceURL: URL,
-        outputURL: URL,
-        includeUnclassified: Bool,
-        concurrency: Int,
-        storageMode: ONTImportStorageMode = .chunked,
-        optimizeStorage: Bool = false,
-        qualityBinning: QualityBinningScheme = .none,
-        cliArgs: [String],
-        cliCommand: String
-    ) -> ONTImportWorkflow.CommandContext {
-        let argv = [CLICommandIdentity.executableName, "fastq", "import-ont"] + cliArgs
-        return ONTImportWorkflow.CommandContext(
-            caller: .gui,
-            workflowName: "lungfish fastq import-ont",
-            workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish fastq import-ont",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: argv,
-            durableReplayArgv: argv,
-            reproducibleCommand: cliCommand,
-            explicitOptions: [
-                "input": .file(sourceURL),
-                "output": .file(outputURL),
-                "includeUnclassified": .boolean(includeUnclassified),
-                "concurrency": .integer(concurrency),
-                "storageMode": .string(storageMode.rawValue),
-                "optimizeStorage": .boolean(optimizeStorage),
-                "qualityBinning": .string(qualityBinning.rawValue),
-            ],
-            defaultOptions: [
-                "includeUnclassified": .boolean(false),
-                "concurrency": .integer(4),
-                "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
-                "optimizeStorage": .boolean(false),
-                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
-                "useVirtualConcatenation": .boolean(true),
-            ],
-            resolvedOptions: [
-                "input": .file(sourceURL),
-                "output": .file(outputURL),
-                "includeUnclassified": .boolean(includeUnclassified),
-                "concurrency": .integer(concurrency),
-                "storageMode": .string(storageMode.rawValue),
-                "optimizeStorage": .boolean(optimizeStorage),
-                "qualityBinning": .string(qualityBinning.rawValue),
-                "useVirtualConcatenation": .boolean(storageMode.usesVirtualConcatenation),
-                "caller": .string("gui"),
-            ],
-            runtimeIdentity: ProvenanceRuntimeIdentity()
-        )
     }
 }

@@ -9,7 +9,9 @@
 // M3 reuses the same folder.
 
 import Foundation
+import XCTest
 import LungfishTestSupport
+@testable import LungfishApp
 
 enum ONTImportFreezeFixture {
     /// Reads in each barcode folder, in the order the importer lists them.
@@ -19,6 +21,22 @@ enum ONTImportFreezeFixture {
 
     /// Total reads of the three folders.
     static let totalReads = 6
+
+    /// The built `lungfish-cli` beside the test bundle of `testCase`, or the one `LUNGFISH_CLI_PATH` names.
+    /// The import route launches it, and a unit-tier test process has no installed one.
+    static func builtCLI(for testCase: AnyClass) throws -> URL {
+        let products = Bundle(for: testCase).bundleURL.deletingLastPathComponent()
+        return try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so the import route cannot run"
+        )
+    }
+
+    /// The L6 runner on the built command.
+    @MainActor
+    static func cliRunner(for testCase: AnyClass) throws -> CLIReadsRunner {
+        CLIReadsRunner(cliURLOverride: try builtCLI(for: testCase))
+    }
 
     /// Writes `<parent>/fastq_pass` and returns it.
     static func makeSource(in parent: URL) throws -> URL {

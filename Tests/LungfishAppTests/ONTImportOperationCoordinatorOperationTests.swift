@@ -42,7 +42,9 @@ final class ONTImportOperationCoordinatorOperationTests: XCTestCase {
         let sourceURL = try makeONTSource()
         let projectURL = tempDirectory.appendingPathComponent("project", isDirectory: true)
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: UUID())
-        let coordinator = ONTImportOperationCoordinator(operationCenter: reporter)
+        let coordinator = ONTImportOperationCoordinator(
+            operationCenter: reporter, runner: try ONTImportFreezeFixture.cliRunner(for: Self.self)
+        )
 
         let result = try await coordinator.importDirectory(
             sourceURL: sourceURL,
@@ -62,7 +64,11 @@ final class ONTImportOperationCoordinatorOperationTests: XCTestCase {
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
         XCTAssertEqual(item.state, .completed)
-        XCTAssertEqual(item.bundleURLs, result.importResult.bundleURLs)
+        XCTAssertEqual(item.bundleURLs, result.bundleURLs)
+        XCTAssertEqual(
+            Array(try RecordedCLICommand.arguments(of: item.cliCommand).suffix(2)), ["--format", "json"],
+            "the row records the argv the runner launches, which asks for events"
+        )
 
         let expectedOutputURL = projectURL
             .appendingPathComponent("Imports", isDirectory: true)

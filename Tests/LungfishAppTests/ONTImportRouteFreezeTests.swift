@@ -1,19 +1,17 @@
-// ONTImportRouteFreezeTests.swift - What the ONT import writes and shows today, before it moves onto the CLI
+// ONTImportRouteFreezeTests.swift - What the ONT import writes and shows, on the CLI route
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A53 M1 (pins at the base, no Sources edit). `performONTImport` runs
-// `ONTImportWorkflow.importDirectory` inside the app through `ONTImportOperationCoordinator`, and
-// `lungfish-cli fastq import-ont` runs the same workflow. Three facts are frozen here, so M3 can move
-// the launch onto the leaf and see what it changed.
+// Phase 2.10 lane A53. M1 froze the import as the app ran it in process, and M3 moved it onto
+// `lungfish-cli fastq import-ont --format json` on the L6 runner. The facts that M1 froze stay, and the
+// ones that the move changes are changed here, each on purpose. The in-process route itself is side A of
+// ONTImportCLIGUIParityReplayTests, which compares it with this route.
 //
-// 1. The in-process route's result on a three-barcode run folder (ONTImportFreezeFixture). The bundles,
-//    the reads of each barcode, the folder around them, the row's words and its stage words, and the
-//    provenance the coordinator writes (BIO 1, ARCH 2).
-// 2. The same run on the CLI leaf, run in process with the argv the row records. The two routes write
-//    the same files, the same read counts and the same recorded facts, and the one difference is the
-//    caller. This is the base the parity class of M3 declares its differences against.
-// 3. What the window does after the import. `performONTImport` asks the sidebar to reload, posts the
+// 1. The route's result on a three-barcode run folder (ONTImportFreezeFixture). The bundles, the reads of
+//    each barcode, the folder around them, the row's words and the provenance (BIO 1, ARCH 2). The one
+//    changed fact is the provenance, which names `cli` as its caller (ruling A53-M3) and records the
+//    `--format json` the row's command carries, so the record and the row name one command.
+// 2. What the window does after the import. `performONTImport` asks the sidebar to reload, posts the
 //    drop-completed notice and opens the first barcode bundle, in that order (UX 1). The test runs the
 //    real method on a real split controller and reads what each step left.
 
@@ -26,7 +24,6 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
-@testable import LungfishCLI
 
 @MainActor
 final class ONTImportRouteFreezeTests: XCTestCase {
@@ -42,14 +39,16 @@ final class ONTImportRouteFreezeTests: XCTestCase {
         try await super.tearDown()
     }
 
-    // MARK: - The in-process route
+    // MARK: - The route's result
 
-    func testTheInProcessRouteWritesTheBarcodeBundlesTheirReadCountsAndTheRowWords() async throws {
+    func testTheRouteWritesTheBarcodeBundlesTheirReadCountsAndTheRecordedFacts() async throws {
         let reporter = RecordingOperationReporter()
         let source = try ONTImportFreezeFixture.makeSource(in: root)
         let project = root.appendingPathComponent("project", isDirectory: true)
 
-        let result = try await ONTImportOperationCoordinator(operationCenter: reporter).importDirectory(
+        let result = try await ONTImportOperationCoordinator(
+            operationCenter: reporter, runner: try ONTImportFreezeFixture.cliRunner(for: Self.self)
+        ).importDirectory(
             sourceURL: source,
             projectURL: project,
             includeUnclassified: true,
@@ -57,26 +56,25 @@ final class ONTImportRouteFreezeTests: XCTestCase {
             routeContext: nil
         )
 
-        let imported = result.importResult
         let output = project
             .appendingPathComponent("Imports", isDirectory: true)
             .appendingPathComponent(root.lastPathComponent, isDirectory: true)
         XCTAssertEqual(
-            imported.bundleURLs.map(\.lastPathComponent),
+            result.bundleURLs.map(\.lastPathComponent),
             ["barcode01.lungfishfastq", "barcode02.lungfishfastq", "unclassified.lungfishfastq"],
             "one bundle for each barcode folder, in barcode order"
         )
         XCTAssertEqual(
-            imported.bundleURLs.map { $0.deletingLastPathComponent().standardizedFileURL.path },
+            result.bundleURLs.map { $0.deletingLastPathComponent().standardizedFileURL.path },
             Array(repeating: output.standardizedFileURL.path, count: 3),
             "the bundles sit under Imports/<run name>"
         )
+        let manifest = try XCTUnwrap(DemultiplexManifest.load(from: output))
         XCTAssertEqual(
-            imported.manifest.barcodes.map { "\($0.barcodeID)=\($0.readCount)" },
+            manifest.barcodes.map { "\($0.barcodeID)=\($0.readCount)" },
             ONTImportFreezeFixture.readsPerBarcode.map { "\($0.barcode)=\($0.reads)" },
             "the reads of each barcode, gzip chunk included"
         )
-        XCTAssertEqual(imported.totalReadCount, ONTImportFreezeFixture.totalReads)
         XCTAssertEqual(
             try Self.names(in: output),
             [
@@ -87,7 +85,7 @@ final class ONTImportRouteFreezeTests: XCTestCase {
             ].sorted(),
             "the run folder holds the bundles with their metadata sidecars, the demultiplex manifest and the run's provenance"
         )
-        for bundle in imported.bundleURLs {
+        for bundle in result.bundleURLs {
             XCTAssertTrue(FASTQBundle.isBundleURL(bundle), "\(bundle.lastPathComponent) is a FASTQ bundle")
             XCTAssertTrue(
                 FileManager.default.fileExists(atPath: bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename).path),
@@ -95,7 +93,7 @@ final class ONTImportRouteFreezeTests: XCTestCase {
             )
         }
         XCTAssertEqual(
-            try imported.bundleURLs.map { try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: $0)).count },
+            try result.bundleURLs.map { try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: $0)).count },
             [2, 1, 1],
             "a chunked bundle keeps one file for each chunk"
         )
@@ -106,105 +104,18 @@ final class ONTImportRouteFreezeTests: XCTestCase {
         XCTAssertEqual(item.initialDetail, "Detecting layout...")
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(item.detail, "3 barcode bundles, 6 reads")
-        XCTAssertEqual(item.bundleURLs, imported.bundleURLs)
-
-        // The stage words reach the row through the main queue, so the last one lands after the call.
-        let finished = await waitUntil(timeout: .seconds(30)) {
-            reporter.items.first?.progressUpdates.last?.detail.hasPrefix("Import complete (6 reads, ") == true
-        }
-        let words = reporter.items.first?.progressUpdates.map(\.detail) ?? []
-        XCTAssertTrue(finished, "the row never showed the closing stage word, it showed \(words)")
-        XCTAssertEqual(words.first, "Detecting ONT directory layout...")
-        XCTAssertTrue(words.contains { $0.hasPrefix("barcode01: ") }, "a per-barcode stage word names its barcode: \(words)")
-        XCTAssertTrue(words.contains("Completed 3/3 barcodes"), "the count of finished barcodes: \(words)")
+        XCTAssertEqual(item.bundleURLs, result.bundleURLs)
 
         let envelope = try Self.readEnvelope(output.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         XCTAssertEqual(envelope.workflowName, "lungfish fastq import-ont")
         XCTAssertEqual(envelope.toolName, "lungfish fastq import-ont")
         XCTAssertEqual(envelope.exitStatus, 0)
-        XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("gui"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("cli"))
         XCTAssertEqual(envelope.argv, [
             CLICommandIdentity.executableName, "fastq", "import-ont",
-            source.path, "--output", output.path, "--include-unclassified", "--concurrency", "2",
+            source.path, "--output", output.path, "--include-unclassified", "--concurrency", "2", "--format", "json",
         ])
         XCTAssertEqual(envelope.reproducibleCommand, item.cliCommand, "the provenance records the command the row shows")
-    }
-
-    // MARK: - The CLI leaf on the same run folder
-
-    func testTheCLILeafWritesTheSameBundlesCountsAndRecordedFactsAsTheInProcessRoute() async throws {
-        let source = try ONTImportFreezeFixture.makeSource(in: root)
-        let guiRoot = root.appendingPathComponent("gui", isDirectory: true)
-        let cliRoot = root.appendingPathComponent("cli", isDirectory: true)
-        let runFolder = "Imports/" + root.lastPathComponent
-        let guiOutput = guiRoot.appendingPathComponent(runFolder, isDirectory: true)
-        let cliOutput = cliRoot.appendingPathComponent(runFolder, isDirectory: true)
-
-        let reporter = RecordingOperationReporter()
-        _ = try await ONTImportOperationCoordinator(operationCenter: reporter).importDirectory(
-            sourceURL: source,
-            projectURL: guiRoot,
-            includeUnclassified: true,
-            concurrency: 2,
-            routeContext: nil
-        )
-        // The row records this command, and the leaf runs it with the output the row names.
-        let recorded = try RecordedCLICommand.parse(
-            try XCTUnwrap(reporter.items.first?.cliCommand), as: FastqImportONTSubcommand.self
-        )
-        XCTAssertEqual(recorded.output, guiOutput.path)
-        try await FastqImportONTSubcommand.parse([
-            recorded.input, "--output", cliOutput.path, "--include-unclassified", "--concurrency", "2",
-        ]).run()
-
-        XCTAssertEqual(
-            try Self.relativeFiles(in: cliOutput), try Self.relativeFiles(in: guiOutput),
-            "both routes write the same files"
-        )
-        let guiManifest = try XCTUnwrap(DemultiplexManifest.load(from: guiOutput))
-        let cliManifest = try XCTUnwrap(DemultiplexManifest.load(from: cliOutput))
-        XCTAssertEqual(
-            cliManifest.barcodes.map { "\($0.barcodeID)=\($0.readCount)=\($0.baseCount)=\($0.bundleRelativePath)" },
-            guiManifest.barcodes.map { "\($0.barcodeID)=\($0.readCount)=\($0.baseCount)=\($0.bundleRelativePath)" },
-            "equal reads per barcode (BIO 1)"
-        )
-        XCTAssertEqual(cliManifest.barcodes.map(\.readCount), ONTImportFreezeFixture.readsPerBarcode.map(\.reads))
-        for bundle in ["barcode01", "barcode02", "unclassified"] {
-            let name = "\(bundle).lungfishfastq"
-            XCTAssertEqual(
-                try Self.payloadDigests(of: cliOutput.appendingPathComponent(name)),
-                try Self.payloadDigests(of: guiOutput.appendingPathComponent(name)),
-                "\(name) holds the same read files"
-            )
-        }
-
-        let guiEnvelope = try Self.readEnvelope(guiOutput.appendingPathComponent(ProvenanceWriter.provenanceFilename))
-        let cliEnvelope = try Self.readEnvelope(cliOutput.appendingPathComponent(ProvenanceWriter.provenanceFilename))
-        func normalized(_ text: String, root route: URL) -> String {
-            text.replacingOccurrences(of: route.path, with: "<ROOT>")
-        }
-        XCTAssertEqual(cliEnvelope.workflowName, guiEnvelope.workflowName)
-        XCTAssertEqual(cliEnvelope.toolName, guiEnvelope.toolName)
-        XCTAssertEqual(cliEnvelope.exitStatus, guiEnvelope.exitStatus)
-        XCTAssertEqual(
-            cliEnvelope.argv.map { normalized($0, root: cliRoot) },
-            guiEnvelope.argv.map { normalized($0, root: guiRoot) },
-            "the leaf records the argv the row records"
-        )
-        XCTAssertEqual(
-            normalized(cliEnvelope.reproducibleCommand, root: cliRoot),
-            normalized(guiEnvelope.reproducibleCommand, root: guiRoot)
-        )
-        XCTAssertEqual(cliEnvelope.options.defaults, guiEnvelope.options.defaults)
-        var guiResolved = guiEnvelope.options.resolvedDefaults
-        var cliResolved = cliEnvelope.options.resolvedDefaults
-        XCTAssertEqual(guiResolved.removeValue(forKey: "caller"), .string("gui"))
-        XCTAssertEqual(cliResolved.removeValue(forKey: "caller"), .string("cli"))
-        for key in ["output"] {
-            guiResolved.removeValue(forKey: key)
-            cliResolved.removeValue(forKey: key)
-        }
-        XCTAssertEqual(cliResolved, guiResolved, "the caller and the output root are the only resolved options that differ")
     }
 
     // MARK: - After the import
@@ -214,12 +125,18 @@ final class ONTImportRouteFreezeTests: XCTestCase {
         let rowsBefore = Set(OperationCenter.shared.items.map(\.id))
         let savedBundleReady = OperationCenter.shared.onBundleReadyWithContext
         OperationCenter.shared.onBundleReadyWithContext = { _, _ in }
+        // The window builds its coordinator itself, so the runner finds the command the way the app does.
+        let cli = try ONTImportFreezeFixture.builtCLI(for: Self.self)
+        let savedCLIPath = getenv("LUNGFISH_CLI_PATH").map { String(cString: $0) }
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
         defer {
+            if let savedCLIPath { setenv("LUNGFISH_CLI_PATH", savedCLIPath, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
             OperationCenter.shared.onBundleReadyWithContext = savedBundleReady
             for item in OperationCenter.shared.items where !rowsBefore.contains(item.id) {
                 OperationCenter.shared.clearItem(id: item.id)
             }
         }
+        XCTAssertEqual(CLIBinaryLocator.cliBinaryPath()?.path, cli.path, "the window's runner would launch another command")
         let source = try ONTImportFreezeFixture.makeSource(in: root)
         let project = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
@@ -268,6 +185,7 @@ final class ONTImportRouteFreezeTests: XCTestCase {
 
         let row = try XCTUnwrap(OperationCenter.shared.items.first { !rowsBefore.contains($0.id) })
         XCTAssertEqual(row.state, .completed)
+        XCTAssertTrue(row.cliCommand?.hasSuffix(" --format json") == true, "the row records the argv the runner launched")
         let firstBundle = try XCTUnwrap(row.bundleURLs.first)
         XCTAssertEqual(firstBundle.lastPathComponent, "barcode01.lungfishfastq")
         let opened = await waitUntil(timeout: .seconds(30)) {
@@ -305,27 +223,6 @@ final class ONTImportRouteFreezeTests: XCTestCase {
         try FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: nil, options: []
         ).map(\.lastPathComponent).sorted()
-    }
-
-    /// Every regular file under `folder`, hidden ones included, by its path from the folder.
-    private static func relativeFiles(in folder: URL) throws -> [String] {
-        let base = folder.resolvingSymlinksInPath().path + "/"
-        var files: [String] = []
-        let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])
-        while let url = enumerator?.nextObject() as? URL {
-            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
-            files.append(String(url.resolvingSymlinksInPath().path.dropFirst(base.count)))
-        }
-        return files.sorted()
-    }
-
-    /// The bytes of each read file of a bundle, by name. The sidecars hold dates, so they stay out.
-    private static func payloadDigests(of bundle: URL) throws -> [String: Data] {
-        var digests: [String: Data] = [:]
-        for file in try relativeFiles(in: bundle) where file.hasSuffix(".fastq") || file.hasSuffix(".fastq.gz") {
-            digests[file] = try Data(contentsOf: bundle.appendingPathComponent(file))
-        }
-        return digests
     }
 
     private static func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {

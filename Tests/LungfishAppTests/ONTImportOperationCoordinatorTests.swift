@@ -26,7 +26,9 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         let projectURL = tempDir.appendingPathComponent("project", isDirectory: true)
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
         let center = OperationCenter()
-        let coordinator = ONTImportOperationCoordinator(operationCenter: center)
+        let coordinator = ONTImportOperationCoordinator(
+            operationCenter: center, runner: try ONTImportFreezeFixture.cliRunner(for: Self.self)
+        )
 
         let result = try await coordinator.importDirectory(
             sourceURL: sourceURL,
@@ -42,7 +44,7 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         let item = try XCTUnwrap(center.items.first)
         XCTAssertEqual(item.state, .completed)
         XCTAssertEqual(item.operationType, .ingestion)
-        XCTAssertEqual(item.bundleURLs, result.importResult.bundleURLs)
+        XCTAssertEqual(item.bundleURLs, result.bundleURLs)
         XCTAssertEqual(item.routeContext, routeContext)
         XCTAssertEqual(item.cliCommand, OperationCenter.buildCLICommand(
             subcommand: "fastq import-ont",
@@ -51,9 +53,10 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
                 "--output", expectedOutputURL.path,
                 "--include-unclassified",
                 "--concurrency", "1",
+                "--format", "json",
             ]
-        ))
-        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        ), "the row records the argv the runner launches")
+        let bundleURL = try XCTUnwrap(result.bundleURLs.first)
         XCTAssertEqual(
             bundleURL.deletingLastPathComponent().standardizedFileURL,
             expectedOutputURL.standardizedFileURL,
@@ -64,7 +67,7 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         ))
 
         let envelope = try readEnvelope(expectedOutputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
-        XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("gui"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("cli"), "the leaf ran, so the entry point is the command line")
         XCTAssertEqual(envelope.options.resolvedDefaults["includeUnclassified"], .boolean(true))
         XCTAssertEqual(envelope.options.resolvedDefaults["concurrency"], .integer(1))
         XCTAssertEqual(envelope.argv.first, "lungfish-cli")
@@ -86,7 +89,9 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         )
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
         let center = OperationCenter()
-        let coordinator = ONTImportOperationCoordinator(operationCenter: center)
+        let coordinator = ONTImportOperationCoordinator(
+            operationCenter: center, runner: try ONTImportFreezeFixture.cliRunner(for: Self.self)
+        )
 
         let result = try await coordinator.importDirectory(
             sourceURL: sourceURL,
@@ -99,7 +104,7 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         let expectedOutputURL = projectURL
             .appendingPathComponent("Imports", isDirectory: true)
             .appendingPathComponent("Run42 2", isDirectory: true)
-        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        let bundleURL = try XCTUnwrap(result.bundleURLs.first)
         XCTAssertEqual(bundleURL.deletingLastPathComponent().standardizedFileURL, expectedOutputURL.standardizedFileURL)
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: expectedOutputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true).path
@@ -188,7 +193,9 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
             encoding: .utf8
         )
         let center = OperationCenter()
-        let coordinator = ONTImportOperationCoordinator(operationCenter: center)
+        let coordinator = ONTImportOperationCoordinator(
+            operationCenter: center, runner: try ONTImportFreezeFixture.cliRunner(for: Self.self)
+        )
 
         let result = try await coordinator.importDirectory(
             sourceURL: sourceURL,
@@ -198,7 +205,7 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
             routeContext: OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
         )
 
-        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        let bundleURL = try XCTUnwrap(result.bundleURLs.first)
         XCTAssertEqual(
             bundleURL.deletingLastPathComponent().standardizedFileURL,
             projectURL
@@ -214,7 +221,9 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         let projectURL = tempDir.appendingPathComponent("flattened-project", isDirectory: true)
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
         let center = OperationCenter()
-        let coordinator = ONTImportOperationCoordinator(operationCenter: center)
+        let coordinator = ONTImportOperationCoordinator(
+            operationCenter: center, runner: try ONTImportFreezeFixture.cliRunner(for: Self.self)
+        )
 
         let result = try await coordinator.importDirectory(
             sourceURL: sourceURL,
@@ -227,7 +236,7 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
 
         let item = try XCTUnwrap(center.items.first)
         XCTAssertTrue(item.cliCommand?.contains("--storage-mode flattened") == true)
-        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        let bundleURL = try XCTUnwrap(result.bundleURLs.first)
         let payloadURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: payloadURL.path

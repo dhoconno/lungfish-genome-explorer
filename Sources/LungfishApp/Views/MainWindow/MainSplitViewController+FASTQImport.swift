@@ -994,7 +994,7 @@ extension MainSplitViewController {
 
         Task(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
-                let workflowResult = try await coordinator.importDirectory(
+                let imported = try await coordinator.importDirectory(
                     sourceURL: sourceURL,
                     projectURL: projectURL,
                     includeUnclassified: includeUnclassified,
@@ -1003,19 +1003,19 @@ extension MainSplitViewController {
                     qualityBinning: qualityBinning,
                     routeContext: routeContext
                 )
-                let result = workflowResult.importResult
-
-                let detail = "\(result.bundleURLs.count) barcode bundles, \(result.totalReadCount) reads"
-                mainSplitLogger.info("importONTDirectoryInBackground: \(detail)")
+                mainSplitLogger.info("importONTDirectoryInBackground: \(imported.detail)")
 
                 viewerController?.hideProgress()
                 self?.sidebarController.requestReloadFromFilesystem()
                 self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
 
                 // Display the first bundle
-                if let firstBundle = result.bundleURLs.first {
+                if let firstBundle = imported.bundleURLs.first {
                     self?.displayGenomicsFile(url: firstBundle)
                 }
+            } catch is CancellationError { // The row reads Cancelled, so no sheet
+                viewerController?.hideProgress()
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Import cancelled")
             } catch {
                 mainSplitLogger.error("importONTDirectoryInBackground: \(error)")
                 viewerController?.hideProgress()
@@ -1023,7 +1023,7 @@ extension MainSplitViewController {
 
                 let alert = NSAlert()
                 alert.messageText = "ONT Import Failed"
-                alert.informativeText = "\(error)"
+                alert.informativeText = error.localizedDescription
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "OK")
                 alert.applyLungfishBranding()
