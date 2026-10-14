@@ -1,0 +1,212 @@
+// MappingRouteParityReplayTests.swift - The Map Reads routes and the recorded command, with minimap2 and samtools
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 2.10 lane A46 M3 (panel G1, C4 and C13, ARCH 2 and 3, BIO 1 and 2, UX 1, 3 and 4, QA 1, 4
+// and 5). Map Reads runs on the route its key `ReadsLaunchRoute.mapping` picks. The parity case maps
+// the mapping golden's fixture (MappingRouteGolden, Tests/Fixtures/sarscov2 with minimap2, the sr
+// preset, paired reads and two threads) on the three sides of RouteParityHarness.
+//
+// - Side A, the in-process route, `runSingleManagedMappingAwaitingCompletion`.
+// - Side C, the CLI route, `runSingleManagedMappingThroughCLI` on the built CLI.
+// - Side C', the command side C's row recorded, rebased and run by the built CLI.
+//
+// Both routes take the analysis folder the fixture made, without a run record, as a batch child
+// takes its folder, so the three roots name one folder. The case holds A against C and C against
+// C' to nothing declared, side C's row to the in-process row M2 froze (the stage words, the lines
+// logged and the end, Fixtures/MappingRouteRow/plain-fasta.txt), and side C's BAM,
+// counts and record to the mapping golden (BIO 1). The SIGTERM case cancels the route's `map` argv
+// through the real transport once a stand-in minimap2 runs, in a conda root of its own.
+//
+// minimap2 and samtools are the storage root's own, stated with ToolAvailability, and the class
+// launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
+// integration tier (docs/contracts/CLI-EQUIVALENCE.md).
+
+import Foundation
+import XCTest
+@testable import LungfishApp
+import LungfishCore
+import LungfishIO
+import LungfishKit
+import LungfishKitTestSupport
+import LungfishTestSupport
+@testable import LungfishWorkflow
+
+@MainActor
+final class MappingRouteParityReplayTests: XCTestCase {
+    private var scratch: URL!
+    private var cliBinary: URL!
+
+    enum Case: String, Sendable {
+        case sarscov2PairedMinimap2
+    }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        scratch = try TestTempDirectory.make(prefix: "mapping-route-parity")
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        cliBinary = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so sides C and C' cannot run"
+        )
+    }
+
+    override func tearDown() async throws {
+        TestTempDirectory.cleanup(scratch)
+        try await super.tearDown()
+    }
+
+    func testTheMapReadsRoutesAgreeAndTheRecordedCommandReproducesTheCLIRoute() async throws {
+        _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
+        let samtools = try await ToolAvailability.require("samtools", environment: "samtools")
+        let harness = RouteParityHarness(cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120))
+        let title = "Map Reads (\(MappingTool.minimap2.displayName)): \(MappingRouteGolden.sampleName)"
+        var rows: [RouteParitySide: MappingRouteRow] = [:]
+        let runs = try await harness.run(
+            in: scratch.appendingPathComponent("parity", isDirectory: true),
+            fixture: { root in
+                // The folder carries no run record, so the replay owns and completes it as a
+                // fresh run of the command would, rather than leaving it to the test process.
+                _ = AnalysisRunRecord.markComplete(try MappingRouteGolden.Fixture(in: root).analysisDirectory)
+            },
+            sideA: { root in
+                let request = try Self.request(in: root)
+                let (_, item) = try await ReadsRouteParity.record(title: title) {
+                    Task { @MainActor in
+                        await AppDelegate().runSingleManagedMappingAwaitingCompletion(
+                            request: request, warning: nil, routeContext: nil,
+                            preassignedAnalysisDirectory: request.outputDirectory, registerCancel: { _ in }
+                        )
+                    }
+                }
+                return ReadsRouteParity.outcome(of: item)
+            },
+            sideC: { root in
+                let request = try Self.request(in: root)
+                let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
+                let (row, item) = try await ReadsRouteParity.record(title: title) {
+                    Task { @MainActor in
+                        await AppDelegate().runSingleManagedMappingThroughCLI(
+                            request: request, warning: nil, routeContext: nil,
+                            preassignedAnalysisDirectory: request.outputDirectory, runner: runner,
+                            cancelBatch: {}, registerCancel: { _ in }
+                        )
+                    }
+                }
+                rows[.c] = row
+                return ReadsRouteParity.outcome(of: item, recordsCommand: true)
+            }
+        )
+
+        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        let result = try harness.evaluate(Case.sarscov2PairedMinimap2, declared: [], runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.sarscov2PairedMinimap2)")
+        // UX 1 and 3, the CLI route's row shows the words, lines and end of the in-process row M2
+        // froze. The bar is left out, since on either route the viewer's step back to 0.93 can
+        // reach the panel after the bar reached 1 and be missed (reported by lane A46 M3).
+        var row = try XCTUnwrap(rows[.c])
+        row.bar = []
+        let frozen = try String(contentsOf: MappingRouteRow.frozenFolder.appendingPathComponent("plain-fasta.txt"), encoding: .utf8)
+        XCTAssertEqual(
+            row.text.replacingOccurrences(of: "# bar\n", with: ""),
+            frozen.replacingOccurrences(of: #"# bar\n(?:[0-9.]+\n)*"#, with: "", options: .regularExpression),
+            "the CLI route's row shows what the in-process row M2 froze"
+        )
+
+        // BIO 1, side C's BAM, counts and record are the golden's.
+        let folder = try Self.analysisFolder(in: runs.c.root)
+        let mapping = try MappingResult.load(from: folder)
+        try MappingRouteGolden.assertMatchesGolden(
+            outputDirectory: folder, bam: mapping.bamURL, totalReads: mapping.totalReads,
+            mappedReads: mapping.mappedReads, samtools: samtools
+        )
+    }
+
+    // MARK: - SIGTERM through the transport (P2, SWIFT 3 and 7)
+
+    /// The Map Reads row's cancel reaches `map` as SIGTERM through the transport every CLI route
+    /// uses, once the mapper runs. The command exits 125 inside the grace, records its run as
+    /// cancelled, leaves its folder out of the sidebar, and no process of its tree is left.
+    func testSIGTERMThroughTheTransportCancelsMap() async throws {
+        let tools = scratch.appendingPathComponent("cancel-tools", isDirectory: true)
+        let condaRoot = tools.appendingPathComponent("conda", isDirectory: true)
+        let mapperPID = scratch.appendingPathComponent("mapper.pid")
+        try ReadsRouteParity.write(
+            ReadsRouteParity.sleepingMicromamba(tool: "minimap2", pidFile: mapperPID),
+            executableAt: condaRoot.appendingPathComponent("bin/micromamba")
+        )
+        for (environment, executable) in [("minimap2", "minimap2"), ("samtools", "samtools")] {
+            try ReadsRouteParity.write("#!/bin/sh\nexit 0\n", executableAt: condaRoot.appendingPathComponent("envs/\(environment)/bin/\(executable)"))
+        }
+        let home = tools.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let root = scratch.appendingPathComponent("cancel", isDirectory: true)
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project.appendingPathComponent("Analyses", isDirectory: true), withIntermediateDirectories: true)
+        let folder = project.appendingPathComponent("Analyses/minimap2-sigterm", isDirectory: true)
+        let reads = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIIIIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        let reference = root.appendingPathComponent("reference.fa")
+        try ">chr1\n\(String(repeating: "ACGTTGCA", count: 20))\n".write(to: reference, atomically: true, encoding: .utf8)
+        let request = MappingRunRequest(
+            tool: .minimap2, modeID: MappingMode.defaultShortRead.id, inputFASTQURLs: [reads],
+            referenceFASTAURL: reference, projectURL: project, outputDirectory: folder, sampleName: "sigterm", threads: 1
+        )
+
+        let run = await RouteParityHarness.runCLI(
+            cliBinary, arguments: AppDelegate.managedMappingCLIArguments(for: request), timeout: .seconds(60),
+            environment: [
+                "LUNGFISH_CONDA_ROOT": condaRoot.path,
+                "LUNGFISH_STORAGE_ROOT": tools.appendingPathComponent("storage", isDirectory: true).path,
+                "LUNGFISH_CONDA_SHARED_PKGS": "0",
+                "CFFIXED_USER_HOME": home.path,
+                "HOME": home.path,
+            ],
+            cancelWhen: { FileManager.default.fileExists(atPath: mapperPID.path) }
+        )
+
+        let observed = try XCTUnwrap(run.cancel, "the mapper never ran, so nothing was cancelled: \(run.detail)\n\(run.stderr)")
+        CLISIGTERMHarness.assertCancelledExit(status: observed.status, elapsed: observed.elapsed, detail: " \(run.detail)\n\(run.stderr)")
+        await CLISIGTERMHarness.assertNoProcessLeft(observed.tree)
+        CLISIGTERMHarness.assertRecordCancelled { AnalysisRunRecord.load(from: folder)?.outcome?.rawValue }
+        XCTAssertEqual(run.end, .cancelled)
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(folder), "a cancelled run stays out of the sidebar")
+    }
+
+    // MARK: - The request of a side
+
+    /// The one analysis folder the fixture made in `root`.
+    nonisolated static func analysisFolder(in root: URL) throws -> URL {
+        let analyses = root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
+        let folders = try FileManager.default.contentsOfDirectory(at: analyses, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("\(MappingTool.minimap2.rawValue)-") }
+        return try XCTUnwrap(folders.count == 1 ? folders.first : nil, "one mapping folder in \(analyses.path): \(folders)")
+    }
+
+    /// The request the Map Reads window builds for the fixture in `root` (MappingRouteGolden), bound
+    /// to the fixture's folder.
+    nonisolated static func request(in root: URL) throws -> MappingRunRequest {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let inputs = project.appendingPathComponent("inputs", isDirectory: true)
+        let modeID = MappingMode.defaultShortRead.id
+        return MappingRunRequest(
+            tool: .minimap2,
+            modeID: modeID,
+            inputFASTQURLs: [inputs.appendingPathComponent("test_1.fastq.gz"), inputs.appendingPathComponent("test_2.fastq.gz")],
+            referenceFASTAURL: inputs.appendingPathComponent("genome.fasta"),
+            projectURL: project,
+            outputDirectory: try analysisFolder(in: root),
+            sampleName: MappingRouteGolden.sampleName,
+            readGroup: MappingReadGroup.resolved(
+                sampleName: MappingRouteGolden.sampleName, id: nil, readGroupSampleName: nil, library: nil,
+                platform: nil, platformUnit: nil, defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
+            ),
+            pairedEnd: true,
+            threads: 2,
+            includeSecondary: false,
+            includeSupplementary: true,
+            minimumMappingQuality: 0,
+            advancedArguments: []
+        )
+    }
+}

@@ -220,7 +220,7 @@ extension AppDelegate {
     /// failed -- callers use this to detect "every child in the batch
     /// failed" for the empty-batch cleanup in `runManagedMapping`.
     @discardableResult
-    private func runSingleManagedMappingAwaitingCompletion(
+    func runSingleManagedMappingAwaitingCompletion(
         request initialRequest: MappingRunRequest,
         warning: String?,
         routeContext: OperationRouteContext?,
