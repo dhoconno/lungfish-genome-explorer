@@ -176,7 +176,7 @@ The `complete` line names each bundle in `outputs`, in the order of the accessio
 
 The human text goes to standard error while the switch is on. In text mode the command prints it on standard output and no event, and its warnings and its failure go to standard error. `--quiet` drops everything but the failure. The NCBI key reaches the command through `--api-key` or the `NCBI_API_KEY` variable, and no line names it. The command printed one `fetch-genome` result document before 2.10.
 
-`fetch ncbi --bundle` speaks the same lines for the bundle of each GenBank record it is given. Without `--bundle` the leaf saves one file and keeps printing its single `fetch-ncbi` result object under `--format json`.
+`fetch ncbi --bundle` speaks the same lines for the bundle of each GenBank record it is given. Without `--bundle` the leaf saves one file for all its accessions and speaks them too. A run is one `start` line, one `progress` line for each accession, a `log` line at level `warning` for a GFF3 that has no feature rows, and one `complete` line that names the `--save-to` file in `outputs` with no artifact, or one `failed` line. Without `--save-to` the records would share standard output with the events, so `--format json` refuses to run. It printed one `fetch-ncbi` result document before 2.10.
 
 ## Running a workflow
 

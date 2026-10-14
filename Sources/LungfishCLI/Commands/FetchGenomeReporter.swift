@@ -105,6 +105,18 @@ struct FetchGenomeReporter: Sendable {
         }
     }
 
+    /// One `progress` line as a run without builder stages begins accession `index` of `count`, as
+    /// `fetch ncbi` does without `--bundle`. Text mode prints nothing.
+    func accessionProgress(_ accession: String, index: Int, count: Int) {
+        events.emitProgress(Double(index) / Double(max(count, 1)), message: "\(accession): Fetching")
+    }
+
+    /// The `complete` line of a run that saved `records` records in one `file`. It names no artifact,
+    /// because a GenBank, FASTA or GFF3 file is no bundle.
+    func completeFile(_ file: URL, records: Int) {
+        events.emitComplete(outputs: [file.path], artifacts: [], message: "Fetched \(records) record(s)")
+    }
+
     func beginAccession(_ accession: String, index: Int, count: Int, destination: URL) {
         header("Fetching \(subject.prefix(1).uppercased() + subject.dropFirst()) \(index + 1) of \(count)")
         text("Accession: \(accession)")

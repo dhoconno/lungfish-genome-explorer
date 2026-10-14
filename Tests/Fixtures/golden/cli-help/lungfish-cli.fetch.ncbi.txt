@@ -7,8 +7,10 @@ built as the app's NCBI browser builds a nucleotide or virus record. The one
 sequence is named by the accession with its version. With --format json the
 command prints CLIEvent lines on standard output and its human text on
 standard error. SIGTERM stops the run, removes the bundle it was building
-and exits 125. The NCBI key comes from --api-key or from the NCBI_API_KEY
-environment variable.
+and exits 125. Without --bundle, --format json prints the same lines for a run
+that saves its records with --save-to, and refuses to run without --save-to,
+because the records would share standard output with the events. The NCBI key
+comes from --api-key or from the NCBI_API_KEY environment variable.
 
 Examples:
   lungfish-cli fetch ncbi NC_045512.2 MN908947.3 --bundle --output-dir

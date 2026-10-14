@@ -40,8 +40,10 @@ struct NCBISubcommand: AsyncParsableCommand {
             sequence is named by the accession with its version. With --format json the
             command prints CLIEvent lines on standard output and its human text on
             standard error. SIGTERM stops the run, removes the bundle it was building
-            and exits 125. The NCBI key comes from --api-key or from the NCBI_API_KEY
-            environment variable.
+            and exits 125. Without --bundle, --format json prints the same lines for a run
+            that saves its records with --save-to, and refuses to run without --save-to,
+            because the records would share standard output with the events. The NCBI key
+            comes from --api-key or from the NCBI_API_KEY environment variable.
 
             Examples:
               lungfish-cli fetch ncbi NC_045512.2 MN908947.3 --bundle --output-dir ./bundles
@@ -116,6 +118,10 @@ struct NCBISubcommand: AsyncParsableCommand {
         } else if outputDir != nil || noGFF3 {
             throw ValidationError("--output-dir and --no-gff3 belong to --bundle.")
         }
+        // Under --format json standard output holds events, which the records would share.
+        if !bundle, globalOptions.outputFormat == .json, saveTo == nil {
+            throw ValidationError("--format json prints events on standard output, so the records need --save-to.")
+        }
     }
 
     func run() async throws {
@@ -123,12 +129,27 @@ struct NCBISubcommand: AsyncParsableCommand {
             try await runBundle()
             return
         }
-        let runClock = ProvenanceRunClock()
-        let formatter = TerminalFormatter(useColors: globalOptions.useColors)
-
-        if !globalOptions.quiet {
-            print(formatter.info("Fetching \(accessions.count) accession(s) from NCBI \(database)..."))
+        let eventsOn = globalOptions.outputFormat == .json
+        let reporter = FetchGenomeReporter(
+            eventsOn: eventsOn, quiet: globalOptions.quiet, useColors: globalOptions.useColors, subject: "NCBI record")
+        reporter.start(accessions: accessions)
+        do {
+            try await fetchRecords(reporter: reporter)
+        } catch {
+            // A run that prints events ends with a failed line, and the text of a run that does not
+            // goes to the error handler as before.
+            guard eventsOn else { throw error }
+            var outcome = FetchGenomeOutcome()
+            outcome.failures.append(.init(accession: "", message: FetchGenomeRun.message(for: error)))
+            try reporter.finish(outcome)
         }
+    }
+
+    /// The plain run. It fetches each accession, saves the records in `--save-to` with a record of
+    /// the run or prints them, and speaks the lines of `reporter`.
+    private func fetchRecords(reporter: FetchGenomeReporter) async throws {
+        let runClock = ProvenanceRunClock()
+        reporter.info("Fetching \(accessions.count) accession(s) from NCBI \(database)...")
 
         // Create NCBI service
         let resolvedAPIKey = Self.resolvedAPIKey(
@@ -150,8 +171,9 @@ struct NCBISubcommand: AsyncParsableCommand {
         var fetchedRecords: [(accession: String, content: String)] = []
 
         for (index, accession) in accessions.enumerated() {
-            if !globalOptions.quiet && accessions.count > 1 {
-                print(formatter.info("[\(index + 1)/\(accessions.count)] Fetching \(accession)..."))
+            reporter.accessionProgress(accession, index: index, count: accessions.count)
+            if accessions.count > 1 {
+                reporter.info("[\(index + 1)/\(accessions.count)] Fetching \(accession)...")
             }
 
             do {
@@ -166,10 +188,8 @@ struct NCBISubcommand: AsyncParsableCommand {
                 let resolvedContent = ncbiFormat == .gff3
                     ? Self.normalizedGFF3Content(content, accession: accession)
                     : content
-                if ncbiFormat == .gff3 && Self.gff3FeatureCount(in: resolvedContent) == 0 && !globalOptions.quiet {
-                    Self.writeLineToStandardError(
-                        formatter.warning("NCBI returned no GFF3 feature rows for \(accession); the file contains only comments/directives.")
-                    )
+                if ncbiFormat == .gff3 && Self.gff3FeatureCount(in: resolvedContent) == 0 {
+                    reporter.warning("NCBI returned no GFF3 feature rows for \(accession); the file contains only comments/directives.")
                 }
                 fetchedRecords.append((accession: accession, content: resolvedContent))
             } catch let error as CLIError {
@@ -192,26 +212,14 @@ struct NCBISubcommand: AsyncParsableCommand {
                     fetchedRecords: fetchedRecords,
                     retryEvents: retryEvents
                 )
-                if !globalOptions.quiet {
-                    print(formatter.success("Saved to \(outputPath)"))
-                }
+                reporter.success("Saved to \(outputPath)")
             } catch {
                 throw CLIError.outputWriteFailed(path: outputPath, reason: error.localizedDescription)
             }
+            reporter.completeFile(URL(fileURLWithPath: outputPath).standardizedFileURL, records: fetchedRecords.count)
         } else {
             // Write to stdout
             print(allContent)
-        }
-
-        if globalOptions.outputFormat == .json {
-            let result = FetchResult(
-                accessions: accessions,
-                database: database,
-                format: fetchFormat,
-                outputFile: saveTo
-            )
-            let handler = JSONOutputHandler()
-            handler.writeData(result, label: nil)
         }
     }
 

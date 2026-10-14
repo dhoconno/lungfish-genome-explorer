@@ -54,6 +54,17 @@ final class FetchNCBIBundleOptionsTests: XCTestCase {
         }
     }
 
+    /// Under `--format json` the leaf prints events on standard output. A plain run without
+    /// `--save-to` would print its records there too, so it refuses before it fetches anything
+    /// (A45 M1 ruling, section 2). The bundle mode writes into its folder and needs no file.
+    func testPlainEventsNeedSaveTo() throws {
+        XCTAssertThrowsError(try NCBISubcommand.parse(["MN908947.3", "--format", "json"]))
+        let command = try NCBISubcommand.parse(["MN908947.3", "--save-to", "x.gb", "--format", "json"])
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        XCTAssertNoThrow(try NCBISubcommand.parse(["MN908947.3", "--bundle", "--format", "json"]))
+        XCTAssertNoThrow(try NCBISubcommand.parse(["MN908947.3"]), "text mode still prints the records")
+    }
+
     /// The NCBI key reaches the leaf through the environment. The option stays for a person at a
     /// terminal, and the app never passes it.
     func testTheKeyOptionStillParsesWithBundle() throws {

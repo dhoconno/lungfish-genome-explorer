@@ -1,0 +1,4 @@
+{"event":"start","message":"Started NCBI record fetch of 2 accession(s) via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"ZZ000001.1: Fetching","progress":0,"schemaVersion":2}
+{"event":"progress","message":"ZZ000002.1: Fetching","progress":0.5,"schemaVersion":2}
+{"event":"complete","message":"Fetched 2 record(s)","output":"\/work\/records.gb","outputs":["\/work\/records.gb"],"progress":1,"schemaVersion":2}
