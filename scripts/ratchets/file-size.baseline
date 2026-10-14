@@ -24,7 +24,7 @@ Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1062
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 992
-Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1339
+Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1337
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1905
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
