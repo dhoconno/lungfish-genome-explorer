@@ -575,6 +575,227 @@ final class ClassifierReadResolverTests: XCTestCase {
         await assertEsVirituBAMNotFound("S1", resultPath: resultPath)
     }
 
+    // MARK: - resolveBAMURL, a BAM that links out of the result root (U36, 2.8 row 274, 2.9 W4)
+
+    /// One way a result can hold a link to a BAM outside its root, for each place a lookup looks for a BAM.
+    private struct LinkedLayout {
+        let label: String
+        let tool: ClassifierTool
+        /// The sample id the resolver is asked for, nil for the single-sample scan.
+        let sampleId: String?
+        /// Where the BAM sits inside the result, relative to its root.
+        let bamPath: String
+        /// A folder above the BAM, relative to the root, that is the link. The BAM keeps its place below it in the target.
+        var linkedFolder: String?
+        /// What the result's database records for the sample, or nil when the layout has no row to read.
+        var recorded: String?
+    }
+
+    private struct LinkedResult {
+        let root: URL
+        let resultPath: URL
+        let outside: URL
+        /// The BAM outside the result that the link leads to.
+        let outsideBAM: URL
+    }
+
+    /// One layout for each place a lookup finds a BAM, so a link out of the root is tried at every one of them.
+    private static let linkedLayouts: [LinkedLayout] = {
+        let standard = "S1/bams/S1.third.filt.sorted.bam"
+        return [
+            LinkedLayout(label: "EsViritu batch, recorded", tool: .esviritu, sampleId: "S1", bamPath: standard, recorded: standard),
+            LinkedLayout(label: "EsViritu batch, standard name", tool: .esviritu, sampleId: "S1", bamPath: standard),
+            LinkedLayout(label: "EsViritu batch, bams scan", tool: .esviritu, sampleId: "S1", bamPath: "S1/bams/S1.custom.sorted.bam"),
+            LinkedLayout(label: "EsViritu batch, bams folder", tool: .esviritu, sampleId: "S1", bamPath: standard, linkedFolder: "S1/bams", recorded: standard),
+            LinkedLayout(label: "EsViritu batch, sample folder", tool: .esviritu, sampleId: "S1", bamPath: "S1/bams/S1.custom.sorted.bam", linkedFolder: "S1"),
+            LinkedLayout(label: "EsViritu flat legacy", tool: .esviritu, sampleId: "S1", bamPath: "S1.sorted.bam"),
+            LinkedLayout(label: "EsViritu temp legacy", tool: .esviritu, sampleId: "S1", bamPath: "S1_temp/S1.sorted.bam"),
+            LinkedLayout(label: "EsViritu single-sample scan", tool: .esviritu, sampleId: nil, bamPath: "S1.sorted.bam"),
+            LinkedLayout(label: "TaxTriage minimap2", tool: .taxtriage, sampleId: "S1", bamPath: "minimap2/S1.bam"),
+            LinkedLayout(label: "TaxTriage minimap2 scan", tool: .taxtriage, sampleId: "S1", bamPath: "minimap2/S1.S1.dwnld.references.bam"),
+            LinkedLayout(label: "TaxTriage minimap2 folder", tool: .taxtriage, sampleId: "S1", bamPath: "minimap2/S1.bam", linkedFolder: "minimap2"),
+            LinkedLayout(label: "NAO-MGS bams", tool: .naomgs, sampleId: "S1", bamPath: "bams/S1.bam"),
+            LinkedLayout(label: "NAO-MGS bams sorted", tool: .naomgs, sampleId: "S1", bamPath: "bams/S1.sorted.bam"),
+            LinkedLayout(label: "NAO-MGS recorded path", tool: .naomgs, sampleId: "S1", bamPath: "custom/S1.bam", recorded: "custom/S1.bam"),
+            LinkedLayout(label: "NVD bam", tool: .nvd, sampleId: "S1", bamPath: "bam/S1.filtered.bam"),
+            LinkedLayout(label: "NVD bam sorted", tool: .nvd, sampleId: "S1", bamPath: "bam/S1.filtered.sorted.bam"),
+            LinkedLayout(label: "NVD recorded path", tool: .nvd, sampleId: "S1", bamPath: "custom/S1.bam", recorded: "custom/S1.bam"),
+        ]
+    }()
+
+    /// A NAO-MGS `hits.sqlite` with one taxon row for `sampleId` whose `bam_path` is `recordedBAM`.
+    private func makeNaoMgsDatabase(at url: URL, sampleId: String, recordedBAM: String) throws {
+        let hit = NaoMgsVirusHit(
+            sample: sampleId, seqId: "\(sampleId)_read", taxId: 2_697_049, bestAlignmentScore: 120,
+            cigar: "150M", queryStart: 0, queryEnd: 150, refStart: 0, refEnd: 150,
+            readSequence: String(repeating: "A", count: 150), readQuality: String(repeating: "I", count: 150),
+            subjectSeqId: "NC_045512.2", subjectTitle: "SARS-CoV-2", bitScore: 250, eValue: 1e-50,
+            percentIdentity: 98.5, editDistance: 2, fragmentLength: 300, isReverseComplement: false,
+            pairStatus: "CP", queryLength: 150
+        )
+        try NaoMgsDatabase.create(at: url, hits: [hit])
+        var db: OpaquePointer?
+        defer { sqlite3_close(db) }
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            throw NSError(domain: "ClassifierReadResolverTests", code: 2)
+        }
+        let update = "UPDATE taxon_summaries SET bam_path = '\(recordedBAM)' WHERE sample = '\(sampleId)'"
+        XCTAssertEqual(sqlite3_exec(db, update, nil, nil, nil), SQLITE_OK)
+    }
+
+    /// A result of `layout.tool` whose BAM is a link to a file in a second folder outside the result. The link sits at
+    /// `layout.bamPath`, or at `layout.linkedFolder` above it, which then leads to the second folder.
+    private func makeLinkedResult(_ layout: LinkedLayout) throws -> LinkedResult {
+        let fm = FileManager.default
+        let sampleId = layout.sampleId ?? "S1"
+        let outside = try TestTempDirectory.make(prefix: "linked-outside")
+        let belowLink = layout.linkedFolder.map { String(layout.bamPath.dropFirst($0.count + 1)) }
+            ?? URL(fileURLWithPath: layout.bamPath).lastPathComponent
+        let outsideBAM = try writeStandInBAM(belowLink, under: outside)
+        let root: URL
+        let resultPath: URL
+        switch layout.tool {
+        case .esviritu:
+            let made = try makeEsVirituResult(sampleId: sampleId, bamPath: layout.recorded)
+            root = made.root
+            resultPath = made.resultPath
+        case .taxtriage:
+            root = try TestTempDirectory.make(prefix: "linked-taxtriage")
+            resultPath = root.appendingPathComponent("taxtriage.sqlite")
+        case .naomgs:
+            root = try TestTempDirectory.make(prefix: "linked-naomgs")
+            resultPath = root.appendingPathComponent("hits.sqlite")
+            if let recorded = layout.recorded {
+                try makeNaoMgsDatabase(at: resultPath, sampleId: sampleId, recordedBAM: recorded)
+            }
+        case .nvd:
+            root = try TestTempDirectory.make(prefix: "linked-nvd")
+            resultPath = root.appendingPathComponent("hits.sqlite")
+            if let recorded = layout.recorded {
+                try NvdDatabase.create(at: resultPath, hits: [], samples: [NvdSampleMetadata(
+                    sampleId: sampleId, bamPath: recorded, fastaPath: "\(sampleId).fasta",
+                    totalReads: 1, contigCount: 0, hitCount: 0
+                )])
+            }
+        case .kraken2:
+            preconditionFailure("kraken2 is not a BAM-backed tool")
+        }
+        let linkURL = root.appendingPathComponent(layout.linkedFolder ?? layout.bamPath)
+        try fm.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: linkURL, withDestinationURL: layout.linkedFolder == nil ? outsideBAM : outside)
+        return LinkedResult(root: root, resultPath: resultPath, outside: outside, outsideBAM: outsideBAM)
+    }
+
+    private func removeLinkedResult(_ result: LinkedResult) {
+        TestTempDirectory.cleanup(result.root)
+        TestTempDirectory.cleanup(result.outside)
+    }
+
+    /// What the resolver does for the BAM of `layout`, with the thrown error kept for the caller to read.
+    private func resolveLinkedBAM(_ layout: LinkedLayout, in result: LinkedResult) async -> Result<URL, Error> {
+        do {
+            return .success(try await ClassifierReadResolver().testingResolveBAMURL(
+                tool: layout.tool,
+                sampleId: layout.sampleId,
+                resultPath: result.resultPath
+            ))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    // MARK: Pins at the base (U36 item 1)
+
+    /// A batch result whose BAM links out of the root extracts, where a one-folder result with the same link is refused
+    /// with `bamNotFound`. The layout lookups of the batch result follow the link, and none reaches the one-folder BAM.
+    func testLinkedBAM_batchResultExtractsWhereTheSameLinkInAOneFolderResultIsRefused_atTheBase() async throws {
+        let batch = LinkedLayout(
+            label: "batch", tool: .esviritu, sampleId: "S1",
+            bamPath: "S1/bams/S1.third.filt.sorted.bam", recorded: "S1/bams/S1.third.filt.sorted.bam"
+        )
+        let batchResult = try makeLinkedResult(batch)
+        defer { removeLinkedResult(batchResult) }
+        let resolved = try await resolveLinkedBAM(batch, in: batchResult).get()
+        XCTAssertFalse(CanonicalFilePath.isPath(resolved, within: batchResult.root), "the file read is outside the result")
+        assertSameFile(resolved, batchResult.outsideBAM)
+
+        let oneFolder = LinkedLayout(
+            label: "one folder", tool: .esviritu, sampleId: "S1",
+            bamPath: "bams/S1.third.filt.sorted.bam", recorded: "bams/S1.third.filt.sorted.bam"
+        )
+        let oneFolderResult = try makeLinkedResult(oneFolder)
+        defer { removeLinkedResult(oneFolderResult) }
+        await assertEsVirituBAMNotFound("S1", resultPath: oneFolderResult.resultPath)
+    }
+
+    /// Every place a lookup finds a BAM follows a link out of the root: the layout lookups of the four tools, the
+    /// folders they list, and the NAO-MGS and NVD paths that their databases record.
+    func testLinkedBAM_everyLayoutLookupFollowsALinkOutOfTheRoot_atTheBase() async throws {
+        for layout in Self.linkedLayouts {
+            let result = try makeLinkedResult(layout)
+            defer { removeLinkedResult(result) }
+            switch await resolveLinkedBAM(layout, in: result) {
+            case .success(let resolved):
+                XCTAssertFalse(CanonicalFilePath.isPath(resolved, within: result.root), "\(layout.label) reads outside")
+                assertSameFile(resolved, result.outsideBAM, layout.label)
+            case .failure(let error):
+                XCTFail("\(layout.label) was refused at the base: \(error)")
+            }
+        }
+    }
+
+    /// The single-sample scan lists the result with a directory enumerator, which does not enter a folder link.
+    func testLinkedBAM_singleSampleScanDoesNotEnterALinkedFolder_atTheBase() async throws {
+        let layout = LinkedLayout(
+            label: "scan", tool: .esviritu, sampleId: nil, bamPath: "linked/S1.sorted.bam", linkedFolder: "linked"
+        )
+        let result = try makeLinkedResult(layout)
+        defer { removeLinkedResult(result) }
+        switch await resolveLinkedBAM(layout, in: result) {
+        case .success(let resolved):
+            XCTFail("The scan entered the linked folder and resolved \(resolved.path)")
+        case .failure(let error):
+            guard case ClassifierExtractionError.bamNotFound(let sampleId) = error else {
+                return XCTFail("Expected bamNotFound, got \(error)")
+            }
+            XCTAssertEqual(sampleId, "(single)")
+        }
+    }
+
+    /// Foundation's listing by URL does not follow a folder link, so a BAM below a linked `bams` folder is found only
+    /// under its standard name. A BAM with another name is not found, and the refusal is `bamNotFound`.
+    func testLinkedBAM_linkedBamsFolderIsNotListed_atTheBase() async throws {
+        let layout = LinkedLayout(
+            label: "bams folder, other name", tool: .esviritu, sampleId: "S1",
+            bamPath: "S1/bams/S1.custom.sorted.bam", linkedFolder: "S1/bams"
+        )
+        let result = try makeLinkedResult(layout)
+        defer { removeLinkedResult(result) }
+        await assertEsVirituBAMNotFound("S1", resultPath: result.resultPath)
+    }
+
+    /// A link that stays inside the root keeps resolving to the target it names, for a file and for a folder. Foundation's
+    /// listing by URL does not follow a folder link, so only the standard name is found through one.
+    func testLinkedBAM_linkInsideTheRootResolvesToItsTarget() async throws {
+        for linksFolder in [false, true] {
+            let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: nil)
+            defer { TestTempDirectory.cleanup(root) }
+            let name = "S1.third.filt.sorted.bam"
+            let target = try writeStandInBAM("store/bams/\(name)", under: root)
+            try FileManager.default.createDirectory(at: root.appendingPathComponent("S1"), withIntermediateDirectories: true)
+            let linkURL = root.appendingPathComponent(linksFolder ? "S1/bams" : "S1/bams/\(name)")
+            if !linksFolder {
+                try FileManager.default.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            }
+            try FileManager.default.createSymbolicLink(
+                at: linkURL,
+                withDestinationURL: linksFolder ? target.deletingLastPathComponent() : target
+            )
+            let resolved = try await resolveEsVirituBAM("S1", resultPath: resultPath)
+            assertSameFile(resolved, target, linksFolder ? "a folder link" : "a file link")
+        }
+    }
+
     // MARK: - extractViaBAM end-to-end (real samtools)
 
     /// Path to the sarscov2 test fixture BAM (exists in Tests/Fixtures/sarscov2/).
