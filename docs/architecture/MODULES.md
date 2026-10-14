@@ -11,7 +11,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 587 | 218293 | 180 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 587 | 218252 | 180 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1994 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 242 | 63922 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
@@ -35,7 +35,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1562 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 739 | 198391 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 739 | 198364 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 38 | 20053 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 7 | 6070 | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1394 | LungfishAssemblyUI, LungfishKit |
@@ -109,7 +109,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 587, lines 218293
+- Swift files. 587, lines 218252
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -120,12 +120,12 @@ None.
 | Subdirectory | Swift files | Lines |
 |---|---|---|
 | App | 80 | 22398 |
-| Services | 77 | 20030 |
+| Services | 77 | 19985 |
 | StateManagement | 7 | 595 |
 | Support | 2 | 94 |
 | UITestSupport | 4 | 487 |
 | ViewModels | 4 | 956 |
-| Views | 413 | 173733 |
+| Views | 413 | 173737 |
 | Views/AI | 1 | 1012 |
 | Views/Assembly | 5 | 2079 |
 | Views/BAM | 12 | 1580 |
@@ -134,12 +134,12 @@ None.
 | Views/DemoProjects | 4 | 937 |
 | Views/Dependencies | 3 | 893 |
 | Views/Extraction | 1 | 229 |
-| Views/FASTQ | 9 | 5259 |
+| Views/FASTQ | 9 | 5273 |
 | Views/Help | 1 | 576 |
 | Views/ImportCenter | 6 | 1769 |
 | Views/Inspector | 63 | 24045 |
 | Views/Layout | 3 | 293 |
-| Views/MainWindow | 24 | 10117 |
+| Views/MainWindow | 24 | 10107 |
 | Views/Mapping | 4 | 2206 |
 | Views/Metagenomics | 40 | 13846 |
 | Views/Operations | 9 | 2304 |
@@ -244,7 +244,7 @@ None.
 - `InspectorViewModel` class, `Sources/LungfishApp/Views/Inspector/InspectorViewModel.swift:25`
 - `LoadedDocument` class, `Sources/LungfishApp/App/LoadedDocument.swift:18`
 - `MainMenu` class, `Sources/LungfishApp/App/MainMenu.swift:29`
-- `MainSplitViewController` class, `Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift:341`
+- `MainSplitViewController` class, `Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift:335`
 - `MainWindowController` class, `Sources/LungfishApp/Views/MainWindow/MainWindowController.swift:21`
 - `MappedReadsAnnotationInspectorLaunchRequest` struct, `Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift:995`
 - `MappedReadsAnnotationInspectorValidationError` enum, `Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift:1018`
