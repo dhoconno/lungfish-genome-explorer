@@ -30,6 +30,10 @@
           "inputs" : [
             "Inputs/kraken2.kreport (intermediate file, not kept)"
           ],
+          "observation" : {
+            "environment" : "Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set",
+            "output" : "Not recorded"
+          },
           "ordinal" : 1,
           "outputs" : [
             "Analyses/observed-nonzero-exit/bracken.out (intermediate file, not kept)"

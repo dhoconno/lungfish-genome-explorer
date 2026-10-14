@@ -30,6 +30,11 @@
           "inputs" : [
             "Inputs/reads.fastq (intermediate file, not kept)"
           ],
+          "observation" : {
+            "environment" : "Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set",
+            "output" : "Incomplete",
+            "termination" : "Ended by signal 9 (SIGKILL)"
+          },
           "ordinal" : 1,
           "outputs" : [
             "Analyses/observed-signal/kraken2.kreport (intermediate file, not kept)"

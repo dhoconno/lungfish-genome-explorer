@@ -66,6 +66,8 @@ Eight more records pin what the tab shows of a step's `observation`, the facts T
 
 The expected files sit beside the others. The first commit of the lane pinned them at the base, where the tab shows no line from an observation, and the commit that added the lines changed the display of the cases that gain a line and no other expected file of the folder. The other eight expected files are byte for byte what they were.
 
+A step of an expected file holds an `observation` object when its disclosure gains a line. The object has the `termination`, `output` and `environment` lines the disclosure and the Copy text show, and leaves out each line that does not show. A step that gains none holds no `observation` key, which is why the files of `observed-environment-none`, `observed-older-record` and the eight earlier cases read as before. The lines show only when they add something the Exit Status, Wall Time and stderr rows do not say. Termination says how a step ended when its exit status does not, Output reads Not recorded only for a step that did not exit 0, and Environment is one line naming the variables the step's adapter set or removed. None of them shows an environment value or a PATH entry.
+
 ## Reviewing a difference
 
 When a display changes, the failure names the expected file and writes the actual one under the temporary directory. Run `diff` between the two. Replace the expected file only in a commit that says why the display changed. A test never writes into this folder.

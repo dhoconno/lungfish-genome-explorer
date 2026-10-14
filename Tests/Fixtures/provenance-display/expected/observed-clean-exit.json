@@ -30,6 +30,9 @@
           "inputs" : [
             "Inputs/reads.fastq (intermediate file, not kept)"
           ],
+          "observation" : {
+            "environment" : "Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set"
+          },
           "ordinal" : 1,
           "outputs" : [
             "Analyses/observed-clean-exit/kraken2.kreport (intermediate file, not kept)"

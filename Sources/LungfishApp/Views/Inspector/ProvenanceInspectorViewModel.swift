@@ -238,6 +238,8 @@ struct ProvenanceLineageStep: Identifiable, Equatable {
     var wallTimeSeconds: TimeInterval?
     var stderr: String?
     var dependsOn: [UUID]
+    /// The lines the step's observation adds to its disclosure, or nil when it adds none (Phase 2.10 U37).
+    var observation: ProvenanceStepTerminationDisplay? = nil
 
     var displayCommand: String { commandLabel ?? command }
 }
@@ -729,7 +731,8 @@ final class ProvenanceInspectorViewModel {
                     exitStatus: step.exitStatus,
                     wallTimeSeconds: step.wallTimeSeconds,
                     stderr: step.stderr?.strippingANSIEscapeSequences(),
-                    dependsOn: step.dependsOn
+                    dependsOn: step.dependsOn,
+                    observation: ProvenanceStepTerminationDisplay(step.observation)
                 )
             }
         )
@@ -1018,12 +1021,7 @@ final class ProvenanceInspectorViewModel {
                 lines.append("\(run.title) - \(run.subtitle)")
                 for step in run.steps {
                     lines.append("\(step.ordinal). \(step.toolName) \(step.toolVersion)".trimmingCharacters(in: .whitespaces))
-                    appendIfPresent("Command", step.command, to: &lines)
-                    appendList("Inputs", step.inputPaths, to: &lines)
-                    appendList("Outputs", step.outputPaths, to: &lines)
-                    appendIfPresent("Exit Status", step.exitStatus.map(String.init) ?? "", to: &lines)
-                    appendIfPresent("Wall Time", step.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? "", to: &lines)
-                    appendIfPresent("stderr", step.stderr ?? "", to: &lines)
+                    appendStepLines(of: step, to: &lines)
                 }
             }
             sections.append(lines.joined(separator: "\n"))
@@ -1065,13 +1063,13 @@ final class ProvenanceInspectorViewModel {
         return lines.joined(separator: "\n")
     }
 
-    private func appendList(_ label: String, _ values: [String], to lines: inout [String]) {
+    func appendList(_ label: String, _ values: [String], to lines: inout [String]) {
         guard !values.isEmpty else { return }
         lines.append("\(label):")
         lines.append(contentsOf: values.map { "  \($0)" })
     }
 
-    private func appendIfPresent(_ label: String, _ value: String, to lines: inout [String]) {
+    func appendIfPresent(_ label: String, _ value: String, to lines: inout [String]) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         lines.append("\(label): \(value)")

@@ -109,7 +109,193 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         }
     }
 
+    // MARK: - The Copy text
+
+    /// The Copy text lists each line where the disclosure shows it, which is the order VoiceOver reads the rows.
+    func testTheCopyTextListsEachLineWhereTheDisclosureShowsIt() async throws {
+        let model = try await assertDisplay(folder: "observed-signal")
+
+        XCTAssertEqual(
+            Self.stepLabels(of: model.copyableText),
+            ["1. kraken2 v2.1.3", "Command", "Environment", "Inputs", "Outputs", "Exit Status", "Termination",
+             "Wall Time", "Output", "stderr"]
+        )
+        let copy = model.copyableText
+        XCTAssertTrue(copy.contains("\nEnvironment: Empty, with HOME, MAMBA_ROOT_PREFIX, PATH and TMPDIR set\n"), copy)
+        XCTAssertTrue(copy.contains("\nExit Status: 9\nTermination: Ended by signal 9 (SIGKILL)\nWall Time: 92.40 s\nOutput: Incomplete\n"), copy)
+    }
+
+    /// A record with no observation, or one that adds no line, copies as it always did.
+    func testTheCopyTextOfAStepThatAddsNoLineIsUnchanged() async throws {
+        let usual = ["Command", "Inputs", "Outputs", "Exit Status", "Wall Time", "stderr"]
+        for (folder, header) in [
+            ("observed-older-record", "1. kraken2 v2.1.3"),
+            ("observed-environment-none", "1. kraken2 v2.1.3"),
+            ("fastq-trim-failed", "1. fastp v0.24.0"),
+        ] {
+            let (model, _) = try await loadedModel(folder: folder)
+            XCTAssertEqual(Self.stepLabels(of: model.copyableText), [header] + usual, folder)
+        }
+    }
+
+    // MARK: - The rules (plan decision P2 of Phase 2.8)
+
+    private typealias Environment = ProvenanceStepObservation.Environment
+
+    private func observation(
+        _ termination: ProvenanceStepObservation.Termination,
+        stop: ProvenanceStepObservation.Stop? = nil,
+        outputComplete: Bool? = true,
+        environment: Environment? = nil
+    ) -> ProvenanceStepObservation {
+        ProvenanceStepObservation(
+            termination: termination, stop: stop, outputComplete: outputComplete, environment: environment,
+            stage: ProvenanceStepObservation.Stage(index: 0, count: 1)
+        )
+    }
+
+    private func environment(
+        _ base: Environment.Base, changed: [String] = [], unset: [String] = [], pathReplaced: Bool = false
+    ) -> Environment {
+        Environment(
+            base: base, changed: changed, values: ["MAMBA_ROOT_PREFIX": "/Users/someone/.lungfish/conda"],
+            unset: unset, pathPrefix: ["/Users/someone/.lungfish/conda/bin", "/usr/bin"], pathReplaced: pathReplaced
+        )
+    }
+
+    /// Exit Status gives the code of a step that exited, so Termination says nothing for it. Every other ending
+    /// and every stop adds the line. A time limit is the limit the step reached, and a launch failure's reason is
+    /// shown as the host wrote it.
+    func testTheTerminationLineShowsOnlyWhatExitStatusDoesNotSay() {
+        let cases: [(String, ProvenanceStepObservation, String?)] = [
+            ("exit 0", observation(.exited(code: 0)), nil),
+            ("exit 2", observation(.exited(code: 2)), nil),
+            ("kill", observation(.signaled(signal: 9)), "Ended by signal 9 (SIGKILL)"),
+            ("segfault", observation(.signaled(signal: 11)), "Ended by signal 11 (SIGSEGV)"),
+            ("a signal with no name here", observation(.signaled(signal: 77)), "Ended by signal 77"),
+            ("status lost", observation(.statusLost), "Exit status taken by another process"),
+            ("launch failure", observation(.launchFailed(reason: "no such file")), "Could not start (no such file)"),
+            ("launch failure with no reason", observation(.launchFailed(reason: " ")), "Could not start"),
+            ("not launched", observation(.notLaunched), "Did not start"),
+            ("cancel, exit 0", observation(.exited(code: 0), stop: .cancelled), "Cancelled"),
+            ("cancel, exit 143", observation(.exited(code: 143), stop: .cancelled), "Cancelled"),
+            ("cancel, signal", observation(.signaled(signal: 15), stop: .cancelled), "Cancelled (signal 15, SIGTERM)"),
+            ("wall clock limit", observation(.signaled(signal: 15), stop: .timedOut(limit: .wallClock, seconds: 3600)),
+             "Timed out at its limit of 1h 0m (signal 15, SIGTERM)"),
+            ("idle limit", observation(.signaled(signal: 9), stop: .timedOut(limit: .idle, seconds: 90)),
+             "Timed out after 1m 30s without output (signal 9, SIGKILL)"),
+            ("another stage failed", observation(.signaled(signal: 13), stop: .pipelineStageFailed(stage: 0)),
+             "Stopped because another stage of its pipeline failed (signal 13, SIGPIPE)"),
+            ("stage never started", observation(.notLaunched, stop: .pipelineStageFailed(stage: 0)),
+             "Stopped because another stage of its pipeline failed (did not start)"),
+        ]
+        for (name, observation, expected) in cases {
+            XCTAssertEqual(ProvenanceStepTerminationDisplay(observation)?.termination, expected, name)
+        }
+    }
+
+    /// Output reads Not recorded only when the step did not exit 0 (decision P2). A step that exited 0 shows the
+    /// line only when its output was cut short.
+    func testTheOutputLineReadsNotRecordedOnlyWhenTheStepDidNotExitZero() {
+        let cases: [(String, ProvenanceStepObservation.Termination, Bool?, String?)] = [
+            ("exit 0, whole", .exited(code: 0), true, nil),
+            ("exit 0, not recorded", .exited(code: 0), nil, nil),
+            ("exit 0, cut short", .exited(code: 0), false, "Incomplete"),
+            ("exit 2, whole", .exited(code: 2), true, "Complete"),
+            ("exit 2, not recorded", .exited(code: 2), nil, "Not recorded"),
+            ("exit 2, cut short", .exited(code: 2), false, "Incomplete"),
+            ("signal, not recorded", .signaled(signal: 9), nil, "Not recorded"),
+            ("never launched", .notLaunched, nil, "Not recorded"),
+        ]
+        for (name, termination, complete, expected) in cases {
+            let display = ProvenanceStepTerminationDisplay(observation(termination, outputComplete: complete))
+            XCTAssertEqual(display?.output, expected, name)
+        }
+    }
+
+    func testTheEnvironmentIsOneLineThatNamesVariablesAndAddsNothingWhenNothingChanged() {
+        let cases: [(String, Environment, String?)] = [
+            ("started empty, nothing set", environment(.hermetic), "Empty"),
+            ("started empty", environment(.hermetic, changed: ["HOME", "PATH"]), "Empty, with HOME and PATH set"),
+            ("inherited, unchanged", environment(.inherited), nil),
+            ("inherited, one set", environment(.inherited, changed: ["FOO"]), "Inherited from Lungfish, with FOO set"),
+            ("inherited, three set", environment(.inherited, changed: ["A", "B", "C"]), "Inherited from Lungfish, with A, B and C set"),
+            ("inherited, one removed", environment(.inherited, unset: ["X"]), "Inherited from Lungfish, with X removed"),
+            ("inherited, set and removed", environment(.inherited, changed: ["FOO", "PATH"], unset: ["X", "Y"]),
+             "Inherited from Lungfish, with FOO and PATH set and X and Y removed"),
+        ]
+        for (name, environment, expected) in cases {
+            let display = ProvenanceStepTerminationDisplay(observation(.exited(code: 0), environment: environment))
+            XCTAssertEqual(display?.environment, expected, name)
+            XCTAssertFalse(display?.environment?.contains("/") ?? false, "\(name) shows a value or a PATH entry.")
+        }
+    }
+
+    /// Phase 2.10 S8, the review of S36. A PATH the adapter set that does not end with the inherited PATH is worded
+    /// that way. It is never said to have dropped or removed the inherited PATH, because a PATH that appends after
+    /// the inherited entries also counts. A hermetic base inherits no PATH, so a flag written on one says nothing.
+    func testAReplacedPathIsWordedAsAPathThatDoesNotEndWithTheInheritedOne() {
+        let replaced = environment(.inherited, changed: ["ESVIRITU_DB", "PATH"], unset: ["PYTHONHOME"], pathReplaced: true)
+        let line = ProvenanceStepTerminationDisplay(observation(.exited(code: 0), environment: replaced))?.environment
+        XCTAssertEqual(
+            line,
+            "Inherited from Lungfish, with ESVIRITU_DB set, PATH set to a value that does not end with the inherited PATH and PYTHONHOME removed"
+        )
+        XCTAssertFalse(line?.localizedCaseInsensitiveContains("dropped") ?? true)
+        XCTAssertFalse(line?.localizedCaseInsensitiveContains("removed the inherited") ?? true)
+
+        let extended = environment(.inherited, changed: ["ESVIRITU_DB", "PATH"])
+        XCTAssertEqual(
+            ProvenanceStepTerminationDisplay(observation(.exited(code: 0), environment: extended))?.environment,
+            "Inherited from Lungfish, with ESVIRITU_DB and PATH set"
+        )
+        let onlyPath = environment(.inherited, changed: ["PATH"], pathReplaced: true)
+        XCTAssertEqual(
+            ProvenanceStepTerminationDisplay(observation(.exited(code: 0), environment: onlyPath))?.environment,
+            "Inherited from Lungfish, with PATH set to a value that does not end with the inherited PATH"
+        )
+        let handWritten = environment(.hermetic, changed: ["PATH"], pathReplaced: true)
+        XCTAssertEqual(
+            ProvenanceStepTerminationDisplay(observation(.exited(code: 0), environment: handWritten))?.environment,
+            "Empty, with PATH set"
+        )
+    }
+
+    /// `TMPDIR` is in `changed` only when the process that launched the step had it, so no rule may read it. The
+    /// line lists the names the record holds, with or without that one.
+    func testNoRuleReadsTheTemporaryFolderName() {
+        for changed in [["HOME", "PATH"], ["HOME", "PATH", "TMPDIR"], ["TMPDIR"]] {
+            let display = ProvenanceStepTerminationDisplay(
+                observation(.exited(code: 0), environment: environment(.hermetic, changed: changed))
+            )
+            XCTAssertNotNil(display?.environment, "\(changed)")
+        }
+    }
+
+    /// An observation that adds no line has no display, so the disclosure and the Copy text stay as they were. The
+    /// Lineage search reads the lines that show.
+    func testAnObservationThatAddsNoLineHasNoDisplay() {
+        XCTAssertNil(ProvenanceStepTerminationDisplay(nil))
+        XCTAssertNil(ProvenanceStepTerminationDisplay(observation(.exited(code: 0))))
+        let unchanged = environment(.inherited)
+        XCTAssertNil(ProvenanceStepTerminationDisplay(observation(.exited(code: 0), environment: unchanged)))
+
+        let cancelled = ProvenanceStepTerminationDisplay(observation(.signaled(signal: 15), stop: .cancelled))
+        XCTAssertEqual(cancelled?.searchText, "Cancelled (signal 15, SIGTERM)\nComplete")
+    }
+
     // MARK: - Harness
+
+    /// The label of each unindented line of the first Lineage step in `copy`, which is the step's header and then
+    /// the label before the first colon of each of its lines.
+    private static func stepLabels(of copy: String) -> [String] {
+        guard let section = copy.components(separatedBy: "\n\n").first(where: { $0.hasPrefix("Lineage\n") }) else {
+            return []
+        }
+        return section.components(separatedBy: "\n").dropFirst(2)
+            .filter { !$0.hasPrefix(" ") }
+            .map { line in line.firstIndex(of: ":").map { String(line[..<$0]) } ?? line }
+    }
 
     private func observation(of model: ProvenanceInspectorViewModel) throws -> ProvenanceStepObservation {
         try XCTUnwrap(
@@ -118,14 +304,12 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         )
     }
 
-    /// Copies the committed record of `folder` into a temporary project, loads it through the real lookup and
-    /// compares what the tab shows with the expected file of the same name. Returns the loaded model.
-    @discardableResult
-    private func assertDisplay(
+    /// Copies the committed record of `folder` into a temporary project and loads it through the real lookup.
+    private func loadedModel(
         folder: String,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) async throws -> ProvenanceInspectorViewModel {
+    ) async throws -> (model: ProvenanceInspectorViewModel, project: URL) {
         let project = try makeProject()
         let analysis = project.appendingPathComponent("Analyses/\(folder)", isDirectory: true)
         let sidecar = analysis.appendingPathComponent(".lungfish-provenance.json")
@@ -143,7 +327,18 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         XCTAssertTrue(finished, "The provenance lookup did not finish.", file: file, line: line)
         XCTAssertNotNil(model.resolvedEnvelope, "No record was found for \(folder).", file: file, line: line)
         XCTAssertEqual(model.resolvedSidecarURL?.lastPathComponent, ".lungfish-provenance.json", file: file, line: line)
+        return (model, project)
+    }
 
+    /// Loads the committed record of `folder` and compares what the tab shows with the expected file of the same
+    /// name. Returns the loaded model.
+    @discardableResult
+    private func assertDisplay(
+        folder: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws -> ProvenanceInspectorViewModel {
+        let (model, project) = try await loadedModel(folder: folder, file: file, line: line)
         let snapshot = ProvenanceDisplaySnapshot.capture(
             model, for: ProvenanceDisplayCase(name: folder), redaction: ProvenanceDisplayRedaction(projectURL: project)
         )

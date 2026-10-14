@@ -64,6 +64,16 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
         var exitStatus: Int?
         var wallTimeSeconds: Double?
         var stderr: String?
+        /// The lines the step's observation adds to its disclosure (Phase 2.10 lane U37). Nil when it adds none,
+        /// so the expected file of a record with no observation holds no such key.
+        var observation: ObservationLines?
+    }
+
+    /// The Termination, Output and Environment lines of a step's disclosure, each nil when it does not show.
+    struct ObservationLines: Codable, Equatable {
+        var termination: String?
+        var output: String?
+        var environment: String?
     }
 
     struct Run: Codable, Equatable {
@@ -158,7 +168,14 @@ extension ProvenanceDisplaySnapshot {
                             outputs: step.outputPathLabels.map(redaction.callAsFunction),
                             exitStatus: step.exitStatus,
                             wallTimeSeconds: step.wallTimeSeconds,
-                            stderr: step.stderr.map(redaction.callAsFunction)
+                            stderr: step.stderr.map(redaction.callAsFunction),
+                            observation: step.observation.map {
+                                ObservationLines(
+                                    termination: $0.termination.map(redaction.callAsFunction),
+                                    output: $0.output,
+                                    environment: $0.environment.map(redaction.callAsFunction)
+                                )
+                            }
                         )
                     }
                 )

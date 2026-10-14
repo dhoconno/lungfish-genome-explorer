@@ -30,6 +30,9 @@
           "inputs" : [
             "Inputs/reads.fastq (intermediate file, not kept)"
           ],
+          "observation" : {
+            "environment" : "Inherited from Lungfish, with ESVIRITU_DB and PATH set and PYTHONHOME removed"
+          },
           "ordinal" : 1,
           "outputs" : [
             "Analyses/observed-environment-change/esviritu.out (intermediate file, not kept)"
