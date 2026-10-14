@@ -33,13 +33,15 @@ extension ClassifierReadResolver {
         return []
     }
 
-    /// The file that `recorded`, a path read from a database row, names inside `root`, or nil.
+    /// The file that `recorded` names inside `root`, or nil. It is the one containment check that every BAM
+    /// candidate of `resolveBAMURL` takes, a path read from a database row and a path a layout lookup built alike
+    /// (decision C4, and decision W4 of 2.9 for the layout lookups).
     ///
     /// A relative path is joined to `root`, and an absolute path stays as it is, as the EsViritu viewer reads
     /// the column. The path is standardized with its symlinks resolved. It is used only when the resolved path
     /// stays inside `root`, whose own symlinks resolve the same way, and names an existing file. A `..` step, an
-    /// absolute path elsewhere and a symlink that leaves `root` all give nil, so the caller falls back to its
-    /// layout lookups. The caller opens the resolved URL, so the path that was checked is the path that is read.
+    /// absolute path elsewhere and a symlink that leaves `root` all give nil, so the caller goes on to its next
+    /// candidate. The caller opens the resolved URL, so the path that was checked is the path that is read.
     static func recordedBAMURL(_ recorded: String, within root: URL) -> URL? {
         let joined = recorded.hasPrefix("/")
             ? URL(fileURLWithPath: recorded)
@@ -50,5 +52,18 @@ extension ClassifierReadResolver {
               FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else { return nil }
         return resolved
+    }
+
+    /// The entries of `folder` as paths under `folder`, or an empty list when `folder` does not resolve to a folder
+    /// inside `root`.
+    ///
+    /// A layout lookup lists a folder to find a BAM under another name. A link that leads out of `root` is never
+    /// followed to list what lies there (SWIFT 6), so nothing outside the result is read. The folder is listed by its
+    /// resolved path, since Foundation's listing by URL does not follow a link to a folder.
+    static func listedFiles(in folder: URL, within root: URL) -> [URL] {
+        let resolved = CanonicalFilePath.url(for: folder)
+        guard CanonicalFilePath.isPath(resolved, within: root),
+              let names = try? FileManager.default.contentsOfDirectory(atPath: resolved.path) else { return [] }
+        return names.map { folder.appendingPathComponent($0) }
     }
 }

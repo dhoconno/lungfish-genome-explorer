@@ -704,48 +704,88 @@ final class ClassifierReadResolverTests: XCTestCase {
         }
     }
 
-    // MARK: Pins at the base (U36 item 1)
+    // MARK: A link out of the root is dropped (U36 item 2)
 
-    /// A batch result whose BAM links out of the root extracts, where a one-folder result with the same link is refused
-    /// with `bamNotFound`. The layout lookups of the batch result follow the link, and none reaches the one-folder BAM.
-    func testLinkedBAM_batchResultExtractsWhereTheSameLinkInAOneFolderResultIsRefused_atTheBase() async throws {
-        let batch = LinkedLayout(
-            label: "batch", tool: .esviritu, sampleId: "S1",
-            bamPath: "S1/bams/S1.third.filt.sorted.bam", recorded: "S1/bams/S1.third.filt.sorted.bam"
-        )
-        let batchResult = try makeLinkedResult(batch)
-        defer { removeLinkedResult(batchResult) }
-        let resolved = try await resolveLinkedBAM(batch, in: batchResult).get()
-        XCTAssertFalse(CanonicalFilePath.isPath(resolved, within: batchResult.root), "the file read is outside the result")
-        assertSameFile(resolved, batchResult.outsideBAM)
-
-        let oneFolder = LinkedLayout(
-            label: "one folder", tool: .esviritu, sampleId: "S1",
-            bamPath: "bams/S1.third.filt.sorted.bam", recorded: "bams/S1.third.filt.sorted.bam"
-        )
-        let oneFolderResult = try makeLinkedResult(oneFolder)
-        defer { removeLinkedResult(oneFolderResult) }
-        await assertEsVirituBAMNotFound("S1", resultPath: oneFolderResult.resultPath)
+    /// Asserts that the BAM of `layout` is refused with `bamNotFound` for its sample, and that the refusal writes
+    /// nothing in the result (UX 6).
+    private func assertLinkedBAMRefused(
+        _ layout: LinkedLayout,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let result = try makeLinkedResult(layout)
+        defer { removeLinkedResult(result) }
+        let before = try resultTreeContents(result.root)
+        switch await resolveLinkedBAM(layout, in: result) {
+        case .success(let resolved):
+            XCTFail("\(layout.label) resolved \(resolved.path)", file: file, line: line)
+        case .failure(let error):
+            guard case ClassifierExtractionError.bamNotFound(let sampleId) = error else {
+                return XCTFail("\(layout.label) was refused with \(error)", file: file, line: line)
+            }
+            XCTAssertEqual(sampleId, layout.sampleId ?? "(single)", layout.label, file: file, line: line)
+        }
+        XCTAssertEqual(try resultTreeContents(result.root), before, "\(layout.label) wrote in the result", file: file, line: line)
     }
 
-    /// Every place a lookup finds a BAM follows a link out of the root: the layout lookups of the four tools, the
+    /// A batch result whose BAM links out of the root is refused like a one-folder result with the same link.
+    func testLinkedBAM_batchResultAndOneFolderResultAreRefusedAlike() async throws {
+        let name = "S1.third.filt.sorted.bam"
+        try await assertLinkedBAMRefused(LinkedLayout(
+            label: "batch", tool: .esviritu, sampleId: "S1", bamPath: "S1/bams/\(name)", recorded: "S1/bams/\(name)"
+        ))
+        try await assertLinkedBAMRefused(LinkedLayout(
+            label: "one folder", tool: .esviritu, sampleId: "S1", bamPath: "bams/\(name)", recorded: "bams/\(name)"
+        ))
+    }
+
+    /// Every place a lookup finds a BAM drops a link out of the root: the layout lookups of the four tools, the
     /// folders they list, and the NAO-MGS and NVD paths that their databases record.
-    func testLinkedBAM_everyLayoutLookupFollowsALinkOutOfTheRoot_atTheBase() async throws {
+    func testLinkedBAM_everyLayoutLookupDropsALinkOutOfTheRoot() async throws {
         for layout in Self.linkedLayouts {
-            let result = try makeLinkedResult(layout)
-            defer { removeLinkedResult(result) }
-            switch await resolveLinkedBAM(layout, in: result) {
-            case .success(let resolved):
-                XCTAssertFalse(CanonicalFilePath.isPath(resolved, within: result.root), "\(layout.label) reads outside")
-                assertSameFile(resolved, result.outsideBAM, layout.label)
-            case .failure(let error):
-                XCTFail("\(layout.label) was refused at the base: \(error)")
-            }
+            try await assertLinkedBAMRefused(layout)
         }
     }
 
+    /// A candidate that links out is dropped, and the next candidate that stays inside the root is used.
+    func testLinkedBAM_aLinkOutOfTheRootIsDroppedForTheNextCandidate() async throws {
+        let layout = LinkedLayout(
+            label: "batch", tool: .esviritu, sampleId: "S1", bamPath: "S1/bams/S1.third.filt.sorted.bam"
+        )
+        let result = try makeLinkedResult(layout)
+        defer { removeLinkedResult(result) }
+        let inside = try writeStandInBAM("S1/bams/S1.other.sorted.bam", under: result.root)
+
+        let resolved = try await resolveLinkedBAM(layout, in: result).get()
+        assertSameFile(resolved, inside)
+        XCTAssertTrue(CanonicalFilePath.isPath(resolved, within: result.root))
+    }
+
+    /// The single-sample scan offers every `*.sorted.bam` it finds, so links out of the root do not hide a BAM inside.
+    func testLinkedBAM_singleSampleScanSkipsLinksOutOfTheRoot() async throws {
+        let outside = try TestTempDirectory.make(prefix: "linked-outside")
+        defer { TestTempDirectory.cleanup(outside) }
+        let outsideBAM = try writeStandInBAM("out.bam", under: outside)
+        let (root, resultPath) = try makeEsVirituResult(sampleId: "S1", bamPath: nil)
+        defer { TestTempDirectory.cleanup(root) }
+        for index in 1...8 {
+            try FileManager.default.createSymbolicLink(
+                at: root.appendingPathComponent("a\(index).sorted.bam"),
+                withDestinationURL: outsideBAM
+            )
+        }
+        let inside = try writeStandInBAM("bams/z.sorted.bam", under: root)
+
+        let resolved = try await ClassifierReadResolver().testingResolveBAMURL(
+            tool: .esviritu,
+            sampleId: nil,
+            resultPath: resultPath
+        )
+        assertSameFile(resolved, inside)
+    }
+
     /// The single-sample scan lists the result with a directory enumerator, which does not enter a folder link.
-    func testLinkedBAM_singleSampleScanDoesNotEnterALinkedFolder_atTheBase() async throws {
+    func testLinkedBAM_singleSampleScanDoesNotEnterALinkedFolder() async throws {
         let layout = LinkedLayout(
             label: "scan", tool: .esviritu, sampleId: nil, bamPath: "linked/S1.sorted.bam", linkedFolder: "linked"
         )
@@ -764,7 +804,7 @@ final class ClassifierReadResolverTests: XCTestCase {
 
     /// Foundation's listing by URL does not follow a folder link, so a BAM below a linked `bams` folder is found only
     /// under its standard name. A BAM with another name is not found, and the refusal is `bamNotFound`.
-    func testLinkedBAM_linkedBamsFolderIsNotListed_atTheBase() async throws {
+    func testLinkedBAM_linkedBamsFolderIsNotListed() async throws {
         let layout = LinkedLayout(
             label: "bams folder, other name", tool: .esviritu, sampleId: "S1",
             bamPath: "S1/bams/S1.custom.sorted.bam", linkedFolder: "S1/bams"
@@ -793,6 +833,8 @@ final class ClassifierReadResolverTests: XCTestCase {
             )
             let resolved = try await resolveEsVirituBAM("S1", resultPath: resultPath)
             assertSameFile(resolved, target, linksFolder ? "a folder link" : "a file link")
+            // SWIFT 6. samtools opens the path that was checked, the target's physical path, never the link.
+            XCTAssertEqual(resolved.path, CanonicalFilePath.path(for: target))
         }
     }
 

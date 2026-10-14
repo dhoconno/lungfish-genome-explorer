@@ -363,20 +363,18 @@ public actor ClassifierReadResolver {
                 if fm.fileExists(atPath: bamsDir.path) {
                     // Prefer the specific pattern first, then scan for any .sorted.bam
                     urls.append(bamsDir.appendingPathComponent("\(sampleId).third.filt.sorted.bam"))
-                    if let contents = try? fm.contentsOfDirectory(at: bamsDir, includingPropertiesForKeys: nil) {
-                        for file in contents where file.lastPathComponent.hasSuffix(".sorted.bam") && !urls.contains(file) {
-                            urls.append(file)
-                        }
+                    for file in Self.listedFiles(in: bamsDir, within: resultDir)
+                    where file.lastPathComponent.hasSuffix(".sorted.bam") && !urls.contains(file) {
+                        urls.append(file)
                     }
                 }
                 // Legacy flat layouts
                 urls.append(resultDir.appendingPathComponent("\(sampleId).sorted.bam"))
                 urls.append(resultDir.appendingPathComponent("\(sampleId)_temp/\(sampleId).sorted.bam"))
             } else {
-                // Single-sample: scan recursively for any *.sorted.bam
-                if let enumerator = fm.enumerator(at: resultDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]),
-                   let match = enumerator.compactMap({ $0 as? URL }).first(where: { $0.lastPathComponent.hasSuffix(".sorted.bam") }) {
-                    urls.append(match)
+                // Single-sample: scan recursively for any *.sorted.bam, offering every match so a link out of the root hides none
+                if let enumerator = fm.enumerator(at: resultDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                    urls += enumerator.compactMap { $0 as? URL }.filter { $0.lastPathComponent.hasSuffix(".sorted.bam") }
                 }
             }
             candidates = urls
@@ -396,13 +394,12 @@ public actor ClassifierReadResolver {
             urls.append(resultDir.appendingPathComponent("minimap2/\(sampleId).bam"))
             let minimap2Dir = resultDir.appendingPathComponent("minimap2")
             if fm.fileExists(atPath: minimap2Dir.path) {
-                if let contents = try? fm.contentsOfDirectory(at: minimap2Dir, includingPropertiesForKeys: nil) {
-                    for file in contents where file.lastPathComponent.hasPrefix(sampleId)
-                        && file.lastPathComponent.hasSuffix(".bam")
-                        && !file.lastPathComponent.hasSuffix(".bam.bai")
-                        && !urls.contains(file) {
-                        urls.append(file)
-                    }
+                for file in Self.listedFiles(in: minimap2Dir, within: resultDir)
+                where file.lastPathComponent.hasPrefix(sampleId)
+                    && file.lastPathComponent.hasSuffix(".bam")
+                    && !file.lastPathComponent.hasSuffix(".bam.bai")
+                    && !urls.contains(file) {
+                    urls.append(file)
                 }
             }
             candidates = urls
@@ -449,10 +446,10 @@ public actor ClassifierReadResolver {
             throw ClassifierExtractionError.unsupportedBAMTool(tool)
         }
 
+        // U36. Every candidate takes the check of C4, so a link that leaves the result root is dropped, whichever layout
+        // found it. A candidate that stays inside is returned on its physical path, the path that was checked.
         for url in candidates {
-            if fm.fileExists(atPath: url.path) {
-                return url
-            }
+            if let contained = Self.recordedBAMURL(url.path, within: resultDir) { return contained }
         }
 
         throw ClassifierExtractionError.bamNotFound(sampleId: sample)
