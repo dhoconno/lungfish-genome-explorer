@@ -1,13 +1,20 @@
-// AnnotationTrackAttachCLIGUIParityReplayTests.swift - The annotation attach row against sequence attach-track
+// AnnotationTrackAttachCLIGUIParityReplayTests.swift - The annotation attach in process against sequence attach-track
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A42 M3, plan decisions C3, C4, C5 and G1. The Import Center and a file dropped
-// on the sidebar attach an annotation file to a reference bundle by launching `lungfish-cli
-// sequence attach-track` through `CLIBundleEditRunner`, and their row records the argv it runs.
-// Side A is the app's route, the begin helper and the runner both sites call, on the built CLI.
-// Side C runs the row's command, rebased onto root C, with the built CLI. Side C' is the harness's
-// replay of the command side C's record names. The case declares nothing.
+// Phase 2.10 lane A42 M3 and its review's Fix 4, plan decisions C3, C4, C5 and G1, on lane Q30's
+// harness. The Import Center and a file dropped on the sidebar attach an annotation file to a
+// reference bundle. One case runs on three sides that start as copies of one bundle and one BED.
+//
+// - Side A is the in-process route at the base, the call both sites made,
+//   `ReferenceBundleAnnotationImportService.attachAnnotationTrack`. Its record names the argv side
+//   C's command records, the change of the recorded command the closed gaps intend
+//   (docs/contracts/CLI-EQUIVALENCE.md), so A against C compares everything else.
+// - Side C is the CLI route, the begin helper both sites call and `CLIBundleEditRunner`, which
+//   launches the built `lungfish-cli sequence attach-track`. Its row records the command.
+// - Side C' is the harness's replay of that command.
+//
+// The case declares nothing, so A against C and C against C' are both empty (C4).
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier, where the CLI is built.
@@ -18,12 +25,17 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+import LungfishWorkflow
 
 @MainActor
 final class AnnotationTrackAttachCLIGUIParityReplayTests: XCTestCase {
     enum Case: String, Sendable {
         case attachTrack
     }
+
+    /// The track the sheet names, with a hyphen-leading name the sheet allows.
+    private static let trackID = "primers"
+    private static let trackName = "-primers v2"
 
     private var scratch: URL!
     private var harness: RouteParityHarness!
@@ -42,22 +54,19 @@ final class AnnotationTrackAttachCLIGUIParityReplayTests: XCTestCase {
         TestTempDirectory.cleanup(scratch)
     }
 
-    func testTheAttachRowWritesWhatSequenceAttachTrackWrites() async throws {
-        var rowCommand: String?
+    func testTheAttachRowWritesWhatTheInProcessAttachWrote() async throws {
         let result = try await harness.assertParity(
             Case.attachTrack,
             declared: [],
             in: scratch.appendingPathComponent("attach", isDirectory: true),
             fixture: { root in try self.writeFixture(root) },
-            sideA: { root in
-                let (outcome, command) = try await self.sideA(root)
-                rowCommand = command
-                return outcome
-            },
-            sideC: { root in try await self.sideC(root, rowCommand: rowCommand) }
+            sideA: { root in await self.sideA(root) },
+            sideC: { root in await self.sideC(root) }
         )
         XCTAssertEqual(result.runs.a.outcome.end, .completed, result.runs.a.outcome.detail)
         XCTAssertEqual(result.runs.a.outcome.detail, "Imported 2 annotations", "the row's complete words")
+        XCTAssertEqual(result.runs.c.outcome.end, .completed, result.runs.c.outcome.detail)
+        XCTAssertEqual(result.runs.c.outcome.detail, "Imported 2 annotations", "the row's complete words")
         XCTAssertEqual(result.runs.cPrime.outcome.end, .completed, result.runs.cPrime.outcome.detail)
     }
 
@@ -70,17 +79,42 @@ final class AnnotationTrackAttachCLIGUIParityReplayTests: XCTestCase {
             .write(to: root.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
     }
 
-    /// Side A. The begin helper the two sites call, and the runner on the argv it hands them, with a
-    /// hyphen-leading track name the sheet allows. Returns the outcome and the row's command.
-    private func sideA(_ root: URL) async throws -> (RouteParitySideOutcome, String?) {
+    /// Side A. The in-process attach both sites made at the base, with the track side C names.
+    /// Its record names the argv side C's command records, which starts with the path the
+    /// transport launched, as the command records its observed argv.
+    private func sideA(_ root: URL) async -> RouteParitySideOutcome {
+        let source = root.appendingPathComponent("primers.bed")
+        let bundle = root.appendingPathComponent("Fixture.lungfishref", isDirectory: true)
+        let argv = [harness.cliBinary.path]
+            + ReferenceBundleAnnotationImportService.attachTrackArguments(
+                sourceURL: source, bundleURL: bundle, trackID: Self.trackID, trackName: Self.trackName
+            )
+            + ["--format", "json"]
+        do {
+            let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+                sourceURL: source,
+                bundleURL: bundle,
+                trackID: Self.trackID,
+                trackName: Self.trackName,
+                invocationArgv: argv
+            )
+            return RouteParitySideOutcome(end: .completed, detail: "Imported \(result.featureCount) annotations")
+        } catch {
+            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
+        }
+    }
+
+    /// Side C. The begin helper the two sites call, and the runner on the argv it hands them,
+    /// which launches the built CLI. It returns the row's command, which side C' replays.
+    private func sideC(_ root: URL) async -> RouteParitySideOutcome {
         let reporter = RecordingOperationReporter()
         let runner = CLIBundleEditRunner(cliURLOverride: harness.cliBinary)
         var outcome = RouteParitySideOutcome(end: .failed, detail: "the row did not start")
         await AppDelegate.beginAnnotationTrackImportOperation(
             annotationURL: root.appendingPathComponent("primers.bed"),
             bundleURL: root.appendingPathComponent("Fixture.lungfishref", isDirectory: true),
-            trackID: "primers",
-            trackName: "-primers v2",
+            trackID: Self.trackID,
+            trackName: Self.trackName,
             routeContext: nil,
             reporter: reporter
         ) { id, arguments in
@@ -91,26 +125,8 @@ final class AnnotationTrackAttachCLIGUIParityReplayTests: XCTestCase {
                 outcome = RouteParitySideOutcome(end: .failed, detail: "\(error)")
             }
         }
-        return (outcome, reporter.items.first?.cliCommand)
-    }
-
-    /// Side C. The row's command, rebased from root A onto `root`, run by the built CLI. It names the
-    /// command its record holds for side C'.
-    private func sideC(_ root: URL, rowCommand: String?) async throws -> RouteParitySideOutcome {
-        let rootA = RouteParityHarness.root(of: .a, in: root.deletingLastPathComponent())
-        let command = try RouteParityHarness.rebased(try XCTUnwrap(rowCommand, "side A's row recorded no command"), from: rootA, to: root)
-        let arguments = try RouteParityHarness.arguments(ofLine: command)
-        let run = await RouteParityHarness.runCLI(harness.cliBinary, arguments: arguments, timeout: .seconds(30))
-        return RouteParitySideOutcome(end: run.end, detail: run.detail, recordedCommand: try Self.recordedCommand(in: root))
-    }
-
-    /// The command the attach's record in `root` names, written as a row writes one.
-    private static func recordedCommand(in root: URL) throws -> String {
-        let log = root.appendingPathComponent("Fixture.lungfishref/annotations/primers-import-provenance.json")
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: log)) as? [String: Any])
-        let entry = try XCTUnwrap((object["entries"] as? [[String: Any]])?.first)
-        let argv = try XCTUnwrap(entry["argv"] as? [String])
-        XCTAssertEqual(Array(argv.dropFirst().prefix(2)), ["sequence", "attach-track"], "\(argv)")
-        return OperationCenter.buildCLICommand(subcommand: "sequence attach-track", args: Array(argv.dropFirst(3)))
+        return RouteParitySideOutcome(
+            end: outcome.end, detail: outcome.detail, recordedCommand: reporter.items.first?.cliCommand
+        )
     }
 }
