@@ -530,10 +530,12 @@ final class ViralReconWorkflowExecutionService {
         }
     }
 
-    /// The CLI's standard output with the words of each event line in place of its JSON. A line that is no event stays.
+    /// The CLI's standard output with the words of each event line in place of its JSON. A line that is no event stays,
+    /// and a `start` with no words adds no line, so the log does not open with a blank one.
     static func messages(ofEventLines text: String) -> String {
-        text.split(whereSeparator: \.isNewline).map { line -> String in
+        text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
             switch event(of: .standardOutput(String(line))) {
+            case .start(let message)? where message.isEmpty: return nil
             case .start(let message)?, .progress(_, let message)?, .log(_, let message)?: return message
             case .output(let path, _)?: return path
             case .complete(let outputs, let message)?: return ([message].compactMap { $0 } + outputs).joined(separator: "\n")

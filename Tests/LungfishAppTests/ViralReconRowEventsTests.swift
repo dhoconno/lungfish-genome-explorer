@@ -72,14 +72,44 @@ final class ViralReconRowEventsTests: XCTestCase {
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
     }
 
+    /// The bundle's `logs/stdout.log` holds the words of each event, not its JSON. The empty `start` that opens the
+    /// CLI's stream has no words, so it adds no line and the log opens with the first line that has some (A30 M3
+    /// review, fix 3).
+    func testTheEmptyStartLeavesNoBlankLineAtTheTopOfTheBundlesStdoutLog() async throws {
+        let stdout = [
+            Self.line(.start(message: "")),
+            Self.line(.log(level: .info, message: "Preparing workflow: nf-core/viralrecon")),
+            Self.line(.log(level: .info, message: "Created run bundle: /work/viralrecon.lungfishrun")),
+            Self.line(.complete(outputs: ["/work/viralrecon.lungfishrun", "/work/results"], message: nil)),
+        ].joined(separator: "\n")
+
+        let result = try await runRoute(standardOutput: stdout)
+
+        let log = try String(contentsOf: result.bundleURL.appendingPathComponent("logs/stdout.log"), encoding: .utf8)
+        XCTAssertEqual(
+            log,
+            "Preparing workflow: nf-core/viralrecon\nCreated run bundle: /work/viralrecon.lungfishrun\n/work/viralrecon.lungfishrun\n/work/results"
+        )
+    }
+
     // MARK: - Helpers
 
     /// Runs the Viral Recon route on `OperationCenter.shared` with a CLI that hands over `streamed` and exits 0, and
     /// returns the row as the route left it.
     private func run(_ streamed: [ViralReconWorkflowProcessOutput]) async throws -> OperationCenter.Item {
+        let result = try await runRoute(streamed: streamed)
+        return try XCTUnwrap(result.operationItem)
+    }
+
+    /// Runs the Viral Recon route on `OperationCenter.shared` with a CLI that streams `streamed`, hands back
+    /// `standardOutput` as the text it printed and exits 0.
+    private func runRoute(
+        streamed: [ViralReconWorkflowProcessOutput] = [],
+        standardOutput: String = ""
+    ) async throws -> ViralReconWorkflowExecutionService.RunResult {
         let root = scratch.appendingPathComponent("viral-recon-\(UUID().uuidString)", isDirectory: true)
         let request = try ViralReconAppTestFixtures.illuminaRequest(root: root)
-        let runner = StreamingRunner(streamed: streamed)
+        let runner = StreamingRunner(streamed: streamed, standardOutput: standardOutput)
         let service = ViralReconWorkflowExecutionService(
             operationCenter: .shared,
             processRunner: runner,
@@ -88,7 +118,7 @@ final class ViralReconRowEventsTests: XCTestCase {
         )
         let result = try await service.run(request, bundleRoot: root.appendingPathComponent("Analyses", isDirectory: true))
         XCTAssertEqual(runner.arguments.suffix(2), ["--format", "json"], "the route reads the CLI's events")
-        return try XCTUnwrap(result.operationItem)
+        return result
     }
 
     private static func line(_ event: CLIEvent) -> String {
@@ -108,10 +138,12 @@ final class ViralReconRowEventsTests: XCTestCase {
 @MainActor
 private final class StreamingRunner: ViralReconWorkflowProcessRunning {
     let streamed: [ViralReconWorkflowProcessOutput]
+    let standardOutput: String
     private(set) var arguments: [String] = []
 
-    init(streamed: [ViralReconWorkflowProcessOutput]) {
+    init(streamed: [ViralReconWorkflowProcessOutput], standardOutput: String = "") {
         self.streamed = streamed
+        self.standardOutput = standardOutput
     }
 
     func runLungfishCLI(
@@ -121,7 +153,7 @@ private final class StreamingRunner: ViralReconWorkflowProcessRunning {
     ) async throws -> ViralReconWorkflowProcessResult {
         self.arguments = arguments
         for output in streamed { outputHandler?(output) }
-        return ViralReconWorkflowProcessResult(exitCode: 0, standardOutput: "", standardError: "", didStreamOutput: !streamed.isEmpty)
+        return ViralReconWorkflowProcessResult(exitCode: 0, standardOutput: standardOutput, standardError: "", didStreamOutput: !streamed.isEmpty)
     }
 
     func cancel() {}
