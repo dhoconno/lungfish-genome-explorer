@@ -194,31 +194,6 @@ final class WorkflowParametersTests: XCTestCase {
         XCTAssertEqual(merged["y"]?.integerValue, 2)
     }
 
-    func testWorkflowParametersToNextflowArguments() {
-        var params = WorkflowParameters()
-        params["input"] = .string("/data/input.fq")
-        params["genome"] = .string("GRCh38")
-        params["threads"] = .integer(8)
-        params["skip_qc"] = .boolean(false)
-        params["run_multiqc"] = .boolean(true)
-        params["skip_me"] = .null
-
-        let args = params.toNextflowArguments()
-
-        // Should contain --input /data/input.fq
-        XCTAssertTrue(args.contains("--input"))
-        XCTAssertTrue(args.contains("/data/input.fq"))
-
-        // Boolean true should just be --flag
-        XCTAssertTrue(args.contains("--run_multiqc"))
-
-        // Boolean false should be omitted
-        XCTAssertFalse(args.contains("--skip_qc"))
-
-        // Null should be omitted
-        XCTAssertFalse(args.contains("--skip_me"))
-    }
-
     func testWorkflowParametersToSnakemakeConfig() {
         var params = WorkflowParameters()
         params["input_dir"] = .string("/data")

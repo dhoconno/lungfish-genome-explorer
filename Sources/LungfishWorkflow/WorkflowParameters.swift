@@ -263,10 +263,6 @@ public enum ParameterValue: Sendable, Codable, Hashable {
 /// params["genome"] = .string("GRCh38")
 /// params["threads"] = .integer(8)
 /// params["skip_qc"] = .boolean(false)
-///
-/// // Generate command-line arguments
-/// let args = params.toNextflowArguments()
-/// // ["--input", "/path/to/input", "--genome", "GRCh38", "--threads", "8"]
 /// ```
 public struct WorkflowParameters: Sendable, Codable, Hashable {
 
@@ -408,29 +404,6 @@ public struct WorkflowParameters: Sendable, Codable, Hashable {
     }
 
     // MARK: - Command-Line Conversion
-
-    /// Converts parameters to Nextflow command-line arguments.
-    ///
-    /// - Parameter prefix: Argument prefix (default: "--")
-    /// - Returns: Array of command-line argument strings
-    public func toNextflowArguments(prefix: String = "--") -> [String] {
-        var args: [String] = []
-
-        for (name, value) in values.sorted(by: { $0.key < $1.key }) {
-            guard !value.isNull else { continue }
-
-            if case .boolean(let boolValue) = value {
-                if boolValue {
-                    args.append("\(prefix)\(name)")
-                }
-            } else {
-                args.append("\(prefix)\(name)")
-                args.append(value.toArgumentString())
-            }
-        }
-
-        return args
-    }
 
     /// Converts parameters to Snakemake config format.
     ///
