@@ -22,6 +22,10 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
     /// No BAM file could be found for the given sample ID.
     case bamNotFound(sampleId: String)
 
+    /// The BAM of the given sample is a link to a file outside the result folder. The resolver never reads
+    /// it, so the user is told the true cause in place of "not found" (decision W4 of 2.9).
+    case bamOutsideResult(sampleId: String)
+
     /// The Kraken2 per-read classified output file was missing or unreadable.
     case kraken2OutputMissing(URL)
 
@@ -64,6 +68,8 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
             return "\(tool.displayName) does not expose BAM-backed reads. Use the classifier extraction path for \(tool.displayName) instead."
         case .bamNotFound(let sampleId):
             return "No BAM file found for sample '\(sampleId)'. The classifier result may be corrupted or imported without the underlying alignment data."
+        case .bamOutsideResult(let sampleId):
+            return "The BAM file of sample '\(sampleId)' is a link to a file outside this result folder, and LGE reads alignments only from inside it. Copy the file into the result folder and try again."
         case .kraken2OutputMissing(let url):
             return "Kraken2 per-read classification output not found: \(url.lastPathComponent)"
         case .kraken2TreeMissing(let url):

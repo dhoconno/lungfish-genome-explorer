@@ -697,6 +697,54 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
             "FASTA output should begin with '>' header marker"
         )
     }
+
+    /// U36. A result whose BAM is a link to a file outside the result folder is refused with the words for that
+    /// cause, where a missing BAM reads "may be corrupted", and the run writes no output.
+    func testRun_byClassifier_nvd_bamLinkedOutsideTheResult_isRefusedWithItsOwnWords() async throws {
+        let resultPath = try makeSarscov2NVDFixture(sampleId: "s2")
+        let fixtureRoot = resultPath.deletingLastPathComponent()
+        defer { removeIfPresent(fixtureRoot) }
+
+        // Move the BAM and its index to a folder outside the result, and leave a link where the BAM was.
+        let fm = FileManager.default
+        let outside = fm.temporaryDirectory.appendingPathComponent("cli-nvd-outside-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { removeIfPresent(outside) }
+        let inResult = fixtureRoot.appendingPathComponent("bam/s2.filtered.bam")
+        let moved = outside.appendingPathComponent("s2.filtered.bam")
+        try fm.moveItem(at: inResult, to: moved)
+        try fm.moveItem(
+            at: URL(fileURLWithPath: inResult.path + ".bai"),
+            to: URL(fileURLWithPath: moved.path + ".bai")
+        )
+        try fm.createSymbolicLink(at: inResult, withDestinationURL: moved)
+
+        let tempOut = fm.temporaryDirectory
+            .appendingPathComponent("cli-nvd-out-\(UUID().uuidString).fastq")
+            .standardizedFileURL
+        defer { removeIfPresent(tempOut) }
+        let argv = [
+            "--by-classifier",
+            "--tool", "nvd",
+            "--result", resultPath.path,
+            "--sample", "s2",
+            "--accession", "MN908947.3",
+            "-o", tempOut.path,
+        ]
+        var cmd = try ExtractReadsSubcommand.parse(argv)
+        cmd.testingRawArgs = argv
+        try cmd.validate()
+        do {
+            try await cmd.run()
+            XCTFail("Expected the refusal for a BAM outside the result")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The BAM file of sample 's2' is a link to a file outside this result folder, and LGE reads alignments only from inside it. Copy the file into the result folder and try again."
+            )
+        }
+        XCTAssertFalse(fm.fileExists(atPath: tempOut.path), "A refusal writes no output")
+    }
 }
 
 private func removeIfPresent(_ url: URL) {

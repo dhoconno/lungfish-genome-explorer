@@ -27,6 +27,7 @@ import LungfishTestSupport
 /// | I5 | Samtools flag dispatch: resolver uses `-F 0x404` (strict) or `-F 0x400` (loose) |
 /// | I6 | Clipboard cap enforcement: dialog disables Clipboard above cap; resolver rejects past cap |
 /// | I7 | CLI/GUI round-trip equivalence: the CLI command stamped by the GUI reproduces the same FASTQ |
+/// | I8 | A BAM that links out of the result is refused with its own words and never read (U36) |
 @MainActor
 final class ClassifierExtractionInvariantTests: XCTestCase {
 
@@ -581,5 +582,53 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     }
     func testI7_kraken2_roundTrip() async throws {
         try await assertI7(tool: .kraken2)
+    }
+
+    // MARK: - I8: A BAM that links out of the result is refused and never read (U36)
+
+    /// The BAM of a result moves to a folder outside it and a link stays in its place. The resolver's pre-flight
+    /// estimate, which the extraction sheet runs first, is refused with the words for that cause for every
+    /// BAM-backed tool, and the sheet shows `localizedDescription`.
+    func testI8_bamLinkedOutsideTheResult_isRefusedForEveryBAMBackedTool() async throws {
+        var toolsIterated = 0
+        for tool in ClassifierTool.allCases where tool.usesBAMDispatch {
+            toolsIterated += 1
+            let sampleId = "I8"
+            let (resultPath, projectRoot) = try ClassifierExtractionFixtures.buildFixture(tool: tool, sampleId: sampleId)
+            let fm = FileManager.default
+            let outside = fm.temporaryDirectory.appendingPathComponent("i8-outside-\(UUID().uuidString)", isDirectory: true)
+            defer {
+                try? fm.removeItem(at: projectRoot)
+                try? fm.removeItem(at: outside)
+            }
+            try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+            let files = (fm.enumerator(at: resultPath.deletingLastPathComponent(), includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL } ?? [])
+                .filter { ["bam", "bai"].contains($0.pathExtension) }
+            XCTAssertFalse(files.isEmpty, "\(tool.displayName) fixture holds a BAM")
+            for file in files {
+                let moved = outside.appendingPathComponent(file.lastPathComponent)
+                try fm.moveItem(at: file, to: moved)
+                try fm.createSymbolicLink(at: file, withDestinationURL: moved)
+            }
+
+            let selections = try await ClassifierExtractionFixtures.defaultSelection(for: tool, sampleId: sampleId)
+            do {
+                _ = try await ClassifierReadResolver().estimateReadCount(
+                    tool: tool,
+                    resultPath: resultPath,
+                    selections: selections,
+                    options: ExtractionOptions(format: .fastq, includeUnmappedMates: false)
+                )
+                XCTFail("\(tool.displayName) read a BAM that links out of the result")
+            } catch {
+                XCTAssertEqual(
+                    error.localizedDescription,
+                    "The BAM file of sample '\(sampleId)' is a link to a file outside this result folder, and LGE reads alignments only from inside it. Copy the file into the result folder and try again.",
+                    tool.displayName
+                )
+            }
+        }
+        XCTAssertGreaterThan(toolsIterated, 0, "I8 loop must iterate at least one BAM-backed tool")
     }
 }

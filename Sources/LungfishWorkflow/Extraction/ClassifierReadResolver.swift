@@ -447,12 +447,9 @@ public actor ClassifierReadResolver {
         }
 
         // U36. Every candidate takes the check of C4, so a link that leaves the result root is dropped, whichever layout
-        // found it. A candidate that stays inside is returned on its physical path, the path that was checked.
-        for url in candidates {
-            if let contained = Self.recordedBAMURL(url.path, within: resultDir) { return contained }
-        }
-
-        throw ClassifierExtractionError.bamNotFound(sampleId: sample)
+        // found it. A candidate that stays inside is returned on its physical path, the path that was checked. A refusal
+        // names a BAM outside the result when that is the only BAM found, and a missing BAM otherwise.
+        return try Self.firstContainedBAM(among: candidates, within: resultDir, sample: sample)
     }
 
     // MARK: - BAM-backed extraction
