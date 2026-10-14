@@ -4099,8 +4099,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
                 let dirName = childURL.lastPathComponent.lowercased()
 
-                // Kraken2/Classification results
-                if dirName.hasPrefix("classification-") || dirName.hasPrefix("kraken") {
+                // Kraken2/Classification results: the import prefix, or any `kraken` folder (the registry id without its version digit)
+                if dirName.hasPrefix(MetagenomicsImportKind.kraken2.directoryPrefix) || dirName.hasPrefix(AnalysisToolID.kraken2.rawValue.trimmingCharacters(in: .decimalDigits)) {
                     let hasReport = fm.fileExists(atPath: childURL.appendingPathComponent("classification.kraken2.report.txt").path)
                         || fm.fileExists(atPath: childURL.appendingPathComponent("classification.report.txt").path)
                     if hasReport {
@@ -4109,7 +4109,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 }
 
                 // EsViritu results
-                if dirName.hasPrefix("esviritu-") {
+                if dirName.hasPrefix(MetagenomicsImportKind.esviritu.directoryPrefix) {
                     let hasSidecar = fm.fileExists(atPath: childURL.appendingPathComponent("esviritu-result.json").path)
                     if hasSidecar {
                         items.append(("View EsViritu (\(bundleName))", "esviritu", childURL))

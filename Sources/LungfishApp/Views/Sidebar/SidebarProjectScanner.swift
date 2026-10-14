@@ -503,7 +503,7 @@ enum SidebarProjectScanner {
         let fm = FileManager.default
 
         // TaxTriage result directories (taxtriage-XXXXXXXX)
-        if name.hasPrefix("taxtriage-") {
+        if name.hasPrefix(MetagenomicsImportKind.taxtriage.directoryPrefix) {
             let sidecar = url.appendingPathComponent("taxtriage-result.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
             let hasKraken = fm.fileExists(atPath: url.appendingPathComponent("kraken2").path)
@@ -511,31 +511,31 @@ enum SidebarProjectScanner {
         }
 
         // Classification result directories
-        if name.hasPrefix("classification-") {
+        if name.hasPrefix(MetagenomicsImportKind.kraken2.directoryPrefix) {
             let sidecar = url.appendingPathComponent("classification-result.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
 
         // EsViritu result directories
-        if name.hasPrefix("esviritu-") {
+        if name.hasPrefix(MetagenomicsImportKind.esviritu.directoryPrefix) {
             let sidecar = url.appendingPathComponent("esviritu-result.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
 
         // NAO-MGS result bundles
-        if name.hasPrefix("naomgs-") {
+        if name.hasPrefix(MetagenomicsImportKind.naomgs.directoryPrefix) {
             let sidecar = url.appendingPathComponent("manifest.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
 
         // NVD result bundles
-        if name.hasPrefix("nvd-") {
+        if name.hasPrefix(MetagenomicsImportKind.nvd.directoryPrefix) {
             let sidecar = url.appendingPathComponent("manifest.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
 
         // CZ-ID imported result bundles
-        if name.hasPrefix("cz-id-"), url.pathExtension.lowercased() != "lungfishtax" {
+        if name.hasPrefix(AnalysisToolID.czId.rawValue + "-"), url.pathExtension.lowercased() != "lungfishtax" {
             let sidecar = url.appendingPathComponent("cz-id-manifest.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
