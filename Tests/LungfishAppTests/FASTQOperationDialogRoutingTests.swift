@@ -2270,6 +2270,75 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         ))
     }
 
+    /// The dialog runs when the Kraken2, EsViritu or TaxTriage wizard captures its configs, and
+    /// no other pane's capture runs it through this trigger (lane A41 M3b of Phase 2.10).
+    func testDialogRunPresentationRunsWhenAnEmbeddedClassifierCapturesItsConfigs() {
+        let classifiers: Set<FASTQOperationToolID> = [.kraken2, .esViritu, .taxTriage]
+        for toolID in FASTQOperationToolID.allCases {
+            XCTAssertEqual(
+                FASTQOperationDialogRunPresentation.shouldRunAfterClassifierCapture(selectedToolID: toolID, hasCapture: true),
+                classifiers.contains(toolID),
+                toolID.rawValue
+            )
+            XCTAssertFalse(
+                FASTQOperationDialogRunPresentation.shouldRunAfterClassifierCapture(selectedToolID: toolID, hasCapture: false),
+                toolID.rawValue
+            )
+        }
+    }
+
+    /// A classifier wizard's Run sets the dialog's classifier trigger and leaves no launch request,
+    /// so the Tools menu handler skips `runFASTQOperationLaunchRequest` and starts the wizard's own
+    /// route from the captured configs (the Tools menu order of Phase 2.8 S3). `prepareForRun()`
+    /// clears the trigger before the wizard captures again, so each Run changes it.
+    func testClassifierCapturesSetTheCaptureTriggerAndLeaveNoLaunchRequest() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.fastq")
+        let databaseURL = URL(fileURLWithPath: "/tmp/classifier-db")
+        let outputURL = URL(fileURLWithPath: "/tmp/classifier-output")
+        let captures: [(FASTQOperationToolID, (FASTQOperationDialogState) -> Void)] = [
+            (.kraken2, {
+                $0.captureClassificationConfigs([ClassificationConfig(
+                    inputFiles: [inputURL], isPairedEnd: false, databaseName: "standard",
+                    databasePath: databaseURL, outputDirectory: outputURL
+                )])
+            }),
+            (.esViritu, {
+                $0.captureEsVirituConfigs([EsVirituConfig(
+                    inputFiles: [inputURL], isPairedEnd: false, sampleName: "sample",
+                    outputDirectory: outputURL, databasePath: databaseURL
+                )])
+            }),
+            (.taxTriage, {
+                $0.captureTaxTriageConfig(TaxTriageConfig(
+                    samples: [TaxTriageSample(sampleId: "sample", fastq1: inputURL)],
+                    outputDirectory: outputURL, kraken2DatabasePath: databaseURL
+                ))
+            }),
+        ]
+        for (toolID, capture) in captures {
+            let state = FASTQOperationDialogState(initialCategory: .classification, selectedInputURLs: [inputURL])
+            state.selectTool(toolID)
+            XCTAssertNil(state.embeddedClassifierCapture, toolID.rawValue)
+
+            state.prepareForRun()
+            capture(state)
+            let first = try XCTUnwrap(state.embeddedClassifierCapture, toolID.rawValue)
+            XCTAssertNil(state.pendingLaunchRequest, "\(toolID.rawValue), the Tools menu skips the launch request")
+            XCTAssertTrue(
+                !state.pendingClassificationConfigs.isEmpty || !state.pendingEsVirituConfigs.isEmpty
+                    || state.pendingTaxTriageConfig != nil,
+                "\(toolID.rawValue), the Tools menu starts the wizard's route from its configs"
+            )
+
+            state.prepareForRun()
+            XCTAssertNil(state.embeddedClassifierCapture, "\(toolID.rawValue), prepareForRun clears the trigger")
+            capture(state)
+            let second = try XCTUnwrap(state.embeddedClassifierCapture, toolID.rawValue)
+            XCTAssertNotEqual(second, first, "\(toolID.rawValue), a second Run with equal settings runs again")
+            XCTAssertNil(state.pendingLaunchRequest, toolID.rawValue)
+        }
+    }
+
     func testMAFFTPrepareForRunBuildsAlignmentRequestInsteadOfGenericLaunchRequest() throws {
         let project = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
         let input = project.appendingPathComponent("input.fasta")
@@ -2516,16 +2585,14 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         XCTAssertEqual(state.pendingClassificationConfigs.count, 2)
         XCTAssertEqual(
-            state.pendingLaunchRequest,
-            .classify(
-                tool: .kraken2,
-                inputURLs: [
-                    URL(fileURLWithPath: "/tmp/sample-1.fastq"),
-                    URL(fileURLWithPath: "/tmp/sample-2.fastq"),
-                ],
-                databaseName: "standard"
-            )
+            state.pendingClassificationConfigs.flatMap(\.inputFiles),
+            [
+                URL(fileURLWithPath: "/tmp/sample-1.fastq"),
+                URL(fileURLWithPath: "/tmp/sample-2.fastq"),
+            ]
         )
+        XCTAssertNil(state.pendingLaunchRequest)
+        XCTAssertNotNil(state.embeddedClassifierCapture)
     }
 
     private var illuminaFASTQFixtureURL: URL {

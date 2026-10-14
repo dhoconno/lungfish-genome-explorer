@@ -52,6 +52,8 @@ final class FASTQOperationDialogState {
     var pendingEsVirituConfigs: [EsVirituConfig]
     var pendingTaxTriageConfig: TaxTriageConfig?
     var pendingViralReconRequest: ViralReconRunRequest?
+    /// Set fresh by each Kraken2, EsViritu or TaxTriage capture, the dialog's run trigger for those panes.
+    private(set) var embeddedClassifierCapture: UUID?
 
     // Honest derivative-tool state surfaced by the modal.
     var qualityTrimThreshold: Int
@@ -429,6 +431,7 @@ final class FASTQOperationDialogState {
     func prepareForRun() {
         if selectedToolID.usesEmbeddedConfiguration {
             pendingLaunchRequest = nil
+            embeddedClassifierCapture = nil
             pendingViralReconRequest = nil
             embeddedRunTrigger += 1
             return
@@ -931,12 +934,8 @@ final class FASTQOperationDialogState {
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
-        pendingLaunchRequest = .classify(
-            tool: .kraken2,
-            inputURLs: configs.flatMap(\.inputFiles),
-            databaseName: first.databaseName,
-            extraArguments: first.extraArguments
-        )
+        pendingLaunchRequest = nil
+        embeddedClassifierCapture = UUID()
         embeddedToolReady = true
     }
 
@@ -950,12 +949,8 @@ final class FASTQOperationDialogState {
         pendingEsVirituConfigs = configs
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
-        pendingLaunchRequest = .classify(
-            tool: .esViritu,
-            inputURLs: configs.flatMap(\.inputFiles),
-            databaseName: first.databasePath.lastPathComponent,
-            extraArguments: first.extraArguments
-        )
+        pendingLaunchRequest = nil
+        embeddedClassifierCapture = UUID()
         embeddedToolReady = true
     }
 
@@ -970,12 +965,8 @@ final class FASTQOperationDialogState {
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = config
         pendingViralReconRequest = nil
-        pendingLaunchRequest = .classify(
-            tool: .taxTriage,
-            inputURLs: config.samples.flatMap { [$0.fastq1] + ($0.fastq2.map { [$0] } ?? []) },
-            databaseName: config.kraken2DatabasePath?.lastPathComponent ?? "",
-            extraArguments: config.extraArguments
-        )
+        pendingLaunchRequest = nil
+        embeddedClassifierCapture = UUID()
         embeddedToolReady = true
     }
 

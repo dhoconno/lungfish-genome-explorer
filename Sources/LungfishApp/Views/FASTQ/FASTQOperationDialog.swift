@@ -7,6 +7,20 @@ enum FASTQOperationDialogRunPresentation {
     ) -> Bool {
         selectedToolID == .viralRecon && hasPendingViralReconRequest
     }
+
+    /// The Kraken2, EsViritu and TaxTriage panes run once their wizard captures its configs, which
+    /// sets `FASTQOperationDialogState.embeddedClassifierCapture` and leaves no launch request.
+    static func shouldRunAfterClassifierCapture(
+        selectedToolID: FASTQOperationToolID,
+        hasCapture: Bool
+    ) -> Bool {
+        switch selectedToolID {
+        case .kraken2, .esViritu, .taxTriage:
+            return hasCapture
+        default:
+            return false
+        }
+    }
 }
 
 struct FASTQOperationDialog: View {
@@ -46,6 +60,16 @@ struct FASTQOperationDialog: View {
         }
         .onChange(of: state.pendingLaunchRequest) { _, request in
             guard state.selectedToolID.usesEmbeddedConfiguration, request != nil else {
+                return
+            }
+
+            onRun()
+        }
+        .onChange(of: state.embeddedClassifierCapture) { _, capture in
+            guard FASTQOperationDialogRunPresentation.shouldRunAfterClassifierCapture(
+                selectedToolID: state.selectedToolID,
+                hasCapture: capture != nil
+            ) else {
                 return
             }
 

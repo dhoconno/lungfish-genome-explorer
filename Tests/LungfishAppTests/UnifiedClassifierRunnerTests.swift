@@ -135,10 +135,8 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertEqual(krakenState.pendingClassificationConfigs.count, 1)
         XCTAssertTrue(krakenState.pendingEsVirituConfigs.isEmpty)
         XCTAssertNil(krakenState.pendingTaxTriageConfig)
-        XCTAssertEqual(
-            krakenState.pendingLaunchRequest,
-            .classify(tool: .kraken2, inputURLs: [inputURL], databaseName: "standard")
-        )
+        XCTAssertNil(krakenState.pendingLaunchRequest)
+        XCTAssertNotNil(krakenState.embeddedClassifierCapture)
 
         let esVirituState = FASTQOperationDialogState(
             initialCategory: .classification,
@@ -156,10 +154,8 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(esVirituState.pendingClassificationConfigs.isEmpty)
         XCTAssertEqual(esVirituState.pendingEsVirituConfigs.count, 1)
         XCTAssertNil(esVirituState.pendingTaxTriageConfig)
-        XCTAssertEqual(
-            esVirituState.pendingLaunchRequest,
-            .classify(tool: .esViritu, inputURLs: [inputURL], databaseName: "classifier-db")
-        )
+        XCTAssertNil(esVirituState.pendingLaunchRequest)
+        XCTAssertNotNil(esVirituState.embeddedClassifierCapture)
 
         let taxTriageState = FASTQOperationDialogState(
             initialCategory: .classification,
@@ -175,10 +171,8 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(taxTriageState.pendingClassificationConfigs.isEmpty)
         XCTAssertTrue(taxTriageState.pendingEsVirituConfigs.isEmpty)
         XCTAssertNotNil(taxTriageState.pendingTaxTriageConfig)
-        XCTAssertEqual(
-            taxTriageState.pendingLaunchRequest,
-            .classify(tool: .taxTriage, inputURLs: [inputURL], databaseName: "classifier-db")
-        )
+        XCTAssertNil(taxTriageState.pendingLaunchRequest)
+        XCTAssertNotNil(taxTriageState.embeddedClassifierCapture)
     }
 
     private func loadSource(at relativePath: String) throws -> String {
