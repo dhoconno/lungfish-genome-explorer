@@ -4,12 +4,29 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
-enum BuildDbProvenanceTool: String {
-    case taxTriage = "taxtriage"
-    case esViritu = "esviritu"
+/// The classifiers `build-db` records provenance for. The word it takes comes from the registry's descriptor.
+enum BuildDbProvenanceTool {
+    case taxTriage
+    case esViritu
     case kraken2
+
+    /// The registry kind this classifier is.
+    var analysisToolID: AnalysisToolID {
+        switch self {
+        case .taxTriage: return .taxtriage
+        case .esViritu: return .esviritu
+        case .kraken2: return .kraken2
+        }
+    }
+
+    /// The word `lungfish build-db` takes, which the registry's descriptor holds. A kind with no token
+    /// falls back to its id, as the app's router does.
+    var rawValue: String {
+        AnalysisToolRegistry.descriptor(for: analysisToolID)?.buildDatabaseToken ?? analysisToolID.rawValue
+    }
 
     var workflowName: String {
         "lungfish build-db \(rawValue)"
