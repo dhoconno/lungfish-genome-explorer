@@ -960,7 +960,7 @@ extension AppDelegate {
         }.startedID
     }
 
-    private func runManagedMapping(
+    func runManagedMapping(
         plan: MappingRunPlan,
         routeContext explicitRouteContext: OperationRouteContext? = nil
     ) {

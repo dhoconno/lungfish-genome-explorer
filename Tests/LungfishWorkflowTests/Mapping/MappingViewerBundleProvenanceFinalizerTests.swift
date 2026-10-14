@@ -984,10 +984,8 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
     /// the one shared service (which is what calls the transactional
     /// publication below), so neither surface can drift on the layout.
     func testToolsMenuAndMapCommandPublishThroughTheSharedLayoutService() throws {
-        let appSource = try String(
-            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"),
-            encoding: .utf8
-        )
+        // Every AppDelegate file, so the window's mapping route reads the same wherever it sits.
+        let appSource = combinedAppDelegateSource()
         let cliSource = try String(
             contentsOf: packageRoot().appendingPathComponent("Sources/LungfishCLI/Commands/MapCommand.swift"),
             encoding: .utf8

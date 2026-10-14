@@ -509,7 +509,7 @@ final class OperationRoutingTests: XCTestCase {
 
         let czIdImport = try sourceFunctionBody(
             named: "func importCzIdResultFromURL",
-            endingBefore: "private func runManagedMapping",
+            endingBefore: "static func reportViralReconLaunchFailure(",
             in: source
         )
         XCTAssertTrue(czIdImport.contains("targetMainWindowController(routeContext: routeContext)"))
@@ -863,12 +863,10 @@ final class OperationRoutingTests: XCTestCase {
         let awaited = try XCTUnwrap(assembleBody.range(of: "await self.awaitOperationTerminal(id: opID)"))
         XCTAssertLessThan(launched.lowerBound, awaited.lowerBound)
 
-        let tools = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"),
-            encoding: .utf8
-        )
+        // Every AppDelegate file, so the mapping route reads the same wherever it sits (2.10 A46).
+        let tools = combinedAppDelegateSource()
         let mappingBody = try sourceFunctionBody(
-            named: "private func runManagedMapping(\n        plan: MappingRunPlan",
+            named: "func runManagedMapping(\n        plan: MappingRunPlan",
             endingBefore: "    private func runSingleManagedMappingAwaitingCompletion",
             in: tools
         )
@@ -1087,18 +1085,10 @@ final class OperationRoutingTests: XCTestCase {
     }
 
     func testManagedMappingRunsSequentiallyWithOneOperationPerBundleAndLogsPooledWarning() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: root.appendingPathComponent(
-                "Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"
-            ),
-            encoding: .utf8
-        )
+        // Every AppDelegate file, so the mapping route reads the same wherever it sits (2.10 A46).
+        let source = combinedAppDelegateSource()
         let fanout = try sourceFunctionBody(
-            named: "private func runManagedMapping(\n        plan: MappingRunPlan",
+            named: "func runManagedMapping(\n        plan: MappingRunPlan",
             endingBefore: "    private func runSingleManagedMappingAwaitingCompletion",
             in: source
         )
@@ -1119,7 +1109,7 @@ final class OperationRoutingTests: XCTestCase {
 
         let single = try sourceFunctionBody(
             named: "private func runSingleManagedMappingAwaitingCompletion",
-            endingBefore: "    private func runMAFFTAlignment",
+            endingBefore: "private func routePostMappingDeterministicCompletion",
             in: source
         )
         let opStart = try XCTUnwrap(single.range(of: "Self.beginManagedMappingOperation("))
@@ -1162,15 +1152,11 @@ final class OperationRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: root.appendingPathComponent(
-                "Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"
-            ),
-            encoding: .utf8
-        )
+        // Every AppDelegate file, so the mapping route reads the same wherever it sits (2.10 A46).
+        let source = combinedAppDelegateSource()
         let single = try sourceFunctionBody(
             named: "private func runSingleManagedMappingAwaitingCompletion",
-            endingBefore: "    private func runMAFFTAlignment",
+            endingBefore: "private func routePostMappingDeterministicCompletion",
             in: source
         )
 
