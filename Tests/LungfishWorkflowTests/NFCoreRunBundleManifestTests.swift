@@ -35,6 +35,26 @@ final class NFCoreRunBundleManifestTests: XCTestCase {
         XCTAssertTrue(roundTrip.commandPreview.contains("-profile docker"))
     }
 
+    /// Phase 2.10 B31, the A30 seam ruling. The engine's own log round-trips, and a manifest written before the key
+    /// existed, or by a run whose engine never launched, has none and still reads.
+    func testTheEnginesLogPathRoundTripsAndAManifestWithoutItStillReads() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        func manifest(_ nextflowLogPath: String?) -> NFCoreRunBundleManifest {
+            NFCoreRunBundleManifest(
+                workflow: workflow, version: "3.0.0", executor: .docker, params: [:], outputDirectoryName: "results",
+                stdoutLogPath: "logs/stdout.log", stderrLogPath: "logs/stderr.log", nextflowLogPath: nextflowLogPath)
+        }
+        let encoder = JSONEncoder()
+        let launched = try JSONDecoder().decode(
+            NFCoreRunBundleManifest.self, from: encoder.encode(manifest("logs/nextflow.log")))
+        XCTAssertEqual(launched.nextflowLogPath, "logs/nextflow.log")
+        XCTAssertEqual([launched.stdoutLogPath, launched.stderrLogPath], ["logs/stdout.log", "logs/stderr.log"])
+
+        let older = try encoder.encode(manifest(nil))
+        XCTAssertFalse(String(decoding: older, as: UTF8.self).contains("nextflowLogPath"), "no key when no engine ran")
+        XCTAssertNil(try JSONDecoder().decode(NFCoreRunBundleManifest.self, from: older).nextflowLogPath)
+    }
+
     func testManifestWritesArtifactFilesExpectedByViralReconResultImport() throws {
         let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
         let tempDirectory = FileManager.default.temporaryDirectory

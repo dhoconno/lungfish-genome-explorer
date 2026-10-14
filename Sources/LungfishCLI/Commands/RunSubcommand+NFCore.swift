@@ -349,6 +349,7 @@ extension RunSubcommand {
                 exitCode: processResult.exitCode,
                 stdoutLogPath: "logs/stdout.log",
                 stderrLogPath: "logs/stderr.log",
+                nextflowLogPath: "logs/nextflow.log",
                 commandPreview: launchCommand
             ),
             to: runBundleURL
@@ -466,6 +467,8 @@ extension RunSubcommand {
                     completedAt: endedAt,
                     exitCode: exitCode,
                     stderrLogPath: "logs/stderr.log",
+                    // Only a launch writes the engine's own log, and only a launched cancel names its command.
+                    nextflowLogPath: launchCommand == nil ? nil : "logs/nextflow.log",
                     commandPreview: launchCommand
                 ),
                 to: runBundleURL

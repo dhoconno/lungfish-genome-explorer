@@ -1006,6 +1006,7 @@ records:
   "executionStatus" : "completed",
   "executor" : "docker",
   "exitCode" : 0,
+  "nextflowLogPath" : "logs/nextflow.log",
   "outputDirectoryName" : "viralrecon-results",
   "params" : {
     "consensus_caller" : "bcftools",

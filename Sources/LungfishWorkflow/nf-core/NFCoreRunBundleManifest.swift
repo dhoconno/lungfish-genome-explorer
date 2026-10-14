@@ -42,6 +42,9 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
     public let exitCode: Int32?
     public let stdoutLogPath: String?
     public let stderrLogPath: String?
+    /// The engine's own log, which it streams while it runs and which opens with the command that ran (2.9 N8). Only a
+    /// run whose engine launched names it, and `stdoutLogPath` and `stderrLogPath` then hold the tails of its output.
+    public let nextflowLogPath: String?
     public let createdAt: Date
 
     public init(
@@ -62,6 +65,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         exitCode: Int32? = nil,
         stdoutLogPath: String? = nil,
         stderrLogPath: String? = nil,
+        nextflowLogPath: String? = nil,
         createdAt: Date = Date(),
         commandPreview: String? = nil
     ) {
@@ -95,6 +99,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         self.exitCode = exitCode
         self.stdoutLogPath = stdoutLogPath
         self.stderrLogPath = stderrLogPath
+        self.nextflowLogPath = nextflowLogPath
         self.createdAt = createdAt
     }
 
@@ -122,6 +127,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         case exitCode
         case stdoutLogPath
         case stderrLogPath
+        case nextflowLogPath
         case createdAt
     }
 
@@ -150,6 +156,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
         stdoutLogPath = try container.decodeIfPresent(String.self, forKey: .stdoutLogPath)
         stderrLogPath = try container.decodeIfPresent(String.self, forKey: .stderrLogPath)
+        nextflowLogPath = try container.decodeIfPresent(String.self, forKey: .nextflowLogPath)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
     }
 

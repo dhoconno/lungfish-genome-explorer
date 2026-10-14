@@ -185,6 +185,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         exitCode: Int32? = nil,
         stdoutLogPath: String? = nil,
         stderrLogPath: String? = nil,
+        nextflowLogPath: String? = nil,
         commandPreview: String? = nil
     ) -> NFCoreRunBundleManifest {
         NFCoreRunBundleManifest(
@@ -205,6 +206,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             exitCode: exitCode,
             stdoutLogPath: stdoutLogPath,
             stderrLogPath: stderrLogPath,
+            nextflowLogPath: nextflowLogPath,
             createdAt: createdAt,
             commandPreview: commandPreview
         )

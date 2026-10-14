@@ -130,6 +130,68 @@ final class ViralReconRunRecordTests: XCTestCase {
         XCTAssertEqual(step.resolvedOptions["nextflowVersion"], .string("25.04.6"), "the probe's, never the console's")
     }
 
+    /// The A30 seam ruling, deviation 1. Once the engine launched, the manifest names the engine's own log beside its
+    /// tails, and each log it names holds what its key says: `nextflowLogPath` the command that ran and the engine's
+    /// output as the engine streamed it, `stdoutLogPath` the tail of that output and `stderrLogPath` of its errors.
+    func testTheManifestNamesTheEnginesOwnLogOnceTheEngineLaunched() async throws {
+        let script = root.appendingPathComponent("stand-in nextflow.sh")
+        try """
+        #!/bin/sh
+        while [ $# -gt 0 ]; do [ "$1" = "--outdir" ] && mkdir -p "$2"; shift; done
+        echo 'stand-in engine output'
+        echo 'stand-in engine warning' >&2
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let launch = WorkflowEngineLaunch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"), argumentPrefix: [script.path],
+            environment: ["PATH": "/usr/bin:/bin"])
+        let runner = ProbingRunner(inner: ProcessNFCoreWorkflowProcessRunner(homeDirectory: root, resolveLaunch: { _, _ in launch }))
+
+        let run = try await ViralReconLaunchedRun.run(in: root.appendingPathComponent("run"), using: runner)
+
+        let manifest = try Self.manifestObject(in: run.bundle)
+        func log(_ key: String) throws -> String {
+            let path = try XCTUnwrap(manifest[key] as? String, "the manifest names no \(key)")
+            return try String(contentsOf: run.bundle.appendingPathComponent(path), encoding: .utf8)
+        }
+        XCTAssertEqual(manifest["nextflowLogPath"] as? String, "logs/nextflow.log")
+        let engineLog = try log("nextflowLogPath")
+        XCTAssertTrue(engineLog.contains("nextflow_command: "), engineLog)
+        XCTAssertTrue(engineLog.contains("stand-in engine output"), engineLog)
+        let (output, errors) = (try log("stdoutLogPath"), try log("stderrLogPath"))
+        XCTAssertTrue(output.contains("stand-in engine output") && !output.contains("warning"), output)
+        XCTAssertTrue(errors.contains("stand-in engine warning") && !errors.contains("output"), errors)
+    }
+
+    /// A cancel during the launch names the engine's log as well, and a run that never launched has none to name.
+    func testOnlyALaunchedRunNamesTheEnginesOwnLog() async throws {
+        let cancelled = root.appendingPathComponent("cancelled")
+        do {
+            _ = try await ViralReconLaunchedRun.run(in: cancelled, using: CancellingRunner())
+            XCTFail("the cancel did not reach the command")
+        } catch {}
+        let manifest = try Self.manifestObject(in: cancelled.appendingPathComponent("viralrecon.lungfishrun"))
+        XCTAssertEqual(manifest["executionStatus"] as? String, "cancelled")
+        XCTAssertEqual(manifest["nextflowLogPath"] as? String, "logs/nextflow.log")
+
+        let prepared = try await ViralReconLaunchedRun.run(
+            in: root.appendingPathComponent("prepared"), extraArguments: ["--prepare-only"])
+        XCTAssertNil(try Self.manifestObject(in: prepared.bundle)["nextflowLogPath"], "no engine ran")
+    }
+
+    /// The run bundle's `manifest.json` as JSON, so a key the manifest type does not know yet still reads.
+    private static func manifestObject(in bundle: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: bundle.appendingPathComponent("manifest.json"))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// A runner whose launch is cancelled as soon as it starts.
+    private final class CancellingRunner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
+        func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            throw CancellationError()
+        }
+    }
+
     /// The real runner for the launch and the probe, without its Docker wait, recording each probe.
     private final class ProbingRunner: NFCoreWorkflowProcessRunning, NFCoreEngineVersionProbing, @unchecked Sendable {
         let inner: ProcessNFCoreWorkflowProcessRunner
