@@ -17,6 +17,8 @@ import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
+import LungfishNaoMgsUI
+import LungfishNvdUI
 
 @MainActor
 final class RenamedClassifierBatchRoutingTests: XCTestCase {
@@ -231,5 +233,203 @@ final class RenamedClassifierBatchRoutingTests: XCTestCase {
         controller.displayContent(for: item)
 
         XCTAssertNotNil(controller.viewerController.esVirituViewController)
+    }
+}
+
+// MARK: - The metadata tool against the folder prefix (Phase 2.10 A33)
+
+/// A batch folder opens as the tool its `analysis-metadata.json` names, and a folder prefix names a tool only for a
+/// legacy folder with no metadata. The tests below pin the viewer `displayBatchGroup` installs and the type
+/// `provenanceSidebarType` returns for every pair of a metadata tool and a folder prefix.
+///
+/// At the base the arms run Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD, and each also matches the folder prefix,
+/// so the prefix of an earlier arm beats the metadata of a later one. `knownDefects` lists those pairs with what
+/// opens for them today, and the commit that makes the metadata win removes the table.
+extension RenamedClassifierBatchRoutingTests {
+
+    /// The classifier a batch folder opens as, with the sidebar type its provenance target carries.
+    private enum BatchFamily: String {
+        case kraken2, esviritu, taxtriage, naomgs, nvd, none
+
+        var sidebarType: SidebarItemType {
+            switch self {
+            case .kraken2: return .classificationResult
+            case .esviritu: return .esvirituResult
+            case .taxtriage: return .taxTriageResult
+            case .naomgs: return .naoMgsResult
+            case .nvd: return .nvdResult
+            case .none: return .analysisResult
+            }
+        }
+    }
+
+    /// The tool an `analysis-metadata.json` carries for a classifier. `classification` is the word the first
+    /// releases wrote for a Kraken2 run, and it opens Kraken2.
+    private static let metadataTools: [(tool: String, family: BatchFamily)] = [
+        ("kraken2", .kraken2), ("classification", .kraken2), ("esviritu", .esviritu),
+        ("taxtriage", .taxtriage), ("naomgs", .naomgs), ("nvd", .nvd),
+    ]
+
+    /// The prefixes a folder can carry for a classifier.
+    private static let folderPrefixes = [
+        "kraken2-", "classification-", "esviritu-", "taxtriage-", "naomgs-", "nvd-",
+    ]
+
+    /// The pairs where the folder prefix of an earlier arm beats the metadata of a later one, each keyed
+    /// `"<metadata tool> <folder prefix>"` with what opens today. Kraken2 with a prefix of another tool is not
+    /// here, because the Kraken2 arm is first and the metadata already wins.
+    private static let knownDefects: [String: BatchFamily] = [
+        "esviritu kraken2-": .kraken2, "esviritu classification-": .kraken2,
+        "taxtriage kraken2-": .kraken2, "taxtriage classification-": .kraken2,
+        "naomgs kraken2-": .kraken2, "naomgs classification-": .kraken2,
+        "nvd kraken2-": .kraken2, "nvd classification-": .kraken2,
+        "taxtriage esviritu-": .esviritu, "naomgs esviritu-": .esviritu, "nvd esviritu-": .esviritu,
+        "naomgs taxtriage-": .taxtriage, "nvd taxtriage-": .taxtriage,
+        "nvd naomgs-": .naomgs,
+    ]
+
+    /// What a pair opens today.
+    private static func opensToday(_ metadata: (tool: String, family: BatchFamily), prefix: String) -> BatchFamily {
+        knownDefects["\(metadata.tool) \(prefix)"] ?? metadata.family
+    }
+
+    /// A batch folder that holds every classifier database, so whichever arm opens it finds its own and the
+    /// database build placeholder, which would start `lungfish-cli build-db`, never shows.
+    private func makeAllDatabasesBatch(named name: String, metadataTool: String?, in root: URL) throws -> URL {
+        let batch = try makeEsVirituBatch(named: name, in: root, withMetadata: false)
+        _ = try Kraken2Database.create(
+            at: batch.appendingPathComponent("kraken2.sqlite"),
+            rows: [makeKraken2Row(sample: "sample-a", taxonName: "Escherichia coli", taxId: 562)],
+            metadata: ["tool": "kraken2"]
+        )
+        _ = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("taxtriage.sqlite"),
+            rows: [makeTaxTriageRow(sample: "sample-a", organism: "Example organism")],
+            metadata: ["tool": "taxtriage"]
+        )
+        if let metadataTool { try writeMetadata(tool: metadataTool, to: batch) }
+        return batch
+    }
+
+    /// The viewer a display left in the viewport. A NAO-MGS or NVD display starts a task that reads a manifest
+    /// these folders do not have, so the caller supersedes the request before the task runs.
+    private func installedViewer(of controller: MainSplitViewController) -> BatchFamily {
+        let viewer = controller.viewerController
+        let family: BatchFamily
+        if viewer?.taxonomyViewController != nil {
+            family = .kraken2
+        } else if viewer?.esVirituViewController != nil {
+            family = .esviritu
+        } else if viewer?.taxTriageViewController != nil {
+            family = .taxtriage
+        } else if viewer?.children.contains(where: { $0 is NaoMgsResultViewController }) == true {
+            family = .naomgs
+        } else if viewer?.children.contains(where: { $0 is NvdResultViewController }) == true {
+            family = .nvd
+        } else {
+            family = .none
+        }
+        _ = controller.beginDisplayRequest(
+            identity: controller.contentSelectionIdentity(url: URL(fileURLWithPath: "/"), kind: "pin-supersede")
+        )
+        return family
+    }
+
+    /// The viewer `displayBatchGroup` installs for every pair of a metadata tool and a folder prefix.
+    /// The pairs in `knownDefects` open the prefix's tool today, and the others open the metadata's tool.
+    func testPin_theViewerForEveryMetadataToolAndFolderPrefix() throws {
+        for metadata in Self.metadataTools {
+            for prefix in Self.folderPrefixes {
+                let root = try makeTempRoot()
+                defer { try? FileManager.default.removeItem(at: root) }
+                let batch = try makeAllDatabasesBatch(
+                    named: prefix + "2026-10-13T10-00-00", metadataTool: metadata.tool, in: root
+                )
+                let (controller, window) = makeController()
+                defer { window.contentViewController = nil }
+
+                controller.displayBatchGroup(at: batch)
+
+                XCTAssertEqual(
+                    installedViewer(of: controller), Self.opensToday(metadata, prefix: prefix),
+                    "metadata \(metadata.tool) in a folder named \(batch.lastPathComponent)"
+                )
+            }
+        }
+    }
+
+    /// The type `provenanceSidebarType` returns for the same pairs, which `displayBatchGroup` hands to the
+    /// Inspector's provenance target before it picks a viewer.
+    func testPin_theProvenanceSidebarTypeForEveryMetadataToolAndFolderPrefix() {
+        let (controller, window) = makeController()
+        defer { window.contentViewController = nil }
+        for metadata in Self.metadataTools {
+            for prefix in Self.folderPrefixes {
+                let directoryName = prefix + "2026-10-13T10-00-00"
+                XCTAssertEqual(
+                    controller.provenanceSidebarType(forMetagenomicsToolId: metadata.tool, directoryName: directoryName),
+                    Self.opensToday(metadata, prefix: prefix).sidebarType,
+                    "metadata \(metadata.tool) in a folder named \(directoryName)"
+                )
+            }
+        }
+    }
+
+    /// A tool that is not a classifier keeps its own type, and today a classifier prefix on its folder beats
+    /// it. The folder of a CZ-ID import or an assembly is not a Kraken2 or EsViritu result.
+    func testPin_aNonClassifierToolWithAClassifierPrefix() {
+        let (controller, window) = makeController()
+        defer { window.contentViewController = nil }
+        let rows: [(tool: String, prefix: String, today: SidebarItemType, expected: SidebarItemType)] = [
+            ("spades", "kraken2-", .classificationResult, .analysisResult),
+            ("spades", "esviritu-", .esvirituResult, .analysisResult),
+            ("cz-id", "kraken2-", .classificationResult, .czIdResult),
+            ("cz-id", "taxtriage-", .taxTriageResult, .czIdResult),
+        ]
+        for row in rows {
+            let directoryName = row.prefix + "2026-10-13T10-00-00"
+            XCTAssertEqual(
+                controller.provenanceSidebarType(forMetagenomicsToolId: row.tool, directoryName: directoryName),
+                row.today,
+                "metadata \(row.tool) in a folder named \(directoryName) (the type it should have is \(row.expected))"
+            )
+        }
+        // With no classifier prefix on the folder the type follows the tool.
+        XCTAssertEqual(controller.provenanceSidebarType(forMetagenomicsToolId: "spades", directoryName: "run"), .analysisResult)
+        XCTAssertEqual(controller.provenanceSidebarType(forMetagenomicsToolId: "cz-id", directoryName: "run"), .czIdResult)
+    }
+
+    /// A legacy folder has no `analysis-metadata.json`. The router reads a name with a timestamp, and a name it
+    /// cannot read stays the tool id, so its prefix still names the viewer and the provenance type. Older layouts
+    /// keep opening.
+    func testPin_aLegacyFolderWithNoMetadataRoutesByItsPrefix() throws {
+        let legacy: [(name: String, opens: BatchFamily)] = [
+            ("kraken2-batch-2026-01-01T00-00-00", .kraken2),
+            ("classification-batch-2026-01-01T00-00-00", .kraken2),
+            ("esviritu-batch-2026-01-01T00-00-00", .esviritu),
+            ("taxtriage-2026-01-01T00-00-00", .taxtriage),
+            ("kraken2-sample-run", .kraken2),
+            ("classification-run-001", .kraken2),
+            ("esviritu-run-sampleA", .esviritu),
+            ("taxtriage-run-sampleA", .taxtriage),
+            ("naomgs-batch-001", .naomgs),
+            ("nvd-batch-run", .nvd),
+        ]
+        for row in legacy {
+            let root = try makeTempRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let batch = try makeAllDatabasesBatch(named: row.name, metadataTool: nil, in: root)
+            let (controller, window) = makeController()
+            defer { window.contentViewController = nil }
+
+            controller.displayBatchGroup(at: batch)
+
+            XCTAssertEqual(installedViewer(of: controller), row.opens, "viewer of the legacy folder \(row.name)")
+            XCTAssertEqual(
+                controller.inspectorController.viewModel.provenanceSectionViewModel.currentItem?.sidebarType,
+                row.opens.sidebarType,
+                "provenance type of the legacy folder \(row.name)"
+            )
+        }
     }
 }
