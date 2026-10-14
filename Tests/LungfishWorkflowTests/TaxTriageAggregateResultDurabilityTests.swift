@@ -6,7 +6,8 @@
 // app's serial batch writes at a batch root, from the samples' results in request order with no fact they lack,
 // through `DurableReplace` before the root record. These cases read
 // `TaxTriageAnalysisRunTool.aggregateResult(of:planned:root:)` and `publishAggregateResult(of:planned:root:)` alone,
-// with no run. The name holds "Durability" so `scripts/testing/exfat-tests.sh --simulate` runs the class with the
+// with no run, and two cases run `finalize(_:context:)` under a cancel, which leaves no aggregate (2.9 T10, B30 review
+// fix 7). The name holds "Durability" so `scripts/testing/exfat-tests.sh --simulate` runs the class with the
 // ExFAT fallbacks of every rename. `TaxTriageExecutorBatchTreeReplayTests` runs the command on the stand-in engine.
 
 import Foundation
@@ -126,7 +127,61 @@ final class TaxTriageAggregateResultDurabilityTests: XCTestCase {
         XCTAssertEqual(leftovers, [], "no stage or tombstone stays beside the result")
     }
 
+    // MARK: - A cancel (2.9 T10, B30 review fix 7)
+
+    /// A cancelled batch keeps no aggregate result, as the app's serial batch writes none (2.9 T10), and the
+    /// executor names none of the finalize's outputs then (E5). Here the cancel comes before the finalize.
+    func testACancelledFinalizeLeavesNoAggregate() async throws {
+        let tool = finalizeTool()
+        let context = finalizeContext(indexing: nil)
+        let units = units()
+
+        let finalize = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await tool.finalize(units, context: context).outputs.map(\.url)
+        }
+        let outputs = try await finalize.value
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: batch.appendingPathComponent("taxtriage-result.json").path),
+            "a cancelled batch keeps no aggregate result"
+        )
+        XCTAssertEqual(outputs, [], "the finalization names no aggregate")
+    }
+
+    /// As above, with the cancel during the viewer index, after the finalize published the aggregate. The
+    /// catch of an index that could not be built takes the cancel's error too, so the finalize removes it.
+    func testACancelDuringTheIndexRemovesTheAggregate() async throws {
+        let tool = finalizeTool()
+        let context = finalizeContext(indexing: CancellingIndexer())
+        let units = units()
+
+        let outputs = try await Task { try await tool.finalize(units, context: context).outputs.map(\.url) }.value
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: batch.appendingPathComponent("taxtriage-result.json").path),
+            "a batch cancelled during its index keeps no aggregate result"
+        )
+        XCTAssertEqual(outputs, [], "the finalization names no aggregate")
+    }
+
     // MARK: - Helpers
+
+    /// The tool of a batch whose request plans no sample, so a failed unit keeps no planned sample.
+    private func finalizeTool() -> TaxTriageAnalysisRunTool {
+        TaxTriageAnalysisRunTool(request: TaxTriageRunRequest(settings: TaxTriageConfig(samples: [], outputDirectory: batch)))
+    }
+
+    /// The finalize context of the batch root, as `TaxTriageSourceRecordTests` builds one.
+    private func finalizeContext(indexing: (any AnalysisResultIndexing)?) -> AnalysisRunFinalizeContext {
+        AnalysisRunFinalizeContext(
+            rootDirectory: batch,
+            layout: .batchRoot,
+            projectURL: root.appendingPathComponent("Project.lungfish", isDirectory: true),
+            toolID: .taxtriage,
+            indexing: indexing
+        )
+    }
 
     private func folder(_ sample: String) -> URL {
         batch.appendingPathComponent(sample, isDirectory: true)
@@ -171,5 +226,14 @@ final class TaxTriageAggregateResultDurabilityTests: XCTestCase {
             index: index, label: sample, sampleName: sample, directory: directory,
             outcome: ignored ? .completedWithWarning(TaxTriageUnitResult(result: result), reason: "ignored") : .completed(TaxTriageUnitResult(result: result))
         )
+    }
+}
+
+/// An index builder that cancels the task it runs in and stops, as a cancel of the run during the finalize's
+/// viewer index does.
+private struct CancellingIndexer: AnalysisResultIndexing {
+    func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
+        withUnsafeCurrentTask { $0?.cancel() }
+        throw CancellationError()
     }
 }

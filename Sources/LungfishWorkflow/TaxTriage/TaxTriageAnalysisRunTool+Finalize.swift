@@ -22,7 +22,8 @@ extension TaxTriageAnalysisRunTool {
     /// (S2). Those the cleanup then removes drop out of the run level, which names only kept files.
     /// A batch root also gets the aggregate `taxtriage-result.json` the app's serial batch writes
     /// (``publishAggregateResult(of:planned:root:)``, T5, X3), which the root record names with its
-    /// digest after the viewer index, so `taxtriage.sqlite` stays the run's output at every layout.
+    /// digest after the viewer index, so `taxtriage.sqlite` stays the run's output at every layout. A cancel
+    /// before or during the viewer index leaves none, as the app's serial batch writes none (2.9 T10).
     ///
     /// A result in a project or a batch root then gets its viewer index in process, `taxtriage.sqlite`
     /// through the index builder the executor was given. The build's steps and the recorded removal
@@ -50,7 +51,7 @@ extension TaxTriageAnalysisRunTool {
             // A failed sample keeps its place with the sample the plan gave its launch, read again here
             // because a failed launch hands back no result.
             let planned = units.contains { !$0.outcome.completed } ? try? plannedSamples() : nil
-            aggregate = try Self.publishAggregateResult(of: units, planned: planned, root: context.rootDirectory)
+            aggregate = Task.isCancelled ? nil : try Self.publishAggregateResult(of: units, planned: planned, root: context.rootDirectory)
         }
         guard context.layout != .singleFolder else { return finalization }
 
@@ -67,6 +68,12 @@ extension TaxTriageAnalysisRunTool {
             finalization.warnings.append(
                 "The viewer index could not be built: \(error.localizedDescription). The viewer builds it when the result opens."
             )
+        }
+        if aggregate != nil, Task.isCancelled {
+            // 2.9 T10. A cancelled batch keeps no aggregate result, as the app's serial batch writes none, and the
+            // executor names none of the finalize's outputs then (E5).
+            try? FileManager.default.removeItem(at: Self.resultURL(in: context.rootDirectory))
+            aggregate = nil
         }
         if aggregate != nil {
             finalization.outputs.append(AnalysisRunOutput(url: Self.resultURL(in: context.rootDirectory), format: .json))
