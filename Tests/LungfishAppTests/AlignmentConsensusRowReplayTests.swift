@@ -24,6 +24,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
@@ -60,6 +61,8 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products), "no lungfish-cli beside \(products.path)")
         setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        // A taken destination fails its row, whose report stays out of the user's ~/Library/Logs.
+        OperationCenter.useTemporaryFailureReportsForTesting()
         scratch = try TestTempDirectory.make(prefix: "consensus-row")
         try FileManager.default.createDirectory(at: scratch.appendingPathComponent("out"), withIntermediateDirectories: true)
         _ = NSApplication.shared
@@ -257,5 +260,49 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
     func testCancellingTheSavePanelWritesNothing() async throws {
         let lines = try await run(.destination(.file), savePanelAnswer: nil, expectRow: false)
         XCTAssertEqual(lines, ["no row", "save panel S1-MT192765.1-consensus.fasta"])
+    }
+
+    /// A viewer closed while its run goes on leaves no row running. The leaf wrote the FASTA and its
+    /// record before it exited, so the row completes with them, as today's route completed a
+    /// publication that outlived its viewer. A stand-in for the leaf holds the run open until the
+    /// viewer is gone, then writes the two files and reports them as `bam consensus` does.
+    func testARunThatOutlivesItsViewerStillEndsTheRow() async throws {
+        let gate = scratch.appendingPathComponent("viewer-closed")
+        let launched = scratch.appendingPathComponent("launched")
+        let fasta = scratch.appendingPathComponent("out/S1.fasta")
+        let record = scratch.appendingPathComponent("out/S1.fasta.lungfish-provenance.json")
+        let complete = #"{"event":"complete","message":"Consensus FASTA saved","outputs":["\#(fasta.path)","\#(record.path)"],"progress":1,"schemaVersion":2}"#
+        let cli = scratch.appendingPathComponent("lungfish-cli")
+        try """
+        #!/bin/sh
+        touch '\(launched.path)'
+        while [ ! -f '\(gate.path)' ]; do sleep 0.05; done
+        printf '>S1\\nN\\n' > '\(fasta.path)'
+        printf '{}' > '\(record.path)'
+        printf '%s\\n' '\(complete)'
+        """.write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        let known = Set(OperationCenter.shared.items.map(\.id))
+        viewer.alignmentExtractionSavePanelPresenter = SavePanel(url: fasta)
+        viewer.alignmentActionContext = try context(minimumDepth: 1)
+        viewer.presentAlignmentConsensusGeneration()
+        await waitUntil(timeout: .seconds(30)) { self.dialog != nil }
+        let host = try XCTUnwrap(dialog, "the destination sheet")
+        host.rootView.model.destination = .file
+        host.rootView.onPrimary()
+        await waitUntil(timeout: .seconds(30)) { FileManager.default.fileExists(atPath: launched.path) }
+
+        weak var closed = viewer
+        window.contentViewController = nil
+        viewer = nil
+        await waitUntil(timeout: .seconds(10)) { closed == nil }
+        XCTAssertNil(closed, "the viewer is gone while its run goes on")
+        try Data().write(to: gate)
+
+        await waitUntil(timeout: .seconds(30)) { self.rows(after: known).contains { !$0.state.isActive } }
+        let row = try XCTUnwrap(rows(after: known).first, "the run began a row")
+        XCTAssertEqual("\(row.state) \(row.detail)", "completed Consensus FASTA saved")
+        XCTAssertEqual(row.outputURLs.map(\.path), [fasta.path, record.path])
     }
 }

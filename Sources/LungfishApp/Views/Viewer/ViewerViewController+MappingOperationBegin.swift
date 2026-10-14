@@ -325,12 +325,9 @@ extension ViewerViewController {
                     return await confirmAllLowDepthConsensus(message: message, on: window, operationID: operationID)
                 },
                 finish: { [weak self, weak window] outcome in
-                    guard let self else {
-                        if let workingDirectory { Self.removeConsensusTempDirectory(workingDirectory) }
-                        return
-                    }
-                    finishAlignmentConsensus(
-                        outcome, destination: destination, summary: summary,
+                    // The row ends whether or not the viewer is still open.
+                    Self.finishAlignmentConsensus(
+                        outcome, viewer: self, destination: destination, summary: summary,
                         workingDirectory: workingDirectory, operationID: operationID, window: window
                     )
                 }
@@ -341,24 +338,28 @@ extension ViewerViewController {
         }
     }
 
-    /// Ends the row as today's route did for each destination. The leaf wrote
-    /// the FASTA or the bundle with its record before it exited. Clipboard
-    /// reads the FASTA back and share offers it with its record, both from the
-    /// temp folder, which goes once they are done.
-    private func finishAlignmentConsensus(
+    /// Ends the row as today's route did for each destination, also once
+    /// `viewer` has closed, so no row is left running. The leaf wrote the FASTA
+    /// or the bundle with its record before it exited, so those rows complete
+    /// without the viewer. Clipboard reads the FASTA back and share offers it
+    /// with its record, both from the temp folder, which goes once they are
+    /// done. Sheets need the viewer, and share without it ends as today's
+    /// route ended a closed viewer's row.
+    private static func finishAlignmentConsensus(
         _ outcome: Result<CLIAlignmentActionRunner.Completion, any Error>,
+        viewer: ViewerViewController?,
         destination: DialogDestination,
         summary: String,
         workingDirectory: URL?,
         operationID: UUID,
         window: NSWindow?
     ) {
-        let removeTemp = { if let workingDirectory { Self.removeConsensusTempDirectory(workingDirectory) } }
+        let removeTemp = { if let workingDirectory { removeConsensusTempDirectory(workingDirectory) } }
         let completion: CLIAlignmentActionRunner.Completion
         switch outcome {
         case .failure(let error) where error is CancellationError:
             removeTemp()
-            clearConsensusWorkflow(operationID: operationID)
+            viewer?.clearConsensusWorkflow(operationID: operationID)
             return
         case .failure(let error):
             removeTemp()
@@ -367,9 +368,9 @@ extension ViewerViewController {
                 detail: "Alignment consensus failed",
                 errorMessage: error.localizedDescription
             )
-            clearConsensusWorkflow(operationID: operationID)
+            viewer?.clearConsensusWorkflow(operationID: operationID)
             guard accepted else { return }
-            presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
+            viewer?.presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
             return
         case .success(let value):
             completion = value
@@ -378,12 +379,12 @@ extension ViewerViewController {
         switch destination {
         case .file:
             _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus FASTA saved", outputURLs: outputs)
-            clearConsensusWorkflow(operationID: operationID)
+            viewer?.clearConsensusWorkflow(operationID: operationID)
         case .bundle:
             _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus reference bundle created", bundleURLs: outputs)
-            clearConsensusWorkflow(operationID: operationID)
+            viewer?.clearConsensusWorkflow(operationID: operationID)
         case .clipboard:
-            let task = Task { @MainActor [weak self] in
+            let task = Task { @MainActor [weak viewer] in
                 defer { removeTemp() }
                 do {
                     guard let fastaURL = outputs.first else { throw CLISubprocessTransport.RunError.missingCompletion }
@@ -391,7 +392,7 @@ extension ViewerViewController {
                     DefaultPasteboard().setString(fasta)
                     OperationCenter.shared.log(id: operationID, level: .info, message: summary)
                     _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus copied to clipboard")
-                    self?.clearConsensusWorkflow(operationID: operationID)
+                    viewer?.clearConsensusWorkflow(operationID: operationID)
                     guard let window else { return }
                     let alert = NSAlert()
                     alert.messageText = "Consensus Copied"
@@ -400,18 +401,23 @@ extension ViewerViewController {
                     alert.beginSheetModal(for: window, completionHandler: nil)
                 } catch {
                     let accepted = OperationCenter.shared.fail(id: operationID, detail: "Alignment consensus failed", errorMessage: error.localizedDescription)
-                    self?.clearConsensusWorkflow(operationID: operationID)
+                    viewer?.clearConsensusWorkflow(operationID: operationID)
                     guard accepted else { return }
-                    self?.presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
+                    viewer?.presentExtractionFailureAlert(title: "Generate Consensus Failed", message: error.localizedDescription)
                 }
             }
-            activeConsensusGenerationTask = task
+            viewer?.activeConsensusGenerationTask = task
         case .share:
+            guard let viewer else {
+                removeTemp()
+                OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Originating viewer closed")
+                return
+            }
             let sessionID = UUID()
             let session = AlignmentConsensusShareSession(
                 cleanup: removeTemp,
-                finish: { [weak self] outcome in
-                    self?.activeConsensusShareSessions[sessionID] = nil
+                finish: { [weak viewer] outcome in
+                    viewer?.activeConsensusShareSessions[sessionID] = nil
                     switch outcome {
                     case .shared:
                         _ = OperationCenter.shared.complete(id: operationID, detail: "Consensus shared")
@@ -420,14 +426,14 @@ extension ViewerViewController {
                     case .failed(let message):
                         _ = OperationCenter.shared.fail(id: operationID, detail: "Consensus share failed", errorMessage: message)
                     }
-                    self?.clearConsensusWorkflow(operationID: operationID)
+                    viewer?.clearConsensusWorkflow(operationID: operationID)
                 }
             )
-            activeConsensusShareSessions[sessionID] = session
+            viewer.activeConsensusShareSessions[sessionID] = session
             OperationCenter.shared.setCancelCallback(for: operationID) {
                 DispatchQueue.main.async { session.cancel() }
             }
-            session.present(items: outputs, relativeTo: view, preferredEdge: .minY)
+            session.present(items: outputs, relativeTo: viewer.view, preferredEdge: .minY)
         }
     }
 
