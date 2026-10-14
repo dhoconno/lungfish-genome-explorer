@@ -256,25 +256,6 @@ extension EsVirituResult {
     }
 }
 
-// MARK: - PersistedEsVirituResult
-
-/// Codable representation of an EsViritu result for JSON serialization.
-///
-/// File paths are stored as relative filenames (not absolute paths) so the
-/// sidecar remains valid if the output directory is moved.
-struct PersistedEsVirituResult: Codable, Sendable {
-    let config: EsVirituConfig
-    let detectionPath: String
-    let assemblyPath: String?
-    let taxProfilePath: String?
-    let coveragePath: String?
-    let virusCount: Int
-    let runtime: TimeInterval
-    let toolVersion: String
-    let provenanceId: UUID?
-    let savedAt: Date
-}
-
 // MARK: - EsVirituResultLoadError
 
 /// Errors that can occur when loading a persisted EsViritu result.
