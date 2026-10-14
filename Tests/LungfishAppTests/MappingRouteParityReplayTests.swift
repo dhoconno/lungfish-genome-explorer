@@ -101,15 +101,13 @@ final class MappingRouteParityReplayTests: XCTestCase {
         XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
         let result = try harness.evaluate(Case.sarscov2PairedMinimap2, declared: [], runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.sarscov2PairedMinimap2)")
-        // UX 1 and 3, the CLI route's row shows the words, lines and end of the in-process row M2
-        // froze. The bar is left out, since on either route the viewer's step back to 0.93 can
-        // reach the panel after the bar reached 1 and be missed (reported by lane A46 M3).
-        var row = try XCTUnwrap(rows[.c])
-        row.bar = []
+        // UX 1 and 3, the CLI route's row shows the words, bar, lines and end of the in-process row
+        // M2 froze. On either route the viewer's step back to 0.93 can reach the panel after the bar
+        // reached 1 and be missed, so both bars are read through comparableBar (QA's ruling D9).
+        let row = try XCTUnwrap(rows[.c])
         let frozen = try String(contentsOf: MappingRouteRow.frozenFolder.appendingPathComponent("plain-fasta.txt"), encoding: .utf8)
         XCTAssertEqual(
-            row.text.replacingOccurrences(of: "# bar\n", with: ""),
-            frozen.replacingOccurrences(of: #"# bar\n(?:[0-9.]+\n)*"#, with: "", options: .regularExpression),
+            MappingRouteRow.comparableText(row.text), MappingRouteRow.comparableText(frozen),
             "the CLI route's row shows what the in-process row M2 froze"
         )
 

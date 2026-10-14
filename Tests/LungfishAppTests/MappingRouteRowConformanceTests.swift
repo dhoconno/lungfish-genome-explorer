@@ -76,6 +76,25 @@ struct MappingRouteRow: Equatable {
             .joined(separator: "\n") + "\n"
     }
 
+    /// The bar as the parity and freeze checks compare it (QA's ruling D9 on lane A46 M3). After the
+    /// bar reached 1, the viewer's step back to 0.93 and up to 1 reaches the panel on one run and not
+    /// the next, on either route, so a last `0.9300, 1.0000` that follows `1.0000` is dropped, and
+    /// nothing else.
+    static func comparableBar(_ bar: [String]) -> [String] {
+        guard bar.suffix(3) == ["1.0000", "0.9300", "1.0000"] else { return bar }
+        return Array(bar.dropLast(2))
+    }
+
+    /// `text`, a row in its frozen form, with its bar read through ``comparableBar(_:)``.
+    static func comparableText(_ text: String) -> String {
+        var lines = text.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(of: "# bar"), let end = lines.firstIndex(of: "# logged"), start < end else {
+            return text
+        }
+        lines.replaceSubrange((start + 1)..<end, with: comparableBar(Array(lines[(start + 1)..<end])))
+        return lines.joined(separator: "\n")
+    }
+
     static var frozenFolder: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("Fixtures/MappingRouteRow", isDirectory: true)
@@ -117,7 +136,10 @@ struct MappingRouteRow: Equatable {
             try text.write(to: url, atomically: true, encoding: .utf8)
             return
         }
-        XCTAssertEqual(text, try String(contentsOf: url, encoding: .utf8), "the row differs from \(name).txt", file: file, line: line)
+        XCTAssertEqual(
+            comparableText(text), comparableText(try String(contentsOf: url, encoding: .utf8)),
+            "the row differs from \(name).txt", file: file, line: line
+        )
     }
 
     /// A `.lungfishref` bundle in `project` that holds the sequence of `fasta`, one record on one line.
