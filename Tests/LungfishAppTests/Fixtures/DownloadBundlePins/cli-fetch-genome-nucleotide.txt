@@ -11,6 +11,7 @@ file annotations/annotations.db.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -38,6 +39,7 @@ file genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -63,6 +65,7 @@ file genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -87,6 +90,7 @@ file genome/sequence.fa.gz.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -112,6 +116,7 @@ file manifest.json.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -136,6 +141,7 @@ file provenance/annotations/annotations.db.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -161,6 +167,7 @@ file provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -185,6 +192,7 @@ file provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -209,6 +217,7 @@ file provenance/genome/sequence.fa.gz.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -233,6 +242,7 @@ file provenance/manifest.json.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
   provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
@@ -336,6 +346,7 @@ provenance option apiKeySource explicit="none" default="none" resolved="none"
 provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
 provenance option bundleName explicit=null default=null resolved=null
 provenance option fastaOnly explicit=false default=false resolved=false
+provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
 provenance option noBundle explicit=false default=false resolved=false
 provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
 provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref

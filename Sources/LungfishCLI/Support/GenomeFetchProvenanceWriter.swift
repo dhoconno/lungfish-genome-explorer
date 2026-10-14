@@ -76,7 +76,7 @@ struct GenomeFetchProvenanceWriter {
             name: "lungfish fetch genome",
             parameters: parameters,
             defaults: provenanceDefaults(),
-            resolved: parameters,
+            resolved: parameters.merging(fetchedRecord(at: request.runClock.startedAt)) { _, entry in entry },
             toolName: "lungfish fetch genome",
             toolVersion: WorkflowRun.currentAppVersion,
             command: provenanceCommand(
@@ -135,7 +135,7 @@ struct GenomeFetchProvenanceWriter {
             name: "lungfish fetch genome",
             parameters: parameters,
             defaults: defaults,
-            resolved: parameters,
+            resolved: parameters.merging(fetchedRecord(at: request.runClock.startedAt)) { _, entry in entry },
             toolName: "lungfish fetch genome",
             toolVersion: WorkflowRun.currentAppVersion,
             command: provenanceCommand(
@@ -167,7 +167,7 @@ struct GenomeFetchProvenanceWriter {
             name: "lungfish fetch genome",
             parameters: parameters,
             defaults: provenanceDefaults(),
-            resolved: parameters,
+            resolved: parameters.merging(fetchedRecord(at: request.runClock.startedAt)) { _, entry in entry },
             toolName: "lungfish fetch genome",
             toolVersion: WorkflowRun.currentAppVersion,
             command: provenanceCommand(
@@ -258,6 +258,13 @@ struct GenomeFetchProvenanceWriter {
             "outputFormat": .string(outputFormat.rawValue),
             "quiet": .boolean(quiet)
         ]
+    }
+
+    /// The run's fetch as a live snapshot of NCBI on the day of the run, in the shape of a Nextflow
+    /// database entry (2.9 R3, A45 grant 4). The run keeps no file that lists what it fetched, so
+    /// the entry names the date alone and the record's inputs name each fetched file with its digest.
+    private func fetchedRecord(at date: Date) -> [String: ParameterValue] {
+        NextflowDatabaseEntry(role: "fetchedRecord", status: .liveSnapshot, fetchedAt: date).resolvedDefaults
     }
 
     private func provenanceDefaults() -> [String: ParameterValue] {

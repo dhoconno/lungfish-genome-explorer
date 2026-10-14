@@ -10,6 +10,7 @@ file genome/.lungfish-provenance.json provenance
   provenance option assemblyAccession explicit="GCF_000000001.1" default=- resolved="GCF_000000001.1"
   provenance option bundleName explicit=null default=null resolved=null
   provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option fetchedRecord explicit=- default=- resolved={fetchedAt="<date>", status="liveSnapshot"}
   provenance option intoBundle explicit=file:<OUT>/Cohort calls.lungfishref default=null resolved=file:<OUT>/Cohort calls.lungfishref
   provenance option noBundle explicit=false default=false resolved=false
   provenance option organism explicit="Lungfish stand-in organism (stand-ins)" default=- resolved="Lungfish stand-in organism (stand-ins)"
