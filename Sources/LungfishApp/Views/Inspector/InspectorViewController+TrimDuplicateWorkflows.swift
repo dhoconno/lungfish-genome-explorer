@@ -465,7 +465,7 @@ extension InspectorViewController {
             var task: Task<Void, Never>?
         }
         let handle = TaskHandle()
-        // The hidden key picks the route (default in process, Phase 2.10 lane A54). The plan holds the count
+        // The hidden key picks the route (default the CLI, in process on `legacy`, Phase 2.10 lane A54). The plan holds the count
         // read before the row begins, because the leaf's `complete` message is text and the app parses no
         // number out of it.
         let plan: DuplicateWorkflowPlan

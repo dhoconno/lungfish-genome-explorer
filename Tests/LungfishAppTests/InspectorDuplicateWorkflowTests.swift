@@ -181,17 +181,18 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
 
     // MARK: - The hidden route key (Phase 2.10 lane A54, ruling on deviation 6)
     //
-    // Both duplicate workflows run in process unless one hidden key, shared by the two kinds, moves them to
-    // `lungfish-cli bundle mark-duplicates` or `bundle deduplicate-alignments` on A51's L3 runner. The key
-    // flips in the lane's last commit, and the in-process route stays for one release (decision C4).
+    // Both duplicate workflows run `lungfish-cli bundle mark-duplicates` or `bundle deduplicate-alignments` on A51's
+    // L3 runner, unless one hidden key, shared by the two kinds, says `legacy` and keeps them in process. The key
+    // flipped in the lane's last commit, and the in-process route stays for one release (decision C4).
 
     func testTheDuplicateRouteReadsItsHiddenKey() throws {
         let key = InspectorDuplicateWorkflowRouteSettings.defaultsKey
         XCTAssertEqual(key, "InspectorDuplicateWorkflowRoute")
-        XCTAssertEqual(InspectorDuplicateWorkflowRouteSettings.defaultRoute, .legacy, "the lane's last commit flips it")
+        XCTAssertEqual(InspectorDuplicateWorkflowRouteSettings.defaultRoute, .cli, "the lane's last commit flipped it")
 
+        // An unset key and a value this reader does not know take the default, and `legacy` or false keeps the in-process route.
         let values: [(Any?, InspectorDuplicateWorkflowRoute)] = [
-            (nil, .legacy), ("legacy", .legacy), ("cli", .cli), ("CLI", .cli), (true, .cli), (false, .legacy), ("sideways", .legacy),
+            (nil, .cli), ("legacy", .legacy), ("cli", .cli), ("CLI", .cli), (true, .cli), (false, .legacy), ("sideways", .cli),
         ]
         for (value, expected) in values {
             let defaults = makeTestDefaultsSuite(prefix: "InspectorDuplicateWorkflowTests").defaults
