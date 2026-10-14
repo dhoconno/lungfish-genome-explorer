@@ -44,7 +44,18 @@ public protocol AnalysisRunTool: Sendable {
     /// finalize from there to 1, so a finalize that builds a viewer index, as TaxTriage's does after
     /// its Nextflow run, does not sit at the end of the bar. The default 0 gives the units the whole
     /// bar, as Kraken2 and EsViritu have always had it.
+    ///
+    /// This is the share of a run whose finalize has work to do. The executor reads
+    /// ``finalizeProgressShare(for:)``, which a tool overrides for a layout whose finalize has none.
     var finalizeProgressShare: Double { get }
+
+    /// The share of the run's progress that the finalize owns when the plan lays the run out as
+    /// `layout` (W1 of Phase 2.10). A tool whose finalize does nothing for a layout, as TaxTriage's
+    /// does for a plain `--output` (``AnalysisRunLayout/singleFolder``), answers 0 there, so its units
+    /// end the bar at 100 percent and no tenth of the bar is kept for a finalize that never runs. The
+    /// executor reads this once the plan is known, for the units' progress and for the finalize's. The
+    /// default is ``finalizeProgressShare`` for every layout.
+    func finalizeProgressShare(for layout: AnalysisRunLayout) -> Double
 
     /// Phase P0. Turns the request into units without writing anything.
     ///
@@ -84,6 +95,8 @@ extension AnalysisRunTool {
     public var terminalPolicy: AnalysisRunTerminalPolicy { .failOnAnyFailedUnit }
 
     public var finalizeProgressShare: Double { 0 }
+
+    public func finalizeProgressShare(for layout: AnalysisRunLayout) -> Double { finalizeProgressShare }
 }
 
 /// What kind of analysis a tool runs and the name its root record is written under.

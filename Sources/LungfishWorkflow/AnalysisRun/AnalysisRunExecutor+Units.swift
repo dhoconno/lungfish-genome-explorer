@@ -31,7 +31,7 @@ extension AnalysisRunExecutor {
     ) async -> AnalysisRunUnitResults<Tool.UnitResult> {
         let count = plan.units.count
         let policy = tool.terminalPolicy
-        let finalizeShare = tool.finalizeProgressShare
+        let finalizeShare = tool.finalizeProgressShare(for: plan.layout)
         var reports: [AnalysisUnitReport<Tool.UnitResult>] = []
         for (index, planned) in plan.units.enumerated() {
             guard !cancelIsRequested else {

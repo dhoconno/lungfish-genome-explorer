@@ -10,10 +10,18 @@ extension TaxTriageAnalysisRunTool {
     /// The words of the bar while the finalize builds the viewer index, as the app's TaxTriage row has them.
     static let databaseStageMessage = "Building TaxTriage database\u{2026}"
 
-    /// The finalize's share of the progress range, the descriptor's (W3). The engine moves the bar to 0.9
-    /// and the viewer index takes it from there to the end.
+    /// The finalize's share of the progress range for a result that gets a viewer index, the descriptor's
+    /// (W3). The engine moves the bar to 0.9 and the viewer index takes it from there to the end.
     package var finalizeProgressShare: Double {
         NextflowWorkflowDescriptor.taxTriage.finalizeProgressShare
+    }
+
+    /// The share the executor reads once the plan is known (W1 of Phase 2.10, Q-U33). A plain `--output`
+    /// result (``AnalysisRunLayout/singleFolder``) keeps its folder as the command has always left it,
+    /// and its finalize returns before it builds anything, so its engine takes the whole bar and ends
+    /// at 100 percent. A result in a project or a batch root keeps the descriptor's tenth for the index.
+    package func finalizeProgressShare(for layout: AnalysisRunLayout) -> Double {
+        layout == .singleFolder ? 0 : finalizeProgressShare
     }
 
     /// Phase P3. A result folder's launch already handed its step, with the digests of its outputs, to
@@ -96,7 +104,7 @@ extension TaxTriageAnalysisRunTool {
     /// folder, so the bundle keeps its link to the result (BIO 6). A plain `--output` result records
     /// nothing, with or without `--batch` and wherever its folder sits, as Kraken2's does, since a
     /// folder the run did not make for the project may hold another result (B30 ruling Q2). A failed
-    /// sample records nothing, where the app's in-process route records every sample of the request. A
+    /// sample records nothing, as the app's in-process route does since U38 M1 (BIO 4). A
     /// sample whose reads belong to no bundle records nothing, and so does a result outside the
     /// project's `Analyses/` folder, whose entry would name a folder the project does not list.
     ///

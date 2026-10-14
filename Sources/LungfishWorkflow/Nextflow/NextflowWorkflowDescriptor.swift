@@ -50,7 +50,11 @@ package struct NextflowWorkflowDescriptor: Sendable, Equatable {
     /// engine's own estimate (W2).
     package let expectedTaskCountPerSample: Int?
     /// The share at the end of the progress bar that the finalize phase takes, at least 0 and less than
-    /// 1 (W3). The engine moves the bar from 0 to `1 - finalizeProgressShare`.
+    /// 1 (W3). The engine moves the bar from 0 to `1 - finalizeProgressShare`. This is the share of a
+    /// result whose finalize has work to do, a result in a project or a batch root. A layout whose
+    /// finalize has none, as TaxTriage's plain `--output` has, takes no share, so the tool answers 0 for
+    /// it through ``AnalysisRunTool/finalizeProgressShare(for:)`` and its engine ends the bar at 100
+    /// percent (W1 of Phase 2.10, Q-U33).
     package let finalizeProgressShare: Double
 
     /// A workflow's facts. Every field is stated, so a new workflow decides each one.

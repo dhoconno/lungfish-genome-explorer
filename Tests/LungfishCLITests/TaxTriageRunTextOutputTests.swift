@@ -14,6 +14,8 @@
 // own text, which a later words lane changes, and this class leaves them alone. Lane A2 runs the
 // command on the executor, which moved the end of the bar from 100 to 90 percent (W3) and the warning
 // paragraph to standard error (UX D11), and the landing of A2 and U10 changed the two expectations.
+// Lane U38 of Phase 2.10 gave a plain `--output` run the whole bar again (W1), since its finalize has
+// nothing to do, so the two cases end on 100 percent, and a project run keeps the last tenth.
 //
 // The stand-in starts a shell script as the managed Nextflow, never the real tool, so the class
 // needs no Docker and runs in the unit tier.
@@ -57,13 +59,14 @@ final class TaxTriageRunTextOutputTests: XCTestCase {
 
     // MARK: - A clean run
 
-    /// A run that ignores nothing ends its progress on 90 percent with the pipeline's closing
+    /// A run that ignores nothing ends its progress on 100 percent with the pipeline's closing
     /// message and closes with the plain completed line. The executor keeps the last tenth of the bar
-    /// for the finalize that indexes a result (A2 M3, W3), and a plain `--output` run has none.
+    /// for the finalize that indexes a result (A2 M3, W3), and a plain `--output` run has none, so its
+    /// units take the whole bar (W1 and Q-U33 of Phase 2.10, U38 M2). It ended on 90 percent before.
     func testACleanRunEndsItsProgressOnTheCompleteMessageAndClosesWithTheCompletedLine() async throws {
         let printed = try await printedRun(.completes)
 
-        XCTAssertEqual(printed.progressLines.last, "\u{2139} [90%] TaxTriage pipeline complete", "\(printed.progressLines)")
+        XCTAssertEqual(printed.progressLines.last, "\u{2139} [100%] TaxTriage pipeline complete", "\(printed.progressLines)")
         XCTAssertEqual(
             Self.maskingRuntime(printed.closingLine),
             "\u{2713} TaxTriage completed in <seconds>s",
@@ -76,12 +79,12 @@ final class TaxTriageRunTextOutputTests: XCTestCase {
 
     /// Nextflow exits 0 when TaxTriage ignores an errored task. The command prints the warning
     /// paragraph, the same text the app logs as the row's warning line, on standard error (UX D11, A2),
-    /// and closes with the warnings form of the completed line (2.8 U2 fix 2). The progress ends on 90
-    /// percent as in the clean run.
+    /// and closes with the warnings form of the completed line (2.8 U2 fix 2). The progress ends on 100
+    /// percent as in the clean run (U38 M2).
     func testARunThatIgnoredErroredTasksPrintsTheParagraphAndClosesWithTheWarningsLine() async throws {
         let printed = try await printedRun(.reportsErroredTasks)
 
-        XCTAssertEqual(printed.progressLines.last, "\u{2139} [90%] TaxTriage pipeline complete", "\(printed.progressLines)")
+        XCTAssertEqual(printed.progressLines.last, "\u{2139} [100%] TaxTriage pipeline complete", "\(printed.progressLines)")
         let headline = "Some TaxTriage tasks failed: MINIMAP2_ALIGN failed for S1 (killed, usually for running out of memory)"
         let paragraph = "\(headline). Results that depend on the failed steps, such as alignments and TASS scores, are missing for the samples named."
             + " Raise Max memory, or list the host in Exclude host taxa (9606 for human) so the host genome is not downloaded as an alignment reference."
@@ -98,10 +101,35 @@ final class TaxTriageRunTextOutputTests: XCTestCase {
         XCTAssertFalse(printed.text.contains("\u{2713} TaxTriage completed in"), "a run with warnings prints no plain completed line")
     }
 
+    // MARK: - A project run
+
+    /// A result in a project keeps the last tenth of the bar for the finalize that builds its viewer
+    /// index, so the engine's closing message stays on 90 percent and the bar ends on 100 when the
+    /// finalize does (W3). Only a plain `--output` run, whose finalize has nothing to do, takes the
+    /// whole bar (U38 M2).
+    func testAProjectRunKeepsTheLastTenthOfTheBarForItsViewerIndex() async throws {
+        let printed = try await printedRun(.completes, inProject: true)
+
+        XCTAssertTrue(
+            printed.progressLines.contains("\u{2139} [90%] TaxTriage pipeline complete"),
+            "\(printed.progressLines)"
+        )
+        XCTAssertFalse(
+            printed.progressLines.contains("\u{2139} [100%] TaxTriage pipeline complete"),
+            "the engine ends below the finalize's share, \(printed.progressLines)"
+        )
+        XCTAssertTrue(printed.progressLines.last?.contains("[100%]") == true, "\(printed.progressLines)")
+    }
+
     // MARK: - Running the command
 
-    /// Runs `taxtriage run` on the stand-in engine for one sample and returns what it printed.
-    private func printedRun(_ behaviour: TaxTriageStandInEngine.Behaviour) async throws -> PrintedRun {
+    /// Runs `taxtriage run` on the stand-in engine for one sample and returns what it printed. With
+    /// `inProject`, the result goes into a project folder beside the reads with `--project`, where
+    /// the run lays it out as a batch folder and its finalize indexes it.
+    private func printedRun(
+        _ behaviour: TaxTriageStandInEngine.Behaviour,
+        inProject: Bool = false
+    ) async throws -> PrintedRun {
         let folder = try TestTempDirectory.make(prefix: "taxtriage-run-text")
         addTeardownBlock { TestTempDirectory.cleanup(folder) }
         let engine = try TaxTriageStandInEngine(
@@ -114,11 +142,19 @@ final class TaxTriageRunTextOutputTests: XCTestCase {
         try records.write(to: reads, atomically: true, encoding: .utf8)
         let database = folder.appendingPathComponent("kraken2-db", isDirectory: true)
         try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
+        let destination: [String]
+        if inProject {
+            let project = folder.appendingPathComponent("Project.lungfish", isDirectory: true)
+            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+            destination = ["--project", project.path]
+        } else {
+            destination = ["--output", folder.appendingPathComponent("output", isDirectory: true).path]
+        }
         let command = try TaxTriageCommand.RunSubcommand.parse([
             "run",
             "--input", reads.path,
             "--sample", "S1",
-            "--output", folder.appendingPathComponent("output", isDirectory: true).path,
+        ] + destination + [
             "--db", database.path,
             "--nf-profile", TaxTriageStandInEngine.profile,
             "--max-cpus", "2",

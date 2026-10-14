@@ -239,7 +239,7 @@ public struct AnalysisRunExecutor: Sendable {
                     projectURL: folder.projectURL,
                     toolID: tool.identity.toolID,
                     indexing: services.indexing,
-                    finalizeShare: tool.finalizeProgressShare
+                    finalizeShare: tool.finalizeProgressShare(for: layout)
                 )
             )
             // A cancel during the finalize drops what the finalization names, its outputs, recorded
