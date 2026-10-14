@@ -130,7 +130,8 @@ final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.toolVersion, pin.revision, "the record names the commit that was sent")
         XCTAssertNotNil(step.toolVersion.range(of: #"^[0-9a-f]{40}$"#, options: .regularExpression), step.toolVersion)
-        let stdoutLog = try String(contentsOf: result.bundleURL.appendingPathComponent("logs/stdout.log"), encoding: .utf8)
+        let stdoutData = try Data(contentsOf: result.bundleURL.appendingPathComponent("logs/stdout.log"))
+        let stdoutLog = try XCTUnwrap(String(data: stdoutData, encoding: .utf8), "logs/stdout.log is not UTF-8")
         XCTAssertTrue(stdoutLog.contains("N E X T F L O W"), "logs/stdout.log holds no Nextflow banner, as in agent mode")
         XCTAssertTrue(
             stdoutLog.contains("revision: \(step.toolVersion.prefix(10))"),
