@@ -100,19 +100,17 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     ///     recorded in provenance. Ignored when the pipeline resolves the layout.
     ///   - readSetPlan: the plan whose split or interleave wrote the inputs
     ///     (``MappingInputResolver``), recorded as steps and once in the resolved defaults.
+    ///   - runCommand: the run's own `lungfish-cli map` argv, which the record names (A46 M3, BIO's D8).
     public func run(
         request: MappingRunRequest,
         inputLayoutReason: String? = nil,
         readSetPlan: ReadSetPlan? = nil,
+        runCommand: [String]? = nil,
         progress: ProgressHandler? = nil
     ) async throws -> MappingResult {
         let runClock = ProvenanceRunClock()
         let prepared = try await prepareExecution(for: request, inputLayoutReason: inputLayoutReason)
-        defer {
-            for url in prepared.cleanupURLs {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
+        defer { prepared.cleanupURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
 
         let command = try MappingCommandBuilder.buildCommand(
             for: prepared.request,
@@ -205,7 +203,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             readSetPlan: AnalysisRootRecordOptions.readSetPlanValue(of: readSetPlan)
         )
         try provenance.save(to: prepared.request.outputDirectory)
-        try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory)
+        try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory, runCommand: runCommand)
         progress?(1.0, "Mapping complete.")
         return result
     }

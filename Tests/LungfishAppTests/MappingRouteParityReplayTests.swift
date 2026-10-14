@@ -99,7 +99,20 @@ final class MappingRouteParityReplayTests: XCTestCase {
         )
 
         XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
-        let result = try harness.evaluate(Case.sarscov2PairedMinimap2, declared: [], runs: runs)
+        // BIO's ruling D8 on A46 M3. Each record names its row's command, and the legacy row records
+        // `map` without the `--format json` that only the CLI route runs with.
+        let reason = "the legacy row records map without --format json, and the record names its row's command"
+        let declared = [
+            RouteParityDeclaredDifference(
+                [Case.sarscov2PairedMinimap2: 2], "differs: Project.lungfish/Analyses/minimap2-<TS>/.lungfish-provenance.json at argv[<ANY>]",
+                reason: reason, closedBy: "2.11"
+            ),
+            RouteParityDeclaredDifference(
+                [Case.sarscov2PairedMinimap2: 1], "differs: Project.lungfish/Analyses/minimap2-<TS>/.lungfish-provenance.json at reproducibleCommand",
+                reason: reason, closedBy: "2.11"
+            ),
+        ]
+        let result = try harness.evaluate(Case.sarscov2PairedMinimap2, declared: declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.sarscov2PairedMinimap2)")
         // UX 1 and 3, the CLI route's row shows the words, bar, lines and end of the in-process row
         // M2 froze. On either route the viewer's step back to 0.93 can reach the panel after the bar
@@ -118,6 +131,15 @@ final class MappingRouteParityReplayTests: XCTestCase {
             outputDirectory: folder, bam: mapping.bamURL, totalReads: mapping.totalReads,
             mappedReads: mapping.mappedReads, samtools: samtools
         )
+
+        // BIO's ruling D8 on A46 M3. The record names the command the row recorded (CLI-EQUIVALENCE,
+        // provenance names the command), while its steps keep minimap2's.
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), "side C wrote no record in \(folder.path)")
+        let command = try XCTUnwrap(runs.c.outcome.recordedCommand)
+        // The record keeps project paths, which load back under the scratch folder's other spelling.
+        let roots = ["/private" + scratch.standardizedFileURL.path, scratch.standardizedFileURL.path]
+        let spelled = { (words: [String]) in words.map { roots.reduce($0) { $1.isEmpty ? $0 : $0.replacingOccurrences(of: $1, with: "<scratch>") } } }
+        XCTAssertEqual(spelled(Array(record.argv.dropFirst())), spelled(try RecordedCLICommand.arguments(of: command)))
     }
 
     // MARK: - SIGTERM through the transport (P2, SWIFT 3 and 7)

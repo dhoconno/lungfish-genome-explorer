@@ -323,11 +323,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
     }
 
     @discardableResult
-    public func saveCanonicalEnvelope(
-        to directory: URL,
-        writer: ProvenanceWriter = ProvenanceWriter()
-    ) throws -> URL {
-        try writer.write(canonicalEnvelope(sourceDirectory: directory), to: directory)
+    public func saveCanonicalEnvelope(to directory: URL, writer: ProvenanceWriter = ProvenanceWriter(), runCommand: [String]? = nil) throws -> URL {
+        try writer.write(canonicalEnvelope(sourceDirectory: directory, runCommand: runCommand), to: directory)
     }
 
     public static func load(from directory: URL) -> MappingProvenance? {
@@ -565,7 +562,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         commandInvocations.map(\.commandLine)
     }
 
-    public func canonicalEnvelope(sourceDirectory: URL) -> ProvenanceEnvelope {
+    /// `runCommand`, the run's own `lungfish-cli map` argv, names the record in `argv` and `reproducibleCommand`, and the
+    /// steps keep the mapper's (BIO's ruling D8 on Phase 2.10 lane A46 M3). Nil, as genotyping passes, keeps the mapper's.
+    public func canonicalEnvelope(sourceDirectory: URL, runCommand: [String]? = nil) -> ProvenanceEnvelope {
         let sourceDirectory = sourceDirectory.standardizedFileURL
         let inputRecords = canonicalInputRecords(relativeTo: sourceDirectory)
         let outputRecords = canonicalOutputRecords(relativeTo: sourceDirectory)
@@ -587,9 +586,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             toolName: mapper.rawValue,
             toolVersion: ProvenanceVersion.required(mapperVersion),
             tool: ProvenanceToolIdentity(name: mapper.rawValue, version: ProvenanceVersion.required(mapperVersion), kind: "cli"),
-            argv: mapperInvocation.argv,
+            argv: runCommand ?? mapperInvocation.argv,
             durableReplayArgv: mapperInvocation.durableReplayArgv,
-            reproducibleCommand: mapperInvocation.durableReplayCommandLine,
+            reproducibleCommand: runCommand.map { $0.map(shellEscape).joined(separator: " ") } ?? mapperInvocation.durableReplayCommandLine,
             options: ProvenanceOptions(
                 explicit: canonicalParameters(),
                 resolvedDefaults: readSetPlan.map { [RecordedReadSetPlan.key: $0] } ?? [:]

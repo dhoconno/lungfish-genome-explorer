@@ -441,7 +441,9 @@ struct MapCommand: AsyncParsableCommand {
             pipelineResult = try await pipeline.run(
                 request: request,
                 inputLayoutReason: layoutResolution.reason,
-                readSetPlan: resolution.readSetPlan
+                readSetPlan: resolution.readSetPlan,
+                // The record names this command, its program as the row spells it (BIO's ruling D8 on A46 M3).
+                runCommand: [CLICommandIdentity.executableName] + CommandLine.arguments.dropFirst()
             ) { fraction, message in
                 reporter.step(MappingRunProgress.mapping(fraction, message))
                 if showsProgress {

@@ -1,19 +1,24 @@
 {
   "argv" : [
-    "minimap2",
-    "-a",
-    "-x",
-    "sr",
-    "-t",
-    "2",
-    "-R",
-    "@RG\\tID:sarscov2-test\\tSM:sarscov2-test\\tLB:sarscov2-test\\tPL:ILLUMINA\\tPU:sarscov2-test",
-    "--secondary=no",
-    "-o",
-    "<RUN_ROOT>/mapping/out/sarscov2-test.raw.sam",
-    "<RUN_ROOT>/mapping/tmp/mapping-reference-stage-<UUID-1>/reference.fa",
+    "lungfish-cli",
+    "map",
     "<RUN_ROOT>/mapping/inputs/test_1.fastq.gz",
-    "<RUN_ROOT>/mapping/inputs/test_2.fastq.gz"
+    "<RUN_ROOT>/mapping/inputs/test_2.fastq.gz",
+    "--paired",
+    "--reference",
+    "<RUN_ROOT>/mapping/inputs/genome.fasta",
+    "--mapper",
+    "minimap2",
+    "--preset",
+    "sr",
+    "--sample-name",
+    "sarscov2-test",
+    "--threads",
+    "2",
+    "--format",
+    "json",
+    "--output-dir",
+    "<RUN_ROOT>/mapping/out"
   ],
   "createdAt" : "<TIMESTAMP>",
   "exitStatus" : 0,
@@ -157,7 +162,7 @@
       "role" : "output"
     }
   ],
-  "reproducibleCommand" : "minimap2 -a -x sr -t 2 -R '@RG\\tID:sarscov2-test\\tSM:sarscov2-test\\tLB:sarscov2-test\\tPL:ILLUMINA\\tPU:sarscov2-test' --secondary=no -o <RUN_ROOT>/mapping/out/sarscov2-test.raw.sam <RUN_ROOT>/mapping/tmp/mapping-reference-stage-<UUID-1>/reference.fa <RUN_ROOT>/mapping/inputs/test_1.fastq.gz <RUN_ROOT>/mapping/inputs/test_2.fastq.gz",
+  "reproducibleCommand" : "lungfish-cli map <RUN_ROOT>/mapping/inputs/test_1.fastq.gz <RUN_ROOT>/mapping/inputs/test_2.fastq.gz --paired --reference <RUN_ROOT>/mapping/inputs/genome.fasta --mapper minimap2 --preset sr --sample-name sarscov2-test --threads 2 --format json --output-dir <RUN_ROOT>/mapping/out",
   "runtimeIdentity" : {
     "appVersion" : "Lungfish <APP_VERSION> (dev)",
     "architecture" : "arm64",

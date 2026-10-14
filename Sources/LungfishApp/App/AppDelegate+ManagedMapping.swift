@@ -303,7 +303,9 @@ extension AppDelegate {
             let result = try await pipeline.run(
                 request: resolvedRequest,
                 inputLayoutReason: resolved.layoutResolution.reason,
-                readSetPlan: resolved.readSetPlan
+                readSetPlan: resolved.readSetPlan,
+                // The record names the command the row recorded (BIO's ruling D8 on A46 M3).
+                runCommand: [CLICommandIdentity.executableName, "map"] + MappingCLIInvocationBuilder.arguments(for: request)
             ) { fraction, message in
                 Self.showMappingStep(MappingRunProgress.mapping(fraction, message), opID: opID)
             }
