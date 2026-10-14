@@ -1,160 +1,252 @@
 bundle ZZ000001.1.lungfishref
 file .lungfish-provenance.json provenance, the bundle record
 file annotations/annotations.db sqlite
+file annotations/annotations.db.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
 file genome/sequence.fa.gz gzip content-sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
 file genome/sequence.fa.gz.fai fasta-index
   fai ZZ000001.1 150 79 150 151
+file genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
 file genome/sequence.fa.gz.gzi bgzf-index
+file genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+file genome/sequence.fa.gz.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
 file manifest.json manifest
+file manifest.json.lungfish-provenance.json provenance
+  provenance workflow lungfish fetch genome exit 0
+  provenance stderr
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
+    argv host
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
 file provenance/annotations/annotations.db.lungfish-provenance.json provenance
-  provenance workflow NativeBundleBuilder.build exit 0
+  provenance workflow lungfish fetch genome exit 0
   provenance stderr
-  provenance option annotation_count explicit=1 default=- resolved=-
-  provenance option annotation_ids explicit=array([LungfishWorkflow.ParameterValue.string("annotations")]) default=- resolved=-
-  provenance option bundle_path explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref default=- resolved=-
-  provenance option compress_fasta explicit=true default=- resolved=-
-  provenance option identifier explicit="com.ncbi.zz000001-1" default=- resolved=-
-  provenance option input_files explicit=array([LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/sequence.fna), LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/annotations.gff3)]) default=- resolved=-
-  provenance option name explicit="ZZ000001.1" default=- resolved=-
-  provenance option output_directory explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging default=- resolved=-
-  provenance option signal_count explicit=0 default=- resolved=-
-  provenance option source_url explicit="https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1" default=- resolved=-
-  provenance option variant_count explicit=0 default=- resolved=-
-  provenance step 0 NativeBundleBuilder.build exit 0
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
     argv host
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    in <TMP>/.lungfish-temp-<UUID>/annotations.gff3 sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
-file provenance/bundle.lungfish-provenance.json provenance
-  provenance workflow NativeBundleBuilder.build exit 0
-  provenance stderr
-  provenance option annotation_count explicit=1 default=- resolved=-
-  provenance option annotation_ids explicit=array([LungfishWorkflow.ParameterValue.string("annotations")]) default=- resolved=-
-  provenance option bundle_path explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref default=- resolved=-
-  provenance option compress_fasta explicit=true default=- resolved=-
-  provenance option identifier explicit="com.ncbi.zz000001-1" default=- resolved=-
-  provenance option input_files explicit=array([LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/sequence.fna), LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/annotations.gff3)]) default=- resolved=-
-  provenance option name explicit="ZZ000001.1" default=- resolved=-
-  provenance option output_directory explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging default=- resolved=-
-  provenance option signal_count explicit=0 default=- resolved=-
-  provenance option source_url explicit="https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1" default=- resolved=-
-  provenance option variant_count explicit=0 default=- resolved=-
-  provenance step 0 NativeBundleBuilder.build exit 0
-    argv host
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    in <TMP>/.lungfish-temp-<UUID>/annotations.gff3 sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
-  provenance step 1 bgzip exit 0
-    argv bgzip -f -@ <threads> <TMP>/.lungfish-temp-<UUID>/bundle-staging/.ZZ000001.1.building-<UUID>/genome/sequence.fa
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-  provenance step 2 samtools exit 0
-    argv samtools faidx <TMP>/.lungfish-temp-<UUID>/bundle-staging/.ZZ000001.1.building-<UUID>/genome/sequence.fa.gz
-    in <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
+file provenance/bundle.lungfish-provenance.json provenance, the bundle record
 file provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json provenance
-  provenance workflow NativeBundleBuilder.build exit 0
+  provenance workflow lungfish fetch genome exit 0
   provenance stderr
-  provenance option annotation_count explicit=1 default=- resolved=-
-  provenance option annotation_ids explicit=array([LungfishWorkflow.ParameterValue.string("annotations")]) default=- resolved=-
-  provenance option bundle_path explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref default=- resolved=-
-  provenance option compress_fasta explicit=true default=- resolved=-
-  provenance option identifier explicit="com.ncbi.zz000001-1" default=- resolved=-
-  provenance option input_files explicit=array([LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/sequence.fna), LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/annotations.gff3)]) default=- resolved=-
-  provenance option name explicit="ZZ000001.1" default=- resolved=-
-  provenance option output_directory explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging default=- resolved=-
-  provenance option signal_count explicit=0 default=- resolved=-
-  provenance option source_url explicit="https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1" default=- resolved=-
-  provenance option variant_count explicit=0 default=- resolved=-
-  provenance step 0 NativeBundleBuilder.build exit 0
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
     argv host
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    in <TMP>/.lungfish-temp-<UUID>/annotations.gff3 sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-  provenance step 1 samtools exit 0
-    argv samtools faidx <TMP>/.lungfish-temp-<UUID>/bundle-staging/.ZZ000001.1.building-<UUID>/genome/sequence.fa.gz
-    in <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
 file provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json provenance
-  provenance workflow NativeBundleBuilder.build exit 0
+  provenance workflow lungfish fetch genome exit 0
   provenance stderr
-  provenance option annotation_count explicit=1 default=- resolved=-
-  provenance option annotation_ids explicit=array([LungfishWorkflow.ParameterValue.string("annotations")]) default=- resolved=-
-  provenance option bundle_path explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref default=- resolved=-
-  provenance option compress_fasta explicit=true default=- resolved=-
-  provenance option identifier explicit="com.ncbi.zz000001-1" default=- resolved=-
-  provenance option input_files explicit=array([LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/sequence.fna), LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/annotations.gff3)]) default=- resolved=-
-  provenance option name explicit="ZZ000001.1" default=- resolved=-
-  provenance option output_directory explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging default=- resolved=-
-  provenance option signal_count explicit=0 default=- resolved=-
-  provenance option source_url explicit="https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1" default=- resolved=-
-  provenance option variant_count explicit=0 default=- resolved=-
-  provenance step 0 NativeBundleBuilder.build exit 0
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
     argv host
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    in <TMP>/.lungfish-temp-<UUID>/annotations.gff3 sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-  provenance step 1 samtools exit 0
-    argv samtools faidx <TMP>/.lungfish-temp-<UUID>/bundle-staging/.ZZ000001.1.building-<UUID>/genome/sequence.fa.gz
-    in <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
 file provenance/genome/sequence.fa.gz.lungfish-provenance.json provenance
-  provenance workflow NativeBundleBuilder.build exit 0
+  provenance workflow lungfish fetch genome exit 0
   provenance stderr
-  provenance option annotation_count explicit=1 default=- resolved=-
-  provenance option annotation_ids explicit=array([LungfishWorkflow.ParameterValue.string("annotations")]) default=- resolved=-
-  provenance option bundle_path explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref default=- resolved=-
-  provenance option compress_fasta explicit=true default=- resolved=-
-  provenance option identifier explicit="com.ncbi.zz000001-1" default=- resolved=-
-  provenance option input_files explicit=array([LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/sequence.fna), LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/annotations.gff3)]) default=- resolved=-
-  provenance option name explicit="ZZ000001.1" default=- resolved=-
-  provenance option output_directory explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging default=- resolved=-
-  provenance option signal_count explicit=0 default=- resolved=-
-  provenance option source_url explicit="https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1" default=- resolved=-
-  provenance option variant_count explicit=0 default=- resolved=-
-  provenance step 0 NativeBundleBuilder.build exit 0
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
     argv host
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    in <TMP>/.lungfish-temp-<UUID>/annotations.gff3 sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-  provenance step 1 bgzip exit 0
-    argv bgzip -f -@ <threads> <TMP>/.lungfish-temp-<UUID>/bundle-staging/.ZZ000001.1.building-<UUID>/genome/sequence.fa
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
 file provenance/manifest.json.lungfish-provenance.json provenance
-  provenance workflow NativeBundleBuilder.build exit 0
+  provenance workflow lungfish fetch genome exit 0
   provenance stderr
-  provenance option annotation_count explicit=1 default=- resolved=-
-  provenance option annotation_ids explicit=array([LungfishWorkflow.ParameterValue.string("annotations")]) default=- resolved=-
-  provenance option bundle_path explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref default=- resolved=-
-  provenance option compress_fasta explicit=true default=- resolved=-
-  provenance option identifier explicit="com.ncbi.zz000001-1" default=- resolved=-
-  provenance option input_files explicit=array([LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/sequence.fna), LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/annotations.gff3)]) default=- resolved=-
-  provenance option name explicit="ZZ000001.1" default=- resolved=-
-  provenance option output_directory explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging default=- resolved=-
-  provenance option signal_count explicit=0 default=- resolved=-
-  provenance option source_url explicit="https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1" default=- resolved=-
-  provenance option variant_count explicit=0 default=- resolved=-
-  provenance step 0 NativeBundleBuilder.build exit 0
+  provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option annotationDownloaded explicit=true default=false resolved=true
+  provenance option apiKeyProvided explicit=false default=false resolved=false
+  provenance option apiKeySource explicit="none" default="none" resolved="none"
+  provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+  provenance option bundleName explicit=null default=null resolved=null
+  provenance option fastaOnly explicit=false default=false resolved=false
+  provenance option noBundle explicit=false default=false resolved=false
+  provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+  provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+  provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+  provenance option outputFasta explicit=- default=null resolved=null
+  provenance option outputFormat explicit="text" default="text" resolved="text"
+  provenance option outputGFF explicit=- default=null resolved=null
+  provenance option quiet explicit=true default=false resolved=true
+  provenance step 0 lungfish fetch genome exit 0
     argv host
-    in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-    in <TMP>/.lungfish-temp-<UUID>/annotations.gff3 sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
-    out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
-  provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+    in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+    out <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
+  provenance output <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
 manifest {
 manifest   "alignments" : [
 manifest
@@ -235,44 +327,36 @@ annotation annotations/annotations.db ZZ000001.1 0 9 + five_prime_UTR id-ZZ00000
 annotation annotations/annotations.db ZZ000001.1 9 140 + CDS ZZP00001.1 blocks=2/51,81/0,50 gene=orf1 attributes=ID=cds-ZZP00001.1;Name=ZZP00001.1;Parent=gene-orf1;exception=ribosomal slippage;gbkey=CDS;gene=orf1;locus_tag=LGE_001;lungfish_gff_phase=0;product=stand-in polyprotein%3B with a semicolon;protein_id=ZZP00001.1
 annotation annotations/annotations.db ZZ000001.1 9 140 + gene orf1 blocks=-/-/- gene=orf1 attributes=ID=gene-orf1;Name=orf1;gbkey=Gene;gene=orf1;gene_biotype=protein_coding;locus_tag=LGE_001
 annotation annotations/annotations.db ZZ000001.1 99 120 - sequence_feature id-ZZ000001.1:100..120 blocks=-/-/- gene=- attributes=ID=id-ZZ000001.1:100..120;Note=stand-in hairpin %3D folded;gbkey=misc_feature
-provenance workflow NativeBundleBuilder.build exit 0
+provenance workflow lungfish fetch genome exit 0
 provenance stderr
-provenance option annotation_count explicit=1 default=- resolved=-
-provenance option annotation_ids explicit=array([LungfishWorkflow.ParameterValue.string("annotations")]) default=- resolved=-
-provenance option bundle_path explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref default=- resolved=-
-provenance option compress_fasta explicit=true default=- resolved=-
-provenance option identifier explicit="com.ncbi.zz000001-1" default=- resolved=-
-provenance option input_files explicit=array([LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/sequence.fna), LungfishWorkflow.ParameterValue.file(file://<TMP>/.lungfish-temp-<UUID>/annotations.gff3)]) default=- resolved=-
-provenance option name explicit="ZZ000001.1" default=- resolved=-
-provenance option output_directory explicit=file:<TMP>/.lungfish-temp-<UUID>/bundle-staging default=- resolved=-
-provenance option signal_count explicit=0 default=- resolved=-
-provenance option source_url explicit="https://www.ncbi.nlm.nih.gov/nuccore/ZZ000001.1" default=- resolved=-
-provenance option variant_count explicit=0 default=- resolved=-
-provenance step 0 NativeBundleBuilder.build exit 0
+provenance option accession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+provenance option annotationDownloaded explicit=true default=false resolved=true
+provenance option apiKeyProvided explicit=false default=false resolved=false
+provenance option apiKeySource explicit="none" default="none" resolved="none"
+provenance option assemblyAccession explicit="ZZ000001.1" default=- resolved="ZZ000001.1"
+provenance option bundleName explicit=null default=null resolved=null
+provenance option fastaOnly explicit=false default=false resolved=false
+provenance option noBundle explicit=false default=false resolved=false
+provenance option organism explicit="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence" default=- resolved="Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence"
+provenance option outputBundle explicit=file:<OUT>/ZZ000001.1.lungfishref default=null resolved=file:<OUT>/ZZ000001.1.lungfishref
+provenance option outputDirectory explicit=file:<OUT> default="." resolved=file:<OUT>
+provenance option outputFasta explicit=- default=null resolved=null
+provenance option outputFormat explicit="text" default="text" resolved="text"
+provenance option outputGFF explicit=- default=null resolved=null
+provenance option quiet explicit=true default=false resolved=true
+provenance step 0 lungfish fetch genome exit 0
   argv host
-  in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-  in <TMP>/.lungfish-temp-<UUID>/annotations.gff3 sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
-provenance step 1 bgzip exit 0
-  argv bgzip -f -@ <threads> <TMP>/.lungfish-temp-<UUID>/bundle-staging/.ZZ000001.1.building-<UUID>/genome/sequence.fa
-  in <TMP>/.lungfish-temp-<UUID>/sequence.fna sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-provenance step 2 samtools exit 0
-  argv samtools faidx <TMP>/.lungfish-temp-<UUID>/bundle-staging/.ZZ000001.1.building-<UUID>/genome/sequence.fa.gz
-  in <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-  out <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
-provenance output <TMP>/.lungfish-temp-<UUID>/bundle-staging/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
+  in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=fasta&retmode=text sha256=7b35ce12b3b7d76b1ca591e2b4ebb767a25f67866c72b7f95e5ae0e6091fd8d0
+  in https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=ZZ000001.1&rettype=gff3&retmode=text sha256=cad271df791daae45469bc3699d83eef857a0f5968e3c5d17cd7f904837bccfb
+  out <OUT>/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
+  out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+  out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
+  out <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+  out <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/annotations/annotations.db sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.fai sha256=07b0fedfd7a7264eaf5dc627febdff6dd22d88062e9dfd9a6b78213e6bf06681
+provenance output <OUT>/ZZ000001.1.lungfishref/genome/sequence.fa.gz.gzi sha256=build-dependent
+provenance output <OUT>/ZZ000001.1.lungfishref/manifest.json sha256=build-dependent
 request GET /entrez/eutils/efetch.fcgi?db=nucleotide&id=ZZ000001.1&rettype=fasta&retmode=text
 request GET /entrez/eutils/efetch.fcgi?db=nucleotide&id=ZZ000001.1&rettype=gff3&retmode=text

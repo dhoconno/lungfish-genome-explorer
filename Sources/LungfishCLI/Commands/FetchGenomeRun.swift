@@ -15,9 +15,10 @@ import LungfishWorkflow
 ///   folder of the output folder outside a project, moved into the output folder with
 ///   `PortableRename` under the next free name (`_1`, `_2`, as the import names them), and then
 ///   given its record, which names each fetched file with its source URL, digest and size (B-3).
-/// - A nucleotide bundle is built in a scratch folder by `NativeBundleBuilder`, which names the
-///   sequence by its accession and version, and moved into the output folder the same way. Its
-///   record is the builder's own, which still names the scratch folder (A44 M2 review, F9).
+/// - A nucleotide bundle is built by `NativeBundleBuilder`, which names the sequence by its
+///   accession and version, in the same staging folder and moved the same way. The builder's record
+///   names the staging folder the run deletes, so it gives way to the record of what was fetched,
+///   written in place as an assembly's is (A44 M2 review, F9).
 /// - The run checks for a cancel before each accession and between the builder's stages, and
 ///   removes the bundle it was building.
 struct FetchGenomeRun: Sendable {
@@ -84,7 +85,8 @@ struct FetchGenomeRun: Sendable {
             if let target = request.intoBundleURL {
                 return try await mergeNucleotide(accession, into: target, service: service, apiKeySource: apiKeySource, runClock: runClock, progress: progress)
             }
-            return try await fetchNucleotide(accession, service: service, progress: progress)
+            return try await fetchNucleotide(
+                accession, service: service, apiKeySource: apiKeySource, runClock: runClock, progress: progress)
         }
         reporter.info("Searching for assembly \(accession)...")
         let summary = try await Self.assemblySummary(for: accession, service: service)
@@ -101,13 +103,53 @@ struct FetchGenomeRun: Sendable {
             assembly: summary, outputDirectory: staging, bundleName: request.name, progressHandler: progress)
         try Task.checkCancellation()
         let bundleURL = try Self.publish(built.bundleURL, into: request.outputURL)
-        // A bundle in its final place is finished, so a cancel from here on does not undo it.
+        return try await record(
+            bundleURL, accession: accession, assemblyAccession: summary.assemblyAccession ?? accession,
+            organism: summary.organism ?? summary.speciesName ?? "Unknown", sources: built.sources,
+            apiKeySource: apiKeySource, runClock: runClock)
+    }
+
+    private func fetchNucleotide(
+        _ accession: String,
+        service: NCBIService,
+        apiKeySource: GenomeFetchProvenanceWriter.APIKeySource,
+        runClock: ProvenanceRunClock,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FetchGenomeOutput {
+        if request.fastaOnly || request.noBundle {
+            return try await FetchGenomeDirectFiles(request: request, reporter: reporter)
+                .fetchNucleotideFASTA(accession, service: service)
+        }
+        let staging = try Self.makeStagingFolder(for: request.outputURL)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        let built = try await FetchGenomeNucleotideBundle(request: request, reporter: reporter)
+            .build(accession, name: request.name, scratch: staging, service: service, progress: progress)
+        try Task.checkCancellation()
+        try Self.removeBuilderRecord(of: built.bundleURL)
+        let bundleURL = try Self.publish(built.bundleURL, into: request.outputURL)
+        return try await record(
+            bundleURL, accession: accession, assemblyAccession: accession, organism: built.organism,
+            sources: built.sources, apiKeySource: apiKeySource, runClock: runClock)
+    }
+
+    /// Writes the record of what was fetched for the bundle in its final place, or removes the
+    /// bundle when that fails. A bundle in its final place is finished, so a cancel from here on
+    /// does not undo it.
+    private func record(
+        _ bundleURL: URL,
+        accession: String,
+        assemblyAccession: String,
+        organism: String,
+        sources: [GenomeDownloadBundleBuilder.FetchedSource],
+        apiKeySource: GenomeFetchProvenanceWriter.APIKeySource,
+        runClock: ProvenanceRunClock
+    ) async throws -> FetchGenomeOutput {
         do {
             try await GenomeFetchProvenanceWriter().writeBundle(.init(
                 bundleURL: bundleURL,
                 accession: accession,
-                assemblyAccession: summary.assemblyAccession ?? accession,
-                organism: summary.organism ?? summary.speciesName ?? "Unknown",
+                assemblyAccession: assemblyAccession,
+                organism: organism,
                 outputDirectory: request.outputURL,
                 bundleName: request.name,
                 fastaOnly: false,
@@ -115,7 +157,7 @@ struct FetchGenomeRun: Sendable {
                 apiKeySource: apiKeySource,
                 outputFormat: request.outputFormat,
                 quiet: request.quiet,
-                fetchedSources: built.sources,
+                fetchedSources: sources,
                 runClock: runClock
             ))
         } catch {
@@ -125,22 +167,18 @@ struct FetchGenomeRun: Sendable {
         return .bundle(bundleURL, record: Self.rootRecord(of: bundleURL))
     }
 
-    private func fetchNucleotide(
-        _ accession: String,
-        service: NCBIService,
-        progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> FetchGenomeOutput {
-        if request.fastaOnly || request.noBundle {
-            return try await FetchGenomeDirectFiles(request: request, reporter: reporter)
-                .fetchNucleotideFASTA(accession, service: service)
+    /// Removes the record `NativeBundleBuilder` wrote into `bundle`, every sidecar and the
+    /// `provenance` folder, which name the staging folder, so the run's own record replaces it.
+    static func removeBuilderRecord(of bundle: URL) throws {
+        let fileManager = FileManager.default
+        let folder = bundle.appendingPathComponent("provenance", isDirectory: true)
+        if fileManager.fileExists(atPath: folder.path) {
+            try fileManager.removeItem(at: folder)
         }
-        let scratch = try ProjectTempDirectory.createFromContext(prefix: ".lungfish-temp-", contextURL: request.outputURL)
-        defer { try? FileManager.default.removeItem(at: scratch) }
-        let built = try await FetchGenomeNucleotideBundle(request: request, reporter: reporter)
-            .build(accession, name: request.name, scratch: scratch, service: service, progress: progress)
-        try Task.checkCancellation()
-        let bundleURL = try Self.publish(built.bundleURL, into: request.outputURL)
-        return .bundle(bundleURL, record: Self.rootRecord(of: bundleURL))
+        let names = fileManager.enumerator(atPath: bundle.path)?.compactMap { $0 as? String } ?? []
+        for name in names where name.hasSuffix(ProvenanceRecorder.provenanceFilename) {
+            try fileManager.removeItem(at: bundle.appendingPathComponent(name))
+        }
     }
 
     // MARK: - Into an existing bundle

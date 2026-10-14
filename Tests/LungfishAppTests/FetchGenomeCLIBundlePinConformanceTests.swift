@@ -40,6 +40,46 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
             pin: "cli-fetch-genome-into-bundle", accession: NCBIGenomeStandIn.assemblyAccession, intoVariantOnlyBundle: true)
     }
 
+    /// A44 M2 review, F9 (B-3, B-5). A nucleotide bundle's record names each output it lists in
+    /// the bundle, with the digest the file has, and names no scratch folder of the run, and a
+    /// signed record passes `provenance verify`.
+    func testNucleotideBundlesRecordNamesEachOutputItHoldsAndVerifies() async throws {
+        do {
+            try await GenomeDownloadBundleBuilder(ncbiService: NCBIService(apiKey: nil, environment: [:])).validateTools()
+        } catch {
+            try ToolAvailability.skipOrFail("Managed bgzip and samtools are required: \(error)")
+        }
+        let root = try TestTempDirectory.make(prefix: "nucleotide-record")
+        defer { TestTempDirectory.cleanup(root) }
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let server = try await NCBIGenomeStandIn.start(servingIn: root.appendingPathComponent("served", isDirectory: true))
+        defer { server.stop() }
+        let saved = ProcessEnvironmentOverride(
+            set: [
+                NCBIServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString,
+                ProvenanceSigningConfiguration.signingKeyEnvironmentKey: "lane-a44-f9-signing-key",
+            ],
+            unset: ["NCBI_API_KEY", ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey])
+        defer { saved.restore() }
+        var command = try GenomeSubcommand.parse([NCBIDownloadPinFixtures.genBankAccession, "--output-dir", output.path, "--quiet"])
+        try await command.run()
+
+        let bundle = output.appendingPathComponent("ZZ000001.1.lungfishref", isDirectory: true)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))
+        XCTAssertFalse(envelope.outputs.isEmpty)
+        for file in envelope.outputs {
+            XCTAssertTrue(file.path.contains("/out/ZZ000001.1.lungfishref/"), file.path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), file.path)
+            XCTAssertEqual(try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: file.path)), file.checksumSHA256, file.path)
+        }
+        let record = try String(
+            contentsOf: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename), encoding: .utf8)
+        XCTAssertFalse(record.contains(".lungfish-temp-"), "the record names the run's scratch folder")
+        XCTAssertFalse(record.contains(".fetch-genome-"), "the record names the run's staging folder")
+        var verify = try ProvenanceCommand.VerifySubcommand.parse([bundle.path])
+        try await verify.run()
+    }
+
     // MARK: - Helpers
 
     private func assertCLIBundle(
@@ -75,8 +115,7 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         // Since lane A44 M2 the leaf builds an assembly through the genome download builder, so the
         // assembly bundle is named `<organism> - <assembly name>` and carries the record of what was
         // fetched. A nucleotide bundle still builds through NativeBundleBuilder (A44 M2 review,
-        // ruling 2), and its record names the scratch folders the run deletes, which the
-        // temporary-folder and UUID masks hide. A merge's record names its outputs as the file
+        // ruling 2), and gets the same record in its final place (F9). A merge's record names its outputs as the file
         // system lists them, with `/private` before a temporary path.
         var snapshot = try await DownloadedBundleSnapshot.text(
             of: bundle,
