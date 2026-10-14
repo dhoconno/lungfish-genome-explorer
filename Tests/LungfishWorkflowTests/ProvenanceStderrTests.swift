@@ -83,6 +83,23 @@ struct ProvenanceStderrTests {
         }
     }
 
+    @Test("the cut of a blank stderr over the bound comes back empty and not as the marker")
+    func blankStderrOverTheBoundIsCutToNothing() {
+        // `normalized` answers nil for a blank value before it cuts, but the recorder and the
+        // batch writer call `truncated` on its own. The cut keeps nothing of either window of a
+        // blank value, so what it left was the marker alone, which reads as a stderr that said
+        // something. A blank value over the bound is cut to nothing, and a second cut agrees.
+        for repetitions in [Self.bound + 1, 20_000, 1_000_000] {
+            for blank in [" ", "\n", "\t", " \n", "\r\n", " \t\n"] {
+                let text = String(repeating: blank, count: repetitions)
+                #expect(text.count > Self.bound)
+                let kept = ProvenanceStderr.truncated(text)
+                #expect(kept == "", "\(text.count) characters of \(blank.debugDescription)")
+                #expect(ProvenanceStderr.truncated(kept) == kept, "a second cut of \(blank.debugDescription)")
+            }
+        }
+    }
+
     @Test("a stderr with text in it is cut after the blank check, as the cut alone would")
     func stderrWithTextIsStillCut() throws {
         let log = Self.longStderr(lineCount: 600)

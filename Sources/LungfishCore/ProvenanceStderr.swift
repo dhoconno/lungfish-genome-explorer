@@ -35,6 +35,11 @@ public enum ProvenanceStderr {
     /// a stderr never makes the tail start after the last line. The result is at
     /// most `maxLength` plus the marker long, and a value that an earlier cut
     /// produced comes back as it is, so cutting twice changes nothing more.
+    ///
+    /// A blank value over `maxLength`, one that holds only whitespace and line
+    /// breaks, comes back empty. Neither of its windows holds a line, so the cut
+    /// would leave the marker alone, and the marker reads as a stderr that said
+    /// something. A blank value of at most `maxLength` is kept whole.
     public static func truncated(_ stderr: String?) -> String? {
         guard let stderr else {
             return nil
@@ -42,6 +47,9 @@ public enum ProvenanceStderr {
         let count = stderr.count
         guard count > maxLength else {
             return stderr
+        }
+        guard !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
         }
         if count <= maxLength + truncationMarker.count,
            stderr.range(of: truncationMarker, options: .literal) != nil {
