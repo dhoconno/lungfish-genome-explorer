@@ -43,9 +43,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `extract reads` runs samtools. Its transcripts are runs of the built CLI on the sarscov2 BAM,
         // `--by-region` to a FASTQ and a refused missing BAM (lane A51 of Phase 2.10).
         "extract reads",
-        // `taxtriage run` runs Nextflow. Its transcript is the routed command's run on the stand-in
-        // Nextflow (TaxTriageRunCommandReplayTests with LUNGFISH_RECAPTURE_CLI_EVENTS=1, lane A2).
-        "taxtriage run",
+        // `taxtriage run` and `workflow run` run Nextflow. Their transcripts are runs on stand-ins, recaptured with
+        // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxTriageRunCommandReplayTests, lane A2, and WorkflowRunEventsTests, A30).
+        "taxtriage run", "workflow run",
         // The two spellings of the FASTQ import share the folder `import-fastq` (lane Q4 of Phase 2.7).
         "import fastq", "import-fastq",
         // `fetch genome` runs bgzip and samtools faidx on files from NCBI. Its transcripts are runs of

@@ -164,12 +164,28 @@ struct RunSubcommand: AsyncParsableCommand {
         // each line as it is printed. Only this command sets it, because
         // other commands write bulk data to stdout.
         setvbuf(stdout, nil, _IOLBF, 0)
-        let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        let output = WorkflowRunOutput(
+            formatter: TerminalFormatter(useColors: globalOptions.useColors),
+            quiet: globalOptions.quiet,
+            eventsOn: globalOptions.outputFormat == .json
+        )
+        // Under --format json the first line is `start` and the last `complete` or `failed` (ARCH's ruling on A30 M3).
+        output.events?.emitStart("Preparing workflow: \(workflow)")
+        do {
+            try await execute(output: output)
+        } catch {
+            output.failed(error)
+            throw error
+        }
+    }
+
+    private func execute(output: WorkflowRunOutput) async throws {
+        let formatter = output.formatter
         if repeatFrom != nil, workflow.contains("nf-core") || Self.normalizedViralReconWorkflowName(workflow) != nil {
             throw CLIError.workflowFailed(reason: "--repeat-from supports identified local workflow packages only.")
         }
 
-        if !globalOptions.quiet {
+        if output.events == nil, !globalOptions.quiet {
             print(formatter.info("Preparing workflow: \(workflow)"))
         }
 
@@ -213,16 +229,19 @@ struct RunSubcommand: AsyncParsableCommand {
         }
 
         if dryRun {
-            print(formatter.info("Dry run - workflow would execute with:"))
-            print("  Workflow: \(workflow)")
-            print("  Results: \(resultsDir)")
-            print("  Executor: \(executor.rawValue)")
+            var lines = ["  Workflow: \(workflow)", "  Results: \(resultsDir)", "  Executor: \(executor.rawValue)"]
             if !input.isEmpty {
-                print("  Inputs: \(input.joined(separator: ", "))")
+                lines.append("  Inputs: \(input.joined(separator: ", "))")
             }
-            print("  Parameters: \(workflowParams.count)")
-            for (key, value) in workflowParams.sorted(by: { $0.key < $1.key }) {
-                print("    \(key) = \(value)")
+            lines.append("  Parameters: \(workflowParams.count)")
+            lines += workflowParams.sorted(by: { $0.key < $1.key }).map { "    \($0.key) = \($0.value)" }
+            if let events = output.events {
+                // A dry run writes nothing, so it completes with no output.
+                for line in ["Dry run - workflow would execute with:"] + lines { events.emitLog(.info, line) }
+                events.emitComplete(outputs: [])
+            } else {
+                print(formatter.info("Dry run - workflow would execute with:"))
+                lines.forEach { print($0) }
             }
             return
         }
@@ -238,7 +257,7 @@ struct RunSubcommand: AsyncParsableCommand {
             isViralRecon: isViralReconWorkflow,
             isNextflow: isNextflow,
             isSnakemake: isSnakemake,
-            formatter: formatter
+            output: output
         )
     }
 
@@ -246,7 +265,7 @@ struct RunSubcommand: AsyncParsableCommand {
         workflowParams: [String: String],
         isNextflow: Bool,
         isSnakemake: Bool,
-        formatter: TerminalFormatter
+        output: WorkflowRunOutput
     ) async throws {
         guard isNextflow || isSnakemake else {
             throw CLIError.unsupportedFormat(format: "Unknown workflow format")
@@ -313,10 +332,8 @@ struct RunSubcommand: AsyncParsableCommand {
             to: runBundleURL
         )
 
-        if !globalOptions.quiet {
-            print(formatter.info("Created run bundle: \(runBundleURL.path)"))
-            print(formatter.info(request.commandPreview))
-        }
+        output.info("Created run bundle: \(runBundleURL.path)")
+        output.info(request.commandPreview)
         if prepareOnly {
             try writeLocalRunBundleProvenance(
                 request: request,
@@ -328,7 +345,7 @@ struct RunSubcommand: AsyncParsableCommand {
                 wallTime: bundleClock.elapsed,
                 stderr: nil
             )
-            print(runBundleURL.path)
+            output.complete([runBundleURL])
             return
         }
 
@@ -408,7 +425,7 @@ struct RunSubcommand: AsyncParsableCommand {
                 )
             )
         }
-        print(runBundleURL.path)
+        output.complete([runBundleURL, request.outputDirectory])
     }
 
     func requireExpectedOutputsForExecution() throws {

@@ -11,7 +11,7 @@ import LungfishWorkflow
 extension RunSubcommand {
     func runNFCoreWorkflow(
         workflowParams: [String: String],
-        formatter: TerminalFormatter
+        output: WorkflowRunOutput
     ) async throws {
         let normalizedWorkflow = try validateViralReconWorkflowName()
         guard let supportedWorkflow = NFCoreSupportedWorkflowCatalog.workflow(named: normalizedWorkflow) else {
@@ -59,7 +59,7 @@ extension RunSubcommand {
             .appendingPathComponent(ViralReconReadPairing.decisionsFilename)
         if !pairingDecisions.isEmpty {
             try ViralReconReadPairing.writeDecisions(pairingDecisions, to: decisionsURL)
-            reportReadPairing(pairingDecisions, formatter: formatter)
+            reportReadPairing(pairingDecisions, output: output)
         }
 
         let request = NFCoreRunRequest(
@@ -78,10 +78,10 @@ extension RunSubcommand {
         // run bundle is written rather than letting Nextflow fail later.
         try Self.requireSupportedExecutor(request)
         let stagedAnnotation = try NFCoreLaunchStaging.stageAnnotation(for: request, runBundleURL: runBundleURL)
-        if let stagedAnnotation, !globalOptions.quiet { print(formatter.info(stagedAnnotation.summary)) }
-        if stagedAnnotation == nil, !globalOptions.quiet,
-           let notice = ViralReconAnnotationStaging.missingAnnotationNotice(params: request.params) {
-            print(formatter.warning(notice))
+        if let stagedAnnotation { output.info(stagedAnnotation.summary) }
+        // A fact about the input before the launch, not the run's outcome, so an info event under --format json.
+        if stagedAnnotation == nil, let notice = ViralReconAnnotationStaging.missingAnnotationNotice(params: request.params) {
+            output.notice(notice)
         }
         let bundleClock = ProvenanceRunClock()
         try NFCoreRunBundleStore.write(
@@ -89,10 +89,8 @@ extension RunSubcommand {
             to: runBundleURL
         )
 
-        if !globalOptions.quiet {
-            print(formatter.info("Created run bundle: \(runBundleURL.path)"))
-            print(formatter.info(request.commandPreview))
-        }
+        output.info("Created run bundle: \(runBundleURL.path)")
+        output.info(request.commandPreview)
         if prepareOnly {
             try writeRunBundleProvenance(
                 request: request,
@@ -106,7 +104,7 @@ extension RunSubcommand {
                 effectiveSamplesheetURL: nil,
                 stagedAnnotation: stagedAnnotation
             )
-            print(runBundleURL.path)
+            output.complete([runBundleURL])
             return
         }
 
@@ -119,13 +117,10 @@ extension RunSubcommand {
             try Self.nfCoreWorkflowProcessRunner.preflightEngine()
             // The docker profile waits for the Docker daemon. A cancel ends the wait at once, and a Docker
             // Desktop that cannot be started fails the run at once (2.9 N9). The wait's two lines keep the
-            // engine's words (rule 2 of the contract's section 5).
-            let quiet = globalOptions.quiet
+            // engine's words (rule 2 of the contract's section 5), and under --format json they are progress events.
             try await Self.nfCoreWorkflowProcessRunner.waitForDocker(
                 profile: request.executor.rawValue,
-                progress: { _, message in
-                    if !quiet { print(formatter.info(message)) }
-                }
+                progress: { fraction, message in output.progress(fraction, message) }
             )
         } catch is CancellationError {
             // A cancel during the Docker wait is recorded as one during the engine's run is (SWIFT 3).
@@ -228,15 +223,12 @@ extension RunSubcommand {
                 ViralReconReadPairing.splitDirectoryName,
                 isDirectory: true
             )
-            let quiet = globalOptions.quiet
             let prepared: ViralReconPreparedIlluminaSamples
             do {
                 prepared = try await ViralReconReadPairing.prepareIlluminaSamples(
                     samples,
                     splitRoot: splitRoot,
-                    progress: { message in
-                        if !quiet { print(message) }
-                    }
+                    progress: { message in output.plain(message) }
                 )
             } catch let error as ViralReconReadPairing.PairingError {
                 try NFCoreRunBundleStore.write(
@@ -284,7 +276,7 @@ extension RunSubcommand {
                 filename: ViralReconReadPairing.pairedSamplesheetFilename
             )
             effectiveSamplesheetURL = pairedSamplesheetURL
-            reportReadPairing(pairingDecisions, formatter: formatter)
+            reportReadPairing(pairingDecisions, output: output)
             launchRequest = launchRequest.replacing(inputURLs: [pairedSamplesheetURL])
         }
 
@@ -369,15 +361,16 @@ extension RunSubcommand {
             )
         }
         // After exit 0 the run's own trace and results say whether a task was ignored or a sample failed (N5).
-        // Each kind is one warning line on standard error, even under --quiet, as a read pairing warning is.
+        // Each kind is one warning line on standard error, even under --quiet, as a read pairing warning is, and
+        // a warning `log` event under --format json.
         for line in Self.outcomeLines(
             request: request,
             samplesheetURL: effectiveSamplesheetURL ?? callerSamplesheetURL,
             launchedAt: processClock.startedAt
         ) {
-            printStatusLine(formatter.warning(line))
+            output.outcome(line)
         }
-        print(runBundleURL.path)
+        output.complete([runBundleURL, request.outputDirectory])
     }
 
     /// The outcome lines of a Viral Recon run that exited 0, one for every ignored task and one for every failed
@@ -408,11 +401,9 @@ extension RunSubcommand {
     /// reads. Warnings (a mixed file that must run single-end) go to stderr
     /// even under --quiet, the same way the fastq subcommands report a
     /// pairing fallback.
-    private func reportReadPairing(_ decisions: [ViralReconReadPairingDecision], formatter: TerminalFormatter) {
+    private func reportReadPairing(_ decisions: [ViralReconReadPairingDecision], output: WorkflowRunOutput) {
         for decision in decisions {
-            if !globalOptions.quiet {
-                print(formatter.info("Read pairing: \(decision.summary)"))
-            }
+            output.info("Read pairing: \(decision.summary)")
             if let warning = decision.warning {
                 FileHandle.standardError.write(Data("Warning: \(warning)\n".utf8))
             }

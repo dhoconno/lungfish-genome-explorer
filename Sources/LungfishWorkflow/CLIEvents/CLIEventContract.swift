@@ -74,7 +74,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (42)
+    // MARK: Leaves that emit events (43)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -119,6 +119,7 @@ package enum CLIEventContractTable {
         "tree relabel": .events(flag: formatJSON, channel: .standardOutput),
         "tree reroot": .events(flag: formatJSON, channel: .standardOutput),
         "variants call": .events(flag: formatJSON, channel: .standardOutput),
+        "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]
 
     // MARK: Leaves that print one JSON result (72)
@@ -215,7 +216,7 @@ package enum CLIEventContractTable {
         "fastq ont-barcode-genotype": .legacy(schemaID: "r1-ont-barcode-genotyping", removeBy: "2.8"),
     ]
 
-    // MARK: Leaves with human text only (118)
+    // MARK: Leaves with human text only (117)
 
     private static let text: [String: CLIEventContract] = [
         "bam adopt-mapping": .text(reason: ignoresFormat),
@@ -335,6 +336,5 @@ package enum CLIEventContractTable {
         "variants query": .text(reason: ignoresFormat),
         "version": .text(reason: humanTextOnly),
         "workflow list": .text(reason: ignoresFormat),
-        "workflow run": .text(reason: ignoresFormat),
     ]
 }

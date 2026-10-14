@@ -22,7 +22,7 @@ extension RunSubcommand {
         isViralRecon: Bool,
         isNextflow: Bool,
         isSnakemake: Bool,
-        formatter: TerminalFormatter
+        output: WorkflowRunOutput
     ) async throws {
         let pendingCancel = PendingTaskCancel<(any Error)?>()
         let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
@@ -34,7 +34,7 @@ extension RunSubcommand {
                     isViralRecon: isViralRecon,
                     isNextflow: isNextflow,
                     isSnakemake: isSnakemake,
-                    formatter: formatter
+                    output: output
                 )
                 return nil
             } catch {
@@ -44,7 +44,7 @@ extension RunSubcommand {
         pendingCancel.attach(task)
         guard let error = await task.value else { return }
         if error is CancellationError {
-            FileHandle.standardError.write(Data((formatter.error("Workflow cancelled") + "\n").utf8))
+            FileHandle.standardError.write(Data((output.formatter.error("Workflow cancelled") + "\n").utf8))
             throw CLIExitCode.cancelled.exitCode
         }
         throw error
@@ -55,27 +55,25 @@ extension RunSubcommand {
         isViralRecon: Bool,
         isNextflow: Bool,
         isSnakemake: Bool,
-        formatter: TerminalFormatter
+        output: WorkflowRunOutput
     ) async throws {
         if workflow.contains("nf-core") || isViralRecon {
             try await runNFCoreWorkflow(
                 workflowParams: workflowParams,
-                formatter: formatter
+                output: output
             )
             return
         }
 
-        if !globalOptions.quiet {
-            let engine = isNextflow ? "Nextflow" : (isSnakemake ? "Snakemake" : "Unknown")
-            print(formatter.info("Detected workflow engine: \(engine)"))
-            print(formatter.info("Starting workflow execution..."))
-        }
+        let engine = isNextflow ? "Nextflow" : (isSnakemake ? "Snakemake" : "Unknown")
+        output.info("Detected workflow engine: \(engine)")
+        output.info("Starting workflow execution...")
 
         try await runLocalWorkflow(
             workflowParams: workflowParams,
             isNextflow: isNextflow,
             isSnakemake: isSnakemake,
-            formatter: formatter
+            output: output
         )
     }
 }

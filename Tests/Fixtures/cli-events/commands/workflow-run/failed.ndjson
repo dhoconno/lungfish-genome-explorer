@@ -1,0 +1,8 @@
+{"event":"start","message":"Preparing workflow: nf-core\/viralrecon","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Read pairing: S1: paired R1\/R2 files, runs paired-end","schemaVersion":2}
+{"event":"log","level":"info","message":"Read pairing: S2: paired R1\/R2 files, runs paired-end","schemaVersion":2}
+{"event":"log","level":"info","message":"Created run bundle: \/work\/viralrecon.lungfishrun","schemaVersion":2}
+{"event":"log","level":"info","message":"nextflow run nf-core\/viralrecon -r 3.0.0 -profile docker --input \/work\/samplesheet.csv --outdir \/work\/results --platform illumina --protocol amplicon --skip_freyja true --skip_freyja_boot true","schemaVersion":2}
+{"event":"progress","message":"Docker daemon unavailable. Launching Docker Desktop...","progress":0.01,"schemaVersion":2}
+{"event":"progress","message":"Docker daemon ready","progress":0.02,"schemaVersion":2}
+{"error":"Workflow execution failed: Nextflow exited with status 1. See \/work\/viralrecon.lungfishrun\/logs\/stderr.log\nERROR ~ Error executing process > 'FASTP (S1)'","event":"failed","schemaVersion":2}
