@@ -23,6 +23,8 @@ public final class ONTImportOperationCoordinator {
     private let operationCenter: any OperationReporting
     private let runner: CLIReadsRunner
 
+    /// Make one coordinator for each import. Its runner, once cancelled, stops every later run
+    /// before it launches (``CLIReadsRunner``).
     public init(operationCenter: any OperationReporting = OperationCenter.shared) {
         self.operationCenter = operationCenter
         self.runner = CLIReadsRunner()
