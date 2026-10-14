@@ -143,7 +143,12 @@ extension SequenceCommand {
         /// SIGTERM cancels the task once it exists, and a second SIGTERM ends the command at once.
         func run() async throws {
             let pendingCancel = PendingTaskCancel<(any Error)?>()
-            let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+            // The task's cancel runs the attach's cancellation handler before it returns, so once this
+            // line is out, the attach stops at its next check, before its read or after the parse.
+            let termination = SIGTERMCancellation(secondSignalEndsProcess: true) {
+                pendingCancel.cancel()
+                FileHandle.standardError.write(Data("Cancelling the attach.\n".utf8))
+            }
             defer { termination.end() }
             let task = Task { () -> (any Error)? in
                 do {

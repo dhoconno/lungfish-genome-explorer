@@ -2,13 +2,15 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A42 M3, plan decision C5. The app's Cancel sends SIGTERM to `lungfish-cli`.
-// `sequence attach-track` edits a reference bundle in place, so it turns the signal into a cancel,
-// exits 125 and leaves every file of the bundle as it was. The attach writes no run record, so the
-// test reads the bundle where `CLISIGTERMHarness.assertSIGTERMCancels` would read a record's status.
-// The GFF3 it attaches is a FIFO. The attach opens it inside the service and cannot end its parse
-// until the FIFO closes, so a writer that can open the FIFO knows the command is at work, and the
-// cancel lands while the attach runs.
+// Phase 2.10 lane A42 M3 and its review's Fix 5, plan decision C5. The app's Cancel sends SIGTERM to
+// `lungfish-cli`. `sequence attach-track` edits a reference bundle in place, so it turns the signal
+// into a cancel, exits 125 and leaves every file of the bundle as it was. The attach writes no run
+// record, so the test reads the bundle where `CLISIGTERMHarness.assertSIGTERMCancels` would read a
+// record's status. The GFF3 it attaches is a FIFO. The attach opens it inside the service and
+// cannot end its parse until the FIFO closes, so a writer that can open the FIFO knows the command
+// is at work, and the cancel lands while the attach runs. The command's standard error goes to a
+// file, which the test reads while the command runs, and the FIFO closes once the command reports
+// there that its cancel reached the attach.
 
 import Darwin
 import Foundation
@@ -23,11 +25,21 @@ final class SequenceAttachTrackSIGTERMTests: XCTestCase {
         let bundle = try SequenceEditFixture.referenceBundle(in: root)
         let source = root.appendingPathComponent("held.gff3")
         XCTAssertEqual(mkfifo(source.path, 0o600), 0, "the held GFF3 is a FIFO")
+        let standardError = root.appendingPathComponent("stderr.txt")
         let before = try Self.regularFiles(in: bundle)
 
-        let cli = try CLISIGTERMHarness.launchCLI(
-            ["sequence", "attach-track", bundle.path, source.path, "--quiet"],
-            testClass: Self.self
+        guard let cliURL = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        // The shell puts the command's standard error in a file, and `exec` keeps the process ID,
+        // so the SIGTERM reaches the command itself.
+        let cli = try CLISIGTERMHarness.launch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c", "exec \"$0\" \"$@\" 2>\"$ATTACH_STDERR\"",
+                cliURL.path, "sequence", "attach-track", bundle.path, source.path, "--quiet",
+            ],
+            environment: CLISIGTERMHarness.childEnvironment(overriding: ["ATTACH_STDERR": standardError.path])
         )
         defer { cli.stop() }
 
@@ -35,23 +47,25 @@ final class SequenceAttachTrackSIGTERMTests: XCTestCase {
         // the command started turning SIGTERM into a cancel.
         guard let writer = await Self.openWriter(of: source) else {
             let stop = await CLISIGTERMHarness.cancel(cli)
-            return XCTFail("The attach never opened the GFF3.\(stop.diagnostics)")
+            return XCTFail("The attach never opened the GFF3.\(stop.diagnostics) \(Self.text(of: standardError))")
         }
         let feature = "##gff-version 3\nchr1\ttest\tgene\t3\t9\t.\t+\t.\tID=gene1;Name=held\n"
         _ = feature.withCString { write(writer, $0, strlen($0)) }
         // The parse cannot end while the FIFO stays open, so the attach is at work when the SIGTERM
-        // comes. The FIFO closes two seconds later, which gives the signal's cancel time to reach
-        // the attach. The pause cannot hide a defect, as the command cannot move before it ends.
-        let closer = Task.detached {
-            try? await Task.sleep(for: .seconds(2))
+        // comes. The FIFO closes once the command reports that its cancel reached the attach.
+        let closer = Task.detached { () -> Bool in
+            let reported = await Self.waitForText("Cancelling the attach", in: standardError)
             close(writer)
+            return reported
         }
         let stop = await CLISIGTERMHarness.cancel(cli)
-        await closer.value
+        let reported = await closer.value
+        let errors = Self.text(of: standardError)
 
+        XCTAssertTrue(reported, "The command never reported that its cancel reached the attach.\(stop.diagnostics) \(errors)")
         CLISIGTERMHarness.assertCancelledExit(stop)
         CLISIGTERMHarness.assertNoProcessLeft(stop)
-        XCTAssertTrue(stop.standardError.contains("Attach cancelled"), stop.diagnostics)
+        XCTAssertTrue(errors.contains("Attach cancelled"), "Its standard error file holds: \(errors)")
         XCTAssertEqual(
             try Self.regularFiles(in: bundle), before,
             "a cancelled attach leaves every file of the bundle as it was, its manifest and records included"
@@ -72,6 +86,21 @@ final class SequenceAttachTrackSIGTERMTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(10))
         }
         return nil
+    }
+
+    /// Waits up to the harness's process wait until `file` holds `text`, reading it every 10 ms.
+    private static func waitForText(_ text: String, in file: URL) async -> Bool {
+        let deadline = ContinuousClock.now + CLISIGTERMHarness.processWait
+        while ContinuousClock.now < deadline {
+            if Self.text(of: file).contains(text) { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
+    }
+
+    /// What `file` holds, or nothing when it cannot be read.
+    private static func text(of file: URL) -> String {
+        (try? String(contentsOf: file, encoding: .utf8)) ?? ""
     }
 
     /// Every regular file under `bundle`, hidden ones included, by its path in the bundle.

@@ -387,6 +387,68 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertEqual(step["toolVersion"] as? String, LungfishAppVersion.short)
     }
 
+    /// A cancel of the calling task sets the attach's flag before `cancel()` returns, so an attach
+    /// held in its parse stops as soon as the parse ends, with no pause, and leaves the bundle as
+    /// it was (2.10 A42 review, Fix 5).
+    func testACancelDuringTheParseStopsTheAttachAndLeavesTheBundleAsItWas() async throws {
+        let bundleURL = try makeBundle(named: "Held")
+        let fifo = tempRoot.appendingPathComponent("held.gff3")
+        XCTAssertEqual(mkfifo(fifo.path, 0o600), 0, "the held GFF3 is a FIFO")
+        let before = try Self.regularFiles(in: bundleURL)
+        let attach = Task {
+            try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(sourceURL: fifo, bundleURL: bundleURL)
+        }
+        guard let writer = await Self.openWriter(of: fifo) else {
+            attach.cancel()
+            return XCTFail("The attach never opened the GFF3")
+        }
+        attach.cancel()
+        let feature = "##gff-version 3\nchr1\ttest\tgene\t3\t9\t.\t+\t.\tID=gene1;Name=held\n"
+        _ = feature.withCString { write(writer, $0, strlen($0)) }
+        close(writer)
+
+        do {
+            _ = try await attach.value
+            XCTFail("A cancelled attach must not add the track")
+        } catch is CancellationError {
+            // The flag the cancel set ends the attach once its parse ends.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+        XCTAssertEqual(
+            try Self.regularFiles(in: bundleURL), before,
+            "a cancelled attach leaves every file of the bundle as it was, its manifest and records included"
+        )
+    }
+
+    /// Opens the FIFO at `url` for writing once a reader holds it, waiting up to 30 seconds. A
+    /// write after the reader left fails instead of raising SIGPIPE.
+    private static func openWriter(of url: URL) async -> Int32? {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while ContinuousClock.now < deadline {
+            let descriptor = open(url.path, O_WRONLY | O_NONBLOCK)
+            if descriptor >= 0 {
+                _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) & ~O_NONBLOCK)
+                _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
+                return descriptor
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return nil
+    }
+
+    /// Every regular file under `bundle`, hidden ones included, by its path in the bundle.
+    private static func regularFiles(in bundle: URL) throws -> [String: Data] {
+        let base = bundle.resolvingSymlinksInPath().path + "/"
+        var files: [String: Data] = [:]
+        let enumerator = FileManager.default.enumerator(at: bundle, includingPropertiesForKeys: [.isRegularFileKey])
+        while let url = enumerator?.nextObject() as? URL {
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+            files[String(url.resolvingSymlinksInPath().path.dropFirst(base.count))] = try Data(contentsOf: url)
+        }
+        return files
+    }
+
     private func makeBundle(named name: String, relativePath: String? = nil) throws -> URL {
         let bundleURL = tempRoot.appendingPathComponent(relativePath ?? "\(name).lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(
