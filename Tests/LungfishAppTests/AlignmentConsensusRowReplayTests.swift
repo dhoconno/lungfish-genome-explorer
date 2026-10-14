@@ -55,10 +55,13 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
     private var viewer: ViewerViewController!
     private var window: NSWindow!
     private var sheets: [String] = []
+    private var priorCLIPath: String?
 
     override func setUp() async throws {
         // The route finds lungfish-cli through CLIBinaryLocator, which takes LUNGFISH_CLI_PATH first,
-        // so no `swift build --show-bin-path` waits on the lock this test run holds.
+        // so no `swift build --show-bin-path` waits on the lock this test run holds. The run's own
+        // value comes back in tearDown (review A51, fix 3).
+        priorCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products), "no lungfish-cli beside \(products.path)")
         setenv("LUNGFISH_CLI_PATH", cli.path, 1)
@@ -81,7 +84,11 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
         window?.contentViewController = nil
         OperationCenter.shared.clearCompleted()
         TestTempDirectory.cleanup(scratch)
-        unsetenv("LUNGFISH_CLI_PATH")
+        if let priorCLIPath {
+            setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1)
+        } else {
+            unsetenv("LUNGFISH_CLI_PATH")
+        }
     }
 
     /// A copy of the BAM and its index in the scratch folder, which a case can replace while the row runs.

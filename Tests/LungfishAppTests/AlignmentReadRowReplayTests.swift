@@ -35,9 +35,12 @@ final class AlignmentReadRowReplayTests: XCTestCase {
     private var scratch: URL!
     private var viewer: ViewerViewController!
     private var window: NSWindow!
+    private var priorCLIPath: String?
 
     override func setUp() async throws {
         // The route finds lungfish-cli through CLIBinaryLocator, which takes LUNGFISH_CLI_PATH first.
+        // The run's own value comes back in tearDown (review A51, fix 3).
+        priorCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products), "no lungfish-cli beside \(products.path)")
         setenv("LUNGFISH_CLI_PATH", cli.path, 1)
@@ -55,7 +58,11 @@ final class AlignmentReadRowReplayTests: XCTestCase {
         window?.contentViewController = nil
         OperationCenter.shared.clearCompleted()
         TestTempDirectory.cleanup(scratch)
-        unsetenv("LUNGFISH_CLI_PATH")
+        if let priorCLIPath {
+            setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1)
+        } else {
+            unsetenv("LUNGFISH_CLI_PATH")
+        }
     }
 
     /// The evidence the viewer shows, the sarscov2 BAM copied into the scratch folder, with a map
