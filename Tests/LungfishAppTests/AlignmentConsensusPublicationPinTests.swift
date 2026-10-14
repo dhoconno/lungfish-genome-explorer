@@ -6,8 +6,13 @@
 // the viewer's Generate Consensus row (census row 27, gap alignment-consensus, QA 1). It pins, from
 // the publication service the base runs in the app, the files a FASTA and a reference bundle
 // destination leave and the record each one holds, read back from disk. The text names the
-// scratch folder `<root>` and the writer's version `<version>`, because the base records the
-// version of the host process.
+// scratch folder `<root>` and the writer's version `<version>`.
+//
+// The record moved once, as the freeze predicted, when `bam consensus` took the route (ruling
+// A51-consensus): its workflow, tool, argv and replay name `lungfish-cli bam consensus` with the
+// region 1-based and inclusive, `--name`, `--result-id` and the all-N answer, every version is
+// `LungfishAppVersion.short` as the leaves record it, and the explicit options gain
+// `allowAllLowDepth`. The files, the FASTA, the manifest and every other line kept their values.
 
 import Foundation
 import XCTest
@@ -112,7 +117,7 @@ final class AlignmentConsensusPublicationPinTests: XCTestCase {
         let rootPath = root.standardizedFileURL.path
         return lines.map {
             $0.replacingOccurrences(of: rootPath, with: "<root>")
-                .replacingOccurrences(of: WorkflowRun.currentAppVersion, with: "<version>")
+                .replacingOccurrences(of: LungfishAppVersion.short, with: "<version>")
                 .replacingOccurrences(of: #"staging-[0-9A-F-]{36}"#, with: "staging-<uuid>", options: .regularExpression)
         }
     }
@@ -176,12 +181,13 @@ final class AlignmentConsensusPublicationPinTests: XCTestCase {
     /// Today's record of the consensus written to `output`, whose sequence sits at `payload`.
     static func record(output: String, payload: String, provenance: String, staged: String) -> [String] {
         func value(_ type: String, _ text: String) -> String { #"{"type":"\#(type)","value":\#(text)}"# }
-        let argv = "Lungfish.app alignment consensus --alignment <root>/evidence/sample.bam"
-            + " --index <root>/evidence/sample.bam.bai --scope selectedRegion --region virus:10-15"
+        let argv = "lungfish-cli bam consensus --alignment <root>/evidence/sample.bam"
+            + " --index <root>/evidence/sample.bam.bai --scope selectedRegion --region virus:11-15"
             + " --min-depth 3 --min-mapq 20 --min-baseq 12 --exclude-flags 2308 --read-group rg1"
             + " --caller-mode bayesian --use-ambiguity false --insertion-policy omit --deletion-policy n"
-            + " --reference-fill never --output \(output)"
+            + " --reference-fill never --name S1 virus consensus --result-id run-1 --output \(output)"
         let explicit = [
+            "allowAllLowDepth=" + value("boolean", "false"),
             "callerMode=" + value("string", #""bayesian""#),
             "deletionPolicy=" + value("string", #""n""#),
             "excludedFlags=" + value("integer", "2308"),
@@ -203,8 +209,8 @@ final class AlignmentConsensusPublicationPinTests: XCTestCase {
             "stagingToFinalMapping=" + value("dictionary", "{\"\(staged)\":" + value("string", "\"\(payload)\"") + "}"),
         ]
         return [
-            "workflow lungfish alignment consensus <version>",
-            "tool Lungfish.app <version> kind app",
+            "workflow lungfish bam consensus <version>",
+            "tool lungfish-cli <version> kind cli",
             "argv \(argv)",
             "replay \(argv)",
             "explicit " + explicit.joined(separator: " "),

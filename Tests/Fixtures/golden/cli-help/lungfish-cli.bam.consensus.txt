@@ -1,0 +1,65 @@
+OVERVIEW: Call an evidence-only consensus for a region of a BAM or CRAM
+
+Writes one base per reference position of the region. A position covered by
+fewer than --min-depth reads after the filters is N, and the reference never
+fills one. An output ending in .lungfishref is written as a reference bundle
+with its record inside, and any other as a FASTA with its record beside it. A
+consensus that is N at every position is refused with exit 3 unless
+--allow-all-low-depth is given.
+
+USAGE: lungfish-cli bam consensus [<options>] --alignment <alignment> --index <index> --region <region> --output <output>
+
+OPTIONS:
+  --alignment <alignment> Path to the sorted BAM or CRAM
+  --index <index>         Path to the alignment's index (.bai, .csi or .crai)
+  --decoding-reference <decoding-reference>
+                          FASTA that decodes a CRAM
+  --scope <scope>         wholeContig or selectedRegion, recorded with the run
+                          (default: selectedRegion)
+  --region <region>       Region as contig:start-end, 1-based and inclusive, as
+                          samtools takes it
+  --min-depth <min-depth> Fewest reads that call a base. Fewer give N (default:
+                          1)
+  --min-mapq <min-mapq>   Lowest mapping quality of a read that counts
+                          (default: 0)
+  --min-baseq <min-baseq> Lowest base quality of a base that counts (default: 0)
+  --exclude-flags <exclude-flags>
+                          SAM flag bits of the reads left out (default: 2308)
+  --read-group <read-group>
+                          Read group to keep. Repeat for more. All when none is
+                          given
+  --caller-mode <caller-mode>
+                          samtools consensus mode, bayesian or simple (default:
+                          bayesian)
+  --use-ambiguity <use-ambiguity>
+                          Write IUPAC ambiguity codes, true or false (default:
+                          false)
+  --insertion-policy <insertion-policy>
+                          omit, the only policy, one base per reference
+                          position (default: omit)
+  --deletion-policy <deletion-policy>
+                          n, the only policy, a deleted position is N (default:
+                          n)
+  --reference-fill <reference-fill>
+                          never, the only policy, the reference never fills a
+                          base (default: never)
+  --name <name>           FASTA header and bundle name. Default: <contig>
+                          consensus
+  --result-id <result-id> Analysis result the alignment belongs to, a bundle's
+                          source assembly. Default: the alignment's name
+  -o, --output <output>   Output FASTA, or a .lungfishref bundle
+  --allow-all-low-depth   Write a consensus that is N at every position
+  --format <format>       Output format: text, json (default: text) (values:
+                          text, json; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

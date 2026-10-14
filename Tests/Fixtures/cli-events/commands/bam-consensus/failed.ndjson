@@ -1,0 +1,2 @@
+{"event":"start","message":"Calling evidence-only consensus…","progress":0,"schemaVersion":2}
+{"error":"Every position in the region is below the minimum depth, so the consensus holds only N. Pass --allow-all-low-depth to write it.","event":"failed","schemaVersion":2}

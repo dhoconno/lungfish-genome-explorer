@@ -20,6 +20,8 @@ package struct AlignmentConsensusPublicationRequest: Sendable {
     package let result: AlignmentConsensusResult
     package let recordName: String
     package let destination: AlignmentConsensusPublicationDestination
+    /// Whether the user accepted a result whose every position is below the minimum depth.
+    package let allowAllLowDepth: Bool
 
     package init(
         context: AlignmentActionContext,
@@ -27,7 +29,8 @@ package struct AlignmentConsensusPublicationRequest: Sendable {
         consensusRequest: AlignmentConsensusRequest,
         result: AlignmentConsensusResult,
         recordName: String,
-        destination: AlignmentConsensusPublicationDestination
+        destination: AlignmentConsensusPublicationDestination,
+        allowAllLowDepth: Bool = false
     ) {
         self.context = context
         self.region = region
@@ -35,6 +38,19 @@ package struct AlignmentConsensusPublicationRequest: Sendable {
         self.result = result
         self.recordName = recordName
         self.destination = destination
+        self.allowAllLowDepth = allowAllLowDepth
+    }
+
+    /// The `lungfish-cli bam consensus` run this publication records, whose `--output` is the destination.
+    package var invocation: AlignmentConsensusInvocation {
+        AlignmentConsensusInvocation(
+            context: context,
+            region: region,
+            consensusRequest: consensusRequest,
+            recordName: recordName,
+            output: destination.finalURL.path,
+            allowAllLowDepth: allowAllLowDepth
+        )
     }
 }
 
@@ -103,7 +119,7 @@ package struct AlignmentConsensusPublicationService {
 
     package init(
         moveItem: @escaping Mover = { source, destination in
-            try FileManager.default.moveItem(at: source, to: destination)
+            try Self.renameExclusively(source, destination)
         },
         failureInjector: @escaping FailureInjector = { _ in }
     ) {
@@ -133,8 +149,12 @@ package struct AlignmentConsensusPublicationService {
             try failureInjector(stage)
             let finalURL = request.destination.finalURL
             let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: finalURL)
+            // A cancelled run leaves its record beside the output and no output, and this run
+            // replaces that record. Any other record keeps the destination taken.
+            let replacesCancelledRecord = Self.isCancelledRecord(at: finalSidecarURL)
             guard !FileManager.default.fileExists(atPath: finalURL.path),
-              isBundle(request.destination) || !FileManager.default.fileExists(atPath: finalSidecarURL.path) else {
+              isBundle(request.destination) || replacesCancelledRecord
+                || !FileManager.default.fileExists(atPath: finalSidecarURL.path) else {
                 throw AlignmentConsensusPublicationError.destinationExists(finalURL)
             }
             let stagingURL = finalURL.deletingLastPathComponent().appendingPathComponent(
@@ -143,6 +163,9 @@ package struct AlignmentConsensusPublicationService {
             )
             do {
                 let prepared = try prepare(request, at: stagingURL, finalURL: finalURL, stage: &stage)
+                if replacesCancelledRecord {
+                    try FileManager.default.removeItem(at: finalSidecarURL)
+                }
             if isBundle(request.destination) {
                 stage = .payloadPublication
                 try failureInjector(stage)
@@ -240,7 +263,7 @@ package struct AlignmentConsensusPublicationService {
         error: Error
     ) -> AlignmentConsensusPublicationAttempt {
         let filters = request.consensusRequest.filters
-        let argv = replayArgv(request)
+        let argv = Self.replayArgv(request.invocation)
         var evidence = [request.context.alignmentSnapshot, request.context.indexSnapshot]
         if let snapshot = request.context.decodingReferenceSnapshot { evidence.append(snapshot) }
         return .init(
@@ -263,7 +286,7 @@ package struct AlignmentConsensusPublicationService {
             resolvedDefaults: [
                 "lowDepthPolicy": "N",
                 "referenceFillPolicy": "never",
-                "runtime": "Lungfish.app \(WorkflowRun.currentAppVersion)"
+                "runtime": "\(CLICommandIdentity.executableName) \(Self.version)"
             ],
             destinationPath: request.destination.finalURL.path,
             evidence: evidence,
@@ -272,38 +295,6 @@ package struct AlignmentConsensusPublicationService {
             exitStatus: 1,
             stderr: error.localizedDescription
         )
-    }
-
-    private func replayArgv(_ request: AlignmentConsensusPublicationRequest) -> [String] {
-        let filters = request.consensusRequest.filters
-        var argv = [
-            "Lungfish.app", "alignment", "consensus",
-            "--alignment", request.context.alignmentURL.path,
-            "--index", request.context.indexURL.path
-        ]
-        if let referenceURL = request.context.decodingReferenceURL {
-            argv += ["--decoding-reference", referenceURL.path]
-        }
-        argv += [
-            "--scope", request.region.scope.rawValue,
-            "--region", "\(request.region.contig):\(request.region.start)-\(request.region.end)",
-            "--min-depth", "\(filters.minimumDepth)",
-            "--min-mapq", "\(filters.minimumMapQ)",
-            "--min-baseq", "\(filters.minimumBaseQuality)",
-            "--exclude-flags", "\(filters.excludedFlags)"
-        ]
-        for readGroup in filters.readGroups.sorted() {
-            argv += ["--read-group", readGroup]
-        }
-        argv += [
-            "--caller-mode", request.consensusRequest.mode.rawValue,
-            "--use-ambiguity", "\(request.consensusRequest.useAmbiguity)",
-            "--insertion-policy", request.consensusRequest.insertionPolicy.rawValue,
-            "--deletion-policy", request.consensusRequest.deletionPolicy.rawValue,
-            "--reference-fill", "never",
-            "--output", request.destination.finalURL.path
-        ]
-        return argv
     }
 
     private static func shellQuote(_ value: String) -> String {
@@ -389,22 +380,8 @@ package struct AlignmentConsensusPublicationService {
                 completedAt: execution.endedAt
             )
         }
-        let filters = request.consensusRequest.filters
         let mapping: [String: ParameterValue] = [physicalPayloadURL.path: .string(finalPayloadURL.path)]
-        let explicit: [String: ParameterValue] = [
-            "scope": .string(request.region.scope.rawValue),
-            "zeroBasedHalfOpen": .string("\(request.region.contig):\(request.region.start)-\(request.region.end)"),
-            "oneBasedInclusive": .string("\(request.region.contig):\(request.region.start + 1)-\(request.region.end)"),
-            "minimumDepth": .integer(filters.minimumDepth),
-            "minimumMapQ": .integer(filters.minimumMapQ),
-            "minimumBaseQuality": .integer(filters.minimumBaseQuality),
-            "excludedFlags": .integer(Int(filters.excludedFlags)),
-            "readGroups": .array(filters.readGroups.sorted().map(ParameterValue.string)),
-            "callerMode": .string(request.consensusRequest.mode.rawValue),
-            "useAmbiguity": .boolean(request.consensusRequest.useAmbiguity),
-            "insertionPolicy": .string(request.consensusRequest.insertionPolicy.rawValue),
-            "deletionPolicy": .string(request.consensusRequest.deletionPolicy.rawValue)
-        ]
+        let explicit = Self.explicitOptions(request.invocation)
         let resolved: [String: ParameterValue] = [
             "lowDepthPolicy": .string("N"),
             "referenceFillPolicy": .string("never"),
@@ -412,18 +389,18 @@ package struct AlignmentConsensusPublicationService {
             "stagingToFinalMapping": .dictionary(mapping),
             "finalProvenancePath": .string(finalProvenanceURL.path)
         ]
-        let argv = replayArgv(request)
+        let argv = Self.replayArgv(request.invocation)
         let stderr = request.result.executionRecords.compactMap(\.stderr).filter { !$0.isEmpty }.joined(separator: "\n")
         return ProvenanceEnvelope(
-            workflowName: "lungfish alignment consensus",
-            workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish.app",
-            toolVersion: WorkflowRun.currentAppVersion,
-            tool: .init(name: "Lungfish.app", version: WorkflowRun.currentAppVersion, kind: "app"),
+            workflowName: Self.workflowName,
+            workflowVersion: Self.version,
+            toolName: CLICommandIdentity.executableName,
+            toolVersion: Self.version,
+            tool: .init(name: CLICommandIdentity.executableName, version: Self.version, kind: "cli"),
             argv: argv,
             durableReplayArgv: argv,
             options: .init(explicit: explicit, resolvedDefaults: resolved),
-            runtimeIdentity: .init(),
+            runtimeIdentity: .init(appVersion: Self.version),
             files: inputs + [output],
             output: output,
             outputs: [output],

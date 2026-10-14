@@ -1,0 +1,2 @@
+{"event":"start","message":"Calling evidence-only consensus…","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Consensus FASTA saved","output":"\/work\/S1.fasta","outputs":["\/work\/S1.fasta","\/work\/S1.fasta.lungfish-provenance.json"],"progress":1,"schemaVersion":2}

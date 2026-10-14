@@ -13,7 +13,7 @@ struct BAMCommand: AsyncParsableCommand {
             `\(CLICommandIdentity.executableName) bam annotate` to convert mapped reads into annotation tracks.
             Use `\(CLICommandIdentity.executableName) bam markdup` to mark duplicates in BAM workflows.
             """,
-        subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, AnnotateBestSubcommand.self, AnnotateCDSBestSubcommand.self, MarkdupSubcommand.self, PrimerTrimSubcommand.self, AdoptMappingSubcommand.self, RemoveTrackSubcommand.self]
+        subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, AnnotateBestSubcommand.self, AnnotateCDSBestSubcommand.self, MarkdupSubcommand.self, PrimerTrimSubcommand.self, AdoptMappingSubcommand.self, RemoveTrackSubcommand.self, BAMConsensusSubcommand.self]
     )
 
     struct FilterEvent: Codable, Sendable {

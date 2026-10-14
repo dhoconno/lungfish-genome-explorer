@@ -246,6 +246,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "bam annotate": "cli.bam",
         "bam annotate-best": "cli.bam",
         "bam annotate-cds-best": "cli.bam",
+        "bam consensus": "cli.bam.consensus",
         "bam filter": "cli.bam",
         "bam markdup": "cli.bam",
         "bam primer-trim": "cli.bam",

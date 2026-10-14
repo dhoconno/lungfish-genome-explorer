@@ -232,8 +232,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             }
         }
         XCTAssertEqual(
-            counts["events"], 40,
-            "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42, fetch genome since 2.10 A44, bam remove-track since 2.10 A51"
+            counts["events"], 41,
+            "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42, fetch genome since 2.10 A44, bam remove-track and bam consensus since 2.10 A51"
         )
         XCTAssertEqual(counts["legacy"], 9)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
