@@ -1067,52 +1067,52 @@ final class WorkflowOperationExecutionService {
     }
 }
 
-private struct ONTGenotypingCLIPayload: Decodable {
-    let mappingBAMPath: String
-    let mappingBAIPath: String
-    let retainedBAMPath: String
-    let retainedBAIPath: String
-    let reportCSVPath: String
-    let sampleSummaryCSVPath: String
-    let statsJSONPath: String
-    let workbookPath: String
-    let provenancePath: String
-    let outputDirectory: String
-    let referenceFASTAPath: String
-    let sourceReferenceBundlePath: String?
+package struct ONTGenotypingCLIPayload: Decodable {
+    package let mappingBAMPath: String
+    package let mappingBAIPath: String
+    package let retainedBAMPath: String
+    package let retainedBAIPath: String
+    package let reportCSVPath: String
+    package let sampleSummaryCSVPath: String
+    package let statsJSONPath: String
+    package let workbookPath: String
+    package let provenancePath: String
+    package let outputDirectory: String
+    package let referenceFASTAPath: String
+    package let sourceReferenceBundlePath: String?
 
-    var mappingBAMURL: URL { URL(fileURLWithPath: mappingBAMPath).standardizedFileURL }
-    var mappingBAIURL: URL { URL(fileURLWithPath: mappingBAIPath).standardizedFileURL }
-    var retainedBAMURL: URL { URL(fileURLWithPath: retainedBAMPath).standardizedFileURL }
-    var retainedBAIURL: URL { URL(fileURLWithPath: retainedBAIPath).standardizedFileURL }
-    var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }
-    var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
-    var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
-    var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
-    var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }
+    package var mappingBAMURL: URL { URL(fileURLWithPath: mappingBAMPath).standardizedFileURL }
+    package var mappingBAIURL: URL { URL(fileURLWithPath: mappingBAIPath).standardizedFileURL }
+    package var retainedBAMURL: URL { URL(fileURLWithPath: retainedBAMPath).standardizedFileURL }
+    package var retainedBAIURL: URL { URL(fileURLWithPath: retainedBAIPath).standardizedFileURL }
+    package var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }
+    package var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
+    package var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
+    package var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
+    package var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }
 }
 
-private struct FullLengthONTMHCGenotypingCLIPayload: Decodable {
-    let outputDirectory: String
-    let reportCSVPath: String
-    let sampleSummaryCSVPath: String
-    let statsJSONPath: String
-    let workbookPath: String
-    let primaryWorkbookPath: String?
-    let haplotypeAnalysisPath: String?
-    let unmatchedClustersFASTAPath: String
-    let cdnaClustersFASTAPath: String
-    let provenancePath: String
-    let referenceFASTAPath: String
+package struct FullLengthONTMHCGenotypingCLIPayload: Decodable {
+    package let outputDirectory: String
+    package let reportCSVPath: String
+    package let sampleSummaryCSVPath: String
+    package let statsJSONPath: String
+    package let workbookPath: String
+    package let primaryWorkbookPath: String?
+    package let haplotypeAnalysisPath: String?
+    package let unmatchedClustersFASTAPath: String
+    package let cdnaClustersFASTAPath: String
+    package let provenancePath: String
+    package let referenceFASTAPath: String
 
-    var outputDirectoryURL: URL { URL(fileURLWithPath: outputDirectory).standardizedFileURL }
-    var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }
-    var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
-    var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
-    var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
-    var primaryWorkbookURL: URL? { primaryWorkbookPath.map { URL(fileURLWithPath: $0).standardizedFileURL } }
-    var haplotypeAnalysisURL: URL? { haplotypeAnalysisPath.map { URL(fileURLWithPath: $0).standardizedFileURL } }
-    var unmatchedClustersFASTAURL: URL { URL(fileURLWithPath: unmatchedClustersFASTAPath).standardizedFileURL }
-    var cdnaClustersFASTAURL: URL { URL(fileURLWithPath: cdnaClustersFASTAPath).standardizedFileURL }
-    var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }
+    package var outputDirectoryURL: URL { URL(fileURLWithPath: outputDirectory).standardizedFileURL }
+    package var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }
+    package var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
+    package var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
+    package var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
+    package var primaryWorkbookURL: URL? { primaryWorkbookPath.map { URL(fileURLWithPath: $0).standardizedFileURL } }
+    package var haplotypeAnalysisURL: URL? { haplotypeAnalysisPath.map { URL(fileURLWithPath: $0).standardizedFileURL } }
+    package var unmatchedClustersFASTAURL: URL { URL(fileURLWithPath: unmatchedClustersFASTAPath).standardizedFileURL }
+    package var cdnaClustersFASTAURL: URL { URL(fileURLWithPath: cdnaClustersFASTAPath).standardizedFileURL }
+    package var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }
 }
