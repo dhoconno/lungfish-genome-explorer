@@ -18,6 +18,12 @@ import LungfishWorkflow
 /// SIGKILL and `operationDrain` for an output a descendant still holds (decision P2), hand each line
 /// of standard error to the row's log at info through ``OperationCenterCLIBridge``, and stop on the
 /// nonisolated ``cancel()``. The runner never starts a `Process` of its own.
+///
+/// Make one runner for each run. A cancel that comes between two runs stops the next one before
+/// it launches (`CLIRunCancellation`), so a batch route stops its own loop, as `runManagedMapping`
+/// does through `cancelBatch`, and gives each child a new runner. A cancel the row takes after
+/// the command exited 0 still throws `CancellationError`, as `CLISubprocessTransport` does, so a
+/// route removes nothing the command finished before it reads the command's record.
 struct CLIReadsRunner: Sendable {
     enum RunError: Error, LocalizedError, Equatable {
         case cliNotFound
