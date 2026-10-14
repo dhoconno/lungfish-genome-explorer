@@ -90,9 +90,9 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                 outputURL: outputURL,
                 context: FASTQBundleCopyImportWorkflow.CommandContext(
                     workflowName: "lungfish fastq import-ont",
-                    workflowVersion: WorkflowRun.currentAppVersion,
+                    workflowVersion: LungfishAppVersion.short,
                     toolName: "lungfish fastq import-ont",
-                    toolVersion: WorkflowRun.currentAppVersion,
+                    toolVersion: LungfishAppVersion.short,
                     argv: argv,
                     durableReplayArgv: argv,
                     reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
@@ -126,7 +126,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                         "copyMode": .string("atomic-bundle-copy"),
                         "caller": .string("cli")
                     ],
-                    runtimeIdentity: ProvenanceRuntimeIdentity()
+                    runtimeIdentity: ProvenanceRuntimeIdentity(appVersion: LungfishAppVersion.short)
                 )
             )
 
@@ -167,9 +167,9 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             context: ONTImportWorkflow.CommandContext(
                 caller: .cli,
                 workflowName: "lungfish fastq import-ont",
-                workflowVersion: WorkflowRun.currentAppVersion,
+                workflowVersion: LungfishAppVersion.short,
                 toolName: "lungfish fastq import-ont",
-                toolVersion: WorkflowRun.currentAppVersion,
+                toolVersion: LungfishAppVersion.short,
                 argv: argv,
                 durableReplayArgv: argv,
                 reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
@@ -203,7 +203,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                     "barcodeDirectoryCount": .integer(layout.barcodeDirectories.count),
                     "chunkCount": .integer(layout.totalChunkCount)
                 ],
-                runtimeIdentity: ProvenanceRuntimeIdentity()
+                runtimeIdentity: ProvenanceRuntimeIdentity(appVersion: LungfishAppVersion.short)
             ),
             optimization: ONTImportWorkflow.OptimizationConfig(
                 optimizeStorage: optimizeStorage,

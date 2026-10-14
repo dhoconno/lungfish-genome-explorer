@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishCLI
@@ -266,6 +267,22 @@ final class FastqImportONTProvenanceTests: XCTestCase {
             return .json
         }
         return .unknown
+    }
+
+    /// Phase 2.10 lane A53 M3, ruling A53-M3 fix 4. The record names the release version, the one
+    /// constant a bare lungfish-cli, the app and a test host all read the same. `WorkflowRun.currentAppVersion`
+    /// reads the host's bundle, so the same run recorded another version on another route.
+    func testTheRecordNamesTheReleaseVersionOnEveryVersionField() async throws {
+        let sourceURL = try makeONTSource()
+        let outputURL = tempDir.appendingPathComponent("version-project", isDirectory: true)
+
+        try await FastqImportONTSubcommand.parse([sourceURL.path, "--output", outputURL.path, "--concurrency", "1"]).run()
+
+        let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        XCTAssertEqual(envelope.workflowVersion, LungfishAppVersion.short)
+        XCTAssertEqual(envelope.toolVersion, LungfishAppVersion.short)
+        XCTAssertEqual(envelope.runtimeIdentity.appVersion, LungfishAppVersion.short)
+        XCTAssertEqual(envelope.steps.map(\.toolVersion), [LungfishAppVersion.short])
     }
 
     private func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {
