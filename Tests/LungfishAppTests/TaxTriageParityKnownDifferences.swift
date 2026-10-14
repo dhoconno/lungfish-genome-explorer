@@ -93,8 +93,8 @@ enum TaxTriageParityKnownDifferences {
         pair([.x1: 1, .x2: 1, .x3: 1, .x5: 1, .x7: 1], "analysis: differs: taxtriage-result.json",
              "allOutputFiles. The GUI's list starts with analysis-metadata.json, which the GUI writes when it claims the folder before the run, and its batch result lists each sample's files in the sample's folder. taxtriage run marks its folder after the pipeline lists its files (markAsProjectAnalysisIfNeeded) and a pooled run lists every file at its root",
              closedBy: folderClaim),
-        pair([.x1: 1, .x2: 1, .x3: 2, .x4: 2, .x5: 1, .x7: 1], "source manifest: only in A: *",
-             "Only the GUI records the run in each source bundle's analyses-manifest.json (completeTaxTriageRun), for every sample of the request, a failed one too (X4)",
+        pair([.x1: 1, .x2: 1, .x3: 2, .x4: 1, .x5: 1, .x7: 1], "source manifest: only in A: *",
+             "Only the GUI records the run in each source bundle's analyses-manifest.json (completeTaxTriageRun), for each sample that completed. X4's failed sample gets none since U38 M1, so X4's one entry is the completed sample's",
              closedBy: guiRoute),
     ]
 
@@ -212,13 +212,8 @@ enum TaxTriageParityKnownDifferences {
 
     /// X4 and X7, fixed facts that side A or side B does not hold today.
     private static let faultFacts: [TaxTriageParityKnownDifference] = [
-        TaxTriageParityKnownDifference(
-            counts: [.x4: 1],
-            scope: .side(.a),
-            id: "fact: nothing is written into negative-control's bundle: analyses-manifest.json",
-            reason: "QA inventory 2.2 says a failed sample writes nothing into its bundle, but completeTaxTriageRun records the analysis in the manifest of every sample of the request, the failed one too (AppDelegate+TaxTriageCompletion.swift:90-105)",
-            closedBy: "completeTaxTriageRun records only the samples that kept a report (AppDelegate+TaxTriageCompletion.swift:90), at the latest with the 2.10 GUI route through lungfish-cli (A3 and U8)"
-        ),
+        // U38 M1 closed the side A fact `nothing is written into negative-control's bundle: analyses-manifest.json`
+        // that stood here for X4. completeTaxTriageRun records the analysis in the manifest of each sample that completed only.
         TaxTriageParityKnownDifference(
             counts: [.x4: 1],
             scope: .side(.b),

@@ -292,7 +292,7 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
     // MARK: - A failed sample
 
-    func testOneFailedSampleOfTwoReadsSingularWordsAndWritesIntoBothBundles() async throws {
+    func testOneFailedSampleOfTwoReadsSingularWordsAndRecordsTheRunInTheCompletedSamplesBundleOnly() async throws {
         try requireBuiltCLI()
         let engine = try makeEngine(.failsSamples(["S2"]))
         let project = try makeProject()
@@ -345,8 +345,11 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
         XCTAssertTrue(run.trace.details.contains("TaxTriage serial batch complete"))
 
-        // A finished run writes a cross-reference sidecar and a manifest entry into every source
-        // bundle, even for the sample that failed, and a line into the folder's batch history.
+        // A finished run writes a cross-reference sidecar into every source bundle, even for the
+        // sample that failed (the sidecars stay as they are until 2.11), and a line into the folder's
+        // batch history. It records the run in the analysis history of the bundle of each sample that
+        // completed, and a failed sample's bundle holds no `completed` TaxTriage entry, because the
+        // sample completed nothing (X4, BIO 4 of Phase 2.10, U38 M1).
         let runFolder = analysis.lastPathComponent
         XCTAssertEqual(
             bundleWrites(first.bundle),
@@ -360,8 +363,8 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             bundleWrites(second.bundle),
             BundleWrites(
                 references: ["\(runFolder) S2 of 2"],
-                manifestEntries: ["taxtriage | TaxTriage Classification | completed"],
-                hasManifestFile: true
+                manifestEntries: [],
+                hasManifestFile: false
             )
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: analysis.appendingPathComponent(BatchRunHistoryLog.filename).path))

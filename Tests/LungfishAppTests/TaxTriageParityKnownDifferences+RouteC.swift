@@ -48,9 +48,8 @@ extension TaxTriageParityKnownDifferences {
         pairAC([.x1: 1, .x2: 1, .x3: 2, .x4: 1, .x5: 1, .x7: 1], "analysis: only in C: *top/*.top_report.tsv",
                "The GUI's build-db step deletes top/ with the other intermediate folders, and the executor's finalize keeps it and records what it removes (2.8 T5, row 258), as X7's rebuild of the executor's result does since B30 M3. X4's failed sample writes no top report",
                closedBy: guiRoute),
-        pairAC([.x4: 1], "source manifest: only in A: *",
-               "X4. The GUI records the run in the analyses-manifest.json of every sample of the request, the failed one too (completeTaxTriageRun). Since B30 M1 the command records each completed sample only, as Kraken2 does",
-               closedBy: guiRoute),
+        // B30 M1 and U38 M1 (X4). The command records each completed sample only, as Kraken2 does, and since U38 M1 the GUI's
+        // completeTaxTriageRun does too, so the source manifests of X4 agree and no `source manifest: only in A` entry is declared.
         // B30 M3 (T5). Both batch roots hold the aggregate result and each entry its summary, whose runtime the
         // source-manifest compare masks (B30 ruling Q1, vote V-B30), so the source manifests of X3 and X4 agree.
         pairAC([.x4: 1], "analysis: differs: taxtriage-result.json",

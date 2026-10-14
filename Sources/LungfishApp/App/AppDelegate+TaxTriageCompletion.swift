@@ -87,8 +87,11 @@ extension AppDelegate {
                     .mainSplitViewController?
                     .sidebarController.requestReloadFromFilesystem()
 
-                // Record analysis in source bundle manifests
-                for sample in capturedConfig.samples {
+                // Record analysis in source bundle manifests, for the samples that completed. A sample the
+                // serial batch recorded as failed completed nothing, so its bundle's analysis history
+                // gets no `completed` entry, as the command writes none (X4, BIO 4, U38 M1).
+                let failedSampleIDs = Set(capturedResult.sampleFailures.map(\.sampleID))
+                for sample in capturedConfig.samples where !failedSampleIDs.contains(sample.sampleId) {
                     if let bundleURL = MappingResultLayoutService.findSourceBundle(for: [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])) {
                         let entry = AnalysisManifestEntry(
                             tool: "taxtriage",
