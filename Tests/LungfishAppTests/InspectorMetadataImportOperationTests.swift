@@ -4,9 +4,9 @@
 //
 // Removing a derived alignment registers its row through a static begin
 // helper (R4). A held bundle lock must refuse the row and launch nothing, and
-// the recorded row must carry its type and its lock. No lungfish-cli command
-// removes an alignment track yet, so the test pins that the row records no
-// command and fails when a command is added.
+// the recorded row must carry its type and its lock. Since Phase 2.10 lane
+// A51 the row runs and records `lungfish-cli bam remove-track`, and the
+// recorded command parses back to the leaf with the row's bundle and track.
 
 import XCTest
 @testable import LungfishApp
@@ -38,6 +38,7 @@ final class InspectorMetadataImportOperationTests: XCTestCase {
 
         let result = InspectorViewController.beginRemoveDerivedAlignmentOperation(
             trackName: "Sample 1 filtered",
+            trackID: "aln-derived",
             bundleURL: bundleURL,
             routeContext: nil,
             reporter: center
@@ -50,7 +51,7 @@ final class InspectorMetadataImportOperationTests: XCTestCase {
         XCTAssertEqual(refusal.blockingOperationTitle, "Calling variants with LoFreq")
     }
 
-    func testRemoveDerivedAlignmentRecordsItsTypeAndLockAndNoCommandAsAParityGap() throws {
+    func testRemoveDerivedAlignmentRecordsItsTypeLockAndTheRemoveTrackCommand() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = OperationRouteContext(
             projectURL: URL(fileURLWithPath: "/tmp/lane 1a2/Project.lungfish"),
@@ -60,6 +61,7 @@ final class InspectorMetadataImportOperationTests: XCTestCase {
 
         InspectorViewController.beginRemoveDerivedAlignmentOperation(
             trackName: "Sample 1 filtered",
+            trackID: "aln-derived",
             bundleURL: bundleURL,
             routeContext: routeContext,
             reporter: reporter
@@ -73,11 +75,13 @@ final class InspectorMetadataImportOperationTests: XCTestCase {
         XCTAssertEqual(item.targetBundleURL, bundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. No lungfish-cli command removes an alignment track.
-        // The closest is `bam filter`, which creates the derived tracks. When
-        // a removal command exists, record it and replace this pin with a
-        // parse test.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "alignment-track-remove")
+        // The row records the argv the L3 runner runs, events included.
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: BAMCommand.RemoveTrackSubcommand.self)
+        XCTAssertEqual(command.bundlePath, bundleURL.path)
+        XCTAssertEqual(command.trackID, "aln-derived")
+        XCTAssertEqual(
+            try RecordedCLICommand.arguments(of: item.cliCommand),
+            InspectorViewController.removeDerivedAlignmentCLIArguments(bundleURL: bundleURL, trackID: "aln-derived")
+        )
     }
 }

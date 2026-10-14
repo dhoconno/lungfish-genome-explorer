@@ -131,30 +131,35 @@ extension InspectorViewController {
         ).map(shellEscape).joined(separator: " ")
     }
 
+    /// The argv after the binary that removes `trackID` from `bundleURL`,
+    /// `bam remove-track` with its events on (Phase 2.10 lane A51). The row
+    /// records it and the L3 runner runs it.
+    static func removeDerivedAlignmentCLIArguments(bundleURL: URL, trackID: String) -> [String] {
+        ["bam", "remove-track", "--bundle", bundleURL.path, "--track", trackID, "--format", "json"]
+    }
+
     /// Registers the derived-alignment removal row and, only when it starts,
     /// calls `launch` with the operation ID. The row locks `bundleURL` and
-    /// records no command.
-    ///
-    /// cli-parity-gap: alignment-track-remove. No lungfish-cli command removes
-    /// an alignment track from a bundle, because only the app calls
-    /// `BundleAlignmentTrackRemovalService`.
-    /// The closest is `bam filter`, which creates the derived tracks this
-    /// removes. The row keeps recording no command until a removal command
-    /// exists.
+    /// records the `lungfish-cli bam remove-track` command the runner runs.
     @discardableResult
     static func beginRemoveDerivedAlignmentOperation(
         trackName: String,
+        trackID: String,
         bundleURL: URL,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
+        let arguments = removeDerivedAlignmentCLIArguments(bundleURL: bundleURL, trackID: trackID)
         let result = reporter.begin(
             title: "Remove Derived Alignment",
             detail: "Removing \(trackName)...",
             operationType: .bamImport,
             targetBundleURL: bundleURL,
-            cliCommand: nil,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "bam remove-track",
+                args: Array(arguments.dropFirst(2))
+            ),
             routeContext: routeContext
         )
         switch result {
@@ -164,5 +169,33 @@ extension InspectorViewController {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
+    }
+
+    /// Runs the removal row's `bam remove-track` on the L3 runner and hands
+    /// how it ended to `finish` on the main actor. The command wrote the
+    /// manifest, the record and the deletions before it exited, so the app
+    /// writes nothing. The row's Cancel reaches the runner's `cancel()`, and a
+    /// cancelled run ends the row Cancelled with no alert and no `finish`.
+    static func runRemoveDerivedAlignmentThroughCLI(
+        bundleURL: URL,
+        trackID: String,
+        operationID: UUID,
+        runner: CLIAlignmentActionRunner = CLIAlignmentActionRunner(),
+        finish: @escaping @MainActor (Result<CLIAlignmentActionRunner.Completion, any Error>) -> Void
+    ) {
+        let arguments = removeDerivedAlignmentCLIArguments(bundleURL: bundleURL, trackID: trackID)
+        let task = Task(priority: .userInitiated) { @MainActor in
+            do {
+                finish(.success(try await runner.run(arguments: arguments, operationID: operationID)))
+            } catch is CancellationError {
+                OperationCenterCLIBridge.acknowledgeCancellation(operationID)
+            } catch {
+                finish(.failure(error))
+            }
+        }
+        OperationCenter.shared.setCancelCallback(for: operationID) {
+            task.cancel()
+            runner.cancel()
+        }
     }
 }
