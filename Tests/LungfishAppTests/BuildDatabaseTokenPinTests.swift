@@ -6,7 +6,9 @@
 // `lungfish-cli build-db` is the lowercased display name of the classifier. The stem of a
 // classify output is the lowercased title of its FASTQ operation tool. Panel decision S14 moves
 // both onto the analysis descriptor, so this suite freezes the argv the app launches and the
-// stems the planner returns. It must pass before and after that move without an edit.
+// stems `FASTQOperationToolID.classifyOutputStem` returns. It must pass before and after that
+// move without an edit. Lane A41 M3b of Phase 2.10 removed the dialog's classify request, so the
+// stems are read from the tool and no longer from that request's planner stem.
 //
 // The argv is observed for real. A script stands in for `lungfish-cli` through
 // `LUNGFISH_CLI_PATH`, records every argument it receives and fails, so the placeholder shows
@@ -107,22 +109,8 @@ final class BuildDatabaseTokenPinTests: XCTestCase {
         ]
         for (tool, title, stem) in expected {
             XCTAssertEqual(tool.title, title)
-            let request = FASTQOperationLaunchRequest.classify(
-                tool: tool, inputURLs: [], databaseName: "Standard-8"
-            )
-            XCTAssertEqual(request.outputNameStem, stem, title)
+            XCTAssertEqual(tool.classifyOutputStem, stem, title)
         }
-    }
-
-    /// The stem does not follow the database, the inputs or the extra arguments.
-    func testClassifyOutputStemIgnoresTheRestOfTheRequest() {
-        let inputs = [URL(fileURLWithPath: "/tmp/HG002.lungfishfastq")]
-        let plain = FASTQOperationLaunchRequest.classify(
-            tool: .kraken2, inputURLs: inputs, databaseName: "Viral")
-        let tuned = FASTQOperationLaunchRequest.classify(
-            tool: .kraken2, inputURLs: [], databaseName: "PlusPF", extraArguments: ["--memory-mapping"])
-        XCTAssertEqual(plain.outputNameStem, "kraken2")
-        XCTAssertEqual(tuned.outputNameStem, "kraken2")
     }
 
     // MARK: - Harness

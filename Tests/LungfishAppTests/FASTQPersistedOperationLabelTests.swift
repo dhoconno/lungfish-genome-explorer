@@ -97,9 +97,6 @@ final class FASTQPersistedOperationLabelTests: XCTestCase {
                 "ont-fluidigm-sample-split"
             ),
             (.map(inputURLs: [input], referenceURL: URL(fileURLWithPath: "/tmp/reference.fasta"), outputMode: .groupedResult), "map-reads"),
-            (.classify(tool: .kraken2, inputURLs: [input], databaseName: "standard"), "kraken2"),
-            (.classify(tool: .esViritu, inputURLs: [input], databaseName: "standard"), "esviritu"),
-            (.classify(tool: .taxTriage, inputURLs: [input], databaseName: "standard"), "taxtriage"),
             (
                 .ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest(
                     inputFASTQURLs: [input],

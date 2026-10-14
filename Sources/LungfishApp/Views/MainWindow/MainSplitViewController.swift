@@ -248,8 +248,6 @@ extension FASTQOperationLaunchRequest {
             return inputURLs.first
         case .assemble(let request, _):
             return request.inputURLs.first
-        case .classify(_, let inputURLs, _, _):
-            return inputURLs.first
         case .savont(let request):
             return request.inputURLs.first
         case .pbaa(let request):
@@ -271,8 +269,6 @@ extension FASTQOperationLaunchRequest {
             return outputMode
         case .assemble(_, let outputMode):
             return outputMode
-        case .classify:
-            return .fixedBatch
         case .savont, .pbaa:
             return .perInput
         case .ontGenotyping:
@@ -307,8 +303,6 @@ extension FASTQOperationLaunchRequest {
             return "Map Reads"
         case .assemble(let request, _):
             return request.tool.displayName
-        case .classify(let tool, _, _, _):
-            return tool.title
         case .savont:
             return "Savont Clustering"
         case .pbaa:

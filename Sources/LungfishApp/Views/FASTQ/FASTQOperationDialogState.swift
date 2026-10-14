@@ -2287,7 +2287,6 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     )
     case map(inputURLs: [URL], referenceURL: URL, outputMode: FASTQOperationOutputMode)
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
-    case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
     case savont(request: FASTQSavontClusteringRequest)
     case pbaa(request: PBAAClusteringRunRequest)
     case ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest)

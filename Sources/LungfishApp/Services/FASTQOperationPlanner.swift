@@ -49,8 +49,6 @@ func outputMode(for request: FASTQOperationLaunchRequest) -> FASTQOperationOutpu
         return outputMode
     case .assemble(_, let outputMode):
         return outputMode
-    case .classify:
-        return .fixedBatch
     case .savont, .pbaa:
         return .perInput
     case .ontGenotyping:
@@ -311,7 +309,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             return derivativeRequest.usesDirectoryOutput ? .directory : .fastqFile
         case .savont:
             return .fastqFile
-        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .classify, .pbaa, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .pbaa, .ontGenotyping:
             return .directory
         }
     }
@@ -527,8 +525,6 @@ extension FASTQOperationLaunchRequest {
             return inputURLs
         case .assemble(let request, _):
             return request.inputURLs
-        case .classify(_, let inputURLs, _, _):
-            return inputURLs
         case .savont(let request):
             return request.inputURLs
         case .pbaa(let request):
@@ -548,11 +544,6 @@ extension FASTQOperationLaunchRequest {
             urls.append(barcodeDefinitionsURL)
         case .map(_, let referenceURL, _):
             urls.append(referenceURL)
-        case .classify(_, _, let databaseName, _):
-            let databaseURL = URL(fileURLWithPath: databaseName)
-            if FileManager.default.fileExists(atPath: databaseURL.path) {
-                urls.append(databaseURL)
-            }
         case .pbaa(let request):
             urls.append(request.guideSourceURL)
         case .ontGenotyping(let request):
@@ -601,8 +592,6 @@ extension FASTQOperationLaunchRequest {
             return .map(inputURLs: inputURLs, referenceURL: referenceURL, outputMode: outputMode)
         case .assemble(let request, let outputMode):
             return .assemble(request: request.replacingInputURLs(with: inputURLs), outputMode: outputMode)
-        case .classify(let tool, _, let databaseName, let extraArguments):
-            return .classify(tool: tool, inputURLs: inputURLs, databaseName: databaseName, extraArguments: extraArguments)
         case .savont(let request):
             return .savont(request: FASTQSavontClusteringRequest(
                 inputURLs: inputURLs,
@@ -674,8 +663,6 @@ extension FASTQOperationLaunchRequest {
             return "Map Reads"
         case .assemble(let request, _):
             return request.tool.displayName
-        case .classify(let tool, _, _, _):
-            return tool.title
         case .savont:
             return "Savont Clustering"
         case .pbaa:
@@ -699,8 +686,6 @@ extension FASTQOperationLaunchRequest {
             return "mapping"
         case .assemble:
             return "assembly"
-        case .classify:
-            return "classification"
         case .savont:
             return "savontClustering"
         case .pbaa:
@@ -748,12 +733,6 @@ extension FASTQOperationLaunchRequest {
                 "assembler": request.tool.rawValue,
                 "readType": request.readType.rawValue,
             ]
-        case .classify(_, _, let databaseName, let extraArguments):
-            var params = ["database": databaseName]
-            if !extraArguments.isEmpty {
-                params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
-            }
-            return params
         case .savont(let request):
             var params = [
                 "threads": String(request.threads),
@@ -852,8 +831,6 @@ extension FASTQOperationLaunchRequest {
             return "mapping"
         case .assemble(let request, _):
             return "assembly-\(request.tool.rawValue)"
-        case .classify(let tool, _, _, _):
-            return tool.classifyOutputStem
         case .savont:
             return "savont-clusters"
         case .pbaa:
@@ -867,7 +844,7 @@ extension FASTQOperationLaunchRequest {
         switch self {
         case .refreshQCSummary, .derivative, .savont, .pbaa:
             return true
-        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .classify, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .ontGenotyping:
             return false
         }
     }
@@ -913,13 +890,6 @@ extension FASTQOperationLaunchRequest {
             // keep the original format visible to that boundary.
             if case .demultiplex = operation { return false }
             return !isRibosomalRNAFilterRequest
-        case .classify(let tool, _, _, _):
-            switch tool {
-            case .esViritu, .taxTriage:
-                return true
-            default:
-                return false
-            }
         case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .savont, .pbaa, .ontGenotyping:
             return false
         }

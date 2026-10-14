@@ -7,22 +7,21 @@
 // its Operations row (`beginFASTQLaunchRequestOperation`), and starts the CLI
 // with the invocation's subcommand and arguments. This class freezes that
 // route before the dispatcher is reworked. It holds one cell for each of the
-// ten request kinds, and the classify kind has three cells, one for each tool
-// the request names. A cell that builds pins the first word the dispatcher
+// nine request kinds. Each cell pins the first word the dispatcher
 // passes the CLI, every word of the row command, what the shipped parser
 // (`LungfishCLI.parseAsRoot`, through `RecordedCLICommand`) makes of the row and
 // of the argv `FASTQOperationExecutionService.execute` hands a spy runner for
 // the request, with the run's own output (lane A41 M3, S3 of Phase 2.8), and
 // the output kind the planner gives the request.
 //
-// The three classify cells hold decision D1 of Phase 2.8. The classification,
-// EsViritu and TaxTriage wizards the dialog embeds start their runs through
-// their own routes, so no production path hands a `.classify` request to the
-// builder, and the builder throws for it. The row of such a request records no
-// command, and no subcommand of several words can reach the CLI as one
-// argument. Before D1 the Kraken2 row spelled `conda classify`, which the
-// dispatcher passed as one argument, and the CLI refused the EsViritu and
-// TaxTriage rows.
+// The request type has no classify kind since lane A41 M3b of Phase 2.10. The
+// classification, EsViritu and TaxTriage wizards the dialog embeds start their
+// runs through their own routes (decision D1 of Phase 2.8), and their captures
+// set the dialog's `embeddedClassifierCapture` in place of a launch request.
+// Until then three classify cells here pinned the builder's refusal of that
+// request and a row with no command. Before D1 the Kraken2 row spelled
+// `conda classify`, which the dispatcher passed as one argument, and the CLI
+// refused the EsViritu and TaxTriage rows.
 //
 // The leaf pin of lane A41 (Phase 2.10) names every leaf the dialog launches,
 // from one request of each kind the builder writes a command for and one of
@@ -54,8 +53,6 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
     private enum Outcome {
         /// The builder writes `subcommand` as the first word, the row holds `words`, and the shipped parser makes `command` of the row.
         case builds(subcommand: String, words: [String], command: any ParsableCommand.Type)
-        /// The builder throws this error, and the row holds no command.
-        case refuses(FASTQOperationCLIInvocationError)
     }
 
     private struct Cell {
@@ -200,24 +197,6 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
                 outputKind: .directory
             ),
             Cell(
-                name: "classify, Kraken2",
-                request: .classify(tool: .kraken2, inputURLs: [Self.reads], databaseName: "kraken-db"),
-                outcome: .refuses(.classifierLaunchHasNoDialogCommand(tool: .kraken2)),
-                outputKind: .directory
-            ),
-            Cell(
-                name: "classify, EsViritu",
-                request: .classify(tool: .esViritu, inputURLs: [Self.reads], databaseName: "esv-db"),
-                outcome: .refuses(.classifierLaunchHasNoDialogCommand(tool: .esViritu)),
-                outputKind: .directory
-            ),
-            Cell(
-                name: "classify, TaxTriage",
-                request: .classify(tool: .taxTriage, inputURLs: [Self.reads], databaseName: "tax-db"),
-                outcome: .refuses(.classifierLaunchHasNoDialogCommand(tool: .taxTriage)),
-                outputKind: .directory
-            ),
-            Cell(
                 name: "savont",
                 request: .savont(request: savont),
                 outcome: .builds(
@@ -275,9 +254,9 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
 
     // MARK: - The table, checked
 
-    func testTheTableHoldsOneCellForEachOfTheTenRequestKinds() throws {
+    func testTheTableHoldsOneCellForEachOfTheNineRequestKinds() throws {
         let cells = try cells()
-        XCTAssertEqual(cells.count, 12, "nine kinds with one cell each, and the classify kind with three")
+        XCTAssertEqual(cells.count, 9, "one cell for each kind")
         let kinds = Set(cells.map { cell -> String in
             switch cell.request {
             case .refreshQCSummary: return "refreshQCSummary"
@@ -286,13 +265,12 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
             case .ontPacBioBarcodeDemux: return "ontPacBioBarcodeDemux"
             case .map: return "map"
             case .assemble: return "assemble"
-            case .classify: return "classify"
             case .savont: return "savont"
             case .pbaa: return "pbaa"
             case .ontGenotyping: return "ontGenotyping"
             }
         })
-        XCTAssertEqual(kinds.count, 10)
+        XCTAssertEqual(kinds.count, 9)
     }
 
     func testEachCellBuildsTheInvocationAndRecordsTheRowCommandItPins() throws {
@@ -309,11 +287,6 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
                     "\(cell.name), the row is the invocation's command line"
                 )
                 XCTAssertEqual(try RecordedCLICommand.arguments(of: recorded), words, cell.name)
-            case .refuses(let error):
-                XCTAssertThrowsError(try FASTQOperationCLIInvocationBuilder().buildInvocation(for: cell.request), cell.name) {
-                    XCTAssertEqual($0 as? FASTQOperationCLIInvocationError, error, cell.name)
-                }
-                XCTAssertNil(row, "\(cell.name), a request with no command records none")
             }
         }
     }
