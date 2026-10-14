@@ -35,7 +35,16 @@ struct NCBISubcommand: AsyncParsableCommand {
         discussion: """
             Download sequences from NCBI GenBank/RefSeq databases.
 
+            With --bundle each accession becomes a .lungfishref bundle in --output-dir,
+            built as the app's NCBI browser builds a nucleotide or virus record. The one
+            sequence is named by the accession with its version. With --format json the
+            command prints CLIEvent lines on standard output and its human text on
+            standard error. SIGTERM stops the run, removes the bundle it was building
+            and exits 125. The NCBI key comes from --api-key or from the NCBI_API_KEY
+            environment variable.
+
             Examples:
+              lungfish-cli fetch ncbi NC_045512.2 MN908947.3 --bundle --output-dir ./bundles
               lungfish-cli fetch ncbi NC_002549 --save-to ebola.gb
               lungfish-cli fetch ncbi NC_002549 --fetch-format fasta --save-to ebola.fa
               lungfish-cli fetch ncbi MN908947.3 --fetch-format gff3 --save-to MN908947.3.gff3
@@ -76,9 +85,44 @@ struct NCBISubcommand: AsyncParsableCommand {
     )
     var noRetry: Bool = false
 
+    @Flag(
+        name: .customLong("bundle"),
+        help: "Build a .lungfishref bundle for each accession instead of saving one file"
+    )
+    var bundle: Bool = false
+
+    @Option(
+        name: .customLong("output-dir"),
+        help: "With --bundle, the folder for the bundles (default: current directory)"
+    )
+    var outputDir: String?
+
+    @Flag(
+        name: .customLong("no-gff3"),
+        help: "With --bundle, fetch no GFF3 and take the annotations from the GenBank record"
+    )
+    var noGFF3: Bool = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
+    func validate() throws {
+        if bundle {
+            guard saveTo == nil else {
+                throw ValidationError("--bundle writes its bundles into --output-dir, so it takes no --save-to.")
+            }
+            guard database == "nucleotide", fetchFormat == "genbank" else {
+                throw ValidationError("--bundle builds from the GenBank record of a nucleotide accession, so it takes no --db or --fetch-format.")
+            }
+        } else if outputDir != nil || noGFF3 {
+            throw ValidationError("--output-dir and --no-gff3 belong to --bundle.")
+        }
+    }
+
     func run() async throws {
+        if bundle {
+            try await runBundle()
+            return
+        }
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 

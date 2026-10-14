@@ -2,7 +2,17 @@ OVERVIEW: Fetch sequence from NCBI by accession
 
 Download sequences from NCBI GenBank/RefSeq databases.
 
+With --bundle each accession becomes a .lungfishref bundle in --output-dir,
+built as the app's NCBI browser builds a nucleotide or virus record. The one
+sequence is named by the accession with its version. With --format json the
+command prints CLIEvent lines on standard output and its human text on
+standard error. SIGTERM stops the run, removes the bundle it was building
+and exits 125. The NCBI key comes from --api-key or from the NCBI_API_KEY
+environment variable.
+
 Examples:
+  lungfish-cli fetch ncbi NC_045512.2 MN908947.3 --bundle --output-dir
+./bundles
   lungfish-cli fetch ncbi NC_002549 --save-to ebola.gb
   lungfish-cli fetch ncbi NC_002549 --fetch-format fasta --save-to ebola.fa
   lungfish-cli fetch ncbi MN908947.3 --fetch-format gff3 --save-to
@@ -23,6 +33,13 @@ OPTIONS:
   --save-to <save-to>     Output file path
   --api-key <api-key>     NCBI API key for higher rate limits
   --no-retry              Do not retry HTTP 429 rate-limit responses
+  --bundle                Build a .lungfishref bundle for each accession
+                          instead of saving one file
+  --output-dir <output-dir>
+                          With --bundle, the folder for the bundles (default:
+                          current directory)
+  --no-gff3               With --bundle, fetch no GFF3 and take the annotations
+                          from the GenBank record
   --format <format>       Output format: text, json, tsv (default: text)
                           (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,

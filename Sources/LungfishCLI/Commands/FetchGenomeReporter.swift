@@ -50,19 +50,23 @@ struct FetchGenomeReporter: Sendable {
     let eventsOn: Bool
     let quiet: Bool
     let useColors: Bool
+    /// What one accession becomes, in the words of the start, heading and closing lines. `fetch
+    /// ncbi --bundle` (lane A45) passes `NCBI bundle` and shares the rest of the reporter.
+    let subject: String
     private let events: CLIEventEmitter
 
-    init(eventsOn: Bool, quiet: Bool, useColors: Bool) {
+    init(eventsOn: Bool, quiet: Bool, useColors: Bool, subject: String = "genome") {
         self.eventsOn = eventsOn
         self.quiet = quiet
         self.useColors = useColors
+        self.subject = subject
         events = CLIEventEmitter(enabled: eventsOn) { printEventLine($0) }
     }
 
     private var formatter: TerminalFormatter { TerminalFormatter(useColors: useColors) }
 
     func start(accessions: [String]) {
-        events.emitStart("Started genome fetch of \(accessions.count) accession(s) via lungfish-cli")
+        events.emitStart("Started \(subject) fetch of \(accessions.count) accession(s) via lungfish-cli")
     }
 
     func text(_ line: String) {
@@ -102,7 +106,7 @@ struct FetchGenomeReporter: Sendable {
     }
 
     func beginAccession(_ accession: String, index: Int, count: Int, destination: URL) {
-        header("Fetching Genome \(index + 1) of \(count)")
+        header("Fetching \(subject.prefix(1).uppercased() + subject.dropFirst()) \(index + 1) of \(count)")
         text("Accession: \(accession)")
         text("Output: \(destination.path)")
         text("")
@@ -144,9 +148,9 @@ struct FetchGenomeReporter: Sendable {
             ))
         }
         let paths = outcome.outputs.flatMap(\.paths)
-        events.emitComplete(outputs: paths, artifacts: artifacts, message: "Fetched \(outcome.outputs.count) genome(s)")
+        events.emitComplete(outputs: paths, artifacts: artifacts, message: "Fetched \(outcome.outputs.count) \(subject)(s)")
         text("")
-        success("Fetched \(outcome.outputs.count) genome(s)")
+        success("Fetched \(outcome.outputs.count) \(subject)(s)")
     }
 
     private func fail(_ message: String, detail: String?) {

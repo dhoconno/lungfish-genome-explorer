@@ -57,6 +57,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `fastq ingest` runs clumpify from the managed bbtools environment, so a unit test cannot
         // capture its transcripts in process (lane A47 of Phase 2.10).
         "fastq ingest",
+        // `fetch ncbi --bundle` builds with the same tools, and its transcripts are runs of the built
+        // CLI on the same stand-in (FetchNCBIEventTranscriptReplayTests, lane A45 of Phase 2.10).
+        "fetch ncbi",
     ]
 
     static var transcriptsFolder: URL {

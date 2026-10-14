@@ -1,0 +1,5 @@
+{"event":"start","message":"Started NCBI bundle fetch of 1 accession(s) via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"ZZ999999.1: Checking tools...","progress":0.01,"schemaVersion":2}
+{"event":"progress","message":"ZZ999999.1: Resolving accession ZZ999999.1...","progress":0.02,"schemaVersion":2}
+{"event":"log","level":"error","message":"ZZ999999.1: Record not found: ZZ999999.1","schemaVersion":2}
+{"error":"ZZ999999.1: Record not found: ZZ999999.1","event":"failed","schemaVersion":2}
