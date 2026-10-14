@@ -885,7 +885,7 @@ final class TempFileManagerRegressionTests: XCTestCase {
         let manager = TempFileManager.shared
 
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lungfish-test-\(UUID().uuidString)")
+            .appendingPathComponent("TempFileManagerRegressionTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         manager.registerSessionTempDirectory(tempDir)

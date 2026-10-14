@@ -39,7 +39,7 @@ final class TaxTriageSampleFilterAlignmentPaneTests: XCTestCase {
 
         // Evidence must live inside the result folder, as TaxTriage writes it.
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TaxTriageFilterPane-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("TaxTriageFilterPaneEvidence-\(UUID().uuidString)", isDirectory: true)
         let minimap = root.appendingPathComponent("minimap2", isDirectory: true)
         try FileManager.default.createDirectory(at: minimap, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
