@@ -20,7 +20,8 @@
 //   At the base no sample was marked.
 // - X7. Since B30 M3 a `build-db taxtriage --force` rebuild of an executor result runs the executor's cleanup, which
 //   keeps `top/`, names the database it replaced in a removal step and refreshes the root record. At the base it ran
-//   the legacy cleanup, which deleted the `top/` the executor kept and its root record still named.
+//   the legacy cleanup, which deleted the `top/` the executor kept and its root record still named. Since B30's
+//   review fix 8 the first build of a plain `--output` result, which its run leaves with no index, does so too.
 //
 // Each case runs the command in this process with its pipeline seam bound to `TaxTriageStandInEngine`, which starts
 // processes, so the class name ends in ReplayTests and the class runs in the serial replay tier.
@@ -266,6 +267,47 @@ final class TaxTriageExecutorBatchTreeReplayTests: XCTestCase {
         let runLevel = (after.files + after.outputs + [after.output].compactMap { $0 }).filter { Self.names($0, database) }
         XCTAssertFalse(runLevel.isEmpty)
         XCTAssertEqual(Set(runLevel.map(\.checksumSHA256)), [rebuiltDigest], "the run level names the database it holds")
+    }
+
+    /// X7 on a plain `--output` result, which its run leaves with no index (B30 review fix 8, ruling 4). The first
+    /// `build-db taxtriage` runs the executor's cleanup there too, which keeps `top/`, and adds its step to the root
+    /// record. At the base it ran the legacy cleanup, which deleted the `top/` the root record names.
+    func testABuildDbOfAPlainOutputResultKeepsTopAndRecordsTheBuild() async throws {
+        let engine = try makeEngine()
+        let project = try makeProject()
+        let patient = try XCTUnwrap(Self.samples.first { $0 != Self.controlSample })
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let (code, lines) = try await run(
+            ["--input", bundle(patient, in: project).path, "--sample", patient, "--output", output.path], engine: engine
+        )
+        XCTAssertEqual(code, 0, lines.joined(separator: "\n"))
+        let database = output.appendingPathComponent("taxtriage.sqlite")
+        let top = output.appendingPathComponent("top", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: database.path), "a plain --output run builds no index")
+        XCTAssertFalse(try Self.topReports(in: top).isEmpty, "the run keeps top/")
+        XCTAssertFalse(try Self.namedTopReports(in: output).isEmpty, "the root record names the top report")
+        let before = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: output))
+
+        let build = try BuildDbCommand.TaxTriageSubcommand.parse([output.path, "-q"])
+        try await build.run()
+
+        XCTAssertFalse(try Self.topReports(in: top).isEmpty, "X7: the build keeps top/ (2.8 T5)")
+        XCTAssertEqual(
+            try Self.namedTopReports(in: output).filter { !FileManager.default.fileExists(atPath: $0) }, [],
+            "X7: every top report the root record names exists"
+        )
+        let after = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: output))
+        XCTAssertEqual(after.workflowName, TaxTriageAnalysisRunTool.workflowName, "the root record still records the run")
+        XCTAssertEqual(after.argv, before.argv, "the record still names the command that ran")
+        XCTAssertEqual(after.steps.prefix(before.steps.count).map(\.id), before.steps.map(\.id), "the run's steps stay")
+        let digest = try ProvenanceFileDescriptor.file(url: database).checksumSHA256
+        XCTAssertTrue(
+            after.steps.dropFirst(before.steps.count).contains { step in
+                step.toolName == "lungfish build-db taxtriage"
+                    && step.outputs.contains { Self.names($0, database) && $0.checksumSHA256 == digest }
+            },
+            "the root record gains the build step, which names the database it wrote: \(after.steps.map(\.toolName))"
+        )
     }
 
     private static func names(_ descriptor: ProvenanceFileDescriptor, _ file: URL) -> Bool {

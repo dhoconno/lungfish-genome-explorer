@@ -60,8 +60,6 @@ enum TaxTriageParityKnownDifferences {
     static let perSample = "2.10, a recorded command for several samples (cli-parity-gap taxtriage-multi-sample, A3 and U8)"
     /// The GUI claims its folder before the pipeline lists its outputs, `taxtriage run` after.
     static let folderClaim = "A2 or the 2.10 GUI route, once both routes claim the folder before the pipeline lists its outputs"
-    /// build-db's cleanup deletes `top/`, which the records it leaves still name.
-    static let keptTop = "A2 with B12, a cleanup that keeps top/ and records what it removes (2.8 T5, row 258)"
     /// A one-sample row records a plain `--output` into the GUI's own batch folder (2.8 T17).
     static let rowSpelling = "2.10, a one-sample row that records --project, so its replay lays the result out as the app does (2.8 T17)"
     /// The reader re-roots a span of free text that holds several paths (PortablePath.rerootFreeText).
@@ -89,8 +87,8 @@ enum TaxTriageParityKnownDifferences {
         pair([.x1: 2, .x2: 2, .x3: 2, .x4: 2, .x5: 2], "analysis: only in A: taxtriage.sqlite*",
              "The GUI runs build-db taxtriage once the pipeline ends, which writes taxtriage.sqlite and its record. taxtriage run builds no database (TaxTriageStandInEngineReplayTests pins it). X7 runs build-db on side B too",
              closedBy: executorIndex),
-        pair([.x1: 1, .x2: 1, .x5: 1], "analysis: only in B: top/*.top_report.tsv",
-             "The GUI's build-db step deletes top/ with the other intermediate folders (performCleanupForSingleResult in BuildDbCommand.swift). The legacy route keeps that cleanup until it goes, and the executor path keeps top/ (2.8 T5)",
+        pair([.x1: 1, .x2: 1, .x5: 1, .x7: 1], "analysis: only in B: top/*.top_report.tsv",
+             "The GUI's build-db step deletes top/ with the other intermediate folders (performCleanupForSingleResult in BuildDbCommand.swift). The legacy route keeps that cleanup until it goes, and the executor path keeps top/ (2.8 T5), as X7's build-db of side B's plain --output result does since B30's review fix 8",
              closedBy: guiRoute),
         pair([.x1: 1, .x2: 1, .x3: 1, .x5: 1, .x7: 1], "analysis: differs: taxtriage-result.json",
              "allOutputFiles. The GUI's list starts with analysis-metadata.json, which the GUI writes when it claims the folder before the run, and its batch result lists each sample's files in the sample's folder. taxtriage run marks its folder after the pipeline lists its files (markAsProjectAnalysisIfNeeded) and a pooled run lists every file at its root",
@@ -229,11 +227,11 @@ enum TaxTriageParityKnownDifferences {
             closedBy: perSample
         ),
         TaxTriageParityKnownDifference(
-            counts: [.x7: 2],
+            counts: [.x7: 1],
             scope: .side(.b),
-            id: "fact: record * names *top/*.top_report.tsv that does not exist",
-            reason: "2.8 T5 on side B. X7 runs the app's build-db on side B before the rebuild, whose cleanup deletes top/, which the result's record and the database's record still name, as on side A",
-            closedBy: keptTop
+            id: "fact: the run builds the database, its cleanup keeps top/ and the --force rebuild completes",
+            reason: "Side B's one-sample row records a plain --output, whose run builds no database, so X7 runs the app's build-db on side B first. Since B30's review fix 8 that build runs the executor's cleanup, which keeps top/ and records the build in the root record, and the --force rebuild completes",
+            closedBy: rowSpelling
         ),
     ]
 

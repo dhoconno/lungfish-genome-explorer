@@ -38,10 +38,13 @@ extension TaxTriageParityCase {
         }
     }
 
-    /// Whether `side`'s run builds `taxtriage.sqlite` and records a cleanup that keeps `top/`,
-    /// the executor's finalize of a `--project` result (2.8 T5 and row 258).
+    /// Whether `side`'s result keeps `top/` through every build-db taxtriage, a `taxtriage run` result
+    /// of one Nextflow per sample. On sides C and C' the executor's finalize of a `--project` result
+    /// builds `taxtriage.sqlite` with the cleanup that keeps `top/` (2.8 T5 and row 258). Side B's
+    /// plain `--output` builds none, and since B30's review fix 8 the app's first build-db of it runs
+    /// that cleanup too.
     func keepsTop(on side: TaxTriageParitySide) -> Bool {
-        (side == .c || side == .cPrime) && !runsPooled(on: side)
+        side != .a && !runsPooled(on: side)
     }
 }
 
