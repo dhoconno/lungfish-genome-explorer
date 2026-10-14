@@ -21,6 +21,10 @@ extension CLIEventTranscriptCoverageTests {
         expectingFailure: Bool = false,
         _ run: @escaping (@escaping (String) -> Void) async throws -> Void
     ) async throws -> [String] {
+        // `tools update --storage-root` exports LUNGFISH_STORAGE_ROOT into this process
+        // (`ToolsCommand.resolvedStorageRoot`), and every later class of the CLI test process would
+        // then look for its tools under the scratch folder. Put back what the process had.
+        let savedStorageRoot = ProcessInfo.processInfo.environment["LUNGFISH_STORAGE_ROOT"]
         CondaCommand.storageRootOverride = scratch.root
         defer {
             CondaCommand.storageRootOverride = nil
@@ -28,6 +32,11 @@ extension CLIEventTranscriptCoverageTests {
             ToolsCommand.manifestOverride = nil
             ToolsCommand.servicesOverride = nil
             DbCommand.DbUpdateSubcommand.registryOverride = nil
+            if let savedStorageRoot {
+                setenv("LUNGFISH_STORAGE_ROOT", savedStorageRoot, 1)
+            } else {
+                unsetenv("LUNGFISH_STORAGE_ROOT")
+            }
         }
         let lines = try await eventLines(expectingFailure: expectingFailure, run)
         return lines.map {
