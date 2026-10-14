@@ -94,6 +94,76 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
         XCTAssertFalse(try summaryTexts(of: model).contains("Step Tools"))
     }
 
+    // MARK: - Pins at the base (Phase 2.10 lane U35, M1 item 1)
+
+    /// A full commit as TaxTriage's executor records the revision of its step. The first starts with a letter and
+    /// the second with a digit, since the Lineage puts `v` before a version that starts with a digit.
+    private static let letterCommit = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    private static let digitCommit = "3a5c9d1e7b2f40886d9a1c3e5f7092b4d6e8a0c2"
+
+    /// T12. A record the CLI route writes for a TaxTriage run holds the tool `taxtriage` at the revision, a commit,
+    /// and the release tag beside it. Step Tools prints the step's version as recorded, so it reads the 40 characters.
+    func testATaxTriageExecutorRecordShowsTheFortyHexCommitInStepTools() async throws {
+        let commit = Self.letterCommit
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", commit)], releases: ["taxtriage": "v3.3.8"])
+        )
+
+        XCTAssertEqual(model.stepToolsText, "taxtriage \(commit)")
+        XCTAssertTrue(model.copyableText.contains("Step Tools: taxtriage \(commit)\n"), model.copyableText)
+        let texts = try summaryTexts(of: model)
+        XCTAssertTrue(texts.contains("Step Tools") && texts.contains("taxtriage \(commit)"), "\(texts)")
+    }
+
+    /// T12. A commit that starts with a digit reads `v<commit>` in Step Tools, in the Lineage and in the Copy text,
+    /// as a version such as `1.24` reads `v1.24`.
+    func testACommitThatStartsWithADigitReadsVBeforeItInStepToolsAndTheLineage() async throws {
+        let commit = Self.digitCommit
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("taxtriage", commit)], releases: ["taxtriage": "v3.3.8"])
+        )
+
+        XCTAssertEqual(model.stepToolsText, "taxtriage v\(commit)")
+        XCTAssertEqual(model.lineageRuns.last?.steps.first?.toolVersion, "v\(commit)")
+        XCTAssertTrue(model.copyableText.contains("\n1. taxtriage v\(commit)\n"), model.copyableText)
+    }
+
+    /// Row 273. A record the command line wrote lists the helper steps LGE ran itself when their names do not
+    /// start with `lungfish` or `LGE `, such as the `URLSession` step of a database download.
+    func testALungfishCLIRecordListsAURLSessionStepInStepTools() async throws {
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("URLSession", "Foundation"), ("kraken2", "2.17.1")])
+        )
+
+        XCTAssertEqual(model.stepToolsText, "URLSession Foundation, kraken2 v2.17.1")
+        XCTAssertTrue(model.copyableText.contains("Step Tools: URLSession Foundation, kraken2 v2.17.1\n"), model.copyableText)
+    }
+
+    /// Row 273. The reader resolves `@/` inside the stored command and adds no quotes, so the full command of a
+    /// step holds the project folder's path as it was spelt, white space and all, when the folder's name has a space.
+    /// The shortened command the view shows reads the path as one word.
+    func testAProjectFolderNamedWithASpaceShowsTheFullCommandUnquoted() async throws {
+        let model = try await loadedModel(
+            try commandLineRecord(steps: [("kraken2", "2.17.1")]), projectName: "Spaced Runs.lungfish"
+        )
+
+        let step = try XCTUnwrap(model.lineageRuns.last?.steps.first)
+        let sidecar = try XCTUnwrap(model.resolvedSidecarURL)
+        let folder = sidecar.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        XCTAssertEqual(folder.lastPathComponent, "Spaced Runs.lungfish")
+        let spellings = Set([folder.path, folder.standardizedFileURL.path, folder.resolvingSymlinksInPath().path])
+        let unquoted = spellings.map {
+            "lungfish-cli fastq trim \($0)/Inputs/reads.fastq --output \($0)/Analyses/fastq-trim-cancelled/trimmed.fastq"
+        }
+        XCTAssertTrue(unquoted.contains(step.command), "the full command was \(step.command)")
+        XCTAssertFalse(step.command.contains("'"), step.command)
+        XCTAssertEqual(
+            step.displayCommand,
+            "lungfish-cli fastq trim Inputs/reads.fastq --output Analyses/fastq-trim-cancelled/trimmed.fastq"
+        )
+        XCTAssertTrue(model.copyableText.contains("\nCommand: \(step.command)\n"), model.copyableText)
+    }
+
     // MARK: - Order
 
     /// The row comes right after Tool in the Copy text, in the order the view lists its rows, and so in the order
@@ -135,8 +205,12 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
             .appendingPathComponent("Analyses/fastq-trim-cancelled/.lungfish-provenance.json"))
     }
 
-    /// The cancelled record after it names `lungfish-cli` as its own tool and holds one step per pair.
-    private func commandLineRecord(steps: [(tool: String, version: String)]) throws -> Data {
+    /// The cancelled record after it names `lungfish-cli` as its own tool and holds one step per pair. A tool named
+    /// in `releases` records that release tag as its step's `githubReleaseVersion`.
+    private func commandLineRecord(
+        steps: [(tool: String, version: String)],
+        releases: [String: String] = [:]
+    ) throws -> Data {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try recordBytes()) as? [String: Any])
         let template = try XCTUnwrap((object["steps"] as? [[String: Any]])?.first)
         object["toolName"] = "lungfish-cli"
@@ -147,15 +221,16 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
             step["id"] = UUID().uuidString
             step["toolName"] = pair.tool
             step["toolVersion"] = pair.version
+            if let release = releases[pair.tool] { step["githubReleaseVersion"] = release }
             return step
         }
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
     }
 
-    private func loadedModel(_ bytes: Data) async throws -> ProvenanceInspectorViewModel {
+    private func loadedModel(_ bytes: Data, projectName: String = "Runs.lungfish") async throws -> ProvenanceInspectorViewModel {
         let root = try TestTempDirectory.make(prefix: "provenance-step-tools")
         addTeardownBlock { TestTempDirectory.cleanup(root) }
-        let project = root.appendingPathComponent("Runs.lungfish", isDirectory: true)
+        let project = root.appendingPathComponent(projectName, isDirectory: true)
         let sidecar = project.appendingPathComponent("Analyses/classify-run/.lungfish-provenance.json")
         try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
         try bytes.write(to: sidecar, options: .atomic)
