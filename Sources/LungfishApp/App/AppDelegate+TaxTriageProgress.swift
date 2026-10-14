@@ -29,13 +29,22 @@ extension AppDelegate {
     /// The row's bar for a fraction the runner reports.
     ///
     /// The runner's scale ends on 1.0 at its last message, `TaxTriage pipeline complete`, and the
-    /// database stage that follows owns the last tenth of the bar (W3, U38 M3). So the bar holds at
-    /// `1 - s`, with `s` the descriptor's finalize share, until the stage moves it into its share and
-    /// the row completes at 1.0, and a bar that was on 1.0 would leave the stage no room to move and
-    /// never move back. The engine's own values lie below `1 - s` and stay as they were.
+    /// database stage that follows owns the last tenth of the bar (W3, U38 M3). So the bar scales the
+    /// runner's fraction onto `0...(1 - s)`, with `s` the descriptor's finalize share, as the executor
+    /// scales its units (`AnalysisRunJournal.runFraction`). The runner's end reads `1 - s`, the stage
+    /// moves the bar into its share and the row completes at 1.0. A bar that was on 1.0 would leave
+    /// the stage no room to move and never move back.
+    ///
+    /// The bar scales the fraction and does not cap it. A serial batch maps sample `i` of `N` onto
+    /// `(i + f) / N` (`TaxTriageSerialBatchRunner`), so it reports 0.9 and more inside its last samples,
+    /// and a cap at `1 - s` froze the bar there while the detail went on, from the middle of sample 5
+    /// of 5 and through all of sample 10 of 10 (U38 review, fix 1).
+    ///
+    /// This maps the legacy runner's scale only. The executor's fractions are on the run's scale
+    /// already, so a route that holds them must not pass them through here.
     static func taxTriageEngineBar(_ progress: Double) -> Double {
         let engineEnd = 1 - NextflowWorkflowDescriptor.taxTriage.finalizeProgressShare
-        return max(0, min(engineEnd, progress))
+        return max(0, min(1, progress)) * engineEnd
     }
 
     /// Shows the row's own `Cancelling...` on the viewer's overlay once a cancel has moved the row

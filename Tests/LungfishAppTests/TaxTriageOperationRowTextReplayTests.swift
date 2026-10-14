@@ -164,14 +164,15 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
             ].joined(separator: "\n")
         )
 
-        // The bar never moves back (T9). In the engine stage it follows the completed rows of
+        // The bar never moves back (T9). In the engine stage the runner follows the completed rows of
         // trace.txt against 29 tasks, so the stand-in's 29 rows take it to its stop at 0.86 (2.9 W2).
-        // The database stage owns the last tenth of the bar (W3, U38 M3), so the runner's last report,
-        // 1.0, reads 0.9 on the row, the stage moves the bar to the middle of its share, 0.95, and the
-        // row completes at 1.0. The stage sat on 1.0 before.
+        // The database stage owns the last tenth of the bar (W3, U38 M3), so the row scales the runner's
+        // fraction by 0.9 (U38 fix 1). The stop reads 0.774, the runner's 0.9 (collecting the outputs)
+        // reads 0.81 and its last report, 1.0, reads 0.9. The stage moves the bar to the middle of its
+        // share, 0.95, and the row completes at 1.0. The stage sat on 1.0 before.
         XCTAssertEqual(
-            Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.1, 0.86)]),
-            [0, 0.05, 0.1, 0.86, 0.9, 0.95, 1.0],
+            Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.09, 0.774)]),
+            [0, 0.045, 0.09, 0.774, 0.81, 0.9, 0.95, 1.0],
             "\(run.trace.bars)"
         )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])
@@ -341,12 +342,13 @@ final class TaxTriageOperationRowTextReplayTests: XCTestCase {
 
         // The bar never moves back (T9). Each sample's engine stage follows its completed trace rows
         // against 29 tasks (2.9 W2). S1's 29 rows stop it at 0.86 of its half, and S2's run ends after
-        // 7 completed rows and its failed one. The failed sample's end reads 0.9 on the row, because the
-        // database stage owns the last tenth of the bar, which the stage moves to 0.95 before the row
-        // completes at 1.0 (U38 M3). The failed sample ended the bar at 1.0 and the build kept it there.
+        // 7 completed rows and its failed one. The database stage owns the last tenth of the bar, so the
+        // row scales the batch's fraction by 0.9 (U38 M3 and fix 1). S2's 7 rows read 0.5819 and the
+        // failed sample's end, the batch's 1.0, reads 0.9. The stage moves the bar to 0.95 before the row
+        // completes at 1.0. The failed sample ended the bar at 1.0 and the build kept it there.
         XCTAssertEqual(
-            Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.05, 0.43), (0.55, 0.6466)]),
-            [0, 0.025, 0.05, 0.43, 0.45, 0.5, 0.525, 0.55, 0.6466, 0.9, 0.95, 1.0],
+            Self.bars(Self.rounded(run.trace.bars), leavingOutPollsWithin: [(0.045, 0.387), (0.495, 0.5819)]),
+            [0, 0.0225, 0.045, 0.387, 0.405, 0.45, 0.4725, 0.495, 0.5819, 0.9, 0.95, 1.0],
             "\(run.trace.bars)"
         )
         XCTAssertEqual(Self.drops(in: run.trace.bars), [])

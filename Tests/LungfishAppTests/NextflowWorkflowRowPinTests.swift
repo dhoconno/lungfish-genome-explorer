@@ -440,7 +440,8 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
         XCTAssertEqual(cancelling.state, .cancelling)
         XCTAssertEqual(cancelling.displayStateLabel, "Cancelling")
         XCTAssertEqual(cancelling.detail, "Cancelling...", "the row refuses the late line")
-        XCTAssertEqual(cancelling.progress, 0.3, accuracy: 0.0001, "and the bar stays where it was")
+        // The runner's 0.3 reads 0.27 on the row, which scales the runner's fraction by 0.9 (U38 fix 1).
+        XCTAssertEqual(cancelling.progress, 0.27, accuracy: 0.0001, "and the bar stays where it was")
         XCTAssertFalse(viewer.overlayLines.contains(during), "the overlay refuses it too, \(viewer.overlayLines)")
         XCTAssertEqual(Self.loggedLines(of: cancelling).last, "info: \(during)", "and the log keeps it")
 

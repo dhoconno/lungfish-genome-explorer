@@ -217,19 +217,40 @@ final class TaxTriageCompletionStateTests: XCTestCase {
 
     // MARK: - The row's bar
 
-    /// The database stage owns the last tenth of the bar (W3, U38 M3), so the runner's own end, 1.0,
-    /// reads 0.9 on the row and the stage has room to move the bar before the row completes. The
-    /// engine's values lie below 0.9 and stay as they were.
+    /// The database stage owns the last tenth of the bar (W3, U38 M3), so the row scales the runner's
+    /// fraction onto the first nine tenths, as the executor scales its units
+    /// (`AnalysisRunJournal.runFraction`). The runner's own end, 1.0, reads 0.9 on the row and the stage
+    /// has room to move the bar before the row completes. A fraction outside 0...1 is held to it.
     func testTheRunnersEndReadsWhereTheDatabaseStagesShareBegins() {
-        for engineValue in [0.0, 0.05, 0.1, 0.43, 0.86] {
-            XCTAssertEqual(AppDelegate.taxTriageEngineBar(engineValue), engineValue)
-        }
         let engineEnd = 1 - NextflowWorkflowDescriptor.taxTriage.finalizeProgressShare
         XCTAssertEqual(engineEnd, 0.9, accuracy: 1e-12)
-        for runnerValue in [0.9, 1.0, 7.0] {
-            XCTAssertEqual(AppDelegate.taxTriageEngineBar(runnerValue), engineEnd, accuracy: 1e-12)
+        for runnerValue in [0.0, 0.05, 0.1, 0.43, 0.86, 0.9, 0.95, 1.0] {
+            XCTAssertEqual(AppDelegate.taxTriageEngineBar(runnerValue), runnerValue * engineEnd, accuracy: 1e-12)
         }
+        // The middle of sample 10 of 10 reads below the runner's end, where a cap read both on 0.9.
+        XCTAssertLessThan(AppDelegate.taxTriageEngineBar(0.95), AppDelegate.taxTriageEngineBar(1.0))
+        XCTAssertEqual(AppDelegate.taxTriageEngineBar(7.0), engineEnd, accuracy: 1e-12)
         XCTAssertEqual(AppDelegate.taxTriageEngineBar(-1), 0)
+    }
+
+    /// A serial batch maps sample `i` of `N` onto `(i + f) / N` (`TaxTriageSerialBatchRunner`), so its
+    /// last samples report 0.9 and more before the batch ends. That is from the middle of sample 5 of 5,
+    /// through all of sample 10 of 10 and in the last 2.4 samples of 24. The row's bar scales the
+    /// fraction instead of capping it, so the bar keeps moving through the whole last sample, stays
+    /// below 0.9 until the runner's last report and ends on 0.9, where the database stage takes over.
+    /// A cap at 0.9 froze the bar through those samples while the detail kept moving (U38 review, fix 1).
+    func testASerialBatchsBarKeepsMovingThroughItsLastSample() {
+        let engineEnd = 1 - NextflowWorkflowDescriptor.taxTriage.finalizeProgressShare
+        for total in [2, 5, 10, 24] {
+            // Every twentieth of the last sample, from its start to its end, as the batch maps it.
+            let reports = (0...20).map { (Double(total - 1) + Double($0) / 20) / Double(total) }
+            let bars = reports.map { AppDelegate.taxTriageEngineBar($0) }
+            for (earlier, later) in zip(bars, bars.dropFirst()) {
+                XCTAssertLessThan(earlier, later, "\(total) samples, the bar froze at \(earlier), \(bars)")
+            }
+            XCTAssertLessThan(bars.dropLast().max() ?? 1, engineEnd, "\(total) samples, \(bars)")
+            XCTAssertEqual(bars.last ?? -1, engineEnd, accuracy: 1e-12, "\(total) samples, \(bars)")
+        }
     }
 
     // MARK: - Exclude host taxa field
