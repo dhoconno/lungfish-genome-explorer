@@ -49,7 +49,8 @@ final class ViralReconReadSetCLITests: XCTestCase {
     final class CapturingNextflowRunner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
         private(set) var launches: [(arguments: [String], rows: [LaunchedRow])] = []
 
-        func runNextflow(arguments: [String], workingDirectory: URL, environment: [String: String]) async throws -> NFCoreWorkflowProcessResult {
+        func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            let arguments = launch.arguments
             var rows: [LaunchedRow] = []
             if let index = arguments.firstIndex(of: "--input"), index + 1 < arguments.count {
                 let text = (try? String(contentsOf: URL(fileURLWithPath: arguments[index + 1]), encoding: .utf8)) ?? ""

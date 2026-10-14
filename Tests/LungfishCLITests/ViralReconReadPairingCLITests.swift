@@ -35,7 +35,8 @@ final class ViralReconReadPairingCLITests: XCTestCase {
         }
         private(set) var launches: [Launch] = []
 
-        func runNextflow(arguments: [String], workingDirectory: URL, environment: [String: String]) async throws -> NFCoreWorkflowProcessResult {
+        func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            let arguments = launch.arguments
             var samplesheetText: String?
             var counts: [Int] = []
             if let index = arguments.firstIndex(of: "--input"), index + 1 < arguments.count {

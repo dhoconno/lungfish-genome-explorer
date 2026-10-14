@@ -100,12 +100,15 @@ final class WorkflowRunManagedEngineTests: XCTestCase {
         let nfCore = ProcessNFCoreWorkflowProcessRunner(homeDirectory: home, resolveLaunch: resolver)
         XCTAssertThrowsError(try nfCore.preflightEngine()) { XCTAssertTrue($0 is WorkflowEngineNotInstalled, "\($0)") }
         do {
-            _ = try await nfCore.runNextflow(arguments: ["-version"], workingDirectory: root, environment: [:])
+            _ = try await nfCore.runNextflow(NFCoreWorkflowLaunch(
+                arguments: ["-version"], profile: "docker", workingDirectory: root,
+                workDirectory: root.appendingPathComponent("work", isDirectory: true), environment: [:],
+                logFile: root.appendingPathComponent("nextflow.log")))
             XCTFail("runNextflow must not fall back to PATH")
         } catch {
             XCTAssertTrue(error is WorkflowEngineNotInstalled, "\(error)")
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".nextflow-stdout.log").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("nextflow.log").path), "nothing launched")
 
         let local = ProcessLocalWorkflowProcessRunner(homeDirectory: home, resolveLaunch: resolver)
         XCTAssertNil(local.runtimeExecutableURL(named: "nextflow"))

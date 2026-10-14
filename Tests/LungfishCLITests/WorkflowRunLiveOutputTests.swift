@@ -35,7 +35,8 @@ final class WorkflowRunLiveOutputTests: XCTestCase {
             self.readDescriptor = readDescriptor
         }
 
-        func runNextflow(arguments: [String], workingDirectory: URL, environment: [String: String]) async throws -> NFCoreWorkflowProcessResult {
+        func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            let arguments = launch.arguments
             outputSeenWhileRunning = Self.drain(readDescriptor)
             if let index = arguments.firstIndex(of: "--outdir"), index + 1 < arguments.count {
                 try FileManager.default.createDirectory(

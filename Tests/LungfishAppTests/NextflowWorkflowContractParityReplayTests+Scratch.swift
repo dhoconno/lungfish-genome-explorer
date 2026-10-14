@@ -44,13 +44,18 @@ extension NextflowWorkflowContractParityReplayTests {
             return XCTFail("The CLI never launched the stand-in.\(stop.diagnostics)")
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: launch.workingDirectory), "the engine runs in the scratch")
+        // The engine streams its log at its final name in the run bundle while it runs (2.9 N8).
+        let bundle = project.appendingPathComponent("Analyses/viralrecon.lungfishrun", isDirectory: true)
+        let log = bundle.appendingPathComponent("logs/nextflow.log")
+        let streaming = await CLISIGTERMHarness.waitForFile(log)
+        XCTAssertTrue(streaming && ((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("\n--- stdout ---\n"), "the log streams while the engine runs")
 
         let stop = await CLISIGTERMHarness.cancel(cli)
         CLISIGTERMHarness.assertCancelledExit(stop)
         CLISIGTERMHarness.assertNoProcessLeft(stop)
         XCTAssertTrue(stop.standardError.contains("Workflow cancelled"), stop.diagnostics)
         XCTAssertFalse(FileManager.default.fileExists(atPath: launch.workingDirectory), "today's defer removes the scratch of a cancelled run")
-        let bundle = project.appendingPathComponent("Analyses/viralrecon.lungfishrun", isDirectory: true)
+        XCTAssertTrue(((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("\n--- stderr ---\n"), "the log is whole once the tree is gone")
         XCTAssertEqual(try NFCoreRunBundleStore.read(from: bundle).executionStatus, .running, "today's route writes no record for a cancel")
     }
 }

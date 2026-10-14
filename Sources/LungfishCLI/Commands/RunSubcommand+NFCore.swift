@@ -157,12 +157,10 @@ extension RunSubcommand {
         // volume when it qualifies (external SSDs usually dwarf the boot
         // volume) and moves to local storage only when it does not; when the
         // caller did not pin --work-dir, the work tree follows the scratch.
-        let launchScratch = try ProjectTempDirectory.create(
-            prefix: "nfcore-run-",
-            contextURL: runBundleURL,
-            policy: NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: runBundleURL) ? .preferProjectContext : .systemOnly
-        )
-        defer { try? FileManager.default.removeItem(at: launchScratch) }
+        let scratchEngine = ProcessNFCoreWorkflowProcessRunner.engine(profile: request.executor.rawValue)
+        let scratch = try scratchEngine.makeScratch(contextURL: runBundleURL)
+        defer { scratchEngine.finish(scratch, .remove) }
+        let launchScratch = scratch.launchDirectory
         // Tasks run inside the work tree, and QUAST refuses a path containing a
         // space, so the tree leaves the scratch when the project name has one.
         let scratchWork = try NFCoreLaunchStaging.workDirectory(preferring: launchScratch)
@@ -254,11 +252,15 @@ extension RunSubcommand {
         if plannedRequest.workDirectory == nil {
             launchArguments += ["-work-dir", scratchWorkDirectory.path]
         }
-        let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(
+        // The engine streams its output into logs/nextflow.log as it runs (2.9 N8).
+        let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(NFCoreWorkflowLaunch(
             arguments: launchArguments,
+            profile: plannedRequest.executor.rawValue,
             workingDirectory: launchScratch,
-            environment: plannedRequest.launchEnvironment
-        )
+            workDirectory: plannedRequest.workDirectory ?? scratchWorkDirectory,
+            environment: plannedRequest.launchEnvironment,
+            logFile: runBundleURL.appendingPathComponent("logs/nextflow.log")
+        ))
         try writeProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
         let processCompletedAt = processClock.now
         let executionStatus: NFCoreRunExecutionStatus = processResult.exitCode == 0 ? .completed : .failed

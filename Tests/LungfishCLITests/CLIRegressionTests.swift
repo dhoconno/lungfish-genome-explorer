@@ -1652,11 +1652,10 @@ private final class StubNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunnin
         self.onRun = onRun
     }
 
-    func runNextflow(
-        arguments: [String],
-        workingDirectory: URL,
-        environment: [String: String]
-    ) async throws -> NFCoreWorkflowProcessResult {
+    func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+        let arguments = launch.arguments
+        let workingDirectory = launch.workingDirectory
+        let environment = launch.environment
         let invocation = Invocation(
             arguments: arguments,
             workingDirectory: workingDirectory,

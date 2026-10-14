@@ -42,7 +42,8 @@ final class ViralReconAnnotationStagingCLITests: XCTestCase {
 
         private(set) var launches: [Launch] = []
 
-        func runNextflow(arguments: [String], workingDirectory: URL, environment: [String: String]) async throws -> NFCoreWorkflowProcessResult {
+        func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            let arguments = launch.arguments
             var gffBytes: Data?
             if let index = arguments.firstIndex(of: "--gff"), index + 1 < arguments.count {
                 gffBytes = try? Data(contentsOf: URL(fileURLWithPath: arguments[index + 1]))

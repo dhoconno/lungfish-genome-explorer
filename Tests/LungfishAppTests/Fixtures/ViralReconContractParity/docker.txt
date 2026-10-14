@@ -76,6 +76,7 @@ Analyses/viralrecon.lungfishrun/.lungfish-provenance.json
 Analyses/viralrecon.lungfishrun/inputs/
 Analyses/viralrecon.lungfishrun/inputs/read-pairing.json
 Analyses/viralrecon.lungfishrun/logs/
+Analyses/viralrecon.lungfishrun/logs/nextflow.log
 Analyses/viralrecon.lungfishrun/logs/stderr.log
 Analyses/viralrecon.lungfishrun/logs/stdout.log
 Analyses/viralrecon.lungfishrun/manifest.json

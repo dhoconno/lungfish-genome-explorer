@@ -8,6 +8,8 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
+/// Runs the managed Nextflow of `workflow run nf-core/viralrecon` on ``NextflowEngineProcess``, the one launch path
+/// of every Nextflow workflow (Phase 2.10 N1), with the settings of ``NextflowWorkflowDescriptor/viralRecon``.
 struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
     var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     /// Only the managed Nextflow is ever launched: a copy on `PATH` is a
@@ -20,33 +22,63 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
         _ = try resolveLaunch("nextflow", homeDirectory)
     }
 
-    func runNextflow(
-        arguments: [String],
-        workingDirectory: URL,
-        environment: [String: String]
-    ) async throws -> NFCoreWorkflowProcessResult {
-        let launch = try resolveLaunch("nextflow", homeDirectory)
-        let processEnvironment = launch.environment.merging(environment) { _, override in override }
-        if launch.usesManagedExecutable {
+    /// The engine of a launch with `profile`, Viral Recon's scratch prefix and the 4 s grace (2.9 N6).
+    static func engine(profile: String) -> NextflowEngineProcess {
+        NextflowEngineProcess(configuration: NextflowWorkflowDescriptor.viralRecon.engineConfiguration(profile: profile))
+    }
+
+    /// Streams the engine's output into the launch's log and returns once its tree is gone.
+    ///
+    /// A cancel of the calling task stops the tree, TERM and then KILL after the 4 s grace, and is thrown as
+    /// `CancellationError` once the tree is gone. The result holds the last lines of each stream the engine kept, 200
+    /// at most, and the log holds every line. A log the engine could not write in full fails the run (2.9 N8).
+    func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+        let engineLaunch = try resolveLaunch("nextflow", homeDirectory)
+        if engineLaunch.usesManagedExecutable {
             await CondaManager.shared.repairManagedLaunchers(environment: "nextflow")
         }
-        let output = try await WorkflowEngineProcess.run(
-            executableURL: launch.executableURL,
-            arguments: launch.arguments(arguments),
-            environment: processEnvironment,
-            workingDirectory: workingDirectory,
-            stdoutFileName: ".nextflow-stdout.log",
-            stderrFileName: ".nextflow-stderr.log"
+        for folder in [launch.workingDirectory, launch.logFile.deletingLastPathComponent()] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let arguments = engineLaunch.arguments(launch.arguments)
+        let outcome = try await Self.engine(profile: launch.profile).run(
+            NextflowEngineLaunch(
+                executable: engineLaunch.executableURL,
+                arguments: arguments,
+                environment: engineLaunch.environment.merging(launch.environment) { _, override in override },
+                logFile: launch.logFile,
+                logPreamble: Self.logPreamble(executable: engineLaunch.executableURL, arguments: arguments, launch: launch),
+                traceFile: nil
+            ),
+            in: NextflowEngineScratch(
+                launchDirectory: launch.workingDirectory,
+                workDirectory: launch.workDirectory,
+                removalRoot: nil
+            ),
+            hooks: NextflowEngineHooks()
         )
+        try Task.checkCancellation()
+        if let logFailure = outcome.logFailure {
+            throw CLIError.workflowFailed(reason: logFailure)
+        }
         return NFCoreWorkflowProcessResult(
-            exitCode: output.exitCode,
-            standardOutput: output.standardOutput,
-            standardError: output.standardError
+            exitCode: outcome.exitCode,
+            standardOutput: outcome.stdoutTail.map { $0 + "\n" }.joined(),
+            standardError: outcome.stderrTail.map { $0 + "\n" }.joined()
         )
+    }
+
+    /// The first part of `logs/nextflow.log`, the command that ran and its two folders.
+    static func logPreamble(executable: URL, arguments: [String], launch: NFCoreWorkflowLaunch) -> String {
+        [
+            "nextflow_command: " + ([executable.path] + arguments).map(shellEscape).joined(separator: " "),
+            "launch_directory: \(launch.workingDirectory.path)",
+            "work_directory: \(launch.workDirectory.path)",
+        ].joined(separator: "\n")
     }
 }
 
-/// Runs a workflow engine for `workflow run`, with its output in two log
+/// Runs a local workflow's engine for `workflow run`, with its output in two log
 /// files that are read and removed when it ends.
 ///
 /// The engine runs on ``ToolProcess`` as the leader of its own process group,

@@ -89,12 +89,13 @@ final class WorkflowEngineRealNextflowCancellationTests: XCTestCase {
         ]
         let launchDirectory = root.appendingPathComponent("launch", isDirectory: true)
 
+        // The profile is not docker, so the engine asks no Docker command.
+        let nfCoreLaunch = NFCoreWorkflowLaunch(
+            arguments: arguments, profile: "local", workingDirectory: launchDirectory,
+            workDirectory: root.appendingPathComponent("work", isDirectory: true), environment: ["NXF_ANSI_LOG": "false"],
+            logFile: root.appendingPathComponent("nextflow.log"))
         let task = Task {
-            try await runner.runNextflow(
-                arguments: arguments,
-                workingDirectory: launchDirectory,
-                environment: ["NXF_ANSI_LOG": "false"]
-            )
+            try await runner.runNextflow(nfCoreLaunch)
         }
         var taskPID: Int32?
         await waitUntil(timeout: .seconds(240), pollInterval: .milliseconds(200)) {

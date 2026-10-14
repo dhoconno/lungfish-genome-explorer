@@ -86,13 +86,12 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
         let javaPIDFile = root.appendingPathComponent("java.pid")
         let workingDirectory = root.appendingPathComponent("launch", isDirectory: true)
         let runner = ProcessNFCoreWorkflowProcessRunner(homeDirectory: root, resolveLaunch: resolver(for: script))
+        let nfCoreLaunch = launch(
+            ["run", "main.nf"], in: workingDirectory,
+            environment: ["ENGINE_PID_FILE": enginePIDFile.path, "JAVA_PID_FILE": javaPIDFile.path])
 
         let task = Task {
-            try await runner.runNextflow(
-                arguments: ["run", "main.nf"],
-                workingDirectory: workingDirectory,
-                environment: ["ENGINE_PID_FILE": enginePIDFile.path, "JAVA_PID_FILE": javaPIDFile.path]
-            )
+            try await runner.runNextflow(nfCoreLaunch)
         }
         let enginePID = try await waitForPID(enginePIDFile)
         let javaPID = try await waitForPID(javaPIDFile)
@@ -107,8 +106,20 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
             XCTAssertTrue(error is CancellationError, "\(error)")
         }
         await assertStopped([enginePID, javaPID])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: workingDirectory.appendingPathComponent(".nextflow-stdout.log").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: workingDirectory.appendingPathComponent(".nextflow-stderr.log").path))
+        // The engine's log is synchronized at its final name once the tree is gone, and its stderr sidecar goes.
+        let log = try String(contentsOf: nfCoreLaunch.logFile, encoding: .utf8)
+        XCTAssertTrue(log.hasPrefix("nextflow_command: /bin/sh "), log)
+        XCTAssertTrue(log.contains("\n--- stdout ---\n") && log.contains("\n--- stderr ---\n"), log)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workingDirectory.appendingPathComponent(".lungfish-engine-stderr.txt").path))
+    }
+
+    /// A launch of the nf-core runner in `workingDirectory` with its log beside that folder. The profile is not
+    /// docker, so no Docker command runs.
+    private func launch(_ arguments: [String], in workingDirectory: URL, environment: [String: String] = [:]) -> NFCoreWorkflowLaunch {
+        NFCoreWorkflowLaunch(
+            arguments: arguments, profile: "local", workingDirectory: workingDirectory,
+            workDirectory: workingDirectory.appendingPathComponent("work", isDirectory: true), environment: environment,
+            logFile: root.appendingPathComponent("nextflow-\(UUID().uuidString).log"))
     }
 
     func testCancellingTheLocalRunnerStopsTheEngineAndItsJVMChild() async throws {
@@ -144,8 +155,11 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
         await assertStopped([enginePID, javaPID])
     }
 
-    /// The logs come back byte for byte as the files hold them, blank lines
-    /// and the trailing line break included, with the exit status.
+    /// The local runner's logs come back byte for byte as the engine wrote
+    /// them, blank lines and the trailing line break included, with the exit
+    /// status. The nf-core runner is on NextflowEngineProcess, whose line
+    /// streams keep the last 200 lines of each stream and skip blank lines,
+    /// so its text holds every other line, each ended by a line break.
     func testRunnersReturnTheEngineLogsWholeAndItsExitStatus() async throws {
         let script = root.appendingPathComponent("chatty-engine.sh")
         try """
@@ -158,9 +172,9 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
         let workingDirectory = root.appendingPathComponent("launch", isDirectory: true)
 
         let nfCore = try await ProcessNFCoreWorkflowProcessRunner(homeDirectory: root, resolveLaunch: resolver(for: script))
-            .runNextflow(arguments: [], workingDirectory: workingDirectory, environment: [:])
+            .runNextflow(launch([], in: workingDirectory))
         XCTAssertEqual(nfCore, NFCoreWorkflowProcessResult(
-            exitCode: 3, standardOutput: "\nN E X T F L O W\n\nline two\n", standardError: "warning\n\n"))
+            exitCode: 3, standardOutput: "N E X T F L O W\nline two\n", standardError: "warning\n"))
 
         let local = try await ProcessLocalWorkflowProcessRunner(homeDirectory: root, resolveLaunch: resolver(for: script))
             .runWorkflow(executableName: "nextflow", arguments: [], workingDirectory: workingDirectory)
@@ -173,7 +187,8 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
 
     /// A process the engine started that is still running after the drain
     /// grace period is stopped, and the run fails, because its logs and
-    /// results may be incomplete.
+    /// results may be incomplete. The local runner keeps this rule. The nf-core
+    /// runner is on NextflowEngineProcess, which returns once the tree is gone.
     func testAProcessStillRunningAfterTheEngineExitsFailsTheRun() async throws {
         let script = root.appendingPathComponent("leaky-engine.sh")
         let childPIDFile = root.appendingPathComponent("child.pid")
@@ -184,15 +199,18 @@ final class WorkflowEngineProcessCancellationTests: XCTestCase {
         echo done
         """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        let runner = ProcessNFCoreWorkflowProcessRunner(homeDirectory: root, resolveLaunch: resolver(for: script))
+        let runner = ProcessLocalWorkflowProcessRunner(
+            homeDirectory: root,
+            resolveLaunch: resolver(for: script, environment: ["CHILD_PID_FILE": childPIDFile.path])
+        )
 
         let clock = ContinuousClock()
         let start = clock.now
         do {
-            _ = try await runner.runNextflow(
+            _ = try await runner.runWorkflow(
+                executableName: "nextflow",
                 arguments: [],
-                workingDirectory: root.appendingPathComponent("launch", isDirectory: true),
-                environment: ["CHILD_PID_FILE": childPIDFile.path]
+                workingDirectory: root.appendingPathComponent("launch", isDirectory: true)
             )
             XCTFail("a run that left a process behind must fail")
         } catch let error as CLIError {
