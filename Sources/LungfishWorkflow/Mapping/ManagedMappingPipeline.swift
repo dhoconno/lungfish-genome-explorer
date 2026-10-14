@@ -741,7 +741,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         } catch ToolProcessError.cancelled {
             throw CancellationError()
         }
-        let stderr = result.stderrText
+        // Whole lines, since this text reaches the mapping step's record.
+        let stderr = result.stderrWholeLines
         if let reason = result.incompleteOutputReason {
             throw CondaError.executionFailed(
                 tool: executable,

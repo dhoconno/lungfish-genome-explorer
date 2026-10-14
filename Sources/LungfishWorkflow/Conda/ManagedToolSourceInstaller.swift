@@ -457,7 +457,8 @@ public struct ManagedToolSourceInstaller: Sendable {
         } catch ToolProcessError.cancelled {
             throw CancellationError()
         }
-        let stderr = result.stderrText
+        // Whole lines, since this text reaches the install record.
+        let stderr = result.stderrWholeLines
         if let reason = result.incompleteOutputReason {
             throw CondaError.executionFailed(
                 tool: spec.label,

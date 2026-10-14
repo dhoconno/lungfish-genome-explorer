@@ -86,7 +86,8 @@ private func runGATKProcess(
     return GATKCommandExecutionResult(
         exitCode: result.status,
         stdout: result.stdoutText,
-        stderr: result.stderrText,
+        // Whole lines, since this text reaches the variant calling record.
+        stderr: result.stderrWholeLines,
         wallTime: commandClock.elapsed
     )
 }

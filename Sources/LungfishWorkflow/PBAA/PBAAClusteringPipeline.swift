@@ -589,7 +589,8 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
             }
         }
         let stdout = result.stdoutText
-        let stderr = result.stderrText
+        // Whole lines, since this text reaches the clustering run's record.
+        let stderr = result.stderrWholeLines
         if let reason = result.incompleteOutputReason {
             let separator = stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n"
             throw PBAAClusteringError.nextflowFailed(status: result.status, stderr: stderr + separator + reason)
