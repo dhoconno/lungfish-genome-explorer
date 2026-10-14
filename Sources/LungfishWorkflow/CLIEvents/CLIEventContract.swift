@@ -73,7 +73,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (53)
+    // MARK: Leaves that emit events (54)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -94,6 +94,7 @@ package enum CLIEventContractTable {
         "conda install": .events(flag: formatJSON, channel: .standardOutput),
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "extract reads": .events(flag: formatJSON, channel: .standardOutput),
+        "fastq import-ont": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
@@ -220,7 +221,7 @@ package enum CLIEventContractTable {
         "fastq ont-barcode-genotype": .legacy(schemaID: "r1-ont-barcode-genotyping", removeBy: "2.8"),
     ]
 
-    // MARK: Leaves with human text only (115)
+    // MARK: Leaves with human text only (114)
 
     private static let text: [String: CLIEventContract] = [
         "bam adopt-mapping": .text(reason: ignoresFormat),
@@ -261,7 +262,6 @@ package enum CLIEventContractTable {
         "fastq entropy-filter": .text(reason: ignoresFormat),
         "fastq error-correct": .text(reason: humanTextOnly),
         "fastq fixed-trim": .text(reason: humanTextOnly),
-        "fastq import-ont": .text(reason: humanTextOnly),
         "fastq interleave": .text(reason: humanTextOnly),
         "fastq length-filter": .text(reason: humanTextOnly),
         "fastq materialize": .text(reason: humanTextOnly),

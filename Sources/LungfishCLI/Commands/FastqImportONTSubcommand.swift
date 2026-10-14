@@ -56,7 +56,12 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             help: "Quality binning for --optimize-storage: none, illumina4 (7 quality levels), or eightLevel (~21 quality levels) (default: none)")
     var qualityBinning: QualityBinningScheme = .none
 
-    func run() async throws {
+    @OptionGroup var globalOptions: GlobalOptions
+
+    /// The import itself. `run()` and `execute(emit:cancelRequested:)` in
+    /// FastqImportONTSubcommand+Events.swift put SIGTERM and the event
+    /// stream around it, so a failure here ends the stream in one `failed` event.
+    func importONT(events: CLIEventEmitter) async throws {
         guard concurrency >= 1 else {
             throw ValidationError("Concurrency must be at least 1 (got \(concurrency))")
         }
@@ -132,6 +137,10 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             FileHandle.standardError.write(Data("Bytes copied: \(result.totalCopiedBytes)\n".utf8))
             FileHandle.standardError.write(Data("Output: \(result.bundleURL.path)\n".utf8))
             FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))
+            events.emitComplete(
+                outputs: [result.bundleURL.path],
+                message: "Copied \(result.bundleURL.lastPathComponent)"
+            )
             return
         }
 
@@ -150,6 +159,9 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         )
 
         let workflow = ONTImportWorkflow()
+        // The stage words are the workflow's own. With events on, each one is a progress line, and the
+        // percentage line on standard error stays out, since the window's log would hold it twice.
+        let eventsOn = globalOptions.outputFormat == .json
         let workflowResult = try await workflow.importDirectory(
             config: config,
             context: ONTImportWorkflow.CommandContext(
@@ -199,7 +211,10 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                 threads: concurrency
             )
         ) { fraction, message in
-            FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
+            events.emitProgress(fraction, message: message)
+            if !eventsOn {
+                FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
+            }
         }
         let result = workflowResult.importResult
 
@@ -222,6 +237,11 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         for barcode in result.manifest.barcodes {
             FileHandle.standardError.write(Data("  \(barcode.barcodeID): \(barcode.readCount) reads\n".utf8))
         }
+        // The bundles in barcode order, so the window opens the first, with the words the row ended on.
+        events.emitComplete(
+            outputs: result.bundleURLs.map(\.path),
+            message: "\(result.bundleURLs.count) barcode bundles, \(result.totalReadCount) reads"
+        )
     }
 
     private func cliArguments(inputURL: URL, outputURL: URL) -> [String] {

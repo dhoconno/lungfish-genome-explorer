@@ -342,7 +342,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// Every capture, with the leaf and the case it records.
     private static func captures() -> [Capture] {
         annotationCaptures() + exportCaptures() + derivedCaptures() + treeCaptures() + platformCaptures()
-            + importCaptures() + ontSplitCaptures() + sequenceCaptures() + variantsCaptures()
+            + importCaptures() + ontSplitCaptures() + sequenceCaptures() + variantsCaptures() + importONTCaptures()
             + managedToolCaptures()
     }
 
