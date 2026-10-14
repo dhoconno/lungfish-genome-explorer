@@ -72,12 +72,12 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         let bundles = try FileManager.default.contentsOfDirectory(atPath: output.path).sorted()
         XCTAssertEqual(bundles.count, 1, "\(bundles)", file: file, line: line)
         let bundle = output.appendingPathComponent(try XCTUnwrap(bundles.first))
-        // Since lane A44 M2 the leaf builds through the download builders, so the assembly bundle
-        // is named `<organism> - <assembly name>` and carries the record of what was fetched, and
-        // the nucleotide bundle is the GenBank download's, with its record. No record names a
-        // scratch folder now. The temporary folder and UUIDs stay masked for the builders' own
-        // scratch names. A merge's record names its outputs as the file system lists them, with
-        // `/private` before a temporary path.
+        // Since lane A44 M2 the leaf builds an assembly through the genome download builder, so the
+        // assembly bundle is named `<organism> - <assembly name>` and carries the record of what was
+        // fetched. A nucleotide bundle still builds through NativeBundleBuilder (A44 M2 review,
+        // ruling 2), and its record names the scratch folders the run deletes, which the
+        // temporary-folder and UUID masks hide. A merge's record names its outputs as the file
+        // system lists them, with `/private` before a temporary path.
         var snapshot = try await DownloadedBundleSnapshot.text(
             of: bundle,
             replacing: [(server.baseURL.absoluteString, "<STAND-IN>"), ("/private" + output.standardizedFileURL.path, "<OUT>")]

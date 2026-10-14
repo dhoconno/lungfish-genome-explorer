@@ -8,15 +8,16 @@ import LungfishIO
 import LungfishWorkflow
 
 /// One `fetch genome` run (Phase 2.10 lane A44). An assembly accession builds through
-/// `GenomeDownloadBundleBuilder` and a nucleotide accession through `GenBankDownloadBundleBuilder`,
-/// the builders of the app's NCBI browser, so the CLI and the browser build the same bundle.
+/// `GenomeDownloadBundleBuilder`, the builder of the app's NCBI browser, so the CLI and the browser
+/// build the same assembly bundle. A nucleotide accession builds through `FetchGenomeNucleotideBundle`.
 ///
 /// - An assembly bundle is built in a staging folder, the project's `.tmp` folder or a hidden
 ///   folder of the output folder outside a project, moved into the output folder with
 ///   `PortableRename` under the next free name (`_1`, `_2`, as the import names them), and then
 ///   given its record, which names each fetched file with its source URL, digest and size (B-3).
-/// - A nucleotide bundle is built in the output folder itself, because its builder writes its
-///   record during the build and the record names the bundle's own paths.
+/// - A nucleotide bundle is built in a scratch folder by `NativeBundleBuilder`, which names the
+///   sequence by its accession and version, and moved into the output folder the same way. Its
+///   record is the builder's own, which still names the scratch folder (A44 M2 review, F9).
 /// - The run checks for a cancel before each accession and between the builder's stages, and
 ///   removes the bundle it was building.
 struct FetchGenomeRun: Sendable {
