@@ -47,6 +47,7 @@ ivar
 
 environment:
 HOME=<root>/engine/home
+LUNGFISH_DOCKER_STANDIN=<root>/docker-standin/docker
 MAMBA_ROOT_PREFIX=<root>/engine/home/.lungfish/conda
 NXF_ANSI_LOG=false
 NXF_HOME=<root>/engine/home/.nextflow

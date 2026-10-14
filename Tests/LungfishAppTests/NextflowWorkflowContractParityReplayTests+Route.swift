@@ -32,11 +32,13 @@ struct ViralReconRouteRun {
     func normalize(_ text: String) -> String { normalizer.normalize(text) }
 
     /// The launch's environment beyond the CLI's own, as `KEY=value` lines. The shell's own variables are left out,
-    /// and PATH keeps the folders LGE puts ahead of the CLI's PATH.
+    /// and PATH keeps the folders LGE puts ahead of the CLI's PATH. The Docker stand-in's variable is listed when the
+    /// launch inherits it, so the fixture shows what reaches Nextflow from the test's seam (Q33 R4).
     func addedEnvironment(_ launch: NextflowStandInEngine.Launch) -> String {
         let shell: Set<String> = ["PWD", "OLDPWD", "SHLVL", "_"]
+        let seam = NextflowWorkflowContractParityReplayTests.dockerStandInVariable
         return launch.environment.keys.sorted().compactMap { key -> String? in
-            guard let value = launch.environment[key], !shell.contains(key), spawnEnvironment[key] != value else { return nil }
+            guard let value = launch.environment[key], !shell.contains(key), key == seam || spawnEnvironment[key] != value else { return nil }
             guard key == "PATH" else { return "\(key)=\(normalize(value))" }
             let kept = value.split(separator: ":").map(String.init).prefix { $0 != cliFolder }
             return "PATH=" + normalize((kept + ["<the CLI's PATH>"]).joined(separator: ":"))
@@ -226,8 +228,42 @@ extension NextflowWorkflowContractParityReplayTests {
             "LUNGFISH_STORAGE_ROOT": caseRoot.appendingPathComponent("storage", isDirectory: true).path,
             "LUNGFISH_CONDA_SHARED_PKGS": "0",
             "CFFIXED_USER_HOME": engine.home.path,
+            Self.dockerStandInVariable: try Self.writeDockerStandIn(in: caseRoot).path,
         ]
         return (engine, arguments, environment)
+    }
+
+    /// The variable that points the built CLI's Docker wait and container cleanup at a stand-in (Q33 R4).
+    static let dockerStandInVariable = "LUNGFISH_DOCKER_STANDIN"
+
+    /// Writes `caseRoot/docker-standin/docker`, which stands in for the `docker` CLI and for `open -g -a Docker`. It
+    /// appends each call's arguments to `calls.txt` beside it, answers `version` as a daemon that runs, prints
+    /// `ps.txt` for `ps` and `inspect.txt` for `inspect`, takes `kill` and `rm`, and refuses anything else, the call
+    /// that would start Docker Desktop among them.
+    static func writeDockerStandIn(in caseRoot: URL) throws -> URL {
+        let folder = caseRoot.appendingPathComponent("docker-standin", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let script = folder.appendingPathComponent("docker")
+        try """
+        #!/bin/sh
+        here=$(dirname "$0")
+        echo "$*" >> "$here/calls.txt"
+        case "$1" in
+          version) echo '28.3.2|28.3.2' ;;
+          ps) cat "$here/ps.txt" 2>/dev/null ;;
+          inspect) cat "$here/inspect.txt" 2>/dev/null ;;
+          kill|rm) ;;
+          *) exit 1 ;;
+        esac
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return script
+    }
+
+    /// Each call the case's Docker stand-in took, in order.
+    func dockerStandInCalls(case name: String) -> [String] {
+        let calls = root.appendingPathComponent("\(name)/docker-standin/calls.txt")
+        return ((try? String(contentsOf: calls, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
     }
 
     /// The built `lungfish-cli` beside the test bundle, or the one LUNGFISH_CLI_PATH names.

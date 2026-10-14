@@ -18,13 +18,54 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
         try WorkflowEngineLaunch.resolveManaged(executableName: executableName, homeDirectory: homeDirectory)
     }
 
+    /// Asks whether the Docker daemon answers before a docker launch, and finds a cancelled run's task containers
+    /// (2.9 N5, N9). A Debug build asks the stand-in ``dockerStandInVariable`` names, when it names one.
+    var containerRuntimeProbe: any ContainerRuntimeProbing = ProcessNFCoreWorkflowProcessRunner.defaultProbe()
+    /// How the wait polls and starts Docker Desktop. A Debug build starts the stand-in in its place.
+    var dockerWait: NextflowDockerWait = ProcessNFCoreWorkflowProcessRunner.defaultDockerWait()
+
     func preflightEngine() throws {
         _ = try resolveLaunch("nextflow", homeDirectory)
     }
 
-    /// The engine of a launch with `profile`, Viral Recon's scratch prefix and the 4 s grace (2.9 N6).
+    func waitForDocker(profile: String) async throws {
+        var engine = Self.engine(profile: profile)
+        engine.dockerWait = dockerWait
+        try await engine.waitForDocker(probe: containerRuntimeProbe, progress: nil)
+    }
+
+    /// The engine of a launch with `profile`, Viral Recon's scratch prefix and the 4 s grace (2.9 N6). Only the
+    /// descriptor's own docker profile waits for Docker and stops a cancelled run's containers.
     static func engine(profile: String) -> NextflowEngineProcess {
         NextflowEngineProcess(configuration: NextflowWorkflowDescriptor.viralRecon.engineConfiguration(profile: profile))
+    }
+
+    // MARK: - The Docker stand-in (Q33 R4)
+
+    /// The variable a test gives a spawned `lungfish-cli` so its Docker wait and container cleanup ask a stand-in.
+    ///
+    /// It names an executable that stands in for the `docker` CLI and for `open -g -a Docker`, so the wait can never
+    /// start Docker Desktop. Only a Debug build reads it, as `LUNGFISH_SIMULATE_UNSUPPORTED_RENAME_FLAGS`, so a
+    /// release build ignores it whatever a user's environment holds (SWIFT 6).
+    static let dockerStandInVariable = "LUNGFISH_DOCKER_STANDIN"
+
+    /// The absolute path `environment` names in ``dockerStandInVariable``, or nil in a release build.
+    static func dockerStandIn(in environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        #if DEBUG
+        guard let path = environment[dockerStandInVariable], path.hasPrefix("/") else { return nil }
+        return URL(fileURLWithPath: path)
+        #else
+        return nil
+        #endif
+    }
+
+    static func defaultProbe() -> any ContainerRuntimeProbing {
+        guard let standIn = dockerStandIn() else { return SystemContainerRuntimeProbe() }
+        return StandInDockerProbe(executable: standIn)
+    }
+
+    static func defaultDockerWait() -> NextflowDockerWait {
+        dockerStandIn().map { NextflowDockerWait(openExecutable: $0) } ?? .standard
     }
 
     /// Streams the engine's output into the launch's log and returns once its tree is gone.
@@ -41,7 +82,8 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         let arguments = engineLaunch.arguments(launch.arguments)
-        let outcome = try await Self.engine(profile: launch.profile).run(
+        let engine = Self.engine(profile: launch.profile)
+        let outcome = try await engine.run(
             NextflowEngineLaunch(
                 executable: engineLaunch.executableURL,
                 arguments: arguments,
@@ -55,7 +97,8 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
                 workDirectory: launch.workDirectory,
                 removalRoot: nil
             ),
-            hooks: NextflowEngineHooks()
+            // A cancel stops the run's task containers once the host tree is gone, within 1.5 s (2.9 N5).
+            hooks: NextflowEngineHooks(cleanup: engine.containerCleanup(probe: containerRuntimeProbe))
         )
         try Task.checkCancellation()
         if let logFailure = outcome.logFailure {
@@ -75,6 +118,24 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
             "launch_directory: \(launch.workingDirectory.path)",
             "work_directory: \(launch.workDirectory.path)",
         ].joined(separator: "\n")
+    }
+}
+
+/// The stand-in `docker` CLI a Debug build's ``ProcessNFCoreWorkflowProcessRunner/dockerStandInVariable`` names, asked
+/// as the system probe asks the real one.
+struct StandInDockerProbe: ContainerRuntimeProbing {
+    let executable: URL
+
+    func dockerCLIPath() -> String? {
+        executable.path
+    }
+
+    func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe {
+        await SystemContainerRuntimeProbe().dockerDaemon(dockerPath: dockerPath, timeout: timeout)
+    }
+
+    func appleContainerRuntime() async -> AppleContainerProbe {
+        AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: "not asked of a Docker stand-in")
     }
 }
 

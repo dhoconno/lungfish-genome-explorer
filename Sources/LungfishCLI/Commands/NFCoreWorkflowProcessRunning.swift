@@ -28,6 +28,11 @@ protocol NFCoreWorkflowProcessRunning: Sendable {
     /// Confirms the engine can be launched before the run bundle is marked
     /// running; throws a `MissingToolError` (exit 126) when it cannot.
     func preflightEngine() throws
+    /// Waits for the Docker daemon when a launch with `profile` runs its tasks in Docker (2.9 N9).
+    ///
+    /// - Throws: `CancellationError` at once on a cancel, and a `NextflowEngineError` when Docker Desktop
+    ///   cannot be started or the daemon does not answer in time.
+    func waitForDocker(profile: String) async throws
     /// Runs Nextflow for `launch` and returns once the engine's process tree is gone.
     ///
     /// - Throws: `CancellationError` when the calling task was cancelled, once the tree is gone.
@@ -36,4 +41,5 @@ protocol NFCoreWorkflowProcessRunning: Sendable {
 
 extension NFCoreWorkflowProcessRunning {
     func preflightEngine() throws {}
+    func waitForDocker(profile: String) async throws {}
 }

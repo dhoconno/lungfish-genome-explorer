@@ -113,7 +113,14 @@ extension RunSubcommand {
         let processClock = ProvenanceRunClock()
         do {
             try Self.nfCoreWorkflowProcessRunner.preflightEngine()
+            // The docker profile waits for the Docker daemon. A cancel ends the wait at once, and a Docker
+            // Desktop that cannot be started fails the run at once (2.9 N9).
+            try await Self.nfCoreWorkflowProcessRunner.waitForDocker(profile: request.executor.rawValue)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            let dockerUnavailable = error is NextflowEngineError
+            let exitCode = (dockerUnavailable ? CLIExitCode.containerError : CLIExitCode.dependency).rawValue
             let endedAt = processClock.now
             let stderrLogURL = runBundleURL.appendingPathComponent("logs/stderr.log")
             try PortablePath.sanitize(text: error.localizedDescription, forFileAt: stderrLogURL)
@@ -124,7 +131,7 @@ extension RunSubcommand {
                     executionStatus: .failed,
                     startedAt: processClock.startedAt,
                     completedAt: endedAt,
-                    exitCode: CLIExitCode.dependency.rawValue,
+                    exitCode: exitCode,
                     stderrLogPath: "logs/stderr.log"
                 ),
                 to: runBundleURL
@@ -134,14 +141,14 @@ extension RunSubcommand {
                 bundleURL: runBundleURL,
                 prepareOnly: false,
                 status: .failed,
-                exitCode: CLIExitCode.dependency.rawValue,
+                exitCode: exitCode,
                 wallTime: endedAt.timeIntervalSince(processClock.startedAt),
                 stderr: error.localizedDescription,
                 readPairing: pairingDecisions,
                 effectiveSamplesheetURL: nil,
                 stagedAnnotation: stagedAnnotation
             )
-            throw error
+            throw dockerUnavailable ? CLIError.containerUnavailable : error
         }
         try NFCoreRunBundleStore.write(
             request.manifest(

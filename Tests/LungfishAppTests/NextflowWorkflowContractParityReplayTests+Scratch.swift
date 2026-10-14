@@ -49,6 +49,13 @@ extension NextflowWorkflowContractParityReplayTests {
         let log = bundle.appendingPathComponent("logs/nextflow.log")
         let streaming = await CLISIGTERMHarness.waitForFile(log)
         XCTAssertTrue(streaming && ((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("\n--- stdout ---\n"), "the log streams while the engine runs")
+        // One task container runs with a mount inside the run's work folder, as Docker Desktop reports it (2.9 N5).
+        let standIn = caseRoot.appendingPathComponent("docker-standin", isDirectory: true)
+        let work = try XCTUnwrap(launch.workDirectory, "the launch names its work folder")
+        let container = String(repeating: "c0ffee", count: 10) + "c0ff"
+        try "\(container)\n".write(to: standIn.appendingPathComponent("ps.txt"), atomically: true, encoding: .utf8)
+        try "\(container)|running|[{\"Type\":\"bind\",\"Source\":\"\(work)/ab/cdef12\",\"Destination\":\"\(work)/ab/cdef12\"}]\n"
+            .write(to: standIn.appendingPathComponent("inspect.txt"), atomically: true, encoding: .utf8)
 
         let stop = await CLISIGTERMHarness.cancel(cli)
         CLISIGTERMHarness.assertCancelledExit(stop)
@@ -56,6 +63,9 @@ extension NextflowWorkflowContractParityReplayTests {
         XCTAssertTrue(stop.standardError.contains("Workflow cancelled"), stop.diagnostics)
         XCTAssertFalse(FileManager.default.fileExists(atPath: launch.workingDirectory), "today's defer removes the scratch of a cancelled run")
         XCTAssertTrue(((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("\n--- stderr ---\n"), "the log is whole once the tree is gone")
+        let calls = dockerStandInCalls(case: "scratch-cancelled")
+        XCTAssertTrue(calls.contains("kill \(container)") && calls.contains("rm \(container)"), "the cancel stops and removes the run's container: \(calls)")
+        XCTAssertFalse(calls.contains("-g -a Docker"), "nothing starts Docker Desktop: \(calls)")
         XCTAssertEqual(try NFCoreRunBundleStore.read(from: bundle).executionStatus, .running, "today's route writes no record for a cancel")
     }
 }

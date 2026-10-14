@@ -51,6 +51,8 @@ final class NextflowWorkflowContractParityReplayTests: XCTestCase {
         XCTAssertEqual(run.observed, try Self.fixture("docker"))
         XCTAssertEqual(run.digestGapCandidates, Self.digestGap.map { "\($0.record) \($0.key)" }.sorted(), "digest gap, Q30 finding 1")
         assertDeclared(Self.argvDifferences(launch.arguments), .docker)
+        // The docker profile waits for the daemon. The wait asked the stand-in once and started nothing (Q33 R4).
+        XCTAssertEqual(dockerStandInCalls(case: "docker"), ["version --format {{.Client.Version}}|{{if .Server}}{{.Server.Version}}{{end}}"])
     }
 
     /// Conda and local are refused before the run bundle's manifest is written, so the engine never starts. The read
