@@ -467,8 +467,11 @@ extension RunSubcommand {
                     completedAt: endedAt,
                     exitCode: exitCode,
                     stderrLogPath: "logs/stderr.log",
-                    // Only a launch writes the engine's own log, and only a launched cancel names its command.
-                    nextflowLogPath: launchCommand == nil ? nil : "logs/nextflow.log",
+                    // Only a launched cancel names its command, and only a run whose engine wrote logs/nextflow.log names
+                    // it. A cancel during the version probe comes before the engine's first line (B31 review fix 1).
+                    nextflowLogPath: launchCommand != nil
+                        && FileManager.default.fileExists(atPath: runBundleURL.appendingPathComponent("logs/nextflow.log").path)
+                        ? "logs/nextflow.log" : nil,
                     commandPreview: launchCommand
                 ),
                 to: runBundleURL

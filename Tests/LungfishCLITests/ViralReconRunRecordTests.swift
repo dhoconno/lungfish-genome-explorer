@@ -163,7 +163,10 @@ final class ViralReconRunRecordTests: XCTestCase {
         XCTAssertTrue(errors.contains("stand-in engine warning") && !errors.contains("output"), errors)
     }
 
-    /// A cancel during the launch names the engine's log as well, and a run that never launched has none to name.
+    /// Only a run whose engine wrote `logs/nextflow.log` names it (B31 review fix 1). A cancel that comes before the
+    /// engine's first line, as one during the version probe does, leaves no log and `stderrLogPath` holds the cancel's
+    /// message, so the manifest names none. A cancel after the engine wrote its log names it, and a run that never
+    /// launched has none to name.
     func testOnlyALaunchedRunNamesTheEnginesOwnLog() async throws {
         let cancelled = root.appendingPathComponent("cancelled")
         do {
@@ -172,7 +175,18 @@ final class ViralReconRunRecordTests: XCTestCase {
         } catch {}
         let manifest = try Self.manifestObject(in: cancelled.appendingPathComponent("viralrecon.lungfishrun"))
         XCTAssertEqual(manifest["executionStatus"] as? String, "cancelled")
-        XCTAssertEqual(manifest["nextflowLogPath"] as? String, "logs/nextflow.log")
+        XCTAssertNil(manifest["nextflowLogPath"], "the engine wrote no log before the cancel")
+
+        let interrupted = root.appendingPathComponent("interrupted")
+        do {
+            _ = try await ViralReconLaunchedRun.run(in: interrupted, using: LogWritingCancellingRunner())
+            XCTFail("the cancel did not reach the command")
+        } catch {}
+        let interruptedBundle = interrupted.appendingPathComponent("viralrecon.lungfishrun")
+        let interruptedManifest = try Self.manifestObject(in: interruptedBundle)
+        XCTAssertEqual(interruptedManifest["executionStatus"] as? String, "cancelled")
+        XCTAssertEqual(interruptedManifest["nextflowLogPath"] as? String, "logs/nextflow.log")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: interruptedBundle.appendingPathComponent("logs/nextflow.log").path))
 
         let prepared = try await ViralReconLaunchedRun.run(
             in: root.appendingPathComponent("prepared"), extraArguments: ["--prepare-only"])
@@ -188,6 +202,15 @@ final class ViralReconRunRecordTests: XCTestCase {
     /// A runner whose launch is cancelled as soon as it starts.
     private final class CancellingRunner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
         func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            throw CancellationError()
+        }
+    }
+
+    /// A runner that writes the engine's log as its launch does, then is cancelled while the engine runs.
+    private final class LogWritingCancellingRunner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
+        func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {
+            try FileManager.default.createDirectory(at: launch.logFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "nextflow_command: stand-in\n".write(to: launch.logFile, atomically: true, encoding: .utf8)
             throw CancellationError()
         }
     }
