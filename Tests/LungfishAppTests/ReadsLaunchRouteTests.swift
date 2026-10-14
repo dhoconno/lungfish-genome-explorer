@@ -7,7 +7,8 @@
 // reads an events leaf's end: its completion, its failed line, a failure with the command's standard
 // error when no failed line came, and a cancel before the run that launches nothing. Fix 8 adds the
 // route's end after a cancel, a command that finished first keeping its result and one that honoured
-// the cancel losing its folder. The runner runs a stand-in `lungfish-cli` script, so no tool runs.
+// the cancel losing its folder. M3 adds each key value's route through the launch that reads it
+// (ARCH 7). The runner runs a stand-in `lungfish-cli` script, so no tool runs.
 
 import Foundation
 import XCTest
@@ -167,6 +168,99 @@ final class ReadsLaunchRouteTests: XCTestCase {
         ))
         XCTAssertEqual(Array(argv.suffix(3)), ["--reference-bundle", "--format", "json"])
         XCTAssertEqual(item.detail, "the stand-in refused")
+    }
+
+    // MARK: - Each key value runs its route (ARCH 7, lane A46 M3)
+
+    /// The Reassemble key's `legacy` value runs the managed pipeline in this process and launches
+    /// no `lungfish-cli`. The reads are missing, so the pipeline fails at once.
+    func testTheLegacyReassembleRouteRunsInProcessAndLaunchesNoCommand() async throws {
+        let root = try TestTempDirectory.make(prefix: "reassemble-legacy-route")
+        defer { TestTempDirectory.cleanup(root) }
+        let launched = root.appendingPathComponent("launched")
+        let cli = try standInCLI("touch '\(launched.path)'; exit 1")
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [root.appendingPathComponent("missing.fastq")],
+            projectName: "demo",
+            outputDirectory: root.appendingPathComponent("Assemblies", isDirectory: true),
+            threads: 1
+        ).normalizedForExecution()
+
+        let opID = try XCTUnwrap(AssemblyRunner.startManagedAssembly(
+            request: request, routeContext: nil, route: .legacy, runner: CLIReadsRunner(cliURLOverride: cli)
+        ))
+        defer { OperationCenter.shared.clearItem(id: opID) }
+        let ended = await waitUntil(timeout: .seconds(30)) {
+            OperationCenter.shared.items.first { $0.id == opID }?.finishedAt != nil
+        }
+
+        XCTAssertTrue(ended, "the row ends")
+        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == opID })
+        XCTAssertTrue(
+            item.logEntries.contains { $0.message == "Launching managed assembly pipeline" },
+            "the in-process pipeline ran: \(item.logEntries.map(\.message))"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: launched.path), "the legacy route launches no lungfish-cli")
+    }
+
+    /// Map Reads reads its key at launch. `legacy` runs the in-process route, whose row records the
+    /// command without `--format json` and launches no `lungfish-cli`, and `cli` launches the
+    /// `lungfish-cli` that LUNGFISH_CLI_PATH names, a stand-in that fails, with the argv its row
+    /// records. The reads are missing, so the in-process run fails at once too.
+    func testEachMappingKeyValueRunsItsRoute() async throws {
+        let saved = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        defer {
+            if let saved { setenv("LUNGFISH_CLI_PATH", saved, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
+        }
+        for (value, runsCLI) in [("legacy", false), ("cli", true)] {
+            let root = try TestTempDirectory.make(prefix: "map-key-\(value)")
+            defer { TestTempDirectory.cleanup(root) }
+            let launched = root.appendingPathComponent("launched")
+            let cli = try standInCLI("""
+            touch '\(launched.path)'
+            echo '{"error":"the stand-in refused","event":"failed","schemaVersion":2}'
+            exit 1
+            """)
+            setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+            let suite = makeTestDefaultsSuite(prefix: "reads-route")
+            suite.defaults.set(value, forKey: ReadsLaunchPath.mapping.defaultsKey)
+            let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+            let request = MappingRunRequest(
+                tool: .minimap2,
+                modeID: MappingMode.defaultShortRead.id,
+                inputFASTQURLs: [root.appendingPathComponent("missing.fastq")],
+                referenceFASTAURL: root.appendingPathComponent("missing.fasta"),
+                projectURL: project,
+                outputDirectory: project.appendingPathComponent("Analyses/unused", isDirectory: true),
+                sampleName: "key-\(value)",
+                threads: 1
+            )
+            let title = "Map Reads (\(MappingTool.minimap2.displayName)): key-\(value)"
+            let before = Set(OperationCenter.shared.items.map(\.id))
+            let appDelegate = AppDelegate()
+
+            appDelegate.runManagedMapping(
+                plan: MappingRunPlan(requests: [request], mode: .perBundle, warning: nil),
+                routeContext: nil,
+                routeSettings: ReadsLaunchRouteSettings(defaults: suite.defaults)
+            )
+            var ended: OperationCenter.Item?
+            await waitUntil(timeout: .seconds(30)) {
+                ended = OperationCenter.shared.items.first { !before.contains($0.id) && $0.title == title && $0.finishedAt != nil }
+                return ended != nil
+            }
+            withExtendedLifetime(appDelegate) {}
+
+            let item = try XCTUnwrap(ended, "the \(value) row never ended")
+            defer { OperationCenter.shared.clearItem(id: item.id) }
+            let parsed = try RecordedCLICommand.parse(item.cliCommand, as: MapCommand.self)
+            XCTAssertEqual(parsed.globalOptions.outputFormat == .json, runsCLI, "\(value): \(item.cliCommand ?? "no command")")
+            XCTAssertEqual(FileManager.default.fileExists(atPath: launched.path), runsCLI, "\(value) launches lungfish-cli only on cli")
+            XCTAssertEqual(item.state, .failed, "\(value): \(item.detail)")
+        }
     }
 
     // MARK: - A cancel that reaches a finished command (fix 8 of lane A46)
