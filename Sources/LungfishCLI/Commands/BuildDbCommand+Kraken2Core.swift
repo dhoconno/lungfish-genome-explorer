@@ -556,7 +556,9 @@ extension BuildDbCommand {
                     profileOutcome: current.profileOutcome,
                     runtime: current.runtime,
                     toolVersion: current.toolVersion,
-                    provenanceId: current.provenanceId
+                    provenanceId: current.provenanceId,
+                    fragmentComposition: current.fragmentComposition,
+                    readPairingContract: current.readPairingContract
                 )
                 try updated.save(to: directory)
             } catch {

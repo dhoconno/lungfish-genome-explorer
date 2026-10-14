@@ -120,4 +120,42 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
         let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result))
         XCTAssertEqual(record.steps.map(\.toolName), ["lungfish build-db kraken2"])
     }
+
+    /// Phase 2.10 lane B34, review fix 5. A cleanup over a result whose sidecar holds a fragment composition and a
+    /// read pairing contract beside a raw `classification.kraken` (which a failed compaction leaves, and a kept raw
+    /// output now also leaves) rewrites the sidecar to name the gzip copy. The rewrite keeps both facts, because a
+    /// result without them reads as one that may have counted each mate as its own read (READ-PAIRING.md).
+    func testKraken2CleanupKeepsTheReadPairingFactsOfTheSidecar() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalPairing")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
+        let result = root.appendingPathComponent("kraken2", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: result)
+        let sample = result.appendingPathComponent("SRR35517702", isDirectory: true)
+        try Data("C\tread-1\t12345\t150\t12345:150\nU\tread-2\t0\t150\t0:150\n".utf8)
+            .write(to: sample.appendingPathComponent("classification.kraken"))
+        let composition = ClassificationFragmentComposition(
+            pairedFragments: 2, mergedReads: 1, orphanReads: 0, singleEndReads: 0
+        )
+        let stored = try ClassificationResult.load(from: sample)
+        try ClassificationResult(
+            config: stored.config, tree: stored.tree, reportURL: stored.reportURL, outputURL: stored.outputURL,
+            brackenURL: stored.brackenURL, profileOutcome: stored.profileOutcome, runtime: stored.runtime,
+            toolVersion: stored.toolVersion, provenanceId: stored.provenanceId, fragmentComposition: composition,
+            readPairingContract: ClassificationResult.currentReadPairingContract
+        ).save(to: sample)
+        let before = try ClassificationResult.load(from: sample)
+        XCTAssertEqual(before.fragmentComposition, composition)
+        XCTAssertEqual(before.readPairingContract, ClassificationResult.currentReadPairingContract)
+        XCTAssertEqual(before.outputURL.lastPathComponent, "classification.kraken")
+
+        try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
+
+        let after = try ClassificationResult.load(from: sample)
+        XCTAssertEqual(after.outputURL.pathExtension, "gz", "the rewrite names the gzip copy")
+        XCTAssertEqual(after.fragmentComposition, before.fragmentComposition, "the rewrite keeps the fragment composition")
+        XCTAssertEqual(after.readPairingContract, before.readPairingContract, "and the read pairing contract")
+    }
 }
