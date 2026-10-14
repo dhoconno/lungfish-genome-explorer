@@ -126,7 +126,8 @@ extension NFCoreSupportedWorkflow {
     /// (Phase 2.10 N2).
     public func launchEnvironment(forVersion version: String) -> [String: String] {
         let revision = version.isEmpty ? pinnedVersion : version
-        let pin = name == "viralrecon" ? (try? NextflowWorkflowDescriptor.viralRecon.resolveBundledPin()) : nil
+        let descriptor = NextflowWorkflowDescriptor.viralRecon
+        let pin = name == descriptor.toolID.rawValue ? (try? descriptor.resolveBundledPin()) : nil
         let release = pin.map { revision == $0.revision && !$0.releaseVersion.isEmpty ? $0.releaseVersion : revision } ?? revision
         switch (name, release) {
         case ("viralrecon", "3.0.0"):
