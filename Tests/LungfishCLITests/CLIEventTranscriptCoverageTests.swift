@@ -54,6 +54,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         "fetch genome",
         // `map` runs minimap2 and samtools from the golden storage (lane A46 of Phase 2.10).
         "map",
+        // `fastq ingest` runs clumpify from the managed bbtools environment, so a unit test cannot
+        // capture its transcripts in process (lane A47 of Phase 2.10).
+        "fastq ingest",
     ]
 
     static var transcriptsFolder: URL {
