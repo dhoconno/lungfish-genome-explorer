@@ -126,6 +126,49 @@ final class ReadsLaunchRouteTests: XCTestCase {
         }
     }
 
+    /// The Reassemble key's CLI route launches, on the runner, the argv its row records, with
+    /// `--reference-bundle` and `--format json`, and a failed line fails the row with its words.
+    func testTheReassembleCLIRouteRunsTheCommandItsRowRecords() async throws {
+        let root = try TestTempDirectory.make(prefix: "reassemble-cli-route")
+        defer { TestTempDirectory.cleanup(root) }
+        let launched = root.appendingPathComponent("argv")
+        let cli = try standInCLI("""
+        printf '%s\\n' "$@" > '\(launched.path)'
+        echo '{"error":"the stand-in refused","event":"failed","schemaVersion":2}'
+        exit 1
+        """)
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [root.appendingPathComponent("reads.fastq")],
+            projectName: "demo",
+            outputDirectory: root.appendingPathComponent("Assemblies", isDirectory: true),
+            threads: 1
+        ).normalizedForExecution()
+
+        let opID = try XCTUnwrap(AssemblyRunner.startManagedAssembly(
+            request: request,
+            routeContext: nil,
+            route: .cli,
+            runner: CLIReadsRunner(cliURLOverride: cli)
+        ))
+        defer { OperationCenter.shared.clearItem(id: opID) }
+        let ended = await waitUntil(timeout: .seconds(30)) {
+            OperationCenter.shared.items.first { $0.id == opID }?.state == .failed
+        }
+
+        XCTAssertTrue(ended, "the row fails")
+        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == opID })
+        let argv = try String(contentsOf: launched, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(argv, try RecordedCLICommand.arguments(of: item.cliCommand), "the route runs what its row records")
+        XCTAssertEqual(argv, AssemblyRunner.managedAssemblyCLIArguments(
+            for: request,
+            outputDirectory: AssemblyRunner.executionRequest(for: request).outputDirectory
+        ))
+        XCTAssertEqual(Array(argv.suffix(3)), ["--reference-bundle", "--format", "json"])
+        XCTAssertEqual(item.detail, "the stand-in refused")
+    }
+
     // MARK: - A cancel that reaches a finished command (fix 8 of lane A46)
 
     /// A cancel the row takes after `map` wrote its result, printed its `complete` line and exited 0

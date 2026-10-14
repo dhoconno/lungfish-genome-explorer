@@ -78,7 +78,13 @@ public enum AssemblyRunner {
         }
     }
 
-    static func runValidated(request: AssemblyRunRequest, routeContext: OperationRouteContext? = nil) {
+    /// Checks that the run may write and has room, then starts it on the route the Reassemble key
+    /// picks, the in-process pipeline until the key flips (Phase 2.10 lane A46, decision C4).
+    static func runValidated(
+        request: AssemblyRunRequest,
+        routeContext: OperationRouteContext? = nil,
+        routeSettings: ReadsLaunchRouteSettings = ReadsLaunchRouteSettings()
+    ) {
         let request = request.normalizedForExecution()
         let projectName = request.projectName
         guard AppDelegate.shared?.canWriteProjectOutputs(
@@ -108,25 +114,111 @@ public enum AssemblyRunner {
             return
         }
 
-        let executionRequest = Self.executionRequest(for: request)
-
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        beginAssemblyOperation(
+        startManagedAssembly(request: request, routeContext: routeContext, route: routeSettings.route(for: .assembly))
+    }
+
+    // MARK: - The route behind the Reassemble key
+
+    /// The argv the Reassemble key's CLI route runs, the command its row records
+    /// (`cliCommandPreview`). `request` writes into `outputDirectory`, the pipeline's folder, and
+    /// the command publishes the bundle and prints its events (Phase 2.10 lane A46, C4 and C5).
+    nonisolated static func managedAssemblyCLIArguments(for request: AssemblyRunRequest, outputDirectory: URL) -> [String] {
+        ["assemble"] + FASTQOperationCLIInvocationBuilder.assembleArguments(
+            for: request,
+            outputTargetPath: outputDirectory.path,
+            referenceBundle: true
+        )
+    }
+
+    /// The part of `runValidated` after its checks, which a test calls. Begins the row for the
+    /// normalized `request` and runs it on `route`. Returns the row's ID, or nil when it was refused.
+    @discardableResult
+    static func startManagedAssembly(
+        request: AssemblyRunRequest,
+        routeContext: OperationRouteContext?,
+        route: ReadsLaunchRoute,
+        runner: CLIReadsRunner = CLIReadsRunner()
+    ) -> UUID? {
+        let executionRequest = Self.executionRequest(for: request)
+        let began = beginAssemblyOperation(
             request: request,
             outputDirectory: executionRequest.outputDirectory,
             routeContext: routeContext
         ) { opID in
-            let task = Task.detached {
-                await runManagedAssemblyOperation(
-                    request: executionRequest,
-                    baseOutputDirectory: baseOutputDirectory,
-                    projectName: projectName,
-                    operationID: opID
+            guard route == .cli else {
+                let task = Task.detached {
+                    await runManagedAssemblyOperation(
+                        request: executionRequest,
+                        baseOutputDirectory: request.outputDirectory,
+                        projectName: request.projectName,
+                        operationID: opID
+                    )
+                }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                return
+            }
+            let arguments = managedAssemblyCLIArguments(for: request, outputDirectory: executionRequest.outputDirectory)
+            Task.detached {
+                await runManagedAssemblyThroughCLI(
+                    arguments: arguments,
+                    executionRequest: executionRequest,
+                    routeContext: routeContext,
+                    operationID: opID,
+                    runner: runner
                 )
             }
+            OperationCenter.shared.setCancelCallback(for: opID) { runner.cancel() }
+        }
+        return began.startedID
+    }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    /// Runs `lungfish-cli assemble` for a Reassemble row on `CLIReadsRunner` and ends the row. The
+    /// command writes the pipeline's folder, its record and the bundle, so the app only reads the
+    /// result back. A run whose command exited 0 with its `complete` line keeps the folder and the
+    /// bundle, and a cancel that came after that leaves the row cancelled and reloads the sidebar
+    /// (fix 8). A run that threw removes nothing, since the command owns both and the bundle builder
+    /// removes its own staging folder. The row opens the bundle the command named, never a path the
+    /// app computes (UX), and a run with no contigs completes with a warning, as in process.
+    static func runManagedAssemblyThroughCLI(
+        arguments: [String],
+        executionRequest: AssemblyRunRequest,
+        routeContext: OperationRouteContext?,
+        operationID opID: UUID,
+        runner: CLIReadsRunner
+    ) async {
+        do {
+            let completion = try await runner.runEvents(arguments: arguments, operationID: opID)
+            let folder = executionRequest.outputDirectory
+            let result = try await Task.detached { try AssemblyResult.load(from: folder) }.value
+            let bundles = completion.outputs.filter { $0.hasSuffix(".lungfishref") }.map { URL(fileURLWithPath: $0) }
+            let detail = completionDetail(for: result)
+            let completed = result.outcome == .completedWithNoContigs
+                ? OperationCenter.shared.completeWithWarning(id: opID, detail: detail, bundleURLs: bundles)
+                : OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: bundles)
+            guard completed else {
+                AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                    .sidebarController.requestReloadFromFilesystem()
+                return
+            }
+            postNotification(
+                title: completionNotificationTitle(for: result),
+                body: completionNotificationBody(
+                    for: result,
+                    toolDisplayName: executionRequest.tool.displayName,
+                    projectName: executionRequest.projectName
+                ),
+                isSuccess: true
+            )
+        } catch is CancellationError {
+            OperationCenter.shared.acknowledgeCancellation(id: opID)
+        } catch {
+            let failed = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
+            if failed {
+                postNotification(title: "Assembly Failed", body: error.localizedDescription, isSuccess: false)
+            }
         }
     }
 
