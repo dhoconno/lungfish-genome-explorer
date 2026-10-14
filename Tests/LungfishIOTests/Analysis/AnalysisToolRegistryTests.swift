@@ -35,8 +35,8 @@ final class AnalysisToolRegistryTests: XCTestCase {
 
     // The word `lungfish-cli build-db` takes and the stem a classify run gives its output, as the
     // app derived them by lowercasing the display name before S14. Only the three classifiers have
-    // either. BuildDatabaseTokenPinTests in the App tests pins the same values through the argv the
-    // app launches and the stems the planner returns.
+    // either. BuildDatabaseTokenPinTests in the App tests pins the same tokens through the argv the
+    // app launches. No run reads the stems since lane A41 M3b of Phase 2.10, so only this test pins them.
     private static let expectedBuildDatabaseTokens: [String: String] = [
         "esviritu": "esviritu", "kraken2": "kraken2", "taxtriage": "taxtriage",
     ]

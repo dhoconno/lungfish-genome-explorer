@@ -1,14 +1,12 @@
-// BuildDatabaseTokenPinTests.swift - The names a classifier gets by lowercasing a display name
+// BuildDatabaseTokenPinTests.swift - The word the app passes lungfish-cli build-db for each classifier
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Two names are derived today by lowercasing a display name. The word that follows
-// `lungfish-cli build-db` is the lowercased display name of the classifier. The stem of a
-// classify output is the lowercased title of its FASTQ operation tool. Panel decision S14 moves
-// both onto the analysis descriptor, so this suite freezes the argv the app launches and the
-// stems `FASTQOperationToolID.classifyOutputStem` returns. It must pass before and after that
-// move without an edit. Lane A41 M3b of Phase 2.10 removed the dialog's classify request, so the
-// stems are read from the tool and no longer from that request's planner stem.
+// The word that follows `lungfish-cli build-db` was the lowercased display name of the
+// classifier. Panel decision S14 of Phase 2.6 moved it onto the analysis descriptor as
+// `buildDatabaseToken`, and this suite freezes the argv the app launches. The classify output
+// stems it also froze lost their last reader when lane A41 M3b of Phase 2.10 removed the dialog's
+// classify request, and AnalysisToolRegistryTests pins the descriptor's `outputStem`.
 //
 // The argv is observed for real. A script stands in for `lungfish-cli` through
 // `LUNGFISH_CLI_PATH`, records every argument it receives and fails, so the placeholder shows
@@ -97,20 +95,6 @@ final class BuildDatabaseTokenPinTests: XCTestCase {
         let result = try makeResultFolder(named: "classification-2026-04-06T20-45-49")
         let argv = try await launchedArguments { $0.routeClassifierDisplay(url: result) }
         XCTAssertEqual(argv, ["build-db", "kraken2", result.path, "--force"])
-    }
-
-    // MARK: - Classify output stems
-
-    func testClassifyOutputStemsAreTheLowercasedToolTitles() {
-        let expected: [(tool: FASTQOperationToolID, title: String, stem: String)] = [
-            (.kraken2, "Kraken2", "kraken2"),
-            (.esViritu, "EsViritu", "esviritu"),
-            (.taxTriage, "TaxTriage", "taxtriage"),
-        ]
-        for (tool, title, stem) in expected {
-            XCTAssertEqual(tool.title, title)
-            XCTAssertEqual(tool.classifyOutputStem, stem, title)
-        }
     }
 
     // MARK: - Harness
