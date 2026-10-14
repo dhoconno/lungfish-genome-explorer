@@ -87,8 +87,11 @@ struct FastqIngestRun {
             return try await ingest(folder: folder, staging: staging, published: &published)
         } catch {
             // The pipeline wraps a tool's cancellation in its own error, so the task says whether
-            // this was a cancel. Once the output is published the run is no longer cancellable.
-            if !published, Task.isCancelled || error is CancellationError {
+            // this was a cancel. The app signals the leaf and its tree together, and the tool can die
+            // of that SIGTERM before the leaf's handler cancels the task, which a busy machine makes
+            // likely. The flag the handler sets says the signal came. Once the output is published the
+            // run is no longer cancellable.
+            if !published, Task.isCancelled || error is CancellationError || SIGTERMCancellation.signalCaught {
                 throw CancellationError()
             }
             throw error
