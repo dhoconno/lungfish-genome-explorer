@@ -478,7 +478,49 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         )
     }
 
+    /// W4 (U34). A run of one sample into a project writes the summary of that one sample and says so, where
+    /// it said `Writing the EsViritu batch summary…`. A `--batch` run groups samples and keeps the batch words.
+    func testASummaryIsCalledABatchSummaryOnlyWhenTheRunGroupsSamples() async throws {
+        let single = try await executeInProject(groupsSamples: false, indexing: EsVirituResultIndexing())
+        let grouped = try await executeInProject(groupsSamples: true, indexing: EsVirituResultIndexing())
+
+        XCTAssertEqual(single.report.status, .completed, single.report.message)
+        XCTAssertEqual(grouped.report.status, .completed, grouped.report.message)
+        XCTAssertEqual(Self.summaryProgress(of: single.events), ["Writing the EsViritu summary\u{2026}"])
+        XCTAssertEqual(Self.summaryProgress(of: grouped.events), ["Writing the EsViritu batch summary\u{2026}"])
+    }
+
+    /// W4 (U34). In text mode a single run prints the tail of EsViritu's log under the heading the app puts over
+    /// it, after the failure line, where the tail's lines followed the failure line bare. The `failed` event
+    /// still carries the tail without a heading, since the app adds its own.
+    func testTheTextModeTailOfASingleRunHasItsHeading() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let events = EsVirituTextReporter.events(useColors: false, quiet: false, namesResultFolder: false)
+
+        let output = try await ImportStreamCapture.capture(in: scratch) {
+            events.emit(.failed(message: "EsViritu failed", detail: "line 1\nline 2"))
+        }
+
+        XCTAssertNil(output.thrown)
+        XCTAssertEqual(output.standardOutput, [])
+        XCTAssertEqual(output.standardError, [
+            TerminalFormatter(useColors: false).error("EsViritu failed"),
+            "EsViritu log (last lines):",
+            "line 1",
+            "line 2",
+        ])
+    }
+
     // MARK: - Helpers
+
+    /// The progress messages that name the summary the finalize writes.
+    private static func summaryProgress(of events: [CLIEvent]) -> [String] {
+        events.compactMap { event in
+            if case .progress(_, let message) = event, message.hasPrefix("Writing the EsViritu") { return message }
+            return nil
+        }
+    }
 
     /// An index builder that cannot build, as a full disk stops the `build-db esviritu` core.
     private struct FailingIndexer: AnalysisResultIndexing {
@@ -503,9 +545,13 @@ final class EsVirituDetectExecutorTests: XCTestCase {
             root: root.appendingPathComponent("tool-\(UUID().uuidString)"), tables: Self.fixtureTables
         )
         let lines = LineSink()
+        // A `--batch` run names each sample after its files and plans its layout, so it takes no `--sample`.
         let tool = EsVirituAnalysisRunTool(
             options: EsVirituAnalysisRunOptions(
-                sampleName: "S1", readFormat: .unpaired, databasePath: esviritu.databaseURL, threads: 2
+                sampleName: groupsSamples ? nil : "S1",
+                readFormat: groupsSamples ? .auto : .unpaired,
+                databasePath: esviritu.databaseURL,
+                threads: 2
             ),
             groupsSamples: groupsSamples,
             pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),

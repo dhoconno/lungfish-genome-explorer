@@ -134,6 +134,34 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(run.item.bundleURLs.map(\.standardizedFileURL), [run.folder.standardizedFileURL])
     }
 
+    /// D8, D18 and UX's ruling on decision 1 of Phase 2.10 U34. A Kraken2 `--project` run of one sample reports
+    /// `Building Kraken2 database…` now, so a viewer index that cannot be built reads Completed with Warnings with
+    /// the one warning line, as a batch's, an EsViritu run's and a TaxTriage run's already do. It read Completed
+    /// while the route built no index for one sample. The detail stays the one read back from the folder.
+    func testAOneSampleKraken2ProjectRunWhoseIndexFailsReadsCompletedWithWarnings() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        var tool = StandInClassifierTool(tool: .kraken2, units: [("reads", .complete)], layout: .singleFolder)
+        tool.indexesTheProjectRun = true
+        tool.databaseFailure = "disk full"
+        let run = try await runThroughRoute(
+            .kraken2([kraken2Config(inputs: made.inputs, sampleFolder: "classification-0000A10A")]),
+            tool: tool,
+            project: made.project,
+            inputs: made.inputs
+        )
+
+        let expected = try ClassifierRouteFixtures.expectedKraken2Detail(in: run.folder)
+        XCTAssertFalse(expected.requiresWarningCompletion, "the result itself is clean, so only the index warns")
+        XCTAssertEqual(run.item.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(run.item.detail, expected.completionDetail)
+        XCTAssertEqual(loggedLines(of: run.item).filter { $0.hasPrefix("warning:") }, [
+            "warning: The viewer index could not be built (disk full). LGE builds it when the result opens.",
+        ])
+        XCTAssertTrue(loggedLines(of: run.item).contains("info: Building kraken2.sqlite from single-sample result"))
+        XCTAssertNil(run.alertText)
+        XCTAssertEqual(run.item.bundleURLs.map(\.standardizedFileURL), [run.folder.standardizedFileURL])
+    }
+
     /// D8, D11. A sample of an EsViritu batch that failed logs today's error lines and the batch
     /// reads Completed with today's detail, as today's batch does.
     func testAnEsVirituBatchWithAFailedSampleReadsCompletedWithTodaysDetail() async throws {
@@ -188,7 +216,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
         XCTAssertFalse(logged.contains("info: Running sarscov2."), "the executor's unit line is not shown")
         XCTAssertTrue(logged.contains("info: Building esviritu.sqlite from single-sample result"))
         XCTAssertTrue(logged.contains("info: Parsed 1 detection rows from EsViritu results"))
-        XCTAssertEqual(run.overlayWhileRunning, "Writing the EsViritu batch summary\u{2026}", "the database line has no overlay")
+        XCTAssertEqual(run.overlayWhileRunning, "Writing the EsViritu summary\u{2026}", "the database line has no overlay")
         XCTAssertEqual(run.overlayHiddenAtTheEnd, true)
         XCTAssertNil(run.viewer.taxonomyViewController, "nothing opens after an EsViritu run")
         XCTAssertEqual(run.item.bundleURLs.map(\.standardizedFileURL), [folder.standardizedFileURL])

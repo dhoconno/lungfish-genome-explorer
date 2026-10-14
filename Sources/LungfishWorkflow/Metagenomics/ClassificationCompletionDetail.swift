@@ -67,7 +67,10 @@ public enum ClassificationCompletionDetail {
     /// stays since the viewer builds the index when it opens (Phase 2.10 W4). It once read
     /// `Database build failed: <error>`, a dash and `batch will rebuild lazily on open`, or on the executors
     /// `The viewer index could not be built: <error>. The viewer builds it when the result opens.`
+    /// An error that ends in a period, as Foundation's file errors do, loses it, so the brackets close on the
+    /// last word.
     public static func viewerIndexWarning(_ error: String) -> String {
-        "The viewer index could not be built (\(error)). LGE builds it when the result opens."
+        let reason = error.hasSuffix(".") ? String(error.dropLast()) : error
+        return "The viewer index could not be built (\(reason)). LGE builds it when the result opens."
     }
 }

@@ -38,7 +38,7 @@
 {"event":"progress","message":"Saving result metadata...","progress":0.95,"schemaVersion":2}
 {"event":"progress","message":"Saving provenance...","progress":0.98,"schemaVersion":2}
 {"event":"progress","message":"Detection complete","progress":1,"schemaVersion":2}
-{"event":"progress","message":"Writing the EsViritu batch summary…","progress":1,"schemaVersion":2}
+{"event":"progress","message":"Writing the EsViritu summary…","progress":1,"schemaVersion":2}
 {"event":"progress","message":"Building EsViritu database…","progress":1,"schemaVersion":2}
 {"event":"log","level":"info","message":"Parsed 1 detection rows from EsViritu results","schemaVersion":2}
 {"event":"log","level":"info","message":"Parsed 100 coverage windows from EsViritu results","schemaVersion":2}

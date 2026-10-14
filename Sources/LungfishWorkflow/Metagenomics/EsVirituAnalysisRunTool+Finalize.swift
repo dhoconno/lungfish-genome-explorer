@@ -50,7 +50,9 @@ extension EsVirituAnalysisRunTool {
         context: AnalysisRunFinalizeContext
     ) async throws -> AnalysisRunFinalization {
         let root = context.rootDirectory
-        context.progress("Writing the EsViritu batch summary\u{2026}")
+        // Only a `--batch` run groups samples, so a `--project` run of one sample writes the summary of that sample
+        // and does not call it a batch (Phase 2.10 W4).
+        context.progress(groupsSamples ? "Writing the EsViritu batch summary\u{2026}" : "Writing the EsViritu summary\u{2026}")
         let summaryURL = root.appendingPathComponent(Self.summaryFilename)
         try Self.summaryText(for: units).write(to: summaryURL, atomically: true, encoding: .utf8)
 

@@ -358,13 +358,13 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
         var rowEvents = CLIClassifierRowEvents(tool: .esViritu, sampleIDs: ["sarscov2"])
         let events: [CLIEvent] = [
-            .progress(fraction: 1, message: "Writing the EsViritu batch summary\u{2026}"),
+            .progress(fraction: 1, message: "Writing the EsViritu summary\u{2026}"),
             .progress(fraction: 1, message: "Building EsViritu database\u{2026}"),
         ]
         for event in events { rowEvents.effects(of: event).bridged.forEach(handle) }
         await eventsApplied()
         XCTAssertEqual(loggedLines(of: item(id)), [
-            "info: Writing the EsViritu batch summary\u{2026}",
+            "info: Writing the EsViritu summary\u{2026}",
             "info: Building EsViritu database\u{2026}",
             "info: Building esviritu.sqlite from single-sample result",
         ])

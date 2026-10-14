@@ -241,7 +241,7 @@ struct CLIClassifierRunner {
     }
 
     /// One EsViritu sample, which a `--project` run keeps in the sample folder of a batch root,
-    /// as today's route does (UX D23).
+    /// as today's in-process route does (UX D23).
     private static func esVirituCompletion(folder: URL) throws -> CLIClassifierCompletion {
         let sampleFolder = MetagenomicsBatchResultStore.loadEsViritu(from: folder)?.samples.first
             .map { folder.appendingPathComponent($0.resultDirectory, isDirectory: true) } ?? folder

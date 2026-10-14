@@ -144,4 +144,23 @@ final class ClassificationCompletionDetailTests: XCTestCase {
     func testCancelledBatchReadsBatchCancelled() {
         XCTAssertEqual(ClassificationCompletionDetail.batchCancelled, "Batch cancelled")
     }
+
+    // MARK: - The viewer index warning
+
+    /// Phase 2.10 W4 (U34, UX 7). An error that ends in a period, as Foundation's file errors do, would read
+    /// `(… full.). LGE builds …`. The sentence keeps the error and drops its final period.
+    func testTheViewerIndexWarningDropsTheErrorsFinalPeriod() {
+        XCTAssertEqual(
+            ClassificationCompletionDetail.viewerIndexWarning("The disk is full."),
+            "The viewer index could not be built (The disk is full). LGE builds it when the result opens."
+        )
+        XCTAssertEqual(
+            ClassificationCompletionDetail.viewerIndexWarning("disk full"),
+            "The viewer index could not be built (disk full). LGE builds it when the result opens."
+        )
+        XCTAssertEqual(
+            ClassificationCompletionDetail.viewerIndexWarning("No space left. Free some space."),
+            "The viewer index could not be built (No space left. Free some space). LGE builds it when the result opens."
+        )
+    }
 }

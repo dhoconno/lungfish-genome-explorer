@@ -1944,14 +1944,9 @@ public actor ClassificationPipeline {
         if processResult.exitCode != 0 && !survivedKnownWrapperCrash {
             try? fm.removeItem(at: config.brackenURL)
             let unavailable = processResult.exitCode == 127
-            let message: String
-            if !processResult.stderr.isEmpty {
-                message = processResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            } else if unavailable {
-                message = "Bracken executable was not available in the managed environment."
-            } else {
-                message = "Bracken exited with status \(processResult.exitCode)."
-            }
+            let message = BrackenFailureMessage.text(
+                stderr: processResult.stderr, exitCode: processResult.exitCode, reportURL: config.reportURL
+            )
             let stepID = await provenanceRecorder.recordStep(
                 runID: runID,
                 toolName: "bracken",

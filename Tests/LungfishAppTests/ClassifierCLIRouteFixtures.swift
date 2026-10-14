@@ -47,6 +47,9 @@ struct StandInClassifierTool: AnalysisRunTool {
     var runRecordCopy: URL?
     /// The completion detail of the command's last line. The route reads its own from disk.
     var commandDetail = "the command's own detail"
+    /// Whether a run of the one-folder layout is a `--project` run that builds the viewer index, as a Kraken2
+    /// run of one sample into a project does. Off for the `--output` runs, which build none.
+    var indexesTheProjectRun = false
 
     var identity: AnalysisRunIdentity {
         tool == .kraken2
@@ -149,7 +152,8 @@ struct StandInClassifierTool: AnalysisRunTool {
                     to: context.rootDirectory
                 )
             case .esViritu:
-                context.progress("Writing the EsViritu batch summary\u{2026}")
+                // The real tool names a batch summary only for several samples (U34, W4).
+                context.progress(units.count > 1 ? "Writing the EsViritu batch summary\u{2026}" : "Writing the EsViritu summary\u{2026}")
                 try MetagenomicsBatchResultStore.saveEsViritu(
                     EsVirituBatchResultManifest(header: header, summaryTSV: "esviritu-batch-summary.tsv", samples: samples),
                     to: context.rootDirectory
@@ -157,6 +161,14 @@ struct StandInClassifierTool: AnalysisRunTool {
             }
             context.progress(tool.databaseBuildDetail)
             context.log(.info, "Built database with \(completed.count) rows")
+            if let databaseFailure {
+                warnings.append(AppDelegate.classificationDatabaseBuildWarning(databaseFailure))
+            }
+        }
+        if layout == .singleFolder, indexesTheProjectRun {
+            // A `--project` run of one sample builds the viewer index after its one folder, as the Kraken2 tool does
+            // (Phase 2.10 W4), and the build can fail as a batch's does.
+            context.progress(tool.databaseBuildDetail)
             if let databaseFailure {
                 warnings.append(AppDelegate.classificationDatabaseBuildWarning(databaseFailure))
             }

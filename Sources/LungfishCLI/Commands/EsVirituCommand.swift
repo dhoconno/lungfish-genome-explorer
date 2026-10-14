@@ -408,7 +408,9 @@ struct EsVirituTextReporter: EsVirituRunReporting {
                 printStatusLine(formatter.error(message))
             case .failed(let message, let detail)?:
                 printStatusLine(formatter.error(message))
-                if let detail { printStatusLine(detail) }
+                // The tail of a single run's log reads under the heading the app puts over it (Phase 2.10 W4).
+                // The event keeps the detail bare, since the app adds its own heading.
+                if let detail { printStatusLine(EsVirituAnalysisRunTool.logTailHeading + detail) }
             case .complete(let outputs, let message)? where namesResultFolder:
                 print("")
                 print(formatter.success(message ?? "EsViritu finished."))
