@@ -6,6 +6,8 @@
 // `assertSignaturesVerify` to prove its record verifies, so its test calls this on the record it checked was signed.
 // The built `lungfish-cli provenance verify` must exit 0 with "Signature valid" on the record, and must exit nonzero
 // on a copy of the record with one digit edited, checked against the signature and public key the record holds.
+// An unedited control copy, checked the same way, must exit 0 with "Signature valid", so a copy that fails only
+// because of where it sits cannot pass the tamper check.
 
 import Foundation
 import XCTest
@@ -33,16 +35,9 @@ enum SigningRecordVerification {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let copy = folder.appendingPathComponent(record.lastPathComponent)
         try edited.write(to: copy, atomically: true, encoding: .utf8)
-        let tampered = await RouteParityHarness.runCLI(
-            cli,
-            arguments: [
-                "provenance", "verify", copy.path,
-                "--signature", ProvenanceSigningConfiguration.signatureURL(for: record).path,
-                "--public-key", ProvenanceSigningConfiguration.publicKeyURL(for: record).path,
-            ],
-            timeout: .seconds(60)
-        )
+        let tampered = await RouteParityHarness.verifyCopy(copy, of: record, cli: cli)
         XCTAssertNotEqual(tampered.status, 0, "a one-digit edit of \(record.lastPathComponent) still verifies", file: file, line: line)
         XCTAssertFalse(tampered.stdout.contains("Signature valid"), "\(tampered.stdout)", file: file, line: line)
+        await RouteParityHarness.assertUneditedCopyVerifies(record, in: scratch, cli: cli, file: file, line: line)
     }
 }

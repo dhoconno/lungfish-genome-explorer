@@ -27,7 +27,9 @@
 //   lists it by name with its reason.
 // - `assertSignaturesVerify` runs `lungfish-cli provenance verify` on every signed new record of sides C and
 //   C', which must exit 0 with "Signature valid", and on one copy of side C's opening record with one digit
-//   changed, which must not.
+//   changed, which must not. An unedited control copy of that record, verified the same way, must exit 0 with
+//   "Signature valid", since a copy that fails because of where it sits, and not because of its edit, would
+//   otherwise pass the check with any nonzero exit.
 
 import CryptoKit
 import Foundation
@@ -202,7 +204,8 @@ extension RouteParityHarness {
 
     /// BIO check 4. `lungfish-cli provenance verify` exits 0 with "Signature valid" on every signed record
     /// new on side C and on side C', and exits nonzero on a copy of side C's opening record with one digit
-    /// edited, checked against the signature and public key the record holds.
+    /// edited, checked against the signature and public key the record holds. An unedited control copy of that
+    /// record, checked the same way, must exit 0 with "Signature valid" (`assertUneditedCopyVerifies`).
     public func assertSignaturesVerify(
         _ runs: RouteParityRuns,
         opening: @Sendable (URL) -> URL,
@@ -236,8 +239,17 @@ extension RouteParityHarness {
         } catch {
             return XCTFail("side C: the edited copy was not written: \(error)", file: file, line: line)
         }
-        let verify = await Self.runCLI(
-            cliBinary,
+        let verify = await Self.verifyCopy(copy, of: record, cli: cliBinary)
+        XCTAssertNotEqual(verify.status, 0, "side C: a one-digit edit of \(record.lastPathComponent) still verifies", file: file, line: line)
+        XCTAssertFalse(verify.stdout.contains("Signature valid"), "side C: \(verify.stdout)", file: file, line: line)
+        await Self.assertUneditedCopyVerifies(record, in: runs.caseRoot, cli: cliBinary, file: file, line: line)
+    }
+
+    /// Runs `lungfish-cli provenance verify` on `copy` against the signature and public key that `record` holds,
+    /// the way the tamper check and its control verify a copy of a record.
+    public static func verifyCopy(_ copy: URL, of record: URL, cli: URL) async -> CLIRun {
+        await runCLI(
+            cli,
             arguments: [
                 "provenance", "verify", copy.path,
                 "--signature", ProvenanceSigningConfiguration.signatureURL(for: record).path,
@@ -245,7 +257,33 @@ extension RouteParityHarness {
             ],
             timeout: .seconds(60)
         )
-        XCTAssertNotEqual(verify.status, 0, "side C: a one-digit edit of \(record.lastPathComponent) still verifies", file: file, line: line)
-        XCTAssertFalse(verify.stdout.contains("Signature valid"), "side C: \(verify.stdout)", file: file, line: line)
+    }
+
+    /// The control of the tamper check. Copies `record` unedited to `control/<its file name>`, beside the
+    /// `tampered/` folder under `scratch`, and verifies the copy as the edited one is verified. It must exit 0 and
+    /// print "Signature valid", so an edited copy that fails only because of where it sits cannot pass the check.
+    public static func assertUneditedCopyVerifies(
+        _ record: URL,
+        in scratch: URL,
+        cli: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let copy = scratch.appendingPathComponent("control", isDirectory: true).appendingPathComponent(record.lastPathComponent)
+        do {
+            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: copy.path) { try FileManager.default.removeItem(at: copy) }
+            try FileManager.default.copyItem(at: record, to: copy)
+        } catch {
+            return XCTFail("the unedited control copy of \(record.lastPathComponent) was not written: \(error)", file: file, line: line)
+        }
+        let verify = await verifyCopy(copy, of: record, cli: cli)
+        XCTAssertEqual(
+            verify.status, 0, "the unedited control copy of \(record.lastPathComponent) does not verify: \(verify.detail)", file: file, line: line
+        )
+        XCTAssertTrue(
+            verify.stdout.contains("Signature valid"), "the unedited control copy of \(record.lastPathComponent): \(verify.stdout)",
+            file: file, line: line
+        )
     }
 }
