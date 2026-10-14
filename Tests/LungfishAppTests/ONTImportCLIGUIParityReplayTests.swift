@@ -8,7 +8,7 @@
 // on the three sides of RouteParityHarness.
 //
 // - Side A, the in-process route, ONTImportOperationCoordinator under the `legacy` value of its hidden key
-//   `ReadsLaunchRoute.ontImport`: it begins the row, runs ONTImportWorkflow in this process with the
+//   `ReadsLaunchRoute.ontImport`. It begins the row, runs ONTImportWorkflow in this process with the
 //   caller `gui`, and completes the row. The app keeps the route behind the key for one release (C4, FX53).
 // - Side C, the CLI route, ONTImportOperationCoordinator on the built command under the key's `cli` value.
 //   Sides A and C run the same call, and only the key differs.

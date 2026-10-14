@@ -7,7 +7,7 @@ import Foundation
 /// The route a Map Reads, Reassemble or ONT import launch takes (Phase 2.10, decision C4). The
 /// in-process route and its key stay for one release now that the key defaults to `cli` (2.7 E14).
 enum ReadsLaunchRoute: String, Sendable, Equatable, CaseIterable {
-    /// The route of the releases before the flip. The app runs the managed pipeline in process. A
+    /// The route of the releases before the flip. The app runs the launch in process. A
     /// key set to `legacy` keeps it for one release.
     case legacy
     /// The default since lane A46 M3's last commit. The app runs `lungfish-cli map`,
@@ -17,7 +17,7 @@ enum ReadsLaunchRoute: String, Sendable, Equatable, CaseIterable {
 }
 
 /// The three launches of the L6 family that keep a key. Each has its own key, so one can move to
-/// the CLI route, or back, without the other.
+/// the CLI route, or back, without the others.
 enum ReadsLaunchPath: String, Sendable, Equatable, CaseIterable {
     /// Map Reads (census row p19).
     case mapping
