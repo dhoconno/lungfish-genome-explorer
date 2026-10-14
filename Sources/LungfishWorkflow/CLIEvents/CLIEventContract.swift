@@ -74,7 +74,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (49)
+    // MARK: Leaves that emit events (50)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -103,6 +103,7 @@ package enum CLIEventContractTable {
         "import tree": .events(flag: formatJSON, channel: .standardOutput),
         "import-fastq": .events(flag: formatJSON, channel: .standardOutput),
         "kraken2 classify": .events(flag: formatJSON, channel: .standardOutput),
+        "map": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate add": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate delete": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate edit": .events(flag: formatJSON, channel: .standardOutput),
@@ -128,7 +129,7 @@ package enum CLIEventContractTable {
         "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]
 
-    // MARK: Leaves that print one JSON result (70)
+    // MARK: Leaves that print one JSON result (69)
 
     private static let results: [String: CLIEventContract] = [
         "analyze composition": .result(schemaID: "analyze-composition"),
@@ -180,7 +181,6 @@ package enum CLIEventContractTable {
         "haplotypes save": .result(schemaID: "haplotypes-write"),
         "haplotypes validate": .result(schemaID: "haplotypes-validate"),
         "import sample-metadata": .result(schemaID: "import-sample-metadata"),
-        "map": .result(schemaID: "r5-map-report"),
         "markdup": .result(schemaID: "markdup-summary"),
         "metadata export": .result(schemaID: "metadata-export"),
         "metadata get": .result(schemaID: "metadata-get"),

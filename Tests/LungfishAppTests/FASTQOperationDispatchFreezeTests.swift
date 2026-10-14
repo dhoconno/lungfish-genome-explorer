@@ -178,7 +178,8 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
                 request: .map(inputURLs: [Self.reads], referenceURL: Self.reference, outputMode: .perInput),
                 outcome: .builds(
                     subcommand: "map",
-                    words: ["map", reads, "--reference", reference],
+                    // `--format json` since 2.10 A46, which turned map's row to events.
+                    words: ["map", reads, "--reference", reference, "--format", "json"],
                     command: MapCommand.self
                 ),
                 outputKind: .directory
@@ -390,7 +391,8 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
         "fastq subsample": .text,
         "fastq translate": .text,
         "fastq trim": .text,
-        "map": .result(schemaID: "r5-map-report"),
+        // Lane A46 of 2.10 moved `map` from its JSON report to events (its M1 review, ruling 1).
+        "map": .events(flag: "--format json", channel: .standardOutput),
     ]
 
     /// The leaf each cell of the table that builds launches.
@@ -586,7 +588,7 @@ final class FASTQOperationDispatchFreezeTests: XCTestCase {
             XCTAssertTrue(holdsFlag, "\(leaf) launches with \(flag), argv \(argv)")
             switched.append(leaf)
         }
-        XCTAssertEqual(switched, ["assemble"], "each dialog leaf whose row names a switch launches with it")
+        XCTAssertEqual(switched, ["map", "assemble"], "each dialog leaf whose row names a switch launches with it")
     }
 }
 

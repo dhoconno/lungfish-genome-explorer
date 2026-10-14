@@ -230,8 +230,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             }
         }
         XCTAssertEqual(
-            counts["events"], 49,
-            "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42, fetch genome since 2.10 A44, variants delete and import-sample-metadata since 2.10 A43, bam remove-track, bam consensus and extract reads since 2.10 A51, workflow run since 2.10 A30, and bam filter, bam annotate and the two duplicate leaves since A54"
+            counts["events"], 50,
+            "taxtriage run emits events since 2.9 A2, sequence add-annotation and attach-track since 2.10 A42, fetch genome since 2.10 A44, variants delete and import-sample-metadata since 2.10 A43, bam remove-track, bam consensus and extract reads since 2.10 A51, workflow run since 2.10 A30, bam filter, bam annotate and the two duplicate leaves since A54, and map since 2.10 A46"
         )
         XCTAssertEqual(counts["legacy"], 7)
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
@@ -430,7 +430,6 @@ final class CLIEventContractCoverageTests: XCTestCase {
         "bundle-list": decodedAgain(BundleListOutput.self),
         "msa-actions": decodedAgain(MSACommand.ActionsPayload.self),
         "msa-describe": decodedAgain(MultipleSequenceAlignmentActionDescriptor.self),
-        "r5-map-report": decodedAgain(MapCommand.Report.self),
         "r5-genotype-cohort-report": decodedOnly(ONTGenotypingCLIPayload.self),
     ]
 
@@ -559,7 +558,8 @@ final class CLIEventContractCoverageTests: XCTestCase {
             "These names are not .result schemas of the table any more"
         )
         XCTAssertTrue(decoded.isDisjoint(with: Set(listed)))
-        XCTAssertEqual(decoded.count, 14)
+        // `map` prints events since 2.10 (lane A46), so r5-map-report left the decoded schemas.
+        XCTAssertEqual(decoded.count, 13)
     }
 
     func testTheLegacyDocumentsDecodedHereAreShapesLeft() {

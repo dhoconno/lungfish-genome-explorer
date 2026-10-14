@@ -52,6 +52,8 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // the built CLI on the loopback NCBI stand-in (FetchGenomeEventTranscriptReplayTests with
         // LUNGFISH_RECAPTURE_CLI_EVENTS=1, lane A44 of Phase 2.10).
         "fetch genome",
+        // `map` runs minimap2 and samtools from the golden storage (lane A46 of Phase 2.10).
+        "map",
     ]
 
     static var transcriptsFolder: URL {

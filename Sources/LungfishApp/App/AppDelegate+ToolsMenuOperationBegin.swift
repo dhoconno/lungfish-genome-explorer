@@ -160,7 +160,7 @@ extension AppDelegate {
     ) -> OperationStartResult {
         let result = reporter.begin(
             title: "Map Reads (\(request.tool.displayName)): \(request.sampleName)",
-            detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)",
+            detail: MappingRunProgress.startDetail(inputCount: request.inputFASTQURLs.count, reference: request.referenceFASTAURL),
             operationType: .mapping,
             cliCommand: OperationCenter.buildCLICommand(
                 subcommand: "map",

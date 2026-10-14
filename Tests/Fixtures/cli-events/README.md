@@ -128,6 +128,14 @@ Lane A9 of Phase 2.7 ran `esviritu-detect` the same way with the CLI built from 
 | `complete-batch` | `esviritu detect --input /work/inputs/test_1.fastq.gz /work/inputs/test_2.fastq.gz --batch --db <database> --project /work/Project.lungfish --threads 2 --format json`, which groups the two files into the one paired sample `test` |
 | `failed` | `esviritu detect --input /work/inputs/test_1.fastq.gz --sample sarscov2 --db /work/missing-db --project /work/Project.lungfish --threads 2 --format json`, which the plan refuses before any folder exists |
 
+Lane A46 of Phase 2.10 ran `map` the same way with the CLI built from its branch, in the locked golden storage, with `LUNGFISH_STORAGE_ROOT` at `/Users/Shared/lungfish-golden/storage`, whose minimap2 and samtools wrote the mapping golden. Nothing was installed there. Each run had a scratch folder of its own, which the lines rewrite to `/work`, and its inputs were copies of `test_1.fastq.gz`, `test_2.fastq.gz` and `genome.fasta` from `Tests/Fixtures/sarscov2`. The script was `capture_map.py` of the lane, which kept the standard error of each run beside it.
+
+| File | Command |
+| --- | --- |
+| `complete` | `map /work/inputs/test_1.fastq.gz /work/inputs/test_2.fastq.gz --paired --reference /work/inputs/genome.fasta --mapper minimap2 --preset sr --sample-name sarscov2-test --threads 1 --format json --output-dir /work/out` |
+| `failed` | the same command with `--mapper bwa-mem2`, which the golden storage does not hold |
+| `failed-cancelled` | the command of `complete`, sent SIGTERM once its first `progress` line came, so it ends with exit status 125 |
+
 The inputs are `Tests/Fixtures/sarscov2/test_1.fastq.gz` and `test_2.fastq.gz`.
 
 Lane A8 of Phase 2.7 ran `kraken2-classify` and `conda-classify` the same way with the CLI built from its branch. `LUNGFISH_STORAGE_ROOT` named the stable storage at `~/.lungfish-stable`, whose `kraken2` and `bracken` environments ran, and its `Viral` database was read in place. A listing of the database folder and of the database registry taken before and after the runs was the same. The command lines and the paths the lines name are rewritten to `/work`. The files are in `kraken2-classify` unless the table names the folder.
@@ -165,7 +173,7 @@ Lane Q4 of Phase 2.7 ran `import-fastq`, the folder of `import fastq` and `impor
 
 ## results
 
-`results` holds the document that a leaf prints when the contract table marks it `.result`, one file for each of 13 schemas. Each file is the standard output of one real run of the built `lungfish-cli` on a repository fixture, run the way the commands above were. The scratch folder is `/work` in the file, and nothing else is edited. `CLIEventContractCoverageTests` decodes each file with the Swift type that reads it, adds one key that no reader knows, and expects the same value back.
+`results` holds the document that a leaf prints when the contract table marks it `.result`, one file for each of 12 schemas. The file of `r5-map-report` left in Phase 2.10, when `map` began to print events (lane A46). Each file is the standard output of one real run of the built `lungfish-cli` on a repository fixture, run the way the commands above were. The scratch folder is `/work` in the file, and nothing else is edited. `CLIEventContractCoverageTests` decodes each file with the Swift type that reads it, adds one key that no reader knows, and expects the same value back.
 
 Some leaves print text before their document. `convert` prints status lines unless `--quiet` is given, and `translate` and `extract sequence` print the sequences to standard output unless an output file is named. The runs used `--quiet` and an output file, so that standard output holds the document alone.
 
@@ -178,7 +186,6 @@ Some leaves print text before their document. `convert` prints status lines unle
 | `extract-sequence` | `extract sequence /work/inputs/small.fasta MT192765.1:1-60 -o /work/out/region.fasta --format json --quiet` |
 | `bundle-info`, `bundle-validate`, `bundle-list` | `bundle info`, `bundle validate` and `bundle list` of the reference bundle that `import fasta` made from `Tests/Fixtures/sarscov2/genome.fasta`, with `--format json` |
 | `msa-actions`, `msa-describe` | `msa actions --format json` and `msa describe msa.inspection.discriminating-sites --format json` |
-| `r5-map-report` | `map test_1.fastq.gz test_2.fastq.gz --paired --reference genome.fasta --mapper minimap2 --preset sr --sample-name sarscov2-test --threads 1 --format json --output-dir /work/out` on the files in `Tests/Fixtures/sarscov2` |
 
 `small.fasta` is the first record of `Tests/Fixtures/sarscov2/genome.fasta`, cut after five lines of sequence.
 

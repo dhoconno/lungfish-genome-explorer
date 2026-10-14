@@ -17,11 +17,13 @@ Mapping complete: 197/200 reads mapped
 0.9300
 1.0000
 # logged
+info Mapping 2 file(s) to genome.fasta
 info Read layout: paired R1/R2 files, mapped as pairs (Two input files are bound as R1 and R2.)
 info Read layout: paired R1/R2 files, mapped as pairs.
 info Running minimap2...
 info Normalizing sorted BAM...
 info Summarizing mapped contigs...
 info Mapping complete.
+info Preparing reference mapping viewer...
 # end
 completed Mapping complete: 197/200 reads mapped

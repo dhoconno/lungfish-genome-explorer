@@ -144,14 +144,16 @@ struct MapCommand: AsyncParsableCommand {
     /// `operationGrace`. Cancelling the task stops the mapper's tree through ToolProcess, the run
     /// record of a chosen `--output-dir` reads cancelled, a created analysis folder goes, and the
     /// command exits 125. A SIGTERM caught before the task exists cancels it once it starts, and a
-    /// second SIGTERM ends the command at once.
+    /// second SIGTERM ends the command at once. With `--format json` a failed or cancelled run
+    /// ends with one `failed` line (``MapRunReporter``).
     func run() async throws {
+        let reporter = MapRunReporter(globalOptions: globalOptions)
         let pendingCancel = PendingTaskCancel<(any Error)?>()
         let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
         defer { termination.end() }
         let task = Task { () -> (any Error)? in
             do {
-                try await self.map()
+                try await self.map(reporter: reporter)
                 return nil
             } catch {
                 return error
@@ -159,18 +161,26 @@ struct MapCommand: AsyncParsableCommand {
         }
         pendingCancel.attach(task)
         guard let error = await task.value else { return }
+        let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         // A tool stopped by the cancel can surface as its own failure, so the caught signal decides.
         if error is CancellationError || pendingCancel.cancelRequested {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             FileHandle.standardError.write(Data((formatter.error("Mapping cancelled") + "\n").utf8))
+            reporter.failed("Mapping cancelled")
             throw CLIExitCode.cancelled.exitCode
         }
+        if let failure = error as? MapRunFailure {
+            reporter.text(formatter.error(failure.message))
+            reporter.failed(failure.message)
+            throw failure.exitCode
+        }
+        reporter.failed(MapRunReporter.failureMessage(for: error))
         throw error
     }
 
-    private func map() async throws {
+    private func map(reporter: MapRunReporter) async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let threadCount = globalOptions.effectiveThreads
+        reporter.start(MappingRunProgress.startDetail(inputCount: fastqFiles.count, reference: URL(fileURLWithPath: reference)))
         warnIfDeprecatedAdvancedOptionsUsed()
 
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
@@ -181,16 +191,13 @@ struct MapCommand: AsyncParsableCommand {
         }
 
         if pairedEnd && inputURLs.count != 2 {
-            print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."))
-            throw CLIExitCode.inputError.exitCode
+            throw MapRunFailure.input("Paired-end mode requires exactly 2 input files, got \(inputURLs.count).")
         }
         if readLayout != .auto, pairedEnd || inputURLs.count != 1 {
-            print(formatter.error("--read-layout describes one input file; use --paired for two R1/R2 files."))
-            throw CLIExitCode.inputError.exitCode
+            throw MapRunFailure.input("--read-layout describes one input file; use --paired for two R1/R2 files.")
         }
         if minMapQ < 0 {
-            print(formatter.error("--min-mapq must be greater than or equal to 0."))
-            throw CLIExitCode.inputError.exitCode
+            throw MapRunFailure.input("--min-mapq must be greater than or equal to 0.")
         }
 
         let referenceInputURL = URL(fileURLWithPath: reference)
@@ -204,8 +211,7 @@ struct MapCommand: AsyncParsableCommand {
 
         guard let selectedTool = MappingTool(rawValue: mapper) else {
             let valid = MappingTool.allCases.map(\.rawValue).joined(separator: ", ")
-            print(formatter.error("Invalid mapper '\(mapper)'. Valid mappers: \(valid)"))
-            throw CLIExitCode.inputError.exitCode
+            throw MapRunFailure.input("Invalid mapper '\(mapper)'. Valid mappers: \(valid)")
         }
 
         let projectURL: URL?
@@ -287,8 +293,7 @@ struct MapCommand: AsyncParsableCommand {
                 FileHandle.standardError.write(Data("note: \(note)\n".utf8))
             }
         } catch {
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
+            throw MapRunFailure.input(error.localizedDescription)
         }
 
         let effectiveSampleName = sampleName ?? deriveSampleName(from: inputURLs.first!, pairedEnd: pairedEnd)
@@ -305,8 +310,7 @@ struct MapCommand: AsyncParsableCommand {
         do {
             advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions)
         } catch {
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
+            throw MapRunFailure.input(error.localizedDescription)
         }
 
         // The window and this command resolve the inputs through one call,
@@ -335,7 +339,10 @@ struct MapCommand: AsyncParsableCommand {
                 explicitLayout: readLayout.explicitLayout,
                 materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
                 progress: { message in
-                    if !globalOptions.quiet {
+                    // With events on, standard output holds event lines only (U-g).
+                    if reporter.eventsOn {
+                        reporter.step(MappingRunProgress.resolving(message))
+                    } else if !globalOptions.quiet {
                         print(formatter.info(message))
                     }
                 }
@@ -348,8 +355,7 @@ struct MapCommand: AsyncParsableCommand {
                 throw CLIError.workflowFailed(reason: message)
             }
         } catch let error as MappingInputResolverError {
-            print(formatter.error(error.localizedDescription))
-            throw CLIExitCode.inputError.exitCode
+            throw MapRunFailure.input(error.localizedDescription)
         } catch {
             throw CLIError.wrapping(error)
         }
@@ -394,8 +400,9 @@ struct MapCommand: AsyncParsableCommand {
         let layoutResolution = resolution.layoutResolution
         let readLayoutPlan = request.readLayoutPlan
         Self.printCompatibilityWarnings(for: request)
-        // `--format json` prints one JSON document at the end; the text
-        // header, tables and carriage-return progress lines would corrupt it.
+        reporter.info(MappingRunProgress.readLayoutLine(for: request, reason: layoutResolution.reason))
+        // `--format json` prints event lines only; the text header, tables
+        // and carriage-return progress lines would corrupt them.
         let printsText = globalOptions.outputFormat != .json
         let showsProgress = !globalOptions.quiet && printsText
 
@@ -435,7 +442,8 @@ struct MapCommand: AsyncParsableCommand {
                 request: request,
                 inputLayoutReason: layoutResolution.reason,
                 readSetPlan: resolution.readSetPlan
-            ) { _, message in
+            ) { fraction, message in
+                reporter.step(MappingRunProgress.mapping(fraction, message))
                 if showsProgress {
                     print(MapProgressLine.render(formatter.info(message), isTerminal: isatty(STDOUT_FILENO) == 1), terminator: "")
                     fflush(stdout)
@@ -449,12 +457,16 @@ struct MapCommand: AsyncParsableCommand {
         // reference bundle in the result directory with the BAM attached as
         // a track, the sidecars rewritten to point at it, and the run
         // recorded in the source bundle's analysis history.
+        if !noViewerBundle {
+            reporter.step(MappingRunProgress.preparingViewer)
+        }
         let published = try await Self.publishLayout(
             result: pipelineResult,
             request: request,
             originalInputURLs: inputURLs,
             skipViewerBundle: noViewerBundle,
-            progress: { _, message in
+            progress: { fraction, message in
+                reporter.step(MappingRunProgress.publishingViewer(fraction, message))
                 if showsProgress {
                     print(MapProgressLine.render(formatter.info(message), isTerminal: isatty(STDOUT_FILENO) == 1), terminator: "")
                     fflush(stdout)
@@ -474,7 +486,7 @@ struct MapCommand: AsyncParsableCommand {
         let report = Report(published: published, request: request)
 
         guard printsText else {
-            JSONOutputHandler().writeData(report, label: nil)
+            reporter.complete(outputDirectory: outputDirectory, result: published.result)
             return
         }
 
@@ -494,8 +506,9 @@ struct MapCommand: AsyncParsableCommand {
         let trackInfo: AlignmentTrackInfo?
     }
 
-    /// The `map` command's report, printed as a table or, with
-    /// `--format json`, as one JSON document. `alignmentTrack` is the
+    /// The `map` command's report, printed as the Results table. With
+    /// `--format json` the run prints events instead (Phase 2.10, lane A46),
+    /// and the report stays a Codable value for a reader. `alignmentTrack` is the
     /// track id and name a follow-up command (`variants call
     /// --alignment-track`) takes; it is `nil` when no viewer bundle was
     /// published.

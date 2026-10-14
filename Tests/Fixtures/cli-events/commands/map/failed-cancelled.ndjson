@@ -1,0 +1,5 @@
+{"event":"start","message":"Mapping 2 file(s) to genome.fasta","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Read layout: paired R1\/R2 files, mapped as pairs (Two input files are bound as R1 and R2.)","schemaVersion":2}
+{"event":"progress","message":"Read layout: paired R1\/R2 files, mapped as pairs.","progress":0.08,"schemaVersion":2}
+{"event":"progress","message":"Running minimap2...","progress":0.1,"schemaVersion":2}
+{"error":"Mapping cancelled","event":"failed","schemaVersion":2}

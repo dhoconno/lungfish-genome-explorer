@@ -258,6 +258,12 @@ extension AppDelegate {
             discardOwnedAnalysisDirectory()
             return false
         }
+        // The first detail is logged too, as the bridge logs `map`'s start line (A46 M2).
+        OperationCenter.shared.log(
+            id: opID,
+            level: .info,
+            message: MappingRunProgress.startDetail(inputCount: request.inputFASTQURLs.count, reference: request.referenceFASTAURL)
+        )
 
         do {
             if AppUITestConfiguration.current.isEnabled,
@@ -267,7 +273,7 @@ extension AppDelegate {
                 let capturedRequest = request
                 guard OperationCenter.shared.complete(
                     id: opID,
-                    detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped"
+                    detail: MappingRunProgress.completionDetail(mappedReads: result.mappedReads, totalReads: result.totalReads)
                 ) else { return false }
                 AppUITestConfiguration.current.appendEvent(
                     "mapping.operation.completed target=\(outputDirectory.lastPathComponent)"
@@ -279,18 +285,16 @@ extension AppDelegate {
                 return true
             }
 
+            // The steps and their words come from MappingRunProgress, which `map --format json`
+            // reports too, so the row reads the same on the CLI route (A46 M1 review, ruling 1).
             let resolved = try await resolveManagedMappingInputs(for: request) { message in
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
-                    OperationCenter.shared.log(id: opID, level: .info, message: message)
-                }}
+                Self.showMappingStep(MappingRunProgress.resolving(message), opID: opID)
             }
             let resolvedRequest = resolved.request
-            let readLayoutPlan = resolvedRequest.readLayoutPlan
             OperationCenter.shared.log(
                 id: opID,
                 level: .info,
-                message: "Read layout: \(readLayoutPlan.layout.displayName), mapped \(readLayoutPlan.handling.displayName) (\(resolved.layoutResolution.reason))"
+                message: MappingRunProgress.readLayoutLine(for: resolvedRequest, reason: resolved.layoutResolution.reason)
             )
             let pipeline = ManagedMappingPipeline()
             let result = try await pipeline.run(
@@ -298,10 +302,7 @@ extension AppDelegate {
                 inputLayoutReason: resolved.layoutResolution.reason,
                 readSetPlan: resolved.readSetPlan
             ) { fraction, message in
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                    OperationCenter.shared.log(id: opID, level: .info, message: message)
-                }}
+                Self.showMappingStep(MappingRunProgress.mapping(fraction, message), opID: opID)
             }
 
             var finalResult = result
@@ -341,7 +342,7 @@ extension AppDelegate {
 
             guard OperationCenter.shared.complete(
                 id: opID,
-                detail: "Mapping complete: \(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
+                detail: MappingRunProgress.completionDetail(mappedReads: finalResult.mappedReads, totalReads: finalResult.totalReads),
                 bundleURLs: [finalResult.viewerBundleURL ?? finalResult.bamURL]
             ) else { return false }
 
@@ -410,25 +411,24 @@ extension AppDelegate {
         request: MappingRunRequest,
         opID: UUID
     ) async throws -> MappingResult? {
-        DispatchQueue.main.async { MainActor.assumeIsolated {
-            _ = OperationCenter.shared.update(
-                id: opID,
-                progress: 0.93,
-                detail: "Preparing reference mapping viewer..."
-            )
-        }}
+        // Logged as well as shown since 2.10, as the bridge logs `map`'s progress line (A46 M2).
+        Self.showMappingStep(MappingRunProgress.preparingViewer, opID: opID)
         let publication = try await MappingResultLayoutService.publishViewerBundle(
             result: result,
             request: request,
             progress: { fraction, message in
-                let progress = 0.93 + (fraction * 0.06)
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.update(id: opID, progress: progress, detail: message)
-                    OperationCenter.shared.log(id: opID, level: .info, message: message)
-                }}
+                Self.showMappingStep(MappingRunProgress.publishingViewer(fraction, message), opID: opID)
             }
         )
         return publication?.result
+    }
+
+    /// Shows one step of a run on its row and logs its words at info, from any thread.
+    nonisolated static func showMappingStep(_ step: MappingRunProgress.Step, opID: UUID) {
+        DispatchQueue.main.async { MainActor.assumeIsolated {
+            _ = OperationCenter.shared.update(id: opID, progress: step.fraction, detail: step.message)
+            OperationCenter.shared.log(id: opID, level: .info, message: step.message)
+        }}
     }
 
     // MARK: - The CLI route behind the mapping key

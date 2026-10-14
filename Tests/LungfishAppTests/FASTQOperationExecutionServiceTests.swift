@@ -3537,6 +3537,9 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "--reference",
             "/tmp/ref.fasta",
             "--paired",
+            // map prints events behind its switch since 2.10 A46, which the dialog's runner reads.
+            "--format",
+            "json",
             ])
     }
 

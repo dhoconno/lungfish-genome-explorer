@@ -213,6 +213,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if inputURLs.count == 2 {
                 arguments.append("--paired")
             }
+            // `map` prints events behind --format json since 2.10 (lane A46), which the runner reads.
+            arguments += ["--format", "json"]
             return FASTQCLIInvocation(subcommand: "map", arguments: arguments)
 
         case .assemble(let request, _):
