@@ -50,6 +50,7 @@ final class ReadsLaunchRouteTests: XCTestCase {
         let settings = ReadsLaunchRouteSettings(defaults: defaults)
         XCTAssertEqual(ReadsLaunchPath.mapping.defaultsKey, "ReadsLaunchRoute.mapping")
         XCTAssertEqual(ReadsLaunchPath.assembly.defaultsKey, "ReadsLaunchRoute.assembly")
+        XCTAssertEqual(ReadsLaunchPath.ontImport.defaultsKey, "ReadsLaunchRoute.ontImport")
         defaults.set("legacy", forKey: ReadsLaunchPath.mapping.defaultsKey)
         XCTAssertEqual(settings.route(for: .mapping), .legacy)
         XCTAssertEqual(settings.route(for: .assembly), .cli, "the other launch keeps its own route")

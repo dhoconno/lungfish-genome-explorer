@@ -25,6 +25,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishCLI
 
 @MainActor
 final class ONTImportCLIRouteTests: XCTestCase {
@@ -202,6 +203,18 @@ final class ONTImportCLIRouteTests: XCTestCase {
             try XCTUnwrap(legacyItem.cliCommand).contains("--format json"),
             "the in-process row records the command without the events flag"
         )
+        // The row that importInProcess begins records the command that reproduces the run. It parses with the
+        // command line's own parser and carries the values the run used (CLI-EQUIVALENCE).
+        let legacyCommand = try RecordedCLICommand.parse(legacyItem.cliCommand, as: FastqImportONTSubcommand.self)
+        XCTAssertEqual(legacyCommand.input, source.path)
+        XCTAssertEqual(
+            legacyCommand.output,
+            project.appendingPathComponent("Imports", isDirectory: true)
+                .appendingPathComponent(root.lastPathComponent, isDirectory: true).path
+        )
+        XCTAssertTrue(legacyCommand.includeUnclassified)
+        XCTAssertEqual(legacyCommand.concurrency, 4)
+        XCTAssertEqual(legacyCommand.storageMode, .chunked)
         XCTAssertEqual(legacyItem.state, .completed)
         XCTAssertEqual(legacyItem.detail, "3 barcode bundles, 6 reads")
         XCTAssertEqual(
