@@ -80,6 +80,34 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
         try await verify.run()
     }
 
+    /// BIO on lane A44 M3-2, T3. `--into-bundle` with a nucleotide accession names the merged
+    /// sequence exactly as the VCF's CHROM, the accession with its version, and lists the accession
+    /// without its version as an alias, so a file or an older bundle that names the bare accession,
+    /// the LOCUS name of the in-process download, still resolves.
+    func testGenBankFallbackBundleAnswersTheBareAccession() async throws {
+        do {
+            try await GenomeDownloadBundleBuilder(ncbiService: NCBIService(apiKey: nil, environment: [:])).validateTools()
+        } catch {
+            try ToolAvailability.skipOrFail("Managed bgzip and samtools are required: \(error)")
+        }
+        let root = try TestTempDirectory.make(prefix: "bare-accession")
+        defer { TestTempDirectory.cleanup(root) }
+        let server = try await NCBIGenomeStandIn.start(servingIn: root.appendingPathComponent("served", isDirectory: true))
+        defer { server.stop() }
+        let saved = ProcessEnvironmentOverride(
+            set: [NCBIServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString], unset: ["NCBI_API_KEY"])
+        defer { saved.restore() }
+        let chrom = NCBIDownloadPinFixtures.genBankAccession
+        let bundle = try Self.makeVariantOnlyBundle(in: root.appendingPathComponent("out", isDirectory: true), chromosome: chrom)
+        var command = try GenomeSubcommand.parse([chrom, "--into-bundle", bundle.path, "--quiet"])
+        try await command.run()
+
+        let chromosomes = try XCTUnwrap(BundleManifest.load(from: bundle).genome?.chromosomes)
+        XCTAssertEqual(chromosomes.map(\.name), [chrom])
+        XCTAssertEqual(mapVCFChromosomes([chrom], toBundleChromosomes: chromosomes), [:], "the CHROM matches with no alias")
+        XCTAssertEqual(mapVCFChromosomes(["ZZ000001"], toBundleChromosomes: chromosomes)["ZZ000001"], chrom)
+    }
+
     // MARK: - Helpers
 
     private func assertCLIBundle(

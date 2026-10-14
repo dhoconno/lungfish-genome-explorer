@@ -94,6 +94,28 @@ struct FetchGenomeNucleotideBundle: Sendable {
         let bundleURL = try await builder.build(configuration: config) { _, fraction, message in
             progress(fraction, message)
         }
+        try Self.aliasBareAccession(in: bundleURL)
         return Built(bundleURL: bundleURL, organism: organism.isEmpty ? sequenceName : organism, sources: sources)
+    }
+
+    /// Lists the accession without its version as an alias of a one-sequence bundle's sequence,
+    /// whose name stays the accession with its version (BIO on lane A44 M3-2, T3). A file or an
+    /// older bundle that names the bare accession, as the LOCUS name of the in-process GenBank
+    /// download does, then still resolves. A name with no version keeps the manifest as built.
+    static func aliasBareAccession(in bundleURL: URL) throws {
+        let manifest = try BundleManifest.load(from: bundleURL)
+        guard let genome = manifest.genome else { return }
+        let chromosomes = BundleBuildHelpers.addSingleSequenceAccessionAliases(
+            to: genome.chromosomes, accessions: genome.chromosomes.map(\.name))
+        guard chromosomes != genome.chromosomes else { return }
+        let aliased = GenomeInfo(
+            path: genome.path, indexPath: genome.indexPath, gzipIndexPath: genome.gzipIndexPath,
+            totalLength: genome.totalLength, chromosomes: chromosomes, md5Checksum: genome.md5Checksum)
+        // Swapping the genome through the manifest's own merge keeps every other field, and the save
+        // makes the browser summary again from the aliased sequence.
+        let withAliases = BundleManifest(
+            name: manifest.name, identifier: manifest.identifier, source: manifest.source,
+            genome: aliased, annotations: manifest.annotations, recordStore: nil)
+        try manifest.mergingGenomeAndAnnotations(from: withAliases, preferredName: manifest.name).save(to: bundleURL)
     }
 }

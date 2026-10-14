@@ -66,7 +66,10 @@ package enum BundleBuildHelpers {
         return chromosomes
     }
 
-    static func addSingleSequenceAccessionAliases(
+    /// Lists each of `accessions`, and each without its numeric version, as an alias of the one
+    /// sequence of `chromosomes`, leaving out its own name. More than one sequence is returned as
+    /// it is. `fetch genome` uses it for a nucleotide bundle's bare accession (lane A44 M3, T3).
+    package static func addSingleSequenceAccessionAliases(
         to chromosomes: [ChromosomeInfo],
         accessions: [String]
     ) -> [ChromosomeInfo] {
