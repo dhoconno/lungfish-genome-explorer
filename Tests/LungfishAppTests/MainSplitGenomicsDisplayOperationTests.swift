@@ -468,7 +468,9 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertEqual(assemble.outputDir, "<derived>")
         XCTAssertEqual(assemble.memoryGB, 8)
         XCTAssertEqual(assemble.minContigLength, 500)
-        XCTAssertTrue(assemble.jsonEvents)
+        // Events on standard output behind --format json since 2.10 A46 (C7).
+        XCTAssertTrue(assemble.eventsOn)
+        XCTAssertFalse(assemble.jsonEvents)
     }
 
     func testRefusedFASTQLaunchRequestBeginLaunchesNothing() {
