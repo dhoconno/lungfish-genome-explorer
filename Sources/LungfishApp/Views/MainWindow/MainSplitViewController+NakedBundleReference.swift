@@ -99,24 +99,38 @@ extension MainSplitViewController {
                     mainSplitLogger.info("downloadReferenceForNakedBundle: Genome merged into \(bundleURL.lastPathComponent, privacy: .public)")
 
                     // Reload the bundle in the viewer after the downloaded reference is merged.
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            self?.displayReferenceBundleViewportFromSidebar(at: bundleURL)
-                        }
-                    }
+                    self?.reloadMergedReferenceBundle(at: bundleURL)
 
                 } catch is CancellationError {
                     // The CLI child stopped on the row's Cancel.
                     mainSplitPerformOnMainRunLoop {
                         _ = DownloadCenter.shared.acknowledgeCancellation(id: downloadID)
                     }
+                    // A variant-only bundle has no genome, so a genome after a cancel is the child's
+                    // finished merge. The child checks for a cancel once, before it swaps the folders
+                    // and saves the manifest, so a later Cancel still merges, and the viewer, which
+                    // shows the variant-only manifest, has to reload it.
+                    if (try? BundleManifest.load(from: bundleURL))?.genome != nil {
+                        self?.reloadMergedReferenceBundle(at: bundleURL)
+                    }
                 } catch {
-                    let errorMessage = "\(error)"
+                    let errorMessage = error.localizedDescription
                     mainSplitPerformOnMainRunLoop {
                         _ = DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
                     }
                     mainSplitLogger.error("downloadReferenceForNakedBundle: Failed - \(errorMessage)")
                 }
+            }
+        }
+    }
+
+    /// Shows the bundle at `bundleURL` in the viewer again, on the main queue, once a reference is
+    /// merged into it. The site's detached task calls it after a merge that completed and after a
+    /// cancel that came too late to stop one.
+    private nonisolated func reloadMergedReferenceBundle(at bundleURL: URL) {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.displayReferenceBundleViewportFromSidebar(at: bundleURL)
             }
         }
     }
