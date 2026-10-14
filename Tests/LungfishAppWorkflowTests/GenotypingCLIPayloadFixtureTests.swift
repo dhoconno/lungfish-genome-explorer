@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishWorkflow
 
 /// The documents that `fastq ont-barcode-genotype`, `fastq genotype-cohort` and
 /// `fastq full-length-ont-mhc-genotype` print, decoded with `JSONDecoder` and no fallback (2.10 A38).
