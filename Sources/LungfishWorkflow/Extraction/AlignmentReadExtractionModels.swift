@@ -43,7 +43,7 @@ public struct AlignmentReadExtractionExecutionRecord: Codable, Sendable, Equatab
     public init(
         stage: AlignmentReadExtractionExecutionStage,
         workflowName: String = "lungfish alignment read extraction",
-        workflowVersion: String = WorkflowRun.currentAppVersion,
+        workflowVersion: String = LungfishAppVersion.short,
         toolName: String,
         toolVersion: String,
         executablePath: String? = nil,
@@ -53,7 +53,7 @@ public struct AlignmentReadExtractionExecutionRecord: Codable, Sendable, Equatab
         reproducibleCommand: String? = nil,
         visibleOptions: [String: ParameterValue] = [:],
         resolvedDefaults: [String: ParameterValue] = [:],
-        runtimeIdentity: ProvenanceRuntimeIdentity = .init(),
+        runtimeIdentity: ProvenanceRuntimeIdentity = .init(appVersion: LungfishAppVersion.short),
         inputs: [ProvenanceFileDescriptor],
         outputs: [ProvenanceFileDescriptor],
         exitStatus: Int?,
@@ -131,16 +131,16 @@ public struct AlignmentReadExtractionProvenance: Sendable, Equatable {
 
     public init(
         workflowName: String,
-        workflowVersion: String = WorkflowRun.currentAppVersion,
+        workflowVersion: String = LungfishAppVersion.short,
         toolName: String = "Lungfish.app",
-        toolVersion: String = WorkflowRun.currentAppVersion,
+        toolVersion: String = LungfishAppVersion.short,
         argv: [String],
         durableReplayArgv: [String]? = nil,
         explicitOptions: [String: ParameterValue] = [:],
         defaults: [String: ParameterValue] = [:],
         resolvedDefaults: [String: ParameterValue] = [:],
         inputURLs: [URL],
-        runtimeIdentity: ProvenanceRuntimeIdentity = .init()
+        runtimeIdentity: ProvenanceRuntimeIdentity = .init(appVersion: LungfishAppVersion.short)
     ) {
         self.workflowName = workflowName
         self.workflowVersion = workflowVersion

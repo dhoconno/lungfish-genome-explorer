@@ -792,7 +792,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         AlignmentReadExtractionExecutionRecord(
             stage: stage,
             toolName: toolName,
-            toolVersion: WorkflowRun.currentAppVersion,
+            toolVersion: LungfishAppVersion.short,
             argv: argv,
             inputs: inputs,
             outputs: outputs,

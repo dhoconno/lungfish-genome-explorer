@@ -8,7 +8,7 @@
 // base runs in the app, what each run hands its stager, the files the bundle destination leaves
 // and the record the publisher writes, read back from disk. The stagers are stand-ins that stage
 // a known FASTQ with one samtools record, so the pin needs no tool. The text names the scratch
-// folder `<root>`, the app's version `<app version>` and each staging UUID `<uuid>`.
+// folder `<root>`, `LungfishAppVersion.short` `<app version>` and each staging UUID `<uuid>`.
 
 import Foundation
 import XCTest
@@ -76,7 +76,7 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
 
     private func masked(_ text: String) -> String {
         text.replacingOccurrences(of: root.standardizedFileURL.path, with: "<root>")
-            .replacingOccurrences(of: WorkflowRun.currentAppVersion, with: "<app version>")
+            .replacingOccurrences(of: LungfishAppVersion.short, with: "<app version>")
             .replacingOccurrences(of: #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#, with: "<uuid>", options: .regularExpression)
     }
 

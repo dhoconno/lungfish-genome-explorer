@@ -517,7 +517,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
         return AlignmentReadExtractionExecutionRecord(
             stage: .publication,
             toolName: "lungfish alignment extraction publisher",
-            toolVersion: WorkflowRun.currentAppVersion,
+            toolVersion: LungfishAppVersion.short,
             argv: [
                 "Lungfish.app", "alignment", "extract", "publish",
                 "--destination", destination.path,
