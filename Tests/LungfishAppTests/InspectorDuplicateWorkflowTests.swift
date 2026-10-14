@@ -10,6 +10,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 @testable import LungfishWorkflow
 import LungfishKit
 
@@ -112,6 +113,61 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
         XCTAssertEqual(row?.title, "Create Deduplicated Bundle")
         XCTAssertEqual(row?.cliCommand?.contains("bundle deduplicate-alignments"), true)
         XCTAssertTrue(center.complete(id: id, detail: "done", bundleURLs: [bundleURL]))
+    }
+
+    // MARK: - The recorded commands (Phase 2.10 lane A54, census row p38)
+    //
+    // `startDuplicateWorkflowOperation` is the begin site of both duplicate workflows. It records
+    // `bundle mark-duplicates` or `bundle deduplicate-alignments` (decision C14, not `bam markdup`,
+    // which takes BAM files and no bundle), so each recorded string is pinned here and read back
+    // with the real CLI parser.
+
+    private let spacedBundleURL = URL(fileURLWithPath: "/tmp/duplicate lane/Sample.lungfishref", isDirectory: true)
+
+    private func recordedCommand(of kind: InspectorViewController.DuplicateWorkflowKind, bundle: URL) throws -> String {
+        let center = OperationCenter()
+        guard case .started(let id) = InspectorViewController.startDuplicateWorkflowOperation(
+            kind: kind,
+            bundleURL: bundle,
+            routeContext: nil,
+            center: center
+        ) else {
+            throw XCTSkip("the row did not start")
+        }
+        let row = try XCTUnwrap(center.items.first { $0.id == id })
+        return try XCTUnwrap(row.cliCommand)
+    }
+
+    func testMarkDuplicatesRowRecordsACommandTheCLIParses() throws {
+        let command = try recordedCommand(of: .markDuplicates, bundle: spacedBundleURL)
+        XCTAssertEqual(command, "lungfish-cli bundle mark-duplicates '/tmp/duplicate lane/Sample.lungfishref'")
+
+        let parsed = try RecordedCLICommand.parse(command, as: BundleMarkDuplicatesSubcommand.self)
+        XCTAssertEqual(parsed.bundlePath, spacedBundleURL.path)
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .text)
+        // The same string, parsed as a script, is the one command the row ran.
+        XCTAssertEqual(try RecordedCLICommand.parseScript(command).count, 1)
+    }
+
+    func testCreateDeduplicatedBundleRowRecordsACommandTheCLIParses() throws {
+        let command = try recordedCommand(of: .createDeduplicatedBundle, bundle: spacedBundleURL)
+        XCTAssertEqual(command, "lungfish-cli bundle deduplicate-alignments '/tmp/duplicate lane/Sample.lungfishref'")
+
+        let parsed = try RecordedCLICommand.parse(command, as: BundleDeduplicateAlignmentsSubcommand.self)
+        XCTAssertEqual(parsed.bundlePath, spacedBundleURL.path)
+        XCTAssertNil(parsed.output, "the run names no output, so the command makes the sibling bundle the run makes")
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .text)
+    }
+
+    func testEachDuplicateKindRecordsADifferentLeaf() throws {
+        XCTAssertEqual(
+            try RecordedCLICommand.arguments(of: recordedCommand(of: .markDuplicates, bundle: bundleURL)),
+            ["bundle", "mark-duplicates", bundleURL.path]
+        )
+        XCTAssertEqual(
+            try RecordedCLICommand.arguments(of: recordedCommand(of: .createDeduplicatedBundle, bundle: bundleURL)),
+            ["bundle", "deduplicate-alignments", bundleURL.path]
+        )
     }
 
     // The button reads "Mark Duplicates in Bundle Tracks"; the sheet it opens
