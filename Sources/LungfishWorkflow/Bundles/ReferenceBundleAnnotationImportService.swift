@@ -30,8 +30,10 @@ private let annotationImportLogger = Logger(subsystem: LogSubsystem.app, categor
 /// helper is a plain `static func`), and `ProvenanceRehydrator` is a stateless `enum`
 /// of static functions -- so nothing blocks running the whole body detached. Callers
 /// already `await` construction and `attachAnnotationTrack(...)` (see
-/// `AppDelegate+ImportCenter.swift`, `MainSplitViewController+FASTQImport.swift`,
-/// `ViewerViewController.swift`, `GeneiousImportCollectionService.swift`); no call site
+/// `lungfish-cli sequence attach-track`
+/// (`Sources/LungfishCLI/Commands/SequenceAnnotationEditSubcommands.swift`), which the
+/// Import Center and sidebar rows launch, `ViewerViewController.swift`,
+/// `GeneiousImportCollectionService.swift`); no call site
 /// needs to change. Callers that want MainActor UI updates from the returned
 /// `ReferenceBundleAnnotationImportResult` continue to hop themselves after `await`,
 /// exactly as before.
@@ -136,9 +138,11 @@ public final class ReferenceBundleAnnotationImportService {
     /// thread pool regardless of the caller's actor. This is deliberate and load-bearing:
     /// `attachAnnotationTrack` has no `await` of its own between entry and the
     /// `Task.detached` call, so without the detached hop a nonisolated `async` func
-    /// called from `@MainActor` (as every real call site does -- see
-    /// `AppDelegate+ImportCenter.swift`, `MainSplitViewController+FASTQImport.swift`,
-    /// `ViewerViewController.swift`) would simply inherit the caller's thread and run
+    /// called from `@MainActor` (as every in-process call site of the app does -- see
+    /// `ViewerViewController.swift`; the Import Center and sidebar rows launch
+    /// `lungfish-cli sequence attach-track`
+    /// (`Sources/LungfishCLI/Commands/SequenceAnnotationEditSubcommands.swift`) instead)
+    /// would simply inherit the caller's thread and run
     /// every synchronous step (including the fully-synchronous `createFromBED` path)
     /// on the main thread until the first real suspension point. `Task.detached`
     /// guarantees the executor hop happens up front, for both the GFF3 and BED
