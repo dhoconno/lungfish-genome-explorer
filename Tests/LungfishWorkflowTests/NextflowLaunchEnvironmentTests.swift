@@ -118,25 +118,57 @@ final class NextflowLaunchEnvironmentTests: XCTestCase {
         XCTAssertEqual(probe, StubNextflowToolRoot.dumped(shared.environment))
         XCTAssertEqual(probe["JAVA_HOME"], jvmHome)
 
-        // ProcessManager layers a launch environment over the parent's, so a
-        // parent that carries a removed name would hand it back to the child.
-        // testTaxTriageDockerProfileRemovesInheritedCondaSettings pins the removal.
-        let removedNames: Set<String> = ["NXF_CONDA_ENABLED", "NXF_CONDA_CACHEDIR"]
+        // The launcher gets the launch's environment as it is, so the two removed names are unset in it
+        // whatever the test process holds (testTaxTriageDockerRunKeepsAParentsCondaSettingsOutOfTheLauncher).
         let expected = shared.overridingEnvironment(
             set: ["MAMBA_ROOT_PREFIX": toolRoot.condaRoot.standardizedFileURL.path],
-            unset: removedNames
+            unset: ["NXF_CONDA_ENABLED", "NXF_CONDA_CACHEDIR"]
         )
         let launcher = try StubNextflowToolRoot.readDump(toolRoot.micromambaDump)
-        XCTAssertEqual(
-            launcher.filter { !removedNames.contains($0.key) },
-            StubNextflowToolRoot.dumped(expected.environment).filter { !removedNames.contains($0.key) }
-        )
+        XCTAssertEqual(launcher, StubNextflowToolRoot.dumped(expected.environment))
         XCTAssertEqual(launcher["JAVA_HOME"], jvmHome)
         XCTAssertEqual(launcher["MAMBA_ROOT_PREFIX"], toolRoot.condaRoot.standardizedFileURL.path)
         XCTAssertEqual(
             launcher["PATH"]?.split(separator: ":").first.map(String.init),
             toolRoot.managedNextflow.deletingLastPathComponent().standardizedFileURL.path
         )
+    }
+
+    /// Phase 2.10 FXE. The docker profile takes Nextflow's two conda settings out of the launch. The spawn used to lay
+    /// the launch over the environment of the process that spawns it, so a shell that held `NXF_CONDA_ENABLED=true`
+    /// handed it back to the launcher and Nextflow ran with its conda support on. This holds both names in the test
+    /// process, runs the docker profile through the stand-ins and reads what the micromamba launcher saw.
+    func testTaxTriageDockerRunKeepsAParentsCondaSettingsOutOfTheLauncher() async throws {
+        let toolRoot = try StubNextflowToolRoot()
+        defer { toolRoot.cleanup() }
+        let held = ["NXF_CONDA_ENABLED": "true", "NXF_CONDA_CACHEDIR": "/inherited/conda/envs"]
+        let saved = held.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (name, value) in held { setenv(name, value, 1) }
+        defer {
+            for (name, value) in saved {
+                if let value { setenv(name, value, 1) } else { unsetenv(name) }
+            }
+        }
+        let reads = toolRoot.root.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        let pipeline = TaxTriagePipeline(
+            condaManager: CondaManager(rootPrefix: toolRoot.condaRoot),
+            homeDirectoryProvider: { toolRoot.home },
+            appIdentity: .preview,
+            containerRuntimeProbe: ReachableDockerProbe()
+        )
+
+        let result = try await pipeline.run(config: TaxTriageConfig(
+            samples: [TaxTriageSample(sampleId: "S1", fastq1: reads, platform: .illumina)],
+            outputDirectory: toolRoot.root.appendingPathComponent("taxtriage-output", isDirectory: true),
+            profile: "docker",
+            revision: "fixture-revision"
+        ))
+        XCTAssertEqual(result.exitCode, 0)
+
+        let launcher = try StubNextflowToolRoot.readDump(toolRoot.micromambaDump)
+        XCTAssertEqual(launcher["NXF_CONDA_ENABLED"], StubNextflowToolRoot.unset, "the parent's value came back in the launcher")
+        XCTAssertEqual(launcher["NXF_CONDA_CACHEDIR"], StubNextflowToolRoot.unset, "the parent's value came back in the launcher")
     }
 
     func testTaxTriageCondaProfileAddsLungfishCondaSettingsToTheSharedLaunch() async throws {

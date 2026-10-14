@@ -156,11 +156,18 @@ public actor ProcessManager: ProcessManaging {
     /// handler, as ``runAndWait`` binds the run's cancel, so a cancel reaches
     /// the run at once on the cancelling thread, with no task and no hop onto
     /// this actor. `stop` does nothing once the run is over.
+    ///
+    /// With `environmentIsComplete` the `environment` is the child's whole
+    /// environment, as a ``WorkflowEngineLaunch`` environment is, and a name it
+    /// leaves out stays unset in the child. Without it the `environment` is
+    /// laid over this process's own, as ``spawn(executable:arguments:workingDirectory:environment:)``
+    /// does.
     func spawnStoppable(
         executable: URL,
         arguments: [String],
         workingDirectory: URL,
         environment: [String: String]?,
+        environmentIsComplete: Bool = false,
         drainGracePeriod: Duration? = nil,
         terminationGracePeriod: Duration? = nil
     ) async throws -> (handle: ProcessHandle, stop: @Sendable () -> Void) {
@@ -169,6 +176,7 @@ public actor ProcessManager: ProcessManaging {
             arguments: arguments,
             workingDirectory: workingDirectory,
             environment: environment,
+            environmentIsComplete: environmentIsComplete,
             keepsOutput: false,
             drainGracePeriod: drainGracePeriod,
             terminationGracePeriod: terminationGracePeriod
@@ -188,6 +196,7 @@ public actor ProcessManager: ProcessManaging {
         arguments: [String],
         workingDirectory: URL,
         environment: [String: String]?,
+        environmentIsComplete: Bool = false,
         keepsOutput: Bool,
         drainGracePeriod: Duration?,
         terminationGracePeriod: Duration? = nil
@@ -216,10 +225,18 @@ public actor ProcessManager: ProcessManaging {
         }
 
         let output: ToolProcessOutput = keepsOutput ? .capture() : .capture(limit: 0)
+        // A complete environment is the child's own, so a name it leaves out stays unset. Overrides, and no
+        // environment at all, are laid over this process's environment.
+        let childEnvironment: [String: String]
+        if environmentIsComplete, let environment {
+            childEnvironment = environment
+        } else {
+            childEnvironment = ToolProcessSpec.inheritedEnvironment(overriding: environment ?? [:])
+        }
         var spec = ToolProcessSpec(
             executableURL: executable,
             arguments: arguments,
-            environment: ToolProcessSpec.inheritedEnvironment(overriding: environment ?? [:]),
+            environment: childEnvironment,
             workingDirectory: workingDirectory,
             stdout: output,
             stderr: output,

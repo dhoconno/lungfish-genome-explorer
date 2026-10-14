@@ -429,6 +429,61 @@ final class ProcessManagerTests: XCTestCase {
         )
     }
 
+    // MARK: - Environment
+
+    /// Phase 2.10 FXE. A launch's environment is the child's whole environment, so a name the launch took out must stay
+    /// unset when this process holds it. `spawnStoppable` with `environmentIsComplete` gives the child exactly the
+    /// environment it is handed.
+    func testACompleteEnvironmentLeavesAnUnsetNameUnset() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let held = "LUNGFISH_TEST_HELD_BY_THE_PARENT"
+        setenv(held, "parent", 1)
+        defer { unsetenv(held) }
+
+        let (handle, _) = try await ProcessManager.shared.spawnStoppable(
+            executable: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: ["PATH": "/usr/bin:/bin", "LUNGFISH_TEST_STATED": "launch"],
+            environmentIsComplete: true
+        )
+        async let stdout = handle.collectStdout()
+        let exitCode = await handle.waitForExit()
+        let lines = Set(await stdout.split(separator: "\n").map(String.init))
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(lines.filter { $0.hasPrefix("LUNGFISH_TEST_") }, ["LUNGFISH_TEST_STATED=launch"], "the parent's value came back")
+        XCTAssertTrue(lines.contains("PATH=/usr/bin:/bin"))
+    }
+
+    /// A caller that passes only overrides keeps the merge, and so does one that passes none: the child gets this
+    /// process's variables with the stated ones laid over them.
+    func testOverridesAreStillLaidOverTheParentsEnvironment() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let held = "LUNGFISH_TEST_HELD_BY_THE_PARENT"
+        setenv(held, "parent", 1)
+        defer { unsetenv(held) }
+
+        let overridden = try await ProcessManager.shared.runAndWait(
+            executable: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: ["LUNGFISH_TEST_STATED": "launch", held: "stated"]
+        )
+        let overriddenLines = Set(overridden.stdout.split(separator: "\n").map(String.init))
+        XCTAssertTrue(overriddenLines.contains("LUNGFISH_TEST_STATED=launch"))
+        XCTAssertTrue(overriddenLines.contains("\(held)=stated"), "a stated value replaces the parent's")
+        XCTAssertTrue(overriddenLines.contains { $0.hasPrefix("PATH=") }, "the parent's PATH is still there")
+
+        let inherited = try await ProcessManager.shared.runAndWait(
+            executable: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: [],
+            workingDirectory: tempDir,
+            environment: nil
+        )
+        XCTAssertTrue(Set(inherited.stdout.split(separator: "\n").map(String.init)).contains("\(held)=parent"))
+    }
+
     private static func waitUntilProcessExits(pid: Int32, timeout: TimeInterval) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

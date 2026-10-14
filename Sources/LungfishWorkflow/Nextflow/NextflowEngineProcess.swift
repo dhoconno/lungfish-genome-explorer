@@ -139,6 +139,7 @@ package struct NextflowEngineProcess: Sendable {
                 arguments: launch.arguments,
                 workingDirectory: scratch.launchDirectory,
                 environment: launch.environment,
+                environmentIsComplete: true,
                 terminationGracePeriod: configuration.terminationGracePeriod
             )
         } catch {
@@ -274,7 +275,8 @@ package struct NextflowEngineConfiguration: Sendable, Equatable {
 package struct NextflowEngineLaunch: Sendable, Equatable {
     package var executable: URL
     package var arguments: [String]
-    /// The whole environment, merged over the app's own by ``ProcessManager``.
+    /// The engine's whole environment. ``ProcessManager`` gives it to the engine as it is, so a name the launch
+    /// took out, such as Nextflow's conda settings for a docker run, stays unset whatever the app's own holds.
     package var environment: [String: String]
     package var logFile: URL
     /// The first part of the log, such as TaxTriage's launch metadata.
