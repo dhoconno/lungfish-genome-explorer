@@ -796,6 +796,64 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertEqual(invocation.argv.first, "bwa-mem2")
     }
 
+    /// BIO's ruling D8 on Phase 2.10 lane A46 M3 and fix 1 of the whole-lane review. A run that names
+    /// its own `lungfish-cli map` command gives the record that command in `argv` and
+    /// `reproducibleCommand`. The record's `durableReplayArgv` is its own replay, which readers take
+    /// before `argv`, so the mapper's replay (minimap2 over materialized inputs) must not stand there
+    /// beside it. The steps keep the mapper's command, and a record without a run command, as
+    /// genotyping writes it, keeps the mapper's replay.
+    func testARunCommandLeavesTheMapperReplayToTheSteps() throws {
+        let inputFASTQ = try writeFASTQ(name: "reads.fastq", header: "@read-1", sequenceLength: 100)
+        let referenceFASTA = try writeText(name: "reference.fa", contents: ">chr1\nACGT\n")
+        let sortedBAM = tempDir.appendingPathComponent("sample.sorted.bam")
+        let bai = tempDir.appendingPathComponent("sample.sorted.bam.bai")
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.minimap2MapONT.id,
+            inputFASTQURLs: [inputFASTQ],
+            referenceFASTAURL: referenceFASTA,
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            threads: 2
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            bamURL: sortedBAM,
+            baiURL: bai,
+            totalReads: 10,
+            mappedReads: 8,
+            unmappedReads: 2,
+            wallClockSeconds: 2,
+            contigs: []
+        )
+        // The pipeline sets the mapper's durable replay when an input was materialized.
+        let mapperArgv = ["minimap2", "-a", referenceFASTA.path, inputFASTQ.path]
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: MappingCommandInvocation(label: "minimap2", argv: mapperArgv, durableReplayArgv: mapperArgv),
+            normalizationInvocations: [],
+            mapperVersion: "2.28",
+            samtoolsVersion: "1.21",
+            exitStatus: 0
+        )
+        let runCommand = ["lungfish-cli", "map", "--reads", "reads.fastq", "--reference", "reference.fa"]
+
+        let named = provenance.canonicalEnvelope(sourceDirectory: tempDir, runCommand: runCommand)
+        XCTAssertNil(
+            named.durableReplayArgv,
+            "the record names lungfish-cli map in argv, so a mapper replay beside it is a false replay"
+        )
+        XCTAssertEqual(named.argv, runCommand)
+        XCTAssertEqual(named.reproducibleCommand, "lungfish-cli map --reads reads.fastq --reference reference.fa")
+        XCTAssertEqual(named.steps.first?.argv, mapperArgv, "the steps keep the mapper's command")
+
+        let unnamed = provenance.canonicalEnvelope(sourceDirectory: tempDir)
+        XCTAssertEqual(unnamed.argv, mapperArgv)
+        XCTAssertEqual(unnamed.durableReplayArgv, mapperArgv, "a record without a run command keeps the mapper's replay")
+    }
+
     private func writeFASTQ(name: String, header: String, sequenceLength: Int) throws -> URL {
         let url = tempDir.appendingPathComponent(name)
         let sequence = String(repeating: "A", count: sequenceLength)
