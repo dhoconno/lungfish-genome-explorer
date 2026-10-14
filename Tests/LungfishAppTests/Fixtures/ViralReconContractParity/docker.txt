@@ -46,9 +46,12 @@ true
 ivar
 
 environment:
+AGENT=false
+CLAUDECODE=false
 HOME=<root>/engine/home
 LUNGFISH_DOCKER_STANDIN=<root>/docker-standin/docker
 MAMBA_ROOT_PREFIX=<root>/engine/home/.lungfish/conda
+NXF_AGENT_MODE=false
 NXF_ANSI_LOG=false
 NXF_HOME=<root>/engine/home/.nextflow
 NXF_SYNTAX_PARSER=v1
