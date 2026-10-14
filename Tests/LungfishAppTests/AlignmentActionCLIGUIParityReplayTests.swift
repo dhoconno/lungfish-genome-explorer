@@ -20,6 +20,13 @@
 // refusal with the user's answer and records it with `setCommand`. Both write the record through
 // the one service, so A against C declares nothing (C4).
 //
+// The read cases (M3) run the viewer's Extract Reads in Selected Region and Extract Selected Reads.
+// Side A stages and publishes in this process as the coordinator did, with the record the row's
+// command names, and side C runs the row's `lungfish-cli extract reads` with the evidence's index.
+// The bundle file keys its payloads by their path in the bundle (ruling A51-reads), so nothing is
+// declared. The overlapping-reads case (p48) runs the annotation action, whose recorded command
+// side A runs in this process.
+//
 // It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the
 // integration tier.
 
@@ -45,6 +52,7 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
         case consensusAcceptedAllN
         case regionReads
         case selectedReads
+        case overlappingReads
     }
 
     /// Every difference A against C declares, none (C4). Both routes write the removal's record
@@ -362,6 +370,61 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
         }
     }
 
+    // MARK: - Overlapping read sides (M3, census-parses row 48)
+
+    /// The configuration the viewer builds for the annotation orf1a start, MT192765.1 1 to 3000,
+    /// on the evidence in `root`, writing into `root/out`.
+    private static func overlappingReadsConfig(in root: URL) throws -> BAMRegionExtractionConfig {
+        let mapping = MappingResult(
+            mapper: .minimap2, modeID: "short-read-default",
+            bamURL: root.appendingPathComponent("evidence/S1.bam"), baiURL: root.appendingPathComponent("evidence/S1.bam.bai"),
+            totalReads: 200, mappedReads: 197, unmappedReads: 3, wallClockSeconds: 1, contigs: []
+        )
+        let annotation = SequenceAnnotation(type: .gene, name: "orf1a start", chromosome: contig, intervals: [AnnotationInterval(start: 0, end: 3000)])
+        return try XCTUnwrap(MappingAnnotationActionCoordinator.extractionConfiguration(
+            for: annotation, mappingResult: mapping, outputDirectory: root.appendingPathComponent("out", isDirectory: true)
+        ))
+    }
+
+    /// Side A, the command the row records run by its own code in this process. Before the route the
+    /// action awaited the same `ReadExtractionService` run without the command's records, which panel
+    /// G5 gives no way to declare, so side A is the command, whose reads the action's matched (p48).
+    private static func overlappingReadsSideA(_ root: URL) async -> RouteParitySideOutcome {
+        do {
+            let arguments = ViewerViewController.overlappingReadsExtractionCLIArguments(config: try overlappingReadsConfig(in: root))
+            try await ExtractReadsSubcommand.parse(Array(arguments.dropFirst(2))).run()
+            return RouteParitySideOutcome(end: .completed, detail: "exit 0")
+        } catch {
+            return RouteParitySideOutcome(end: .failed, detail: error.localizedDescription)
+        }
+    }
+
+    /// Side C, the CLI route. The viewer's begin helper records `extract reads --by-region` and its
+    /// run helper runs that argv on the L3 runner, as `extractOverlappingReads(from:)` does.
+    private func overlappingReadsSideC(_ root: URL) async throws -> RouteParitySideOutcome {
+        let config = try Self.overlappingReadsConfig(in: root)
+        let reporter = RecordingOperationReporter()
+        var launched: UUID?
+        ViewerViewController.beginOverlappingReadsExtractionOperation(annotationName: "orf1a start", config: config, reporter: reporter) {
+            launched = $0
+        }
+        let id = try XCTUnwrap(launched, "the row started")
+        let command = reporter.items.first?.cliCommand
+        let arguments = ViewerViewController.overlappingReadsExtractionCLIArguments(config: config)
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: command), arguments, "the row records the argv the runner runs")
+        let outcome = await withCheckedContinuation { continuation in
+            ViewerViewController.runReadExtractionThroughCLI(
+                arguments: arguments, operationID: id, runner: CLIAlignmentActionRunner(cliURLOverride: cli)
+            ) { continuation.resume(returning: $0) }
+        }
+        switch outcome {
+        case .success(let completion):
+            return RouteParitySideOutcome(end: .completed, detail: completion.message ?? "", recordedCommand: command)
+        case .failure(let error):
+            return RouteParitySideOutcome(end: .failed, detail: error.localizedDescription, recordedCommand: command)
+        }
+    }
+
     private func assertReadsParity(_ parityCase: Case, selected: Bool) async throws -> RouteParityResult {
         try await harness.assertParity(
             parityCase, declared: Self.declared,
@@ -390,6 +453,23 @@ final class AlignmentActionCLIGUIParityReplayTests: XCTestCase {
             ))
             let names = run.root.appendingPathComponent("out/S1.read-names.txt").standardizedFileURL.path
             XCTAssertTrue(record.files.contains { $0.role == .input && $0.path == names }, "side \(run.side) names the names file")
+        }
+    }
+
+    /// p48's one writer: the overlapping-reads row writes the FASTQ and the command's two records,
+    /// as its recorded command does.
+    func testTheOverlappingReadsAreTheSameFileAndRecordsOnEveryRoute() async throws {
+        let result = try await harness.assertParity(
+            Case.overlappingReads, declared: Self.declared,
+            in: scratch.appendingPathComponent(Case.overlappingReads.rawValue, isDirectory: true),
+            fixture: { try Self.makeConsensusFixture(in: $0) },
+            sideA: { await Self.overlappingReadsSideA($0) },
+            sideC: { try await self.overlappingReadsSideC($0) }
+        )
+        for run in result.runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
+            let folder = try FileManager.default.contentsOfDirectory(atPath: run.root.appendingPathComponent("out").path).sorted()
+            XCTAssertEqual(folder, [".lungfish-provenance.json", "orf1a-start.fastq", "orf1a-start.fastq.lungfish-provenance.json"], "side \(run.side)")
         }
     }
 

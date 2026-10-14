@@ -305,33 +305,30 @@ extension ViewerViewController {
     func extractOverlappingReads(from annotation: SequenceAnnotation) {
         guard let config = mappingExtractionConfiguration(for: annotation) else { return }
 
-        let runner = overlappingReadsExtractionRunner
         let annotationName = annotation.name
         Self.beginOverlappingReadsExtractionOperation(annotationName: annotationName, config: config) { opID in
-            let task = Task { [weak self] in
-                do {
-                    let result = try await runner(config)
-                    DispatchQueue.main.async { MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "Extracted \(result.readCount) read\(result.readCount == 1 ? "" : "s") overlapping \(annotationName)",
-                            outputURLs: result.fastqURLs
-                        )
-                    }}
-                } catch {
+            // The row runs the command it records on the L3 runner (Phase 2.10 lane A51, p48).
+            activeOverlappingReadsExtractionTask = Self.runReadExtractionThroughCLI(
+                arguments: Self.overlappingReadsExtractionCLIArguments(config: config),
+                operationID: opID
+            ) { [weak self] outcome in
+                switch outcome {
+                case .success(let completion):
+                    _ = OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "\(completion.message ?? "Extracted reads") overlapping \(annotationName)",
+                        outputURLs: completion.outputs.map { URL(fileURLWithPath: $0) }
+                    )
+                case .failure(let error):
                     mappingDisplayLogger.error("extractOverlappingReads failed: \(error.localizedDescription, privacy: .public)")
-                    DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated {
-                        guard OperationCenter.shared.fail(
-                            id: opID,
-                            detail: "Extract Overlapping Reads failed",
-                            errorMessage: error.localizedDescription
-                        ) else { return }
-                        self?.presentExtractOverlappingReadsFailureAlert(error)
-                    }}
+                    guard OperationCenter.shared.fail(
+                        id: opID,
+                        detail: "Extract Overlapping Reads failed",
+                        errorMessage: error.localizedDescription
+                    ) else { return }
+                    self?.presentExtractOverlappingReadsFailureAlert(error)
                 }
             }
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-            activeOverlappingReadsExtractionTask = task
         }
     }
 

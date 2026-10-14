@@ -228,7 +228,7 @@ extension ViewerViewController {
 
     /// Runs `arguments`, an `extract reads` argv, on the L3 runner for the row and hands how it ended
     /// to `finish` on the main actor. The row keeps its first detail, which names its action. The
-    /// leaf wrote the bundle and its record before it exited, so the app writes nothing. The row's
+    /// leaf wrote its reads and their record before it exited, so the app writes nothing. The row's
     /// Cancel reaches the runner's `cancel()`, and a cancelled run ends the row Cancelled with no
     /// sheet and no `finish`.
     @discardableResult
@@ -343,8 +343,8 @@ extension ViewerViewController {
 
     /// Registers the overlapping-reads row and, only when it starts, calls
     /// `launch` with the operation ID. The row locks no bundle and records the
-    /// `lungfish-cli extract reads --by-region` command for the configuration
-    /// the run uses.
+    /// `lungfish-cli extract reads --by-region` command the L3 runner runs
+    /// (``overlappingReadsExtractionCLIArguments(config:)``).
     @discardableResult
     static func beginOverlappingReadsExtractionOperation(
         annotationName: String,
@@ -367,25 +367,26 @@ extension ViewerViewController {
         return result
     }
 
-    /// The `lungfish-cli extract reads --by-region` command that reproduces a
-    /// run of `ReadExtractionService.extractByBAMRegion` with this
-    /// configuration. The run writes `<outputBaseName>.fastq` in the output
-    /// directory, so the command names that file in `-o`. The annotation
-    /// action sets no map quality, flag or read group filter, and its
-    /// duplicate exclusion is the command's default, so the command needs no
-    /// option for them. The run passes the mapping's index, and the command
-    /// names none because the CLI finds the BAM's companion index, the same
-    /// file. The shared service hands each coordinate region, such as
-    /// `chr1:11-25`, to samtools as given, so the run and the command write
-    /// the same reads, the ones that overlap the annotation's blocks.
-    static func overlappingReadsExtractionCLICommand(config: BAMRegionExtractionConfig) -> String {
-        var args = ["--by-region", "--bam", config.bamURL.path]
+    /// The argv after the binary that the overlapping-reads row records and the L3 runner runs,
+    /// `extract reads --by-region` for this configuration with its events on (Phase 2.10 lane
+    /// A51, p48). The run writes `<outputBaseName>.fastq` in the output directory, so the command
+    /// names that file in `-o`. The annotation action sets no map quality, flag or read group
+    /// filter, and its duplicate exclusion is the command's default, so the command needs no
+    /// option for them. It names no index because the CLI finds the BAM's companion index, the
+    /// mapping's own. Each coordinate region, such as `chr1:11-25`, goes to samtools as given, so
+    /// the row writes the reads that overlap the annotation's blocks.
+    static func overlappingReadsExtractionCLIArguments(config: BAMRegionExtractionConfig) -> [String] {
+        var arguments = ["extract", "reads", "--by-region", "--bam", config.bamURL.path]
         for region in config.regions {
-            args += ["--region", region]
+            arguments += ["--region", region]
         }
         let outputName = "\(ExtractionBundleNaming.sanitizeFilename(config.outputBaseName)).fastq"
-        args += ["-o", config.outputDirectory.appendingPathComponent(outputName).path]
-        return OperationCenter.buildCLICommand(subcommand: "extract reads", args: args)
+        return arguments + ["-o", config.outputDirectory.appendingPathComponent(outputName).path, "--format", "json"]
+    }
+
+    /// The command the overlapping-reads row records, ``overlappingReadsExtractionCLIArguments(config:)``.
+    static func overlappingReadsExtractionCLICommand(config: BAMRegionExtractionConfig) -> String {
+        OperationCenter.buildCLICommand(subcommand: "extract reads", args: Array(overlappingReadsExtractionCLIArguments(config: config).dropFirst(2)))
     }
 
     /// Shared evidence-only consensus action for mapping, direct reference,

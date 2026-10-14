@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: MIT
 //
 // The mapping viewport's Extract Overlapping Reads action builds a
-// BAMRegionExtractionConfig with one samtools region per annotation block and
-// runs ReadExtractionService.extractByBAMRegion. Its Operations row records
-// `lungfish-cli extract reads --by-region` for the same configuration (R3).
+// BAMRegionExtractionConfig with one samtools region per annotation block. Its
+// Operations row records `lungfish-cli extract reads --by-region` for that
+// configuration (R3), which the row runs on the L3 runner since Phase 2.10
+// lane A51 (p48).
 // Both used to fail. The action passed no index, which the service requires,
 // and the service matched whole reference names only, so a coordinate region
 // such as `MT192765.1:1-3000` matched nothing. The action and its recorded
@@ -105,10 +106,10 @@ final class OverlappingReadsExtractionParityTests: XCTestCase {
         return paths.sorted()
     }
 
-    /// p48's two writers, pinned before the route moves (Phase 2.10 lane A51 M3, BIO "p48's two
-    /// writers align or declare their difference"). The action's run writes the FASTQ and no
-    /// record. The command its row records writes the FASTQ, the FASTQ's record beside it and a
-    /// run record for the folder.
+    /// p48's one writer (Phase 2.10 lane A51 M3, BIO "p48's two writers align or declare their
+    /// difference"). Before the route the action's run wrote the FASTQ and no record, while the
+    /// command its row records wrote the FASTQ, the FASTQ's record beside it and a run record for
+    /// the folder. The action now runs that command on the L3 runner, so both leave these files.
     func testTheActionAndItsRecordedCommandLeaveTheseFiles() async throws {
         _ = try samtoolsPath()
         let config = try XCTUnwrap(MappingAnnotationActionCoordinator.extractionConfiguration(
@@ -117,19 +118,13 @@ final class OverlappingReadsExtractionParityTests: XCTestCase {
             outputDirectory: runDirectory.appendingPathComponent("annotation-extractions", isDirectory: true)
         ))
 
-        _ = try await ReadExtractionService().extractByBAMRegion(config: config)
-        let actionFiles = files(in: config.outputDirectory)
-        try FileManager.default.removeItem(at: config.outputDirectory)
         let words = try AdvancedCommandLineOptions.parse(ViewerViewController.overlappingReadsExtractionCLICommand(config: config))
         let parsed = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(Array(words.dropFirst())))
         try await XCTUnwrap(parsed as? ExtractReadsSubcommand).run()
-        let commandFiles = files(in: config.outputDirectory)
 
-        XCTAssertEqual(actionFiles, Self.actionFiles, "the action's run")
-        XCTAssertEqual(commandFiles, Self.commandFiles, "the recorded command")
+        XCTAssertEqual(files(in: config.outputDirectory), Self.commandFiles, "the recorded command, which the action runs")
     }
 
-    private static let actionFiles = ["orf1a-start.fastq"]
     private static let commandFiles = [".lungfish-provenance.json", "orf1a-start.fastq", "orf1a-start.fastq.lungfish-provenance.json"]
 
     func testAnnotationActionAndItsRecordedCommandExtractTheReadsSamtoolsReports() async throws {
@@ -157,23 +152,19 @@ final class OverlappingReadsExtractionParityTests: XCTestCase {
             let expected = try samtoolsReadNames(regions: annotation.regions)
             XCTAssertFalse(expected.isEmpty, "the fixture has reads in \(annotation.regions)")
 
-            // The action's run, as ViewerViewController.overlappingReadsExtractionRunner makes it.
-            let appResult = try await ReadExtractionService().extractByBAMRegion(config: config)
-            let appOutput = try XCTUnwrap(appResult.fastqURLs.first)
-            let appReads = try fastqReadNames(appOutput)
-            XCTAssertEqual(appReads, expected, "\(annotation.name): the action's reads")
-            XCTAssertEqual(appResult.readCount, expected.count)
-            try FileManager.default.removeItem(at: appOutput)
-
-            // The command the Operations row records, run as the shipped binary parses it.
+            // The command the Operations row records and the action runs, as the shipped binary parses it.
             let recorded = ViewerViewController.overlappingReadsExtractionCLICommand(config: config)
             let words = try AdvancedCommandLineOptions.parse(recorded)
             XCTAssertEqual(words.first, CLICommandIdentity.executableName)
             let parsed = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing(Array(words.dropFirst())))
             let command = try XCTUnwrap(parsed as? ExtractReadsSubcommand)
             try await command.run()
-            XCTAssertEqual(try fastqReadNames(URL(fileURLWithPath: command.output)), expected, "\(annotation.name): the command's reads")
-            XCTAssertEqual(URL(fileURLWithPath: command.output).standardizedFileURL, appOutput.standardizedFileURL)
+            XCTAssertEqual(try fastqReadNames(URL(fileURLWithPath: command.output)), expected, "\(annotation.name): the action's reads")
+            XCTAssertEqual(
+                URL(fileURLWithPath: command.output).standardizedFileURL,
+                config.outputDirectory.appendingPathComponent("\(ExtractionBundleNaming.sanitizeFilename(config.outputBaseName)).fastq").standardizedFileURL,
+                "\(annotation.name): the FASTQ the action names"
+            )
         }
     }
 }

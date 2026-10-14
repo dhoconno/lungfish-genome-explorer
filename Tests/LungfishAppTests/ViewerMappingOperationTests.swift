@@ -116,6 +116,8 @@ final class ViewerMappingOperationTests: XCTestCase {
             "lungfish-cli extract reads --by-region --bam '/tmp/lane 1a2f/Mapping Run/sample.sorted.bam'"
                 + " --region chr1:11-25 --region chr1:41-60"
                 + " -o '/tmp/lane 1a2f/Mapping Run/annotation-extractions/test-gene-1.fastq'"
+                + " --format json",
+            "the row records the argv the L3 runner runs, events on (Phase 2.10 lane A51, p48)"
         )
     }
 
