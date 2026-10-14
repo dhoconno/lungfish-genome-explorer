@@ -251,8 +251,8 @@ public enum AssemblyRunner {
     /// managed pipeline writes to, `<output>/<project name>`. The row records the
     /// `lungfish-cli assemble` command that `cliCommandPreview` builds from them
     /// through `FASTQOperationCLIInvocationBuilder`, the same builder the FASTQ
-    /// operations dialog uses. It falls back to a bare `assemble` command when the
-    /// builder throws.
+    /// operations dialog uses. The builder cannot fail, so no row records a bare
+    /// `assemble`.
     @discardableResult
     static func beginAssemblyOperation(
         request: AssemblyRunRequest,
