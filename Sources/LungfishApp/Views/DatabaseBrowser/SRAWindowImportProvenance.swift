@@ -10,9 +10,11 @@ import LungfishWorkflow
 /// Writes the provenance of one SRA run the window downloaded and imported.
 /// Internal, not private, so tests can read what it records.
 ///
-/// `cliBinaryPath` names the CLI in the import step. Tests pass a fixed
-/// path, because the default can run `swift build --show-bin-path`, which
-/// waits on the build lock `swift test` holds.
+/// `cliBinaryPath` names the CLI in the import step, and `cliCommandLine`
+/// is the display line of the command, recorded under `cliCommand`. Both
+/// are given, so this function reads nothing from the app. The window's
+/// wrapper passes the located CLI and the line `CLIImportRunner` shows
+/// (`writeGUISRAFASTQImportProvenance` without `cliCommandLine`).
 ///
 /// `fallbackMessage` is the line the row logged when the run fell back to
 /// the other archive, recorded under `fallbackMessage` beside the
@@ -22,7 +24,7 @@ import LungfishWorkflow
 /// `stagedReadCounts` gives the reads each staged file held for a run that
 /// imported unpaired reads beside its pairs, recorded under
 /// `stagingInputReadCounts`. Any other run passes nil and records nothing new.
-func writeGUISRAFASTQImportProvenance(
+package func writeGUISRAFASTQImportProvenance(
     accession: String,
     readRecord: ENAReadRecord?,
     downloadSource: String,
@@ -32,6 +34,7 @@ func writeGUISRAFASTQImportProvenance(
     enaDownloadSteps: [StepExecution],
     toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
     cliArguments: [String],
+    cliCommandLine: String,
     cliStartedAt: Date,
     cliCompletedAt: Date,
     stagedFASTQFiles: [URL],
@@ -43,7 +46,7 @@ func writeGUISRAFASTQImportProvenance(
     qualityBinning: String,
     optimizeStorage: Bool,
     compressionLevel: String,
-    cliBinaryPath: () -> URL? = { CLIImportRunner.cliBinaryPath() }
+    cliBinaryPath: () -> URL?
 ) throws {
     let existingCLIProvenance = ProvenanceRecorder.load(from: bundleURL)
     let source = SRAFASTQDownloadSource(rawValue: downloadSource)
@@ -121,7 +124,7 @@ func writeGUISRAFASTQImportProvenance(
         "enaFastqURLs": .array(
             (source?.usesSRAToolkit == true ? [] : readRecord?.fastqHTTPURLs ?? []).map { .string($0.absoluteString) }
         ),
-        "cliCommand": .string(CLIImportRunner.commandLine(arguments: cliArguments)),
+        "cliCommand": .string(cliCommandLine),
         "platform": .string(platform),
         "recipe": recipeName.map { .string($0) } ?? .null,
         "qualityBinning": .string(qualityBinning),
