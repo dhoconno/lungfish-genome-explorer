@@ -434,7 +434,7 @@ extension AppDelegate {
     // MARK: - The CLI route behind the mapping key
 
     /// The argv the mapping key's CLI route runs for `request`, which its row records: the command
-    /// the in-process row records today, with `--format json` so the command prints its report
+    /// the in-process row records today, with `--format json` so the command prints its events
     /// and no text on standard output (decision C5).
     static func managedMappingCLIArguments(for request: MappingRunRequest) -> [String] {
         ["map"] + MappingCLIInvocationBuilder.arguments(for: request) + ["--format", "json"]
@@ -499,7 +499,7 @@ extension AppDelegate {
                 let result = try AppUITestMappingBackend.writeResult(for: request)
                 guard OperationCenter.shared.complete(
                     id: opID,
-                    detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped"
+                    detail: MappingRunProgress.completionDetail(mappedReads: result.mappedReads, totalReads: result.totalReads)
                 ) else { return false }
                 AppUITestConfiguration.current.appendEvent(
                     "mapping.operation.completed target=\(request.outputDirectory.lastPathComponent)"
@@ -508,12 +508,14 @@ extension AppDelegate {
                 return true
             }
 
-            _ = try await runner.runResult(arguments: arguments, operationID: opID)
+            // `map` is an events leaf (A46 M2), so the bridge shows its steps on the row and a
+            // failure carries the failed line's words.
+            _ = try await runner.runEvents(arguments: arguments, operationID: opID)
             let outputDirectory = request.outputDirectory
             let result = try await Task.detached { try MappingResult.load(from: outputDirectory) }.value
             guard OperationCenter.shared.complete(
                 id: opID,
-                detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped",
+                detail: MappingRunProgress.completionDetail(mappedReads: result.mappedReads, totalReads: result.totalReads),
                 bundleURLs: [result.viewerBundleURL ?? result.bamURL]
             ) else { return false }
             targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?

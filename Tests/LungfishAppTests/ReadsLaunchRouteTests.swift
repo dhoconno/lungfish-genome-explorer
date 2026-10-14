@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A46 M1, decisions C4 and C5, ARCH 7. Each key value picks its route, each launch
-// has its own key, the mapping key's CLI route records the argv it runs, and CLIReadsRunner reads a
-// result leaf's end: its report on exit 0, a cancel on exit 125 and a failure with the command's
-// standard error otherwise. The runner runs a stand-in `lungfish-cli` script, so no tool runs.
+// Phase 2.10 lane A46 M1 and M2, decisions C4 and C5, ARCH 7. Each key value picks its route, each
+// launch has its own key, the mapping key's CLI route records the argv it runs, and CLIReadsRunner
+// reads an events leaf's end: its completion, its failed line, a failure with the command's standard
+// error when no failed line came, and a cancel before the run that launches nothing. The runner runs
+// a stand-in `lungfish-cli` script, so no tool runs.
 
 import Foundation
 import XCTest
@@ -83,27 +84,26 @@ final class ReadsLaunchRouteTests: XCTestCase {
         XCTAssertEqual(parsed.readLayout, .auto)
     }
 
-    func testTheRunnerReturnsAResultLeafsReportOnExitZero() async throws {
-        let cli = try standInCLI(#"echo '{"mappedReads": 3}'; echo 'note: a line of text' >&2; exit 0"#)
-        let output = try await CLIReadsRunner(cliURLOverride: cli).runResult(arguments: ["map"], operationID: UUID())
-        XCTAssertEqual(output.trimmingCharacters(in: .whitespacesAndNewlines), #"{"mappedReads": 3}"#)
-    }
-
-    func testTheRunnerReadsExit125AsACancel() async throws {
-        let cli = try standInCLI("echo 'Mapping cancelled' >&2; exit 125")
+    func testACancelBeforeTheRunLaunchesNothing() async throws {
+        let root = try TestTempDirectory.make(prefix: "reads-runner-cancel")
+        defer { TestTempDirectory.cleanup(root) }
+        let launched = root.appendingPathComponent("launched")
+        let runner = CLIReadsRunner(cliURLOverride: try standInCLI("touch '\(launched.path)'; exit 0"))
+        runner.cancel()
         do {
-            _ = try await CLIReadsRunner(cliURLOverride: cli).runResult(arguments: ["map"], operationID: UUID())
-            XCTFail("exit 125 is a cancel")
+            _ = try await runner.runEvents(arguments: ["map"], operationID: UUID())
+            XCTFail("a cancel before the run stops it")
         } catch is CancellationError {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: launched.path), "the command never launched")
     }
 
-    func testTheRunnerFailsAnyOtherExitWithTheCommandsStandardError() async throws {
+    func testTheRunnerFailsAnExitWithNoFailedEventWithTheCommandsStandardError() async throws {
         let cli = try standInCLI("echo 'Error: the reference is not a FASTA file' >&2; exit 64")
         do {
-            _ = try await CLIReadsRunner(cliURLOverride: cli).runResult(arguments: ["map"], operationID: UUID())
+            _ = try await CLIReadsRunner(cliURLOverride: cli).runEvents(arguments: ["map"], operationID: UUID())
             XCTFail("exit 64 is a failure")
-        } catch let error as CLIReadsRunner.RunError {
-            guard case .failed(let status, let detail) = error else { return XCTFail("\(error)") }
+        } catch let error as CLISubprocessTransport.RunError {
+            guard case .nonZeroExit(let status, let detail) = error else { return XCTFail("\(error)") }
             XCTAssertEqual(status, 64)
             XCTAssertTrue(detail.contains("the reference is not a FASTA file"), detail)
         }
