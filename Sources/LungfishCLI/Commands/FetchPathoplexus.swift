@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import os
 
 /// Fetch Pathoplexus records as bundles (Phase 2.10 lane A45 M2).
 struct PathoplexusSubcommand: AsyncParsableCommand {
@@ -91,6 +92,26 @@ struct PathoplexusSubcommand: AsyncParsableCommand {
         let outcome = await task.value
         termination.end()
         try reporter.finish(outcome)
+    }
+}
+
+/// Passes a builder's progress on without letting the share fall back. A record that falls back from
+/// GenBank to the Pathoplexus FASTA starts a second builder, whose first shares are lower than the last
+/// of the first, and the bar of a batch only moves forward.
+struct MonotonicProgress: Sendable {
+    private let highest = OSAllocatedUnfairLock(initialState: 0.0)
+    private let forward: @Sendable (Double, String) -> Void
+
+    init(_ forward: @escaping @Sendable (Double, String) -> Void) {
+        self.forward = forward
+    }
+
+    func report(_ share: Double, _ message: String) {
+        let shown = highest.withLock { highest -> Double in
+            highest = max(highest, share)
+            return highest
+        }
+        forward(shown, message)
     }
 }
 
@@ -190,7 +211,9 @@ struct FetchPathoplexusRun: Sendable {
 
     typealias Progress = @Sendable (Double, String) -> Void
 
-    private func fetch(_ accession: String, services: Services, progress: @escaping Progress) async throws -> FetchGenomeOutput {
+    private func fetch(_ accession: String, services: Services, progress reported: @escaping Progress) async throws -> FetchGenomeOutput {
+        let monotonic = MonotonicProgress(reported)
+        let progress: Progress = { share, message in monotonic.report(share, message) }
         let runClock = ProvenanceRunClock()
         let normalized = accession.trimmingCharacters(in: .whitespacesAndNewlines)
         progress(0, "Reading Pathoplexus metadata...")
