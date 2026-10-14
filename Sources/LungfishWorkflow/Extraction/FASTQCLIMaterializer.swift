@@ -705,19 +705,7 @@ public final class FASTQCLIMaterializer: Sendable {
     }
 
     func concatenateFiles(_ sources: [URL], to destination: URL) throws {
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        let outHandle = try FileHandle(forWritingTo: destination)
-        defer { try? outHandle.close() }
-        for source in sources {
-            let inHandle = try FileHandle(forReadingFrom: source)
-            defer { try? inHandle.close() }
-            let bufferSize = 4 * 1024 * 1024
-            while true {
-                let chunk = inHandle.readData(ofLength: bufferSize)
-                if chunk.isEmpty { break }
-                outHandle.write(chunk)
-            }
-        }
+        try ReadFileWriters.join(sources, into: destination)
     }
 }
 

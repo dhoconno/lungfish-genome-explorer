@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 // MARK: - Root file streaming
@@ -64,40 +65,28 @@ extension FASTQCLIMaterializer {
         }
 
         let usesPositionalKeys = positions.keys.contains(where: { $0.contains("#") })
-        FileManager.default.createFile(atPath: outputFASTA.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: outputFASTA)
-        defer { try? handle.close() }
-
-        if usesPositionalKeys {
+        try ReadFileWriters.publish(outputFASTA) { stage in
             var occurrencePerBaseID: [String: Int] = [:]
             for rootFASTA in rootFASTAs {
                 let reader = try FASTAReader(url: rootFASTA)
-                for try await seq in reader.sequences() {
+                try reader.forEachSequenceSync { seq in
+                    try Task.checkCancellation()
                     let baseID = normalizedIdentifier(seq.name)
-                    let ordinal = occurrencePerBaseID[baseID] ?? 0
-                    occurrencePerBaseID[baseID] = ordinal + 1
-                    let key = "\(baseID)#\(ordinal)"
-                    guard let pos = positions[key] else { continue }
+                    let key: String
+                    if usesPositionalKeys {
+                        let ordinal = occurrencePerBaseID[baseID] ?? 0
+                        occurrencePerBaseID[baseID] = ordinal + 1
+                        key = "\(baseID)#\(ordinal)"
+                    } else {
+                        key = baseID
+                    }
+                    guard let pos = positions[key] else { return }
                     let full = seq.asString()
                     let start = min(pos.start, full.count)
                     let end = min(pos.end, full.count)
-                    guard end > start else { continue }
+                    guard end > start else { return }
                     let trimmedSeq = String(full.dropFirst(start).prefix(end - start))
-                    writeFASTARecord(name: seq.name, sequence: trimmedSeq, to: handle)
-                }
-            }
-        } else {
-            for rootFASTA in rootFASTAs {
-                let reader = try FASTAReader(url: rootFASTA)
-                for try await seq in reader.sequences() {
-                    let key = normalizedIdentifier(seq.name)
-                    guard let pos = positions[key] else { continue }
-                    let full = seq.asString()
-                    let start = min(pos.start, full.count)
-                    let end = min(pos.end, full.count)
-                    guard end > start else { continue }
-                    let trimmedSeq = String(full.dropFirst(start).prefix(end - start))
-                    writeFASTARecord(name: seq.name, sequence: trimmedSeq, to: handle)
+                    try writeFASTARecord(name: seq.name, sequence: trimmedSeq, to: stage)
                 }
             }
         }
@@ -134,20 +123,19 @@ extension FASTQCLIMaterializer {
         rcReadIDs: Set<String>,
         outputFASTA: URL
     ) async throws {
-        FileManager.default.createFile(atPath: outputFASTA.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: outputFASTA)
-        defer { try? handle.close() }
-
-        for rootFASTA in rootFASTAs {
-            let reader = try FASTAReader(url: rootFASTA)
-            for try await seq in reader.sequences() {
-                let id = normalizedIdentifier(seq.name)
-                if rcReadIDs.contains(id) {
-                    if let rc = seq.reverseComplement() {
-                        writeFASTARecord(name: seq.name, sequence: rc.asString(), to: handle)
+        try ReadFileWriters.publish(outputFASTA) { stage in
+            for rootFASTA in rootFASTAs {
+                let reader = try FASTAReader(url: rootFASTA)
+                try reader.forEachSequenceSync { seq in
+                    try Task.checkCancellation()
+                    let id = normalizedIdentifier(seq.name)
+                    if rcReadIDs.contains(id) {
+                        if let rc = seq.reverseComplement() {
+                            try writeFASTARecord(name: seq.name, sequence: rc.asString(), to: stage)
+                        }
+                    } else if allReadIDs.contains(id) {
+                        try writeFASTARecord(name: seq.name, sequence: seq.asString(), to: stage)
                     }
-                } else if allReadIDs.contains(id) {
-                    writeFASTARecord(name: seq.name, sequence: seq.asString(), to: handle)
                 }
             }
         }
@@ -172,10 +160,7 @@ extension FASTQCLIMaterializer {
         return urls
     }
 
-    private func writeFASTARecord(name: String, sequence: String, to handle: FileHandle) {
-        let line = ">\(name)\n\(sequence)\n"
-        if let data = line.data(using: .utf8) {
-            handle.write(data)
-        }
+    private func writeFASTARecord(name: String, sequence: String, to stage: DurableReplace.StageWriter) throws {
+        try stage.write(Data(">\(name)\n\(sequence)\n".utf8))
     }
 }
