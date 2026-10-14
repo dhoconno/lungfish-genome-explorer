@@ -269,10 +269,10 @@ public actor ProvenanceRecorder {
     ///   - directory: The output directory to write the sidecar into
     ///   - options: The record's explicit, default and resolved options, in place of the
     ///     run's own. The run's parameters are merged into the explicit options, so a
-    ///     parameter that only the run carries stays in the record. Kraken2's
-    ///     `readSetPlan` is one. The recorder keeps the explicit options for the pipelines
-    ///     that save through it, whose legacy GUI route stays until 2.9 (plan decision
-    ///     E14), while the new routes write the resolved defaults, the E13 home, themselves.
+    ///     parameter that only the run carries stays in the record. The explicit options
+    ///     are the home of run parameters. The Kraken2 and EsViritu pipelines pass their
+    ///     `readSetPlan` among the resolved defaults of `options`, its E13 home, so it is
+    ///     no run parameter (Phase 2.10 B16).
     ///     The caller's explicit value wins a clash. A parameter the caller already records
     ///     as a default or a resolved default with the same value is not copied, because
     ///     explicit options are what was asked for. A run value that a caller's resolved

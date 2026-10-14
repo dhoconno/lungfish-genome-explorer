@@ -51,9 +51,9 @@ extension ProvenanceOptions {
     /// the caller says otherwise. The resolved defaults are the one home of `readSetPlan` (plan decision
     /// E13), and `ProvenanceEnvelope.with` merges the parameters of a nested run into them.
     ///
-    /// `ProvenanceRecorder.save` passes `.explicit`. It keeps the explicit options for the pipelines that
-    /// save through it, whose legacy GUI route stays until 2.9 (E14), while the new routes write the E13
-    /// home themselves. The explicit home also keeps a run value that a caller's resolved default
+    /// `ProvenanceRecorder.save` passes `.explicit`, the home of the run parameters of the pipelines that
+    /// save through it. The Kraken2 and EsViritu pipelines write the read-set plan to the E13 home
+    /// themselves (Phase 2.10 B16). The explicit home also keeps a run value that a caller's resolved default
     /// contradicts, where the resolved defaults home drops it. The reader in
     /// `ProvenanceEnvelope+ReadSetPlan.swift` looks in the resolved defaults first and in the nested run
     /// last, so a copy merged into the resolved defaults reads the same plan as its source.

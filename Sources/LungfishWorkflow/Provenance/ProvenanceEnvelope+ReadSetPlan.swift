@@ -23,8 +23,8 @@ public struct RecordedReadSetPlan: Sendable, Equatable {
     public enum Place: Sendable, Equatable {
         /// `options.resolvedDefaults`, the one home.
         case resolvedDefaults
-        /// `options.explicit`, where the recorder merges the run parameters of the Kraken2 and
-        /// EsViritu pipelines and where `assemble` writes a second copy.
+        /// `options.explicit`, where released builds filed the Kraken2 and EsViritu plan, which the
+        /// recorder merged from those pipelines' run parameters, and where `assemble` writes a second copy.
         case explicitOptions
         /// The `resolvedOptions` of a step, where `map` records the plan on each mapper step.
         case stepResolvedOptions(stepID: UUID)
