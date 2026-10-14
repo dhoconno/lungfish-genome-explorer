@@ -216,12 +216,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testViralDetectionTypographyScalesLateCellsAndPreservesSelection() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -262,12 +260,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testLateMetadataCellDoesNotCompoundAtRepeatedTwoHundredPercent() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -310,12 +306,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testEsVirituDetailTypographyDoesNotRebuildScientificContent() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -368,12 +362,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testDetailTypographyPreservesScientificViewsAndScrollOrigin() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -480,12 +472,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testViralDetectionTypographyPreservesLiveEditingAndOutlineState() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -658,12 +648,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testBatchEsVirituExplicitFontsRoundTripWithoutCompounding() throws {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(100)
@@ -720,12 +708,10 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testEsNarrowDetailAndPlaceholderReflowAtTwoHundredPercent() {
         let settings = AppSettings.shared
-        let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-        let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
+        let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
         defer {
             restoreSettings()
-            typographyDefaults.removePersistentDomain(forName: typographySuiteName)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         }
         settings.contentTextSizePreference = .custom(200)
