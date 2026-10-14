@@ -51,7 +51,7 @@ Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.sw
 Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1081
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift 1215
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift 1123
-Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift 2656
+Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift 2616
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Columns.swift 1246
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Filtering.swift 2229
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1090
