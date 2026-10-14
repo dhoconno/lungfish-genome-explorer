@@ -57,6 +57,11 @@ public struct ToolProcessEnvironmentChange: Sendable, Equatable {
     /// order. For a hermetic base this is the whole PATH the adapter set,
     /// which names no folder of the user's.
     public let pathPrefix: [String]
+    /// True when the adapter set a PATH that does not end with the inherited
+    /// one, so the child lost the inherited PATH and ``pathPrefix`` holds the
+    /// whole PATH it got, not entries put before another. Always false for a
+    /// hermetic base, which inherits no PATH to replace (Phase 2.10 S8).
+    public let pathReplaced: Bool
 
     /// Builds the change from what the adapter set, keeping a value only for
     /// a name on ``valueRecordedNames`` and sanitizing each kept value and
@@ -75,6 +80,9 @@ public struct ToolProcessEnvironmentChange: Sendable, Equatable {
     ///     hermetic base inherits nothing to remove, so it keeps none.
     ///   - pathPrefix: The PATH entries the adapter put before the base PATH,
     ///     or the whole PATH it set for a hermetic base.
+    ///   - pathReplaced: Whether the adapter set a PATH that dropped the
+    ///     inherited one, so `pathPrefix` is the whole PATH. A hermetic base
+    ///     inherits nothing to drop, so it keeps false.
     ///   - context: The sanitizing context. Give it the managed tool and
     ///     storage roots, so an entry under them reads `<tool-root>` or
     ///     `<storage-root>` rather than `<external>`, and the project when
@@ -84,9 +92,11 @@ public struct ToolProcessEnvironmentChange: Sendable, Equatable {
         set: [String: String] = [:],
         unset: [String] = [],
         pathPrefix: [String] = [],
+        pathReplaced: Bool = false,
         sanitizing context: PortablePath.Context
     ) {
         self.base = base
+        self.pathReplaced = base == .inherited && pathReplaced
         self.set = set.sorted { $0.key < $1.key }.map { name, value in
             let kept = Self.recordsValue(of: name)
                 ? Self.sanitizedPathList(value, context: context) ?? PortablePath.sanitize(value: value, context: context)

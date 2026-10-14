@@ -108,6 +108,22 @@ final class ToolProcessEnvironmentChangeAllowlistTests: XCTestCase {
         XCTAssertEqual(inherited.unset, ["CONDA_PREFIX", "PYTHONHOME"])
     }
 
+    /// Phase 2.10 S8. An inherited base keeps the flag that its PATH dropped the inherited one, a hermetic
+    /// base inherits no PATH and never does, and the flag is false unless the adapter says so.
+    func testOnlyAnInheritedBaseKeepsPathReplaced() {
+        let inherited = ToolProcessEnvironmentChange(
+            base: .inherited, set: ["PATH": "/opt/only/bin"], pathPrefix: ["/opt/only/bin"], pathReplaced: true,
+            sanitizing: Self.context
+        )
+        XCTAssertTrue(inherited.pathReplaced)
+        let hermetic = ToolProcessEnvironmentChange(
+            base: .hermetic, set: ["PATH": "/usr/bin"], pathPrefix: ["/usr/bin"], pathReplaced: true,
+            sanitizing: Self.context
+        )
+        XCTAssertFalse(hermetic.pathReplaced)
+        XCTAssertFalse(ToolProcessEnvironmentChange(base: .inherited, sanitizing: Self.context).pathReplaced)
+    }
+
     /// The four names of decision P10 and PATH never keep a value, and every
     /// name the adapters set for their tools does.
     func testTheAllowlistAndTheNameOnlyListAreDisjoint() {

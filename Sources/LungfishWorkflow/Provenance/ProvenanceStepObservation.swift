@@ -69,17 +69,28 @@ public struct ProvenanceStepObservation: Codable, Sendable, Equatable {
         public let unset: [String]
         /// The sanitized PATH entries the adapter put before the base PATH, in order.
         public let pathPrefix: [String]
+        /// True when the adapter set a PATH that dropped the inherited one, so `pathPrefix` is the whole
+        /// PATH the child got and not a prefix (Phase 2.10 S8). False for every older record.
+        public let pathReplaced: Bool
 
-        public init(base: Base, changed: [String], values: [String: String], unset: [String], pathPrefix: [String]) {
+        public init(
+            base: Base,
+            changed: [String],
+            values: [String: String],
+            unset: [String],
+            pathPrefix: [String],
+            pathReplaced: Bool = false
+        ) {
             self.base = base
             self.changed = changed
             self.values = values
             self.unset = unset
             self.pathPrefix = pathPrefix
+            self.pathReplaced = pathReplaced
         }
 
         private enum CodingKeys: String, CodingKey {
-            case base, changed, values, unset, pathPrefix
+            case base, changed, values, unset, pathPrefix, pathReplaced
         }
 
         public init(from decoder: Decoder) throws {
@@ -89,9 +100,10 @@ public struct ProvenanceStepObservation: Codable, Sendable, Equatable {
             values = try container.decodeIfPresent([String: String].self, forKey: .values) ?? [:]
             unset = try container.decodeIfPresent([String].self, forKey: .unset) ?? []
             pathPrefix = try container.decode([String].self, forKey: .pathPrefix)
+            pathReplaced = try container.decodeIfPresent(Bool.self, forKey: .pathReplaced) ?? false
         }
 
-        /// `values` and `unset` are written only when they hold something.
+        /// `values`, `unset` and `pathReplaced` are written only when they hold something.
         public func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(base, forKey: .base)
@@ -99,6 +111,7 @@ public struct ProvenanceStepObservation: Codable, Sendable, Equatable {
             try container.encodeIfPresent(values.isEmpty ? nil : values, forKey: .values)
             try container.encodeIfPresent(unset.isEmpty ? nil : unset, forKey: .unset)
             try container.encode(pathPrefix, forKey: .pathPrefix)
+            if pathReplaced { try container.encode(true, forKey: .pathReplaced) }
         }
     }
 
@@ -216,7 +229,8 @@ extension ProvenanceStepObservation.Environment {
                 uniquingKeysWith: { first, _ in first }
             ),
             unset: change.unset,
-            pathPrefix: change.pathPrefix
+            pathPrefix: change.pathPrefix,
+            pathReplaced: change.pathReplaced
         )
     }
 }

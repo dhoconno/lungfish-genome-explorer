@@ -276,4 +276,59 @@ final class ProvenanceStepObservationCodingTests: XCTestCase {
         let reread = try ProvenanceJSON.decoder.decode(ProvenanceStep.self, from: ProvenanceJSON.encoder.encode(observed))
         XCTAssertEqual(reread, observed)
     }
+
+    /// Phase 2.10 S8. A launch that replaced the inherited PATH says so in the key, because its `pathPrefix`
+    /// then holds the whole PATH the child got and would read as a prefix. A launch that extended the
+    /// inherited PATH, set none, or started from an empty environment writes no such key.
+    func testAReplacedPathIsWrittenAsPathReplacedAndOnlyThen() throws {
+        let context = PortablePath.Context(projectURL: nil)
+        let inherited = "/opt/inherited/bin:/usr/bin"
+        func environment(of change: ToolProcessEnvironmentChange) throws -> [String: Any] {
+            let key = try object(ProvenanceStepObservation(stage(.terminated(.exited(code: 0)), change: change)))
+            return try XCTUnwrap(key["environment"] as? [String: Any])
+        }
+
+        let replaced = try environment(of: NativeToolRunner.environmentChange(
+            overriding: ["PATH": "/fixture/only/bin:/usr/bin"], inheritedPath: inherited, sanitizing: context
+        ))
+        XCTAssertEqual(replaced["pathReplaced"] as? Bool, true, "the whole PATH was replaced, so pathPrefix is not a prefix")
+        XCTAssertEqual((replaced["pathPrefix"] as? [String])?.count, 2, "pathPrefix keeps every entry of the new PATH")
+
+        let extended = try environment(of: NativeToolRunner.environmentChange(
+            overriding: ["PATH": "/fixture/first/bin:\(inherited)"], inheritedPath: inherited, sanitizing: context
+        ))
+        XCTAssertNil(extended["pathReplaced"], "a PATH that ends with the inherited one replaces nothing")
+        XCTAssertEqual((extended["pathPrefix"] as? [String])?.count, 1)
+
+        let untouched = try environment(of: NativeToolRunner.environmentChange(
+            overriding: ["LANG": "C"], inheritedPath: inherited, sanitizing: context
+        ))
+        XCTAssertNil(untouched["pathReplaced"], "a launch that sets no PATH replaces none")
+
+        let hermetic = try environment(of: ToolProcessEnvironmentChange(
+            base: .hermetic, set: ["PATH": "/usr/bin:/bin"], pathPrefix: ["/usr/bin", "/bin"], sanitizing: context
+        ))
+        XCTAssertNil(hermetic["pathReplaced"], "an empty environment has no inherited PATH to replace")
+    }
+
+    /// Phase 2.10 S8. A record written before the key reads as not replaced, and a replaced PATH round trips.
+    func testAnOlderEnvironmentReadsAsNotReplacedAndAReplacedPathRoundTrips() throws {
+        typealias Environment = ProvenanceStepObservation.Environment
+        let older = #"{"base": "inherited", "changed": ["PATH"], "pathPrefix": ["/usr/bin"]}"#
+        let decoded = try ProvenanceJSON.decoder.decode(Environment.self, from: Data(older.utf8))
+        XCTAssertFalse(decoded.pathReplaced)
+        XCTAssertEqual(decoded.pathPrefix, ["/usr/bin"])
+
+        let change = ToolProcessEnvironmentChange(
+            base: .inherited, set: ["PATH": "/opt/only/bin"], pathPrefix: ["/opt/only/bin"], pathReplaced: true,
+            sanitizing: PortablePath.Context(projectURL: nil)
+        )
+        let environment = Environment(change)
+        XCTAssertTrue(environment.pathReplaced, "the record reads the flag off the change")
+        let bytes = try ProvenanceJSON.encoder.encode(environment)
+        XCTAssertEqual(try ProvenanceJSON.decoder.decode(Environment.self, from: bytes), environment)
+        let written = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        XCTAssertEqual(written["pathReplaced"] as? Bool, true)
+        XCTAssertFalse(String(decoding: try ProvenanceJSON.encoder.encode(decoded), as: UTF8.self).contains("pathReplaced"))
+    }
 }

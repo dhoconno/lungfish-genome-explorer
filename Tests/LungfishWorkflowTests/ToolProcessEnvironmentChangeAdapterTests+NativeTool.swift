@@ -144,6 +144,7 @@ extension ToolProcessEnvironmentChangeAdapterTests {
 
         let change = try XCTUnwrap(try declaredStage(of: log, label: "dumper").environmentChange)
         XCTAssertEqual(change.pathPrefix, ["<external>/tools", "<external>/scripts"])
+        XCTAssertFalse(change.pathReplaced, "the inherited PATH still follows the recorded entries")
         XCTAssertNil(try XCTUnwrap(change.set.first { $0.name == "PATH" }).value)
     }
 
@@ -164,6 +165,7 @@ extension ToolProcessEnvironmentChangeAdapterTests {
 
         let change = try XCTUnwrap(try declaredStage(of: log, label: "dumper").environmentChange)
         XCTAssertEqual(change.pathPrefix, ["<external>/tools", "/usr/bin"])
+        XCTAssertTrue(change.pathReplaced, "pathPrefix is the whole PATH, so the change says the inherited one was dropped")
     }
 
     // MARK: - runWithFileOutput and runPipeline
@@ -355,6 +357,29 @@ extension ToolProcessEnvironmentChangeAdapterTests {
         XCTAssertEqual(prefix("/b:/aa", "/a"), ["/b", "/aa"], "The inherited PATH ends at an entry boundary")
         XCTAssertEqual(prefix("/b:/a", nil), ["/b", "/a"], "Nothing inherited")
         XCTAssertEqual(prefix("", nil), [])
+    }
+
+    /// Phase 2.10 S8. The flag reads the same two facts as `pathPrefix`, and is true only when the launch's
+    /// PATH dropped the inherited one.
+    func testPathReplacedIsTheLaunchDroppingTheInheritedPath() {
+        let replaced = NativeToolRunner.pathReplaced(by:inheritedPath:)
+
+        XCTAssertFalse(replaced(nil, "/a"), "No PATH set")
+        XCTAssertFalse(replaced("/a", "/a"), "The inherited PATH itself")
+        XCTAssertFalse(replaced("/b:/a", "/a"), "Entries before the inherited PATH")
+        XCTAssertFalse(replaced("/c:/b:/a:/z", "/a:/z"), "A longer inherited PATH at the end")
+        XCTAssertFalse(replaced("/b::/a", "/a"), "Empty entries before it")
+        XCTAssertTrue(replaced("/b:/x", "/a"), "A PATH of other entries")
+        XCTAssertTrue(replaced("/b:/aa", "/a"), "The inherited PATH ends at an entry boundary")
+        XCTAssertTrue(replaced("", "/a"), "An empty PATH drops the inherited one")
+        XCTAssertFalse(replaced("/b:/a", nil), "Nothing inherited, nothing to drop")
+        XCTAssertFalse(replaced("/b:/a", ""), "An empty inherited PATH, nothing to drop")
+        for (path, inherited) in [("/b:/a", "/a"), ("/b:/x", "/a"), ("/a", "/a"), (nil, "/a")] as [(String?, String?)] {
+            let change = NativeToolRunner.environmentChange(
+                overriding: path.map { ["PATH": $0] }, inheritedPath: inherited, sanitizing: Self.context
+            )
+            XCTAssertEqual(change.pathReplaced, replaced(path, inherited), "\(path ?? "nil") over \(inherited ?? "nil")")
+        }
     }
 
     func testOnlyANativeToolNameIsAnIdentityHint() {

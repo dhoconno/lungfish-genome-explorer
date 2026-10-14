@@ -48,8 +48,25 @@ extension NativeToolRunner {
             base: .inherited,
             set: variables,
             pathPrefix: pathPrefix(of: variables["PATH"], inheritedPath: inheritedPath),
+            pathReplaced: pathReplaced(by: variables["PATH"], inheritedPath: inheritedPath),
             sanitizing: context
         )
+    }
+
+    /// Whether a launch that sets `path` dropped the inherited PATH, so that
+    /// ``ToolProcessEnvironmentChange/pathPrefix`` is the whole PATH the child
+    /// got and not entries before the inherited one. It reads the same two
+    /// facts as ``pathPrefix(of:inheritedPath:)``.
+    ///
+    /// - Parameters:
+    ///   - path: The PATH the launch sets, or nil when it sets none.
+    ///   - inheritedPath: The PATH the launch inherits.
+    /// - Returns: False when `path` is nil, is the inherited PATH, ends with it
+    ///   at an entry boundary, or when nothing is inherited. True for any other
+    ///   PATH, including an empty one.
+    static func pathReplaced(by path: String?, inheritedPath: String?) -> Bool {
+        guard let path, let inheritedPath, !inheritedPath.isEmpty, path != inheritedPath else { return false }
+        return !path.hasSuffix(":" + inheritedPath)
     }
 
     /// The PATH entries that a launch put before the inherited PATH.
