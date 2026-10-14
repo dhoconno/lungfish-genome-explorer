@@ -17,11 +17,20 @@ enum ManagedToolLeaf {
     /// Runs `work` so that SIGTERM cancels it instead of ending the command. The command listens
     /// before the task starts, so a SIGTERM caught before then cancels the task as soon as it
     /// exists, and a second SIGTERM ends the command at once.
+    ///
+    /// The signal also stops the tools the run started. `CondaManager` runs micromamba to its end
+    /// when its caller is cancelled, so a command signaled alone, as `kill <pid>` does, waited for
+    /// micromamba and missed the grace the app gives it. The app's own cancel signals the tree, and
+    /// this makes the two the same. The task's cleanup then runs, such as putting back the
+    /// environments a pack moved aside.
     static func cancellingOnSIGTERM<T: Sendable>(
         _ work: @escaping @Sendable () async throws -> T
     ) async -> Result<T, any Error> {
         let pendingCancel = PendingTaskCancel<Result<T, any Error>>()
-        let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+        let termination = SIGTERMCancellation(secondSignalEndsProcess: true) {
+            pendingCancel.cancel()
+            NativeProcessRegistry.shared.terminateAll(gracePeriod: CLITerminationSignals.toolGracePeriod)
+        }
         defer { termination.end() }
         let task = Task { () -> Result<T, any Error> in
             do {
