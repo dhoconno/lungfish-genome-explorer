@@ -397,4 +397,104 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: made.path), "the leaf made the bundle it named")
         XCTAssertEqual(try BundleManifest.load(from: Self.bundleURL(in: result.runs.c.root)).alignments.count, 1, "the source bundle was not changed")
     }
+
+    // MARK: - The records, verified
+
+    /// The bundle a completing case leaves its record in, on one side's root.
+    private static func resultBundle(of parityCase: Case, in root: URL) -> URL {
+        let source = bundleURL(in: root)
+        guard parityCase == .deduplicateAlignments else { return source }
+        return source.deletingLastPathComponent().appendingPathComponent("Sample-deduplicated.lungfishref", isDirectory: true)
+    }
+
+    /// The cases whose bundle record a Workflow service writes with no signer, `ProvenanceWriter(signingProvider: nil)`
+    /// in `BundleAlignmentFilterProvenanceWriter` and `MappedReadsAnnotationProvenanceWriter`. A signing key in the
+    /// environment leaves those records unsigned, and `provenance verify` has no signature to check, so the first run
+    /// of this test failed for these two cases on both sides (`Signature artifact is missing`). A record that is
+    /// signed must verify, so the two cases verify as soon as their services sign.
+    private static let unsignedServiceRecords: Set<Case> = [.filterAlignment, .convertMappedReads]
+
+    /// B-5. The bundle's record lists outputs, and each one that is not run scratch exists with the digest it states.
+    /// A filter's record also lists the intermediates of its steps as `<workspace>/` paths, which the run deleted.
+    /// With `namesBAM` the record must name a BAM, whose byte digest the contract's masks keep out of the comparison.
+    private static func assertRecordNamesEachOutputWithItsDigest(_ bundle: URL, label: String, namesBAM: Bool) {
+        guard let envelope = ProvenanceRecorder.loadEnvelope(from: bundle) else {
+            return XCTFail("\(label) wrote no record in \(bundle.path)")
+        }
+        let held = envelope.outputs.filter { !$0.path.hasPrefix("<workspace>/") }
+        XCTAssertFalse(held.isEmpty, "\(label): the record lists no output but run scratch")
+        for output in held {
+            let url = URL(fileURLWithPath: output.path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "\(label): \(output.path)")
+            XCTAssertNotNil(output.checksumSHA256, "\(label): \(output.path) has no digest")
+            XCTAssertEqual(ProvenanceRecorder.sha256(of: url), output.checksumSHA256, "\(label): \(output.path)")
+        }
+        if namesBAM {
+            XCTAssertTrue(held.contains { $0.path.hasSuffix(".bam") }, "\(label): the record names no BAM among \(held.map(\.path))")
+        }
+    }
+
+    /// Every provenance record under `root` that the run wrote or rewrote. A fixture record left as it was is not one.
+    private static func newRecords(under root: URL, fixture: [String: String]) -> [URL] {
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return []
+        }
+        var records: [URL] = []
+        while let url = walker.nextObject() as? URL {
+            let name = url.lastPathComponent
+            guard name == ProvenanceRecorder.provenanceFilename || name.hasSuffix(".lungfish-provenance.json") else { continue }
+            let relative = String(url.resolvingSymlinksInPath().standardizedFileURL.path.dropFirst(base.count + 1))
+            if let held = fixture[relative], held == ProvenanceRecorder.sha256(of: url) { continue }
+            records.append(url)
+        }
+        return records.sorted { $0.path < $1.path }
+    }
+
+    /// B-5 with a signing key in the environment, as `DatabaseBrowserGenomeRowParityReplayTests` does it (review fix 3).
+    /// The contract's masks keep the byte digest of a BAM out of the comparison, because samtools writes the paths of
+    /// a run into its `@PG` line, so nothing else checks that a side's record states the BAM that side holds. Each
+    /// completing case runs on side C and side C'. The bundle's record names each output with the digest of the file
+    /// that side holds, and every record the run wrote that carries a signature passes `provenance verify`.
+    func testEachCLISidesRecordsPassProvenanceVerify() async throws {
+        let saved = ProcessEnvironmentOverride(
+            set: [ProvenanceSigningConfiguration.signingKeyEnvironmentKey: "lane-a54-parity-signing-key"],
+            unset: [ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey]
+        )
+        defer { saved.restore() }
+        for parityCase in [Case.filterAlignment, .convertMappedReads, .markDuplicates, .deduplicateAlignments] {
+            let runs = try await harness.run(
+                in: scratch.appendingPathComponent("verify-\(parityCase.rawValue)", isDirectory: true),
+                fixture: { try Self.makeFixture(in: $0, parityCase: parityCase) },
+                sideA: { _ in RouteParitySideOutcome(end: .completed, detail: "not run, the other cases compare side A") },
+                sideC: { try await self.sideC($0, parityCase) }
+            )
+            for run in [runs.c, runs.cPrime] {
+                let label = "\(parityCase) side \(run.side)"
+                XCTAssertEqual(run.outcome.end, .completed, "\(label): \(run.outcome.detail)")
+                Self.assertRecordNamesEachOutputWithItsDigest(
+                    Self.resultBundle(of: parityCase, in: run.root), label: label, namesBAM: parityCase != .convertMappedReads
+                )
+                let records = Self.newRecords(under: run.root, fixture: runs.fixture)
+                XCTAssertFalse(records.isEmpty, "\(label) wrote no record")
+                var verified = 0
+                for record in records {
+                    let signature = ProvenanceSigningConfiguration.signatureURL(for: record)
+                    guard FileManager.default.fileExists(atPath: signature.path) else {
+                        XCTAssertTrue(Self.unsignedServiceRecords.contains(parityCase), "\(label): \(record.path) is unsigned")
+                        continue
+                    }
+                    let verify = await RouteParityHarness.runCLI(
+                        cli, arguments: ["provenance", "verify", record.path], timeout: .seconds(60)
+                    )
+                    XCTAssertEqual(verify.status, 0, "\(label): \(record.lastPathComponent): \(verify.detail)")
+                    XCTAssertTrue(verify.stdout.contains("Signature valid"), "\(label): \(record.lastPathComponent): \(verify.stdout)")
+                    verified += 1
+                }
+                if !Self.unsignedServiceRecords.contains(parityCase) {
+                    XCTAssertGreaterThan(verified, 0, "\(label): no signed record was verified among \(records.count)")
+                }
+            }
+        }
+    }
 }
