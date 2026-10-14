@@ -132,18 +132,15 @@ extension ClassifierReadResolver {
 
 extension FASTQBatchImporter {
     /// Concatenates multiple FASTQ files into a single destination file.
+    ///
+    /// Each source streams in chunks, so a multi-gigabyte FASTQ is never held
+    /// whole. A source that cannot be opened or read is a thrown
+    /// ``ReadFileWriterError`` that names it, where the base skipped it and
+    /// wrote a joined file with fewer reads than its sources held (panel BIO 2).
+    /// The joined file is published whole and synced, and the name keeps its
+    /// old file when the join fails.
     static func concatenateFiles(_ sources: [URL], to destination: URL) throws {
-        let fm = FileManager.default
-        fm.createFile(atPath: destination.path, contents: nil)
-        guard let output = FileHandle(forWritingAtPath: destination.path) else {
-            throw BatchImportError.unknownRecipe("Cannot open destination for concatenation: \(destination.path)")
-        }
-        defer { output.closeFile() }
-        for source in sources {
-            if let data = fm.contents(atPath: source.path) {
-                output.write(data)
-            }
-        }
+        try ReadFileWriters.join(sources, into: destination)
     }
 }
 

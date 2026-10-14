@@ -446,7 +446,9 @@ public enum FASTQBatchImporter {
         let standardError = FileHandle.standardError
         let output = message + "\n"
         if let data = output.data(using: .utf8) {
-            standardError.write(data)
+            // A progress line never ends the import, as the raising
+            // `write(_:)` did when stderr had closed.
+            try? standardError.write(contentsOf: data)
         }
     }
 
