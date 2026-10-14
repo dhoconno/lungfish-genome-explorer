@@ -24,7 +24,6 @@ Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1062
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 992
-Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift 904
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1339
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1905
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
@@ -77,7 +76,7 @@ Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4273
 Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1827
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2042
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1077
-Sources/LungfishCLI/Commands/BAMCommand.swift 1350
+Sources/LungfishCLI/Commands/BAMCommand.swift 1071
 Sources/LungfishCLI/Commands/BuildDbCommand.swift 822
 Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 996
 Sources/LungfishCLI/Commands/FetchCommand.swift 875
