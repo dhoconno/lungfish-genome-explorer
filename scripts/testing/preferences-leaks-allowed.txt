@@ -20,8 +20,6 @@ LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituRe
 LungfishTypographyTests                 Tests/LungfishNaoMgsUITests/NaoMgsResultViewControllerSmokeTests.swift
 LungfishTypographyTests                 Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishPhylogeneticsUITests/LungfishPhylogeneticsUISmokeTests.swift
-LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSAmpliconResultViewControllerTests.swift
-LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSTableViewTests.swift
 NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 assembly-layout-pref                    Tests/LungfishAssemblyUITests/AssemblyLayoutPreferenceTests.swift
 org.example.test                        Tests/LungfishCoreTests/AppIdentityTests.swift

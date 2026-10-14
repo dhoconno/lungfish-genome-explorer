@@ -4,6 +4,7 @@ import AppKit
 import LungfishIO
 import LungfishKit
 @testable import LungfishTwelveSUI
+import LungfishTestSupport
 
 @MainActor
 final class TwelveSTableViewTests: XCTestCase {
@@ -543,12 +544,11 @@ final class TwelveSTableViewTests: XCTestCase {
 private func preservingTwelveSTableContentTextSizePreference(
     _ body: () throws -> Void
 ) rethrows {
-    let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-    let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
-    let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
+    let typographySuite = TestDefaultsSuite(prefix: "TwelveSTableViewTests")
+    let restoreSettings = AppSettings.isolateForTesting(defaults: typographySuite.defaults)
     defer {
         restoreSettings()
-        typographyDefaults.removePersistentDomain(forName: typographySuiteName)
+        typographySuite.tearDown()
     }
     try body()
 }

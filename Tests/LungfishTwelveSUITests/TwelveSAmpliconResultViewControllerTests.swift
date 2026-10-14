@@ -779,12 +779,11 @@ private func assertTwelveSHeaderControlsAreContainedAndDisjoint(
 private func preservingTwelveSContentTextSizePreference(
     _ body: () throws -> Void
 ) rethrows {
-    let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-    let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
-    let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
+    let typographySuite = TestDefaultsSuite(prefix: "TwelveSAmpliconResultViewControllerTests")
+    let restoreSettings = AppSettings.isolateForTesting(defaults: typographySuite.defaults)
     defer {
         restoreSettings()
-        typographyDefaults.removePersistentDomain(forName: typographySuiteName)
+        typographySuite.tearDown()
     }
     try body()
 }
