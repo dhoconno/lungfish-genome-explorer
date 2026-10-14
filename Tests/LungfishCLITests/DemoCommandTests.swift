@@ -159,6 +159,57 @@ final class DemoCommandTests: XCTestCase {
             lines.map { $0.message }.suffix(3), ["Verifying size and SHA-256…", "Unpacking…", "Installing…"])
     }
 
+    /// The hidden list variable names the list for a run that cannot carry `--manifest`, such as the replay of the
+    /// command the Demo Projects window records (Phase 2.10 lane A45 M4). The option wins over it, and an empty
+    /// value names nothing.
+    func testTheManifestVariableNamesTheListWhenNoOptionDoes() throws {
+        func manifest(_ id: String, at name: String) throws -> URL {
+            let project = DemoProject(
+                id: id, title: id, summary: "", chapters: [], projectFolderName: "\(id).lungfish",
+                archive: .init(url: URL(string: "https://example.invalid/\(id).zip")!, sha256: String(repeating: "a", count: 64), bytes: 10),
+                version: "2026.9.44")
+            let url = tempDir.appendingPathComponent(name)
+            try JSONEncoder().encode(DemoProjectManifest(projects: [project])).write(to: url)
+            return url
+        }
+        let fromVariable = try manifest("from-variable", at: "variable.json")
+        let fromOption = try manifest("from-option", at: "option.json")
+        let environment = [DemoLocationOptions.manifestVariable: fromVariable.path]
+
+        let plain = try XCTUnwrap(DemoCommand.parseAsRoot(["fetch", "from-variable"]) as? DemoCommand.FetchSubcommand)
+        XCTAssertEqual(try plain.location.loadManifest(environment: environment).projects.map(\.id), ["from-variable"])
+
+        let option = try XCTUnwrap(
+            DemoCommand.parseAsRoot(["fetch", "from-option", "--manifest", fromOption.path]) as? DemoCommand.FetchSubcommand)
+        XCTAssertEqual(try option.location.loadManifest(environment: environment).projects.map(\.id), ["from-option"], "the option wins")
+
+        let empty = try plain.location.loadManifest(environment: [DemoLocationOptions.manifestVariable: ""])
+        XCTAssertFalse(empty.projects.contains { $0.id == "from-variable" }, "an empty variable names no list")
+        XCTAssertEqual(DemoLocationOptions.manifestVariable, "LUNGFISH_DEMO_MANIFEST")
+    }
+
+    /// The hidden Trash variable sends the old copy of a replace into a folder of the caller's choice instead of the
+    /// user's Trash, so the window's replace pin never writes there (Phase 2.10 lane A45 M4). The item keeps its name.
+    func testTheTrashFolderVariableMovesAnItemIntoThatFolderUnderItsOwnName() throws {
+        let item = tempDir.appendingPathComponent("Old.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: item, withIntermediateDirectories: true)
+        try Data("old".utf8).write(to: item.appendingPathComponent("marker.txt"))
+        let folder = tempDir.appendingPathComponent("Trash", isDirectory: true)
+
+        XCTAssertNil(DemoFetchRun.trashFolder(environment: [:]))
+        XCTAssertNil(DemoFetchRun.trashFolder(environment: [DemoFetchRun.trashFolderVariable: ""]))
+        XCTAssertEqual(
+            DemoFetchRun.trashFolder(environment: [DemoFetchRun.trashFolderVariable: folder.path])?.path, folder.path)
+
+        let handler = DemoFetchRun.trashHandler(environment: [DemoFetchRun.trashFolderVariable: folder.path])
+        let moved = try XCTUnwrap(try handler(item))
+        XCTAssertEqual(moved.lastPathComponent, "Old.lungfish")
+        XCTAssertEqual(moved.deletingLastPathComponent().path, folder.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: item.path), "the item left its place")
+        XCTAssertEqual(try String(contentsOf: moved.appendingPathComponent("marker.txt"), encoding: .utf8), "old")
+        XCTAssertEqual(DemoFetchRun.trashFolderVariable, "LUNGFISH_DEMO_TRASH_FOLDER")
+    }
+
     private func install(_ project: DemoProject, version: String, in destination: URL) throws {
         let folder = DemoProjectInstaller.projectURL(for: project, in: destination)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

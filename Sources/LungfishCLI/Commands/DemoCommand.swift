@@ -60,10 +60,18 @@ struct DemoLocationOptions: ParsableArguments {
     /// another host. It is not in the help.
     static let standInOriginVariable = "LUNGFISH_DEMO_STAND_IN_ORIGIN"
 
+    /// The hidden test seam that names the demo project list in the environment (Phase 2.10 lane A45 M4). The
+    /// command the Demo Projects window records carries no `--manifest`, so the replay of that command (side C' of
+    /// the parity) and the window's child read their list here. `--manifest` wins when both are given, and an empty
+    /// value names nothing. It is not in the help.
+    static let manifestVariable = "LUNGFISH_DEMO_MANIFEST"
+
     func loadManifest(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> DemoProjectManifest {
         let manifest: DemoProjectManifest
         if let manifestPath, !manifestPath.isEmpty {
             manifest = try DemoProjectManifest.load(from: URL(fileURLWithPath: (manifestPath as NSString).expandingTildeInPath))
+        } else if let named = environment[Self.manifestVariable], !named.isEmpty {
+            manifest = try DemoProjectManifest.load(from: URL(fileURLWithPath: (named as NSString).expandingTildeInPath))
         } else {
             manifest = try DemoProjectManifest.loadBundled()
         }
@@ -358,7 +366,8 @@ extension DemoCommand {
                 interactive: isatty(fileno(stderr)) != 0)
             let run = DemoFetchRun(
                 id: id, force: force, destination: location.destinationURL(),
-                manifest: Result { try location.loadManifest() }, reporter: reporter)
+                manifest: Result { try location.loadManifest() }, reporter: reporter,
+                trash: DemoFetchRun.trashHandler(environment: ProcessInfo.processInfo.environment))
             reporter.start()
             let pendingCancel = PendingTaskCancel<DemoFetchOutcome>()
             let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)

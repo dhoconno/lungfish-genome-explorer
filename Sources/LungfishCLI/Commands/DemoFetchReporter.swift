@@ -185,6 +185,31 @@ struct DemoFetchRun: Sendable {
     let destination: URL
     let manifest: Result<DemoProjectManifest, any Error>
     let reporter: DemoFetchReporter
+    /// Moves the old copy of a replace out of the way once the new one has verified. The user's Trash unless
+    /// ``trashFolderVariable`` names a folder.
+    let trash: DemoProjectInstaller.TrashHandler
+
+    /// The hidden test seam that sends the old copy of a replace into a folder instead of the user's Trash
+    /// (Phase 2.10 lane A45 M4), so a test of the replace never writes to the Trash. The item keeps its name in
+    /// the folder. It is not in the help.
+    static let trashFolderVariable = "LUNGFISH_DEMO_TRASH_FOLDER"
+
+    /// The folder ``trashFolderVariable`` names, nil when it is unset or empty.
+    static func trashFolder(environment: [String: String]) -> URL? {
+        guard let named = environment[trashFolderVariable], !named.isEmpty else { return nil }
+        return URL(fileURLWithPath: (named as NSString).expandingTildeInPath, isDirectory: true)
+    }
+
+    /// The handler a run uses: the folder's when the variable names one, the user's Trash otherwise.
+    static func trashHandler(environment: [String: String]) -> DemoProjectInstaller.TrashHandler {
+        guard let folder = trashFolder(environment: environment) else { return DemoProjectInstaller.moveToTrash }
+        return { url in
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let moved = folder.appendingPathComponent(url.lastPathComponent, isDirectory: true)
+            try FileManager.default.moveItem(at: url, to: moved)
+            return moved
+        }
+    }
 
     func fetch() async -> DemoFetchOutcome {
         do {
@@ -194,7 +219,7 @@ struct DemoFetchRun: Sendable {
                 return .alreadyInstalled(title: project.title, projectURL: projectURL)
             }
             let reporter = reporter
-            let result = try await DemoProjectInstaller().install(project, into: destination, replaceExisting: force) { phase in
+            let result = try await DemoProjectInstaller(trash: trash).install(project, into: destination, replaceExisting: force) { phase in
                 reporter.report(phase)
             }
             return .installed(title: project.title, result)

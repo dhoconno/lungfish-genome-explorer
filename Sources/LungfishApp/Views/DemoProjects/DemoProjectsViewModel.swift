@@ -81,6 +81,11 @@ struct DemoProjectsEnvironment {
     var revealInFinder: (URL) -> Void
     var openURL: (URL) -> Void
     var isProjectOpen: (URL) -> Bool
+    /// The route of a download, read when one starts (Phase 2.10 lane A45 M4, panel decision C4). A test names
+    /// its own, and the app reads the hidden key.
+    var route: () -> DemoProjectsDownloadRoute = { DemoProjectsDownloadRouteSettings(defaults: .standard).route }
+    /// The `lungfish-cli` the CLI route launches, nil for the app's own. A test names the built one.
+    var cliURL: URL?
 }
 
 // MARK: - View model
@@ -315,6 +320,16 @@ final class DemoProjectsViewModel {
         }
         downloads[project.id] = DownloadState(fraction: 0, detail: "Starting download…")
 
+        switch environment.route() {
+        case .legacy:
+            installInProcess(project, directory: directory, replaceExisting: replaceExisting, operationID: operationID)
+        case .cli:
+            installThroughCLI(project, directory: directory, replaceExisting: replaceExisting, operationID: operationID)
+        }
+    }
+
+    /// The route before lane A45: the app downloads, verifies, unpacks and installs in its own process.
+    private func installInProcess(_ project: DemoProject, directory: URL, replaceExisting: Bool, operationID: UUID) {
         let installer = environment.installer
         let throttle = DemoProjectProgressThrottle()
         let projectID = project.id
@@ -329,6 +344,42 @@ final class DemoProjectsViewModel {
             }
         }
         environment.operations.setCancelHandler(id: operationID) { worker.cancel() }
+
+        // Held strongly so a download finishes (and opens) even after the sheet closes.
+        Task { @MainActor in
+            let result = await worker.result
+            self.finish(project, result: result.map(\.projectURL), operationID: operationID)
+        }
+    }
+
+    /// One `lungfish-cli demo fetch` child downloads, verifies, unpacks and installs. Its `progress` lines move the
+    /// bar, its `log` lines reach the operation log, and Cancel sends it SIGTERM through the transport.
+    private func installThroughCLI(_ project: DemoProject, directory: URL, replaceExisting: Bool, operationID: UUID) {
+        let fetch = DemoProjectCLIFetch(
+            projectID: project.id, directory: directory, replaceExisting: replaceExisting,
+            totalBytes: project.archive.bytes, cliURLOverride: environment.cliURL)
+        let transport = fetch.makeTransport()
+        let cancelled = DemoDownloadCancelFlag()
+        let throttle = DemoProjectProgressThrottle()
+        let projectID = project.id
+        environment.operations.setCancelHandler(id: operationID) {
+            cancelled.set()
+            transport.cancel()
+        }
+        let worker = Task.detached {
+            try await fetch.run(
+                transport: transport,
+                isCancelled: { cancelled.isSet },
+                onPhase: { [weak self] phase in
+                    guard throttle.shouldReport(phase) else { return }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            self?.apply(phase, projectID: projectID, operationID: operationID)
+                        }
+                    }
+                },
+                onLog: OperationCenterCLIBridge.onEvent(operationID: operationID))
+        }
 
         // Held strongly so a download finishes (and opens) even after the sheet closes.
         Task { @MainActor in
@@ -350,14 +401,14 @@ final class DemoProjectsViewModel {
         environment.operations.report(id: operationID, phase: phase)
     }
 
-    private func finish(_ project: DemoProject, result: Result<DemoProjectInstallResult, Error>, operationID: UUID) {
+    private func finish(_ project: DemoProject, result: Result<URL, Error>, operationID: UUID) {
         downloads[project.id] = nil
         refreshStatuses()
         switch result {
-        case .success(let install):
-            environment.operations.complete(id: operationID, projectURL: install.projectURL)
+        case .success(let projectURL):
+            environment.operations.complete(id: operationID, projectURL: projectURL)
             onDismiss?()
-            environment.openProject(install.projectURL)
+            environment.openProject(projectURL)
         case .failure(let error):
             if let demoError = error as? DemoProjectError, demoError == .cancelled {
                 environment.operations.acknowledgeCancellation(id: operationID)
