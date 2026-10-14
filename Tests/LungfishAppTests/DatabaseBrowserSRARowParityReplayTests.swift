@@ -38,8 +38,86 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
 
     static let closer = "2.11, which deletes the in-process SRA row with its key (C4)"
 
-    /// Each way side C differs from side A with BIO's reason, as measured (the counts are exact).
-    static let declared: [RouteParityDeclaredDifference<Case>] = []
+    /// Each way side C differs from side A with BIO's reason, as measured (the counts are exact). Only the
+    /// two record folders differ: the root record and the three records of `provenance/`. The payload, the
+    /// sidecar and every other file are the same on both routes, and C against C' is empty, which the
+    /// harness checks in both cases (BIO ruling on lane A45 M3c, section c item 2). The ENA mirror case and
+    /// the toolkit case count separately, and the staged folder's name holds a UUID.
+    static let declared: [RouteParityDeclaredDifference<Case>] = {
+        let command = "The CLI route's record states the run's own command. The leaf's argument vector, its replay command and "
+            + "its explicit cliCommand are `fetch sra download <run> --bundle ...`, and the steps it merges from the import "
+            + "carry the same line, where the window's record states the `import fastq <staged FASTQ> ...` child it launched "
+            + "(ruling A45-M3 section 1, the run-level argv)."
+        let staging = "The window stages the run in .tmp/sra-batch-<UUID>/ and the leaf in .tmp/fetch-sra-<UUID>/, so each path "
+            + "a record names under the staging folder differs, in the options' staging inputs, the outputs and the inputs and "
+            + "outputs of the steps (ruling A45-M3 section 3)."
+        let ids = "A record's id and the ids of its steps are UUIDs numbered by their first place in the tree. The two trees "
+            + "hold other ids ahead of these, because the per-output records are other runs' records and the leaf adds a "
+            + "step, so the numbers differ (ruling A45-M3 section 1, the ids)."
+        let files = "The window writes its record after the import child wrote its own and lists the import's files a second "
+            + "time, two more in the ENA mirror case and four more in the toolkit case, where the leaf writes one record "
+            + "that lists each file once. The files after the sixth hold other entries, and the staged paths differ "
+            + "(ruling A45-M3 section 1, one record per child, written last)."
+        let removal = "The leaf's record names the removal of the staged FASTQ files as a last step (2.8 P1), which the window's "
+            + "record lacks, so every field of that step exists only on side C: its tool, its times, its dependency list, "
+            + "its inputs with their digests and sizes, and its options (ruling A45-M3 section 1, the step the child adds)."
+        let focused = "C's per-output records are the run's own record focused on each output "
+            + "(`ProvenanceEnvelope.focusedOnOutput`), as the other fetch leaves write them, so they replay from the archive. "
+            + "A's are the import child's records, whose argv names a staged FASTQ the run deleted. The records of "
+            + "provenance/ carry the leaf's run on C, with its argv, command, options, steps and the files they name, and "
+            + "the import child's run on A, so each field of a run differs, its tool and workflow names, its id and its "
+            + "primary output among them (BIO ruling on lane A45 M3c, section c item 2)."
+        let root = "differs: <ANY>.lungfishfastq/.lungfish-provenance.json at "
+        let perOutput = "differs: <ANY>.lungfishfastq/provenance/<ANY>lungfish-provenance.json at "
+        let closedBy = closer
+        func entry(
+            _ prefix: String, _ suffix: String, _ toolkit: Int, _ mirror: Int, _ reason: String
+        ) -> RouteParityDeclaredDifference<Case> {
+            RouteParityDeclaredDifference(
+                [Case.toolkitRun: toolkit, Case.enaMirrorRun: mirror].filter { $0.value > 0 },
+                prefix + suffix, reason: reason, closedBy: closedBy)
+        }
+        return [
+            entry(root, "argv[<ANY>", 15, 15, command),
+            entry(root, "reproducibleCommand", 1, 1, command),
+            entry(root, "options.explicit.cliCommand.<ANY>", 1, 1, command),
+            entry(root, "steps[<ANY>].argv[<ANY>", 12, 6, command),
+            entry(root, "steps[<ANY>].durableReplayArgv[<ANY>", 3, 2, command),
+            entry(root, "steps[<ANY>].reproducibleCommand", 5, 3, command),
+            entry(root, "options.explicit.stagingInputs.<ANY>", 1, 1, staging),
+            entry(root, "outputs[<ANY>", 2, 1, staging),
+            entry(root, "steps[<ANY>].inputs[<ANY>].path", 4, 2, staging),
+            entry(root, "steps[<ANY>].outputs[<ANY>].path", 2, 1, staging),
+            entry(root, "id", 1, 0, ids),
+            entry(root, "options.explicit.preservedCLIProvenanceID.<ANY>", 1, 0, ids),
+            entry(root, "steps[<ANY>].id", 1, 1, ids),
+            entry(root, "files[<ANY>", 30, 12, files),
+            entry(root, "steps[<ANY>].toolName", 1, 1, removal),
+            entry(root, "steps[<ANY>].toolVersion", 1, 1, removal),
+            entry(root, "steps[<ANY>].dependsOn", 1, 1, removal),
+            entry(root, "steps[<ANY>].exitStatus", 1, 1, removal),
+            entry(root, "steps[<ANY>].startedAt", 1, 1, removal),
+            entry(root, "steps[<ANY>].completedAt", 1, 1, removal),
+            entry(root, "steps[<ANY>].wallTimeSeconds", 1, 1, removal),
+            entry(root, "steps[<ANY>].inputs[<ANY>].checksumSHA256", 1, 1, removal),
+            entry(root, "steps[<ANY>].inputs[<ANY>].fileSize", 1, 1, removal),
+            entry(root, "steps[<ANY>].inputs[<ANY>].role", 1, 1, removal),
+            entry(root, "steps[<ANY>].outputs", 1, 1, removal),
+            entry(root, "steps[<ANY>].resolvedOptions.<ANY>", 4, 4, removal),
+            entry(perOutput, "argv[<ANY>", 54, 54, focused),
+            entry(perOutput, "durableReplayArgv[<ANY>", 57, 57, focused),
+            entry(perOutput, "files[<ANY>", 32, 24, focused),
+            entry(perOutput, "id", 3, 3, focused),
+            entry(perOutput, "options.<ANY>", 534, 525, focused),
+            entry(perOutput, "output.<ANY>", 2, 2, focused),
+            entry(perOutput, "reproducibleCommand", 3, 3, focused),
+            entry(perOutput, "steps[<ANY>", 373, 285, focused),
+            entry(perOutput, "tool.<ANY>", 6, 6, focused),
+            entry(perOutput, "toolName", 3, 3, focused),
+            entry(perOutput, "toolVersion", 3, 3, focused),
+            entry(perOutput, "workflowName", 3, 3, focused),
+        ]
+    }()
 
     static let run = SRAToolkitRecordedRunner.singleEndRun
 
@@ -51,17 +129,7 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
         try await assertParity(.enaMirrorRun)
     }
 
-    /// The variable that runs the class. It is held back because A against C, and C against C' as well,
-    /// differ in values no route sets: the FASTQ metadata sidecar writes three clock values and its
-    /// quality histogram in the order of a per-process dictionary, and the digest of the sidecar follows
-    /// into three record files. BIO rules on a mask or a deterministic encoding before the key flips
-    /// (lane A45 M3c report). Run with `LUNGFISH_SRA_ROW_PARITY=1` to measure.
-    static let runVariable = "LUNGFISH_SRA_ROW_PARITY"
-
     func assertParity(_ parityCase: Case) async throws {
-        try XCTSkipUnless(
-            ProcessInfo.processInfo.environment[Self.runVariable] == "1",
-            "Held until BIO rules on the FASTQ sidecar's clock values and histogram order. Set \(Self.runVariable)=1 to measure.")
         // A batch with a project asks `AppDelegate.shared` whether the project is writable, which reads `NSApp`.
         _ = NSApplication.shared
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
