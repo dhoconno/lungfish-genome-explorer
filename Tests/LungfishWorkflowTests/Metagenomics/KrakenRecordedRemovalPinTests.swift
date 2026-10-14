@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B34, a pin that passes at the base (QA 1). Fix 4 of the BIO review of Phase 2.8 made the
-// removal of the interleaved halves after a failed kraken2 depend on the kraken2 step, and landed with no test
-// of the failure path. A classification record is only as good as the order its `dependsOn` gives, because a
-// replay that follows the order must not remove the halves before kraken2 has read them.
+// Phase 2.10 lane B34, a pin that passes at the base (QA 1). A kraken2 that exits non-zero returns through the
+// success path, which records the removal of the interleaved halves right after the kraken2 step. Fix 4 of the
+// BIO review of Phase 2.8 set the same order in `recordKraken2Failure`, which only a throw from `runTool`
+// reaches, so this class does not cover it. A replay that follows `dependsOn` must not remove the halves before
+// kraken2 has read them.
 
 import Foundation
 import XCTest
