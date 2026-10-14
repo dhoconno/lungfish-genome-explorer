@@ -74,7 +74,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (43)
+    // MARK: Leaves that emit events (45)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -119,6 +119,8 @@ package enum CLIEventContractTable {
         "tree relabel": .events(flag: formatJSON, channel: .standardOutput),
         "tree reroot": .events(flag: formatJSON, channel: .standardOutput),
         "variants call": .events(flag: formatJSON, channel: .standardOutput),
+        "variants delete": .events(flag: formatJSON, channel: .standardOutput),
+        "variants import-sample-metadata": .events(flag: formatJSON, channel: .standardOutput),
         "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]
 

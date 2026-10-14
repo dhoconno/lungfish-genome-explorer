@@ -201,6 +201,8 @@ lungfish-cli variants call	shown	0	lungfish-cli.variants.call.txt
 lungfish-cli variants phase	shown	0	lungfish-cli.variants.phase.txt
 lungfish-cli variants extract-sample	shown	0	lungfish-cli.variants.extract-sample.txt
 lungfish-cli variants query	shown	0	lungfish-cli.variants.query.txt
+lungfish-cli variants delete	shown	0	lungfish-cli.variants.delete.txt
+lungfish-cli variants import-sample-metadata	shown	0	lungfish-cli.variants.import-sample-metadata.txt
 lungfish-cli gatk	shown	0	lungfish-cli.gatk.txt
 lungfish-cli gatk haplotype-caller	shown	0	lungfish-cli.gatk.haplotype-caller.txt
 lungfish-cli gatk joint-genotype	shown	0	lungfish-cli.gatk.joint-genotype.txt

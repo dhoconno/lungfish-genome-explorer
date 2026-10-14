@@ -200,6 +200,8 @@ public enum ScientificProvenancePolicy {
         "primers design primalscheme3": dataWriting("cli.primers.design.primalscheme3"),
         "sequence add-annotation": dataWriting("cli.sequence.add-annotation", writer: "ReferenceBundleManualAnnotationService"),
         "sequence attach-track": dataWriting("cli.sequence.attach-track", writer: "ReferenceBundleAnnotationImportService"),
+        "variants delete": dataWriting("cli.variants.delete", writer: "VariantDeletionMutationService"),
+        "variants import-sample-metadata": dataWriting("cli.variants.import-sample-metadata", writer: "VariantSampleMetadataImportService"),
         "primers analysis annotated-reference": dataWriting("cli.primers.analysis.annotated-reference"),
         "primers analysis export-order": dataWriting("cli.primers.analysis.export-order", writer: "PrimerOrderExportService"),
         // `kraken2 classify` and `conda classify` are one command, `ClassifyCommand`, and both

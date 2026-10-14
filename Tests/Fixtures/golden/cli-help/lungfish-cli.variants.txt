@@ -14,5 +14,9 @@ SUBCOMMANDS:
   extract-sample          Extract one sample's variant calls from a bundle
                           variant database
   query                   Query bundle variants with a per-sample smart filter
+  delete                  Delete variants from the variant databases of a
+                          reference bundle.
+  import-sample-metadata  Import a CSV or TSV file of sample metadata into the
+                          variant databases of a reference bundle.
 
   See 'lungfish-cli help variants <subcommand>' for detailed help.
