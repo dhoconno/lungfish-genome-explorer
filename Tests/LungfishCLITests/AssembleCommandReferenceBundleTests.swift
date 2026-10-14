@@ -97,25 +97,7 @@ final class AssembleCommandReferenceBundleTests: XCTestCase {
         }
         XCTAssertNil(error)
 
-        OutputEquivalence.assertSame(sideA, sideB, kind: .bundle, masks: Self.masksWithAssemblerWallTime)
-    }
-
-    /// The contract's masks, and the assembler's wall time, which the bundle's `assembly/provenance.json`
-    /// keeps as `wall_time_seconds` and `assembly-result.json` as `wallTimeSeconds`. The contract masks
-    /// a wall time only under its own key names in a provenance envelope, and two runs never take the
-    /// same time, so this test masks the two the assembler's records write (reported to QA by A46).
-    private static var masksWithAssemblerWallTime: OutputEquivalence.MaskPolicy {
-        let wallTime = OutputEquivalence.Mask(name: "assemblerWallTime") { text, _ in
-            text.replacingOccurrences(
-                of: #""(wall_time_seconds|wallTimeSeconds)"(\s*):(\s*)[-0-9.eE+]+"#,
-                with: #""$1"$2:$3"<DURATION>""#,
-                options: .regularExpression
-            )
-        }
-        var masks = OutputEquivalence.MaskPolicy.standard
-        masks.provenance.append(wallTime)
-        masks.payloads.append(wallTime)
-        return masks
+        OutputEquivalence.assertSame(sideA, sideB, kind: .bundle)
     }
 
     // MARK: - Running the command
