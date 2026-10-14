@@ -26,6 +26,12 @@ final class SIGTERMPostWatchTests: XCTestCase {
 
     func testAFailureThatFollowsAPostedSIGTERMEndsAsACancel() async {
         struct ToolDied: Error {}
+        // The post below is aimed at the process, and the kernel hands it to a thread that can take it later than the
+        // pool thread that sent it. If that thread takes it after `end()` has given SIGTERM back the default action,
+        // the post ends this test process by signal 15, which happens on a busy machine. With SIGTERM ignored around
+        // the run, `end()` restores SIG_IGN, and that drops a post that is still pending.
+        let previous = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previous) }
         let ran = await runCancellingOnSIGTERM { () async throws -> Int in
             // The group's SIGTERM reaches the leaf and its tool together, and the tool's death is the first
             // thing the leaf sees.
