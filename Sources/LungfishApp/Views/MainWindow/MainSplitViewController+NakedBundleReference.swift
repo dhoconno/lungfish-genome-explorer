@@ -12,16 +12,17 @@ import os.log
 /// The route of the reference download of a variant-only bundle (Phase 2.10 lane A44 M3, panel
 /// decision C4). The app finds the reference on both routes (review ruling M3-1).
 enum NakedBundleReferenceRoute: String, Sendable, Equatable, CaseIterable {
-    /// The route before lane A44 M3, kept for one release as the escape the hidden key names (C4).
-    /// The app builds the assembly's bundle, or with no assembly the GenBank record's, in process in
-    /// the project's `.tmp` folder and merges its genome and annotations into the variant-only
-    /// bundle. It writes no provenance record, the declared difference that keeps the key, and goes
-    /// in 2.11. Without an NCBI GFF3 its GenBank fallback converts FEATURES, where the CLI adds no
-    /// track.
+    /// The route before lane A44 M3, the hidden escape for one release (C4), which runs only when
+    /// the key names `legacy`. The app builds the assembly's bundle, or with no assembly the GenBank
+    /// record's, in process in the project's `.tmp` folder and merges its genome and annotations
+    /// into the variant-only bundle. It writes no provenance record, the declared difference that
+    /// keeps the key, and goes in 2.11. Without an NCBI GFF3 its GenBank fallback converts
+    /// FEATURES, where the CLI adds no track.
     case legacy
-    /// One `lungfish-cli fetch genome <accession> --into-bundle <bundle> --format json` child for
-    /// the assembly the app found, or with no assembly for the VCF's GenBank accession, which merges
-    /// the reference into the bundle and records what it fetched.
+    /// The default since lane A44 M3's last commit. One `lungfish-cli fetch genome <accession>
+    /// --into-bundle <bundle> --format json` child for the assembly the app found, or with no
+    /// assembly for the VCF's GenBank accession, which merges the reference into the bundle and
+    /// records what it fetched.
     case cli
 }
 
@@ -32,7 +33,7 @@ struct NakedBundleReferenceRouteSettings {
     /// example `defaults write <app id> VariantOnlyReferenceDownloadRoute legacy`.
     static let defaultsKey = "VariantOnlyReferenceDownloadRoute"
     /// The route of a key that is unset or holds a value this reader does not know.
-    static let defaultRoute: NakedBundleReferenceRoute = .legacy
+    static let defaultRoute: NakedBundleReferenceRoute = .cli
 
     let defaults: UserDefaults
 
@@ -55,10 +56,10 @@ extension MainSplitViewController {
     /// 1. NCBI Assembly search (gives full genome FASTA + GFF3 annotations)
     /// 2. GenBank nucleotide fetch by accession (fallback for single-contig organisms)
     ///
-    /// The row locks the bundle (review ruling M3-3). Once the app has found an assembly, the row
-    /// records the `fetch genome` command that reproduces the run (ruling M3-1), and the route the
-    /// hidden key names (``NakedBundleReferenceRouteSettings``) merges the assembly in. On
-    /// completion the viewer reloads the bundle.
+    /// The row locks the bundle (review ruling M3-3). Once the app has found the accession, the row
+    /// records the `fetch genome` command that reproduces the run (ruling M3-1), and the CLI route
+    /// merges the reference in, or the in-process route when the hidden key names `legacy`
+    /// (``NakedBundleReferenceRouteSettings``). On completion the viewer reloads the bundle.
     func downloadReferenceForNakedBundle(
         inferredRef: ReferenceInference.Result,
         ncbiAccessions: [String],
