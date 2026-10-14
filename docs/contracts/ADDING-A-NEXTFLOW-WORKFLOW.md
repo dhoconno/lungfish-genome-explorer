@@ -1,6 +1,6 @@
 # Adding a Nextflow workflow
 
-This contract says how Lungfish Genome Explorer (LGE) describes, launches and records a Nextflow workflow, and what a new workflow adds. Phase 2.9 built it from TaxTriage's launch code so that every Nextflow workflow shares one shape. It has eight parts, one per section below. A workflow is data in one descriptor, and its repository and commit come only from the managed tool lock. One builder writes its samplesheet, one engine process runs it, one record shape describes the run, one registry row names it, one stand-in replays it in tests, and one executor tool runs it from the command line. nf-core/viralrecon still launches through its own request, and a fit test shows that it fits the same descriptor.
+This contract says how Lungfish Genome Explorer (LGE) describes, launches and records a Nextflow workflow, and what a new workflow adds. Phase 2.9 built it from TaxTriage's launch code so that every Nextflow workflow shares one shape. It has eight parts, one per section below. A workflow is data in one descriptor, and its repository and commit come only from the managed tool lock. One builder writes its samplesheet, one engine process runs it, one record shape describes the run, one registry row names it, one stand-in replays it in tests, and one executor tool runs it from the command line. nf-core/viralrecon launches through the same engine process with its descriptor's argv, and its fit test declares one difference left, the catalog's fallback release (section 1).
 
 Each section names the Phase 2.9 lane that owns it, and a lane edits only its own section. The owners of sections 3 to 8 write them as their lanes land.
 
@@ -96,7 +96,7 @@ TaxTriage's builder is `TaxTriageSamplesheetBuilder`. Its sheet has the columns 
 
 A builder writes the paths it is given. The caller hands it files that exist, with virtual FASTQ materialized and mates resolved as `docs/contracts/READ-PAIRING.md` says, and stages a path that holds whitespace first, because Nextflow and its Docker bind mounts break on such paths. TaxTriage's pipeline splits a strictly interleaved file into mate files and redirects paths with spaces through a folder without spaces before it writes the sheet. For Viral Recon, `NFCoreLaunchStaging.stage` in `Sources/LungfishWorkflow/nf-core/NFCoreLaunchStaging.swift` copies such inputs.
 
-Viral Recon's sheet is written today by `ViralReconSamplesheetBuilder` in `Sources/LungfishWorkflow/ViralRecon/ViralReconSamplesheetBuilder.swift`, which conforms to the protocol when Viral Recon's launch moves onto the descriptor.
+Viral Recon's sheet is written today by `ViralReconSamplesheetBuilder` in `Sources/LungfishWorkflow/ViralRecon/ViralReconSamplesheetBuilder.swift`, which does not conform to the protocol, although Viral Recon's launch takes its descriptor's argv.
 
 A new workflow adds its builder in `Sources/LungfishWorkflow/Nextflow/` and a test that pins the builder's bytes, against the code that writes the sheet today when there is one, as `Tests/LungfishWorkflowTests/NextflowSamplesheetBuilderTests.swift` does for TaxTriage.
 
