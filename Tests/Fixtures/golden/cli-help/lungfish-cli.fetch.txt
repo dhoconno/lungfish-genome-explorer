@@ -13,5 +13,6 @@ SUBCOMMANDS:
   ena                     Search and download from ENA (European Nucleotide
                           Archive)
   genome                  Download genomes from NCBI and create indexed bundles
+  pathoplexus             Fetch Pathoplexus records into .lungfishref bundles
 
   See 'lungfish-cli help fetch <subcommand>' for detailed help.

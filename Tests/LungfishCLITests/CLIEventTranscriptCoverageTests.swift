@@ -60,6 +60,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `fetch ncbi --bundle` builds with the same tools, and its transcripts are runs of the built
         // CLI on the same stand-in (FetchNCBIEventTranscriptReplayTests, lane A45 of Phase 2.10).
         "fetch ncbi",
+        // `fetch pathoplexus` builds with the same tools on the loopback Pathoplexus and NCBI stand-ins
+        // (FetchPathoplexusEventTranscriptReplayTests, lane A45 of Phase 2.10).
+        "fetch pathoplexus",
     ]
 
     static var transcriptsFolder: URL {

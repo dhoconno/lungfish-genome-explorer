@@ -352,6 +352,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "fetch ena search": "cli.fetch",
         "fetch genome": "cli.fetch",
         "fetch ncbi": "cli.fetch",
+        "fetch pathoplexus": "cli.fetch",
         "fetch search": "cli.fetch",
         "fetch sra download": "cli.fetch",
         "fetch sra info": "cli.fetch",

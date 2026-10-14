@@ -1,0 +1,33 @@
+{"event":"start","message":"Started Pathoplexus record fetch of 3 accession(s) via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Reading Pathoplexus metadata...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Fetching GenBank record ZZ000001.1...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Checking tools...","progress":0.0033333333333333335,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Resolving accession ZZ000001.1...","progress":0.006666666666666667,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Parsing GenBank record ZZ000001.1...","progress":0.04,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Writing FASTA...","progress":0.08333333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Compressing FASTA (bgzip)...","progress":0.11666666666666665,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Indexing FASTA (samtools faidx)...","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Fetching GFF3 annotations...","progress":0.17333333333333334,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Writing bundle manifest...","progress":0.2833333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000001: Bundle ready: ZZ000001.1.lungfishref","progress":0.3333333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Reading Pathoplexus metadata...","progress":0.3333333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Building bundle from Pathoplexus sequence for PP_000002...","progress":0.3333333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Checking tools...","progress":0.33666666666666667,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Writing FASTA...","progress":0.37333333333333335,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Compressing FASTA (bgzip)...","progress":0.43333333333333335,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Indexing FASTA (samtools faidx)...","progress":0.48333333333333334,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Writing bundle manifest...","progress":0.5933333333333334,"schemaVersion":2}
+{"event":"progress","message":"PP_000002: Bundle ready: PP_000002.lungfishref","progress":0.6666666666666666,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Reading Pathoplexus metadata...","progress":0.6666666666666666,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Fetching GenBank record ZZ000099.1...","progress":0.6666666666666666,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Checking tools...","progress":0.6699999999999999,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Resolving accession ZZ000099.1...","progress":0.6733333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: GenBank unavailable for PP_000004; falling back to FASTA...","progress":0.6733333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Building bundle from Pathoplexus sequence for PP_000004...","progress":0.6733333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Checking tools...","progress":0.6733333333333333,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Writing FASTA...","progress":0.7066666666666667,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Compressing FASTA (bgzip)...","progress":0.7666666666666666,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Indexing FASTA (samtools faidx)...","progress":0.8166666666666668,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Writing bundle manifest...","progress":0.9266666666666667,"schemaVersion":2}
+{"event":"progress","message":"PP_000004: Bundle ready: PP_000004.lungfishref","progress":1,"schemaVersion":2}
+{"artifacts":[{"kind":"reference","path":"\/work\/ZZ000001.1.lungfishref","provenancePath":"\/work\/ZZ000001.1.lungfishref\/.lungfish-provenance.json","role":"bundle"},{"kind":"reference","path":"\/work\/PP_000002.lungfishref","provenancePath":"\/work\/PP_000002.lungfishref\/.lungfish-provenance.json","role":"bundle"},{"kind":"reference","path":"\/work\/PP_000004.lungfishref","provenancePath":"\/work\/PP_000004.lungfishref\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","message":"Fetched 3 Pathoplexus record(s)","output":"\/work\/ZZ000001.1.lungfishref","outputs":["\/work\/ZZ000001.1.lungfishref","\/work\/PP_000002.lungfishref","\/work\/PP_000004.lungfishref"],"progress":1,"schemaVersion":2}

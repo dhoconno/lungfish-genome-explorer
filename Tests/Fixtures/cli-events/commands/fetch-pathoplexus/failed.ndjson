@@ -1,0 +1,4 @@
+{"event":"start","message":"Started Pathoplexus record fetch of 1 accession(s) via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"PP_000003: Reading Pathoplexus metadata...","progress":0,"schemaVersion":2}
+{"event":"log","level":"error","message":"PP_000003: Invalid query: Record PP_000003 is restricted and cannot be downloaded","schemaVersion":2}
+{"error":"PP_000003: Invalid query: Record PP_000003 is restricted and cannot be downloaded","event":"failed","schemaVersion":2}

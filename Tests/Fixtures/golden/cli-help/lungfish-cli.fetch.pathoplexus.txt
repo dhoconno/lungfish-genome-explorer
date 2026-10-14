@@ -1,0 +1,60 @@
+OVERVIEW: Fetch Pathoplexus records into .lungfishref bundles
+
+Download Pathoplexus records by accession, one .lungfishref bundle for each in
+--output-dir, built as the app's Pathoplexus browser builds a record.
+
+A record whose data use terms are restricted is refused. A record with an INSDC
+accession is built from its GenBank record, with Pathoplexus's metadata added
+to the
+manifest and the one sequence named by the INSDC accession with its version. A
+record
+with no INSDC accession, or one that GenBank cannot serve, is built from the
+Pathoplexus FASTA, which the bundle keeps as sources/record.fasta. Each bundle
+holds a
+provenance record that names the accession with its version, the date of the
+fetch and
+the digest of what arrived, as a live snapshot.
+
+With --format json the command prints CLIEvent lines on standard output and its
+human
+text on standard error. SIGTERM stops the run, removes the bundle it was
+building and
+exits 125. Pathoplexus takes no key. The NCBI key, used only to read a GenBank
+record,
+comes from --api-key or from the NCBI_API_KEY environment variable.
+
+Examples:
+  lungfish-cli fetch pathoplexus PP_0012345 --organism mpox --output-dir
+./bundles
+  lungfish-cli fetch pathoplexus PP_0012345 PP_0012346 --organism mpox
+--no-gff3 --format json
+
+USAGE: lungfish-cli fetch pathoplexus [<options>] <accessions> ... --organism <organism>
+
+ARGUMENTS:
+  <accessions>            Pathoplexus accession(s), such as PP_0012345
+
+OPTIONS:
+  --organism <organism>   Pathoplexus organism id, such as mpox (required,
+                          since accessions are not organism-scoped)
+  --output-dir <output-dir>
+                          The folder for the bundles (default: current
+                          directory)
+  --no-gff3               For a record read from GenBank, fetch no GFF3 and
+                          take the annotations from the GenBank record
+  --api-key <api-key>     NCBI API key for higher rate limits when a record is
+                          read from GenBank
+  --format <format>       Output format: text, json, tsv (default: text)
+                          (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

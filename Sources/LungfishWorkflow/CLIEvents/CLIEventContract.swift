@@ -73,7 +73,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (55)
+    // MARK: Leaves that emit events (57)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -101,6 +101,7 @@ package enum CLIEventContractTable {
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
         "fetch genome": .events(flag: formatJSON, channel: .standardOutput),
         "fetch ncbi": .events(flag: formatJSON, channel: .standardOutput),
+        "fetch pathoplexus": .events(flag: formatJSON, channel: .standardOutput),
         "import application-export": .events(flag: formatJSON, channel: .standardOutput),
         "import fastq": .events(flag: formatJSON, channel: .standardOutput),
         "import geneious": .events(flag: formatJSON, channel: .standardOutput),

@@ -84,6 +84,7 @@ lungfish-cli fetch ena search	shown	0	lungfish-cli.fetch.ena.search.txt
 lungfish-cli fetch ena reads	shown	0	lungfish-cli.fetch.ena.reads.txt
 lungfish-cli fetch ena fasta	shown	0	lungfish-cli.fetch.ena.fasta.txt
 lungfish-cli fetch genome	shown	0	lungfish-cli.fetch.genome.txt
+lungfish-cli fetch pathoplexus	shown	0	lungfish-cli.fetch.pathoplexus.txt
 lungfish-cli bundle	shown	0	lungfish-cli.bundle.txt
 lungfish-cli bundle info	shown	0	lungfish-cli.bundle.info.txt
 lungfish-cli bundle create	shown	0	lungfish-cli.bundle.create.txt
