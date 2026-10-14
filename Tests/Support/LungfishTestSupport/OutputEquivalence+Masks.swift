@@ -37,8 +37,9 @@ extension OutputEquivalence {
         /// and of its `parameters.wallClockSeconds`.
         /// A file name gets the UUID and run ID masks. Payload text, request
         /// bodies and plans get the roots and run wall time masks and a FASTQ
-        /// sidecar's three clock values alone, so any other date, a host or a
-        /// read ID in data is compared as written.
+        /// sidecar's three clock values and a demo project install record's
+        /// install time alone, so any other date, a host or a read ID in data
+        /// is compared as written.
         public static var standard: MaskPolicy {
             let records = [
                 Masks.contentComparedDigests,
@@ -54,7 +55,7 @@ extension OutputEquivalence {
                 provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
-                payloads: [Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks]
+                payloads: [Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock]
             )
         }
 
@@ -210,6 +211,25 @@ extension OutputEquivalence {
             manifest["parameters"] = parameters
             changed = true
             return manifest
+        }
+
+        /// The time `DemoProjectInstaller` wrote into a demo project's install record (`.lgedemo.json`): the
+        /// top-level `installedAt`, set to `<TIMESTAMP>`. It reads a JSON object that holds the record's four keys
+        /// and no other, `id`, `installedAt`, `sha256` and `version`, so the same key in any other document, a key
+        /// one level down, a record with another key, a record without `installedAt` and the record's other three
+        /// values are compared as written. Two installs never take the same second (manager answer to lane A45
+        /// M4's question 1, by the rule of the BIO ruling on lane A45 M3c, section b).
+        public static let demoInstallClock = Mask(name: "demoInstallClock") { text, _ in
+            rewritingJSON(text) { value, changed in maskDemoInstallClock(in: value, changed: &changed) }
+        }
+
+        static let demoInstallRecordKeys: Set<String> = ["id", "installedAt", "sha256", "version"]
+
+        static func maskDemoInstallClock(in value: Any, changed: inout Bool) -> Any {
+            guard var record = value as? [String: Any], Set(record.keys) == demoInstallRecordKeys else { return value }
+            record["installedAt"] = "<TIMESTAMP>"
+            changed = true
+            return record
         }
 
         /// Sets the `value` of a display item labelled exactly `Wall Time` to `<DURATION>`, the wall time
