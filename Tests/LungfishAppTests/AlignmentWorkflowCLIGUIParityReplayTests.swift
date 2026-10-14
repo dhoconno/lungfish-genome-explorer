@@ -16,14 +16,13 @@
 // command. The annotation request names its track ID, because the contract masks the `aln_` IDs and no
 // other, and both routes draw an `ann_` ID from the same service.
 //
-// One family mask is added, `bamByteDigests`, and the harness is built with it. A BAM that samtools writes
-// carries a `@PG` line with the scratch folder and the paths of the run, so its bytes differ in every run
-// on either route, and so do the size and digest a record states for it. The contract's
-// `contentComparedDigests` masks them where the record names the BAM from the project or by an absolute
-// path. It never reads the `<workspace>/` scratch intermediates a filter record lists, nor the
-// bundle-relative `source_path` of a manifest entry. The BAM itself is still compared on its header and
-// records by samtools. The mask belongs in the contract's "Same result" table (see the lane report), and
-// this class is the one place it is used until the contract carries it.
+// The harness is built with the contract's masks and no other. A BAM that samtools writes carries a `@PG`
+// line with the scratch folder and the paths of the run, so its bytes differ in every run on either route,
+// and so do the size and digest a record states for it. The contract masks them (`contentComparedDigests`,
+// which reads a `<workspace>/` scratch intermediate of a filter record and a manifest entry's relative
+// `source_path`), and the BAM itself is still compared on its header and records by samtools.
+// `testEachCLISidesRecordsPassProvenanceVerify` then checks that each side's record states the BAM that
+// side holds.
 //
 // A against C declares each difference with `<ANY>`, C against C' none. The cancel of the same leaves,
 // with every core busy, is `AlignmentWorkflowSIGTERMReplayTests`.
@@ -96,63 +95,11 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so no side can run"
         )
-        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: Self.masks, replayTimeout: .seconds(120))
+        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(120))
     }
 
     override func tearDownWithError() throws {
         if let scratch { TestTempDirectory.cleanup(scratch) }
-    }
-
-    // MARK: - The family mask
-
-    nonisolated private static let digestKeys: Set<String> = ["checksumSHA256", "sha256", "checksum"]
-    nonisolated private static let sizeKeys: Set<String> = ["fileSize", "sizeBytes", "size_bytes", "file_size_bytes"]
-
-    /// The contract's masks and `bamByteDigests`, for provenance records and manifests.
-    nonisolated private static let masks: OutputEquivalence.MaskPolicy = {
-        var policy = OutputEquivalence.MaskPolicy.standard
-        policy.provenance.append(bamByteDigests)
-        policy.records.append(bamByteDigests)
-        return policy
-    }()
-
-    /// In a JSON object that names a BAM or a BAM index, replaces the digest and the size it states.
-    nonisolated private static let bamByteDigests = OutputEquivalence.Mask(name: "bamByteDigests") { text, _ in
-        guard let data = text.data(using: .utf8),
-              let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        else { return text }
-        var changed = false
-        let masked = maskBAMBytes(in: value, changed: &changed)
-        guard changed,
-              let encoded = try? JSONSerialization.data(
-                  withJSONObject: masked, options: [.sortedKeys, .prettyPrinted, .fragmentsAllowed, .withoutEscapingSlashes]
-              ),
-              let result = String(data: encoded, encoding: .utf8)
-        else { return text }
-        return result
-    }
-
-    nonisolated private static func maskBAMBytes(in value: Any, changed: inout Bool) -> Any {
-        if let array = value as? [Any] {
-            return array.map { maskBAMBytes(in: $0, changed: &changed) }
-        }
-        guard var object = value as? [String: Any] else { return value }
-        let namesBAM = object.values.contains { item in
-            guard let path = (item as? String)?.lowercased() else { return false }
-            return path.hasSuffix(".bam") || path.hasSuffix(".bam.bai")
-        }
-        for (key, item) in object {
-            if namesBAM, digestKeys.contains(key) {
-                object[key] = "<BAM-SHA256>"
-                changed = true
-            } else if namesBAM, sizeKeys.contains(key) {
-                object[key] = "<BAM-SIZE>"
-                changed = true
-            } else {
-                object[key] = maskBAMBytes(in: item, changed: &changed)
-            }
-        }
-        return object
     }
 
     // MARK: - The requests
