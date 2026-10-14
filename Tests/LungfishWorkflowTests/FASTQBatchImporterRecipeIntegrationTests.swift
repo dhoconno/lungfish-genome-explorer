@@ -311,11 +311,10 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertTrue(deaconStep.auxiliaryCommandPathRewrites.values.contains(summaryURL.path))
         XCTAssertNotNil(metadata.ingestion?.recipeApplied?.humanScrubSummary)
 
+        // The sidecar names project files as @/ paths and managed tools under <tool-root> (cc726cbee),
+        // so read it the way the app does. The reader resolves them for where the project lives now.
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let envelope = try ProvenanceJSON.decoder.decode(
-            ProvenanceEnvelope.self,
-            from: Data(contentsOf: provenanceURL)
-        )
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: provenanceURL))
         let provenanceStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "deacon" })
         let summaryOutput = try XCTUnwrap(provenanceStep.outputs.first { $0.path == summaryURL.path })
         XCTAssertNotNil(summaryOutput.checksumSHA256)
