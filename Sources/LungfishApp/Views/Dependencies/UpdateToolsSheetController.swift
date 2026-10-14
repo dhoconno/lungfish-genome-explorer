@@ -64,7 +64,8 @@ enum UpdateToolsSheetController {
         let viewModel = UpdateToolsSheetViewModel(
             plan: plan,
             reconciler: reconciler,
-            freeSpaceProvider: Self.freeSpaceProvider(for: storageRoot)
+            freeSpaceProvider: Self.freeSpaceProvider(for: storageRoot),
+            storageRoot: storageRoot
         )
         viewModel.allowsDeferral = allowsDeferral
 

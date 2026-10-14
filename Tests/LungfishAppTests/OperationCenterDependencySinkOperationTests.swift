@@ -6,24 +6,28 @@
 // registers each one with a static begin helper (R4). The row locks no bundle,
 // so a reporter that refuses every begin stands in for a refusal and proves
 // the launch closure, which records the sink's handle, runs only for a started
-// row. `lungfish-cli tools update` is the closest command, and it cannot
-// describe a row the sink only knows by title and detail, so the test pins the
-// missing command as a CLI parity gap.
+// row. The reconciler's item rows know only a title and a detail, so they record
+// no command. The Update Tools run on the CLI route (Phase 2.10 lane A52) begins
+// its one row through the same helper with the command it runs, which names the
+// items the user chose (`tools update --only`), and the test parses it back.
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 import LungfishKit
 import LungfishKitTestSupport
 
 @MainActor
 final class OperationCenterDependencySinkOperationTests: XCTestCase {
-    func testDependencyRowRecordsAPluginPackRowWithNoCommandAsAParityGap() throws {
+    func testDependencyRowRecordsTheUpdateCommandItIsGivenAndItParsesBack() throws {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
+        let invocation = CLIManagedToolsRunner.updateTools(ids: ["pigz", "samtools"])
 
         let result = OperationCenterDependencySink.beginDependencyOperation(
             title: "Update tools to 2026.10.1",
             detail: "3 environments, 1 database",
+            cliCommand: invocation.recordedCommand,
             reporter: reporter
         ) { launchedID = $0 }
 
@@ -37,14 +41,13 @@ final class OperationCenterDependencySinkOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        // CLI parity gap. `tools update --apply --yes` runs the same plan, but
-        // the reconciler opens one parent row and one row for every item
-        // through this call, and the sink cannot tell which command a row
-        // belongs to or which items the user chose in the Update Tools sheet.
-        // When the sink protocol carries a command, record it and replace this
-        // pin with a parse test.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "tools-update-subset")
+        XCTAssertEqual(
+            item.cliCommand,
+            "lungfish-cli tools update --apply --yes --only pigz --only samtools --format json"
+        )
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ToolsCommand.UpdateSubcommand.self)
+        XCTAssertTrue(command.apply && command.yes)
+        XCTAssertEqual(command.only, ["pigz", "samtools"])
     }
 
     func testItemRowsUseTheSameRowShape() throws {

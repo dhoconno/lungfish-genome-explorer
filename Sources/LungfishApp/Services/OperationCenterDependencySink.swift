@@ -54,19 +54,19 @@ struct OperationCenterDependencySink: DependencyOperationSink {
     /// operation and does nothing. A real `OperationCenter` refuses only on a bundle
     /// lock, and this row asks for none.
     ///
-    /// cli-parity-gap: tools-update-subset. The row records no command.
-    /// `lungfish-cli tools update --apply --yes` is the closest, and it runs the same `DependencyReconciler` plan. The
-    /// reconciler opens one parent row for the whole run and one row for every item
-    /// inside it, through this same call. The sink sees only a title and a detail, so
-    /// it cannot tell which command a row belongs to or which items the user chose in
-    /// the Update Tools sheet. The command has no option for an arbitrary choice of
-    /// items, and no command runs a single item. The row keeps recording no command
-    /// until the sink protocol carries one.
+    /// The Update Tools run on the CLI route passes the command it runs,
+    /// `lungfish-cli tools update --apply --yes --only <id> ... --format json`, which names the
+    /// items the user chose in the sheet (`tools update --only`, lane A52). That run opens one row
+    /// for the whole run. The in-process route, kept behind the hidden key for one release,
+    /// reaches this call from the reconciler, which opens one parent row for the whole run and
+    /// one row for every item inside it. The sink protocol sees only a title and a detail, so
+    /// those rows pass no command, and the route's one row is the one that reproduces the run.
     @MainActor
     @discardableResult
     static func beginDependencyOperation(
         title: String,
         detail: String,
+        cliCommand: String? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -74,7 +74,7 @@ struct OperationCenterDependencySink: DependencyOperationSink {
             title: title,
             detail: detail,
             operationType: .condaPluginPack,
-            cliCommand: nil
+            cliCommand: cliCommand
         )
         switch result {
         case .started(let operationID):

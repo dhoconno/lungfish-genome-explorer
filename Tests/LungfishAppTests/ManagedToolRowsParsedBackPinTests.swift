@@ -7,8 +7,11 @@
 // helper. This suite reads the four rows the helpers register today the way a user's Copy CLI
 // Command does, with the exact words and the command each one records, so the lane's route changes
 // one visible fact at a time. The install and the database update rows record a command that
-// parses back to its leaf. The Update Tools row and the reinstall row record none, which are the
-// two CLI parity gaps `tools-update-subset` and `plugin-reinstall`. The suite passes at the base.
+// parses back to its leaf. The Update Tools row and the reinstall row recorded none at the base,
+// which were the two CLI parity gaps `tools-update-subset` and `plugin-reinstall`. Lane A52 M3
+// closes both: the Update Tools row passes the command its CLI route runs, and the reinstall row
+// records `conda install --pack <id> --reinstall`. Every row now records the argv its route runs,
+// `--format json` included, and the suite parses each back.
 
 import XCTest
 @testable import LungfishApp
@@ -24,7 +27,9 @@ final class ManagedToolRowsParsedBackPinTests: XCTestCase {
         let pack = try XCTUnwrap(PluginPack.builtInPack(id: "multiple-sequence-alignment"))
 
         OperationCenterDependencySink.beginDependencyOperation(
-            title: "Update tools to 2026.10.1", detail: "3 tool(s), 1 database(s)", reporter: reporter
+            title: "Update tools to 2026.10.1", detail: "3 tool(s), 1 database(s)",
+            cliCommand: CLIManagedToolsRunner.updateTools(ids: ["pigz", "samtools", "kraken2-viral"]).recordedCommand,
+            reporter: reporter
         ) { _ in }
         PluginManagerViewModel.beginPluginPackOperation(pack: pack, reinstall: false, reporter: reporter) { _ in }
         PluginManagerViewModel.beginPluginPackOperation(pack: pack, reinstall: true, reporter: reporter) { _ in }
@@ -48,16 +53,26 @@ final class ManagedToolRowsParsedBackPinTests: XCTestCase {
         XCTAssertEqual(rows.map(\.operationType), [.condaPluginPack, .condaPluginPack, .condaPluginPack, .download])
         XCTAssertTrue(rows.allSatisfy { $0.targetBundleURL == nil && $0.additionalLockedBundleURLs.isEmpty })
 
-        // Neither the Update Tools row nor the reinstall row can say what it ran.
-        XCTAssertNil(rows[0].cliCommand)
-        XCTAssertNil(rows[2].cliCommand)
+        XCTAssertEqual(
+            rows[0].cliCommand,
+            "lungfish-cli tools update --apply --yes --only pigz --only samtools --only kraken2-viral --format json"
+        )
+        let tools = try RecordedCLICommand.parse(rows[0].cliCommand, as: ToolsCommand.UpdateSubcommand.self)
+        XCTAssertTrue(tools.apply && tools.yes)
+        XCTAssertEqual(tools.only, ["pigz", "samtools", "kraken2-viral"])
 
-        XCTAssertEqual(rows[1].cliCommand, "lungfish-cli conda install --pack \(pack.id)")
+        XCTAssertEqual(rows[1].cliCommand, "lungfish-cli conda install --pack \(pack.id) --format json")
         let install = try RecordedCLICommand.parse(rows[1].cliCommand, as: CondaCommand.InstallSubcommand.self)
         XCTAssertTrue(install.isPack)
         XCTAssertEqual(install.packages, [pack.id])
+        XCTAssertFalse(install.reinstall)
 
-        XCTAssertEqual(rows[3].cliCommand, "lungfish-cli conda db update kraken2-viral --yes")
+        XCTAssertEqual(rows[2].cliCommand, "lungfish-cli conda install --pack \(pack.id) --reinstall --format json")
+        let reinstall = try RecordedCLICommand.parse(rows[2].cliCommand, as: CondaCommand.InstallSubcommand.self)
+        XCTAssertTrue(reinstall.isPack)
+        XCTAssertTrue(reinstall.reinstall)
+
+        XCTAssertEqual(rows[3].cliCommand, "lungfish-cli conda db update kraken2-viral --yes --format json")
         let update = try RecordedCLICommand.parse(rows[3].cliCommand, as: DbCommand.DbUpdateSubcommand.self)
         XCTAssertEqual(update.catalogID, "kraken2-viral")
         XCTAssertTrue(update.yes)

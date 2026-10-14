@@ -56,7 +56,7 @@ final class PluginManagerViewModelOperationTests: XCTestCase {
         XCTAssertFalse(command.overwrite)
     }
 
-    func testPackReinstallRecordsNoCommandAsAParityGap() throws {
+    func testPackReinstallRecordsTheReinstallCommandAndItParsesBack() throws {
         let reporter = RecordingOperationReporter()
         let pack = try makePack()
         var launchedID: UUID?
@@ -72,12 +72,13 @@ final class PluginManagerViewModelOperationTests: XCTestCase {
         XCTAssertEqual(item.title, "Plugin Pack: \(pack.name)")
         XCTAssertEqual(item.initialDetail, "Preparing to reinstall \(pack.name)")
         XCTAssertEqual(item.operationType, .condaPluginPack)
-        // The run passes `reinstall: true`, which recreates the pack's
-        // environments. `conda install --pack` always passes `false`, and its
-        // `--overwrite` flag applies only with `--offline`, so no option
-        // expresses a reinstall and the row records no command.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "plugin-reinstall")
+        // The run passes `reinstall: true`, which recreates the pack's environments, and
+        // `conda install --pack --reinstall` (lane A52) passes the same, so the row names it.
+        XCTAssertEqual(item.cliCommand, "lungfish-cli conda install --pack \(pack.id) --reinstall --format json")
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: CondaCommand.InstallSubcommand.self)
+        XCTAssertTrue(command.isPack)
+        XCTAssertEqual(command.packages, [pack.id])
+        XCTAssertTrue(command.reinstall)
     }
 
     // MARK: - Database update (site 47)
@@ -107,7 +108,7 @@ final class PluginManagerViewModelOperationTests: XCTestCase {
         // `db` is a subcommand of `conda`, so the recorded string resolves to
         // `DbCommand.DbUpdateSubcommand`, which calls the same registry method
         // with the same catalog id as the run.
-        XCTAssertEqual(item.cliCommand, "lungfish-cli conda db update kraken2-standard-8 --yes")
+        XCTAssertEqual(item.cliCommand, "lungfish-cli conda db update kraken2-standard-8 --yes --format json")
         let command = try RecordedCLICommand.parse(item.cliCommand, as: DbCommand.DbUpdateSubcommand.self)
         XCTAssertEqual(command.catalogID, "kraken2-standard-8")
         XCTAssertTrue(command.yes)

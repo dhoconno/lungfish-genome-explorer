@@ -528,7 +528,7 @@ final class PluginManagerViewModel {
                 }
 
                 do {
-                    try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self, progressLog] event in
+                    try await installPackThroughRoute(pack: pack, reinstall: reinstall, operationID: operationID, provider: packStatusProvider) { [weak self, progressLog] event in
                         progressLog.append(event)
                         DispatchQueue.main.async { [weak self] in
                             MainActor.assumeIsolated {
@@ -831,7 +831,7 @@ final class PluginManagerViewModel {
                 }
 
                 do {
-                    try await updateDatabaseAction(catalogID) { [weak self] fraction, message in
+                    try await updateDatabaseThroughRoute(catalogID: catalogID, operationID: operationID, legacy: updateDatabaseAction) { [weak self] fraction, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 guard let self else { return }
@@ -871,6 +871,7 @@ final class PluginManagerViewModel {
     }
 
     private func recordDatabaseUpdateFailure(_ error: Error, name: String, operationID: UUID) {
+        guard !(error is CancellationError) else { return } // The CLI route's row says Cancelled
         downloadError[name] = error.localizedDescription
         operationCenter.log(id: operationID, level: .error, message: "Update failed: \(error.localizedDescription)")
         _ = operationCenter.fail(
@@ -878,9 +879,7 @@ final class PluginManagerViewModel {
             detail: "Failed to update \(name)",
             errorMessage: error.localizedDescription
         )
-        logger.error(
-            "Database '\(name, privacy: .public)' update failed: \(error.localizedDescription, privacy: .public)"
-        )
+        logger.error("Database '\(name, privacy: .public)' update failed: \(error.localizedDescription, privacy: .public)")
     }
 
     /// Requests removal of a database, showing a confirmation alert first.

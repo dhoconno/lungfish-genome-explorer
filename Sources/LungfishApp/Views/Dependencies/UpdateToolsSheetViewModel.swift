@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishKit
 import LungfishOperations
 import LungfishWorkflow
 import os.log
@@ -59,16 +60,23 @@ final class UpdateToolsSheetViewModel {
 
     private let reconciler: DependencyReconciler?
     private let freeSpaceProvider: @Sendable () -> Int64?
+    /// The managed storage root the CLI route reads the receipt from after the command, nil for a
+    /// sheet with no root, which runs in process.
+    private let storageRoot: URL?
+    /// The `lungfish-cli` the CLI route runs, nil for the one beside the app. A test names its own.
+    var cliURLOverride: URL?
 
     /// `nil` reconciler is the unit-test seam: everything but ``run()`` behaves identically.
     init(
         plan: ReconciliationPlan,
         reconciler: DependencyReconciler?,
-        freeSpaceProvider: @escaping @Sendable () -> Int64? = { nil }
+        freeSpaceProvider: @escaping @Sendable () -> Int64? = { nil },
+        storageRoot: URL? = nil
     ) {
         self.plan = plan
         self.reconciler = reconciler
         self.freeSpaceProvider = freeSpaceProvider
+        self.storageRoot = storageRoot
         self.selectedOptionalEnvironments = Set(
             Self.optionalEnvironments(in: plan).map(\.environment)
         )
@@ -222,11 +230,7 @@ final class UpdateToolsSheetViewModel {
         }
 
         do {
-            let result = try await reconciler.apply(
-                plan,
-                selection: currentSelection,
-                progress: progress
-            )
+            let result = try await applySelection(currentSelection, reconciler: reconciler, progress: progress)
             finish(with: result)
         } catch {
             logger.error("Update Tools run failed: \(error.localizedDescription, privacy: .public)")
@@ -236,6 +240,76 @@ final class UpdateToolsSheetViewModel {
         }
         DependencyReconciliationActivity.shared.end()
         refreshFreeSpace()
+    }
+
+    // MARK: - Routes
+
+    private struct CLIRouteError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Applies `selection` on the route the hidden key names (panel decisions C4 and C10). The
+    /// legacy route is the reconciler in this process. The CLI route runs `tools update --apply
+    /// --only` on one Operations row and rebuilds the result from the plan and the receipt after
+    /// it, because the command ran the reconciler in its own process.
+    private func applySelection(
+        _ selection: PlanSelection,
+        reconciler: DependencyReconciler,
+        progress: @escaping @Sendable (String, Double, String) -> Void
+    ) async throws -> ReconciliationResult {
+        let ids = CLIManagedToolsRunner.itemIDs(of: selection, in: plan)
+        guard ManagedToolsRouteSettings.currentRoute == .cli, !ids.isEmpty, let storageRoot else {
+            return try await reconciler.apply(plan, selection: selection, progress: progress)
+        }
+        let invocation = CLIManagedToolsRunner.updateTools(ids: ids)
+        var started: UUID?
+        OperationCenterDependencySink.beginDependencyOperation(
+            title: "Update tools to \(plan.targetDependencySet)",
+            detail: "\(ids.count) item(s)",
+            cliCommand: invocation.recordedCommand
+        ) { started = $0 }
+        guard let operationID = started else {
+            return try await reconciler.apply(plan, selection: selection, progress: progress)
+        }
+
+        var failure: String?
+        do {
+            let completion = try await CLIManagedToolsRunner.launch(
+                invocation,
+                operationID: operationID,
+                overlay: { [weak self] message in self?.applyOverlay(message) },
+                cliURLOverride: cliURLOverride
+            )
+            _ = OperationCenter.shared.complete(id: operationID, detail: completion.message ?? "Tools updated")
+        } catch is CancellationError {
+            failure = "Cancelled"
+        } catch {
+            failure = error.localizedDescription
+            OperationCenterCLIBridge.failOperation(operationID, detail: nil, fallbackMessage: error.localizedDescription)
+        }
+
+        // The command updated what it could, so the plan after it names what is still to do.
+        let after = try await reconciler.currentPlan()
+        let outstanding = Set((after.installEnvironments + after.reinstallEnvironments).map(\.environment))
+            .union(after.databaseUpdates.map(\.id))
+            .union(after.removeEnvironments)
+        guard let receipt = try? DependencyReceiptStore(storageRoot: storageRoot).load() else {
+            throw CLIRouteError(message: failure ?? "The update left no receipt")
+        }
+        return ReconciliationResult(
+            succeeded: ids.filter { !outstanding.contains($0) },
+            failed: Dictionary(uniqueKeysWithValues: ids.filter(outstanding.contains).map { ($0, failure ?? "Not finished") }),
+            receipt: receipt
+        )
+    }
+
+    /// Shows a progress message of the command, `<item>: <detail>`, on the row of that item.
+    private func applyOverlay(_ message: String) {
+        guard let separator = message.range(of: ": ") else { return }
+        let item = String(message[..<separator.lowerBound])
+        guard itemStatus[statusKey(forProgressItem: item)] != nil else { return }
+        applyProgress(id: item, fraction: 0, detail: String(message[separator.upperBound...]))
     }
 
     /// Namespaces a removal's status so it cannot collide with an install or reinstall of an
