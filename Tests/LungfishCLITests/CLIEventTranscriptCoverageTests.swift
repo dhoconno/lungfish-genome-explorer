@@ -40,6 +40,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `bam consensus` runs samtools. Its transcripts are runs of the built CLI on the sarscov2 BAM
         // (lane A51 of Phase 2.10).
         "bam consensus",
+        // `extract reads` runs samtools. Its transcripts are runs of the built CLI on the sarscov2 BAM,
+        // `--by-region` to a FASTQ and a refused missing BAM (lane A51 of Phase 2.10).
+        "extract reads",
         // `taxtriage run` runs Nextflow. Its transcript is the routed command's run on the stand-in
         // Nextflow (TaxTriageRunCommandReplayTests with LUNGFISH_RECAPTURE_CLI_EVENTS=1, lane A2).
         "taxtriage run",

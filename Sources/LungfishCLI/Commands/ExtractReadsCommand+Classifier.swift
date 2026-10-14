@@ -49,8 +49,7 @@ extension ExtractReadsSubcommand {
         let resultPath = URL(fileURLWithPath: resultPathStr)
         let parentExists = fm.fileExists(atPath: resultPath.deletingLastPathComponent().path)
         guard fm.fileExists(atPath: resultPathStr) || parentExists else {
-            print(formatter.error("Classifier result not found: \(resultPathStr)"))
-            throw CLIExitCode.inputError.exitCode
+            throw ExtractReadsRefusal("Classifier result not found: \(resultPathStr)")
         }
 
         // In DEBUG builds, allow tests to inject the simulated argv via the
@@ -60,9 +59,9 @@ extension ExtractReadsSubcommand {
         let selectors = buildClassifierSelectors(rawArgs: effectiveClassifierRawArguments())
         let options = makeExtractionOptions()
 
-        print(formatter.header("Classifier Extraction (\(tool.displayName))"))
-        print("")
-        print(formatter.keyValueTable([
+        say(formatter.header("Classifier Extraction (\(tool.displayName))"))
+        say("")
+        say(formatter.keyValueTable([
             ("Tool", tool.displayName),
             ("Result path", resultPath.lastPathComponent),
             ("Samples", selectors.compactMap { $0.sampleId }.joined(separator: ", ")),
@@ -71,7 +70,7 @@ extension ExtractReadsSubcommand {
             ("Format", options.format.rawValue),
             ("Include unmapped mates", options.includeUnmappedMates ? "yes" : "no"),
         ]))
-        print("")
+        say("")
 
         let resolver = ClassifierReadResolver()
         let quiet = globalOptions.quiet
@@ -83,7 +82,7 @@ extension ExtractReadsSubcommand {
             destination: .file(outputURL),
             progress: { _, message in
                 if !quiet {
-                    print("\r\(formatter.info(message))", terminator: "")
+                    progressLine(formatter.info(message))
                 }
             }
         )
@@ -101,9 +100,8 @@ extension ExtractReadsSubcommand {
             // The CLI currently requests only file output, but keep this as a
             // recoverable validation error so future destination refactors do
             // not turn unsupported modes into a user-facing crash.
-            print("")
-            print(formatter.error("Clipboard / share destinations are not supported from the CLI"))
-            throw CLIExitCode.inputError.exitCode
+            say("")
+            throw ExtractReadsRefusal("Clipboard / share destinations are not supported from the CLI")
         }
         return (
             ReadExtractionResult(

@@ -1,0 +1,2 @@
+{"event":"start","message":"Extracting reads…","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Extracted 14 reads","output":"\/work\/orf1a.fastq","outputs":["\/work\/orf1a.fastq"],"progress":1,"schemaVersion":2}

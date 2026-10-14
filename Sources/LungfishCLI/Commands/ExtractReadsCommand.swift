@@ -324,7 +324,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
     // MARK: - Execution
 
-    func run() async throws {
+    /// The run's work, which `run()` scopes in a SIGTERM cancel (ExtractReadsCommand+Events.swift).
+    func extract() async throws -> ExtractReadsOutcome {
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let fm = FileManager.default
@@ -398,8 +399,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 FASTQMixedLayoutHint.write(outputRoles, beside: createdBundleURL.appendingPathComponent(payload.lastPathComponent))
             }
 
-            print("")
-            print(formatter.success("Created bundle: \(createdBundleURL.lastPathComponent)"))
+            say("")
+            say(formatter.success("Created bundle: \(createdBundleURL.lastPathComponent)"))
         }
 
         try await recordProvenance(
@@ -411,9 +412,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         )
 
         // Print summary
-        print("")
-        print(formatter.header("Extraction Summary"))
-        print(formatter.keyValueTable([
+        say("")
+        say(formatter.header("Extraction Summary"))
+        say(formatter.keyValueTable([
             ("Strategy", strategyLabel),
             ("Reads extracted", "\(result.readCount)"),
             ("Paired-end", result.pairedEnd ? "yes" : "no"),
@@ -421,10 +422,14 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         ]))
         for url in result.fastqURLs {
             let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-            print("  \(formatter.path(url.path)) (\(formatReadsBytes(size)))")
+            say("  \(formatter.path(url.path)) (\(formatReadsBytes(size)))")
         }
-        print("")
-        print(formatter.success("Extraction complete"))
+        say("")
+        say(formatter.success("Extraction complete"))
+        return ExtractReadsOutcome(
+            outputs: bundleURL.map { [$0.path] } ?? result.fastqURLs.map(\.path),
+            readCount: result.readCount
+        )
     }
 
     private func recordProvenance(
@@ -504,8 +509,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         // Read the IDs file
         let idsURL = URL(fileURLWithPath: idsFile!)
         guard fm.fileExists(atPath: idsURL.path) else {
-            print(formatter.error("Read ID file not found: \(idsFile!)"))
-            throw CLIExitCode.inputError.exitCode
+            throw ExtractReadsRefusal("Read ID file not found: \(idsFile!)")
         }
         let idsContent = try String(contentsOf: idsURL, encoding: .utf8)
         let readIDs = Set(
@@ -515,8 +519,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 .filter { !$0.isEmpty }
         )
         guard !readIDs.isEmpty else {
-            print(formatter.error("Read ID file is empty"))
-            throw CLIExitCode.inputError.exitCode
+            throw ExtractReadsRefusal("Read ID file is empty")
         }
 
         if bamFile != nil {
@@ -533,8 +536,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let sourceURLs = sourceFiles.map { URL(fileURLWithPath: $0) }
         for url in sourceURLs {
             guard fm.fileExists(atPath: url.path) else {
-                print(formatter.error("Source file not found: \(url.path)"))
-                throw CLIExitCode.inputError.exitCode
+                throw ExtractReadsRefusal("Source file not found: \(url.path)")
             }
         }
 
@@ -548,18 +550,18 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             outputBaseName: outputBase
         )
 
-        print(formatter.header("Read ID Extraction"))
-        print("")
-        print(formatter.keyValueTable([
+        say(formatter.header("Read ID Extraction"))
+        say("")
+        say(formatter.keyValueTable([
             ("Source files", sourceURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Read IDs", "\(readIDs.count)"),
             ("Keep read pairs", shouldKeepPairs ? "yes" : "no"),
         ]))
-        print("")
+        say("")
 
         return try await service.extractByReadIDs(config: config) { _, message in
             if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
+                progressLine(formatter.info(message))
             }
         }
     }
@@ -581,8 +583,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
         let bamURL = URL(fileURLWithPath: bamFile!)
         guard fm.fileExists(atPath: bamURL.path) else {
-            print(formatter.error("BAM file not found: \(bamFile!)"))
-            throw CLIExitCode.inputError.exitCode
+            throw ExtractReadsRefusal("BAM file not found: \(bamFile!)")
         }
 
         let format: ReadIDBAMExtractionFormat = (classifierFormat == "fasta") ? .fasta : .fastq
@@ -596,20 +597,20 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             outputBaseName: outputBase
         )
 
-        print(formatter.header("Read ID Extraction (BAM source)"))
-        print("")
-        print(formatter.keyValueTable([
+        say(formatter.header("Read ID Extraction (BAM source)"))
+        say("")
+        say(formatter.keyValueTable([
             ("BAM file", bamURL.lastPathComponent),
             ("Read IDs", "\(readIDs.count)"),
             ("Include secondary/supplementary", includeSecondaryFlag ? "yes" : "no"),
             ("Exclude duplicates", excludeDuplicatesFlag ? "yes" : "no"),
             ("Format", format.rawValue),
         ]))
-        print("")
+        say("")
 
         let bamResult = try await service.extractByReadIDsFromBAM(config: config) { _, message in
             if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
+                progressLine(formatter.info(message))
             }
         }
 
@@ -619,8 +620,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         // invisible to callers that only look at `fastqURLs`.
         var outputURLs = bamResult.outputURLs
         if let singletonsURL = bamResult.singletonsURL {
-            print("")
-            print(formatter.info("Singleton reads routed separately: \(singletonsURL.lastPathComponent)"))
+            say("")
+            say(formatter.info("Singleton reads routed separately: \(singletonsURL.lastPathComponent)"))
             outputURLs.append(singletonsURL)
         }
 
@@ -642,8 +643,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
         let bamURL = URL(fileURLWithPath: bamFile!)
         guard fm.fileExists(atPath: bamURL.path) else {
-            print(formatter.error("BAM file not found: \(bamFile!)"))
-            throw CLIExitCode.inputError.exitCode
+            throw ExtractReadsRefusal("BAM file not found: \(bamFile!)")
         }
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
@@ -654,20 +654,20 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             outputBaseName: outputBase
         )
 
-        print(formatter.header("BAM Region Extraction"))
-        print("")
-        print(formatter.keyValueTable([
+        say(formatter.header("BAM Region Extraction"))
+        say("")
+        say(formatter.keyValueTable([
             ("BAM file", bamURL.lastPathComponent),
             ("Regions", regions.joined(separator: ", ")),
         ]))
-        print("")
+        say("")
 
         return try await service.extractByBAMRegion(
             config: config,
             flagFilter: excludeUnmapped ? 0x404 : 0x400
         ) { _, message in
             if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
+                progressLine(formatter.info(message))
             }
         }
     }
@@ -704,8 +704,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
         let dbURL = URL(fileURLWithPath: databaseFile!)
         guard fm.fileExists(atPath: dbURL.path) else {
-            print(formatter.error("Database file not found: \(databaseFile!)"))
-            throw CLIExitCode.inputError.exitCode
+            throw ExtractReadsRefusal("Database file not found: \(databaseFile!)")
         }
 
         // Parse tax IDs
@@ -723,8 +722,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             outputBaseName: outputBase
         )
 
-        print(formatter.header("Database Extraction"))
-        print("")
+        say(formatter.header("Database Extraction"))
+        say("")
         var tableRows: [(String, String)] = [
             ("Database", dbURL.lastPathComponent),
         ]
@@ -738,12 +737,12 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         if let max = maxReads {
             tableRows.append(("Max reads", "\(max)"))
         }
-        print(formatter.keyValueTable(tableRows))
-        print("")
+        say(formatter.keyValueTable(tableRows))
+        say("")
 
         return try await service.extractFromDatabase(config: config) { _, message in
             if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
+                progressLine(formatter.info(message))
             }
         }
     }
@@ -790,7 +789,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         return params
     }
 
-    private func strategyParameterValues(alignmentIndexURL: URL?) -> [String: ParameterValue] {
+    func strategyParameterValues(alignmentIndexURL: URL?) -> [String: ParameterValue] {
         var values = strategyParameters.mapValues(ParameterValue.string)
         if byRegion, let bamFile {
             let alignmentURL = URL(fileURLWithPath: bamFile).standardizedFileURL

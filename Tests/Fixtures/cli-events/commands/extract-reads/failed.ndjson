@@ -1,0 +1,2 @@
+{"event":"start","message":"Extracting reads…","progress":0,"schemaVersion":2}
+{"error":"BAM file not found: \/work\/missing.bam","event":"failed","schemaVersion":2}
