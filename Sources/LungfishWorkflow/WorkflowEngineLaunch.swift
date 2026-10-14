@@ -153,9 +153,11 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
             // `NXF_AGENT_MODE`, `AGENT` or `CLAUDECODE` holds `true` or `1` (`nextflow.SysEnv.isAgentMode`). A coding
             // agent's shell sets `CLAUDECODE`, and the base environment is the parent's, so a run started from one lost
             // the record's `resolvedCommit` and its progress (Phase 2.10, V3-BIO 4). The three are set off and not taken
-            // out, because the spawn lays this environment over its own process's (`ProcessManager.launch`), and a name
-            // left out of it keeps the parent's value. FXV3's live run showed it, with `CLAUDECODE` removed and the agent
-            // log still printed.
+            // out. `ProcessManager.spawn` and `runAndWait` lay this environment over their own process's
+            // (`ProcessManager.launch`), so a name left out of it keeps the parent's value, and FXV3's live run showed it,
+            // with `CLAUDECODE` removed and the agent log still printed. `NextflowEngineProcess` has handed the engine
+            // its whole environment since FXE (`environmentIsComplete`), so a name left out stays out there. The three
+            // set to `false` are right on every route.
             for name in ["NXF_AGENT_MODE", "AGENT", "CLAUDECODE"] {
                 environment[name] = "false"
             }
