@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// A persisted pointer to one sample-level result within a batch run.
 public struct MetagenomicsBatchSampleRecord: Codable, Sendable, Equatable {
@@ -347,7 +348,10 @@ public enum MetagenomicsBatchResultStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(value)
-        try data.write(to: url, options: .atomic)
+        // Staged, synced and swapped into place, so the name holds a whole old
+        // or new sidecar after a crash, where `Data.write(.atomic)` renamed an
+        // unsynced temporary file (Phase 2.10 lane S31).
+        try DurableReplace.replace(data, named: url.lastPathComponent, in: url.deletingLastPathComponent())
     }
 
     private static func readJSON<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
