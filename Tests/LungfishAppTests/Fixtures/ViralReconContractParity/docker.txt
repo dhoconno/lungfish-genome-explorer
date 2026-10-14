@@ -88,10 +88,10 @@ Analyses/viralrecon.lungfishrun/provenance/manifest.json.lungfish-provenance.jso
 Analyses/viralrecon.lungfishrun/reports/
 
 digest gap:
-Analyses/viralrecon-results/.lungfish-provenance.json files[1].checksumSHA256
-Analyses/viralrecon-results/.lungfish-provenance.json files[1].fileSize
-Analyses/viralrecon-results/.lungfish-provenance.json files[2].checksumSHA256
-Analyses/viralrecon-results/.lungfish-provenance.json files[2].fileSize
+Analyses/viralrecon-results/.lungfish-provenance.json files[4].checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json files[4].fileSize
+Analyses/viralrecon-results/.lungfish-provenance.json files[5].checksumSHA256
+Analyses/viralrecon-results/.lungfish-provenance.json files[5].fileSize
 Analyses/viralrecon-results/.lungfish-provenance.json output.checksumSHA256
 Analyses/viralrecon-results/.lungfish-provenance.json output.fileSize
 Analyses/viralrecon-results/.lungfish-provenance.json outputs[0].checksumSHA256
@@ -100,12 +100,12 @@ Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[0].checks
 Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[0].fileSize
 Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[1].checksumSHA256
 Analyses/viralrecon-results/.lungfish-provenance.json steps[0].outputs[1].fileSize
-Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[1].checksumSHA256
-Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[1].fileSize
-Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[2].checksumSHA256
-Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[2].fileSize
 Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[4].checksumSHA256
 Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[4].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[5].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[5].fileSize
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[7].checksumSHA256
+Analyses/viralrecon.lungfishrun/.lungfish-provenance.json files[7].fileSize
 Analyses/viralrecon.lungfishrun/.lungfish-provenance.json output.checksumSHA256
 Analyses/viralrecon.lungfishrun/.lungfish-provenance.json output.fileSize
 Analyses/viralrecon.lungfishrun/.lungfish-provenance.json outputs[0].checksumSHA256
@@ -180,6 +180,27 @@ records:
       "fileSize" : "<masked size>",
       "format" : "text",
       "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+      "fileSize" : 9413,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+      "fileSize" : 9395,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+      "fileSize" : 170,
+      "format" : "bed",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
       "role" : "input"
     },
     {
@@ -438,6 +459,27 @@ records:
           "format" : "text",
           "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
           "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+          "fileSize" : 9413,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+          "fileSize" : 9395,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+          "fileSize" : 170,
+          "format" : "bed",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
+          "role" : "input"
         }
       ],
       "outputs" : [
@@ -539,6 +581,27 @@ records:
       "fileSize" : "<masked size>",
       "format" : "text",
       "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+      "fileSize" : 9413,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+      "fileSize" : 9395,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+      "fileSize" : 170,
+      "format" : "bed",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
       "role" : "input"
     },
     {
@@ -833,6 +896,27 @@ records:
           "format" : "text",
           "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
           "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+          "fileSize" : 9413,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+          "fileSize" : 9395,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+          "fileSize" : 170,
+          "format" : "bed",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
+          "role" : "input"
         }
       ],
       "outputs" : [
@@ -1010,6 +1094,27 @@ records:
       "fileSize" : "<masked size>",
       "format" : "text",
       "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+      "fileSize" : 9413,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+      "fileSize" : 9395,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+      "fileSize" : 170,
+      "format" : "bed",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
       "role" : "input"
     },
     {
@@ -1261,6 +1366,27 @@ records:
           "format" : "text",
           "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
           "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+          "fileSize" : 9413,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+          "fileSize" : 9395,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+          "fileSize" : 170,
+          "format" : "bed",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
+          "role" : "input"
         }
       ],
       "outputs" : [
@@ -1355,6 +1481,27 @@ records:
       "fileSize" : "<masked size>",
       "format" : "text",
       "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+      "fileSize" : 9413,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+      "fileSize" : 9395,
+      "format" : "fastq",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+      "fileSize" : 170,
+      "format" : "bed",
+      "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
       "role" : "input"
     },
     {
@@ -1605,6 +1752,27 @@ records:
           "fileSize" : "<masked size>",
           "format" : "text",
           "path" : "<root>/Project/Analyses/.viralrecon-inputs/samplesheet.csv",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+          "fileSize" : 9413,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "0080f40cab58c7e7b85443e37de22775e3ed6b7afdef9a3271ac3147576f3027",
+          "fileSize" : 9395,
+          "format" : "fastq",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "8fe0127a05c05edf1aa31ee763670620c25e1feddca0ada7bc548cf7de0e1657",
+          "fileSize" : 170,
+          "format" : "bed",
+          "path" : "<repository>/Tests/Fixtures/sarscov2/test.bed",
           "role" : "input"
         }
       ],

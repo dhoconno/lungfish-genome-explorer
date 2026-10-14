@@ -8,6 +8,7 @@
 // the profile, parameter and input rows of the panel's BIO mapping, each as today's fact, and change nothing in it.
 // Viral Recon's move onto the shape in Phase 2.10 flips them.
 
+import CryptoKit
 import Foundation
 import XCTest
 @testable import LungfishCLI
@@ -73,7 +74,9 @@ final class ViralReconRecordShapeGapTests: XCTestCase {
         XCTAssertNil(record.options.explicit["skip_freyja"])
         XCTAssertEqual(record.options.resolvedDefaults["resume"], .boolean(false))
         XCTAssertEqual(record.options.explicit["prepareOnly"], .boolean(true))
-        XCTAssertEqual(step.inputs.count, 1, "gap, the samplesheet is the one input with a digest, and the FASTQs it names are not inputs")
+        // M2 flipped this. The FASTQs the samplesheet names are inputs too, without a digest where no file exists.
+        XCTAssertEqual(step.inputs.map(\.path), [samplesheet.path, "/tmp/P_R1.fastq.gz", "/tmp/P_R2.fastq.gz"])
+        XCTAssertNotNil(step.inputs.first?.checksumSHA256)
     }
 
     /// Phase 2.10 lane B31 M1, the pin of a launched run's record before the writer moves. The engine's own debug log in
@@ -87,9 +90,17 @@ final class ViralReconRecordShapeGapTests: XCTestCase {
         let manifest = try NFCoreRunBundleStore.read(from: run.bundle)
         XCTAssertEqual(manifest.executionStatus, .completed)
         XCTAssertNotNil(manifest.startedAt, "the engine's start is in the manifest")
-        XCTAssertEqual(step.startedAt, step.completedAt, "gap, the step starts when the record is written")
+        // M2 flipped these. The step and the run start when the engine started and end when it ended, as the manifest
+        // records them, and each FASTQ and the primer BED is an input with its digest.
+        XCTAssertEqual(step.startedAt, manifest.startedAt)
+        XCTAssertEqual(step.completedAt, manifest.completedAt)
+        XCTAssertEqual(record.createdAt, manifest.startedAt)
         XCTAssertNil(step.resolvedOptions["nextflowVersion"], "gap, the engine's debug log names 26.04.6")
-        XCTAssertEqual(step.inputs.map(\.path), [run.samplesheet.path], "gap, the FASTQs and the primer BED are not inputs")
+        XCTAssertEqual(step.inputs.map(\.path), [run.samplesheet.path] + run.reads.map(\.path) + [run.primerBED.path])
+        for input in step.inputs {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: input.path))
+            XCTAssertEqual(input.checksumSHA256, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(), input.path)
+        }
     }
 }
 

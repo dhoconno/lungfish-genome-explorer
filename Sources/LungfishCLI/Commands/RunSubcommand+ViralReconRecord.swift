@@ -59,4 +59,42 @@ extension RunSubcommand {
         }
         return (explicit, resolved)
     }
+
+    /// The parameters that name a file or folder the run reads, in the order a record lists them, with their formats.
+    static let viralReconInputParameters: [(name: String, format: FileFormat)] = [
+        ("fasta", .fasta), ("gff", .gff3), ("primer_bed", .bed), ("primer_fasta", .fasta),
+        ("fastq_dir", .fastq), ("sequencing_summary", .text),
+    ]
+
+    /// The run's inputs (BIO B-8): the samplesheet LGE was given, each FASTQ file or FASTQ bundle a read pairing decision
+    /// names as its sample's source, in sample order, and the reference FASTA, the GFF, the primer BED and FASTA, the
+    /// Nanopore `fastq_pass` folder and sequencing summary the parameters name, each as the caller gave it. Each carries
+    /// its digest, except that a cancelled run names the reads and references unhashed, so the cancel ends inside the
+    /// grace the app gives it (SWIFT 3).
+    static func viralReconInputRecords(
+        request: NFCoreRunRequest,
+        readPairing: [ViralReconReadPairingDecision],
+        hashesReads: Bool
+    ) -> [FileRecord] {
+        func record(_ url: URL, _ format: FileFormat) -> FileRecord {
+            hashesReads
+                ? ProvenanceRecorder.fileOrDirectoryRecord(url: url, format: format, role: .input)
+                : FileRecord(path: url.standardizedFileURL.path, format: format, role: .input)
+        }
+        let samplesheets = request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input) }
+        let reads = readPairing.flatMap(\.sourceFASTQURLs).map { record($0, .fastq) }
+        let references = viralReconInputParameters.compactMap { parameter in
+            request.params[parameter.name].flatMap { $0.isEmpty ? nil : record(URL(fileURLWithPath: $0), parameter.format) }
+        }
+        var seen = Set<String>()
+        return (samplesheets + reads + references).filter { seen.insert($0.path).inserted }
+    }
+
+    /// When the run started and ended, as its manifest records them: the engine's launch and end for a run that got that
+    /// far, and the bundle's creation for one that did not, with `recordedAt` for an end the manifest does not hold.
+    static func viralReconRunWindow(bundleURL: URL, recordedAt: Date) -> (start: Date, end: Date) {
+        guard let manifest = try? NFCoreRunBundleStore.read(from: bundleURL) else { return (recordedAt, recordedAt) }
+        let start = manifest.startedAt ?? manifest.createdAt
+        return (start, max(start, manifest.completedAt ?? recordedAt))
+    }
 }

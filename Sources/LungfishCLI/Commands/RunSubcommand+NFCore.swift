@@ -496,9 +496,7 @@ extension RunSubcommand {
             bundlePath: bundleURL,
             prepareOnly: prepareOnly
         ) + (globalOptions.quiet ? ["--quiet"] : [])
-        let inputs = request.inputURLs.map {
-            ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
-        }
+        let inputs = Self.viralReconInputRecords(request: request, readPairing: readPairing, hashesReads: status != .cancelled)
         let outputs = [
             ProvenanceRecorder.fileOrDirectoryRecord(url: bundleURL, role: .output),
             ProvenanceRecorder.fileOrDirectoryRecord(url: request.outputDirectory, role: .output),
@@ -529,7 +527,9 @@ extension RunSubcommand {
             parameters[ViralReconAnnotationStaging.provenanceKey] = stagedAnnotation.provenanceValue
         }
 
-        let recordedAt = Date(), step = StepExecution(
+        // The run's real window, as the manifest written just before holds it, in place of the moment of writing.
+        let window = Self.viralReconRunWindow(bundleURL: bundleURL, recordedAt: Date())
+        let step = StepExecution(
             toolName: facts.toolName,
             toolVersion: facts.toolVersion,
             githubReleaseVersion: facts.githubReleaseVersion,
@@ -540,11 +540,11 @@ extension RunSubcommand {
             exitCode: exitCode,
             wallTime: wallTime,
             stderr: stderr,
-            startTime: recordedAt, endTime: recordedAt
+            startTime: window.start, endTime: window.end
         )
         let run = WorkflowRun(
             name: request.displayTitle,
-            startTime: recordedAt, endTime: recordedAt,
+            startTime: window.start, endTime: window.end,
             status: status,
             steps: [step],
             parameters: parameters

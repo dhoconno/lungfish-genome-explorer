@@ -175,8 +175,9 @@ extension NextflowWorkflowContractParityReplayTests {
         let results = "Analyses/viralrecon-results/.lungfish-provenance.json"
         let bundle = "Analyses/viralrecon.lungfishrun/.lungfish-provenance.json"
         let entries = [
-            (results, ["files[1]", "files[2]", "output", "outputs[0]", "steps[0].outputs[0]", "steps[0].outputs[1]"]),
-            (bundle, ["files[1]", "files[2]", "files[4]", "output", "outputs[0]", "outputs[1]", "outputs[3]",
+            // B31 M2 names the two FASTQs and the primer BED as inputs, ahead of the outputs in `files`.
+            (results, ["files[4]", "files[5]", "output", "outputs[0]", "steps[0].outputs[0]", "steps[0].outputs[1]"]),
+            (bundle, ["files[4]", "files[5]", "files[7]", "output", "outputs[0]", "outputs[1]", "outputs[3]",
                       "steps[0].outputs[0]", "steps[0].outputs[1]", "steps[0].outputs[3]"]),
         ]
         return entries.flatMap { record, folders in
