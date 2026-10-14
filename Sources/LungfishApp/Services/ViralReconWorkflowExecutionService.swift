@@ -86,6 +86,7 @@ final class ViralReconWorkflowExecutionService {
             // Each line the CLI prints is a CLIEvent under --format json, which the bridge reads by its one rule, so
             // only the CLI's warning events, the run's outcome lines, warn. Standard error and the runner's
             // incomplete-output reason reach it as info log events, as the transport hands them over (N5, rule 5).
+            // The bridge writes to OperationCenter.shared, so a test on its own center sees none of the CLI's lines.
             let onEvent = OperationCenterCLIBridge.onEvent(operationID: operationID)
             let processResult = try await processRunner.runLungfishCLI(
                 arguments: persistedRequest.cliArguments(bundlePath: bundleURL) + ["--format", "json"],
