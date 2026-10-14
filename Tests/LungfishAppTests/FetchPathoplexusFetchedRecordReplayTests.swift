@@ -87,6 +87,17 @@ final class FetchPathoplexusFetchedRecordReplayTests: XCTestCase {
         XCTAssertEqual(left.filter { $0.hasSuffix(".lungfishref") || $0.hasPrefix(".fetch-pathoplexus-") }, [], "a refusal leaves nothing")
     }
 
+    /// Phase 2.10 lane A45, ruling A45-M3 section 2 (finding 6). The INSDC way builds with the GenBank
+    /// builder, which records the host's argument vector, so a key typed with `--api-key` reached the
+    /// record of the bundle. The FASTA ways already redact it.
+    func testATypedAPIKeyReachesNoFileOfTheINSDCBundle() async throws {
+        let result = try await fetch(PathoplexusLAPISStandIn.openWithINSDC, extraArguments: ["--api-key", TypedAPIKeyLeak.key])
+        XCTAssertEqual(result.status, 0, result.detail)
+        let bundle = try result.onlyBundle()
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle), "the run wrote no record")
+        TypedAPIKeyLeak.assertHeldNowhere(in: bundle, envelope: envelope)
+    }
+
     // MARK: - Assertions
 
     private func assertFASTABundle(_ bundle: URL, accession: String, notes: String, fetchedAfter before: Date) throws {
@@ -176,7 +187,7 @@ final class FetchPathoplexusFetchedRecordReplayTests: XCTestCase {
 
     /// Runs the built CLI on `fetch pathoplexus <accession> --organism <stand-in organism> --output-dir <folder>
     /// --format json`, with both stand-ins named in its environment and no NCBI key.
-    private func fetch(_ accession: String) async throws -> CLIRun {
+    private func fetch(_ accession: String, extraArguments: [String] = []) async throws -> CLIRun {
         do {
             try await GenBankDownloadBundleBuilder(ncbiService: NCBIService(apiKey: nil, environment: [:])).validateTools()
         } catch {
@@ -198,7 +209,7 @@ final class FetchPathoplexusFetchedRecordReplayTests: XCTestCase {
             arguments: [
                 "fetch", "pathoplexus", accession, "--organism", PathoplexusLAPISStandIn.organism,
                 "--output-dir", work.path, "--format", "json",
-            ],
+            ] + extraArguments,
             timeout: .seconds(120),
             environment: [
                 NCBIServiceEndpoints.standInOriginVariable: ncbi.baseURL.absoluteString,

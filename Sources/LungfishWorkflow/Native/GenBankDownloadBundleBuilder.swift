@@ -368,14 +368,22 @@ public final class GenBankDownloadBundleBuilder: Sendable {
             startedAt: runClock.startedAt, completedAt: completedAt)
     }
 
+    /// The host's argument vector as a record states it: a key typed with `--api-key` is written as
+    /// `<redacted>`, as `CondaOfflinePackService.redactedCommandLine` writes it for the Conda records
+    /// and as the `fetch genome` record writes it. Every other argument is unchanged.
+    static var hostArguments: [String] {
+        CondaOfflinePackService.redactedCommandLine(ProcessInfo.processInfo.arguments)
+    }
+
     static func conversionProvenanceStep(
         entryPoint: String, inputs: [URL], outputs: [URL],
         options: [String: ParameterValue], runClock: ProvenanceRunClock, error: String? = nil
     ) throws -> ProvenanceStep {
         // These are in-process GUI transformations, so record the actual host argv
-        // together with the versioned entry point and all resolved parameters.
+        // together with the versioned entry point and all resolved parameters. A key
+        // typed with --api-key is written as <redacted> (ruling A45-M3 section 2).
         ProvenanceStep(toolName: entryPoint, toolVersion: WorkflowRun.currentAppVersion,
-            argv: ProcessInfo.processInfo.arguments, resolvedOptions: options,
+            argv: Self.hostArguments, resolvedOptions: options,
             runtimeIdentity: ProvenanceRuntimeIdentity(),
             inputs: try inputs.map { try .file(url: $0, role: .input) },
             outputs: try outputs.map { try .file(url: $0, role: .output) },
@@ -426,7 +434,7 @@ public final class GenBankDownloadBundleBuilder: Sendable {
         var builder = ProvenanceRunBuilder(
             workflowName: "gui-genbank-download", workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "Lungfish", toolVersion: WorkflowRun.currentAppVersion)
-            .argv(ProcessInfo.processInfo.arguments)
+            .argv(Self.hostArguments)
             .options(
                 explicit: options, defaults: ["includeGFF3Annotations": .boolean(true)],
                 resolved: options.merging(fetchedRecord?.resolvedDefaults ?? [:]) { _, entry in entry })

@@ -60,6 +60,18 @@ final class FetchNCBIFetchedRecordReplayTests: XCTestCase {
         }
     }
 
+    /// Phase 2.10 lane A45, ruling A45-M3 section 2 (finding 6). The GenBank builder records the host's
+    /// argument vector for the run and for each conversion step, so a key typed with `--api-key` reached
+    /// the record of the bundle. The vector is written with the key replaced by `<redacted>`, as the
+    /// records of `fetch genome` and of the Conda commands write it.
+    func testATypedAPIKeyReachesNoFileOfTheBundle() async throws {
+        try await runAndLoadRecord(
+            ["fetch", "ncbi", NCBIDownloadPinFixtures.genBankAccession, "--bundle", "--api-key", TypedAPIKeyLeak.key]
+        ) { envelope, bundle in
+            TypedAPIKeyLeak.assertHeldNowhere(in: bundle, envelope: envelope)
+        }
+    }
+
     // MARK: - Helpers
 
     /// The `fetchedRecord` entry of a record's resolved defaults.
