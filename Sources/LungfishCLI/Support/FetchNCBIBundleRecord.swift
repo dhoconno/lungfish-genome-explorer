@@ -47,7 +47,7 @@ enum FetchNCBIBundleRecord {
             try refreshDigests(of: Set(names.map { bundle.appendingPathComponent($0).path }), in: &rebased)
         }
         try FetchGenomeRun.removeBuilderRecord(of: bundle)
-        try ProvenanceWriter(signingProvider: nil).write(rebased, to: bundle)
+        try ProvenanceWriter().write(rebased, to: bundle)
     }
 
     /// States the digest and size of each file of `paths` as the file stands, wherever the record
