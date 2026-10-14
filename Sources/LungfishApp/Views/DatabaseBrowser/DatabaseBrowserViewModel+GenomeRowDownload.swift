@@ -4,9 +4,11 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 import os.log
+import Synchronization
 
 private let genomeRowLogger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrowserGenomeRows")
 
@@ -82,8 +84,9 @@ extension DatabaseBrowserViewModel {
 
     /// Downloads the genome row `record`, row `index` of the `totalCount` rows of the batch row
     /// `operationID`, by `route`, and returns its bundle. The CLI route writes into
-    /// ``genomeRowFolder(projectURL:userDownloads:)`` and the in-process route into
-    /// `batchDirectory`. `cliURLOverride` names the CLI a test launches.
+    /// ``genomeRowFolder(projectURL:userDownloads:)`` and never asks for `batchFolder`. The
+    /// in-process route builds in `batchFolder`, which makes the folder on its first use.
+    /// `cliURLOverride` names the CLI a test launches.
     nonisolated static func downloadGenomeRow(
         _ record: SearchResultRecord,
         index: Int,
@@ -92,7 +95,7 @@ extension DatabaseBrowserViewModel {
         route: GenomeRowDownloadRoute,
         ncbi: NCBIService,
         genomeVM: GenomeDownloadViewModel,
-        batchDirectory: URL,
+        batchFolder: BatchDownloadFolder,
         projectURL: URL?,
         cliURLOverride: URL? = nil
     ) async throws -> URL {
@@ -108,7 +111,7 @@ extension DatabaseBrowserViewModel {
         case .legacy:
             return try await downloadGenomeRowInProcess(
                 record, index: index, totalCount: totalCount, operationID: operationID,
-                ncbi: ncbi, genomeVM: genomeVM, batchDirectory: batchDirectory)
+                ncbi: ncbi, genomeVM: genomeVM, batchDirectory: try batchFolder.url())
         }
     }
 
@@ -156,6 +159,32 @@ extension DatabaseBrowserViewModel {
         }
         genomeRowLogger.info("performBatchDownload: Built genome bundle at \(bundleURL.path, privacy: .public)")
         return bundleURL
+    }
+}
+
+/// The batch folder of one batch download of the browser, made on its first use (Phase 2.10 lane
+/// A44, ruling 1). An in-process row builds its bundle in it, under the project's `.tmp` folder,
+/// or the system's temporary folder with no project. A genome row on the CLI route writes straight
+/// into the folder its command names and never asks for it, so a CLI genome batch makes no batch
+/// folder. A failure to make it fails the row that asked, and the next row asks again. One batch
+/// download makes one inside its own task and never shares it.
+final class BatchDownloadFolder: Sendable {
+    let projectURL: URL?
+    private let made = Mutex<URL?>(nil)
+
+    init(projectURL: URL?) {
+        self.projectURL = projectURL
+    }
+
+    /// The batch folder, made with its owner marker on the first call.
+    func url() throws -> URL {
+        try made.withLock { folder in
+            if let folder { return folder }
+            let created = try ProjectTempDirectory.create(prefix: "batch-", in: projectURL)
+            genomeRowLogger.info("performBatchDownload: Created batch directory at \(created.path, privacy: .public)")
+            folder = created
+            return created
+        }
     }
 }
 

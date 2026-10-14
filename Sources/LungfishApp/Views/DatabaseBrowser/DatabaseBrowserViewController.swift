@@ -2471,8 +2471,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
             // the sheet controller which gets deallocated on dismissal.
             onDownloadStarted?()
 
-            // Capture project URL for project-local temp allocation
+            // Capture project URL for project-local temp allocation, and the genome rows' route once
             let batchProjectURL = routeContext?.projectURL
+            let genomeRoute = batchProjectURL == nil ? GenomeRowDownloadRoute.legacy : genomeRowRoute
 
             // Use Task.detached to break out of MainActor context.
             // This is critical when running in a modal sheet - regular Task {}
@@ -2483,10 +2484,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 var failedCount = 0
                 var failureDetails: [String] = []
 
-                // Create a unique batch directory once for all downloads in this batch
-                // This avoids filename collisions when records have the same accession
-                let batchDir = try ProjectTempDirectory.create(prefix: "batch-", in: batchProjectURL)
-                logger.info("performBatchDownload: Created batch directory at \(batchDir.path, privacy: .public)")
+                // One batch folder for the batch, made on its first use, so a CLI genome batch makes none
+                let batchFolder = BatchDownloadFolder(projectURL: batchProjectURL)
 
                 for (index, record) in recordsToDownload.enumerated() {
                     // Update progress via performOnMainRunLoop for modal compatibility.
@@ -2513,16 +2512,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             if searchType == .genome {
                                 fileURL = try await Self.downloadGenomeRow(
                                     record, index: index, totalCount: totalCount,
-                                    operationID: downloadCenterTaskID, route: batchProjectURL == nil ? .legacy : self.genomeRowRoute,
+                                    operationID: downloadCenterTaskID, route: genomeRoute,
                                     ncbi: ncbi, genomeVM: genomeVM,
-                                    batchDirectory: batchDir, projectURL: batchProjectURL
+                                    batchFolder: batchFolder, projectURL: batchProjectURL
                                 )
                             } else {
                                 // Nucleotide and virus downloads always end as .lungfishref bundles.
                                 logger.info("performBatchDownload: Starting GenBank bundle build for \(record.accession, privacy: .public)")
                                 let bundleURL = try await genBankVM.downloadAndBuild(
                                     accession: record.accession,
-                                    outputDirectory: batchDir,
+                                    outputDirectory: try batchFolder.url(),
                                     includeGFF3Annotations: includeGFF3Annotations
                                 ) { progress, message in
                                     let overall = (Double(index) + progress) / Double(totalCount)
@@ -2575,7 +2574,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                                     let bundleURL = try await genBankVM.downloadAndBuild(
                                         accession: insdcAccession,
-                                        outputDirectory: batchDir,
+                                        outputDirectory: try batchFolder.url(),
                                         includeGFF3Annotations: includeGFF3Annotations
                                     ) { progress, message in
                                         let overall = (Double(index) + progress) / Double(totalCount)
@@ -2610,7 +2609,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                         accession: dbRecord.accession,
                                         title: dbRecord.title,
                                         sequence: dbRecord.sequence,
-                                        outputDirectory: batchDir,
+                                        outputDirectory: try batchFolder.url(),
                                         sourceDatabase: "Pathoplexus",
                                         sourceURL: URL(string: "https://pathoplexus.org/\(ppOrganism)/search?accession=\(dbRecord.accession)"),
                                         notes: "Generated from Pathoplexus FASTA fallback after INSDC lookup failed"
@@ -2645,7 +2644,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                     accession: dbRecord.accession,
                                     title: dbRecord.title,
                                     sequence: dbRecord.sequence,
-                                    outputDirectory: batchDir,
+                                    outputDirectory: try batchFolder.url(),
                                     sourceDatabase: "Pathoplexus",
                                     sourceURL: URL(string: "https://pathoplexus.org/\(ppOrganism)/search?accession=\(dbRecord.accession)"),
                                     notes: "Generated from Pathoplexus sequence (no INSDC accession available)"

@@ -158,11 +158,10 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
     static func sideA(_ root: URL) async throws -> RouteParitySideOutcome {
         let project = project(in: root)
         let service = NCBIService()
-        let batch = try ProjectTempDirectory.create(prefix: "batch-", in: project)
         let built = try await DatabaseBrowserViewModel.downloadGenomeRow(
             record, index: 0, totalCount: 1, operationID: UUID(), route: .legacy,
             ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
-            batchDirectory: batch, projectURL: project)
+            batchFolder: BatchDownloadFolder(projectURL: project), projectURL: project)
         let downloads = project.appendingPathComponent("Downloads", isDirectory: true)
         try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: built, to: downloads.appendingPathComponent(built.lastPathComponent))
@@ -180,8 +179,7 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
             _ = try await DatabaseBrowserViewModel.downloadGenomeRow(
                 record, index: 0, totalCount: 1, operationID: UUID(), route: .cli,
                 ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
-                batchDirectory: project.appendingPathComponent(".tmp/unused", isDirectory: true),
-                projectURL: project, cliURLOverride: cli)
+                batchFolder: BatchDownloadFolder(projectURL: project), projectURL: project, cliURLOverride: cli)
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)", recordedCommand: command)
         }

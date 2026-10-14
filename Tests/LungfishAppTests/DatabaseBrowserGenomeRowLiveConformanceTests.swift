@@ -61,7 +61,7 @@ final class DatabaseBrowserGenomeRowLiveConformanceTests: XCTestCase {
             _ = try await DatabaseBrowserViewModel.downloadGenomeRow(
                 record, index: 0, totalCount: 1, operationID: UUID(), route: route,
                 ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
-                batchDirectory: try ProjectTempDirectory.create(prefix: "batch-", in: project),
+                batchFolder: BatchDownloadFolder(projectURL: project),
                 projectURL: project, cliURLOverride: cli)
             requests[route] = Array(recorder.requests.dropFirst(start))
         }

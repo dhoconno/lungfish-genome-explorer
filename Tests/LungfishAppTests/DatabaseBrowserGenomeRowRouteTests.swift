@@ -80,6 +80,54 @@ final class DatabaseBrowserGenomeRowRouteTests: XCTestCase {
         XCTAssertEqual(download.share(2), 1, accuracy: 1e-9)
     }
 
+    /// Ruling 1 of the A44 M2 review. The batch folder is made on its first use and once, with its
+    /// owner marker, under the project's `.tmp` folder.
+    func testTheBatchFolderIsMadeOnItsFirstUseOnly() throws {
+        let root = try TestTempDirectory.make(prefix: "genome-row-batch-folder")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let folder = BatchDownloadFolder(projectURL: project)
+        XCTAssertEqual(Self.batchFolders(in: project), [], "nothing before the first use")
+        let first = try folder.url()
+        XCTAssertEqual(try folder.url(), first)
+        XCTAssertEqual(Self.batchFolders(in: project), [first.lastPathComponent])
+        XCTAssertEqual(first.deletingLastPathComponent().lastPathComponent, ".tmp")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: first.appendingPathComponent(".lungfish-owned-work-directory.json").path))
+    }
+
+    /// Ruling 1. A genome row on the CLI route writes into the Downloads folder and never asks for
+    /// the batch folder, so a CLI genome batch leaves no `batch-` entry under `<project>/.tmp`. The
+    /// loop of `performBatchDownload` itself finds the app's CLI and reports through DownloadCenter,
+    /// so this runs the row the loop runs, with the stub CLI.
+    @MainActor
+    func testACLIGenomeRowMakesNoBatchFolder() async throws {
+        let root = try TestTempDirectory.make(prefix: "genome-row-no-batch")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let bundle = project.appendingPathComponent("Downloads/Stand-in - StandInAsm1.lungfishref", isDirectory: true)
+        let stub = try Self.writeStubCLI(in: root, bundle: bundle)
+        let service = NCBIService(apiKey: nil, environment: [:])
+        let record = SearchResultRecord(id: "9900001", accession: "GCF_000000001.1", title: "StandInAsm1", source: .ncbi)
+
+        let returned = try await DatabaseBrowserViewModel.downloadGenomeRow(
+            record, index: 0, totalCount: 1, operationID: UUID(), route: .cli,
+            ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
+            batchFolder: BatchDownloadFolder(projectURL: project), projectURL: project, cliURLOverride: stub)
+
+        XCTAssertEqual(returned.path, bundle.path)
+        XCTAssertEqual(Self.batchFolders(in: project), [])
+    }
+
+    /// The `batch-` folders under `<project>/.tmp`.
+    static func batchFolders(in project: URL) -> [String] {
+        let tmp = project.appendingPathComponent(".tmp", isDirectory: true)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: tmp.path)) ?? []
+        return names.filter { $0.hasPrefix("batch-") }.sorted()
+    }
+
     /// A stand-in `lungfish-cli` that writes its arguments and `NCBI_API_KEY` beside it, then prints
     /// a progress event and a complete event that names `bundle`.
     static func writeStubCLI(in folder: URL, bundle: URL) throws -> URL {
