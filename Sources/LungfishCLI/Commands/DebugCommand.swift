@@ -449,7 +449,9 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             pairingMode: pairingMode,
             outputDirectory: outputURL,
             threads: max(1, globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount),
-            deleteOriginals: deleteOriginals,
+            // The pipeline never deletes. The record names each original with its digest first,
+            // and `--delete-originals` removes the originals after it (lane A47 M3).
+            deleteOriginals: false,
             qualityBinning: qualityBinning,
             skipClumpify: skipClumpify
         )
@@ -481,6 +483,11 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             result: result,
             runClock: runClock
         )
+        if deleteOriginals {
+            for original in inputs where original.standardizedFileURL != result.outputFile.standardizedFileURL {
+                try FileManager.default.removeItem(at: original)
+            }
+        }
 
         if globalOptions.outputFormat == .json {
             let payload = FastqIngestResultPayload(
@@ -553,7 +560,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             "outputPairingMode": .string(result.pairingMode.rawValue),
             "binning": .string(config.qualityBinning.rawValue),
             "skipClumpify": .boolean(config.skipClumpify),
-            "deleteOriginals": .boolean(config.deleteOriginals),
+            "deleteOriginals": .boolean(deleteOriginals),
             "stats": .boolean(stats),
             "sampleLimit": .integer(max(0, sampleLimit)),
             "threads": .integer(config.threads),

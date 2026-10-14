@@ -8,8 +8,10 @@
 // order at the base on the CLI's closest route, `debug fastq-ingest --delete-originals`, and on
 // the pipeline the app calls. They carry no `Sources` edit and pass at the base. Lane A47 M2
 // changes the order on the new `fastq ingest` leaf, which publishes the output, writes the
-// sidecar and the record, and removes the original last. These pins stay as the record of what
-// `debug fastq-ingest` does, since that command stays in place.
+// sidecar and the record, and removes the original last. The pipeline pin stays as the record of
+// what the app's route did. The `debug fastq-ingest` pin changed in lane A47 M3, which fixed that
+// command to record the original before it removes it (the first version of the pin showed the
+// defect, an `unreadableFile` failure after the original was gone).
 //
 // A `FileManagerDelegate` on the shared manager sees each removal before it happens, so the probe
 // reads the state of the output, the sidecar and the record at the exact moment the original is
@@ -149,18 +151,21 @@ final class FastqIngestInPlacePinTests: XCTestCase {
 
     // MARK: - debug fastq-ingest
 
-    /// The finding of this lane's first pin. `debug fastq-ingest --delete-originals` runs the
-    /// pipeline, which removes the original, and only then records the run. The record call hashes
-    /// the original by path, and the file is gone, so the command throws `unreadableFile` after the
-    /// original and before any record. The user is left with the output, no record, no sidecar and
-    /// a failed exit. `fastq ingest` (M2) writes the record first, with the digest taken before the
-    /// removal.
-    func testDebugFastqIngestRemovesTheOriginalThenFailsToRecordItAndWritesNoSidecar() async throws {
+    /// The finding of this lane's first pin, fixed in lane A47 M3 (the ruling on M3 makes the fix
+    /// A47's). `debug fastq-ingest --delete-originals` used to run the pipeline with
+    /// `deleteOriginals: true`, which removed the original, and only then recorded the run. The
+    /// record call hashes the original by path, and the file was gone, so the command threw
+    /// `unreadableFile` after the original and before any record, and left the output, no record,
+    /// no sidecar and a failed exit. The pipeline now never deletes. The record names the original
+    /// with its digest, and only then does the command remove the original, as `fastq ingest` does.
+    /// The command still leaves the metadata sidecar unwritten, since it is a diagnostic.
+    func testDebugFastqIngestRecordsTheOriginalBeforeRemovingItAndWritesNoSidecar() async throws {
         try await requireCompressor()
         let root = try TestTempDirectory.make(prefix: "ingest-pin-debug")
         defer { TestTempDirectory.cleanup(root) }
         let input = root.appendingPathComponent("reads.fastq")
         try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+        let originalDigest = try ProvenanceFileHasher.sha256(of: input)
         let output = root.appendingPathComponent("reads.fastq.gz")
         let sidecar = FASTQMetadataStore.metadataURL(for: output)
 
@@ -178,26 +183,27 @@ final class FastqIngestInPlacePinTests: XCTestCase {
             "--delete-originals",
             "--quiet",
         ])
-        var thrown: (any Error)?
-        do {
-            try await command.run()
-        } catch {
-            thrown = error
-        }
+        try await command.run()
 
         XCTAssertEqual(
-            probe.removals.first?.snapshot,
-            IngestFolderSnapshot(output: true, sidecar: false, record: false, original: true),
-            "the original goes while no record exists"
+            probe.removals.map(\.snapshot),
+            [IngestFolderSnapshot(output: true, sidecar: false, record: true, original: true)],
+            "the original goes once the output and the record exist"
         )
-        let failure = String(describing: try XCTUnwrap(thrown, "the record call throws once the original is gone"))
-        XCTAssertTrue(failure.contains("unreadableFile"), "the failure is the hash of the removed original: \(failure)")
-        XCTAssertTrue(failure.contains(input.lastPathComponent), "the failure names the original: \(failure)")
         XCTAssertEqual(
             Self.snapshot(root: root, input: input, output: output),
-            IngestFolderSnapshot(output: true, sidecar: false, record: false, original: false),
-            "after the failure the original is gone, the output exists, and no record names either"
+            IngestFolderSnapshot(output: true, sidecar: false, record: true, original: false),
+            "the run succeeds, the original is gone and the output and the record stand"
         )
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: root.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        XCTAssertEqual(
+            envelope.files.first { $0.role == .input && $0.path == input.path }?.checksumSHA256,
+            originalDigest,
+            "the record names the original with the digest taken before it was removed"
+        )
+        XCTAssertEqual(envelope.options.explicit["deleteOriginals"]?.booleanValue, true, "the record keeps the flag the user gave")
         XCTAssertNil(FASTQMetadataStore.load(for: output), "debug fastq-ingest leaves the metadata sidecar unwritten")
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
     }
