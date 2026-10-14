@@ -10,17 +10,11 @@ import LungfishTestSupport
 
 @MainActor
 final class MSADistanceMatrixThirdReviewFixTests: XCTestCase {
-    private var suiteName = ""
-    private var defaults: UserDefaults!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var defaults: UserDefaults { preferencesSuite.defaults }
 
     override func setUpWithError() throws {
-        suiteName = "MSADistanceMatrixThirdReviewFixTests.\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-    }
-
-    override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suiteName)
-        defaults = nil
+        preferencesSuite = makeTestDefaultsSuite(prefix: "MSADistanceMatrixThirdReviewFixTests")
     }
 
     private func readyPane() async throws -> MSADistanceMatrixPaneView {

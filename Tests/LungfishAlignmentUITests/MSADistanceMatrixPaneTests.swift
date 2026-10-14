@@ -28,16 +28,11 @@ actor ComputeGate {
 
 @MainActor
 final class MSADistanceMatrixPaneTests: XCTestCase {
-    private var suiteName = ""
-    private var defaults: UserDefaults!
+    private var preferencesSuite: TestDefaultsSuite!
+    private var defaults: UserDefaults { preferencesSuite.defaults }
 
     override func setUp() async throws {
-        suiteName = "MSADistanceMatrixPaneTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
-    }
-
-    override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
+        preferencesSuite = makeTestDefaultsSuite(prefix: "MSADistanceMatrixPaneTests")
     }
 
     private let records = [

@@ -4,6 +4,7 @@ import AppKit
 @testable import LungfishCore
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class AlignmentResultViewControllerTests: XCTestCase {
@@ -155,12 +156,11 @@ final class AlignmentResultViewControllerTests: XCTestCase {
 
 @MainActor
 private func preservingContentTextSizePreference(_ body: () throws -> Void) rethrows {
-    let typographySuiteName = "LungfishTypographyTests.\(UUID().uuidString)"
-    let typographyDefaults = UserDefaults(suiteName: typographySuiteName)!
-    let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
+    let typographySuite = TestDefaultsSuite(prefix: "AlignmentResultViewControllerTests")
+    let restoreSettings = AppSettings.isolateForTesting(defaults: typographySuite.defaults)
     defer {
         restoreSettings()
-        typographyDefaults.removePersistentDomain(forName: typographySuiteName)
+        typographySuite.tearDown()
     }
     try body()
 }

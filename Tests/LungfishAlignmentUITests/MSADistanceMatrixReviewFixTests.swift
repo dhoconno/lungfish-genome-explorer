@@ -123,9 +123,7 @@ final class MSADistanceMatrixReviewFixTests: XCTestCase {
     // MARK: S5 reverse sync survives first show and a recompute
 
     func testAlignmentSelectionIsReappliedWhenTheMatrixBecomesReady() async throws {
-        let suite = "MSADistanceMatrixReviewFixTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = makeTestDefaultsSuite(prefix: "MSADistanceMatrixReviewFixTests").defaults
         let pane = MSADistanceMatrixPaneView(model: MSADistanceMatrixPaneModel(defaults: defaults))
         pane.reflectAlignmentSelection(IndexSet(integer: 2))
         pane.load(records: [

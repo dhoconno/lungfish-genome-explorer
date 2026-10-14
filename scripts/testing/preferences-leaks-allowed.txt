@@ -17,7 +17,6 @@
 
 (none)                                  Tests/LungfishCoreTests/ManagedStorageConfigStoreTests.swift
 FeaturesYAMLMenuPath                    Tests/LungfishAppViewTests/FeaturesYAMLMenuPathTests.swift
-LungfishTypographyTests                 Tests/LungfishAlignmentUITests/AlignmentResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishAppViewTests/MainMenuStructureTests.swift
 LungfishTypographyTests                 Tests/LungfishAssemblyUITests/AssemblyResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishEsVirituUITests/EsVirituResultViewControllerSmokeTests.swift
@@ -29,10 +28,6 @@ LungfishTypographyTests                 Tests/LungfishPhylogeneticsUITests/Lungf
 LungfishTypographyTests                 Tests/LungfishTaxTriageUITests/TaxTriageContentTypographyTests.swift
 LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSAmpliconResultViewControllerTests.swift
 LungfishTypographyTests                 Tests/LungfishTwelveSUITests/TwelveSTableViewTests.swift
-MSADistanceMatrixPaneTests              Tests/LungfishAlignmentUITests/MSADistanceMatrixPaneTests.swift
-MSADistanceMatrixReReviewFixTests       Tests/LungfishAlignmentUITests/MSADistanceMatrixReReviewFixTests.swift
-MSADistanceMatrixReviewFixTests         Tests/LungfishAlignmentUITests/MSADistanceMatrixReviewFixTests.swift
-MSADistanceMatrixThirdReviewFixTests    Tests/LungfishAlignmentUITests/MSADistanceMatrixThirdReviewFixTests.swift
 MetadataColumnPersistenceTests          Tests/LungfishKitTests/MetadataColumnPersistenceTests.swift
 NvdResultViewControllerTests            Tests/LungfishNvdUITests/NvdResultViewControllerTests.swift
 TaxTriageFilterAlignment                Tests/LungfishTaxTriageUITests/TaxTriageDatabaseModeTests.swift
