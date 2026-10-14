@@ -83,6 +83,20 @@ final class AlignmentReadRowReplayTests: XCTestCase {
         )
     }
 
+    /// `evidence` as the viewer holds it after the BAM was replaced: the alignment digest it hashed
+    /// when it showed the BAM is no longer the file's.
+    private func staleContext(_ evidence: AlignmentActionContext) throws -> AlignmentActionContext {
+        try AlignmentActionContext(
+            identity: evidence.identity,
+            alignmentURL: evidence.alignmentURL, indexURL: evidence.indexURL, decodingReferenceURL: evidence.decodingReferenceURL,
+            contig: evidence.contig, contigLength: evidence.contigLength,
+            alignmentSnapshot: .init(url: evidence.alignmentURL, byteCount: evidence.alignmentSnapshot.byteCount, sha256: String(repeating: "0", count: 64)),
+            indexSnapshot: evidence.indexSnapshot, decodingReferenceSnapshot: evidence.decodingReferenceSnapshot,
+            filters: evidence.filters, outputCapability: evidence.outputCapability, sourceReads: evidence.sourceReads,
+            presentationLabel: evidence.presentationLabel
+        )
+    }
+
     /// Runs `launch` and returns the row titled `title` it began, once the row ended.
     private func endedRow(titled title: String, _ launch: () -> Void) async throws -> OperationCenter.Item {
         let known = Set(OperationCenter.shared.items.map(\.id))
@@ -140,5 +154,24 @@ final class AlignmentReadRowReplayTests: XCTestCase {
         let record = try record(of: bundle)
         XCTAssertTrue(record.files.contains { $0.role == .input && $0.path == names.path }, "the record names the names file")
         XCTAssertEqual(record.options.resolvedDefaults["recordsWithoutSequence"], .integer(1))
+    }
+
+    /// The viewer hashed the BAM when it showed it, and the file was replaced before the user extracted.
+    /// The coordinator checked those digests before it staged anything, and the row on the CLI must too
+    /// (review A51, B1): the row fails with the stale-evidence error, the leaf never runs, and nothing is
+    /// published.
+    func testARegionWhoseEvidenceChangedSinceItWasShownFailsBeforeTheLeaf() async throws {
+        let bundle = scratch.appendingPathComponent("out/region.lungfishfastq")
+        let shown = try staleContext(try context())
+        viewer.alignmentExtractionSavePanelPresenter = SavePanel(url: bundle)
+        viewer.alignmentActionContext = shown
+        viewer.setExplicitAlignmentSelection(contig: Self.contig, start: 0, end: 3000)
+
+        let item = try await endedRow(titled: "Extract Reads in Selected Region") { viewer.extractReadsInSelectedAlignmentRegion() }
+
+        XCTAssertEqual(item.state, .failed, item.detail)
+        XCTAssertEqual(item.detail, "Alignment read extraction failed")
+        XCTAssertEqual(item.errorMessage, AlignmentActionContext.EvidenceError.staleEvidence(shown.alignmentURL).localizedDescription)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: bundle.deletingLastPathComponent().path), [], "nothing was published")
     }
 }

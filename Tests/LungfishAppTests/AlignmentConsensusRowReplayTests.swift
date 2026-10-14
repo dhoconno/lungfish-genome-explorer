@@ -49,6 +49,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
 
     private static let contig = "MT192765.1"
     private static let contigLength = 29829
+    private static let bam = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
 
     private var scratch: URL!
     private var viewer: ViewerViewController!
@@ -83,18 +84,32 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
         unsetenv("LUNGFISH_CLI_PATH")
     }
 
-    /// The evidence the viewer shows, the sarscov2 BAM with every filter off but the depth.
-    private func context(minimumDepth: Int) throws -> AlignmentActionContext {
-        let bam = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
+    /// A copy of the BAM and its index in the scratch folder, which a case can replace while the row runs.
+    private func copiedBAM() throws -> URL {
+        let folder = scratch.appendingPathComponent("evidence", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let bam = folder.appendingPathComponent("S1.bam")
+        try FileManager.default.copyItem(at: Self.bam, to: bam)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: Self.bam.path + ".bai"), to: URL(fileURLWithPath: bam.path + ".bai"))
+        return bam
+    }
+
+    /// The evidence the viewer shows, the sarscov2 BAM (or `file`, a copy of it) with every filter off
+    /// but the depth. With `stale`, the alignment digest the viewer holds is not the file's, as after
+    /// the BAM was replaced.
+    private func context(minimumDepth: Int, stale: Bool = false, over file: URL? = nil) throws -> AlignmentActionContext {
+        let bam = file ?? Self.bam
         let index = URL(fileURLWithPath: bam.path + ".bai")
         func snapshot(_ url: URL) throws -> AlignmentEvidenceFileSnapshot {
             .init(url: url, byteCount: try ProvenanceFileHasher.fileSize(of: url), sha256: try ProvenanceFileHasher.sha256(of: url))
         }
+        var alignmentSnapshot = try snapshot(bam)
+        if stale { alignmentSnapshot = .init(url: bam, byteCount: alignmentSnapshot.byteCount, sha256: String(repeating: "0", count: 64)) }
         return try AlignmentActionContext(
             identity: .init(workflow: "mapping", resultID: "run-1", sampleID: "S1", evidenceID: Self.contig),
             alignmentURL: bam, indexURL: index, decodingReferenceURL: nil,
             contig: Self.contig, contigLength: Self.contigLength,
-            alignmentSnapshot: try snapshot(bam), indexSnapshot: try snapshot(index), decodingReferenceSnapshot: nil,
+            alignmentSnapshot: alignmentSnapshot, indexSnapshot: try snapshot(index), decodingReferenceSnapshot: nil,
             filters: .init(minimumDepth: minimumDepth, minimumMapQ: 0, minimumBaseQuality: 0, excludedFlags: 0x904, readGroups: []),
             outputCapability: .userSelectedDestination, sourceReads: .bamFallback, presentationLabel: "S1 \(Self.contig)"
         )
@@ -114,16 +129,20 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
         savePanelAnswer: String? = "S1.fasta",
         minimumDepth: Int = 1,
         acceptAllN: Bool = true,
-        expectRow: Bool = true
+        expectRow: Bool = true,
+        staleEvidence: Bool = false,
+        evidenceFile: URL? = nil,
+        whileTheSheetIsOpen: (@MainActor () throws -> Void)? = nil
     ) async throws -> [String] {
         let known = Set(OperationCenter.shared.items.map(\.id))
         let savePanel = SavePanel(url: savePanelAnswer.map { scratch.appendingPathComponent("out/\($0)") })
         viewer.alignmentExtractionSavePanelPresenter = savePanel
         viewer.alignmentConsensusAllLowDepthConfirmation = { [weak self] message, _ in
             self?.sheets.append("all-N \(message)")
+            try? whileTheSheetIsOpen?()
             return acceptAllN
         }
-        viewer.alignmentActionContext = try context(minimumDepth: minimumDepth)
+        viewer.alignmentActionContext = try context(minimumDepth: minimumDepth, stale: staleEvidence, over: evidenceFile)
 
         viewer.presentAlignmentConsensusGeneration()
 
@@ -249,6 +268,46 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
             "save panel S1-MT192765.1-consensus.fasta",
             "failure Generate Consensus Failed: A file already exists at <root>/out/S1.fasta.",
             "file <root>/out/S1.fasta",
+        ])
+    }
+
+    /// The viewer hashed the BAM when it showed it, and the file was replaced before Generate Consensus.
+    /// The coordinator checked those digests before it called the consensus and again before it
+    /// published, and the row on the CLI must too (review A51, B1): the row fails with the
+    /// stale-evidence error, the leaf never runs, and no FASTA and no record are written.
+    func testAConsensusWhoseEvidenceChangedSinceItWasShownWritesNothing() async throws {
+        let lines = try await run(.destination(.file), staleEvidence: true)
+        let stale = AlignmentActionContext.EvidenceError.staleEvidence(Self.bam).localizedDescription
+        XCTAssertEqual(lines, [
+            "row Generate Alignment Consensus",
+            "end failed Alignment consensus failed",
+            "error \(stale)",
+            Self.scopeLine,
+            "save panel S1-MT192765.1-consensus.fasta",
+            "failure Generate Consensus Failed: \(stale)",
+        ])
+    }
+
+    /// The all-N sheet can stay open while the BAM is replaced. The coordinator validated the digests
+    /// again before it published an accepted all-N consensus, so the second run of the leaf is checked
+    /// too (review A51, B1): the row fails with the stale-evidence error and nothing is written.
+    func testAnAcceptedAllNConsensusWhoseEvidenceChangedWhileTheSheetWasOpenWritesNothing() async throws {
+        let bam = try copiedBAM()
+        let lines = try await run(.destination(.file), minimumDepth: 100_000, evidenceFile: bam) {
+            let handle = try FileHandle(forWritingTo: bam)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data([0]))
+        }
+        let stale = AlignmentActionContext.EvidenceError.staleEvidence(bam).localizedDescription
+        XCTAssertEqual(lines, [
+            "row Generate Alignment Consensus",
+            "end failed Alignment consensus failed",
+            "error \(stale)",
+            Self.scopeLine,
+            "save panel S1-MT192765.1-consensus.fasta",
+            Self.allNSheet,
+            "failure Generate Consensus Failed: \(stale)",
         ])
     }
 

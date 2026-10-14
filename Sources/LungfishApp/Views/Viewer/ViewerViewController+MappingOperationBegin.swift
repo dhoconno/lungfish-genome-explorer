@@ -74,11 +74,18 @@ extension ViewerViewController {
     /// exited, so the app writes nothing. The row's Cancel reaches the
     /// runner's `cancel()`. A cancelled run ends the row Cancelled with no
     /// alert and hands `finish` a `CancellationError` for its clean-up.
+    ///
+    /// `evidence` is the alignment evidence the viewer showed, with the
+    /// digests it hashed when it showed them. Its snapshots are checked against
+    /// the files before each run of the leaf, as the coordinator did before it
+    /// fetched and before it published (review A51, B1), so a BAM replaced
+    /// after it was shown ends the row failed with nothing written.
     @discardableResult
     static func runAlignmentConsensusThroughCLI(
         invocation: AlignmentConsensusInvocation,
         workingDirectory: URL?,
         operationID: UUID,
+        evidence: AlignmentActionContext? = nil,
         runner: CLIAlignmentActionRunner = CLIAlignmentActionRunner(),
         confirmAllLowDepth: @escaping @MainActor () async -> Bool,
         finish: @escaping @MainActor (Result<CLIAlignmentActionRunner.Completion, any Error>) -> Void
@@ -90,6 +97,7 @@ extension ViewerViewController {
         let task = Task(priority: .userInitiated) { @MainActor in
             do {
                 do {
+                    try await evidence?.validateCurrentSnapshots()
                     let arguments = alignmentConsensusCLIArguments(invocation)
                     finish(.success(try await runner.run(arguments: arguments, operationID: operationID, workingDirectory: workingDirectory)))
                 } catch let error as CLISubprocessTransport.RunError where error == refusal {
@@ -98,6 +106,8 @@ extension ViewerViewController {
                     OperationCenter.shared.setCommand(id: operationID, command: alignmentConsensusCLICommand(accepted))
                     // The sheet held the row's Cancel. The second run takes it back.
                     OperationCenter.shared.setCancelCallback(for: operationID) { runner.cancel() }
+                    // The sheet can stay open while the BAM is replaced, so the second run checks again.
+                    try await evidence?.validateCurrentSnapshots()
                     let arguments = alignmentConsensusCLIArguments(accepted)
                     finish(.success(try await runner.run(arguments: arguments, operationID: operationID, workingDirectory: workingDirectory)))
                 }
@@ -231,15 +241,23 @@ extension ViewerViewController {
     /// leaf wrote its reads and their record before it exited, so the app writes nothing. The row's
     /// Cancel reaches the runner's `cancel()`, and a cancelled run ends the row Cancelled with no
     /// sheet and no `finish`.
+    ///
+    /// `evidence` is the alignment evidence the viewer showed, with the digests it hashed when it
+    /// showed them. Its snapshots are checked against the files before the leaf runs, as the
+    /// coordinator did before it staged and before it published (review A51, B1), so a BAM
+    /// replaced after it was shown fails the row with nothing published. The overlapping-reads row
+    /// passes none, as at the base.
     @discardableResult
     static func runReadExtractionThroughCLI(
         arguments: [String],
         operationID: UUID,
+        evidence: AlignmentActionContext? = nil,
         runner: CLIAlignmentActionRunner = CLIAlignmentActionRunner(),
         finish: @escaping @MainActor (Result<CLIAlignmentActionRunner.Completion, any Error>) -> Void
     ) -> Task<Void, Never> {
         let task = Task(priority: .userInitiated) { @MainActor in
             do {
+                try await evidence?.validateCurrentSnapshots()
                 finish(.success(try await runner.run(arguments: arguments, operationID: operationID, keepsFirstDetail: true)))
             } catch is CancellationError {
                 OperationCenterCLIBridge.acknowledgeCancellation(operationID)
@@ -289,7 +307,7 @@ extension ViewerViewController {
             invocation: Self.alignmentRegionExtractionInvocation(
                 context: context, region: region, destination: destination, outputBaseName: outputBaseName
             ),
-            evidence: context.identity,
+            context: context,
             routeContext: routeContext
         )
     }
@@ -317,24 +335,27 @@ extension ViewerViewController {
                 context: context, records: records, namesFile: namesFile,
                 destination: destination, outputBaseName: outputBaseName
             ),
-            evidence: context.identity,
+            context: context,
             routeContext: routeContext
         )
     }
 
+    /// Begins the row for `invocation` and runs it, once the viewer's evidence in `context` still
+    /// matches the files it was hashed from.
     private func launchAlignmentReadExtraction(
         title: String,
         detail: String,
         invocation: AlignmentReadExtractionInvocation,
-        evidence: AlignmentEvidenceIdentity,
+        context: AlignmentActionContext,
         routeContext: OperationRouteContext
     ) {
         Self.beginAlignmentReadExtractionOperation(
-            title: title, detail: detail, invocation: invocation, evidence: evidence, routeContext: routeContext
+            title: title, detail: detail, invocation: invocation, evidence: context.identity, routeContext: routeContext
         ) { operationID in
             activeSelectedReadsExtractionTask = Self.runReadExtractionThroughCLI(
                 arguments: Self.alignmentReadExtractionCLIArguments(invocation),
-                operationID: operationID
+                operationID: operationID,
+                evidence: context
             ) { outcome in
                 Self.finishAlignmentReadExtraction(outcome, operationID: operationID)
             }
@@ -525,6 +546,7 @@ extension ViewerViewController {
                 invocation: invocation,
                 workingDirectory: workingDirectory,
                 operationID: operationID,
+                evidence: context,
                 confirmAllLowDepth: { [weak self, weak window] in
                     guard let self, let window else { return false }
                     return await confirmAllLowDepthConsensus(message: message, on: window, operationID: operationID)
