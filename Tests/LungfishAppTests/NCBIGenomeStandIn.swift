@@ -10,8 +10,9 @@ import LungfishTestSupport
 
 /// The loopback stand-in for NCBI that `fetch genome` reads in the CLI pins, the genome parity
 /// class and the event transcripts (Phase 2.10 lane A44, panel decision G5). It answers the
-/// assembly's ESearch, ESummary, FTP files and assembly report, and the GenBank record's EFetch
-/// answers, from `NCBIDownloadPinFixtures`, and the same for a second assembly that differs only
+/// assembly's ESearch, by accession or by name, its ESummary, FTP files and assembly report, and
+/// the GenBank record's EFetch answers, from `NCBIDownloadPinFixtures`, and the same for a second
+/// assembly by accession that differs only
 /// in its accession, uid and name. An ESearch for any other term finds nothing, and an
 /// EFetch for any other id is not found, so a test can make an accession fail. It holds no secret,
 /// and a run reaches it only through `NCBIServiceEndpoints.standInOriginVariable`, which makes the
@@ -22,6 +23,9 @@ enum NCBIGenomeStandIn {
     static let secondAssemblyAccession = "GCF_000000002.1"
     static let secondAssemblyUID = "9900002"
     static let unknownAccession = "GCF_000000009.9"
+    /// The part of an ESearch term that finds the first assembly by its name, as the variant-only
+    /// reference download searches when a VCF names an assembly but no accession (lane A44 M3).
+    static let assemblyNameTerm = "StandInAsm1[Assembly Name]"
 
     /// `text` about the first assembly, made about the second. Its FTP folder keeps the first's
     /// parent folder, which the JSON answers spell with escaped slashes.
@@ -57,7 +61,9 @@ enum NCBIGenomeStandIn {
             switch request.path {
             case "/entrez/eutils/esearch.fcgi":
                 let term = value("term") ?? ""
-                if term.contains(assemblyAccession) { return .text(NCBIDownloadPinFixtures.assemblyESearchJSON) }
+                if term.contains(assemblyAccession) || term.contains(assemblyNameTerm) {
+                    return .text(NCBIDownloadPinFixtures.assemblyESearchJSON)
+                }
                 if term.contains(secondAssemblyAccession) {
                     return .text(aboutSecondAssembly(NCBIDownloadPinFixtures.assemblyESearchJSON))
                 }

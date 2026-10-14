@@ -196,7 +196,8 @@ final class BatchDownloadFolder: Sendable {
 /// cancelled, so it removes the bundle it was building and exits 125, and the launcher's drain. Its
 /// events reach the batch row through `OperationCenterCLIBridge`, each progress fraction as the
 /// row's share `(index + fraction) / totalCount`, its start line as a log line and its failure as
-/// an error line. The bundle is the first path its `complete` line names.
+/// an error line. The bundle is the first path its `complete` line names. The variant-only
+/// reference download runs its `--into-bundle` child the same way, as row 0 of 1 (lane A44 M3).
 struct GenomeRowCLIDownload: Sendable {
     let operationID: UUID
     let index: Int
@@ -212,6 +213,12 @@ struct GenomeRowCLIDownload: Sendable {
     }
 
     func fetch(_ accession: String, into folder: URL, apiKey: String?) async throws -> URL {
+        try await run(DatabaseBrowserViewModel.genomeFetchArguments(accessions: [accession], folder: folder), apiKey: apiKey)
+    }
+
+    /// Runs one `fetch genome` child with `arguments`, which never hold the key, and returns the
+    /// first path its `complete` line names.
+    func run(_ arguments: [String], apiKey: String?) async throws -> URL {
         let transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
         let operationID = operationID
         // On the main run loop, as every update of this batch is, so a modal session cannot hold it.
@@ -221,7 +228,7 @@ struct GenomeRowCLIDownload: Sendable {
         let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
         let share = self.share
         let result = try await transport.run(
-            arguments: DatabaseBrowserViewModel.genomeFetchArguments(accessions: [accession], folder: folder),
+            arguments: arguments,
             terminationGracePeriod: CLIProcessLauncher.operationGrace,
             drainGracePeriod: CLIProcessLauncher.operationDrain,
             environmentAdditions: DatabaseBrowserViewModel.genomeFetchEnvironment(apiKey: apiKey),

@@ -130,12 +130,12 @@ final class FetchGenomeCLIBundlePinConformanceTests: XCTestCase {
     }
 
     /// A bundle as a VCF import with no reference leaves it, a manifest with one variant track and
-    /// no genome, and the track's file.
-    static func makeVariantOnlyBundle(in folder: URL) throws -> URL {
+    /// no genome, and the track's file, whose one variant sits on `chromosome`.
+    static func makeVariantOnlyBundle(in folder: URL, chromosome: String = "NC_000001.1") throws -> URL {
         let bundle = folder.appendingPathComponent("Cohort calls.lungfishref", isDirectory: true)
         let variants = bundle.appendingPathComponent("variants", isDirectory: true)
         try FileManager.default.createDirectory(at: variants, withIntermediateDirectories: true)
-        try "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nNC_000001.1\t5\t.\tA\tG\t50\tPASS\t.\n"
+        try "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\(chromosome)\t5\t.\tA\tG\t50\tPASS\t.\n"
             .write(to: variants.appendingPathComponent("calls.vcf"), atomically: true, encoding: .utf8)
         let manifest = BundleManifest(
             name: "Cohort calls",

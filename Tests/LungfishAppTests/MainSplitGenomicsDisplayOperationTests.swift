@@ -7,8 +7,9 @@
 // variant-only bundle it merges into, so a fresh center in which another
 // operation holds that bundle refuses it. The FASTQ dialog row declares no
 // lock, and a recording reporter that holds a lock stands in for its
-// refusal. The reference download has no lungfish-cli
-// equivalent, so its tests pin the missing command. The FASTQ operations
+// refusal. The reference download records the `fetch genome --into-bundle`
+// command of an assembly once the app found it, and its tests parse that
+// command and pin the GenBank fallback's missing one. The FASTQ operations
 // dialog row records the `lungfish-cli fastq` command
 // FASTQOperationCLIInvocationBuilder builds for the request (R3), which the
 // tests parse with the real CLI parser and compare with the request's values.
@@ -65,12 +66,61 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertEqual(item.targetBundleURL, variantOnlyBundle, "the row locks the bundle it merges into (ruling M3-3)")
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. No lungfish-cli command adds a downloaded reference to
-        // an existing bundle. The closest is `fetch genome`, which builds a new
-        // bundle from one accession. When a merge command exists, record it and
-        // replace this pin with a parse test.
+        // CLI parity gap. The row begins with no command, and an assembly's run
+        // records its `fetch genome --into-bundle` command once the app found the
+        // accession (testNakedBundleReferenceCommandIsTheChildsArgvAndParses). The
+        // GenBank fallback still builds in process and keeps no command until BIO
+        // rules on how `fetch genome` builds that record's bundle (lane A44 M3).
         XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "variant-only-reference-download")
+        assertCLIParityGap(item.cliCommand, id: "variant-only-reference-genbank-fallback")
+    }
+
+    /// Ruling M3-1 of the A44 M2d review. Once the app has found the assembly, the run records
+    /// with `setCommand` the command whose words after `lungfish-cli` are the argv of the child it
+    /// launches, from one builder. The command parses as `fetch genome` with the accession, the
+    /// bundle and JSON events, and holds no NCBI key, which reaches the child through its
+    /// environment (SWIFT 6).
+    func testNakedBundleReferenceCommandIsTheChildsArgvAndParses() throws {
+        let reporter = RecordingOperationReporter()
+        let id = try XCTUnwrap(MainSplitViewController.beginNakedBundleReferenceDownloadOperation(
+            assemblyName: "StandInAsm1",
+            bundleURL: variantOnlyBundle,
+            routeContext: routeContext,
+            reporter: reporter
+        ) { _ in }.startedID)
+        XCTAssertNil(reporter.item(id)?.cliCommand, "the row begins with no command")
+
+        reporter.setCommand(
+            id: id,
+            command: MainSplitViewController.nakedBundleReferenceCommand(
+                accession: "GCF_000000001.1", bundleURL: variantOnlyBundle))
+
+        let command = reporter.item(id)?.cliCommand
+        let argv = MainSplitViewController.nakedBundleReferenceFetchArguments(
+            accession: "GCF_000000001.1", bundleURL: variantOnlyBundle)
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: command), argv, "the row's command is the child's argv")
+        XCTAssertEqual(
+            argv, ["fetch", "genome", "GCF_000000001.1", "--into-bundle", variantOnlyBundle.path, "--format", "json"])
+        let parsed = try RecordedCLICommand.parse(command, as: GenomeSubcommand.self)
+        XCTAssertEqual(parsed.accessions, ["GCF_000000001.1"])
+        XCTAssertEqual(parsed.intoBundle, variantOnlyBundle.path)
+        XCTAssertNil(parsed.apiKey, "the key reaches the child through its environment, never its argv")
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .json)
+    }
+
+    /// The hidden key that keeps the in-process reference download for one release (panel C4).
+    func testTheHiddenKeyPicksTheReferenceRoute() {
+        let suite = makeTestDefaultsSuite(prefix: "naked-reference-route")
+        let settings = NakedBundleReferenceRouteSettings(defaults: suite.defaults)
+        XCTAssertEqual(settings.route, NakedBundleReferenceRouteSettings.defaultRoute, "an unset key")
+        let cases: [(Any, NakedBundleReferenceRoute)] = [
+            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy),
+            ("NO", NakedBundleReferenceRouteSettings.defaultRoute),
+        ]
+        for (value, route) in cases {
+            suite.defaults.set(value, forKey: NakedBundleReferenceRouteSettings.defaultsKey)
+            XCTAssertEqual(settings.route, route, "\(value)")
+        }
     }
 
     func testRefusedReferenceDownloadsLaunchNothing() {
