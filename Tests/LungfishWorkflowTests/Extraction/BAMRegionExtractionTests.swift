@@ -112,6 +112,44 @@ final class BAMRegionExtractionTests: XCTestCase {
         )
     }
 
+    /// Catches a bundle file that names the scratch folder a run staged in (ruling A51 reads).
+    /// `extraction-metadata.json` keys each payload by its path in the bundle, so two runs of one
+    /// route write the same file, while the record keeps the exact staged path.
+    func testBundleMetadataKeysEachPayloadByItsPathInTheBundle() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("alignment-transaction-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let stagingDirectory = root.appendingPathComponent(".staging", isDirectory: true)
+        let stagedFASTQ = stagingDirectory.appendingPathComponent("selected.fastq")
+        let finalBundle = root.appendingPathComponent("selected.lungfishfastq", isDirectory: true)
+        try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\n!!!!\n".write(to: stagedFASTQ, atomically: true, encoding: .utf8)
+        let transaction = try AlignmentReadExtractionTransaction(
+            stagingDirectoryURL: stagingDirectory,
+            stagedFiles: [.init(stagedURL: stagedFASTQ, relativeFinalPath: "selected.fastq", format: .fastq)],
+            readCount: 1,
+            pairedEnd: false
+        )
+
+        _ = try AlignmentReadExtractionPublisher().publish(.init(
+            transaction: transaction,
+            destination: .bundle(finalBundle),
+            provenance: .init(workflowName: "lungfish alignment read extraction", argv: ["lungfish-cli", "extract", "reads"], inputURLs: [])
+        ))
+
+        let finalPayload = finalBundle.appendingPathComponent("selected.fastq")
+        let metadata = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: finalBundle.appendingPathComponent("extraction-metadata.json"))
+        ) as? [String: Any])
+        XCTAssertEqual(metadata["stagingToFinal"] as? [String: String], ["selected.fastq": finalPayload.path])
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: finalBundle))
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["stagingToFinalMapping"]?.dictionaryValue?[stagedFASTQ.path]?.stringValue,
+            finalPayload.path
+        )
+    }
+
     /// Catches region extraction escaping to a caller-owned output directory,
     /// dropping explicit-index/filter argv, or returning a staged payload
     /// without checksummed scientific execution records.

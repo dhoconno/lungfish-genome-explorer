@@ -118,7 +118,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 to: metadataURL,
                 request: request,
                 finalPayloadURLs: copied.finalURLs,
-                stagingToFinal: copied.mapping
+                stagingToFinal: Dictionary(zip(request.transaction.stagedFiles.map(\.relativeFinalPath), copied.finalURLs.map(\.path)), uniquingKeysWith: { first, _ in first })
             )
 
             let payloadDescriptors = try zip(
