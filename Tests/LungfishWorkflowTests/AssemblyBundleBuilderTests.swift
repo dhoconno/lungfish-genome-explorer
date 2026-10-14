@@ -247,4 +247,60 @@ final class AssemblyBundleBuilderTests: XCTestCase {
             XCTAssertFalse(error.errorDescription!.isEmpty)
         }
     }
+
+    // MARK: - A cancel before the publish (Phase 2.10 lane A46, ruling-A46-bundle)
+
+    /// A cancel that comes while the bundle is checked stops the build before it publishes. The build
+    /// throws `CancellationError` and leaves no bundle and no staging folder, so a cancelled
+    /// `lungfish-cli assemble --reference-bundle` leaves nothing the record does not name.
+    func testACancelBeforePublishLeavesNoBundle() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assembly-cancel-publish-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let outputDir = tempDir.appendingPathComponent("megahit-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try ">megahit_ctg_1\nACGTACGTACGTACGT\n".write(
+            to: outputDir.appendingPathComponent("final.contigs.fa"), atomically: true, encoding: .utf8
+        )
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/R1.fastq.gz")],
+            projectName: "megahit-demo",
+            outputDirectory: outputDir,
+            threads: 1
+        )
+        let result = try AssemblyOutputNormalizer.normalize(
+            request: request,
+            primaryOutputDirectory: outputDir,
+            commandLine: "megahit -r R1.fastq.gz -o megahit-output",
+            wallTimeSeconds: 1,
+            assemblerVersion: "1.2.9"
+        )
+        let provenance = ProvenanceBuilder.build(request: request, result: result, inputRecords: [])
+
+        let build = Task {
+            try await AssemblyBundleBuilder().build(
+                result: result,
+                request: request,
+                provenance: provenance,
+                outputDirectory: tempDir,
+                bundleName: "Cancelled Bundle"
+            ) { _, message in
+                // The callback runs on the build's task, so this cancels the build.
+                if message == "Validating bundle..." {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            }
+        }
+        do {
+            let bundle = try await build.value
+            XCTFail("a cancel before the publish stops the build, but it published \(bundle.lastPathComponent)")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        let left = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        XCTAssertFalse(left.contains { $0.hasSuffix(".lungfishref") }, "no bundle is published: \(left)")
+        XCTAssertFalse(left.contains { $0.contains(".building-") }, "no staging folder is left: \(left)")
+    }
 }

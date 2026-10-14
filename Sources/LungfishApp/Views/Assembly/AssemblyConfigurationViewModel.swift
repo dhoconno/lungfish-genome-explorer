@@ -404,38 +404,29 @@ public enum AssemblyRunner {
             )
 
             await performAssemblyOperationCenterUpdate {
-                _ = OperationCenter.shared.update(id: opID, progress: 0.92, detail: "Creating reference bundle...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
-            let provenanceInputs = try await ManagedAssemblyProvenanceInputs.managedAssemblyProvenanceInputs(
-                originalInputURLs: materializationResult.originalInputURLs,
-                executionInputURLs: executionRequest.inputURLs,
-                startedAt: materializationResult.materializationStartedAt,
-                endedAt: materializationResult.materializationEndedAt,
-                readSets: materializationResult.readSets
-            )
-            let provenance = ProvenanceBuilder.build(
-                request: executionRequest,
+            // The words and fractions from 0.92 are those `lungfish-cli assemble --reference-bundle`
+            // prints (Phase 2.10 lane A46). The row logs each step of the bundle, and its start keeps
+            // the line logged above.
+            let bundleURL = try await AssemblyReferenceBundle.publish(
                 result: result,
-                inputRecords: provenanceInputs.records,
+                request: executionRequest,
                 requestedInputURLs: request.inputURLs,
-                steps: provenanceInputs.steps
-            )
-
-            let bundleBuilder = AssemblyBundleBuilder()
-            let bundleURL = try await bundleBuilder.build(
-                result: result,
-                request: executionRequest,
-                provenance: provenance,
+                originalInputURLs: materializationResult.originalInputURLs,
+                materializationStartedAt: materializationResult.materializationStartedAt,
+                materializationEndedAt: materializationResult.materializationEndedAt,
+                readSets: materializationResult.readSets,
                 outputDirectory: baseOutputDirectory,
                 bundleName: projectName
             ) { fraction, message in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        let scaledProgress = 0.92 + fraction * 0.08
-                        _ = OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
-                        OperationCenter.shared.log(id: opID, level: .info, message: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        if message != AssemblyReferenceBundle.startMessage {
+                            OperationCenter.shared.log(id: opID, level: .info, message: message)
+                        }
                     }
                 }
             }

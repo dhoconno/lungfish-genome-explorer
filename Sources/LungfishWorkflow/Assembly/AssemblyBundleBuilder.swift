@@ -86,6 +86,15 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         )
     }
 
+    /// The bundle ``build(result:request:provenance:outputDirectory:bundleName:progress:)`` publishes
+    /// for `bundleName` in `outputDirectory`, and the safe name the bundle is named after.
+    public static func publishedBundle(outputDirectory: URL, bundleName: String) -> (url: URL, safeName: String) {
+        let safeName = bundleName
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "-")
+        return (outputDirectory.appendingPathComponent("\(safeName).lungfishref"), safeName)
+    }
+
     /// Creates a `.lungfishref` bundle from a normalized assembly result.
     public func build(
         result: AssemblyResult,
@@ -95,10 +104,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         bundleName: String,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> URL {
-        let safeName = bundleName
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "/", with: "-")
-        let publishedBundleURL = outputDirectory.appendingPathComponent("\(safeName).lungfishref")
+        let (publishedBundleURL, safeName) = Self.publishedBundle(outputDirectory: outputDirectory, bundleName: bundleName)
         let stagingBundleURL = try makeStagingBundleURL(for: publishedBundleURL)
         let stagingPreexisted = FileManager.default.fileExists(atPath: stagingBundleURL.path)
         var didPublishBundle = false
@@ -158,6 +164,8 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
             progress(0.90, "Validating bundle...")
             try validateBundle(at: stagingBundleURL)
 
+            // A cancel that came during the build stops it here, and the staging folder goes.
+            try Task.checkCancellation()
             try publishBundle(from: stagingBundleURL, to: publishedBundleURL)
             didPublishBundle = true
             do {
