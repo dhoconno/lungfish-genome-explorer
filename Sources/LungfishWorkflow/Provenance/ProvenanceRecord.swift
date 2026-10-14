@@ -146,6 +146,10 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
     /// packaged `lungfish-cli` wrote (including the analyses the app runs
     /// through it) said `(dev)`. A missing key is therefore taken from the
     /// enclosing `.app` bundle's Info.plist when the executable lives in one.
+    ///
+    /// Only a Lungfish Info.plist lends a key. A host's own, such as xctest's
+    /// in a test run, lends nothing, so the host's version never stands for
+    /// Lungfish's and a test run records what a bare `lungfish-cli` records.
     public static var currentAppVersion: String {
         appVersion(
             infoDictionary: Bundle.main.infoDictionary ?? [:],
@@ -170,12 +174,14 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
     }
 
     /// `currentAppVersion` for explicit Info.plist dictionaries (testable).
+    /// A dictionary that is not a Lungfish Info.plist lends no key.
     public static func appVersion(
         infoDictionary: [String: Any],
         enclosingAppInfoDictionary: [String: Any]? = nil
     ) -> String {
+        let lungfishInfo = [infoDictionary, enclosingAppInfoDictionary ?? [:]].filter(isLungfishInfoDictionary)
         func value(_ key: String) -> String? {
-            for dictionary in [infoDictionary, enclosingAppInfoDictionary ?? [:]] {
+            for dictionary in lungfishInfo {
                 if let text = (dictionary[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !text.isEmpty {
                     return text
@@ -188,6 +194,17 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
         let version = (plistVersion?.isEmpty == false) ? plistVersion! : LungfishAppVersion.short
         let build = (plistBuild?.isEmpty == false) ? plistBuild! : "dev"
         return "Lungfish \(version) (\(build))"
+    }
+
+    /// The identity keys of a Lungfish Info.plist. Every plist the repo ships carries
+    /// `LungfishReleaseChannel` (`Lungfish-Info.plist`, `LungfishCLI-Info.plist`), and a fork's
+    /// also carries the other two. They are the keys `RuntimeAppIdentityResolver` reads to tell
+    /// Lungfish's metadata from a host's (`Sources/LungfishCore/AppIdentity.swift`).
+    static let lungfishIdentityKeys = ["LungfishReleaseChannel", "LungfishRuntimeNamespace", "LungfishIdentitySchemaVersion"]
+
+    /// Whether `info` is a Lungfish Info.plist, the app's or the identity plist its CLI embeds.
+    static func isLungfishInfoDictionary(_ info: [String: Any]) -> Bool {
+        lungfishIdentityKeys.contains { info[$0] != nil }
     }
 
     /// The release version alone (`2026.9.72`), for a step LGE itself
