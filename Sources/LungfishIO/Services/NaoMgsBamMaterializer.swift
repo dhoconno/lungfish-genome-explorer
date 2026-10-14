@@ -246,6 +246,16 @@ public enum NaoMgsBamMaterializer {
         return !str.isEmpty && str != "NA"
     }
 
+    /// Runs `body` with the descriptor of a pipe's write end, then closes the end through its `FileHandle`.
+    ///
+    /// The handle owns the descriptor, so it is also the one that closes it. A `close(2)` on the number would leave the
+    /// handle believing it still owns it, and releasing the `Pipe` would close the number a second time, after another
+    /// thread was handed it. `FileHandle.close()` closes the descriptor once and marks the handle closed.
+    static func streamThenClose(_ handle: FileHandle, _ body: (Int32) -> Void) {
+        defer { try? handle.close() }
+        body(handle.fileDescriptor)
+    }
+
     /// Streams SAM records from the database directly into a samtools pipeline
     /// to produce a sorted, indexed BAM file. Never accumulates the full SAM
     /// text in memory -- O(1) memory for the alignment data.
@@ -322,8 +332,12 @@ public enum NaoMgsBamMaterializer {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errPipe
 
-        // Ignore SIGPIPE so broken pipe doesn't kill our process
-        signal(SIGPIPE, SIG_IGN)
+        // A write to a samtools that has died fails with EPIPE, which the writer below stops on. Setting this on the
+        // write end, before samtools exists, keeps a dead reader from raising SIGPIPE here, and it leaves the signal
+        // disposition of the rest of the process alone.
+        guard fcntl(inPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
 
         let pipelineClock = ProvenanceRunClock()
         try process.run()
@@ -332,7 +346,7 @@ public enum NaoMgsBamMaterializer {
         //    Uses POSIX write() on the raw file descriptor to avoid
         //    NSFileHandle's uncatchable ObjC exception on broken pipe.
         //    Runs on a background queue to avoid blocking the caller.
-        let pipeFD = inPipe.fileHandleForWriting.fileDescriptor
+        let writeHandle = inPipe.fileHandleForWriting
         final class ErrorBox: @unchecked Sendable {
             var value: Error?
         }
@@ -348,179 +362,179 @@ public enum NaoMgsBamMaterializer {
         let writeGroup = DispatchGroup()
         writeGroup.enter()
         DispatchQueue.global(qos: .userInitiated).async {
-            defer {
-                Darwin.close(pipeFD)
-                writeGroup.leave()
-            }
+            defer { writeGroup.leave() }
 
-            /// Writes all bytes to the file descriptor, handling partial writes.
-            /// Returns false on EPIPE (broken pipe) so the caller can stop.
-            func writeAll(_ data: Data) -> Bool {
-                data.withUnsafeBytes { rawBuffer in
-                    guard let baseAddress = rawBuffer.baseAddress else { return true }
-                    var offset = 0
-                    while offset < data.count {
-                        let written = Darwin.write(pipeFD, baseAddress + offset, data.count - offset)
-                        if written < 0 {
-                            if errno == EINTR { continue }  // interrupted -- retry
-                            return false  // EPIPE or other error -- stop
+            // The write handle closes the pipe's write end when the stream is done, which gives samtools end of file.
+            streamThenClose(writeHandle) { pipeFD in
+                /// Writes all bytes to the file descriptor, handling partial writes.
+                /// Returns false on EPIPE (broken pipe) so the caller can stop.
+                func writeAll(_ data: Data) -> Bool {
+                    data.withUnsafeBytes { rawBuffer in
+                        guard let baseAddress = rawBuffer.baseAddress else { return true }
+                        var offset = 0
+                        while offset < data.count {
+                            let written = Darwin.write(pipeFD, baseAddress + offset, data.count - offset)
+                            if written < 0 {
+                                if errno == EINTR { continue }  // interrupted -- retry
+                                return false  // EPIPE or other error -- stop
+                            }
+                            offset += written
                         }
-                        offset += written
+                        return true
                     }
-                    return true
                 }
-            }
 
-            if let headerData = headerText.data(using: .utf8) {
-                guard writeAll(headerData) else {
-                    writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
-                                               userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM header"])
+                if let headerData = headerText.data(using: .utf8) {
+                    guard writeAll(headerData) else {
+                        writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
+                                                   userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM header"])
+                        return
+                    }
+                }
+
+                let db = database.value
+                let hasPairedColumns = virusHitsHasPairedColumns(db: db)
+                var rowStmt: OpaquePointer?
+                let rowSQL: String
+                if hasPairedColumns {
+                    rowSQL = """
+                    SELECT seq_id, subject_seq_id, ref_start, cigar, read_sequence, read_quality, is_reverse_complement,
+                           ref_start_rev, read_sequence_rev, read_quality_rev, edit_distance_rev, query_length_rev,
+                           is_reverse_complement_rev
+                    FROM virus_hits
+                    WHERE sample = ?
+                    """
+                } else {
+                    rowSQL = """
+                    SELECT seq_id, subject_seq_id, ref_start, cigar, read_sequence, read_quality, is_reverse_complement
+                    FROM virus_hits
+                    WHERE sample = ?
+                    """
+                }
+                guard sqlite3_prepare_v2(db, rowSQL, -1, &rowStmt, nil) == SQLITE_OK else {
+                    writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 4,
+                                               userInfo: [NSLocalizedDescriptionKey: "Could not prepare row query"])
                     return
                 }
-            }
-
-            let db = database.value
-            let hasPairedColumns = virusHitsHasPairedColumns(db: db)
-            var rowStmt: OpaquePointer?
-            let rowSQL: String
-            if hasPairedColumns {
-                rowSQL = """
-                SELECT seq_id, subject_seq_id, ref_start, cigar, read_sequence, read_quality, is_reverse_complement,
-                       ref_start_rev, read_sequence_rev, read_quality_rev, edit_distance_rev, query_length_rev,
-                       is_reverse_complement_rev
-                FROM virus_hits
-                WHERE sample = ?
-                """
-            } else {
-                rowSQL = """
-                SELECT seq_id, subject_seq_id, ref_start, cigar, read_sequence, read_quality, is_reverse_complement
-                FROM virus_hits
-                WHERE sample = ?
-                """
-            }
-            guard sqlite3_prepare_v2(db, rowSQL, -1, &rowStmt, nil) == SQLITE_OK else {
-                writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 4,
-                                           userInfo: [NSLocalizedDescriptionKey: "Could not prepare row query"])
-                return
-            }
-            defer { sqlite3_finalize(rowStmt) }
-            _ = sample.withCString { cStr in
-                sqlite3_bind_text(rowStmt, 1, cStr, -1, sqliteTransientDestructor)
-            }
-
-            while sqlite3_step(rowStmt) == SQLITE_ROW {
-                // seq_id and subject_seq_id are always present (never NULL)
-                guard let seqIdPtr = sqlite3_column_text(rowStmt, 0),
-                      let subjPtr = sqlite3_column_text(rowStmt, 1) else { continue }
-                let qname = String(cString: seqIdPtr)
-                let rname = String(cString: subjPtr)
-
-                // Check R1 availability: ref_start not NULL AND read_sequence valid
-                let hasR1: Bool = sqlite3_column_type(rowStmt, 2) != SQLITE_NULL
-                    && isValidSequence(sqlite3_column_text(rowStmt, 4))
-
-                // Check R2 availability: ref_start_rev not NULL AND read_sequence_rev valid
-                let hasR2: Bool = hasPairedColumns
-                    && sqlite3_column_type(rowStmt, 7) != SQLITE_NULL
-                    && isValidSequence(sqlite3_column_text(rowStmt, 8))
-
-                // Skip rows where neither R1 nor R2 has valid data
-                if !hasR1 && !hasR2 { continue }
-
-                // Extract R1 fields (only when hasR1)
-                let refStart = hasR1 ? Int(sqlite3_column_int64(rowStmt, 2)) : 0
-                let cigar: String = {
-                    guard hasR1, let ptr = sqlite3_column_text(rowStmt, 3) else { return "" }
-                    let s = String(cString: ptr)
-                    return s.isEmpty ? "" : s
-                }()
-                let seq: String = {
-                    guard hasR1, let ptr = sqlite3_column_text(rowStmt, 4) else { return "" }
-                    return String(cString: ptr)
-                }()
-                let qual: String = {
-                    guard hasR1, let ptr = sqlite3_column_text(rowStmt, 5) else { return "" }
-                    return String(cString: ptr)
-                }()
-                let isReverse = hasR1 ? sqlite3_column_int(rowStmt, 6) != 0 : false
-
-                // Validate R1 data: if flagged as present but CIGAR empty and seq invalid, downgrade
-                let validR1 = hasR1 && !seq.isEmpty && seq != "NA" && !cigar.isEmpty
-
-                // Extract R2 fields (only when hasR2)
-                let refStartRev = hasR2 ? Int(sqlite3_column_int64(rowStmt, 7)) : 0
-                let seqRev: String = {
-                    guard hasR2, let ptr = sqlite3_column_text(rowStmt, 8) else { return "" }
-                    return String(cString: ptr)
-                }()
-                let qualRev: String = {
-                    guard hasR2, let ptr = sqlite3_column_text(rowStmt, 9) else { return "" }
-                    return String(cString: ptr)
-                }()
-                let queryLengthRev = hasR2 ? Int(sqlite3_column_int(rowStmt, 11)) : 0
-                let isReverseRev = hasR2 ? sqlite3_column_int(rowStmt, 12) != 0 : false
-                let validR2 = hasR2 && !seqRev.isEmpty && seqRev != "NA" && !qualRev.isEmpty
-
-                // Skip if neither mate produced valid data after extraction
-                if !validR1 && !validR2 { continue }
-
-                func writeSAMLine(_ line: String) -> Bool {
-                    guard let lineData = line.data(using: .utf8) else { return true }
-                    return writeAll(lineData)
+                defer { sqlite3_finalize(rowStmt) }
+                _ = sample.withCString { cStr in
+                    sqlite3_bind_text(rowStmt, 1, cStr, -1, sqliteTransientDestructor)
                 }
 
-                if validR1 && validR2 {
-                    // Case 1: Both R1 + R2 -- emit paired SAM records
-                    let mate1Span = referenceSpan(start: refStart, cigar: cigar, sequence: seq, fallbackLength: seq.count)
-                    let mate2Cigar = "\(max(1, queryLengthRev > 0 ? queryLengthRev : seqRev.count))M"
-                    let mate2Span = referenceSpan(start: refStartRev, cigar: mate2Cigar, sequence: seqRev, fallbackLength: seqRev.count)
-                    let leftmostStart = min(refStart, refStartRev)
-                    let rightmostEnd = max(refStart + mate1Span, refStartRev + mate2Span)
-                    let templateLength = max(1, rightmostEnd - leftmostStart)
+                while sqlite3_step(rowStmt) == SQLITE_ROW {
+                    // seq_id and subject_seq_id are always present (never NULL)
+                    guard let seqIdPtr = sqlite3_column_text(rowStmt, 0),
+                          let subjPtr = sqlite3_column_text(rowStmt, 1) else { continue }
+                    let qname = String(cString: seqIdPtr)
+                    let rname = String(cString: subjPtr)
 
-                    let properPair = 0x2
-                    let mateReverse1 = isReverseRev ? 0x20 : 0
-                    let mateReverse2 = isReverse ? 0x20 : 0
-                    let firstPos = refStart + 1
-                    let secondPos = refStartRev + 1
-                    let firstTLen = refStart <= refStartRev ? templateLength : -templateLength
-                    let secondTLen = -firstTLen
-                    let firstFlag = 0x1 | properPair | 0x40 | mateReverse1 | (isReverse ? 0x10 : 0)
-                    let secondFlag = 0x1 | properPair | 0x80 | mateReverse2 | (isReverseRev ? 0x10 : 0)
+                    // Check R1 availability: ref_start not NULL AND read_sequence valid
+                    let hasR1: Bool = sqlite3_column_type(rowStmt, 2) != SQLITE_NULL
+                        && isValidSequence(sqlite3_column_text(rowStmt, 4))
 
-                    let firstLine = "\(qname)\t\(firstFlag)\t\(rname)\t\(firstPos)\t60\t\(cigar)\t=\t\(secondPos)\t\(firstTLen)\t\(seq)\t\(qual)\n"
-                    guard writeSAMLine(firstLine) else {
-                        writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
-                                                   userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing mate 1 SAM record for sample \(sample)"])
-                        return
+                    // Check R2 availability: ref_start_rev not NULL AND read_sequence_rev valid
+                    let hasR2: Bool = hasPairedColumns
+                        && sqlite3_column_type(rowStmt, 7) != SQLITE_NULL
+                        && isValidSequence(sqlite3_column_text(rowStmt, 8))
+
+                    // Skip rows where neither R1 nor R2 has valid data
+                    if !hasR1 && !hasR2 { continue }
+
+                    // Extract R1 fields (only when hasR1)
+                    let refStart = hasR1 ? Int(sqlite3_column_int64(rowStmt, 2)) : 0
+                    let cigar: String = {
+                        guard hasR1, let ptr = sqlite3_column_text(rowStmt, 3) else { return "" }
+                        let s = String(cString: ptr)
+                        return s.isEmpty ? "" : s
+                    }()
+                    let seq: String = {
+                        guard hasR1, let ptr = sqlite3_column_text(rowStmt, 4) else { return "" }
+                        return String(cString: ptr)
+                    }()
+                    let qual: String = {
+                        guard hasR1, let ptr = sqlite3_column_text(rowStmt, 5) else { return "" }
+                        return String(cString: ptr)
+                    }()
+                    let isReverse = hasR1 ? sqlite3_column_int(rowStmt, 6) != 0 : false
+
+                    // Validate R1 data: if flagged as present but CIGAR empty and seq invalid, downgrade
+                    let validR1 = hasR1 && !seq.isEmpty && seq != "NA" && !cigar.isEmpty
+
+                    // Extract R2 fields (only when hasR2)
+                    let refStartRev = hasR2 ? Int(sqlite3_column_int64(rowStmt, 7)) : 0
+                    let seqRev: String = {
+                        guard hasR2, let ptr = sqlite3_column_text(rowStmt, 8) else { return "" }
+                        return String(cString: ptr)
+                    }()
+                    let qualRev: String = {
+                        guard hasR2, let ptr = sqlite3_column_text(rowStmt, 9) else { return "" }
+                        return String(cString: ptr)
+                    }()
+                    let queryLengthRev = hasR2 ? Int(sqlite3_column_int(rowStmt, 11)) : 0
+                    let isReverseRev = hasR2 ? sqlite3_column_int(rowStmt, 12) != 0 : false
+                    let validR2 = hasR2 && !seqRev.isEmpty && seqRev != "NA" && !qualRev.isEmpty
+
+                    // Skip if neither mate produced valid data after extraction
+                    if !validR1 && !validR2 { continue }
+
+                    func writeSAMLine(_ line: String) -> Bool {
+                        guard let lineData = line.data(using: .utf8) else { return true }
+                        return writeAll(lineData)
                     }
 
-                    let secondLine = "\(qname)\t\(secondFlag)\t\(rname)\t\(secondPos)\t60\t\(mate2Cigar)\t=\t\(firstPos)\t\(secondTLen)\t\(seqRev)\t\(qualRev)\n"
-                    guard writeSAMLine(secondLine) else {
-                        writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
-                                                   userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing mate 2 SAM record for sample \(sample)"])
-                        return
-                    }
-                } else if validR1 {
-                    // Case 2: R1 only -- emit single unpaired SAM record from R1
-                    let flag = isReverse ? 16 : 0
-                    let pos = refStart + 1
-                    let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(cigar)\t*\t0\t0\t\(seq)\t\(qual)\n"
-                    guard writeSAMLine(line) else {
-                        writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
-                                                   userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM record for sample \(sample)"])
-                        return
-                    }
-                } else {
-                    // Case 3: R2 only -- emit single unpaired SAM record from R2
-                    let flag = isReverseRev ? 16 : 0
-                    let pos = refStartRev + 1
-                    let r2Cigar = "\(max(1, queryLengthRev > 0 ? queryLengthRev : seqRev.count))M"
-                    let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(r2Cigar)\t*\t0\t0\t\(seqRev)\t\(qualRev)\n"
-                    guard writeSAMLine(line) else {
-                        writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
-                                                   userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing R2-only SAM record for sample \(sample)"])
-                        return
+                    if validR1 && validR2 {
+                        // Case 1: Both R1 + R2 -- emit paired SAM records
+                        let mate1Span = referenceSpan(start: refStart, cigar: cigar, sequence: seq, fallbackLength: seq.count)
+                        let mate2Cigar = "\(max(1, queryLengthRev > 0 ? queryLengthRev : seqRev.count))M"
+                        let mate2Span = referenceSpan(start: refStartRev, cigar: mate2Cigar, sequence: seqRev, fallbackLength: seqRev.count)
+                        let leftmostStart = min(refStart, refStartRev)
+                        let rightmostEnd = max(refStart + mate1Span, refStartRev + mate2Span)
+                        let templateLength = max(1, rightmostEnd - leftmostStart)
+
+                        let properPair = 0x2
+                        let mateReverse1 = isReverseRev ? 0x20 : 0
+                        let mateReverse2 = isReverse ? 0x20 : 0
+                        let firstPos = refStart + 1
+                        let secondPos = refStartRev + 1
+                        let firstTLen = refStart <= refStartRev ? templateLength : -templateLength
+                        let secondTLen = -firstTLen
+                        let firstFlag = 0x1 | properPair | 0x40 | mateReverse1 | (isReverse ? 0x10 : 0)
+                        let secondFlag = 0x1 | properPair | 0x80 | mateReverse2 | (isReverseRev ? 0x10 : 0)
+
+                        let firstLine = "\(qname)\t\(firstFlag)\t\(rname)\t\(firstPos)\t60\t\(cigar)\t=\t\(secondPos)\t\(firstTLen)\t\(seq)\t\(qual)\n"
+                        guard writeSAMLine(firstLine) else {
+                            writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
+                                                       userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing mate 1 SAM record for sample \(sample)"])
+                            return
+                        }
+
+                        let secondLine = "\(qname)\t\(secondFlag)\t\(rname)\t\(secondPos)\t60\t\(mate2Cigar)\t=\t\(firstPos)\t\(secondTLen)\t\(seqRev)\t\(qualRev)\n"
+                        guard writeSAMLine(secondLine) else {
+                            writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
+                                                       userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing mate 2 SAM record for sample \(sample)"])
+                            return
+                        }
+                    } else if validR1 {
+                        // Case 2: R1 only -- emit single unpaired SAM record from R1
+                        let flag = isReverse ? 16 : 0
+                        let pos = refStart + 1
+                        let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(cigar)\t*\t0\t0\t\(seq)\t\(qual)\n"
+                        guard writeSAMLine(line) else {
+                            writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
+                                                       userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM record for sample \(sample)"])
+                            return
+                        }
+                    } else {
+                        // Case 3: R2 only -- emit single unpaired SAM record from R2
+                        let flag = isReverseRev ? 16 : 0
+                        let pos = refStartRev + 1
+                        let r2Cigar = "\(max(1, queryLengthRev > 0 ? queryLengthRev : seqRev.count))M"
+                        let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(r2Cigar)\t*\t0\t0\t\(seqRev)\t\(qualRev)\n"
+                        guard writeSAMLine(line) else {
+                            writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
+                                                       userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing R2-only SAM record for sample \(sample)"])
+                            return
+                        }
                     }
                 }
             }
