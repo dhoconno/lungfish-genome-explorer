@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MIT
 //
 // The sidebar calls `rehydrateScientificProvenance(from:to:)` after a rename, a duplicate, a move to a folder, a drag
-// move and a drag copy, once the file system has moved or copied the item. It moved here from SidebarViewController.swift
-// with no change, since that file sits at its line baseline.
+// move and a drag copy, once the file system has moved or copied the item. It moved here from SidebarViewController.swift,
+// which sits at its line baseline, and a plain folder in a project now takes the path rehydrator first (2.10 R-REBIND,
+// SidebarMoveOfABuiltResultFolderReplayTests). A file and a `.lungfish*` bundle keep the schema-aware path.
 
 import AppKit
 import LungfishOperations
@@ -14,6 +15,16 @@ import os.log
 extension SidebarViewController {
 
     func rehydrateScientificProvenance(from sourceURL: URL, to destinationURL: URL) {
+        // A plain folder holds its records inside it, and the schema-aware path would take the project as its root.
+        // The last condition keeps a folder inside any other `.lungfish*` bundle on that path.
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: destinationURL.path, isDirectory: &isDirectory), isDirectory.boolValue,
+           !ProvenanceWriter.isBundleDirectory(destinationURL),
+           GUIImportedProvenanceRehydrator.finalBundleRoot(containing: destinationURL)?.pathExtension.lowercased() == "lungfish" {
+            fallbackToPathRehydration(from: sourceURL, to: destinationURL)
+            return
+        }
+
         if GUIImportedProvenanceRehydrator.finalBundleRoot(containing: destinationURL) != nil {
             do {
                 try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(from: sourceURL, to: destinationURL)

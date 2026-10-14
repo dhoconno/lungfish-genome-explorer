@@ -7,15 +7,15 @@
 // cleanup stops changing the files the classifier's record names.
 //
 // The sidebar copies an item with `FileManager.copyItem` and then calls `rehydrateScientificProvenance`
-// (`SidebarViewController.swift:945`). Two shapes of item carry a record.
+// (`SidebarViewController+ScientificProvenance.swift`). Two shapes of item carry a record.
 //
-// - A file with a sidecar next to it (the database, a BAM, a result sidecar). The schema-aware path at `:948` finds the
-//   sidecar, holds with no fallback and writes the copy's record into the project.
-// - A result folder. The rehydrator looks for a record beside the folder, at the project root and in the project's
-//   `provenance/` folder (`GUIImportedProvenanceRehydrator.loadSourceEnvelopeRecord`), and never for the folder's own
-//   `.lungfish-provenance.json`, so `:948` ends in `missingSourceProvenance`, the relocated path finds nothing either
-//   and the copy keeps every record of the source as it was. Those records hold project-relative paths, which name the
-//   source folder's files, so the folder half of each test checks the source as `build-db` left it, not the copy.
+// - A file with a sidecar next to it (the database, a BAM, a result sidecar). The schema-aware path finds the sidecar,
+//   holds with no fallback and writes the copy's record into the project.
+// - A result folder. A plain folder in a project holds its own records, which the schema-aware path never read, so the
+//   sidebar rebinds them with `ProvenancePathRehydrator` (2.10 R-REBIND, SidebarMoveOfABuiltResultFolderReplayTests)
+//   and the copy's records name the copy's files. Before that the copy kept every record of the source, which named the
+//   source folder's files, and the folder half of each test checked the source as `build-db` left it. It now reads the
+//   copy's own files.
 //
 // Both results are built in process with stand-ins, `build-db esviritu` over placeholder BAMs and `build-db kraken2`
 // over `Tests/Fixtures/kraken2-mini`, so no real tool runs. The class name ends in ReplayTests, which sends it to the
@@ -48,8 +48,8 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
 
     // MARK: - The pin
 
-    /// A pin. A copy of a built EsViritu batch holds its records as the build left them, and each names files that exist
-    /// with the digests it states. A step may name a `_temp/` BAM that the move took away when a removal step of its
+    /// A pin. A copy of a built EsViritu batch holds the records the build left, rebound to the copy's files, and each
+    /// names files that exist with the digests it states. A step may name a `_temp/` BAM that the move took away when a removal step of its
     /// record says so (P1 of Phase 2.8), and the run level names only what is on disk (B3).
     func testASidebarCopyOfABuiltEsVirituBatchHoldsRecordsThatNameExistingFiles() async throws {
         let batch = project.appendingPathComponent("Analyses/esviritu-batch", isDirectory: true)
@@ -109,7 +109,7 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
         return destination
     }
 
-    /// For each file of `folder` named in `relativePaths`, a copy through the sidebar finds the file's sidecar at `:948`,
+    /// For each file of `folder` named in `relativePaths`, a copy through the sidebar finds the file's sidecar in the schema-aware path,
     /// and what the rehydration wrote is the copy's record. It is the project's output sidecar, not a sidecar beside
     /// the copy (the fallback), and it ends in the import step and names the copy with the digest the copy has.
     private func assertFilesWithASidecarRehydrate(in folder: URL, _ relativePaths: [String]) throws {
@@ -122,7 +122,7 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
             let sidecar = try XCTUnwrap(
                 ProvenanceWriter.bundleOutputSidecarURL(for: copy, inBundle: project), "\(relativePath) has a place in the project's records"
             )
-            let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecar), "\(relativePath) was rehydrated at :948")
+            let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecar), "\(relativePath) was rehydrated by the schema-aware path")
             XCTAssertEqual(record.steps.last?.toolName, "lungfish-app", "\(relativePath) ends in the import step")
             let named = record.outputs.first { BuiltResultRecordChecks.resolved($0.path) == BuiltResultRecordChecks.resolved(copy.path) }
             XCTAssertNotNil(named, "\(relativePath) names its copy")
