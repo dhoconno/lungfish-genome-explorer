@@ -29,6 +29,10 @@ struct EsVirituResultIndexing: AnalysisResultIndexing {
         }
     }
 
+    /// The command's cancel request, which can report a SIGTERM before the run's task is cancelled, as the
+    /// executor's `cancelRequested` does. The core reads it beside the task's cancel (2.8 row 266, lane S33).
+    var cancelRequested: @Sendable () -> Bool = { false }
+
     func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
         guard request.toolID == .esviritu else {
             throw IndexingError.notEsViritu(request.toolID)
@@ -37,7 +41,8 @@ struct EsVirituResultIndexing: AnalysisResultIndexing {
             progress: { _, _ in },
             text: { line in request.log(.info, line) },
             textWarning: { line in request.log(.info, line) },
-            warning: { line in request.log(.info, line) }
+            warning: { line in request.log(.info, line) },
+            cancelRequested: cancelRequested
         )
         let built = try await BuildDbCommand.EsVirituSubcommand.buildDatabase(
             in: request.resultDirectory,

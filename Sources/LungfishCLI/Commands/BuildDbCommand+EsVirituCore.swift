@@ -73,7 +73,7 @@ extension BuildDbCommand {
             }
 
             let provenanceInputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: resultURL)
-            let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector()
+            let samtoolsProvenance = BuildDbSamtoolsProvenanceCollector(handOver: events.step)
             let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
             var relocationSteps: [ProvenanceStep] = []
             var cleanupSteps: [ProvenanceStep] = []

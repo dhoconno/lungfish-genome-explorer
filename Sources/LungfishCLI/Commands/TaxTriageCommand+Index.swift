@@ -22,6 +22,10 @@ import LungfishWorkflow
 /// before then, so a cancel inside it, the cleanup included, keeps none of its steps until the core
 /// hands each over as it ends (lane S33).
 struct TaxTriageResultIndexer: AnalysisResultIndexing {
+    /// The command's cancel request, which can report a SIGTERM before the run's task is cancelled, as the
+    /// executor's `cancelRequested` does. The core reads it beside the task's cancel (2.8 row 266, lane S33).
+    var cancelRequested: @Sendable () -> Bool = { false }
+
     func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
         guard request.toolID == .taxtriage else {
             throw AnalysisRunError.noResultIndexer(request.toolID)
@@ -36,7 +40,8 @@ struct TaxTriageResultIndexer: AnalysisResultIndexing {
             progress: { _, _ in },
             text: { request.log(.info, $0) },
             textWarning: { request.log(.warning, $0) },
-            warning: { request.log(.warning, $0) }
+            warning: { request.log(.warning, $0) },
+            cancelRequested: cancelRequested
         )
         let built = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(
             in: request.resultDirectory,

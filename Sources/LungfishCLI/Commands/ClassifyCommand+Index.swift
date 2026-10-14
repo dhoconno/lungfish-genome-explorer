@@ -17,6 +17,10 @@ import LungfishWorkflow
 /// R6). The core hands back no step before it returns, so a cancel inside it keeps none of its
 /// steps, those that ended included, until the core hands each over as it ends (lane S33).
 struct Kraken2ResultIndexer: AnalysisResultIndexing {
+    /// The command's cancel request, which can report a SIGTERM before the run's task is cancelled, as the
+    /// executor's `cancelRequested` does. The core reads it beside the task's cancel (2.8 row 266, lane S33).
+    var cancelRequested: @Sendable () -> Bool = { false }
+
     func buildIndex(_ request: AnalysisResultIndexRequest) async throws -> AnalysisResultIndex {
         guard request.toolID == .kraken2 else {
             throw AnalysisRunError.noResultIndexer(request.toolID)
@@ -39,7 +43,8 @@ struct Kraken2ResultIndexer: AnalysisResultIndexing {
             progress: { _, _ in },
             text: { request.log(.info, $0) },
             textWarning: { request.log(.warning, $0) },
-            warning: { request.log(.warning, $0) }
+            warning: { request.log(.warning, $0) },
+            cancelRequested: cancelRequested
         )
         let built = try await BuildDbCommand.Kraken2Subcommand.buildDatabase(
             in: request.resultDirectory,

@@ -18,11 +18,31 @@ struct BuildDbEventSink: Sendable {
     /// has always printed its warnings, such as a failed `samtools markdup`.
     let textWarning: @Sendable (String) -> Void
     let warning: @Sendable (String) -> Void
+    /// Takes each step of the run's record once it ended whole, in its final form and in the order the record
+    /// lists it, so a caller that writes a record of its own keeps the steps that ended when a cancel or a
+    /// failure stops the core (2.9 R6, lane S33). The analysis run executor's index builders pass the
+    /// request's `recordStep`. The commands keep the default, which takes none, since their record is the one
+    /// the core writes.
+    var step: @Sendable (ProvenanceStep) -> Void = { _ in }
+    /// Whether the caller asked for a cancel that the core's task may not show yet, such as a SIGTERM that
+    /// the analysis run executor's `cancelRequested` reports before the task is cancelled (2.8 row 266). The
+    /// default asks for none.
+    var cancelRequested: @Sendable () -> Bool = { false }
 
     /// Reports nothing.
     static let silent = BuildDbEventSink(
         progress: { _, _ in }, text: { _ in }, textWarning: { _ in }, warning: { _ in }
     )
+
+    /// Whether the core's task is cancelled or its caller asked for a cancel.
+    var isCancelled: Bool {
+        Task.isCancelled || cancelRequested()
+    }
+
+    /// Throws `CancellationError` when ``isCancelled``.
+    func checkCancellation() throws {
+        if isCancelled { throw CancellationError() }
+    }
 }
 
 /// The one emitter of `build-db kraken2`, `esviritu` and `taxtriage`, which replaced their private

@@ -17,11 +17,24 @@ enum BuildDbSamtoolsProvenanceError: Error, LocalizedError {
     }
 }
 
+/// The samtools steps of one `build-db` run, in the order they ran. Each step is handed over as it is
+/// recorded, once it ended whole, through `handOver`, the run's ``BuildDbEventSink/step`` (lane S33).
 final class BuildDbSamtoolsProvenanceCollector {
     fileprivate var recordedSteps: [ProvenanceStep] = []
+    private let handOver: @Sendable (ProvenanceStep) -> Void
+
+    init(handOver: @escaping @Sendable (ProvenanceStep) -> Void = { _ in }) {
+        self.handOver = handOver
+    }
 
     var steps: [ProvenanceStep] {
         recordedSteps
+    }
+
+    /// Records `step`, which ended whole, and hands it over.
+    fileprivate func record(_ step: ProvenanceStep) {
+        recordedSteps.append(step)
+        handOver(step)
     }
 }
 
@@ -167,7 +180,7 @@ final class BuildDbSamtoolsProvenanceTracker {
                 toolName: "Lungfish Markdup Replacement", api: "FileManager.replaceItemAt(_:withItemAt:)",
                 removing: replaced, clock: replacementClock
             ) {
-                collector.recordedSteps.append(removal)
+                collector.record(removal)
             }
 
             let total = try await countReads(bamURL: bamURL, accession: nil, flagFilter: 0x004)
@@ -321,7 +334,7 @@ final class BuildDbSamtoolsProvenanceTracker {
         inputs: [ProvenanceFileDescriptor],
         outputs: [ProvenanceFileDescriptor]
     ) throws {
-        collector.recordedSteps.append(
+        collector.record(
             ProvenanceStep(
                 toolName: "samtools",
                 toolVersion: samtoolsVersion,
