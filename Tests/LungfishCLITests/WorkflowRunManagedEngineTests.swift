@@ -164,4 +164,15 @@ final class WorkflowRunManagedEngineTests: XCTestCase {
         XCTAssertTrue(stderr.contains("Required Setup"), stderr)
         XCTAssertNotNil(try ProvenanceEnvelopeReader.loadCanonical(from: runBundleURL))
     }
+
+    #if DEBUG
+    /// A Debug build that finds `LUNGFISH_DOCKER_STANDIN` set always asks the stand-in, so a relative or missing path
+    /// fails the Docker wait instead of reaching the real daemon (SWIFT's ruling on A30 deviation 2). The parity class
+    /// writes the variable's name as a literal, so the name is pinned here.
+    func testASetDockerStandInIsAlwaysTheStandIn() {
+        XCTAssertNotNil(ProcessNFCoreWorkflowProcessRunner.dockerStandIn(in: ["LUNGFISH_DOCKER_STANDIN": "standin/docker"]))
+        XCTAssertNil(ProcessNFCoreWorkflowProcessRunner.dockerStandIn(in: [:]))
+        XCTAssertEqual(ProcessNFCoreWorkflowProcessRunner.dockerStandInVariable, "LUNGFISH_DOCKER_STANDIN")
+    }
+    #endif
 }

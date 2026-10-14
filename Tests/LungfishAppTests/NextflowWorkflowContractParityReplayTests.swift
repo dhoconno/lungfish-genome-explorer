@@ -26,6 +26,8 @@ final class NextflowWorkflowContractParityReplayTests: XCTestCase {
 
     enum ParityError: Error {
         case missingCLI
+        /// The CLI is not the Debug build beside this bundle, so it would not read the named Docker stand-in variable.
+        case cliIgnoresDockerStandIn(variable: String)
     }
 
     override func setUpWithError() throws {
@@ -63,6 +65,13 @@ final class NextflowWorkflowContractParityReplayTests: XCTestCase {
             XCTAssertEqual(run.launches.count, 0, executor.rawValue)
             XCTAssertEqual(run.observed, try Self.fixture(executor.rawValue), executor.rawValue)
         }
+    }
+
+    /// A CLI that would not read the Docker stand-in, such as one `LUNGFISH_CLI_PATH` names, is refused before the
+    /// case writes anything, so no docker case can reach the real daemon (SWIFT's ruling on A30 deviation 2).
+    func testTheDockerCasesRefuseACLIThatIgnoresTheStandIn() throws {
+        XCTAssertThrowsError(try runRoute(.docker, case: "foreign-cli", cli: URL(fileURLWithPath: "/usr/bin/true")))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("foreign-cli/Project").path))
     }
 
     /// Fit difference 3. A bare `workflow run` call, with no `--version`, on a built CLI whose lock holds no Viral

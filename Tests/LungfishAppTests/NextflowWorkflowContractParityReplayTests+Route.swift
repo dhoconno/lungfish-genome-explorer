@@ -161,6 +161,7 @@ extension NextflowWorkflowContractParityReplayTests {
         behaviour: NextflowStandInEngine.Behaviour = .completes
     ) throws -> ViralReconRouteRun {
         let cli = try cli ?? builtCLI()
+        try requireDockerStandInReader(cli)
         let caseRoot = root.appendingPathComponent(name, isDirectory: true)
         let (engine, arguments, environment) = try routeCommand(executor, caseRoot: caseRoot, passesVersion: passesVersion, behaviour: behaviour)
         let result = try ProcessRunner.run(cli, arguments, environment: environment, cwd: caseRoot.appendingPathComponent("Project"), timeout: 120)
@@ -274,6 +275,25 @@ extension NextflowWorkflowContractParityReplayTests {
             throw ParityError.missingCLI
         }
         return cli
+    }
+
+    /// Refuses a CLI that would not read the Docker stand-in, so no case reaches the real daemon (SWIFT's ruling on
+    /// A30 deviation 2). Only a Debug build reads ``dockerStandInVariable``, so the CLI must be the file built beside
+    /// this test bundle, the hard link of ``copyOfTheCLIWithoutThePin()`` included, and a release test build refuses
+    /// every CLI. A CLI that `LUNGFISH_CLI_PATH` or the resolver's other variables name is another file.
+    func requireDockerStandInReader(_ cli: URL) throws {
+        #if DEBUG
+        let beside = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("lungfish-cli")
+        func identity(_ url: URL) -> [Int]? {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path),
+                  let device = (attributes[.systemNumber] as? NSNumber)?.intValue,
+                  let file = (attributes[.systemFileNumber] as? NSNumber)?.intValue
+            else { return nil }
+            return [device, file]
+        }
+        if let built = identity(beside), identity(cli) == built { return }
+        #endif
+        throw ParityError.cliIgnoresDockerStandIn(variable: Self.dockerStandInVariable)
     }
 
     /// A hard link of the built CLI in a folder of its own, beside links to its resource bundles, except that the

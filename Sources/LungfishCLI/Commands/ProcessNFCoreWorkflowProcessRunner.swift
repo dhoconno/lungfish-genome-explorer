@@ -49,10 +49,14 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
     /// release build ignores it whatever a user's environment holds (SWIFT 6).
     static let dockerStandInVariable = "LUNGFISH_DOCKER_STANDIN"
 
-    /// The absolute path `environment` names in ``dockerStandInVariable``, or nil in a release build.
+    /// The path `environment` names in ``dockerStandInVariable``, or nil when it names none or in a release build.
+    ///
+    /// A set variable always names the stand-in, so a relative or missing path fails the Docker wait
+    /// (``NextflowEngineError/dockerDesktopNotStarted(detail:)``) and never reaches the real daemon (SWIFT's
+    /// ruling on A30 deviation 2).
     static func dockerStandIn(in environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
         #if DEBUG
-        guard let path = environment[dockerStandInVariable], path.hasPrefix("/") else { return nil }
+        guard let path = environment[dockerStandInVariable], !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path)
         #else
         return nil
@@ -60,8 +64,10 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
     }
 
     static func defaultProbe() -> any ContainerRuntimeProbing {
-        guard let standIn = dockerStandIn() else { return SystemContainerRuntimeProbe() }
-        return StandInDockerProbe(executable: standIn)
+        #if DEBUG
+        if let standIn = dockerStandIn() { return StandInDockerProbe(executable: standIn) }
+        #endif
+        return SystemContainerRuntimeProbe()
     }
 
     static func defaultDockerWait() -> NextflowDockerWait {
@@ -121,8 +127,9 @@ struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
     }
 }
 
+#if DEBUG
 /// The stand-in `docker` CLI a Debug build's ``ProcessNFCoreWorkflowProcessRunner/dockerStandInVariable`` names, asked
-/// as the system probe asks the real one.
+/// as the system probe asks the real one. A release build has no such type.
 struct StandInDockerProbe: ContainerRuntimeProbing {
     let executable: URL
 
@@ -138,6 +145,7 @@ struct StandInDockerProbe: ContainerRuntimeProbing {
         AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: "not asked of a Docker stand-in")
     }
 }
+#endif
 
 /// Runs a local workflow's engine for `workflow run`, with its output in two log
 /// files that are read and removed when it ends.

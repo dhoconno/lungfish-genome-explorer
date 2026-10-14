@@ -34,6 +34,8 @@ extension NextflowWorkflowContractParityReplayTests {
     /// of its tree left and the run's container stopped. The launch scratch stays for the abandoned-scratch sweep
     /// (P3), and the manifest and the provenance record the run as cancelled (SWIFT 3).
     func testACancelledRunExits125AndLeavesItsScratchForTheSweep() async throws {
+        // The harness launches the CLI the resolver finds, as builtCLI() does, so that CLI must read the stand-in.
+        try requireDockerStandInReader(try builtCLI())
         let caseRoot = root.appendingPathComponent("scratch-cancelled", isDirectory: true)
         let (engine, arguments, environment) = try routeCommand(.docker, caseRoot: caseRoot, behaviour: .waitsUntilCancelled)
         let project = caseRoot.appendingPathComponent("Project", isDirectory: true)
