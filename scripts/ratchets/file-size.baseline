@@ -159,7 +159,7 @@ Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1708
 Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2548
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
-Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 863
+Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 857
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
