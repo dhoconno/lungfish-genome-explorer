@@ -36,8 +36,8 @@ candidate, put that session's closing figures in the log for this session's upda
 | Write only under `SCR/llm/` | No repository edits, no commits, no subagents, no builds or tests, no pushes. The last checkpoint is the one exception, below |
 | Never read a transcript | No `~/.claude/projects/**/*.jsonl` and no persisted tool-result file in your context. Write a script that prints numbers, then read its output with `sed -n` on the lines you need |
 | Batch | Independent reads and script runs go in one message. Put script output in files, not in your context |
-| Guard-safe commands | One command a call when it names an SCR path, since the guard refuses a `;` or `&&` chain that names a path under the checkout folder. Literal paths, no heredoc inside `$(...)`, no `python3 -`, no `( ... ) > file` around a command that names a repository path, timeout 270000 on long calls, `du` of the build folders in the background |
-| Check what you are told | Check every observation in the spawn prompt against the transcripts with a script before you use it. Take times from the transcript stamps, since the typed times in the manager's notes have run up to 75 minutes ahead |
+| Guard-safe commands | One command a call when it names an SCR path, since the guard refuses a `;` or `&&` chain that names a path under the checkout folder. Literal paths, no heredoc inside `$(...)`, no `python3 -`, no `( ... ) > file` around a command that names a repository path, timeout 270000 on long calls, `du` of the build folders in the background. A refusal because the auto mode classifier gave no verdict is a server error, so run the same command once more before changing it |
+| Check what you are told | Check every observation in the spawn prompt against the transcripts with a script before you use it. Take times from the transcript stamps, since the typed times in the manager's notes have run up to 75 minutes ahead and 30 minutes behind |
 | Short final message | At most 200 words, with the spend so far, the top findings and the files you wrote |
 
 ## Checkpoint routine
@@ -70,6 +70,7 @@ An action names the agents by id, the evidence, and the exact text the manager s
 |---|---|
 | Spend and burn | Ledger cost per agent and per 10-minute bucket, $ an hour against the quota line from the window start |
 | Lane size | Tool calls and peak context per lane, spend after the 150th call against a fresh continuation, documentation lanes against their 80-call budget with the files they read |
+| Own counts | Each agent's stop line from its prompt, the count its report states and the ledger's calls, where its commits and report writes fall against the line, and any message that added work past it |
 | Waits | Poll-only turns (every call a wait, a log peek, `ps` or `uptime`), Monitor calls, blocking `until` waits, calls moved to the background |
 | Builds | "Build complete!" durations with the nearest load average and the number of agents building, first builds in fresh worktrees. A build whose output goes to a log file shows only as the gap to the next build start |
 | Cache | Rebuilds (a large cache write after a gap near or over 5 minutes) and the call before each, a long wait plus the model time of the turn that issued it, or one long turn |
@@ -91,7 +92,8 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | A background task that ends after an agent's final message sends an `isMeta` task notification that wakes the agent | Count it as a late wake, with the cache write of the reply |
 | `get_usage` called with a session id from a subagent answers that the session is not found | Call it with no argument, and it reports the manager's context |
 | Subagents write 5-minute cache entries, the main session 1-hour entries | A subagent wait over 5 minutes rebuilds its cache |
-| A session runs past midnight | A helper given an `HH:MM` start earlier than the session's first entry reads it as the next day |
+| A session runs past midnight | A helper given an `HH:MM` start earlier than the session's first entry reads it as the next day, and one later than it as the first day. Give day-two windows in hours past 24 (36:20 is 12:20 on day two) |
+| Claude Code 2.1.295 writes most subagent messages with stop_reason None and the usage of message_start | The ledger charges such a message the output estimated from its content, and a check of its totals needs `cost-state` entries |
 
 ## The last checkpoint
 
