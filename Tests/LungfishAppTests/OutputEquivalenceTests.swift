@@ -400,6 +400,55 @@ final class OutputEquivalenceTests: XCTestCase {
         }
     }
 
+    /// A demultiplex import writes `demux-manifest.json` with the seconds it took in `parameters.wallClockSeconds`.
+    /// Two runs never take the same time, and a file named for a manifest is a record, whose only wall time mask
+    /// is the `Wall Time` display item. So the contract masks the value at that one path in a manifest and nothing
+    /// beside it. The same key at any other path, its absence, every other parameter and every other time key
+    /// are still compared (lane A53 M3, under the rule of the BIO ruling on lane A45 M3c, section b).
+    func testTheDemuxManifestWallClockIsMaskedAndNothingBesideIt() throws {
+        let (a, b) = try makeRoots()
+        let name = "Imports/Run1/demux-manifest.json"
+        let found = { try OutputEquivalence.differences(a, b, kind: .files) }
+        let template = #"{"parameters":{"binCount":4,"tool":"cutadapt","wallClockSeconds":@WALL@},"version":1}"#
+        let withWall = { (text: String, seconds: String) in text.replacingOccurrences(of: "@WALL@", with: seconds) }
+        let wallA = "0.0954"
+        let wallB = "0.164"
+
+        try write(withWall(template, wallA), to: a, name)
+        try write(withWall(template, wallB), to: b, name)
+        XCTAssertEqual(try found(), [], "only the wall clock differs")
+
+        // Each change differs in one file on top of the wall clock. The cases that put a time at another
+        // path hold it on both sides, each with its own seconds.
+        let cases: [(label: String, both: Bool, edit: (String) -> String)] = [
+            ("another parameter's value", false, { $0.replacingOccurrences(of: "cutadapt", with: "demux") }),
+            ("another parameter's count", false, { $0.replacingOccurrences(of: #""binCount":4"#, with: #""binCount":5"#) }),
+            ("no wallClockSeconds", false, { $0.replacingOccurrences(of: #","wallClockSeconds":@WALL@"#, with: "") }),
+            ("parameters.wallTimeSeconds", true, {
+                $0.replacingOccurrences(of: #""tool":"#, with: #""wallTimeSeconds":@WALL@,"tool":"#)
+            }),
+            ("parameters.durationSeconds", true, {
+                $0.replacingOccurrences(of: #""tool":"#, with: #""durationSeconds":@WALL@,"tool":"#)
+            }),
+            ("parameters.timing.wallClockSeconds", true, {
+                $0.replacingOccurrences(of: #""tool":"#, with: #""timing":{"wallClockSeconds":@WALL@},"tool":"#)
+            }),
+            ("wallClockSeconds at the top level", true, {
+                $0.replacingOccurrences(of: #""version":1"#, with: #""version":1,"wallClockSeconds":@WALL@"#)
+            }),
+            ("results.wallClockSeconds", true, {
+                $0.replacingOccurrences(of: #""version":1"#, with: #""results":{"wallClockSeconds":@WALL@},"version":1"#)
+            }),
+        ]
+        for (label, both, edit) in cases {
+            try write(withWall(both ? edit(template) : template, wallA), to: a, name)
+            try write(withWall(edit(template), wallB), to: b, name)
+            let result = try found()
+            XCTAssertEqual(result.count, 1, "\(label): \(result)")
+            XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
+        }
+    }
+
     /// An assembly bundle's manifest lists the run's parameters as display items, a label and a value
     /// in a metadata group, and one of them is `Wall Time`. Two runs never take the same time, so the
     /// contract masks that item's value in a manifest. Every other item, the item's place, any other

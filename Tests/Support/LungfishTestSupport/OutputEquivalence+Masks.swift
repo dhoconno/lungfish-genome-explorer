@@ -33,7 +33,8 @@ extension OutputEquivalence {
         /// The contract's masks. A provenance envelope gets all of them. A
         /// record gets all but the executable path, host, process ID and wall
         /// time keys, which the contract masks in provenance alone, so its
-        /// only wall time mask is the value of a manifest's Wall Time item.
+        /// only wall time masks are the value of a manifest's Wall Time item
+        /// and of its `parameters.wallClockSeconds`.
         /// A file name gets the UUID and run ID masks. Payload text, request
         /// bodies and plans get the roots and run wall time masks and a FASTQ
         /// sidecar's three clock values alone, so any other date, a host or a
@@ -47,6 +48,7 @@ extension OutputEquivalence {
                 Masks.isoTimestamps,
                 Masks.epochValues,
                 Masks.manifestWallTime,
+                Masks.demuxManifestWallClock,
             ]
             return MaskPolicy(
                 provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
@@ -179,6 +181,25 @@ extension OutputEquivalence {
                 changed = true
             }
             return sidecar
+        }
+
+        /// The seconds a FASTQ demultiplex import took, which `demux-manifest.json` records as the top-level
+        /// `parameters.wallClockSeconds`, set to `<DURATION>` where it is present. That one path alone, so the same
+        /// key at any other path, its absence, every other parameter and every other time key are compared as
+        /// written (lane A53 M3, under the rule of the BIO ruling on lane A45 M3c, section b).
+        public static let demuxManifestWallClock = Mask(name: "demuxManifestWallClock") { text, _ in
+            rewritingJSON(text) { value, changed in maskDemuxWallClock(in: value, changed: &changed) }
+        }
+
+        static func maskDemuxWallClock(in value: Any, changed: inout Bool) -> Any {
+            guard var manifest = value as? [String: Any],
+                  var parameters = manifest["parameters"] as? [String: Any],
+                  parameters["wallClockSeconds"] != nil
+            else { return value }
+            parameters["wallClockSeconds"] = "<DURATION>"
+            manifest["parameters"] = parameters
+            changed = true
+            return manifest
         }
 
         /// Sets the `value` of a display item labelled exactly `Wall Time` to `<DURATION>`, the wall time
