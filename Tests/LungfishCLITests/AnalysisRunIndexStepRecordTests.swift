@@ -95,8 +95,8 @@ final class AnalysisRunIndexStepRecordTests: XCTestCase {
     /// A cancel inside the build, once the core wrote the database and before its next check, ends
     /// the core with the cancel. The core puts back the folder's earlier database, none here, so the
     /// cancelled record keeps the units' steps, names none of the build's and holds no digest of a
-    /// database that is not there. A cancel inside a core keeps none of the core's steps, those
-    /// that ended included, until the cores hand each over as it ends (lane S33).
+    /// database that is not there. No step of the core has ended at that line, so none goes over.
+    /// `BuildDbCoreStepHandOverTests` cancels at each later step boundary (lane S33).
     func testACancelInsideTheEsVirituBuildKeepsNoneOfItsStepsAndNoDigestOfItsDatabase() async throws {
         let indexer = CapturingIndexer(base: EsVirituResultIndexing())
 

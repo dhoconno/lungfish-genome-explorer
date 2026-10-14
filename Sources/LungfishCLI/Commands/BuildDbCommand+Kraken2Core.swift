@@ -61,13 +61,15 @@ extension BuildDbCommand {
         /// `options.noCleanup`, records the run beside the database and returns what it built. A database that
         /// exists is kept unless `options.force`.
         ///
-        /// A cancel of the caller's task, or one the sink's `cancelRequested` reports (2.8 row 266), ends the build
-        /// with `CancellationError` at its next check. The checks come before each sample folder is read or compacted and before the database and the record are
-        /// written, so a folder whose compaction has started is finished first. The database of an earlier
-        /// build is put back and no record of a failed build is written, so a cancelled build leaves no
-        /// database and no record (plan decision E5 of Phase 2.7). The folders compacted before the cancel stay
-        /// compacted, with their result sidecar updated, and no record names that step. A cancel after the check
-        /// before the record is not seen, and the build completes.
+        /// A cancel of the caller's task, or one the sink's `cancelRequested` reports (2.8 row 266), ends the
+        /// build with `CancellationError` at its next check. The checks come before each sample folder is read
+        /// or compacted and before the database and the record are written, so a folder whose compaction has
+        /// started is finished first. The database of an earlier build is put back and no record of a failed
+        /// build is written, so a cancelled build leaves no database and no record (plan decision E5 of Phase
+        /// 2.7). The folders compacted before the cancel stay compacted, with their result sidecar updated, and
+        /// no record of the core names that step, which the sink's `step` took as it ended (lane S33). The build
+        /// step goes there once the database is kept. A cancel after the check before the record is not seen,
+        /// and the build completes.
         static func buildDatabase(
             in resultURL: URL,
             options: BuildDbRunOptions,
@@ -138,6 +140,9 @@ extension BuildDbCommand {
                     events: events
                 )
                 try databaseSnapshot.discard()
+                // The build step names the database, so it goes over only once no catch can put the earlier one
+                // back. The steps before it went over as each ended (lane S33).
+                if let buildStep = record.steps.last { events.step(buildStep) }
                 return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
                 do {
@@ -437,9 +442,9 @@ extension BuildDbCommand {
         /// file is still there while this run's inputs and the classifier's record state the old digest (2.10 B34).
         ///
         /// Throws `CancellationError` before it starts on a folder when the caller's task is cancelled or the
-        /// sink reports a cancel, so a
-        /// folder is compacted whole or not at all. The folders it compacted before the cancel stay compacted,
-        /// and a cancelled build records no step for them.
+        /// sink reports a cancel, so a folder is compacted whole or not at all. The folders it compacted before the
+        /// cancel stay compacted. Each folder's two steps go to the sink's `step` as the folder ends, and the
+        /// removal step once the last folder ends, so a caller that writes its own record keeps them (lane S33).
         private static func performCleanup(
             resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink
         ) throws -> [ProvenanceStep] {
@@ -510,7 +515,11 @@ extension BuildDbCommand {
                             includeUnclassifiedInIndex: false,
                             removeRawOnSuccess: true
                         )
-                        steps += compactionSteps(raw: raw, compressed: compressedOutput, clock: clock)
+                        let compaction = compactionSteps(raw: raw, compressed: compressedOutput, clock: clock)
+                        steps += compaction
+                        // The folder's two steps ended whole, so they go over now and a cancel before a later
+                        // folder keeps them (2.9 R6, lane S33).
+                        compaction.forEach(events.step)
                         removed.append(raw)
                         if let before = updateClassificationResultSidecar(in: dir, outputURL: compressedOutput, events: events) {
                             replaced.append(before)
@@ -539,6 +548,7 @@ extension BuildDbCommand {
                 removing: removed.filter { !fm.fileExists(atPath: $0.path) } + replaced,
                 clock: removalClock
             )
+            if let removal { events.step(removal) }
             return steps + (removal.map { [$0] } ?? [])
         }
 

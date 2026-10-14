@@ -17,10 +17,9 @@ import LungfishWorkflow
 /// the removal after the step that read what it removed (2.8 P1). The step names each removed file
 /// with the digest a record already holds, and the cleanup hashes none (T5 as amended in 2.9). The
 /// core writes no record at the root, because the executor writes the root record after the finalize,
-/// and the build hands its steps and then the removal step to that record through the request once
-/// the core returns (2.9 R6). The core runs the cleanup before it returns and hands back no step
-/// before then, so a cancel inside it, the cleanup included, keeps none of its steps until the core
-/// hands each over as it ends (lane S33).
+/// and the core hands each step to that record through the request as it ends whole, the removal
+/// step last with its `dependsOn` set (2.9 R6, lane S33), so a cancel inside the core, the cleanup
+/// included, keeps the steps that ended.
 struct TaxTriageResultIndexer: AnalysisResultIndexing {
     /// The command's cancel request, which can report a SIGTERM before the run's task is cancelled, as the
     /// executor's `cancelRequested` does. The core reads it beside the task's cancel (2.8 row 266, lane S33).
@@ -41,6 +40,7 @@ struct TaxTriageResultIndexer: AnalysisResultIndexing {
             text: { request.log(.info, $0) },
             textWarning: { request.log(.warning, $0) },
             warning: { request.log(.warning, $0) },
+            step: { request.recordStep($0) },
             cancelRequested: cancelRequested
         )
         let built = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(
@@ -51,7 +51,6 @@ struct TaxTriageResultIndexer: AnalysisResultIndexing {
             events: events
         )
         let steps = (built.result.record?.steps ?? []) + (built.removal.map { [$0] } ?? [])
-        steps.forEach(request.recordStep)
         return AnalysisResultIndex(
             outputs: [AnalysisRunOutput(url: built.result.databaseURL, role: .index)],
             steps: steps

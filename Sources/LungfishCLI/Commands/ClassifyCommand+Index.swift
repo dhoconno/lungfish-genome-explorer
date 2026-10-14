@@ -13,9 +13,9 @@ import LungfishWorkflow
 /// A batch root indexes the sample folders its manifest lists, the completed samples, as the app
 /// has always passed them with `--sample-dir`. A one-folder result indexes its own report. The core
 /// writes no record at the root, because the executor writes the root record after the finalize,
-/// and the build hands its steps to that record through the request once the core returns (2.9
-/// R6). The core hands back no step before it returns, so a cancel inside it keeps none of its
-/// steps, those that ended included, until the core hands each over as it ends (lane S33).
+/// and the core hands each step to that record through the request as the step ends whole (2.9
+/// R6, lane S33), so a cancel inside the core keeps the steps that ended. The builder returns the
+/// same steps, which the finalize records once each, by id.
 struct Kraken2ResultIndexer: AnalysisResultIndexing {
     /// The command's cancel request, which can report a SIGTERM before the run's task is cancelled, as the
     /// executor's `cancelRequested` does. The core reads it beside the task's cancel (2.8 row 266, lane S33).
@@ -44,6 +44,7 @@ struct Kraken2ResultIndexer: AnalysisResultIndexing {
             text: { request.log(.info, $0) },
             textWarning: { request.log(.warning, $0) },
             warning: { request.log(.warning, $0) },
+            step: { request.recordStep($0) },
             cancelRequested: cancelRequested
         )
         let built = try await BuildDbCommand.Kraken2Subcommand.buildDatabase(
@@ -52,7 +53,6 @@ struct Kraken2ResultIndexer: AnalysisResultIndexing {
             events: events
         )
         let steps = built.record?.steps ?? []
-        steps.forEach(request.recordStep)
         return AnalysisResultIndex(
             outputs: [AnalysisRunOutput(url: built.databaseURL, role: .index)],
             steps: steps

@@ -105,7 +105,9 @@ extension BuildDbCommand {
         /// build with `CancellationError` at its next check, before
         /// each sample folder is read or cleaned up, before the database is written, after the samtools pass
         /// and before the record. The database of an earlier build is put back and no record of a failed
-        /// build is written (plan decision E5 of Phase 2.7). A folder the cleanup finished stays cleaned.
+        /// build is written (plan decision E5 of Phase 2.7). A folder the cleanup finished stays cleaned. Each step
+        /// goes to the sink's `step` once it ended whole, the samtools steps at their append, the build step once
+        /// the database is kept and the removal step with its `dependsOn` set (lane S33).
         static func buildDatabase(
             in resultURL: URL,
             options: BuildDbRunOptions,
@@ -193,6 +195,9 @@ extension BuildDbCommand {
                     events: events
                 )
                 try databaseSnapshot.discard()
+                // The build step names the database, so it goes over only once no catch can put the earlier one
+                // back, and before the recorded cleanup starts (lane S33).
+                if let buildStep = record.steps.last { events.step(buildStep) }
                 built = BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
                 do {
@@ -229,6 +234,8 @@ extension BuildDbCommand {
             let recorded = recordedFiles + (built.record?.steps ?? []).flatMap { $0.inputs + $0.outputs }
             var removal = try core.performRecordedCleanup(resultURL: resultURL, recorded: recorded, events: events)
             removal?.dependsOn = built.record?.steps.map(\.id) ?? []
+            // In its final form, its `dependsOn` set, since the first copy of a step is the one recorded (lane S33).
+            if let removal { events.step(removal) }
             return Build(result: built, removal: removal)
         }
 

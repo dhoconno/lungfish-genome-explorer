@@ -54,7 +54,8 @@ extension BuildDbCommand {
         /// BAMs move, after the read count pass and before the record is written. The database of an earlier
         /// build is put back and no record of a failed build is written, so a cancelled build leaves no
         /// database and no record (plan decision E5 of Phase 2.7). A step that finished before the cancel stays
-        /// done and no record names it. Moved BAMs stay in `bams`, rewritten in place where markdup ran, and the
+        /// done, and the sink's `step` took it as it ended, the build step once the database is kept (lane S33).
+        /// Moved BAMs stay in `bams`, rewritten in place where markdup ran, and the
         /// `_temp` folders the cleanup removed stay removed. A cancel after the check before the record is not
         /// seen, and the build completes.
         static func buildDatabase(
@@ -149,6 +150,9 @@ extension BuildDbCommand {
                 relocationSteps = bamRelocationStep(
                     moved, resultURL: resultURL, recordedInputs: provenanceInputs, clock: relocationClock
                 ).map { [$0] } ?? []
+                // The move ended whole, so it goes over now, before the samtools steps that go over as each
+                // ends (2.9 R6, lane S33).
+                relocationSteps.forEach(events.step)
 
                 // 5. Compute unique reads from BAMs and update DB
                 try await updateUniqueReadsInDB(
@@ -183,6 +187,7 @@ extension BuildDbCommand {
                     removing: relocationSteps.flatMap(\.inputs).filter { !FileManager.default.fileExists(atPath: $0.path) },
                     clock: cleanupClock
                 ).map { [$0] } ?? []
+                cleanupSteps.forEach(events.step)
 
                 try events.checkCancellation()
                 let record = try await BuildDbCommand.recordBuildDbProvenance(
@@ -199,6 +204,9 @@ extension BuildDbCommand {
                     events: events
                 )
                 try databaseSnapshot.discard()
+                // The build step names the database, so it goes over only once no catch can put the earlier one
+                // back (lane S33).
+                if let buildStep = record.steps.last { events.step(buildStep) }
                 return BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
             } catch {
                 do {
