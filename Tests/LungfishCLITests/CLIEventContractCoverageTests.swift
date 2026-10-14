@@ -239,6 +239,22 @@ final class CLIEventContractCoverageTests: XCTestCase {
         XCTAssertEqual(counts.values.reduce(0, +), CLIEventContractTable.entries.count)
     }
 
+    /// 2.6 row 213, lane A55 (Phase 2.10 decision C6). A leaf that lists `--format json` and ignores it
+    /// either honours the option or drops it, and its row says `ignoresFormat` until then. The count
+    /// falls by exactly the leaves a lane converts, and no lane adds a row with this reason.
+    func testTheLeavesThatListFormatJSONAndIgnoreItAreCounted() {
+        let ignoring = CLIEventContractTable.entries.compactMap { path, contract -> String? in
+            guard case let .text(reason) = contract, reason.hasPrefix("lists --format json and ignores it") else {
+                return nil
+            }
+            return path
+        }
+        XCTAssertEqual(
+            ignoring.count, 53,
+            "53 leaves list --format json and ignore it at the base of lane A55: \(ignoring.sorted())"
+        )
+    }
+
     // MARK: Counted warnings
 
     /// `msa annotate add`, `edit` and `project` put a `warningCount` on `complete`. Review of
