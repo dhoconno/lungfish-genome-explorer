@@ -19,7 +19,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("subs"), help: "Substitution tolerance (0=exact, 2=default)")
+    @Option(name: .customLong("subs"), help: "Substitution tolerance, 0 for exact matches")
     var substitutions: Int = 0
 
     @Flag(name: .customLong("optical"), help: "Optical duplicate mode (patterned flowcells)")
