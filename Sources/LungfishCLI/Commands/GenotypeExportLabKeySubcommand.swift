@@ -528,6 +528,10 @@ extension LabKeyExporter {
                 : named.joined()
             lines.append("  \(collision.id.uuidString.lowercased()) is the id of \(list).")
         }
+        lines.append(
+            "To export, keep one cohort of each id above and delete the others in Lungfish. "
+                + "A cohort you save again from its filter gets an id of its own."
+        )
         return lines.joined(separator: "\n")
     }
 
