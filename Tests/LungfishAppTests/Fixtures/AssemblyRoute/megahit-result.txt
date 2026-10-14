@@ -141,7 +141,7 @@ sarscov2-test.lungfishref/.lungfish-provenance.json
   runtimeIdentity.condaEnvironment = megahit
   runtimeIdentity.dependencySet = 2026.2
   runtimeIdentity.executablePath = <host>
-  runtimeIdentity.managedToolLockSHA256 = 9c102049c8eec3f47df4b0c564ff81a65a49cff1310238e591c6d53f84693077
+  runtimeIdentity.managedToolLockSHA256 = 7e812c4966d81884f8c5ce03a6aea1bf195aa1b94adff3edb8c225e1ef104c48
   runtimeIdentity.operatingSystemVersion = <host>
   schemaVersion = 2
   status = completed
@@ -475,13 +475,13 @@ sarscov2-test.lungfishref/manifest.json
   source.database = MEGAHIT 1.2.9
   source.notes = Assembled from 2 input file(s)
   source.organism = sarscov2-test
-sarscov2-test.lungfishref/provenance/assembly/assembly.log.lungfish-provenance.json values-sha256=598852e3e7401ff016e8b8533045b356a59dd47728e81b1dc4723483fd1b9f08
-sarscov2-test.lungfishref/provenance/assembly/provenance.json.lungfish-provenance.json values-sha256=ea8f94b65e96f7efb1f3bef1b42ff33c21d1679c3501adadfc82ed9bb01db24d
-sarscov2-test.lungfishref/provenance/bundle.lungfish-provenance.json values-sha256=ced026083dba43a942c2e21f03ff4831a3f14a6eb469a78721688488acb0c85d
-sarscov2-test.lungfishref/provenance/genome/contigs.fa.gz.fai.lungfish-provenance.json values-sha256=26c83d1c79950e55a9a1e87ec0d419d846c2f1fdafd714e47fc24719c8367532
-sarscov2-test.lungfishref/provenance/genome/contigs.fa.gz.gzi.lungfish-provenance.json values-sha256=ce28e4e3310f1daee5e46a4502e962a8089fc4383b43579b431afd8d8ea14cab
-sarscov2-test.lungfishref/provenance/genome/contigs.fa.gz.lungfish-provenance.json values-sha256=074253d2714339f73d121b163c18ac5f987a611e4d759f746a75952a0fbc1fb2
-sarscov2-test.lungfishref/provenance/manifest.json.lungfish-provenance.json values-sha256=ddae3119b8038d9054d7ed8fae9361526766876e13a5a43f9e17a2c0b1199847
+sarscov2-test.lungfishref/provenance/assembly/assembly.log.lungfish-provenance.json values-sha256=c74ac45468379aaa5ae2b7ad00391528a2e4a41075a9501d916a0680c7a3002b
+sarscov2-test.lungfishref/provenance/assembly/provenance.json.lungfish-provenance.json values-sha256=0dcb7f81684d961723eaeaa973a1ddfbf61ace35638ae741b1638424d6a80ed9
+sarscov2-test.lungfishref/provenance/bundle.lungfish-provenance.json values-sha256=34b0fdb0f42ba5c0eb3117d2b801e68517d5bb131edb50ce075c03f90d931b6d
+sarscov2-test.lungfishref/provenance/genome/contigs.fa.gz.fai.lungfish-provenance.json values-sha256=817dcd358434a7077fe05792f8f0283f25edf163ed87ead6dd8f280783443cf9
+sarscov2-test.lungfishref/provenance/genome/contigs.fa.gz.gzi.lungfish-provenance.json values-sha256=93a38243fc0089c738175e61e1230b502638393f0d55c868065a091dec3aa712
+sarscov2-test.lungfishref/provenance/genome/contigs.fa.gz.lungfish-provenance.json values-sha256=fb286e63a29a85dc451ada95056189925e76060de1f984f1168b9409063f0726
+sarscov2-test.lungfishref/provenance/manifest.json.lungfish-provenance.json values-sha256=86af6d1a124db474137ea4547d8214998596f0892257e1942435c7d4a5585b62
 sarscov2-test/assembly-result.json
   assemblerVersion = 1.2.9
   commandLine = megahit -1 /work/Project.lungfish/inputs/test_1.fastq.gz -2 /work/Project.lungfish/inputs/test_2.fastq.gz -o /work/Project.lungfish/Assemblies/sarscov2-test --num-cpu-threads 1 --memory 4294967296 --no-hw-accel
