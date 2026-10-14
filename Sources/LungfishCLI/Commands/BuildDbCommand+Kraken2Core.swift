@@ -423,6 +423,13 @@ extension BuildDbCommand {
         /// `classification.kraken.gz.idx.sqlite`, `classification.kreport`,
         /// `classification-result.json`, `kraken2.sqlite`.
         ///
+        /// A folder whose record names `classification.kraken`, `classification-result.json` or
+        /// `classification.kraken.idx.sqlite` is left as it is, with one information line, when `build-db` may not
+        /// replace that record, which is the classifier's. The compaction removes the first and rewrites the second
+        /// in place, so the record would name a file that is gone and bytes the file no longer has, and no removal
+        /// step can be added to a record that is not this run's (ARCH's ruling on A45 M3, section 4, and the
+        /// A39 review). A folder with no such record compacts as before.
+        ///
         /// Returns the steps of the run's record, the index and gzip of each compacted output and
         /// one removal step that names every removed file with the digest it had, because the
         /// classifier's record names the per-read output it wrote (P1 of Phase 2.8, row 423). The removal step also
@@ -473,9 +480,24 @@ extension BuildDbCommand {
                 let name = dir.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
 
+                let krakenOutput = dir.appendingPathComponent("classification.kraken")
+                let krakenIndex = dir.appendingPathComponent("classification.kraken.idx.sqlite")
+
+                // The classifier's record names the files below with their digests, and this run may not replace it
+                // (2.10 FXA2). A folder whose record names any of them keeps all of them, with one information line,
+                // and adds no step to this run's record. A folder with nothing to compact or remove reads no record.
+                if fm.fileExists(atPath: krakenOutput.path) || fm.fileExists(atPath: krakenIndex.path) {
+                    let namedByRecord = namedByClassifierRecord(
+                        [krakenOutput, dir.appendingPathComponent(ClassificationResult.sidecarFilename), krakenIndex], in: dir
+                    )
+                    if !namedByRecord.isEmpty {
+                        events.text(keptFolderLine(folder: name, recordNames: namedByRecord))
+                        continue
+                    }
+                }
+
                 // Retain the per-read output as gzip for audit/replay, plus a
                 // classified-only SQLite index for fast taxon extraction.
-                let krakenOutput = dir.appendingPathComponent("classification.kraken")
                 if fm.fileExists(atPath: krakenOutput.path) {
                     let originalSize = fileSize(krakenOutput) ?? 0
                     do {
@@ -501,7 +523,6 @@ extension BuildDbCommand {
 
                 // Remove old raw-output index SQLite files. New retained indexes
                 // are named after the compressed output and must be kept.
-                let krakenIndex = dir.appendingPathComponent("classification.kraken.idx.sqlite")
                 if let size = fileSize(krakenIndex) {
                     let oldIndex = try? ProvenanceFileDescriptor.file(url: krakenIndex, role: .index)
                     KrakenOutputCompactor.removeSQLiteDatabase(at: krakenIndex)
@@ -541,6 +562,35 @@ extension BuildDbCommand {
                     "/bin/sh", "-c", "/usr/bin/gzip -c \(shellEscape(raw.path)) > \(shellEscape(compressed.path))",
                 ], gzipOutput),
             ]
+        }
+
+        /// The files among `candidates` that a record in `folder` names, in the order of `candidates`, when `build-db` may
+        /// not replace that record. That record is another workflow's, the classifier's (`mayReplaceProvenance`), and it
+        /// names each file with the digest it had. A record names a file at its run level or in a step, as an input or an
+        /// output. A folder with no record, or with one an earlier `build-db` wrote, names nothing here, because this
+        /// run records its own changes in its record.
+        private static func namedByClassifierRecord(_ candidates: [URL], in folder: URL) -> [String] {
+            guard let record = ProvenanceRecorder.loadEnvelope(from: folder),
+                  !BuildDbCommand.mayReplaceProvenance(record, tool: .kraken2) else { return [] }
+            let named = record.files + record.outputs + [record.output].compactMap { $0 }
+                + record.steps.flatMap { $0.inputs + $0.outputs }
+            let paths = Set(named.map { resolvedPath($0.path, in: folder) })
+            return candidates.filter { paths.contains(resolvedPath($0.path, in: folder)) }.map(\.lastPathComponent)
+        }
+
+        /// `path` as an absolute path with its folder resolved, so that /var/folders and /private/var/folders are one
+        /// place. A path with no root is the folder's.
+        private static func resolvedPath(_ path: String, in folder: URL) -> String {
+            let url = path.hasPrefix("/") ? URL(fileURLWithPath: path) : folder.appendingPathComponent(path)
+            return url.standardizedFileURL.deletingLastPathComponent().resolvingSymlinksInPath()
+                .appendingPathComponent(url.lastPathComponent).path
+        }
+
+        /// The line a folder gets when the cleanup leaves it as it is, which says why. It is information and not a
+        /// warning, because a run that keeps a folder did nothing wrong (UX 2 of the expert panel).
+        private static func keptFolderLine(folder: String, recordNames names: [String]) -> String {
+            let list = names.count > 1 ? names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1] : names.joined()
+            return "Kept \(folder) as it is because its provenance record names \(list)."
         }
 
         private static func fileSize(_ url: URL) -> Int64? {

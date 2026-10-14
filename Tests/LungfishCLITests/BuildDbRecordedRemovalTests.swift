@@ -9,6 +9,7 @@
 // a file that is gone without a step that says why.
 
 import XCTest
+import os
 import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
@@ -247,4 +248,185 @@ final class BuildDbRecordedRemovalTests: XCTestCase {
         }
         XCTAssertGreaterThan(comparedAtRunLevel, 0, "the run level states digests of files that are there")
     }
+
+    // MARK: - A record the classifier wrote (Phase 2.10 lane FXA2)
+
+    /// ARCH's ruling on A45 M3, section 4 (the rest of 2.8 row 268, follow-up 2 of the A39 review and BIO's Q2). The
+    /// classifier's record names the per-read output it kept and the result sidecar, each with its digest. The cleanup
+    /// removed the first and rewrote the second in place, and `build-db` may not replace that record, so it named a file
+    /// that was gone and bytes the file no longer had. A folder whose record names either of them keeps both, and a folder
+    /// with no record compacts as before.
+    func testKraken2CleanupChangesNoFileTheClassifierRecordNames() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalClassifierRecord")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = try copyOfKraken2Mini(in: root)
+        let recorded = result.appendingPathComponent("SRR35517702", isDirectory: true)
+        try writeClassifierRecord(in: recorded, naming: [Self.rawOutput, Self.sidecar])
+        let rawBefore = try digest(recorded.appendingPathComponent(Self.rawOutput))
+        let sidecarBefore = try digest(recorded.appendingPathComponent(Self.sidecar))
+        let recordBefore = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: recorded))
+
+        try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
+
+        // The record is still the classifier's, and every file it names exists with the digest it states.
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: recorded))
+        XCTAssertEqual(record.id, recordBefore.id, "build-db leaves the classifier's record as it was")
+        XCTAssertEqual(record.workflowName, Self.classifierWorkflowName)
+        XCTAssertGreaterThan(assertEveryNamedFileIsAsStated(record, "the classifier's record"), 0)
+        // So the raw output and the sidecar hold the bytes they held, and no copy was made beside a raw output that stays.
+        XCTAssertEqual(try digest(recorded.appendingPathComponent(Self.rawOutput)), rawBefore)
+        XCTAssertEqual(try digest(recorded.appendingPathComponent(Self.sidecar)), sidecarBefore)
+        assertNoCompactedCopy(in: recorded)
+        // The folders with no record compact as before.
+        for name in ["SRR35517703", "SRR35517705"] {
+            assertCompacted(result.appendingPathComponent(name, isDirectory: true))
+        }
+        // The build's own removal step names nothing of the folder it left alone.
+        let build = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result))
+        let removal = try XCTUnwrap(build.steps.first { $0.toolName == ClassificationPipeline.kraken2OutputRemovalToolName })
+        XCTAssertFalse(removal.inputs.contains { $0.path.contains("/SRR35517702/") }, "the removal step names a file of the kept folder")
+        XCTAssertTrue(removal.inputs.contains { $0.path.hasSuffix("/SRR35517703/classification.kraken") }, "the compacted folders are named")
+    }
+
+    /// A record that names only the raw output, or only the sidecar, keeps both files too. The compaction removes the
+    /// first and rewrites the second together, so it runs whole or not at all.
+    func testKraken2CleanupKeepsBothFilesWhenTheRecordNamesOnlyOneOfThem() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalOneOfThem")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = try copyOfKraken2Mini(in: root)
+        let namesRawOutput = result.appendingPathComponent("SRR35517702", isDirectory: true)
+        let namesSidecar = result.appendingPathComponent("SRR35517703", isDirectory: true)
+        try writeClassifierRecord(in: namesRawOutput, naming: [Self.rawOutput])
+        try writeClassifierRecord(in: namesSidecar, naming: [Self.sidecar])
+        var before: [URL: [String]] = [:]
+        for folder in [namesRawOutput, namesSidecar] {
+            before[folder] = [try digest(folder.appendingPathComponent(Self.rawOutput)), try digest(folder.appendingPathComponent(Self.sidecar))]
+        }
+
+        try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
+
+        for folder in [namesRawOutput, namesSidecar] {
+            let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder))
+            XCTAssertEqual(record.workflowName, Self.classifierWorkflowName, folder.lastPathComponent)
+            XCTAssertGreaterThan(assertEveryNamedFileIsAsStated(record, "the record of \(folder.lastPathComponent)"), 0)
+            XCTAssertEqual(
+                [try digest(folder.appendingPathComponent(Self.rawOutput)), try digest(folder.appendingPathComponent(Self.sidecar))],
+                before[folder], "\(folder.lastPathComponent) keeps the raw output and the sidecar as they were"
+            )
+            assertNoCompactedCopy(in: folder)
+        }
+        assertCompacted(result.appendingPathComponent("SRR35517705", isDirectory: true))
+    }
+
+    /// One information line for each folder the cleanup keeps, which says why (UX 2 of the expert panel). It is text
+    /// and not a warning, so a run that kept a folder does not end Completed with Warnings.
+    func testKraken2CleanupSaysOnceInAnInformationLineWhyItKeptAFolder() async throws {
+        let root = try TestTempDirectory.make(prefix: "BuildDbRecordedRemovalKeptLine")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = try copyOfKraken2Mini(in: root)
+        try writeClassifierRecord(in: result.appendingPathComponent("SRR35517702", isDirectory: true), naming: [Self.rawOutput, Self.sidecar])
+        try writeClassifierRecord(in: result.appendingPathComponent("SRR35517703", isDirectory: true), naming: [Self.sidecar])
+        let lines = BuildDbLines()
+
+        _ = try await BuildDbCommand.Kraken2Subcommand.buildDatabase(
+            in: result, options: BuildDbRunOptions(globalOptions: try GlobalOptions.parse([])), events: lines.sink
+        )
+
+        // Each line names the folder and the files its record names, so the second says only the sidecar.
+        let kept = lines.text.filter { $0.hasPrefix("Kept ") }
+        XCTAssertEqual(kept, [
+            "Kept SRR35517702 as it is because its provenance record names classification.kraken and classification-result.json.",
+            "Kept SRR35517703 as it is because its provenance record names classification-result.json.",
+        ], "one line for each kept folder and none for the folder that compacts, \(lines.text)")
+        XCTAssertEqual(lines.warnings, [], "no information line becomes a warning")
+    }
+
+    private static let classifierWorkflowName = "Metagenomics Classification"
+    private static let rawOutput = "classification.kraken"
+    private static let sidecar = ClassificationResult.sidecarFilename
+
+    private func copyOfKraken2Mini(in root: URL) throws -> URL {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
+        let result = root.appendingPathComponent("kraken2", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: result)
+        return result
+    }
+
+    private func digest(_ url: URL) throws -> String {
+        try XCTUnwrap(ProvenanceRecorder.sha256(of: url), url.path)
+    }
+
+    /// The record the classifier leaves in a sample folder, as far as these tests read it. It is another workflow's
+    /// record than `lungfish build-db kraken2`, so the build may not replace it. It names `files` of the folder at run
+    /// level and in the step that wrote them, each with its digest.
+    private func writeClassifierRecord(in folder: URL, naming files: [String]) throws {
+        let urls = files.map { folder.appendingPathComponent($0) }
+        let descriptors = try urls.map { try ProvenanceFileDescriptor.file(url: $0, role: .output) }
+        var builder = ProvenanceRunBuilder(
+            workflowName: Self.classifierWorkflowName, workflowVersion: "test", toolName: "kraken2", toolVersion: "2.17.1"
+        )
+        .argv(["lungfish-cli", "kraken2", "classify", folder.path])
+        .runtime(ProvenanceRuntimeIdentity())
+        for url in urls { builder = try builder.output(url, role: .output) }
+        let record = try builder
+            .step(ProvenanceStep(
+                toolName: "kraken2", toolVersion: "2.17.1", argv: ["kraken2", "--db", "Viral"], outputs: descriptors,
+                exitStatus: 0, wallTimeSeconds: 1
+            ))
+            .complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
+        try ProvenanceWriter().write(record, to: folder)
+    }
+
+    /// Asserts that each file the record names, at run level and in its steps, exists and holds the bytes the record
+    /// states. Returns how many digests it compared.
+    @discardableResult
+    private func assertEveryNamedFileIsAsStated(_ record: ProvenanceEnvelope, _ label: String) -> Int {
+        var compared = 0
+        let named = record.files + record.outputs + [record.output].compactMap { $0 } + record.steps.flatMap { $0.inputs + $0.outputs }
+        for file in named {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "\(label) names \(file.path), which is gone")
+            guard let stated = file.checksumSHA256 else { continue }
+            compared += 1
+            XCTAssertEqual(
+                ProvenanceRecorder.sha256(of: URL(fileURLWithPath: file.path)), stated,
+                "\(label) states a digest that \(file.path) no longer has"
+            )
+        }
+        return compared
+    }
+
+    private func assertNoCompactedCopy(in folder: URL, file: StaticString = #filePath, line: UInt = #line) {
+        for copy in ["classification.kraken.gz", "classification.kraken.gz.idx.sqlite"] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: folder.appendingPathComponent(copy).path),
+                "\(copy) was made beside a raw output that stays", file: file, line: line
+            )
+        }
+    }
+
+    /// What a cleanup leaves in a folder it compacted: the gzip copy, and the sidecar naming it.
+    private func assertCompacted(_ folder: URL, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent(Self.rawOutput).path), folder.lastPathComponent, file: file, line: line)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("classification.kraken.gz").path), folder.lastPathComponent, file: file, line: line)
+        XCTAssertEqual(try? ClassificationResult.load(from: folder).outputURL.pathExtension, "gz", folder.lastPathComponent, file: file, line: line)
+    }
+}
+
+/// The lines of one `build-db` run by the channel they arrived on, text and warnings.
+private final class BuildDbLines: Sendable {
+    private let storage = OSAllocatedUnfairLock(initialState: (text: [String](), warnings: [String]()))
+
+    var sink: BuildDbEventSink {
+        BuildDbEventSink(
+            progress: { _, _ in },
+            text: { line in self.storage.withLock { $0.text.append(line) } },
+            textWarning: { line in self.storage.withLock { $0.warnings.append(line) } },
+            warning: { line in self.storage.withLock { $0.warnings.append(line) } }
+        )
+    }
+
+    var text: [String] { storage.withLock { $0.text } }
+    var warnings: [String] { storage.withLock { $0.warnings } }
 }
