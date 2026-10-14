@@ -251,7 +251,7 @@ package struct AlignmentConsensusPublicationService {
         )
         stage = .provenanceWrite
         try failureInjector(stage)
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: physicalProvenanceURL)
+        try ProvenanceWriter().write(envelope, toSidecar: physicalProvenanceURL)
         return (finalPayloadURL, physicalProvenanceURL, finalProvenanceURL)
     }
 
