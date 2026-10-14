@@ -4,18 +4,6 @@ import LungfishWorkflow
 import LungfishKit
 import LungfishIO
 
-private func defaultRegionStage(_ config: BAMRegionExtractionConfig) async throws -> AlignmentReadExtractionTransaction {
-    try await AlignmentReadExtractionStager().stageRegion(config: config)
-}
-private func defaultSourceStage(_ config: ReadIDExtractionConfig, _ missing: Int, _ message: String?) async throws -> AlignmentReadExtractionTransaction {
-    try await AlignmentReadExtractionStager().stageReadIDsFromSourceFASTQs(config: config, recordsWithoutSequence: missing, missingSequenceMessage: message)
-}
-private func defaultBAMStage(_ config: ReadIDBAMExtractionConfig, _ missing: Int, _ message: String?) async throws -> AlignmentReadExtractionTransaction {
-    try await AlignmentReadExtractionStager().stageReadIDsFromBAM(config: config, recordsWithoutSequence: missing, missingSequenceMessage: message)
-}
-private func defaultPublish(_ request: AlignmentReadExtractionPublicationRequest) async throws -> AlignmentReadExtractionPublicationResult {
-    try AlignmentReadExtractionPublisher().publish(request)
-}
 private func defaultDestination(
     capability: AlignmentOutputCapability,
     outputBaseName: String
@@ -31,82 +19,18 @@ private func defaultDestination(
     }
 }
 
-@MainActor
-struct AlignmentScientificActionReporter {
-    enum Terminal: Equatable { case success(AlignmentReadExtractionPublicationResult), failure(String), cancelled(String) }
-    /// Registers the row. A `.refused` result means the launch functions start nothing.
-    let begin: (_ title: String, _ detail: String) -> OperationStartResult
-    let installCancellation: (_ id: UUID, _ cancellation: @escaping @Sendable () -> Void) -> Void
-    let log: (_ id: UUID, _ message: String) -> Void
-    let finish: (_ id: UUID, _ terminal: Terminal) -> Void
-
-    static let operationCenter = operationCenter(routeContext: nil)
-
-    /// The reporter that sends every report to `center`. Its `begin` locks no
-    /// bundle and records no command. The viewer's two rows no longer use it,
-    /// since they run `lungfish-cli extract reads` with `--index` on the L3
-    /// runner (ViewerViewController+MappingOperationBegin.swift, Phase 2.10 A51).
-    static func operationCenter(routeContext: OperationRouteContext?, center: any OperationReporting = OperationCenter.shared) -> Self {
-        Self(
-        begin: { title, detail in
-            center.begin(title: title, detail: detail, operationType: .taxonomyExtraction, cliCommand: nil, routeContext: routeContext)
-        },
-        installCancellation: { id, cancellation in
-            center.setCancelCallback(for: id, callback: cancellation)
-        },
-        log: { id, message in
-            center.log(id: id, level: .info, message: message)
-        },
-        finish: { id, terminal in
-            switch terminal {
-            case .success(let result):
-                if result.finalURL.pathExtension.lowercased() == FASTQBundle.directoryExtension {
-                    _ = center.complete(id: id, detail: "Alignment read extraction published", bundleURLs: [result.finalURL])
-                } else {
-                    let finalURLs = Array(Set(result.outputURLs + [result.finalURL, result.provenanceURL])).sorted { $0.path < $1.path }
-                    _ = center.complete(id: id, detail: "Alignment read extraction published", outputURLs: finalURLs)
-                }
-            case .failure(let message):
-                _ = center.fail(id: id, detail: "Alignment read extraction failed", errorMessage: message)
-            case .cancelled:
-                center.acknowledgeCancellation(id: id)
-            }
-        }
-    )
-    }
-}
-
-/// Scientific extraction boundary for immutable alignment evidence. Workflow
-/// owns all temporary payloads; this coordinator returns final publications only.
+/// Resolves where a read extraction on immutable alignment evidence publishes,
+/// before its row begins. `lungfish-cli extract reads` stages and publishes the
+/// reads (ViewerViewController+MappingOperationBegin.swift, Phase 2.10 A51).
 @MainActor
 final class AlignmentScientificActionCoordinator {
-    typealias Validator = @Sendable (AlignmentActionContext) async throws -> Void
-    typealias RegionStager = (BAMRegionExtractionConfig) async throws -> AlignmentReadExtractionTransaction
-    typealias SourceStager = (ReadIDExtractionConfig, Int, String?) async throws -> AlignmentReadExtractionTransaction
-    typealias BAMStager = (ReadIDBAMExtractionConfig, Int, String?) async throws -> AlignmentReadExtractionTransaction
-    typealias Publisher = (AlignmentReadExtractionPublicationRequest) async throws -> AlignmentReadExtractionPublicationResult
     typealias DestinationResolver = (AlignmentOutputCapability, String) throws -> AlignmentReadExtractionPublicationDestination
 
-    private let validator: Validator
-    private let regionStager: RegionStager
-    private let sourceStager: SourceStager
-    private let bamStager: BAMStager
-    private let publisher: Publisher
     private let destinationResolver: DestinationResolver
 
     init(
-        validator: @escaping Validator = { try await $0.validateCurrentSnapshots() },
-        regionStager: @escaping RegionStager = defaultRegionStage,
-        sourceStager: @escaping SourceStager = defaultSourceStage,
-        bamStager: @escaping BAMStager = defaultBAMStage,
-        publisher: @escaping Publisher = defaultPublish,
         destinationResolver: @escaping DestinationResolver = defaultDestination
     ) {
-        self.validator = validator
-        self.regionStager = regionStager
-        self.sourceStager = sourceStager
-        self.bamStager = bamStager
-        self.publisher = publisher
         self.destinationResolver = destinationResolver
     }
 
@@ -139,161 +63,6 @@ final class AlignmentScientificActionCoordinator {
         }
     }
 
-    /// Registers one visible operation before validation/staging. The adapter is
-    /// deliberately injected so AppKit/OperationCenter composition stays out of
-    /// the scientific transaction boundary and every terminal transition is
-    /// owned by this single launch wrapper. Returns nil when the row was
-    /// refused, and then nothing was launched.
-    @discardableResult
-    func launchRegion(
-        context: AlignmentActionContext,
-        region: ResolvedAlignmentRegion,
-        destination: AlignmentReadExtractionPublicationDestination,
-        outputBaseName: String,
-        reporter: AlignmentScientificActionReporter
-    ) -> Task<Void, Never>? {
-        guard case .started(let operationID) = reporter.begin("Extract Reads in Selected Region", "Preparing alignment read extraction…") else {
-            return nil // The panel already shows the refused row. Nothing was launched.
-        }
-        reporter.log(operationID, "alignment evidence: \(evidenceIdentityLabel(context.identity))")
-        let task = Task {
-            do {
-                let result = try await self.extractRegion(context: context, region: region, destination: destination, outputBaseName: outputBaseName)
-                for record in result.executionRecords { reporter.log(operationID, "argv: \(record.argv.joined(separator: " "))\n\(record.stderr ?? "")") }
-                reporter.finish(operationID, .success(result))
-            } catch is CancellationError {
-                reporter.finish(operationID, .cancelled("Alignment read extraction cancelled."))
-            } catch let failure as AlignmentReadExtractionFailure where failure.kind == .cancelled {
-                for record in failure.executionRecords { reporter.log(operationID, "argv: \(record.argv.joined(separator: " "))\n\(record.stderr ?? "")") }
-                reporter.finish(operationID, .cancelled(failure.message))
-            } catch {
-                if let failure = error as? AlignmentReadExtractionFailure {
-                    for record in failure.executionRecords { reporter.log(operationID, "argv: \(record.argv.joined(separator: " "))\n\(record.stderr ?? "")") }
-                }
-                reporter.finish(operationID, .failure(error.localizedDescription))
-            }
-        }
-        reporter.installCancellation(operationID) { task.cancel() }
-        return task
-    }
-
-    /// Registers the selected-read extraction like ``launchRegion(context:region:destination:outputBaseName:reporter:)``
-    /// and returns nil, with nothing launched, when the row was refused.
-    @discardableResult
-    func launchSelectedReads(
-        context: AlignmentActionContext,
-        records: [AlignedRead],
-        destination: AlignmentReadExtractionPublicationDestination,
-        outputBaseName: String,
-        reporter: AlignmentScientificActionReporter
-    ) -> Task<Void, Never>? {
-        guard case .started(let operationID) = reporter.begin("Extract Selected Reads", "Preparing selected-read extraction…") else {
-            return nil // The panel already shows the refused row. Nothing was launched.
-        }
-        reporter.log(operationID, "alignment evidence: \(evidenceIdentityLabel(context.identity))")
-        let task = Task {
-            do {
-                let result = try await self.extractSelectedReads(context: context, records: records, destination: destination, outputBaseName: outputBaseName)
-                for record in result.executionRecords { reporter.log(operationID, "argv: \(record.argv.joined(separator: " "))\n\(record.stderr ?? "")") }
-                reporter.finish(operationID, .success(result))
-            } catch is CancellationError {
-                reporter.finish(operationID, .cancelled("Alignment read extraction cancelled."))
-            } catch let failure as AlignmentReadExtractionFailure where failure.kind == .cancelled {
-                for record in failure.executionRecords { reporter.log(operationID, "argv: \(record.argv.joined(separator: " "))\n\(record.stderr ?? "")") }
-                reporter.finish(operationID, .cancelled(failure.message))
-            } catch {
-                if let failure = error as? AlignmentReadExtractionFailure {
-                    for record in failure.executionRecords { reporter.log(operationID, "argv: \(record.argv.joined(separator: " "))\n\(record.stderr ?? "")") }
-                }
-                reporter.finish(operationID, .failure(error.localizedDescription))
-            }
-        }
-        reporter.installCancellation(operationID) { task.cancel() }
-        return task
-    }
-
-    func extractRegion(
-        context: AlignmentActionContext,
-        region: ResolvedAlignmentRegion,
-        destination: AlignmentReadExtractionPublicationDestination,
-        outputBaseName: String
-    ) async throws -> AlignmentReadExtractionPublicationResult {
-        guard region.contig == context.contig, region.start >= 0, region.start < region.end, region.end <= context.contigLength else {
-            throw AlignmentScientificActionError.invalidRegion
-        }
-        let config = BAMRegionExtractionConfig(
-            bamURL: context.alignmentURL, indexURL: context.indexURL, decodingReferenceURL: context.decodingReferenceURL,
-            regions: ["\(region.contig):\(region.start + 1)-\(region.end)"], fallbackToAll: false,
-            minMapQ: context.filters.minimumMapQ, excludedFlags: Int(context.filters.excludedFlags), readGroups: context.filters.readGroups.sorted(),
-            outputDirectory: destination.finalURL.deletingLastPathComponent(), outputBaseName: outputBaseName, deduplicateReads: false
-        )
-        let provenance = provenance(context: context, argv: ["Lungfish.app", "alignment", "extract-region", region.contig, "\(region.start)", "\(region.end)"])
-        try await validator(context) // scientific gate 1: immediately before staging
-        let transaction = try await regionStager(config)
-        do {
-            do {
-                try await validator(context) // scientific gate 2: immediately before publication
-            } catch {
-                throw staleInputFailure(error, context: context, transaction: transaction)
-            }
-            return try await publisher(.init(transaction: transaction, destination: destination, provenance: provenance))
-        } catch {
-            transaction.cleanup()
-            throw error
-        }
-    }
-
-    func extractSelectedReads(
-        context: AlignmentActionContext,
-        records: [AlignedRead],
-        destination: AlignmentReadExtractionPublicationDestination,
-        outputBaseName: String
-    ) async throws -> AlignmentReadExtractionPublicationResult {
-        guard !records.isEmpty else { throw AlignmentScientificActionError.emptySelection }
-        let names = Set(records.map(\.name))
-        let missing = records.filter { $0.sequence.isEmpty || $0.sequence == "*" }.count
-        let missingMessage = missing == 0 ? nil : "\(missing) selected alignment record(s) did not contain sequence."
-        let transaction: AlignmentReadExtractionTransaction
-        try await validator(context)
-        switch context.sourceReads {
-        case .sourceFASTQs(let urls) where !urls.isEmpty:
-            transaction = try await sourceStager(.init(sourceFASTQs: urls, readIDs: names, keepReadPairs: true, outputDirectory: destination.finalURL.deletingLastPathComponent(), outputBaseName: outputBaseName), missing, missingMessage)
-        default:
-            transaction = try await bamStager(.init(bamURL: context.alignmentURL, readIDs: names, includeSecondary: false, excludeDuplicates: false, outputDirectory: destination.finalURL.deletingLastPathComponent(), outputBaseName: outputBaseName), missing, missingMessage)
-        }
-        do {
-            do {
-                try await validator(context)
-            } catch {
-                throw staleInputFailure(error, context: context, transaction: transaction)
-            }
-            return try await publisher(.init(transaction: transaction, destination: destination, provenance: provenance(context: context, argv: ["Lungfish.app", "alignment", "extract-selected-reads"])))
-        } catch {
-            transaction.cleanup()
-            throw error
-        }
-    }
-
-    private func provenance(context: AlignmentActionContext, argv: [String]) -> AlignmentReadExtractionProvenance {
-        .init(workflowName: "lungfish alignment read extraction", argv: argv, inputURLs: [context.alignmentURL, context.indexURL] + (context.decodingReferenceURL.map { [$0] } ?? []))
-    }
-
-    private func staleInputFailure(
-        _ error: Error,
-        context: AlignmentActionContext,
-        transaction: AlignmentReadExtractionTransaction
-    ) -> AlignmentReadExtractionFailure {
-        AlignmentReadExtractionFailure(
-            kind: .staleInput,
-            message: "Alignment evidence changed before publication (\(evidenceIdentityLabel(context.identity));alignment=\(context.alignmentURL.path)): \(error.localizedDescription)",
-            executionRecords: transaction.executionRecords
-        )
-    }
-
-    private func evidenceIdentityLabel(_ identity: AlignmentEvidenceIdentity) -> String {
-        "workflow=\(identity.workflow);resultID=\(identity.resultID);sampleID=\(identity.sampleID);evidenceID=\(identity.evidenceID)"
-    }
-
     private func normalizedBundleURL(_ url: URL) -> URL {
         let normalized = url.standardizedFileURL
         guard normalized.pathExtension.lowercased() != FASTQBundle.directoryExtension else {
@@ -312,14 +81,12 @@ final class AlignmentScientificActionCoordinator {
 }
 
 enum AlignmentScientificActionError: LocalizedError, Sendable, Equatable {
-    case invalidRegion
     case emptySelection
     case contextUnavailable
     case destinationUnavailable(String)
     case destinationCancelled(String)
     var errorDescription: String? {
         switch self {
-        case .invalidRegion: return "The selected alignment region is invalid."
         case .emptySelection: return "Select at least one read."
         case .contextUnavailable: return "Alignment evidence is unavailable."
         case .destinationUnavailable(let message), .destinationCancelled(let message): return message

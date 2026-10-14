@@ -1,16 +1,15 @@
-// AlignmentScientificActionCoordinatorOperationTests.swift - begin() site in AlignmentScientificActionCoordinator
+// AlignmentScientificActionCoordinatorOperationTests.swift - begin() site of the viewer's alignment read rows
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Extracting the reads of a selected alignment region, or of selected reads,
-// registers one Operations panel row through the reporter's `begin` (R4). The
-// reporter sends every report to any OperationReporting, so a recording
-// reporter shows the row the launch registered and how it finished, without
-// touching `OperationCenter.shared`. The rows lock no bundle and record no
-// command, because no lungfish-cli command reproduces either run, so the tests
-// pin that gap. A command added later fails the pin and prompts a parse test
-// in its place. A reporter that refuses every begin proves the launch starts
-// nothing behind a refused row.
+// registers one Operations panel row through
+// `ViewerViewController.beginAlignmentReadExtractionOperation` (R4), which the
+// coordinator's reporter did before Phase 2.10 lane A51. A recording reporter
+// shows the row and the `lungfish-cli extract reads` command it records, which
+// the L3 runner runs, without touching `OperationCenter.shared`. The rows lock
+// no bundle. A reporter that refuses every begin proves a row launches nothing
+// behind a refused row.
 
 import XCTest
 @testable import LungfishApp
@@ -51,31 +50,6 @@ final class AlignmentScientificActionCoordinatorOperationTests: XCTestCase {
         )
     }
 
-    private func makeTransaction() throws -> AlignmentReadExtractionTransaction {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-        let payload = directory.appendingPathComponent("reads.fastq")
-        try "@read\nACGT\n+\n!!!!\n".write(to: payload, atomically: true, encoding: .utf8)
-        return try .init(
-            stagingDirectoryURL: directory,
-            stagedFiles: [.init(stagedURL: payload, relativeFinalPath: "reads.fastq", format: .fastq)],
-            readCount: 1,
-            pairedEnd: false
-        )
-    }
-
-    private func publicationResult(for transaction: AlignmentReadExtractionTransaction) -> AlignmentReadExtractionPublicationResult {
-        .init(
-            finalURL: finalURL,
-            outputURLs: [finalURL.appendingPathComponent("reads.fastq")],
-            provenanceURL: finalURL.appendingPathComponent("provenance.json"),
-            readCount: transaction.readCount,
-            pairedEnd: transaction.pairedEnd,
-            executionRecords: transaction.executionRecords
-        )
-    }
-
     private func makeRead() -> AlignedRead {
         AlignedRead(
             name: "qname", flag: 0, chromosome: "chrSynthetic", position: 4, mapq: 60,
@@ -84,81 +58,6 @@ final class AlignmentScientificActionCoordinatorOperationTests: XCTestCase {
     }
 
     private let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9)
-
-    // MARK: - Rows
-
-    func testRegionExtractionRegistersItsRowAndCompletesIt() async throws {
-        let recorder = RecordingOperationReporter()
-        let transaction = try makeTransaction()
-        let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in },
-            regionStager: { _ in transaction },
-            publisher: { request in self.publicationResult(for: request.transaction) }
-        )
-        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: routeContext, center: recorder)
-
-        let task = try XCTUnwrap(coordinator.launchRegion(
-            context: try makeContext(),
-            region: region,
-            destination: .bundle(finalURL),
-            outputBaseName: "selected-region",
-            reporter: reporter
-        ))
-
-        // The launch registers its row before any work finishes.
-        let item = try XCTUnwrap(recorder.items.first)
-        XCTAssertEqual(recorder.items.count, 1)
-        XCTAssertEqual(item.title, "Extract Reads in Selected Region")
-        XCTAssertEqual(item.initialDetail, "Preparing alignment read extraction…")
-        XCTAssertEqual(item.operationType, .taxonomyExtraction)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-        XCTAssertTrue(item.hasCancelCallback)
-
-        _ = await task.result
-
-        let finished = try XCTUnwrap(recorder.item(item.id))
-        XCTAssertEqual(finished.state, .completed)
-        XCTAssertEqual(finished.detail, "Alignment read extraction published")
-        XCTAssertEqual(finished.bundleURLs, [finalURL])
-        XCTAssertTrue(finished.logs.contains { $0.message.contains("workflow=map;resultID=r;sampleID=s;evidenceID=e") })
-    }
-
-    func testSelectedReadsExtractionRegistersItsRowAndCompletesIt() async throws {
-        let recorder = RecordingOperationReporter()
-        let transaction = try makeTransaction()
-        let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in },
-            bamStager: { _, _, _ in transaction },
-            publisher: { request in self.publicationResult(for: request.transaction) }
-        )
-        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: routeContext, center: recorder)
-
-        let task = try XCTUnwrap(coordinator.launchSelectedReads(
-            context: try makeContext(),
-            records: [makeRead()],
-            destination: .bundle(finalURL),
-            outputBaseName: "evidence_selected_1reads",
-            reporter: reporter
-        ))
-
-        let item = try XCTUnwrap(recorder.items.first)
-        XCTAssertEqual(recorder.items.count, 1)
-        XCTAssertEqual(item.title, "Extract Selected Reads")
-        XCTAssertEqual(item.initialDetail, "Preparing selected-read extraction…")
-        XCTAssertEqual(item.operationType, .taxonomyExtraction)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertEqual(item.routeContext, routeContext)
-        XCTAssertTrue(item.hasCancelCallback)
-
-        _ = await task.result
-
-        let finished = try XCTUnwrap(recorder.item(item.id))
-        XCTAssertEqual(finished.state, .completed)
-        XCTAssertEqual(finished.bundleURLs, [finalURL])
-    }
 
     // MARK: - The recorded command (Phase 2.10 A51, gaps alignment-region-reads and alignment-selected-reads closed)
 
@@ -216,36 +115,6 @@ final class AlignmentScientificActionCoordinatorOperationTests: XCTestCase {
     }
 
     // MARK: - Refused begin
-
-    func testRefusedBeginLaunchesNothing() throws {
-        // The rows request no lock, so no real center refuses them. A reporter
-        // that refuses every begin proves each launch starts nothing behind a
-        // refused row.
-        let recorder = RecordingOperationReporter(lockHeldBy: "Importing BAM")
-        var stagedOrPublished = false
-        let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in },
-            regionStager: { _ in stagedOrPublished = true; throw AlignmentScientificActionError.contextUnavailable },
-            bamStager: { _, _, _ in stagedOrPublished = true; throw AlignmentScientificActionError.contextUnavailable },
-            publisher: { _ in stagedOrPublished = true; throw AlignmentScientificActionError.contextUnavailable }
-        )
-        let reporter = AlignmentScientificActionReporter.operationCenter(routeContext: routeContext, center: recorder)
-
-        let regionTask = coordinator.launchRegion(
-            context: try makeContext(), region: region, destination: .bundle(finalURL),
-            outputBaseName: "selected-region", reporter: reporter
-        )
-        let readsTask = coordinator.launchSelectedReads(
-            context: try makeContext(), records: [makeRead()], destination: .bundle(finalURL),
-            outputBaseName: "evidence_selected_1reads", reporter: reporter
-        )
-
-        XCTAssertNil(regionTask, "a refused region extraction must return no task")
-        XCTAssertNil(readsTask, "a refused selected-read extraction must return no task")
-        XCTAssertFalse(stagedOrPublished)
-        XCTAssertEqual(recorder.items.map(\.state), [.refused, .refused])
-        XCTAssertTrue(recorder.items.allSatisfy { $0.logs.isEmpty && !$0.hasCancelCallback })
-    }
 
     /// The rows the viewer begins before `extract reads` runs. A reporter that refuses every begin
     /// proves each row launches nothing and logs no evidence behind a refused row.
