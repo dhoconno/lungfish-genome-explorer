@@ -7,8 +7,8 @@ import LungfishIO
 import LungfishWorkflow
 
 package struct VariantSampleMetadataImportTarget: Sendable, Equatable {
-    let databaseURL: URL
-    let trackName: String?
+    package let databaseURL: URL
+    package let trackName: String?
 
     package init(databaseURL: URL, trackName: String? = nil) {
         self.databaseURL = databaseURL.standardizedFileURL
