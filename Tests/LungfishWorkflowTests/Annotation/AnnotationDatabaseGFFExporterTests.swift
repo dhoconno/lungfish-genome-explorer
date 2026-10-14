@@ -246,13 +246,16 @@ struct AnnotationDatabaseGFFExporterTests {
     @Test("orders by chromosome, start, longer span first, then Parent depth, whatever the names sort to")
     func ordersByChromosomeStartEndAndParentDepth() async throws {
         // Every key runs against the name order. chr2 is listed first, gene-first has the later name, gene-long
-        // the later name of the two genes that start at 100, and the four features that share 500..600 are
-        // listed child first. cds-d and exon-d tie at depth 2, so the order the file listed them in decides.
+        // the later name of the two genes that start at 100, and the five features that share 500..600 are
+        // listed child first, with a second gene, gene-e, between the CDS and the exon. gene-e and gene-d tie at
+        // depth 0 and cds-d and exon-d tie at depth 2, so the order the file listed them in decides. Without the
+        // depth key the last pass would write gene-d, mrna-d and cds-d, then gene-e, then exon-d.
         let features = try await exportedFeatures(
             ofGFF3: """
             ##gff-version 3
             chr2\tt\tgene\t5\t50\t.\t+\t.\tID=gene-on-chr2;Name=Aon-chr2
             chr1\tt\tCDS\t500\t600\t.\t+\t0\tID=cds-d;Parent=mrna-d;Name=Acds
+            chr1\tt\tgene\t500\t600\t.\t+\t.\tID=gene-e;Name=Dgene
             chr1\tt\texon\t500\t600\t.\t+\t.\tID=exon-d;Parent=mrna-d;Name=Aexon
             chr1\tt\tmRNA\t500\t600\t.\t+\t.\tID=mrna-d;Parent=gene-d;Name=Bmrna
             chr1\tt\tgene\t500\t600\t.\t+\t.\tID=gene-d;Name=Cgene
@@ -265,7 +268,7 @@ struct AnnotationDatabaseGFFExporterTests {
         )
         #expect(identifiers(of: features) == [
             "gene-first", "gene-second", "gene-long", "gene-short",
-            "gene-d", "mrna-d", "cds-d", "exon-d",
+            "gene-e", "gene-d", "mrna-d", "cds-d", "exon-d",
             "gene-on-chr2",
         ])
     }

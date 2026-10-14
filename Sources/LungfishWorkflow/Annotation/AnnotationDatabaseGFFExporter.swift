@@ -61,7 +61,7 @@ public enum AnnotationDatabaseGFFExporter {
     /// tie on all four keys keep their database row order, which for a GFF3 import is the order of the
     /// source file. Each record is placed once, so the lines of a multi-block CDS stay together.
     ///
-    /// A child that starts before its Parent (an exon outside its mRNA) would still precede it under that
+    /// A child that starts before its Parent, or starts with it but ends after it, would still precede it under that
     /// key, so a last pass writes every Parent the file defines ahead of the first record that names it.
     /// A Parent cycle, or a record that names itself, has no valid order, and the edge that closes it is
     /// ignored.
