@@ -142,6 +142,10 @@ func updateUniqueReadsInDB(
             if !result.wasAlreadyMarkduped { marked += 1 }
         } catch let provenanceError as BuildDbSamtoolsProvenanceError {
             throw provenanceError
+        } catch let cancelled as CancellationError {
+            // A cancel is not a failed markdup. It ends the pass at this BAM, with no warning for it or for the
+            // BAMs left (lane S33 M2).
+            throw cancelled
         } catch {
             events.textWarning("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)")
         }

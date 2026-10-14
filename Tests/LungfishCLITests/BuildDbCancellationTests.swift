@@ -279,19 +279,15 @@ final class BuildDbCancellationTests: XCTestCase {
         Self.assertCancelled(outcome, "The markdup of a BAM after a cancel")
     }
 
-    /// The read count pass turns the failure of one markdup into a warning and goes on to the next BAM. A
-    /// cancel that arrives as the loop starts fails the markdup of every BAM, so at the base the pass logs one
-    /// "markdup failed" warning for each BAM left (lane S33 M1 pins that count, M2 ends it) and the core ends
-    /// at the check after the pass.
-    func testACancelInTheMarkdupLoopLogsOneWarningForEachBAMLeft() async throws {
+    /// The read count pass turns the failure of one markdup into a warning and goes on to the next BAM, but a
+    /// cancel is not a failure of a BAM. A cancel that arrives as the loop starts ends the pass at the first
+    /// BAM with `CancellationError`, with no "markdup failed" warning for any BAM and without the count of
+    /// reads that follows the loop. Before lane S33 M2 the loop logged one warning for each BAM left.
+    func testACancelInTheMarkdupLoopEndsThePassWithNoWarning() async throws {
         let scratch = try ImportStreamCapture.Scratch()
         defer { scratch.remove() }
         let result = try BuildDbStreamCapture.esVirituResultWithoutBAMs(in: scratch)
-        for sample in Self.fixtureSamples {
-            let temp = result.appendingPathComponent("\(sample)/\(sample)_temp", isDirectory: true)
-            try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
-            try Data("BAM".utf8).write(to: temp.appendingPathComponent("\(sample).third.filt.sorted.bam"))
-        }
+        try Self.addStandInBAMs(to: result)
         let samtools = try ManagedSamtoolsHome.makeStub(rootURL: scratch.root, namePrefix: "Home")
 
         let run = await Self.withHome(samtools.homeURL) {
@@ -302,10 +298,33 @@ final class BuildDbCancellationTests: XCTestCase {
 
         run.assertEndedCancelled()
         XCTAssertTrue(run.lines.contains("Running markdup on 3 BAM file(s)..."), "The three BAMs reached the loop")
-        XCTAssertEqual(
-            run.lines.filter { $0.contains("markdup failed on ") }.count, 3,
-            "The loop logged one warning for each BAM the cancel left"
+        XCTAssertEqual(run.lines.filter { $0.contains("markdup failed on ") }, [], "The cancel is not a failed markdup")
+        XCTAssertFalse(run.lines.contains("Counting reads per organism..."), "The pass went on after the cancel")
+    }
+
+    /// A cancel usually arrives while samtools works on a BAM. The stand-in samtools holds the header probe
+    /// of the first BAM until the cancel has landed, then fails every step of the markdup, as a tool that the
+    /// cancel killed does. That failure is the cancel's, so the pass logs no warning for it either.
+    func testAMarkdupThatTheCancelInterruptedLogsNoWarning() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let result = try BuildDbStreamCapture.esVirituResultWithoutBAMs(in: scratch)
+        try Self.addStandInBAMs(to: result)
+        let started = scratch.root.appendingPathComponent("samtools-started")
+        let cancelled = scratch.root.appendingPathComponent("task-cancelled")
+        let samtools = try ManagedSamtoolsHome.makeStub(
+            rootURL: scratch.root, namePrefix: "Home", script: Self.samtoolsHeldUntilTheCancel(started: started, cancelled: cancelled)
         )
+
+        let run = await Self.withHome(samtools.homeURL) {
+            await Self.run(cancellingWhen: started, thenCreating: cancelled) { sink in
+                try await BuildDbCommand.EsVirituSubcommand.buildDatabase(in: result, options: try Self.options(), events: sink)
+            }
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: started.path), "The first markdup reached samtools")
+        run.assertEndedCancelled()
+        XCTAssertEqual(run.lines.filter { $0.contains("markdup failed on ") }, [], "The failure the cancel caused is not a warning")
     }
 
     // MARK: Running a core under a cancel
@@ -318,6 +337,61 @@ final class BuildDbCancellationTests: XCTestCase {
             if let original { setenv("HOME", original, 1) } else { unsetenv("HOME") }
         }
         return await body()
+    }
+
+    /// A stand-in BAM in the `_temp` folder of each sample of an EsViritu result, where EsViritu leaves it.
+    private static func addStandInBAMs(to result: URL) throws {
+        for sample in fixtureSamples {
+            let temp = result.appendingPathComponent("\(sample)/\(sample)_temp", isDirectory: true)
+            try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+            try Data("BAM".utf8).write(to: temp.appendingPathComponent("\(sample).third.filt.sorted.bam"))
+        }
+    }
+
+    /// A stand-in samtools that creates `started` at its first header probe and holds the probe until
+    /// `cancelled` exists, for at most 30 seconds, then reports no `samtools markdup` in the header and
+    /// fails every other command but `view -c`.
+    private static func samtoolsHeldUntilTheCancel(started: URL, cancelled: URL) -> String {
+        """
+        #!/bin/sh
+        case "$1" in
+          --version) echo "samtools 1.21" ;;
+          view)
+            case "$2" in
+              -H)
+                : > "\(started.path)"
+                waited=0
+                while [ ! -e "\(cancelled.path)" ] && [ $waited -lt 300 ]; do sleep 0.1; waited=$((waited + 1)); done
+                printf '@HD\\tVN:1.6\\n' ;;
+              -c) echo 2 ;;
+            esac ;;
+          *) exit 1 ;;
+        esac
+        exit 0
+        """
+    }
+
+    /// Runs `core` in a task of its own, cancels that task once `trigger` exists and then creates `release`,
+    /// which a stand-in tool waits for, so the cancel always lands before the tool ends.
+    private static func run(
+        cancellingWhen trigger: URL,
+        thenCreating release: URL,
+        _ core: @escaping @Sendable (BuildDbEventSink) async throws -> BuildDbRunResult
+    ) async -> CancelledRun {
+        let recorder = CancellingSink(cancelAt: { _ in false })
+        let sink = recorder.sink
+        let task = Task { try await core(sink) }
+        let watcher = Task {
+            let deadline = Date().addingTimeInterval(30)
+            while !Task.isCancelled, !FileManager.default.fileExists(atPath: trigger.path), Date() < deadline {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            task.cancel()
+            FileManager.default.createFile(atPath: release.path, contents: Data())
+        }
+        let outcome = await task.result
+        watcher.cancel()
+        return CancelledRun(outcome: outcome, lines: recorder.lines)
     }
 
     private static func options(force: Bool = false, noCleanup: Bool = false) throws -> BuildDbRunOptions {
