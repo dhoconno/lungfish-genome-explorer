@@ -158,6 +158,29 @@ final class ManagedToolLeavesTests: XCTestCase {
         XCTAssertNotEqual(inFlight.exitStatus, 0, "while the one that never reached its end is not")
     }
 
+    /// A failed pack run never rolls back a database requirement, so one that finished before the failure
+    /// stays succeeded in the record. The first visible pack that holds one is the required setup pack.
+    func testADatabaseRequirementThatFinishedBeforeTheFailureStaysSucceededInTheRecord() async throws {
+        let pack = try XCTUnwrap(
+            PluginPack.visibleForApp(experimentalFeaturesEnabled: true).first { candidate in
+                candidate.toolRequirements.contains { $0.managedDatabaseID != nil }
+            },
+            "a visible pack holds a database requirement"
+        )
+        let database = try XCTUnwrap(pack.toolRequirements.first { $0.managedDatabaseID != nil })
+        CondaCommand.packStatusServiceOverride = Fixtures.PackService(.failAfterFinishing(database.id))
+        let command = try CondaCommand.InstallSubcommand.parse(["--pack", pack.id, "--reinstall", "--format", "json"])
+        let lines = Fixtures.Lines()
+
+        await assertExit(.dependency) { try await command.executePacks(eventsOn: true, quiet: true, emit: lines.append) }
+
+        let finished = try XCTUnwrap(
+            try lastPackRecord().steps.first { $0.toolName == database.id }, "the finished database requirement is a step of the record"
+        )
+        XCTAssertEqual(finished.exitStatus, 0, "a database requirement is never rolled back, so it stays succeeded")
+        XCTAssertNil(finished.stderr)
+    }
+
     func testSIGTERMCancelsAPackReinstallAndRecordsItCancelled() async throws {
         let pack = try Fixtures.pack()
         let atWork = Fixtures.AtWork()
