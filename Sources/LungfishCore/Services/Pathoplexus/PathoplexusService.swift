@@ -40,9 +40,9 @@ public actor PathoplexusService: DatabaseService {
     // MARK: - Properties
 
     public nonisolated let name = "Pathoplexus"
-    public nonisolated let baseURL = URL(string: "https://lapis.pathoplexus.org/")!
-    public nonisolated let backendURL = URL(string: "https://backend.pathoplexus.org/")!
-    public nonisolated let authURL = URL(string: "https://authentication.pathoplexus.org/")!
+    public nonisolated let baseURL: URL
+    public nonisolated let backendURL: URL
+    public nonisolated let authURL: URL
 
     private let httpClient: HTTPClient
     private var lastRequestTime: Date?
@@ -51,8 +51,18 @@ public actor PathoplexusService: DatabaseService {
 
     /// Creates a new Pathoplexus service.
     ///
-    /// - Parameter httpClient: HTTP client for making requests
-    public init(httpClient: HTTPClient = URLSessionHTTPClient()) {
+    /// - Parameters:
+    ///   - httpClient: HTTP client for making requests
+    ///   - environment: Read by a debug build for the stand-in origin that the parity tests of
+    ///     lane A45 name (``PathoplexusServiceEndpoints``). A release build ignores it.
+    public init(
+        httpClient: HTTPClient = URLSessionHTTPClient(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        let endpoints = PathoplexusServiceEndpoints(environment: environment)
+        baseURL = endpoints.baseURL
+        backendURL = endpoints.backendURL
+        authURL = endpoints.authURL
         self.httpClient = httpClient
     }
 
