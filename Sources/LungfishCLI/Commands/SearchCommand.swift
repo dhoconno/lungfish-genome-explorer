@@ -227,9 +227,12 @@ struct SearchCommand: AsyncParsableCommand {
                 outputDirectory: outputURL.deletingLastPathComponent()
             )
             if !globalOptions.quiet {
-                print(formatter.success(
-                    "Found \(allMatches.count) match(es) across \(sequences.count) sequence(s), written to \(outputPath)"
-                ))
+                printHumanLine(
+                    formatter.success(
+                        "Found \(allMatches.count) match(es) across \(sequences.count) sequence(s), written to \(outputPath)"
+                    ),
+                    eventsOn: globalOptions.outputFormat == .json
+                )
             }
         } else {
             if !globalOptions.quiet && globalOptions.outputFormat == .text {

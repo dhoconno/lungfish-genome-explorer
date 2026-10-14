@@ -155,4 +155,27 @@ final class JSONAloneOnStandardOutputTests: XCTestCase {
         XCTAssertEqual(try jsonObject(streams.standardOutput)["length"] as? Int, 90)
         XCTAssertEqual(streams.standardErrorText, "")
     }
+
+    // MARK: search (a leaf row 213 does not name, found in the A55 review, fix 7)
+
+    func testSearchWithAFileWritesTheJSONAloneOnStandardOutput() async throws {
+        let output = folder.appendingPathComponent("sites.bed")
+        let command = try SearchCommand.parse([
+            input.path, "GGATCC", "-o", output.path, "--format", "json", "--no-color",
+        ])
+
+        let streams = try await StandardStreamCapture.capture(in: folder) { try await command.run() }
+
+        let json = try jsonObject(streams.standardOutput)
+        let count = try XCTUnwrap(json["matchCount"] as? Int)
+        XCTAssertGreaterThan(count, 0)
+        XCTAssertEqual(json["sequenceCount"] as? Int, 2)
+        XCTAssertEqual(
+            streams.standardErrorText,
+            "ℹ Searching two.fasta for exact pattern 'GGATCC'...\n"
+                + "✓ Found \(count) match(es) across 2 sequence(s), written to \(output.path)\n",
+            "The success line goes to standard error, so standard output holds the JSON alone"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+    }
 }
