@@ -238,9 +238,10 @@ extension NextflowWorkflowContractParityReplayTests {
     static let dockerStandInVariable = "LUNGFISH_DOCKER_STANDIN"
 
     /// Writes `caseRoot/docker-standin/docker`, which stands in for the `docker` CLI and for `open -g -a Docker`. It
-    /// appends each call's arguments to `calls.txt` beside it, answers `version` as a daemon that runs, prints
-    /// `ps.txt` for `ps` and `inspect.txt` for `inspect`, takes `kill` and `rm`, and refuses anything else, the call
-    /// that would start Docker Desktop among them.
+    /// appends each call's arguments to `calls.txt` beside it, answers `version` as a daemon that runs, or exits 1 as
+    /// a stopped daemon does when a `daemon-down` file sits beside it, prints `ps.txt` for `ps` and `inspect.txt` for
+    /// `inspect`, takes `kill` and `rm`, and refuses anything else, the call that would start Docker Desktop among
+    /// them.
     static func writeDockerStandIn(in caseRoot: URL) throws -> URL {
         let folder = caseRoot.appendingPathComponent("docker-standin", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -250,7 +251,7 @@ extension NextflowWorkflowContractParityReplayTests {
         here=$(dirname "$0")
         echo "$*" >> "$here/calls.txt"
         case "$1" in
-          version) echo '28.3.2|28.3.2' ;;
+          version) [ -e "$here/daemon-down" ] && exit 1; echo '28.3.2|28.3.2' ;;
           ps) cat "$here/ps.txt" 2>/dev/null ;;
           inspect) cat "$here/inspect.txt" 2>/dev/null ;;
           kill|rm) ;;
