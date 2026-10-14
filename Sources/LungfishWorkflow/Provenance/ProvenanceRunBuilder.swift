@@ -180,7 +180,7 @@ public struct ProvenanceRunBuilder: Sendable {
     /// file, such as a staged input a batch's sample keeps, so the file is not read again. It
     /// needs what a consumed-input snapshot needs, an absolute local path, a complete SHA-256
     /// and a size.
-    func recordedOutputSnapshot(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
+    package func recordedOutputSnapshot(_ descriptor: ProvenanceFileDescriptor) throws -> Self {
         guard Self.isCompleteLocalSnapshot(descriptor) else {
             throw ProvenanceBuilderError.incompleteFileDescriptor(descriptor.path)
         }

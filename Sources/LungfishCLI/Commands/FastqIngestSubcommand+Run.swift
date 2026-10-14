@@ -177,6 +177,10 @@ struct FastqIngestRun {
                 role: .input
             )
         }
+        // The staged output is read here too, once, while a cancel can still stop the read. The record, the merge
+        // into a record that stands and the output's sidecar all take this digest, so the output is not read
+        // again after the publish, where the run no longer checks cancellation (review A47 fix 6 (e), SWIFT 5).
+        let outputRecord = try Self.outputRecord(staged: staged, final: finalOutput, originals: originals)
         try Task.checkCancellation()
 
         // Step 3.
@@ -206,6 +210,7 @@ struct FastqIngestRun {
             result: result,
             staged: staged,
             output: finalOutput,
+            outputRecord: outputRecord,
             sidecarURL: sidecarURL,
             originals: originals,
             folder: folder
@@ -271,10 +276,27 @@ struct FastqIngestRun {
         try FastqIngestDurability.syncFile(at: sidecarURL)
     }
 
+    /// The output's record: its digest and size read from the staged file before the publish, under the final
+    /// name. An input that stays as the output was read as an original, and that read is the output's.
+    private static func outputRecord(staged: URL, final: URL, originals: [FileRecord]) throws -> FileRecord {
+        let finalPath = final.standardizedFileURL.path
+        if let same = originals.first(where: { URL(fileURLWithPath: $0.path).standardizedFileURL.path == finalPath }) {
+            return FileRecord(path: final.path, sha256: same.sha256, sizeBytes: same.sizeBytes, format: .fastq, role: .output)
+        }
+        return FileRecord(
+            path: final.path,
+            sha256: try ProvenanceFileHasher.sha256(of: staged, cancellationCheck: { try Task.checkCancellation() }),
+            sizeBytes: try ProvenanceFileHasher.fileSize(of: staged),
+            format: .fastq,
+            role: .output
+        )
+    }
+
     private func writeRecord(
         result: FASTQIngestionResult,
         staged: URL,
         output: URL,
+        outputRecord: FileRecord,
         sidecarURL: URL,
         originals: [FileRecord],
         folder: URL
@@ -283,7 +305,6 @@ struct FastqIngestRun {
         parameters["output"] = .file(output)
         parameters["outputPairingMode"] = .string(result.pairingMode.rawValue)
         parameters["wasClumpified"] = .boolean(result.wasClumpified)
-        let outputRecord = ProvenanceRecorder.fileRecord(url: output, format: .fastq, role: .output)
         let sidecarRecord = ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output)
         // The record that stands in the folder is the file's history, such as the download or the
         // import it came with. The run joins it as the app's route does, with the removed originals'
@@ -312,6 +333,7 @@ struct FastqIngestRun {
             inputs: originals,
             outputs: [outputRecord],
             consumedInputSnapshotPaths: consumed,
+            recordedOutputSnapshotPaths: [URL(fileURLWithPath: outputRecord.path).canonicalFilePath],
             exitCode: 0,
             wallTime: clock.now.timeIntervalSince(clock.startedAt),
             stderr: nil,
@@ -324,7 +346,8 @@ struct FastqIngestRun {
                         sourceProvenanceURL: found.sourceURL,
                         ingestionEnvelope: fresh,
                         replacedInputFiles: replaced,
-                        finalFASTQURL: output
+                        finalFASTQURL: output,
+                        finalFASTQDescriptor: ProvenanceFileDescriptor(fileRecord: outputRecord)
                     )
                 }
             }

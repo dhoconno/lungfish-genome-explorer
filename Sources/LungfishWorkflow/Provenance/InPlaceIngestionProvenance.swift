@@ -44,19 +44,23 @@ package enum InPlaceIngestionProvenance {
         sourceProvenanceURL: URL?,
         ingestionEnvelope: ProvenanceEnvelope,
         replacedInputFiles: [URL],
-        finalFASTQURL: URL
+        finalFASTQURL: URL,
+        finalFASTQDescriptor: ProvenanceFileDescriptor? = nil
     ) throws -> ProvenanceEnvelope {
         let pathMap = replacedOutputPathMap(
             in: existingEnvelope,
             replacedInputFiles: replacedInputFiles,
             finalFASTQURL: finalFASTQURL
         )
+        // A caller that read the final file's digest already passes it, and the path rewrite takes it in place of
+        // a new hash of a file that may be large (review A47 fix 6 (e)). The app's route passes none and hashes.
         let rewrittenExisting = pathMap.isEmpty
             ? existingEnvelope
             : try GUIImportedProvenanceRehydrator.rewriteOutputDescriptors(
                 in: existingEnvelope,
                 pathMap: pathMap,
-                sourceProvenancePath: sourceProvenanceURL?.path
+                sourceProvenancePath: sourceProvenanceURL?.path,
+                finalDescriptor: finalFASTQDescriptor
             )
         let output = ingestionEnvelope.output ?? rewrittenExisting.output
         let outputs = deduplicatedProvenanceFiles(rewrittenExisting.outputs + ingestionEnvelope.outputs)

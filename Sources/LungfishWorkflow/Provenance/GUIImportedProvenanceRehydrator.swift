@@ -189,44 +189,27 @@ public enum GUIImportedProvenanceRehydrator {
         return nil
     }
 
+    /// - Parameter finalDescriptor: A caller that already read the file a descriptor is mapped onto passes the
+    ///   descriptor it made, and a descriptor mapped onto that path takes its digest and size in place of a new read.
     public static func rewriteOutputDescriptors(
         in envelope: ProvenanceEnvelope,
         pathMap: [String: String],
-        sourceProvenancePath: String? = nil
+        sourceProvenancePath: String? = nil,
+        finalDescriptor: ProvenanceFileDescriptor? = nil
     ) throws -> ProvenanceEnvelope {
         let standardizedPathMap = standardized(pathMap)
         let replayArgv = rewriteArguments(
             envelope.durableReplayArgv ?? envelope.argv,
             pathMap: standardizedPathMap
         )
-        let files = try deduplicated(
-            envelope.files.map {
-                if $0.role == .output {
-                    return try rewriteOutputDescriptor(
-                        $0,
-                        pathMap: standardizedPathMap,
-                        sourceProvenancePath: sourceProvenancePath
-                    )
-                }
-                return $0
-            }
-        )
-        let output = try envelope.output.map {
+        let rewrite = { (descriptor: ProvenanceFileDescriptor) throws -> ProvenanceFileDescriptor in
             try rewriteOutputDescriptor(
-                $0,
-                pathMap: standardizedPathMap,
-                sourceProvenancePath: sourceProvenancePath
+                descriptor, pathMap: standardizedPathMap, sourceProvenancePath: sourceProvenancePath, finalDescriptor: finalDescriptor
             )
         }
-        let outputs = try deduplicated(
-            envelope.outputs.map {
-                try rewriteOutputDescriptor(
-                    $0,
-                    pathMap: standardizedPathMap,
-                    sourceProvenancePath: sourceProvenancePath
-                )
-            }
-        )
+        let files = try deduplicated(envelope.files.map { try $0.role == .output ? rewrite($0) : $0 })
+        let output = try envelope.output.map(rewrite)
+        let outputs = try deduplicated(envelope.outputs.map(rewrite))
         let steps = try envelope.steps.map { step in
             let stepReplayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: standardizedPathMap)
             return try step.with { copy in
@@ -236,13 +219,7 @@ public enum GUIImportedProvenanceRehydrator {
                     fallback: step.reproducibleCommand,
                     pathMap: standardizedPathMap
                 )
-                copy.outputs = try step.outputs.map {
-                    try rewriteOutputDescriptor(
-                        $0,
-                        pathMap: standardizedPathMap,
-                        sourceProvenancePath: sourceProvenancePath
-                    )
-                }
+                copy.outputs = try step.outputs.map(rewrite)
                 copy.resolvedOptions = step.resolvedOptions.mapValues {
                     rewriteParameterValue($0, pathMap: standardizedPathMap)
                 }
@@ -733,7 +710,8 @@ public enum GUIImportedProvenanceRehydrator {
     private static func rewriteOutputDescriptor(
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
-        sourceProvenancePath: String?
+        sourceProvenancePath: String?,
+        finalDescriptor: ProvenanceFileDescriptor? = nil
     ) throws -> ProvenanceFileDescriptor {
         guard let finalPath = mappedPath(for: descriptor.path, in: pathMap) else {
             return descriptor
@@ -741,7 +719,10 @@ public enum GUIImportedProvenanceRehydrator {
         let finalURL = URL(fileURLWithPath: finalPath)
         let originPath = descriptor.originPath ?? descriptor.path
         let provenancePath = descriptor.sourceProvenancePath ?? sourceProvenancePath
-        if isRegularFile(finalURL) {
+        let known = finalDescriptor.flatMap {
+            URL(fileURLWithPath: $0.path).standardizedFileURL.path == finalURL.standardizedFileURL.path ? $0 : nil
+        }
+        if known == nil, isRegularFile(finalURL) {
             return try ProvenanceFileDescriptor.file(
                 url: finalURL,
                 format: descriptor.format,
@@ -752,8 +733,8 @@ public enum GUIImportedProvenanceRehydrator {
         }
         return ProvenanceFileDescriptor(
             path: finalPath,
-            checksumSHA256: descriptor.checksumSHA256,
-            fileSize: descriptor.fileSize,
+            checksumSHA256: known?.checksumSHA256 ?? descriptor.checksumSHA256,
+            fileSize: known?.fileSize ?? descriptor.fileSize,
             format: descriptor.format,
             role: descriptor.role,
             originPath: originPath,

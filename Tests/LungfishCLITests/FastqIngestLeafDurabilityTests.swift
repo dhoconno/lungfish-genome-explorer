@@ -240,6 +240,47 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         XCTAssertEqual(try names(in: root).filter { !$0.hasPrefix(".lungfish-provenance") }, ["reads.fastq.gz", "reads.fastq.gz.lungfish-meta.json", "reads.fastq.gz.lungfish-provenance.json"])
     }
 
+    // MARK: - The output is read once (review A47 fix 6 (e), SWIFT 5)
+
+    /// The leaf reads the staged output once, before it publishes, while a cancel can still stop the read, and
+    /// the record, the merge into the import record that stands and the output's sidecar all take that digest. A
+    /// witness: the observer overwrites the published file when it is renamed into place, so a read after the
+    /// publish would state the digest of the overwritten bytes.
+    func testTheOutputIsReadOnceBeforePublishAndEveryRecordNamesThatDigest() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-read-once")
+        defer { TestTempDirectory.cleanup(root) }
+        let fixture = try FastqIngestImportRecordFixture.makeBundle(in: root, reads: Self.reads)
+        let output = fixture.folder.appendingPathComponent("Sample.fastq.gz")
+        let published = IngestLog()
+        try await FastqIngestObservation.$observer.withValue({ step in
+            guard step == .renamed else { return }
+            published.append(ProvenanceRecorder.sha256(of: output) ?? "unreadable")
+            try? Data("overwritten after the publish".utf8).write(to: output)
+        }) {
+            try await self.execute([fixture.fastq.path, "--skip-clumpify", "--delete-originals", "--quiet"])
+        }
+
+        let staged = try XCTUnwrap(published.all.first)
+        XCTAssertNotEqual(ProvenanceRecorder.sha256(of: output), staged, "the overwrite changed the published file")
+        let record = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: fixture.folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        let sidecarRecord = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output))
+        )
+        // The root record's output, the import record's old outputs that the merge points at the gzip file, and the
+        // import step's output, then the sidecar's own record.
+        let named = (
+            [record.output].compactMap { $0 } + record.outputs + record.files.filter { $0.role == .output }
+                + record.steps.flatMap(\.outputs) + sidecarRecord.outputs
+        ).filter { $0.path == output.path }
+        XCTAssertGreaterThanOrEqual(named.count, 4, "the output is named by the record, its files, its steps and the sidecar: \(named.count)")
+        for descriptor in named {
+            XCTAssertEqual(descriptor.checksumSHA256, staged, "a record names the digest read before the publish")
+        }
+    }
+
     // MARK: - Events
 
     func testItPrintsEventsOnFormatJSON() async throws {
