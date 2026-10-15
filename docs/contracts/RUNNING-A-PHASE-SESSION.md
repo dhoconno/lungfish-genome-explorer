@@ -103,6 +103,7 @@ until rg -q '^exit=' build/lane/build.log; do sleep 5; done; tail -n 20 build/la
 | Quota pacing | Read `get_usage` at every landing. Keep the 5-hour figure under a straight line from the window start (20 points an hour, about $140 an hour at $7 a point), and hold every spawn at 75%. Project the weekly close from a list of the rows left, each with a low and a high cost, at about $27 a point. When the projection crosses the stop line, ask the owner which rows move to the next phase. At a launch line about 6 points under the stop no new row starts, and the owner hears the projection. |
 | Disk and snapshots | Each worktree build folder holds about 16 GB. Check `df -h ~` before every launch and landing. Local snapshots keep deleted folders, so under the owner's standing grant thin them at the first reading under about 100 GB with `tmutil thinlocalsnapshots / 400000000000 4`, which needs no sudo. |
 | Model choice | Opus at effort max for inventories, memos and reviews, opus for lanes on the longest chain, sonnet for mechanical and documentation lanes, the memo tally, fact-checks, fix agents and landings. |
+| Model and effort on every delegation | Every Agent call sets the agent type, `model` and `effort` explicitly, so no spawn inherits the session's settings. Every brief opens with the line `You run as <agent type> on <model> at effort <level>.`, and every brief or recommendation that delegates work names the agent type, model and effort of each agent it calls for. The STATE block and the spawn map record all three for each spawn. A transcript's `effort` field reads the session's setting on every message, not the spawn's, so effort is known only from the spawn's own settings. Until the effort A/B test (`docs/plans/2026-10-15-phase-2-11-effort-ab.md`) sets each role's effort, the Model choice row holds. |
 | Done means sent | Write a step into the STATE or the event log as done only after its call ran, and record a text to the owner as sent only after a transcript check shows it. |
 
 ## The manager's context budget
@@ -139,6 +140,8 @@ A fresh monitor agent runs each checkpoint as `.claude/agents/llm-efficiency-mon
 Its scripts read the transcripts, so no transcript text enters its context, and it writes only under `SCR/llm/`. It
 checks the ledger, `get_usage`, disk, the briefs (a rule that never reaches a brief is not followed) and the thresholds
 below, and leaves a log entry, numbered actions with agent ids and evidence, and a final message under 200 words.
+Every log entry holds a table of spend, output and thinking tokens by role, model and effort, where effort is the one
+each spawn asked for, with the count of messages that kept no final usage.
 
 | Signal | Threshold | Action |
 |---|---|---|
@@ -151,6 +154,7 @@ below, and leaves a log entry, numbered actions with agent ids and evidence, and
 | Burn, load and quota | over about $150 an hour, above the 5-hour line, over 5 building agents or a load average of 40, or a weekly projection over the stop line | Hold launches, and tell the owner of the weekly projection |
 | Free disk | under about 100 GB | Delete the build folders of finished lanes, then thin the snapshots under the owner's grant |
 | Manager context | over 85% of the window | Refresh the STATE block and expect compaction |
+| Model or effort unset | any spawn without an explicit `model` or `effort`, or a brief without its opening line | Name each as a breach with its agent id, and restate the rule in the next briefs |
 
 ## Evidence
 

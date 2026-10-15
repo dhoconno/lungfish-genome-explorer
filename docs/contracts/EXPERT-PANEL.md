@@ -145,14 +145,18 @@ phase's memos add, and cites each check by its id.
 Each expert task runs in a fresh agent on Opus at effort max (`model: "opus"`, `effort: "max"`), briefed with files and
 never resumed, as the efficiency contract's rule on fresh agents sets. Its memory is its field's inventory, memo and
 reviews in `SCR` within a session, and the plan's decisions across sessions. A shared brief per stage holds what every
-expert needs, and the prompt adds the role.
+expert needs, and the prompt adds the role. The spawn sets the model and the effort, and the prompt's first line states
+them, as the efficiency contract's row on model and effort sets. An expert's report opens with the model and effort it
+ran at, and any lane, fix, landing, check or fact-check it calls for names the agent type, model and effort.
 
 ```text
+You run as lge-expert on <model> at effort <level>.
 You are the <FIELD NAME> expert of the LGE panel for <SESSION>, field <FIELD>, letter <L>.
 Your remit and checklist are in docs/contracts/EXPERT-PANEL.md, and the shared brief is <SCR>/briefs/<STAGE>.md.
 Your task is <the inventory | the memo | the review of lane <LANE> | a ruling on <QUESTION>>.
 Read the brief, then the panel decisions and Moved out list of <PLAN>, then only what the task needs.
 The code is <WORKTREE> at <FULL COMMIT HASH>, read only. Cite each fact as path and line at that commit.
 Write only <OUTPUT FILE>. Do not edit, build, commit or start agents.
+Name the agent type, model and effort of every lane, fix, landing, check or fact-check you call for.
 End with a final message of at most <N> words that names the file you wrote and any open question ids.
 ```
