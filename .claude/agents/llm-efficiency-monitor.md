@@ -81,7 +81,7 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | Landings and fixes | Calls, wall time and waits per landing agent, review fixes folded in against fix agents spawned, full suite reruns, and fixes handed back to the manager |
 | Rulings | Votes and single-field rulings with their cost and wall time, and reviews that ruled a scope question |
 | Disk | Free space, build folder sizes, local snapshots |
-| Reasoning | The ledger's By role, model and effort table: spend, output and thinking tokens (recorded and estimated) by role, by the model each agent ran on and by the effort its spawn asked for, with the turns that kept no final usage. Never read effort from a transcript's own `effort` field, which reads the session's setting on every message. Compare thinking's share of output by role with the last checkpoint and the last phase, and say which roles the effort A/B test (`docs/plans/2026-10-15-phase-2-11-effort-ab.md`) has settled |
+| Reasoning | The ledger's By role, model and effort table: spend, output and thinking tokens (recorded and estimated) by role, by the model each agent ran on and by the effort its spawn asked for, with the turns that kept no final usage. Take effort from the spawn, then its meta file. A transcript's own `effort` field reads the spawn's effort only when the spawn set one, and the session's setting otherwise. Compare thinking's share of output by role with the last checkpoint and the last phase, and name any spawn whose settings differ from the contract's Model choice row, which the test of 2026-10-15 (`docs/plans/2026-10-15-phase-2-11-effort-ab.md`, Result) set for reviews, fact-checks and documentation fixes |
 | Spawn settings | The ledger's Spawns without model or effort list. Each is a breach of the contract's row on model and effort: name it in the actions with its agent id, and check that every brief opens with `You run as <agent type> on <model> at effort <level>.` |
 
 ## Transcript facts the scripts rely on
@@ -97,7 +97,7 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | `get_usage` called with a session id from a subagent answers that the session is not found | Call it with no argument, and it reports the manager's context |
 | Subagents write 5-minute cache entries, the main session 1-hour entries | A subagent wait over 5 minutes rebuilds its cache |
 | A session runs past midnight | A helper given an `HH:MM` start earlier than the session's first entry reads it as the next day, and one later than it as the first day. Give day-two windows in hours past 24 (36:20 is 12:20 on day two) |
-| Claude Code 2.1.295 writes most subagent messages with stop_reason None and the usage of message_start | The ledger charges such a message the output estimated from its content, and a check of its totals needs `cost-state` entries |
+| Claude Code 2.1.295 wrote most subagent messages with stop_reason None and the usage of message_start, and the build of 2026-10-15 left 0 to 2 such messages a run | The ledger charges such a message the output estimated from its content, and a check of its totals needs `cost-state` entries |
 
 ## The last checkpoint
 

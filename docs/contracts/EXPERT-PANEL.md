@@ -53,7 +53,7 @@ A phase session runs these stages in order. The efficiency contract sets how eac
 | Memos and decisions | One fresh agent per field, Opus at effort max, reading every inventory and the manager's merged question list | `SCR/memos/<FIELD>.md` with votes, objections, scope, order and the field's checks for the phase, which the manager tallies into the decision table |
 | Plan | The manager, from the decisions | The phase plan with the decisions, lanes, models, dependencies and the panel's cut order, first to cut first |
 | Lanes | One agent per lane, Sonnet for mechanical or well-pinned work, Opus for design-sensitive work and the longest chain | Commits and a lane report |
-| Review | One fresh agent in the role of the lane's field expert, Opus at effort max, plus the fact-check for user-facing text | `SCR/reviews/<LANE>.md` with a verdict (Merge, Merge after fixes or Block) and numbered fixes |
+| Review | One fresh agent in the role of the lane's field expert, Sonnet at effort max since the test of 2026-10-15, plus the fact-check for user-facing text, also Sonnet at effort max | `SCR/reviews/<LANE>.md` with a verdict (Merge, Merge after fixes or Block) and numbered fixes |
 | Fixes | A fresh fix agent, Sonnet unless a fix needs judgment | Commits that answer each numbered fix |
 | Landing | Landing agents in batches, Sonnet | The program branch, holding reviewed lanes only |
 | Final candidate | The manager runs the gates of `docs/contracts/VERIFICATION-ORDER.md` once, and the QA and QC expert reviews their evidence | The candidate commit and the owner check list |
@@ -142,7 +142,9 @@ phase's memos add, and cites each check by its id.
 
 ## Spawning an expert
 
-Each expert task runs in a fresh agent on Opus at effort max (`model: "opus"`, `effort: "max"`), briefed with files and
+Each expert task runs in a fresh agent at effort max (`effort: "max"`), on Opus for inventories, memos, votes and
+rulings (`model: "opus"`) and on Sonnet for reviews (`model: "sonnet"`), as the efficiency contract's Model choice
+row sets from the test of 2026-10-15. It is briefed with files and
 never resumed, as the efficiency contract's rule on fresh agents sets. Its memory is its field's inventory, memo and
 reviews in `SCR` within a session, and the plan's decisions across sessions. A shared brief per stage holds what every
 expert needs, and the prompt adds the role. The spawn sets the model and the effort, and the prompt's first line states

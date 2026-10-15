@@ -1,7 +1,7 @@
 ---
 name: manual-fidelity-reviewer
 description: Checks every factual claim in a Lungfish Genome Explorer user-manual chapter against the Preview app, the Swift source, the CLI help tree, and the parameter registry. Reports, never edits.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 
 # Manual Fidelity Reviewer

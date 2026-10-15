@@ -189,3 +189,25 @@ Write `AB/effort-ab-result.md` with:
 
 End with one line per role: `<role>: <effort>, because <numbers>`. Run the monitor once at the end, as the contract
 asks of short sessions.
+
+## Result (2026-10-15)
+
+The test ran on 2026-10-15 in session `49d30719-2b7e-476f-8abd-881e474275f2`, from a weekly reading of 60% at the
+owner's request, and used 4 points ($83.03 by the ledger). The record is in `/Users/dho/lungfish-effort-ab`, with
+the pre-registration (`prereg.md`), the result and its per-run table (`effort-ab-result.md`), the blind grades and the key
+disputes (`grades/`). One correction came before any run. E1 used `qa-candidate-prompt-2.txt`, the brief of the keyed
+review, where this plan named the first version. The owner added a cheaper-model arm per role, sonnet for E1 and haiku
+for F1 and W2, and moved the stop lines under 90%.
+
+| Role and task | High against max | Cheaper model at max | Medium against high | Setting |
+|---|---|---|---|---|
+| Expert review, E1 | Fails. Recall 5.5 of 10 against 8.0 | Sonnet passes. Recall 8.5, 6 false or unsupported against 7, K2 in 2 runs against 0, a median $3.24 a run against $5.15 | Not run | Sonnet at effort max |
+| Fact check, F1 | Fails. Recall 28 of 40 against 30, with no WRONG claim found | Haiku fails. Recall 27, with 3 false findings | Not run | Sonnet at effort max |
+| Documentation fix, W2 | Passes. 44 of 44 in every run, $0.36 a run against $2.00 | Haiku passes at $1.15, dearer than high | Non-inferior, but $0.38 is not cheaper | Sonnet at effort high |
+
+Every arm of W2 applied all 22 rows, so W2 measured cost and not skill. Two runs an arm show only that no large loss
+appeared. Each role had one task, so inventories, memos, votes, rulings, lanes, code fix agents, landings and the monitor
+keep their settings until a test covers them. Every subagent saw the memory index, whose push-to-main line hints at K3.
+The claims file gave ids and sources but no sentences, and scope then decided several F1 verdicts, so a later claims file
+quotes each sentence. A later test could add a code-diff review with planted defects, an inventory or memo with known
+decisions, a code fix with a build, the `xhigh` effort and three or more runs an arm.
