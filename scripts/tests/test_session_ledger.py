@@ -15,6 +15,7 @@ import unittest
 LEDGER = Path(__file__).parents[1] / 'llm' / 'session_ledger.py'
 SID = '11111111-2222-3333-4444-555555555555'
 AID = 'a0123456789abcdef'
+BID = 'b0123456789abcdef'
 T0 = datetime(2026, 10, 11, 13, 0, tzinfo=timezone.utc).timestamp()
 
 
@@ -29,14 +30,22 @@ def stamp(seconds):
     return datetime.fromtimestamp(T0 + seconds, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
 
-def usage(inp=0, write=0, read=0, out=0, w1h=0):
-    return {'input_tokens': inp, 'cache_creation_input_tokens': write, 'cache_read_input_tokens': read,
-            'output_tokens': out,
-            'cache_creation': {'ephemeral_5m_input_tokens': write - w1h, 'ephemeral_1h_input_tokens': w1h}}
+def usage(inp=0, write=0, read=0, out=0, w1h=0, think=0):
+    use = {'input_tokens': inp, 'cache_creation_input_tokens': write, 'cache_read_input_tokens': read,
+           'output_tokens': out,
+           'cache_creation': {'ephemeral_5m_input_tokens': write - w1h, 'ephemeral_1h_input_tokens': w1h}}
+    if think:
+        use['output_tokens_details'] = {'thinking_tokens': think}
+    return use
 
 
 def bash(tool_id, command):
     return {'type': 'tool_use', 'id': tool_id, 'name': 'Bash', 'input': {'command': command, 'timeout': 270000}}
+
+
+def agent_call(tool_id, description, **settings):
+    return {'type': 'tool_use', 'id': tool_id, 'name': 'Agent',
+            'input': dict({'description': description, 'prompt': 'Read SCR/briefs/%s.md' % tool_id}, **settings)}
 
 
 class Transcript:
@@ -247,6 +256,122 @@ class OrchestrationTests(LedgerTestCase):
         self.assertEqual(role('Write next ten lane briefs', 'sub'), 'design')
         self.assertEqual(role('Brief writer 6 (ten lanes)', 'sub'), 'design')
         self.assertEqual(role('anything', 'main'), 'main')
+
+
+class SpendByRoleModelAndEffortTests(LedgerTestCase):
+    """The model and effort each spawn asked for, beside the model its turns ran on, in two tables of the report."""
+    LANE = '| lane | claude-sonnet-5-5 | max | 1 | 2 | 30K | 16K | 0 | 53.3 | 0 | 1.12 |'
+    REVIEW = '| review | claude-opus-5-5 | %s | 1 | 2 | 16K | 5K | 8K | 81.8 | 1 | 0.78 |'
+    MAIN = '| main | claude-opus-5-5 | unset | 1 | 2 | 90 | 0 | 0 | 0.0 | 0 | 0.02 |'
+    OPUS, SONNET = 'claude-opus-5-5', 'claude-sonnet-5-5'
+
+    def write_meta(self, agent_id, **fields):
+        meta = self.root / 'proj' / SID / 'subagents' / ('agent-%s.meta.json' % agent_id)
+        meta.write_text(json.dumps(fields))
+
+    def write_session(self, review_settings=None):
+        """The main transcript spawns a lane with model and effort set and a review with `review_settings`, which are
+        none by default. The lane's turns carry recorded thinking. The review's second turn kept no final usage, and
+        its thinking is stored as text."""
+        review_settings = review_settings or {}
+        self.main.prompt(0, 'start the phase')
+        self.main.turn(5, 'msg_m1', usage(read=30000, write=1000, out=50, w1h=1000),
+                       [agent_call('m1', 'Lane A1 small fixes', model='sonnet', effort='max',
+                                   subagent_type='lge-worker')], model=self.OPUS)
+        self.main.result(6, 'm1', 'launched', tool_use_result={'agentId': AID, 'status': 'async_launched'})
+        self.main.turn(8, 'msg_m2', usage(read=31000, write=500, out=40, w1h=500),
+                       [agent_call('m2', 'Swift review of lane A1', subagent_type='general-purpose',
+                                   **review_settings)], model=self.OPUS)
+        self.main.result(9, 'm2', 'launched', tool_use_result={'agentId': BID, 'status': 'async_launched'})
+        self.sub.prompt(7, 'brief of the lane')
+        self.sub.turn(10, 'msg_a1', usage(read=1000000, write=100000, out=20000, think=12000), [bash('t1', 'ls')])
+        self.sub.result(11, 't1', 'x')
+        self.sub.turn(20, 'msg_a2', usage(read=1100000, write=60000, out=10000, think=4000), [], stop='end_turn')
+        review = Transcript(self.root / 'proj' / SID / 'subagents' / ('agent-%s.jsonl' % BID), BID)
+        review.prompt(9, 'brief of the review')
+        review.turn(12, 'msg_b1', usage(read=500000, write=40000, out=8000, think=5000), [bash('u1', 'ls')],
+                    model=self.OPUS)
+        review.result(13, 'u1', 'x')
+        review.turn(30, 'msg_b2', usage(read=520000, write=10000, out=5), [{'type': 'thinking', 'thinking': 'x' * 36000}],
+                    model=self.OPUS, stop=None)
+        for transcript in (self.main, self.sub, review):
+            transcript.save()
+        self.write_meta(AID, description='Lane A1 small fixes', agentType='lge-worker', model='sonnet', effort='max')
+        self.write_meta(BID, description='Swift review of lane A1', agentType='general-purpose', **review_settings)
+        return self.ledger.load_session(SID, str(self.root), None, 12)
+
+    @staticmethod
+    def section(text, heading):
+        """The table rows of one section of the report, without the header row."""
+        body = text.split('### %s\n' % heading)[1].split('\n### ')[0]
+        return [line for line in body.splitlines() if line.startswith('| ')][1:]
+
+    def test_rows_of_both_sections(self):
+        session = self.write_session()
+        estimated = int(36000 / 4 / self.ledger.EST_BIAS)  # thinking text at 4 characters a token, less the bias
+        rows = session['by_role_model_effort']
+        self.assertEqual(
+            [(x['role'], x['model'], x['effort'], x['agents'], x['turns'], x['out'], x['think_recorded'],
+              x['think_estimated'], x['no_final_usage']) for x in rows],
+            [('lane', self.SONNET, 'max', 1, 2, 30000, 16000, 0, 0),
+             ('review', self.OPUS, 'unset', 1, 2, 8000 + estimated, 5000, estimated, 1),
+             ('main', self.OPUS, 'unset', 1, 2, 90, 0, 0, 0)])
+        self.assertAlmostEqual(rows[0]['think_share'], 16000 / 30000)
+        self.assertAlmostEqual(rows[1]['think_share'], (5000 + estimated) / (8000 + estimated))
+        # opus: input 2.05, 5-minute cache write 5.05, cache read 0.205, output 19.20 dollars per million tokens
+        self.assertAlmostEqual(rows[1]['cost'], 0.4581 + 0.1066 + 0.0505 + estimated * 19.2 / 1e6, places=5)
+        self.assertAlmostEqual(sum(x['cost'] for x in rows), self.ledger.aggregate(session['agents'])['cost'], places=5)
+        self.assertEqual(session['spawns_without_model_or_effort'], [
+            {'key': BID, 'label': 'Swift review of lane A1', 'agent_type': 'general-purpose',
+             'missing': ['model', 'effort'], 'model': 'unset', 'effort': 'unset', 'ran_on': self.OPUS}])
+        self.assertEqual(self.agent(session, AID)['request'],
+                         {'model': 'sonnet', 'effort': 'max', 'agent_type': 'lge-worker', 'ran_on': self.SONNET})
+        self.assertEqual(self.agent(session, 'main')['request']['effort'], 'unset')
+        text = '\n'.join(self.ledger.md_session(session, 12)[0])
+        self.assertEqual(self.section(text, 'By role, model and effort'), [self.LANE, self.REVIEW % 'unset', self.MAIN])
+        self.assertEqual(self.section(text, 'Spawns without model or effort'), [
+            '| %s | Swift review of lane A1 | general-purpose | model and effort | unset | unset | %s |' % (BID, self.OPUS)])
+
+    def test_spawns_with_both_settings_leave_the_second_section_empty(self):
+        session = self.write_session({'model': 'opus', 'effort': 'high'})
+        text = '\n'.join(self.ledger.md_session(session, 12)[0])
+        self.assertEqual(session['spawns_without_model_or_effort'], [])
+        self.assertIn('### Spawns without model or effort\n\n- none', text)
+        self.assertEqual(self.section(text, 'By role, model and effort'), [self.LANE, self.REVIEW % 'high', self.MAIN])
+
+    def test_requested_settings_come_from_the_spawn_then_the_meta_then_unset(self):
+        request = self.ledger.request_of
+        meta = {'model': 'opus', 'effort': 'high', 'agentType': 'lge-expert'}
+        spawn = {'model': 'sonnet', 'effort': 'max', 'subagent_type': 'lge-worker'}
+        self.assertEqual(request({'model': self.OPUS, 'spawn': spawn, 'meta': meta}),
+                         {'model': 'sonnet', 'effort': 'max', 'agent_type': 'lge-worker', 'ran_on': self.OPUS})
+        self.assertEqual(request({'model': self.OPUS, 'spawn': {'model': None, 'effort': None}, 'meta': meta}),
+                         {'model': 'opus', 'effort': 'high', 'agent_type': 'lge-expert', 'ran_on': self.OPUS})
+        self.assertEqual(request({'model': self.OPUS, 'meta': {}}),
+                         {'model': 'unset', 'effort': 'unset', 'agent_type': 'unset', 'ran_on': self.OPUS})
+
+    def test_a_spawn_missing_one_setting_names_that_setting_and_the_main_transcript_is_no_spawn(self):
+        def agent(kind, key, model, effort):
+            return {'kind': kind, 'key': key, 'label': 'Agent ' + key, 'request': {
+                'model': model, 'effort': effort, 'agent_type': 'lge-worker', 'ran_on': self.OPUS}}
+        rows = self.ledger.spawns_without_model_or_effort([
+            agent('main', 'main', 'unset', 'unset'), agent('sub', 'a1', 'opus', 'unset'),
+            agent('sub', 'a2', 'unset', 'max'), agent('sub', 'a3', 'opus', 'max')])
+        self.assertEqual([(x['key'], x['missing']) for x in rows], [('a1', ['effort']), ('a2', ['model'])])
+
+    def test_json_carries_the_two_tables_beside_the_markdown(self):
+        self.write_session()
+        md, js = self.root / 'ledger.md', self.root / 'ledger.json'
+        run = subprocess.run([sys.executable, str(LEDGER), '--root', str(self.root), '--md', str(md),
+                              '--json', str(js), '--now', stamp(60), SID], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        data = json.loads(js.read_text())[0]
+        self.assertEqual([(x['role'], x['model'], x['effort']) for x in data['by_role_model_effort']],
+                         [('lane', self.SONNET, 'max'), ('review', self.OPUS, 'unset'), ('main', self.OPUS, 'unset')])
+        self.assertEqual([(x['key'], x['missing']) for x in data['spawns_without_model_or_effort']],
+                         [(BID, ['model', 'effort'])])
+        self.assertEqual(self.section(md.read_text(), 'By role, model and effort'),
+                         [self.LANE, self.REVIEW % 'unset', self.MAIN])
 
 
 class CommandLineTests(LedgerTestCase):

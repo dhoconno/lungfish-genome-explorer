@@ -16,9 +16,11 @@ estimated cost (per-model $/MTok fitted from Claude Code `cost-state` records), 
 split into model, tool and idle time, tool calls by name, build and test Bash calls with
 durations, failed tool results, tool calls with no result (pending; > 15 min flagged),
 longest gaps, files read more than once, tool results over 20 KB, cache rebuilds and
-context compactions. Also session totals, a grouping by model and by role, orchestration
-facts from the main session (spawns, SendMessage, TaskStop, task notifications, quota
-readings) and the session's own `cost-state` record when present.
+context compactions. Also session totals, a grouping by model and by role, a grouping by
+role, the model the turns ran on and the effort the spawn asked for (with the thinking tokens
+recorded and estimated and the turns that kept no final usage), the spawns that set no model
+or no effort, orchestration facts from the main session (spawns, SendMessage, TaskStop, task
+notifications, quota readings) and the session's own `cost-state` record when present.
 
 The script never prints message text except short signatures of errors, commands and
 agent descriptions. Unknown entry types are counted and otherwise ignored.
@@ -65,6 +67,7 @@ ROLE_RULES = [  # first match wins, so fix agents, landings and monitors stay ou
     ("design", re.compile(r"inventor|expert|design|memo|\bplan\b|planning|panel|question|survey|scope|research|investigat|triage|diagnos|\bbriefs?\b", re.I)),
     ("lane", re.compile(r"\blane\b|\bfix|implement|\bwave\b|writer|\bland|port|migrat|refactor|add |build", re.I)),
 ]
+UNSET = "unset"  # a spawn setting that neither the Agent call nor the subagent's meta carries
 READ_CMD_RES = [  # group 1: range or command form, group 2: file argument(s)
     re.compile(r"\bsed\s+-n\s+('[^']*'|\"[^\"]*\"|\S+)\s+([^\s|;&<>()]+)"),
     re.compile(r"(?:^|[\s;&|(])(cat|nl\s+-ba|nl)\s+((?:[^\s|;&<>()-][^\s|;&<>()]*\s*)+)"),
@@ -510,10 +513,13 @@ def analyze_agent(ag, now, top):
     for mrec in msgs:  # charge the content estimate where the transcript kept no final usage
         u = mrec["u"]
         e = mrec.get("est", 0.0) / EST_BIAS
+        mrec["think_est"] = 0  # thinking tokens the estimate added to the recorded ones
         if not mrec.get("stop") and e > u["out"]:
             est_added += int(e) - u["out"]
             u["out"] = int(e)
-            u["think"] = max(u["think"], int(mrec.get("est_think", 0.0) / EST_BIAS))
+            recorded = u["think"]
+            u["think"] = max(recorded, int(mrec.get("est_think", 0.0) / EST_BIAS))
+            mrec["think_est"] = u["think"] - recorded
             est_n += 1
     r["est_out"] = {"msgs": est_n, "tokens": est_added}
     # what preceded each API turn: R tool result, U message / notification, O other
@@ -540,6 +546,8 @@ def analyze_agent(ag, now, top):
             tot[k] += v
             by_model[mrec["model"]][k] += v
         by_model[mrec["model"]]["turns"] += 1
+        by_model[mrec["model"]]["think_est"] += mrec["think_est"]
+        by_model[mrec["model"]]["no_final"] += 0 if mrec.get("stop") else 1  # usage is that of message_start
         models[mrec["model"]] += 1
         c, p = cost_of(u, mrec["model"])
         cost += c
@@ -758,6 +766,54 @@ def analyze_agent(ag, now, top):
     return r
 
 
+def request_of(r):
+    """The model and effort an agent's spawn asked for, with the model its turns ran on beside them. Each setting comes
+    from the Agent call's input, else the subagent's meta, else UNSET. A transcript's own effort field is not used: it
+    reads the session's setting on every message, not the spawn's."""
+    sp, meta = r.get("spawn") or {}, r.get("meta") or {}
+    return {"model": sp.get("model") or meta.get("model") or UNSET,
+            "effort": sp.get("effort") or meta.get("effort") or UNSET,
+            "agent_type": sp.get("subagent_type") or meta.get("agentType") or UNSET,
+            "ran_on": r["model"]}
+
+
+def role_model_effort_rows(agents):
+    """The rows of "By role, model and effort". A turn is grouped under the model it ran on, so an agent that ran on two
+    models counts in both of its rows. Thinking is the recorded thinking plus what the content estimate added for turns
+    that kept no final usage, and its share is of the output the ledger charges."""
+    cells = {}
+    for r in agents:
+        for model, d in (r["by_model"] or {"-": {}}).items():  # an agent with no turns still gets a row
+            c = cells.setdefault((r["role"], model, r["request"]["effort"]), Counter())
+            c["agents"] += 1
+            for k in ("turns", "out", "think", "think_est", "no_final", "cost_micro"):
+                c[k] += d.get(k, 0)
+    rows = [{"role": role, "model": model, "effort": effort, "agents": c["agents"], "turns": c["turns"],
+             "out": c["out"], "think_recorded": c["think"] - c["think_est"], "think_estimated": c["think_est"],
+             "think_share": (c["think"] / c["out"]) if c["out"] else None, "no_final_usage": c["no_final"],
+             "cost": c["cost_micro"] / 1e6} for (role, model, effort), c in cells.items()]
+    role_cost = Counter()
+    for x in rows:
+        role_cost[x["role"]] += x["cost"]
+    rows.sort(key=lambda x: (-role_cost[x["role"]], x["role"], -x["cost"], x["model"], x["effort"]))
+    return rows
+
+
+def spawns_without_model_or_effort(agents):
+    """The rows of "Spawns without model or effort": one per spawned agent whose spawn set no model or no effort. The
+    manager's main transcript is not a spawn."""
+    rows = []
+    for r in agents:
+        if r["kind"] != "sub":
+            continue
+        q = r["request"]
+        missing = [k for k in ("model", "effort") if q[k] == UNSET]
+        if missing:
+            rows.append({"key": r["key"], "label": r["label"], "agent_type": q["agent_type"], "missing": missing,
+                         "model": q["model"], "effort": q["effort"], "ran_on": q["ran_on"]})
+    return rows
+
+
 def load_session(arg, root, now, top):
     sid, mains, subs, titles = discover(arg, root)
     agents = {}
@@ -797,11 +853,15 @@ def load_session(arg, root, now, top):
         for r in results:
             s = byid.get(r["key"])
             if s:
-                r["spawn"] = {k: s.get(k) for k in ("prompt_chars", "shared_prefix_chars", "effort", "isolation", "ts")}
+                r["spawn"] = {k: s.get(k) for k in ("prompt_chars", "shared_prefix_chars", "model", "effort",
+                                                     "subagent_type", "isolation", "ts")}
             r["resumes"] = main["sends"].get(r["key"], 0)
+    for r in results:
+        r["request"] = request_of(r)
     results.sort(key=lambda r: (r["kind"] != "main", r["first_ts"] or 0))
     return {"session": sid, "titles": titles, "mains": mains, "subagent_files": len(subs), "agents": results,
-            "live": live}
+            "live": live, "by_role_model_effort": role_model_effort_rows(results),
+            "spawns_without_model_or_effort": spawns_without_model_or_effort(results)}
 
 
 def aggregate(agents):
@@ -897,6 +957,28 @@ def md_session(S, top):
                    f"{hms(med([r['time'].get('model', 0) + r['time'].get('tool', 0) for r in rs]))} | "
                    f"{tok(med([r['peak_ctx'] for r in rs]))} | {sum(len(r['builds']) for r in rs)} | "
                    f"{sum(r['fail_count'] for r in rs)} |")
+    out.append("")
+    out.append("### By role, model and effort\n")
+    out.append("Effort is what the agent's spawn asked for (the Agent call's, else the subagent meta's, else unset) and the "
+               "model is the one its turns ran on. Thinking is recorded where the transcript kept it and estimated from "
+               "content for turns that kept no final usage.\n")
+    out.append("| role | model | effort | agents | turns | output | thinking recorded | thinking estimated | thinking % of output | turns without final usage | est $ |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    for x in S["by_role_model_effort"]:
+        share = f"{100 * x['think_share']:.1f}" if x["think_share"] is not None else "-"
+        out.append(f"| {x['role']} | {x['model']} | {x['effort']} | {x['agents']} | {x['turns']} | {tok(x['out'])} | "
+                   f"{tok(x['think_recorded'])} | {tok(x['think_estimated'])} | {share} | {x['no_final_usage']} | "
+                   f"{x['cost']:.2f} |")
+    out.append("")
+    out.append("### Spawns without model or effort\n")
+    if S["spawns_without_model_or_effort"]:
+        out.append("| id | agent | agent type | missing | model | effort | ran on |")
+        out.append("|---|---|---|---|---|---|---|")
+        for x in S["spawns_without_model_or_effort"]:
+            out.append(f"| {x['key']} | {x['label'][:48].replace('|', '/')} | {x['agent_type']} | "
+                       f"{' and '.join(x['missing'])} | {x['model']} | {x['effort']} | {x['ran_on']} |")
+    else:
+        out.append("- none")
     out.append("")
     out.append("### Per agent\n")
     out.append("| # | agent | id | role | model | turns | input | cache wr | cache rd | output | hit % | est $ | wall | model / tool / idle | first-turn rd/wr | mean / peak ctx | top tools | builds (n, time) | fails (guard) | >20KB | re-reads | rebuilds | resumes |")
