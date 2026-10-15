@@ -30,7 +30,7 @@ Commit `3c397af2f` preserves the owning window, provides cancellation during loo
 - The required unit gate passed with 21,270 executed tests, zero failures and 106 skips. Exact commit evidence was recorded on the laptop.
 - The [Mac Studio Golden workflow](https://github.com/dhoconno/lungfish-genome-explorer/actions/runs/38801068783) passed after the push.
 
-Pre-push checks passed and `3c397af2f` was pushed to `origin/main`. No full live SRA download was confirmed in the GUI check. The broader Phase 2.10 owner checklist remains open. No new release was published.
+Pre-push checks passed and `3c397af2f` was pushed to `origin/main`. No full live SRA download was confirmed in the GUI check. The broader Phase 2.10 owner checklist remains open. No new release was published. Later on 2026-10-15, Preview 2026.10.19 shipped this repair from `c8dd6aca5`, and the SRA section of the [Phase 2.11 carry-in plan](2026-10-15-phase-2-11.md) records it.
 
 ## Dependencies before deleting legacy routes
 
