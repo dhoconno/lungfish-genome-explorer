@@ -17,4 +17,5 @@ edit code, build, commit or start agents. The rules below come from `docs/contra
 | Reads | Put independent reads in one message, start a review from the lane report's map and the diff, and never read a file twice |
 | Fixes | Give each fix as `path:line` and the replacement text, or as the test name and its assertion, so that a landing agent can fold it in |
 | Turns | Write a long file in parts, so that no single turn runs past 5 minutes and the cache stays warm |
+| Model and effort | Your prompt's first line names the model and effort you run at, and your report opens with them. Every lane, fix, landing, check or fact-check you call for names its agent type, model and effort |
 | Report | The file your brief names, then a final message under 100 words with the verdict or vote and the path |

@@ -19,4 +19,5 @@ agent. Read the brief file your prompt names and the shared rules it points to (
 | Wait timeout | 180000 for an opus agent, 270000 for a sonnet agent, and repeat the wait when it times out. Never wait with Monitor or repeated `tail` calls |
 | Reads | Put independent reads in one message, read ranges rather than whole files, and never read a file twice |
 | Stop | At the milestone your prompt names, after its commit and a report with a Handoff that lists the files to read with their line ranges and the next command |
+| Model and effort | Your prompt's first line names the model and effort you run at, and your report opens with them. A Handoff or brief you write for another agent names its agent type, model and effort |
 | Report | The report file your brief names (never `report.md`), then a final message under 150 words with the head, the tests and the path |

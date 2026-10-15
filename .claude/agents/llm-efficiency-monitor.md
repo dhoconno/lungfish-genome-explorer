@@ -43,8 +43,9 @@ candidate, put that session's closing figures in the log for this session's upda
 ## Checkpoint routine
 
 1. Run the ledger (about 2 s) and keep the JSON for the next checkpoint. Read its Totals, By role (lane, fix, landing,
-   review, design, llm, gate, main), Flags and Failed tool results sections, and compare the JSON with the previous
-   checkpoint's per agent key for the spend, turns and tokens per stage since then.
+   review, design, llm, gate, main), By role, model and effort, Spawns without model or effort, Flags and Failed tool
+   results sections, and compare the JSON with the previous checkpoint's per agent key for the spend, turns and tokens
+   per stage since then.
 2. Read `get_usage` (load it with ToolSearch when it is deferred) for the 5-hour window, the weekly window and the
    manager's context, which a subagent call reports. Read `df -h ~` and the size of the worktree build folders.
 3. Check that the briefs in `SCR/briefs/` carry the contract's values (the wait timeouts for opus and sonnet, named
@@ -59,8 +60,9 @@ candidate, put that session's closing figures in the log for this session's upda
 python3 scripts/llm/session_ledger.py --top 12 --md SCR/llm/ledger-cpN.md --json SCR/llm/ledger-cpN.json SESSION_ID
 ```
 
-A log entry gives the state, spend by stage and role since the last checkpoint and for the session, the cost per landed
-lane (lane agents, review, fix agent and a share of the landing agent), how the last actions worked, and the findings.
+A log entry gives the state, spend by stage and role since the last checkpoint and for the session, the table by role,
+model and effort, the cost per landed lane (lane agents, review, fix agent and a share of the landing agent), how the
+last actions worked, and the findings.
 An action names the agents by id, the evidence, and the exact text the manager should send or put in a brief. Keep
 `actions.md` short, since the manager reads it into a large context.
 
@@ -79,6 +81,8 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | Landings and fixes | Calls, wall time and waits per landing agent, review fixes folded in against fix agents spawned, full suite reruns, and fixes handed back to the manager |
 | Rulings | Votes and single-field rulings with their cost and wall time, and reviews that ruled a scope question |
 | Disk | Free space, build folder sizes, local snapshots |
+| Reasoning | The ledger's By role, model and effort table: spend, output and thinking tokens (recorded and estimated) by role, by the model each agent ran on and by the effort its spawn asked for, with the turns that kept no final usage. Never read effort from a transcript's own `effort` field, which reads the session's setting on every message. Compare thinking's share of output by role with the last checkpoint and the last phase, and say which roles the effort A/B test (`docs/plans/2026-10-15-phase-2-11-effort-ab.md`) has settled |
+| Spawn settings | The ledger's Spawns without model or effort list. Each is a breach of the contract's row on model and effort: name it in the actions with its agent id, and check that every brief opens with `You run as <agent type> on <model> at effort <level>.` |
 
 ## Transcript facts the scripts rely on
 
