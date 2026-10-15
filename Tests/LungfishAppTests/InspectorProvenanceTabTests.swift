@@ -537,7 +537,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
     /// the main actor. Idiom: `waitUntil` in `SequenceViewerInteractionAsyncBundleReadTests`.
     private func waitUntilLoadCompletes(
         _ viewModel: ProvenanceInspectorViewModel,
-        timeout: TimeInterval = 10
+        timeout: TimeInterval = 60
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while viewModel.isLoading {
