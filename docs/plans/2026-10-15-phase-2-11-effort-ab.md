@@ -1,4 +1,4 @@
-# Effort A/B for LGE agents: does high or medium match max?
+# Effort A/B for LGE agents: does high match max, and then medium?
 
 Run this in a new session with a fresh weekly quota, whose weekly reading is 10% or less at the start. Work in a
 worktree of the Lungfish Genome Explorer repository, never the primary checkout. Follow
@@ -17,6 +17,15 @@ cannot answer:
 - Effort moves the amount of thinking. General-purpose Opus put 23.5% of its output into thinking at medium and 65.7% at
   max (session `48eceb2d`). Thinking was 66.8% of 2.9's output tokens, and output was 26.9% of 2.10's estimated spend.
 
+## Design: staged and small (the owner's choice of 2026-10-15)
+
+- **Stage 1.** Max against high, 2 runs an arm, on three tasks with known answers: E1 (an expert review), F1 (a
+  fact check of 20 claims) and W2 (a docs fix). That is 12 runs.
+- **Stage 2.** Medium, 2 runs a task, only for a role whose high arm matched max and was cheaper in stage 1 by the
+  decision rule below. That is at most 6 runs, compared with stage 1's max runs on the same keys.
+- **Scope.** No task rebuilds or re-runs 2.10's implementation: each is one review, check or edit from frozen inputs,
+  and nothing builds. The O3 ruling task of the first draft (E2) is dropped.
+
 ## Paths
 
 - ARCH: `/Users/dho/lungfish-phase-records/phase-2-10`, the durable records of 2.10.
@@ -33,7 +42,6 @@ cannot answer:
    | Repository | Branches |
    |---|---|
    | `AB/repo-e1` | `83e22edfa`, and `f4785a0b7` (main, `Q36-candidate.md:101-102`) |
-   | `AB/repo-e2` | `5fa704aa9`, `aa994c25b` |
    | `AB/repo-f1` | `1227d6035` (the notes), `9ad0f149c` (the code) |
    | `AB/repo-w2` | `d1a58cff7`, the parent of `8415005bc` |
 
@@ -48,13 +56,9 @@ cannot answer:
      the review read "from M1 summary through `## M2`" (`ARCH/reviews/Q36-candidate.md:3`). Record the cut line. Add
      `ARCH/lanes/Q36/red5-base.md`, `ARCH/reviews/Q36-M1-reds.md`, and any other ARCH file the prompt names, except the
      keys below.
-   - E2, a ruling on the two unlisted O3 defects. Take `ARCH/record/o3-walk-result.md`, with any lines that name a
-     cause cut. Copy the walk record
-     `/Users/dho/LGE-GUI-Walk/p210-o3/Pathogen Detection.lungfish/Analyses/kraken2-2026-10-14T17-48-29/.lungfish-provenance.json`,
-     and drop E2 if it is missing. Write a neutral brief: for each defect, say whether the record or the display is
-     wrong, give the cause at `5fa704aa9` as `path:line`, say what else it hits, and say whether it blocks Preview
-     2026.10.18.
-   - F1, a fact check. The slice S1 is the first 43 claims of `ARCH/lanes/U40/claims.txt` in file order. Check them
+   - F1, a fact check. The slice S1 is 20 claims of `ARCH/lanes/U40/claims.txt`, fixed before any run: every claim
+     among the first 43 in file order that `ARCH/reviews/U40-facts-1.md` marks WRONG, then the claims it marks right
+     among the first 43, in file order, until S1 holds 20. Keep S1 in file order and record its ids. Check them
      against `docs/release-notes/2026.10.18.md` at `1227d6035`, with the code at `9ad0f149c`. There is no build: help
      text comes from `Tests/Fixtures/golden/cli-help/`. Leave unscored the claims that U40 marks Report-only
      (`ARCH/reviews/U40-facts-1.md:3`).
@@ -70,11 +74,6 @@ cannot answer:
        continuation that never resumes.
      - K5: row 56 cannot be followed to an outcome.
      - Not scored: the appcast path (`:157`), which depends on the file system of 2026-10-15.
-   - E2: `ARCH/reviews/O3-defects.md`.
-     - Defect 1 (`:5-60`): the record is right, `looksLikePath` takes the `sh -c` script for a path, and
-       `tailUnderProjectRoot` cuts at the first `.lungfish/`.
-     - Defect 2 (`:61-111`).
-     - The Verdict (`:112` on).
    - F1: U40's verdict for each id in S1. Its 86 claims hold 16 WRONG (`U40-facts-1.md:9-95`).
    - W2: `git show 8415005bc -- docs/release-notes/2026.10.18.md`, and the deviations that QA accepted in section 1 of
      `Q36-candidate.md`.
@@ -83,9 +82,9 @@ cannot answer:
 
 | Role | Agent type | Model | Arms |
 |---|---|---|---|
-| Expert panel | `lge-expert` | opus | max, high, medium |
-| Fact check | `manual-fidelity-reviewer` | sonnet | max, high, medium |
-| Fix worker | `lge-worker` | sonnet | max, high, medium |
+| Expert panel | `lge-expert` | opus | max and high; medium in stage 2 only if high matched |
+| Fact check | `manual-fidelity-reviewer` | sonnet | max and high; medium in stage 2 only if high matched |
+| Fix worker | `lge-worker` | sonnet | max and high; medium in stage 2 only if high matched |
 
 Set the effort on every spawn, and never name it in a brief. Before the first block, spawn one agent of one call per
 arm. Check that its meta file (`subagents/agent-<id>.meta.json` of this session) holds `"effort":"<arm>"`, and record
@@ -93,13 +92,15 @@ what its transcript's `effort` field says. Void any later run whose meta file la
 
 ## Runs and order
 
-- Make 3 runs per arm per task: E1 and E2 for experts, F1 for the fact check, W2 for the fix worker. That is 36 runs.
+- Stage 1: 2 runs per arm per task, max and high, on E1 for experts, F1 for the fact check and W2 for the fix worker.
+  That is 12 runs. Stage 2, after stage 1 is graded: 2 medium runs of each task of a role whose high arm matched and
+  was cheaper. That is at most 6 runs.
 - Each run is a fresh agent in its own worktree. Every arm gets the same brief.
-- Stop lines, by the agent's own count and the same for every arm: about 60 calls for E1, E2 and W2, and about 80 for
-  F1. Record a run that reaches its line.
-- Run the tasks in priority order: E1, F1, W2, E2.
-- Within a task, rotate the arms: run 1 max, high, medium; run 2 medium, max, high; run 3 high, medium, max. Run at most
-  3 agents at once. Build nothing.
+- Stop lines, by the agent's own count and the same for every arm: about 60 calls for E1 and W2, and about 50 for F1.
+  Record a run that reaches its line.
+- Run the tasks in priority order: E1, F1, W2.
+- Within a task, alternate the arms: run 1 max then high, run 2 high then max. Run at most 3 agents at once. Build
+  nothing.
 - **Contamination.** After each run, scan its transcript with a small script. Look for any read under `ARCH/reviews/`,
   `ARCH/lanes/U40/U40*`, `AB/keys/` or `/Users/dho/lungfish-phase-records`, and for any git command naming a commit
   outside its repository. A hit voids the run, which you rerun once.
@@ -108,8 +109,8 @@ what its transcript's `effort` field says. Void any later run whose meta file la
 
 - Copy each report to `AB/grades/blind/<random id>.md`, and strip agent ids, times and token counts from it. Keep the
   map of ids to arms in `AB/runs/map.csv`, which no grader reads.
-- Give each task one grader: a fresh `lge-expert` on opus at effort max. It gets the task's key, the frozen inputs and
-  the blind reports in random order. It never sees an arm, the map or a cost.
+- Give each task one grader per stage: a fresh `lge-expert` on opus at effort max. It gets the task's key, the frozen
+  inputs and the blind reports of that stage in random order. It never sees an arm, the map or a cost.
 - **Rubric.** Score each key finding as found (1), partly found (0.5: the right place, with the cause wrong or missing)
   or missed (0). Mark every other finding:
   - true-new: checked at the frozen commit with `path:line`; listed, with no penalty;
@@ -119,7 +120,7 @@ what its transcript's `effort` field says. Void any later run whose meta file la
   In W2, score each flagged sentence as fixed (1), partly fixed (0.5) or not fixed (0). Count each new false statement
   as false.
 - The grader writes `AB/grades/<task>.csv`: id, recall, false, unsupported, and one reason per finding.
-- A second fresh grader rescores 4 random reports. Where the two graders differ by more than one finding in a report,
+- A second fresh grader rescores 3 random reports of stage 1. Where the two graders differ by more than one finding in a report,
   rule from the key and record it.
 
 ## Metrics per run
@@ -139,18 +140,20 @@ For each role, compare each arm with max over that role's tasks.
 - **Choice.** Use the lowest effort that matches and is cheaper, provided every effort between it and max also matches.
   Otherwise keep max.
 - **Too few runs.** Keep max for a role where any arm has fewer than 2 graded runs of a task.
-- **Limit.** With 3 runs an arm, a match means no large loss on these tasks, not proven equality. Say so in the result.
+- **Limit.** With 2 runs an arm, a match means only that no large loss showed on these tasks, not proven equality. Say
+  so in the result, and name the tasks a later phase could add to widen it.
 
 ## Budget and stop lines
 
 - **Readings.** Read the weekly quota with `get_usage` at the start (Q0), after every 3 runs, and before each launch.
-- **Plan.** 36 runs, plus grading, at the medians that 2.10 measured:
+- **Plan.** 12 runs in stage 1 and at most 6 in stage 2, plus grading, at the medians that 2.10 measured:
   - a review $4.67 and a fix $4.61 (`ARCH/llm/ledger-cp12b.md:28-29`);
   - two Sonnet fact-check slices of about 114 claims each, $16.34 together (`RUNNING-A-PHASE-SESSION.md:179`).
 
-  That comes to about $150 to $250, or 6 to 9 points at $26.92 to $27.26 a point (`RUNNING-A-PHASE-SESSION.md:181`).
-- **Stop lines.** Launch no run at Q0 + 9. At Q0 + 12, stop every agent and grade what is done. The rotation keeps the
-  arms balanced at any stop. Stop and grade any run that passes twice the median cost of its task's max runs.
+  That comes to about $60 to $80 for stage 1 and $25 to $40 for stage 2, or about 2 to 4 points in all at $26.92 to
+  $27.26 a point (`RUNNING-A-PHASE-SESSION.md:181`).
+- **Stop lines.** Launch no run at Q0 + 4. At Q0 + 6, stop every agent and grade what is done. The alternation keeps
+  the arms balanced at any stop. Stop and grade any run that passes twice the median cost of its task's max runs.
 
 ## Applying the result
 
