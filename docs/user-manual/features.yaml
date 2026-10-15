@@ -981,11 +981,12 @@ features:
     notes: >-
       Guided amplicon pipeline that maps reads, trims primers, calls variants,
       and builds a viral consensus in one wizard.
+      The row reads Completed with Warnings when the command reports a
+      warning, such as an ignored task or a failed sample, or when the app
+      logs a read pairing decision as a warning, and a line on standard
+      error no longer turns a completed run into Completed with Warnings.
 
   # --- Variants ---
-      The row's final label comes only from the outcome lines of the
-      command, so a line on standard error no longer turns a completed run
-      into Completed with Warnings.
   variants.freyja-demix:
     title: Freyja wastewater lineage demixing
     entry_points:
@@ -1040,8 +1041,8 @@ features:
     notes: >-
       Applies per-sample smart filters to a bundle variant database and extracts
       one sample's calls from a multi-sample store.
-      The variant table's Delete and Delete All record and run lungfish-cli
-      variants delete.
+      The variant table's Delete and Delete All delete inside the app and
+      record the equivalent lungfish-cli variants delete command.
   import.sample-metadata:
     title: Import sample metadata into variant tracks
     entry_points:
@@ -1067,11 +1068,11 @@ features:
     notes: >-
       Imports a CSV or TSV metadata table into variant tracks or FASTQ folders
       and can export folder metadata as NCBI BioSample submission TSV.
-
-  # --- Classification and metagenomics (taxonomy viewport) ---
       The import launches lungfish-cli variants import-sample-metadata with
       --format json events. A cancel leaves the bundle as it was, within one
       chunk of the file's hash.
+
+  # --- Classification and metagenomics (taxonomy viewport) ---
   classify.kraken2:
     title: Kraken2 and Bracken classification
     entry_points:
@@ -1444,11 +1445,11 @@ features:
       interleaved or mixed layout. It reads R1 and R2 files in step, as
       Kraken2 read them, so mates named x/1 and x/2, x.1 and x.2, or x_1 and
       x_2 extract, and files out of step stop the extraction.
-
-  # --- Assembly (assembly viewport) ---
       When a result's BAM is a link to a file outside the result folder, the
       failure says that LGE extracts reads only from BAM files inside the
       folder and asks for a copy in place of the link.
+
+  # --- Assembly (assembly viewport) ---
   assemble:
     title: De novo genome assembly
     entry_points:
