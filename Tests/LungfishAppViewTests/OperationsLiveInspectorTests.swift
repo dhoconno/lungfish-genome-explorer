@@ -624,4 +624,21 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertTrue(didClose)
     }
 
+    func testActionsRefreshWhenCancellationBecomesAvailable() throws {
+        let center = OperationCenter.shared
+        let id = center.begin(title: "Preparing download", detail: "Preparing", operationType: .download, cliCommand: nil).rowID
+        defer { center.acknowledgeCancellation(id: id); center.clearItem(id: id) }
+        let inspector = OperationsLogInspector(frame: .zero)
+        let firstMenu = NSMenu()
+        firstMenu.addItem(withTitle: "Actions", action: nil, keyEquivalent: "")
+        inspector.display(try XCTUnwrap(center.items.first { $0.id == id }), actions: firstMenu)
+        center.setCancelCallback(for: id) {}
+        let nextMenu = NSMenu()
+        nextMenu.addItem(withTitle: "Actions", action: nil, keyEquivalent: "")
+        nextMenu.addItem(withTitle: "Cancel", action: nil, keyEquivalent: "")
+        inspector.display(try XCTUnwrap(center.items.first { $0.id == id }), actions: nextMenu)
+        let button = try XCTUnwrap(find(inspector, "operations-inspector-actions", as: NSPopUpButton.self))
+        XCTAssertNotNil(button.menu?.item(withTitle: "Cancel"))
+    }
+
 }

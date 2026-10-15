@@ -208,6 +208,7 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
     func display(_ newItem: OperationCenter.Item?, actions: NSMenu? = nil, at now: Date = Date()) {
         let switched = item?.id != newItem?.id
         let actionsChanged = switched || item?.state != newItem?.state
+            || item?.isCancellable != newItem?.isCancellable
             || item?.cliCommand != newItem?.cliCommand
             || item?.outputURLs != newItem?.outputURLs || item?.bundleURLs != newItem?.bundleURLs
             || item?.failureReportURL != newItem?.failureReportURL

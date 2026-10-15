@@ -901,6 +901,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Project/window route used for operation completion delivery.
     var routeContext: OperationRouteContext?
 
+    /// The browser's owning window, independent of which window is currently key.
+    weak var downloadPresentationWindow: NSWindow?
+
     // MARK: - Pathoplexus-Specific Properties
 
     /// Selected organism for Pathoplexus searches
@@ -2219,7 +2222,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
         // Capture services and values for task
         let ncbi = ncbiService
-        let ena = enaService
         let currentSource = source
         let searchType = ncbiSearchType
         let includeGFF3Annotations = includeGFF3Annotations
@@ -2276,80 +2278,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 logger.info("performBatchDownload: Record[\(idx)] id=\(record.id, privacy: .public) accession=\(record.accession, privacy: .public)")
             }
 
-            // For ENA/SRA downloads, present the FASTQ import config sheet so the
-            // user can confirm platform, quality binning, and recipe before download.
-            // The config sheet is shown before the browser sheet is dismissed, so
-            // we need to detect platform info asynchronously then show the sheet.
             if currentSource == .ena {
-                isDownloading = true  // prevent double-click while fetching metadata
-                Task {
-                    // Quick fetch of the first record to detect platform / pairing.
-                    // ENA's record wins, and NCBI's covers a run ENA lacks or an ENA
-                    // outage, so the platform is still inferred. The lookup logs failures.
-                    let firstAccession = recordsToDownload[0].accession
-                    var detectedPlatform: LungfishIO.SequencingPlatform = .unknown
-                    var isPaired = false
-                    var firstRunBytes: Int64?
-                    let firstRun = try? await SRARunMetadataLookup(ena: ena, ncbi: ncbi)
-                        .lookUpRuns([firstAccession]).runs.first
-                    if let readRecord = firstRun?.enaRecord {
-                        // ELEMENT, BGISEQ and DNBSEQ map too, ION_TORRENT stays unknown.
-                        detectedPlatform = LungfishIO.SequencingPlatform(vendor: readRecord.instrumentPlatform ?? "")
-                        isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
-                        firstRunBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
-                    } else if let runInfo = firstRun?.ncbiRun {
-                        detectedPlatform = LungfishIO.SequencingPlatform(vendor: runInfo.platform ?? "")
-                        isPaired = runInfo.libraryLayout?.uppercased() == "PAIRED"
-                        firstRunBytes = runInfo.size.map { Int64($0) * 1_000_000 }
-                    }
-
-                    // Build placeholder pairs for the config sheet display
-                    let placeholderPairs = recordsToDownload.map { record in
-                        FASTQFilePair(
-                            r1: URL(fileURLWithPath: "/\(record.accession)_1.fastq.gz"),
-                            r2: isPaired ? URL(fileURLWithPath: "/\(record.accession)_2.fastq.gz") : nil
-                        )
-                    }
-
-                    // Present config sheet on the main window. The database browser
-                    // sheet is dismissed first so the config sheet can attach to the
-                    // main window without sheet stacking issues.
-                    self.onDownloadStarted?()
-
-                    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
-                        logger.error("No window available for config sheet presentation")
-                        self.isDownloading = false
-                        return
-                    }
-
-                    // The placeholder files do not exist yet, so the sheet's own
-                    // size line would read zero. Show the size the archive reports.
-                    FASTQImportConfigSheet.present(
-                        on: window,
-                        pairs: placeholderPairs,
-                        detectedPlatform: detectedPlatform,
-                        summaryOverride: FASTQImportConfigSheet.downloadSummary(
-                            pairs: placeholderPairs,
-                            knownDownloadBytes: recordsToDownload.count == 1 ? firstRunBytes : nil
-                        ),
-                        onImport: { [downloadCenterTaskID, totalCount, detectedPlatform] importConfig in
-                            // User confirmed — start the actual download with captured config
-                            self.startSRADownloadTask(
-                                records: recordsToDownload,
-                                importConfig: importConfig.namingArchivePlatform(detectedPlatform),
-                                downloadCenterTaskID: downloadCenterTaskID,
-                                totalCount: totalCount
-                            )
-                        },
-                        onCancel: { [downloadCenterTaskID] in
-                            // User cancelled — cancel the DownloadCenter task
-                            _ = DownloadCenter.shared.fail(
-                                id: downloadCenterTaskID,
-                                detail: "Cancelled by user"
-                            )
-                        }
-                    )
-                }
+                prepareSRADownload(records: recordsToDownload, operationID: downloadCenterTaskID)
                 return
             }
 

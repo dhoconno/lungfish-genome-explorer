@@ -84,6 +84,81 @@ final class DatabaseBrowserSRARowRouteReplayTests: XCTestCase {
             "no staging folder is left")
     }
 
+    func testBrowserConfirmationLaunchesCLIAndCancelStillStopsIt() async throws {
+        _ = NSApplication.shared
+        let root = try TestTempDirectory.make(prefix: "sra-browser-confirm")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        _ = try DocumentManager.shared.createProject(at: project, name: "Project")
+        let cli = root.appendingPathComponent("lungfish-cli")
+        let launches = root.appendingPathComponent("launches")
+        try "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/launches\"\nexec sleep 600\n"
+            .write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        let priorCLI = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        defer {
+            if let priorCLI { setenv("LUNGFISH_CLI_PATH", priorCLI, 1) }
+            else { unsetenv("LUNGFISH_CLI_PATH") }
+        }
+        let delegate = makeAppDelegateWithTemporaryState()
+        let oldDelegate = NSApp.delegate
+        NSApp.delegate = delegate
+        defer { NSApp.delegate = oldDelegate }
+        let controller = MainWindowController()
+        delegate.mainWindowController = controller
+        delegate.testingSetMainWindowControllers([controller])
+        let sidebar = controller.mainSplitViewController.sidebarController!
+        sidebar.openProject(at: project)
+        sidebar.detachFilesystemWatcherForTesting()
+        let parent = try XCTUnwrap(controller.window)
+        defer { sidebar.closeProject(); controller.close() }
+        let browser = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                               styleMask: [.titled], backing: .buffered, defer: false)
+        browser.isReleasedWhenClosed = false
+        parent.beginSheet(browser) { _ in }
+        let client = MockHTTPClient(responses: [Data("[]".utf8)])
+        let suite = makeTestDefaultsSuite(prefix: "sra-browser-confirm")
+        suite.defaults.set("cli", forKey: SRARowDownloadRouteSettings.defaultsKey)
+        let model = DatabaseBrowserViewModel(
+            source: .ena, ncbiService: NCBIService(httpClient: client),
+            enaService: ENAService(httpClient: client), sraDownloadSuiteName: suite.name)
+        model.routeContext = OperationRouteContext(
+            projectURL: project, windowStateScopeID: controller.projectSession.windowStateScope.id)
+        model.onDownloadStarted = { parent.endSheet(browser) }
+        model.selectedRecord = SearchResultRecord(id: "SRR9000001", accession: "SRR9000001", title: "Test", source: .ena)
+        model.performBatchDownload()
+        let id = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" }?.id)
+        addTeardownBlock { @MainActor in
+            OperationCenter.shared.cancel(id: id)
+            await waitUntil(timeout: .seconds(30)) {
+                OperationCenter.shared.items.first { $0.id == id }?.state.isActive != true
+            }
+            OperationCenter.shared.clearItem(id: id)
+        }
+        await waitUntil { parent.attachedSheet?.contentViewController is FASTQImportConfigSheet }
+        let settings = try XCTUnwrap(parent.attachedSheet)
+        XCTAssertTrue(settings.contentViewController is FASTQImportConfigSheet)
+        XCTAssertNil(item(id)?.cliCommand)
+        func findImport(in view: NSView) -> NSButton? {
+            if let button = view as? NSButton, button.title == "Import" { return button }
+            return view.subviews.compactMap { findImport(in: $0) }.first
+        }
+        let submit = try XCTUnwrap(findImport(in: try XCTUnwrap(settings.contentView)))
+        XCTAssertTrue(submit.isEnabled)
+        submit.performClick(nil)
+        await waitUntil(timeout: .seconds(30)) { !Self.launchedLines(launches).isEmpty }
+        let arguments = try RecordedCLICommand.arguments(of: XCTUnwrap(item(id)?.cliCommand))
+        XCTAssertEqual(Array(arguments.prefix(5)), ["fetch", "sra", "download", "SRR9000001", "--bundle"])
+        XCTAssertEqual(Self.launchedLines(launches), [arguments.joined(separator: " ")])
+        XCTAssertTrue(arguments.contains(project.path))
+        XCTAssertTrue(item(id)?.isCancellable == true)
+        OperationCenter.shared.cancel(id: id)
+        await waitUntil(timeout: .seconds(30)) { item(id)?.state == .cancelled }
+        XCTAssertEqual(item(id)?.state, .cancelled)
+        XCTAssertEqual(Self.launchedLines(launches).count, 1)
+    }
+
     // MARK: - Helpers
 
     private func item(_ id: UUID) -> OperationCenter.Item? {

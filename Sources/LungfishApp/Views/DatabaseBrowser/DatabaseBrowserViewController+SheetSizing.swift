@@ -66,6 +66,7 @@ extension DatabaseBrowserViewController {
     /// the sheet is open.
     override public func viewDidAppear() {
         super.viewDidAppear()
+        dialogState.sraRunsViewModel.downloadPresentationWindow = view.window?.sheetParent ?? view.window
         startFollowingSheetParent()
     }
 
