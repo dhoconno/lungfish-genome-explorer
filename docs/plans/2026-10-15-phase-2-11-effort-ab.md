@@ -1,4 +1,4 @@
-# Effort A/B for LGE agents: does high match max, and then medium?
+# Effort A/B for LGE agents: does high match max, and is medium then non-inferior to high?
 
 Run this in a new session with a fresh weekly quota, whose weekly reading is 10% or less at the start. Work in a
 worktree of the Lungfish Genome Explorer repository, never the primary checkout. Follow
@@ -21,8 +21,9 @@ cannot answer:
 
 - **Stage 1.** Max against high, 2 runs an arm, on three tasks with known answers: E1 (an expert review), F1 (a
   fact check of 20 claims) and W2 (a docs fix). That is 12 runs.
-- **Stage 2.** Medium, 2 runs a task, only for a role whose high arm matched max and was cheaper in stage 1 by the
-  decision rule below. That is at most 6 runs, compared with stage 1's max runs on the same keys.
+- **Stage 2, only where high matched max.** Medium against high, for non-inferiority, for each role whose high arm
+  matched max and was cheaper in stage 1 by the decision rule below. 2 medium runs a task, at most 6 runs. The
+  stage 2 grader scores them blind beside the task's 2 stage-1 high reports, so one grader scores both arms.
 - **Scope.** No task rebuilds or re-runs 2.10's implementation: each is one review, check or edit from frozen inputs,
   and nothing builds. The O3 ruling task of the first draft (E2) is dropped.
 
@@ -82,9 +83,9 @@ cannot answer:
 
 | Role | Agent type | Model | Arms |
 |---|---|---|---|
-| Expert panel | `lge-expert` | opus | max and high; medium in stage 2 only if high matched |
-| Fact check | `manual-fidelity-reviewer` | sonnet | max and high; medium in stage 2 only if high matched |
-| Fix worker | `lge-worker` | sonnet | max and high; medium in stage 2 only if high matched |
+| Expert panel | `lge-expert` | opus | stage 1 max and high; stage 2 medium against high, only if high matched |
+| Fact check | `manual-fidelity-reviewer` | sonnet | stage 1 max and high; stage 2 medium against high, only if high matched |
+| Fix worker | `lge-worker` | sonnet | stage 1 max and high; stage 2 medium against high, only if high matched |
 
 Set the effort on every spawn, and never name it in a brief. Before the first block, spawn one agent of one call per
 arm. Check that its meta file (`subagents/agent-<id>.meta.json` of this session) holds `"effort":"<arm>"`, and record
@@ -94,7 +95,7 @@ what its transcript's `effort` field says. Void any later run whose meta file la
 
 - Stage 1: 2 runs per arm per task, max and high, on E1 for experts, F1 for the fact check and W2 for the fix worker.
   That is 12 runs. Stage 2, after stage 1 is graded: 2 medium runs of each task of a role whose high arm matched and
-  was cheaper. That is at most 6 runs.
+  was cheaper. That is at most 6 runs, with no new high runs: the stage-1 high reports are the reference.
 - Each run is a fresh agent in its own worktree. Every arm gets the same brief.
 - Stop lines, by the agent's own count and the same for every arm: about 60 calls for E1 and W2, and about 50 for F1.
   Record a run that reaches its line.
@@ -110,7 +111,8 @@ what its transcript's `effort` field says. Void any later run whose meta file la
 - Copy each report to `AB/grades/blind/<random id>.md`, and strip agent ids, times and token counts from it. Keep the
   map of ids to arms in `AB/runs/map.csv`, which no grader reads.
 - Give each task one grader per stage: a fresh `lge-expert` on opus at effort max. It gets the task's key, the frozen
-  inputs and the blind reports of that stage in random order. It never sees an arm, the map or a cost.
+  inputs and the blind reports of that stage in random order, and in stage 2 also the task's two stage-1 high reports
+  under new random ids. It never sees an arm, the map or a cost.
 - **Rubric.** Score each key finding as found (1), partly found (0.5: the right place, with the cause wrong or missing)
   or missed (0). Mark every other finding:
   - true-new: checked at the frozen commit with `path:line`; listed, with no penalty;
@@ -133,15 +135,21 @@ what its transcript's `effort` field says. Void any later run whose meta file la
 
 ## Decision rule, fixed now
 
-For each role, compare each arm with max over that role's tasks.
-- **Match.** On every task, the arm's recall summed over its runs is at least max's minus 1, and its false plus
-  unsupported findings are at most max's plus 1. On E1, it also finds K2 and K3 in at least as many runs as max.
-- **Cheaper.** On every task, its median estimated $ a run is at most 85% of max's.
-- **Choice.** Use the lowest effort that matches and is cheaper, provided every effort between it and max also matches.
-  Otherwise keep max.
-- **Too few runs.** Keep max for a role where any arm has fewer than 2 graded runs of a task.
-- **Limit.** With 2 runs an arm, a match means only that no large loss showed on these tasks, not proven equality. Say
-  so in the result, and name the tasks a later phase could add to widen it.
+For each role, stage 1 compares high with max and stage 2 compares medium with high, over that role's tasks.
+- **Stage 1, high against max.** High matches when, on every task, its recall summed over its runs is at least max's
+  minus 1, its false plus unsupported findings are at most max's plus 1, and on E1 it finds K2 and K3 in at least as
+  many runs as max. It is cheaper when, on every task, its median estimated $ a run is at most 85% of max's.
+- **Stage 2, medium against high, for non-inferiority.** The same margins, fixed now, with high as the reference:
+  medium's recall summed over its runs is at least high's minus 1, its false plus unsupported findings are at most
+  high's plus 1, and on E1 it finds K2 and K3 in at least as many runs as high. It is cheaper when its median estimated
+  $ a run is at most 85% of high's. High's numbers here are the stage-2 grader's scores of the stage-1 high reports.
+- **Choice.** A role moves from max to high when high matches and is cheaper in stage 1, and on to medium when medium
+  is non-inferior to high and cheaper in stage 2. Otherwise it stays at the last effort that passed.
+- **Too few runs.** Keep a role at its last passed effort where any arm has fewer than 2 graded runs of a task.
+- **Limit.** With 2 runs an arm, a match or non-inferiority means only that no large loss showed on these tasks, not
+  proven equality. The margins chain, so medium can sit up to two findings below max on a task: report medium's
+  numbers against stage 1's max beside the decision. Say all of this in the result, and name the tasks a later phase
+  could add to widen it.
 
 ## Budget and stop lines
 
