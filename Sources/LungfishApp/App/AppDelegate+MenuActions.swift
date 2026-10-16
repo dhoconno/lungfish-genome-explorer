@@ -184,6 +184,7 @@ extension AppDelegate {
 
         guard !selectedURLs.isEmpty else { return }
         debugLog("importProjectFilesFromURLs: Selected \(selectedURLs.count) file(s)")
+        let outcomePresenter = ImportFilesOutcomeSeam.presenter
 
         scheduleOnMainRunLoop {
             debugLog("importProjectFilesFromURLs: Starting import pipeline dispatch")
@@ -256,17 +257,10 @@ extension AppDelegate {
                             "importProjectFilesFromURLs: Completed request \(requestID). success=\(update.succeeded), failed=\(update.failed)"
                         )
 
-                        if update.failed > 0 {
-                            let alert = NSAlert()
-                            alert.messageText = "Import Completed with Errors"
-                            alert.informativeText = "\(update.succeeded) succeeded, \(update.failed) failed."
-                            alert.alertStyle = .warning
-                            alert.addButton(withTitle: "OK")
-                            alert.applyLungfishBranding()
-                            if let window = controller?.window ?? NSApp.keyWindow {
-                                alert.beginSheetModal(for: window)
-                            }
-                        }
+                        outcomePresenter.present(
+                            ImportFilesOutcome(succeeded: update.succeeded, failed: update.failed),
+                            on: controller?.window ?? NSApp.keyWindow
+                        )
                     }
                 }
             }
