@@ -148,6 +148,10 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
     var db: OpaquePointer?
     let url: URL
+    /// Whether `accession_summaries` has `reference_length_source`. A database imported before
+    /// 2026-09-23 lacks it until `openReadWrite` adds it. The read-only open sets this once, before
+    /// the handle is shared, so no query repeats the check.
+    private(set) var hasReferenceLengthSource = true
     private static let readOnlyFlags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
     static let requiredTables = [
         "virus_hits",
@@ -244,6 +248,8 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 "Missing required columns: \(missingColumns.sorted().joined(separator: ", "))"
             )
         }
+        // Not required, since a legacy import lacks it, but `fetchAccessionSummaries` needs to know.
+        hasReferenceLengthSource = try Self.database(db, hasColumn: "reference_length_source", in: "accession_summaries")
     }
 
     private static func database(

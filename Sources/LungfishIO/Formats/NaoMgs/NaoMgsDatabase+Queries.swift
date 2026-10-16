@@ -217,6 +217,10 @@ extension NaoMgsDatabase {
 
     /// Returns per-accession statistics for a given sample and taxon.
     ///
+    /// A database imported before 2026-09-23 has no `reference_length_source` column, because only
+    /// ``openReadWrite(at:)`` adds it. Its rows read as ``NaoMgsReferenceLengthSource/alignmentExtent``,
+    /// the default that migration writes.
+    ///
     /// - Parameters:
     ///   - sample: The sample name.
     ///   - taxId: The taxonomy ID.
@@ -226,10 +230,15 @@ extension NaoMgsDatabase {
             throw NaoMgsDatabaseError.queryFailed("Database not open")
         }
 
+        // The open checked the column once, so a query adds no check of its own.
+        let sourceColumn = hasReferenceLengthSource
+            ? "reference_length_source"
+            : "'\(NaoMgsReferenceLengthSource.alignmentExtent.rawValue)'"
+
         // Use pre-computed accession_summaries table (fast path)
         let sql = """
         SELECT accession, read_count, unique_read_count, reference_length,
-               covered_base_pairs, coverage_fraction, reference_length_source
+               covered_base_pairs, coverage_fraction, \(sourceColumn)
         FROM accession_summaries
         WHERE sample = ? AND tax_id = ?
         ORDER BY read_count DESC

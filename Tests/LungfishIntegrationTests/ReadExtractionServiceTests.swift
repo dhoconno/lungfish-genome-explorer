@@ -356,6 +356,7 @@ final class ReadExtractionServiceTests: XCTestCase {
     /// Extracts reads from a test SQLite database matching the NAO-MGS schema.
     /// This is the path used by NAO-MGS "Extract FASTQ" in the app.
     func testExtractFromDatabaseByTaxId() async throws { try await checkExtractFromDatabaseByTaxId(legacy: false) }
+    func testExtractFromDatabaseByTaxIdOnALegacyDatabase() async throws { try await checkExtractFromDatabaseByTaxId(legacy: true) }
 
     private func checkExtractFromDatabaseByTaxId(legacy: Bool) async throws {
         let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
@@ -381,6 +382,7 @@ final class ReadExtractionServiceTests: XCTestCase {
 
     /// Verifies that accession-based extraction works.
     func testExtractFromDatabaseByAccession() async throws { try await checkExtractFromDatabaseByAccession(legacy: false) }
+    func testExtractFromDatabaseByAccessionOnALegacyDatabase() async throws { try await checkExtractFromDatabaseByAccession(legacy: true) }
 
     private func checkExtractFromDatabaseByAccession(legacy: Bool) async throws {
         let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
@@ -398,6 +400,7 @@ final class ReadExtractionServiceTests: XCTestCase {
 
     /// Verifies that a nonexistent taxid produces an empty extraction error.
     func testExtractFromDatabaseNoMatchingTaxId() async throws { try await checkExtractFromDatabaseNoMatchingTaxId(legacy: false) }
+    func testExtractFromDatabaseNoMatchingTaxIdOnALegacyDatabase() async throws { try await checkExtractFromDatabaseNoMatchingTaxId(legacy: true) }
 
     private func checkExtractFromDatabaseNoMatchingTaxId(legacy: Bool) async throws {
         let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
@@ -423,6 +426,7 @@ final class ReadExtractionServiceTests: XCTestCase {
 
     /// Verifies that maxReads limit is respected.
     func testExtractFromDatabaseMaxReads() async throws { try await checkExtractFromDatabaseMaxReads(legacy: false) }
+    func testExtractFromDatabaseMaxReadsOnALegacyDatabase() async throws { try await checkExtractFromDatabaseMaxReads(legacy: true) }
 
     private func checkExtractFromDatabaseMaxReads(legacy: Bool) async throws {
         let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
@@ -441,6 +445,7 @@ final class ReadExtractionServiceTests: XCTestCase {
 
     /// Verifies that output filenames with special characters are sanitized.
     func testExtractFromDatabaseSanitizesFilename() async throws { try await checkExtractFromDatabaseSanitizesFilename(legacy: false) }
+    func testExtractFromDatabaseSanitizesFilenameOnALegacyDatabase() async throws { try await checkExtractFromDatabaseSanitizesFilename(legacy: true) }
 
     private func checkExtractFromDatabaseSanitizesFilename(legacy: Bool) async throws {
         let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
