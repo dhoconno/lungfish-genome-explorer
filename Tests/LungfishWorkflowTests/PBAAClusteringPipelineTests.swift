@@ -1,5 +1,6 @@
 import XCTest
 import LungfishCore
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -98,6 +99,55 @@ final class PBAAClusteringPipelineTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(launchPath.components(separatedBy: ":").contains("/usr/local/bin"))
+    }
+
+    /// Phase 2.11 S32 M3 (W8). Nextflow runs in a launch folder in the system temp folder that `TMPDIR` names,
+    /// made with the marker the app's launch sweep reads, so a SIGKILL that skips the `defer` leaves a folder the
+    /// sweep removes once the run is gone. The run still removes the folder when it ends.
+    func testTheLaunchFolderIsMarkedScratchInTheSystemTempFolder() async throws {
+        let root = try TestTempDirectory.make(prefix: "pbaa-launch-scratch").resolvingSymlinksInPath()
+        defer { TestTempDirectory.cleanup(root) }
+        let systemTemp = root.appendingPathComponent("T", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemTemp, withIntermediateDirectories: true)
+        let previousTMPDIR = ProcessInfo.processInfo.environment["TMPDIR"]
+        setenv("TMPDIR", systemTemp.path, 1)
+        defer {
+            if let previousTMPDIR { setenv("TMPDIR", previousTMPDIR, 1) } else { unsetenv("TMPDIR") }
+        }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let managedBin = home.appendingPathComponent(".lungfish/conda/envs/nextflow/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: managedBin, withIntermediateDirectories: true)
+        let seen = root.appendingPathComponent("seen.txt")
+        let nextflow = managedBin.appendingPathComponent("nextflow")
+        try "#!/bin/bash\n/bin/pwd -P > \"\(seen.path)\"\n/bin/ls -A >> \"\(seen.path)\"\n"
+            .write(to: nextflow, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nextflow.path)
+        let reads = root.appendingPathComponent("reads.fastq")
+        let guide = root.appendingPathComponent("guide.fasta")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try ">g1|target\nACGT\n".write(to: guide, atomically: true, encoding: .utf8)
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: reads,
+            guideSourceURL: guide,
+            outputDirectory: root.appendingPathComponent("out", isDirectory: true),
+            outputName: "sample"
+        )
+        let workflowDirectory = root.appendingPathComponent("workflow", isDirectory: true)
+        try FileManager.default.createDirectory(at: workflowDirectory, withIntermediateDirectories: true)
+
+        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { home }, appIdentity: .preview)
+        let result = try await runner.run(request: request, workflowDirectory: workflowDirectory)
+
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        let lines = try String(contentsOf: seen, encoding: .utf8).split(separator: "\n").map(String.init)
+        let launch = URL(fileURLWithPath: try XCTUnwrap(lines.first), isDirectory: true)
+        XCTAssertEqual(
+            launch.deletingLastPathComponent().resolvingSymlinksInPath().path, systemTemp.path,
+            "the launch folder sits in the folder TMPDIR names"
+        )
+        XCTAssertTrue(launch.lastPathComponent.hasPrefix("lungfish-pbaa-nextflow-"), launch.lastPathComponent)
+        XCTAssertTrue(lines.dropFirst().contains(OwnedWorkDirectoryMarker.fileName), "the launch folder carries the sweep's marker: \(lines)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: launch.path), "the run removes its launch folder")
     }
 
     func testProcessRunnerTerminatesNextflowProcessPromptlyWhenTaskIsCancelled() async throws {

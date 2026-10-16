@@ -466,10 +466,10 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         }
         await condaManager.repairManagedLaunchers(environment: "nextflow")
 
-        let launchDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lungfish-pbaa-nextflow-\(UUID().uuidString)", isDirectory: true)
+        // In the system temp folder `TMPDIR` names, with the marker the app's launch sweep reads, so a
+        // SIGKILL that skips the `defer` leaves a folder the sweep removes once this process is gone.
+        let launchDirectory = try ProjectTempDirectory.create(prefix: "lungfish-pbaa-nextflow-", in: nil)
         let workDirectory = launchDirectory.appendingPathComponent("work", isDirectory: true)
-        try FileManager.default.createDirectory(at: launchDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: launchDirectory) }
 
         let arguments = Self.nextflowArguments(
