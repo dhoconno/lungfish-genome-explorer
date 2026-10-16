@@ -70,7 +70,7 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
             throw error
         }
 
-        let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
+        let outputTrackName = Self.normalizedOutputTrackName(request.outputTrackName)
         let outputTrackID: String
         do {
             outputTrackID = try resolveAnnotationOutputTrackID(
@@ -255,7 +255,7 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         )
     }
 
-    private func normalizedOutputTrackName(_ value: String) -> String {
+    package static func normalizedOutputTrackName(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Mapped Reads" : trimmed
     }

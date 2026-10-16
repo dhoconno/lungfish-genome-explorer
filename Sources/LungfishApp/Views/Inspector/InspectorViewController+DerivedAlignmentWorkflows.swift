@@ -130,11 +130,10 @@ extension InspectorViewController {
         (parent as? MainSplitViewController)?.activityIndicator.hide()
     }
 
-    /// The name of the annotation track the service makes: the request's name trimmed, or "Mapped Reads"
-    /// when it is blank. The app reads it here because the leaf's `complete` message is text.
+    /// The name of the annotation track the service makes, from the rule the service applies. The app reads
+    /// it here because the leaf's `complete` message is text.
     static func annotationTrackName(for request: MappedReadsAnnotationRequest) -> String {
-        let trimmed = request.outputTrackName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Mapped Reads" : trimmed
+        MappedReadsAnnotationService.normalizedOutputTrackName(request.outputTrackName)
     }
 
     func runCreateFilteredAlignmentWorkflow(_ request: AlignmentFilterInspectorLaunchRequest) {
