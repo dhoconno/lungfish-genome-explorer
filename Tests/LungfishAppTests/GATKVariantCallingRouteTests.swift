@@ -46,8 +46,9 @@ final class GATKVariantCallingRouteTests: XCTestCase {
         XCTAssertEqual(route(for: 7), GATKVariantCallingRouteSettings.defaultRoute)
     }
 
-    /// ARCH check 7 and C4. The key defaults to `legacy` until the lane's last commit sets it to `cli`.
-    func testTheDefaultRouteIsTheInProcessRunUntilTheLastCommit() {
-        XCTAssertEqual(GATKVariantCallingRouteSettings.defaultRoute, .legacy)
+    /// ARCH check 7 and C4. The lane's last commit set the default to `cli`, and `legacy` stays the escape
+    /// for one release.
+    func testTheDefaultRouteIsTheLeafSinceTheLastCommit() {
+        XCTAssertEqual(GATKVariantCallingRouteSettings.defaultRoute, .cli)
     }
 }

@@ -22,9 +22,11 @@ struct GATKVariantCallingRouteSettings {
     /// The hidden key. It holds `cli` or `legacy`, or a Boolean that is true for the CLI route, for
     /// example `defaults write <app id> GATKVariantCallingRoute legacy`.
     static let defaultsKey = "GATKVariantCallingRoute"
-    /// The route of a key that is unset or holds a value this reader does not know. It stays `.legacy`
-    /// until lane A50's last commit sets it to `.cli` (ARCH check 7).
-    static let defaultRoute: GATKVariantCallingRoute = .legacy
+    /// The route of a key that is unset or holds a value this reader does not know. Lane A50's last
+    /// commit set it to `.cli` (ARCH check 7), once side A against side C held only declared differences
+    /// (GATKVariantCallingCLIGUIParityReplayTests). `defaults write <app id> GATKVariantCallingRoute
+    /// legacy` keeps the in-process route for one release (C4).
+    static let defaultRoute: GATKVariantCallingRoute = .cli
 
     let defaults: UserDefaults
 
