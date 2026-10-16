@@ -68,6 +68,7 @@ extension TaxTriageParityLiveConformanceTests {
         var workFolders = [root]
         defer { XCTAssertEqual(run.teardown(engineWorkFolders: workFolders).problems, []) }
         let evidence = try TaxTriageParityEvidence.requireFolder()
+        try TaxTriageParityEvidence.prepare(.x6, in: evidence, baseline: nil)
         let engine = try await Self.liveEngine(run)
         let cancel = try await cancelRoutedSide(
             .x6,

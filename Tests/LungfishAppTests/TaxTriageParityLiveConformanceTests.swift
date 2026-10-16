@@ -80,6 +80,7 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
         defer { XCTAssertEqual(run.teardown(engineWorkFolders: workFolders).problems, []) }
         let evidence = try TaxTriageParityEvidence.requireFolder()
         let baseline = try TaxTriageParityEvidence.baselineFolder()
+        try TaxTriageParityEvidence.prepare(.x1, in: evidence, baseline: baseline)
         let engine = try await Self.liveEngine(run)
         let pass = try await runSides(.x1, engine: engine, caseRoot: caseRoot)
         workFolders += Self.engineWorkFolders(under: caseRoot)
@@ -128,6 +129,10 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
         let again = scratch.appendingPathComponent("evidence-again", isDirectory: true)
         try check(pass, evidence: again, baseline: evidence, engineNote: "stand-in against its own evidence")
         XCTAssertThrowsError(try TaxTriageParityEvidence.write(pass, to: evidence, findings: [:], notes: []))
+        XCTAssertThrowsError(try TaxTriageParityEvidence.prepare(.x1, in: evidence, baseline: nil), "the case folder exists")
+        XCTAssertNoThrow(try TaxTriageParityEvidence.prepare(.x6, in: evidence, baseline: nil))
+        XCTAssertNoThrow(try TaxTriageParityEvidence.prepare(.x1, in: scratch.appendingPathComponent("fresh"), baseline: evidence))
+        XCTAssertThrowsError(try TaxTriageParityEvidence.prepare(.x1, in: scratch.appendingPathComponent("fresh2"), baseline: scratch), "no hashes in the baseline")
 
         // A changed hash fails the compare, by sample, kind and key.
         let sideC = try XCTUnwrap(pass.payloads[.c])

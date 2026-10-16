@@ -60,6 +60,21 @@ enum TaxTriageParityEvidence {
         return folder
     }
 
+    /// Run first in a live test, before any side runs. A live pass takes up to 45 minutes and writes last, so a case
+    /// folder that exists, an evidence folder that cannot be written and a baseline without this case's hashes must fail
+    /// in seconds.
+    static func prepare(_ parityCase: TaxTriageParityCase, in evidence: URL, baseline: URL?) throws {
+        let folder = evidence.appendingPathComponent(parityCase.rawValue, isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: folder.path) else {
+            throw LiveNextflowError.misconfigured("\(folder.path) holds the evidence of another run. Name a fresh \(folderVariable).")
+        }
+        try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true)
+        let probe = evidence.appendingPathComponent(".write-probe-\(UUID().uuidString)")
+        try Data().write(to: probe)
+        try FileManager.default.removeItem(at: probe)
+        if let baseline { _ = try payloadRows(in: baseline.appendingPathComponent(parityCase.rawValue, isDirectory: true)) }
+    }
+
     private static func value(of key: String, in environment: [String: String]) -> String? {
         guard let raw = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
         return raw
