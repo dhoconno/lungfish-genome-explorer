@@ -1,0 +1,309 @@
+# X01: Classify reads with TaxTriage. Standalone video for a collaborator, not published to the docs site.
+# Recipe format: screencasts/README.md in the lungfish-genome-explorer repository.
+# Render: python3 screencasts/render.py screencasts/X01-taxtriage-walkthrough/video.yaml (takes in takes/, from the internal LabKey area, large-files.tsv)
+
+slug: X01-taxtriage-walkthrough
+title: Classify reads with TaxTriage
+track: standalone
+purpose: >-
+  A collaborator sees how reads get into LGE from the Sequence Read Archive, how to run TaxTriage
+  with the viral database and follow its progress, and how to judge a hit with the viewer and the
+  Inspector rather than trusting read counts alone.
+audience: Scientists who know metagenomics but have not used LGE.
+
+filmed_with:
+  app: Lungfish Preview
+  versions: ["2026.10.19"]
+  date: 2026-10-16
+
+narration:
+  engine: elevenlabs
+  model: eleven_v4
+  voice_name: Matilda
+  voice_id: XrExE9yKIg1WjnnlVkGX
+  seed: 4242
+  voice_settings: {stability: 0.6, similarity_boost: 0.75, style: 0, speed: 0.95}
+  lead: 0.5
+  tail: 0.6
+  lexicon:
+    "SRR35520577": S R R 3 5 5 2 0 5 7 7
+    "SARS-CoV-2": SARS coronavirus two
+    "phiX174": phi X one seventy-four
+    "taxon 9606": taxon ninety-six oh six
+    "scores 0.9": scores zero point nine
+    TaxTriage: Tax Triage
+    TASS: T A S S
+    Kraken2: Kraken two
+    VSP2: V S P two
+    FASTQ: fast Q
+    BLAST: blast
+    SRA: S R A
+    LGE: L G E
+    NCBI: N C B I
+    "99.5": ninety-nine point five
+    "github.com/jhuapl-bio/taxtriage": github dot com, slash J H U A P L dash bio, slash Tax Triage
+    rRNA: R R N A
+    RefSeq: Ref Seq
+
+setup:
+  window_points: [1443, 813]
+  projects:
+    - name: 32616.lungfish
+      from: >-
+        The owner's project at /Volumes/corella_geneious/32616/32616.lungfish, 150 VSP2 air-sampling runs from
+        PRJNA989177 imported with the VSP2 Target Enrichment recipe. The example run is SRR35520577.
+  notes:
+    - Docker Desktop must be running before the TaxTriage beats.
+    - The results window has a minimum width of about 1553 points, so the results take is wider than the others.
+    - The monitor take comes from a second, identical TaxTriage run (taxtriage-batch-2026-10-16T11-25-01), filmed after
+      the app restarted so the Operations panel lists only that run. The results take shows the first run
+      (taxtriage-batch-2026-10-16T11-09-28). Both used the same reads and settings.
+
+honesty:
+  - The SARS-CoV-2 row is 575 reads but 2 unique reads at one locus near 14 kb, about 1 percent of the genome. Never call it a detection.
+  - phiX174 is the Illumina control spike-in. Its top score says the run worked, not that phage was in the air.
+  - The import sheet is cancelled. The reads were imported earlier with the VSP2 recipe, so say so.
+  - Colored bases in the read pileup mean no reference sequence was loaded, not real mismatches.
+  - The run took about two minutes on an M4 Pro laptop for about 254 thousand reads. Do not generalize the time.
+
+outputs: [wide]
+trim_top: 52
+window_points: [1443, 813]
+
+beats:
+  - kind: card
+    id: title
+    duration: 4.0
+    icon: true
+    title: Classify reads with TaxTriage
+    sub: Lungfish Genome Explorer walkthrough
+    shows: Title card.
+    transition: fade
+    narration: This video shows how to classify sequencing reads with TaxTriage inside Lungfish Genome Explorer, and how to
+      judge what it finds.
+
+  - kind: take
+    id: sra-search
+    take: takes/sra.mov
+    duration: 17.5
+    segments: [[3.5, 21.0]]
+    caption: Find a run in the Sequence Read Archive
+    kicker: File · Search Online Databases · Search SRA
+    shows: The SRA Runs search finds SRR35520577 and shows its instrument, title and size.
+    capture: Choose File > Search Online Databases > Search SRA, type SRR35520577, click Search, wait for the result.
+    verify: [One result, SRR35520577, 565,166,726 bp, Illumina NovaSeq 6000.]
+    zoom: {at: 2.0, dur: 0.9, region: [0.186, 0.057, 0.624, 0.81]}
+    narration: The example is one air sample from an airport surveillance study. Choose File, then Search Online Databases, then
+      Search SRA, and enter the run accession SRR35520577. LGE looks up the run and shows its instrument, title and size.
+
+  - kind: take
+    id: import-sheet
+    take: takes/sra.mov
+    duration: 19.0
+    segments: [[22.0, 41.0]]
+    caption: Choose import settings before the download
+    kicker: Download Selected · Import FASTQ
+    shows: Selecting the run and clicking Download Selected opens the Import FASTQ sheet, and ticking the recipe box shows VSP2 Target Enrichment.
+    capture: Same take. Click the result, click Download Selected, tick Apply processing recipe after import, hold, then Cancel.
+    verify: [Download size 153 MB, Platform Illumina, Pairing Paired-end, recipe VSP2 Target Enrichment.]
+    zoom: {at: 2.5, dur: 0.9, region: [0.305, 0.125, 0.387, 0.68]}
+    narration: Select the run and click Download Selected. The Import FASTQ sheet reads the platform and pairing from the archive
+      record. The VSP2 Target Enrichment recipe removes duplicates, trims adapters, removes human reads and merges overlapping
+      pairs. These reads are already in the project, imported with this recipe, so we cancel here.
+
+  - kind: take
+    id: import-center
+    take: takes/import-center.mov
+    trim_top: 35
+    duration: 12.0
+    segments: [[1.0, 13.0]]
+    caption: Or import FASTQ files from your computer
+    kicker: File · Import Center · Sequencing Read Files
+    shows: The Import Center with Sequencing Read Files, FASTQ Sample Sheet and ONT Run Folder importers.
+    capture: File > Import Center, hover over the importers. Nothing is imported.
+    verify: [Sequencing Read Files, FASTQ Sample Sheet, ONT Run Folder.]
+    narration: Reads on your own computer come in the same way. Choose File, then Import Center, and under Sequencing
+      Read Files click Import to pick FASTQ files from a folder or a drive. A sample sheet or a Nanopore run folder
+      works too.
+
+  - kind: take
+    id: reads
+    take: takes/setup.mov
+    duration: 12.0
+    segments: [[1.5, 13.5]]
+    caption: Imported reads open with summary and metadata
+    kicker: Sidebar · SRR35520577
+    shows: Selecting the imported run shows its summary cards and the archive metadata in the Inspector.
+    capture: Type SRR35520577 in the sidebar search and click the result.
+    verify: [Reads 253.8K, Run SRR35520577, Study PRJNA989177, Strategy Targeted-Capture.]
+    narration: Search the sidebar for the run and select it. The cards show about 254 thousand reads after cleanup, and the
+      Inspector on the right lists the archive metadata, such as the study, the sample and the capture strategy.
+
+  - kind: take
+    id: taxtriage-setup
+    take: takes/setup.mov
+    duration: 18.0
+    segments: [[13.5, 31.5]]
+    caption: Run TaxTriage with the viral database
+    kicker: Operations · Classification · TaxTriage
+    shows: The TaxTriage sheet with prerequisites, the sample, the Viral Kraken2 database, Illumina, Skip assembly and host exclusion, then Run.
+    capture: Same take. Click Classification, choose TaxTriage, set Kraken2 Database to Viral, click Run.
+    verify: [Nextflow and Docker Desktop Running, Exclude host taxa 9606.]
+    narration: Under Classification, choose TaxTriage. LGE checks that Nextflow and Docker are ready. Pick the Viral Kraken2
+      database and keep Illumina as the platform. Skip assembly keeps the run fast, and human reads, taxon 9606, are excluded
+      before references are chosen. Click Run.
+
+  - kind: take
+    id: monitor
+    take: takes/monitor.mov
+    trim_top: 0
+    duration: 20.0
+    segments: [[0.5, 4.5], [20.0, 30.0], [124.0, 130.0]]
+    caption: Follow every step in the Operations panel
+    kicker: Operations panel
+    shows: The running TaxTriage row with its current step and elapsed time, the live log, then Completed.
+    capture: Operations > Show Operations Panel during a run, click Log on the TaxTriage row, record until it completes.
+    verify: [Completed, took 2m 3s.]
+    narration: The run appears in the Operations panel with its current step and elapsed time. Click Log to see the exact
+      command and each pipeline step as it runs. This sample took about two minutes on a laptop. When it finishes, the
+      result is saved under Analyses in the project.
+
+  - kind: take
+    id: results-table
+    take: takes/results.mov
+    duration: 10.5
+    segments: [[0.0, 10.5]]
+    caption: Organisms ranked by TASS confidence score
+    kicker: Analyses · taxtriage-batch
+    shows: The TaxTriage result table and the Inspector Summary tab with the run settings.
+    capture: Select the finished TaxTriage batch under Analyses with the Summary tab of the Inspector open.
+    verify: [Organisms 13, phiX174 TASS 0.900 High, Database viral.]
+    zoom: {at: 1.0, dur: 0.9, region: [0.19, 0.0, 0.81, 0.5]}
+    narration: Each row is an organism, ranked by its TASS score, a confidence value from zero to one based on how the reads
+      align. The Summary tab records the database and settings.
+
+  - kind: take
+    id: sars
+    take: takes/results.mov
+    duration: 13.0
+    segments: [[10.5, 23.5]]
+    caption: 575 reads but only 2 unique
+    kicker: SARS-CoV-2 row
+    shows: Selecting SARS-CoV-2 draws coverage across the genome, a single spike near 14 kb, 1 percent covered.
+    capture: Same take. Click the View tab, then the SARS-CoV-2 row.
+    verify: [Reads 575, Unique Reads 2, 1% covered.]
+    zoom: {at: 2.5, dur: 0.9, region: [0.19, 0.27, 0.58, 0.58]}
+    narration: SARS-CoV-2 has 575 reads, but only 2 unique reads. The viewer draws coverage across its genome, and nearly all
+      of it sits in one spot, about 1 percent of the genome.
+
+  - kind: take
+    id: duplicates
+    take: takes/results.mov
+    duration: 13.0
+    segments: [[23.0, 36.0]]
+    zoom: {at: 6.0, dur: 0.9, region: [0.19, 0.36, 0.58, 0.58]}
+    caption: Duplicate reads stack at one position
+    kicker: Inspector · View · Read Inclusion
+    shows: Ticking Include duplicate-marked reads raises depth to 573x, and the zoomed pileup shows every read starting at one position.
+    capture: Same take. Tick Include duplicate-marked reads, type NC_045512.2:13900-14150 in the locus field and press Return.
+    verify: [max 573x, reads start at 13,948.]
+    narration: Tick Include duplicate-marked reads, and the depth jumps to 573. Up close, every read starts at the same
+      position, copies of very few molecules. Colored bases only mean no reference was loaded.
+
+  - kind: take
+    id: phix
+    take: takes/results.mov
+    in: 37.0
+    duration: 18.5
+    caption: Spread-out reads give stronger evidence
+    kicker: phiX174 row
+    shows: The phiX174 row, 8 reads all unique, spread across the 5.4 kb genome.
+    capture: Same take. Click the phiX174 row.
+    verify: [Reads 8, Unique Reads 8, TASS 0.900, 20% covered.]
+    zoom: {at: 1.5, dur: 0.9, region: [0.19, 0.0, 0.58, 0.8]}
+    narration: Compare phiX174, the control DNA commonly spiked into Illumina runs. Its 8 reads are all unique and spread
+      across the genome, which is why it scores 0.9. Here it confirms the sequencing worked, not that phage was in the air.
+
+  - kind: card
+    id: evidence
+    duration: 6.0
+    title: Check the evidence behind each hit
+    shows: Section card for following up a hit.
+    narration: A high read count alone is not a detection. To check a hit, send its reads to BLAST, or take the reads
+      out of LGE and test them with other tools.
+
+  - kind: take
+    id: blast
+    take: takes/blast.mov
+    filmed_with: {app: Lungfish Debug, versions: ["2026.10.19 with the BLAST index fix 77cdb0964"], date: 2026-10-16}
+    duration: 29.0
+    segments: [[3.0, 10.0], [18.0, 24.0], [57.0, 66.0], [97.0, 104.0]]
+    zoom: {at: 13.5, dur: 0.9, region: [0.18, 0.43, 0.62, 0.5]}
+    caption: BLAST the reads against NCBI nucleotide
+    kicker: BLAST Verify · Debug build with the fix
+    shows: BLAST Verify on the SARS-CoV-2 row submits reads to NCBI BLASTN core_nt, tracks the job, and reports 2 supporting and 0 contradicting reads of 4, with 100 and 99.5 percent identity hits.
+    capture: >-
+      Filmed in a Debug build of commit 77cdb0964, because Preview 2026.10.19 fails BLAST Verify on TaxTriage results
+      (the BAM index was not passed). Recorded with wincap --app-region so the popover shows. Select the SARS-CoV-2 row,
+      click BLAST Verify, Run BLAST with 20 reads, wait for results, expand the first supporting read.
+    verify: [2 supporting, 0 contradicting (4 reads), 100.0% 7e-71, 99.5% 5e-93.]
+    narration: Select the SARS-CoV-2 row and click BLAST Verify. LGE sends a sample of its reads, 20 by default, to NCBI
+      BLAST against the core nucleotide database, and tracks the job while it runs. Here, 2 reads match SARS-CoV-2 at
+      99.5 and 100 percent identity, and 2 reads find no significant hit. Expand a read to see its top matches.
+
+  - kind: take
+    id: extract
+    take: takes/extract.mov
+    duration: 18.0
+    segments: [[3.0, 13.0], [20.0, 26.0], [32.0, 34.0]]
+    caption: Extract the reads to use them elsewhere
+    kicker: Extract FASTQ · Extract Reads
+    shows: The Extract Reads sheet with FASTQ or FASTA and four destinations, then Save as Bundle.
+    capture: Select the SARS-CoV-2 row, click Extract FASTQ, pick FASTA and Copy to Clipboard to show the options, then FASTQ and Save as Bundle, Create Bundle.
+    verify: [About 2 unique reads, name taxtriage_SRR35520577_NC_045512.2.]
+    zoom: {at: 5.5, dur: 0.9, region: [0.3, 0.3, 0.4, 0.55]}
+    narration: To use the reads elsewhere, click Extract FASTQ. Choose FASTQ or FASTA, then save them as a bundle in the
+      project, save a file, copy them to the clipboard to paste into a web tool, or share them. Here we save a bundle.
+
+  - kind: take
+    id: extracted
+    take: takes/extracted.mov
+    duration: 6.0
+    segments: [[0.0, 6.0]]
+    caption: The reads become a new bundle
+    kicker: Extractions
+    shows: The extracted bundle under Extractions with its 2 reads.
+    capture: Click the new bundle under Extractions. Stop before the Provenance tab, which was slow to load.
+    verify: [Reads 2, Bases 345 bp.]
+    narration: The new bundle appears under Extractions with its 2 reads, ready for any other LGE tool or for export.
+
+  - kind: take
+    id: databases
+    take: takes/setup.mov
+    duration: 16.0
+    segments: [[15.0, 31.0]]
+    caption: Pick the database that fits the question
+    kicker: TaxTriage · Kraken2 Database
+    shows: The Kraken2 Database control in the TaxTriage sheet, changing from SILVA to Viral.
+    capture: Reuses the setup take while the TaxTriage sheet is open.
+    verify: [Database menu lists SILVA, Standard-16 and Viral.]
+    zoom: {at: 1.0, dur: 0.9, region: [0.33, 0.22, 0.3, 0.18]}
+    narration: The database sets the question. Viral holds only RefSeq viral genomes and suits a virus screen like this
+      one. Standard-16 adds bacteria, archaea and human, for a broad pathogen screen. SILVA holds ribosomal RNA genes, for
+      asking which bacteria and eukaryotes are present.
+
+  - kind: card
+    id: credits
+    duration: 8.0
+    title: Thanks to the TaxTriage team
+    lines:
+      - text: Johns Hopkins University Applied Physics Laboratory
+      - text: Merritt et al., Bioinformatics, doi 10.1093/bioinformatics/btag119
+      - text: github.com/jhuapl-bio/taxtriage
+        style: url
+      - text: "{filmed_with}"
+        style: version
+    shows: Acknowledgement of the TaxTriage developers with the paper and the code repository.
+    narration: TaxTriage is built and maintained by a team at the Johns Hopkins University Applied Physics Laboratory, and
+      we thank them for it. The paper is in the journal Bioinformatics, and the code and documentation are at
+      github.com/jhuapl-bio/taxtriage.

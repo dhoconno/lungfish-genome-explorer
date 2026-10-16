@@ -1,0 +1,145 @@
+WEBVTT
+
+00:00:00.500 --> 00:00:09.380
+This video shows how to classify sequencing reads with TaxTriage inside Lungfish Genome Explorer, and how to judge what it finds.
+
+00:00:10.180 --> 00:00:16.525
+The example is one air sample from an airport surveillance study.
+
+00:00:16.525 --> 00:00:26.287
+Choose File, then Search Online Databases, then Search SRA, and enter the run accession SRR35520577.
+
+00:00:26.287 --> 00:00:32.340
+LGE looks up the run and shows its instrument, title and size.
+
+00:00:33.440 --> 00:00:36.478
+Select the run and click Download Selected.
+
+00:00:36.478 --> 00:00:41.988
+The Import FASTQ sheet reads the platform and pairing from the archive record.
+
+00:00:41.988 --> 00:00:50.395
+The VSP2 Target Enrichment recipe removes duplicates, trims adapters, removes human reads and merges overlapping pairs.
+
+00:00:50.395 --> 00:00:56.400
+These reads are already in the project, imported with this recipe, so we cancel here.
+
+00:00:57.500 --> 00:01:01.027
+Reads on your own computer come in the same way.
+
+00:01:01.027 --> 00:01:10.066
+Choose File, then Import Center, and under Sequencing Read Files click Import to pick FASTQ files from a folder or a drive.
+
+00:01:10.066 --> 00:01:13.740
+A sample sheet or a Nanopore run folder works too.
+
+00:01:14.840 --> 00:01:17.986
+Search the sidebar for the run and select it.
+
+00:01:17.986 --> 00:01:29.800
+The cards show about 254 thousand reads after cleanup, and the Inspector on the right lists the archive metadata, such as the study, the sample and the capture strategy.
+
+00:01:30.900 --> 00:01:34.043
+Under Classification, choose TaxTriage.
+
+00:01:34.043 --> 00:01:37.751
+LGE checks that Nextflow and Docker are ready.
+
+00:01:37.751 --> 00:01:43.071
+Pick the Viral Kraken2 database and keep Illumina as the platform.
+
+00:01:43.071 --> 00:01:51.534
+Skip assembly keeps the run fast, and human reads, taxon 9606, are excluded before references are chosen.
+
+00:01:51.534 --> 00:01:52.340
+Click Run.
+
+00:01:53.440 --> 00:01:58.823
+The run appears in the Operations panel with its current step and elapsed time.
+
+00:01:58.823 --> 00:02:03.524
+Click Log to see the exact command and each pipeline step as it runs.
+
+00:02:03.524 --> 00:02:06.727
+This sample took about two minutes on a laptop.
+
+00:02:06.727 --> 00:02:11.360
+When it finishes, the result is saved under Analyses in the project.
+
+00:02:13.440 --> 00:02:21.993
+Each row is an organism, ranked by its TASS score, a confidence value from zero to one based on how the reads align.
+
+00:02:21.993 --> 00:02:25.680
+The Summary tab records the database and settings.
+
+00:02:26.780 --> 00:02:31.170
+SARS-CoV-2 has 575 reads, but only 2 unique reads.
+
+00:02:31.170 --> 00:02:41.180
+The viewer draws coverage across its genome, and nearly all of it sits in one spot, about 1 percent of the genome.
+
+00:02:42.280 --> 00:02:47.480
+Tick Include duplicate-marked reads, and the depth jumps to 573.
+
+00:02:47.480 --> 00:02:53.900
+Up close, every read starts at the same position, copies of very few molecules.
+
+00:02:53.900 --> 00:02:57.800
+Colored bases only mean no reference was loaded.
+
+00:02:58.900 --> 00:03:04.193
+Compare phiX174, the control DNA commonly spiked into Illumina runs.
+
+00:03:04.193 --> 00:03:10.731
+Its 8 reads are all unique and spread across the genome, which is why it scores 0.9.
+
+00:03:10.731 --> 00:03:16.180
+Here it confirms the sequencing worked, not that phage was in the air.
+
+00:03:17.400 --> 00:03:20.553
+A high read count alone is not a detection.
+
+00:03:20.553 --> 00:03:27.960
+To check a hit, send its reads to BLAST, or take the reads out of LGE and test them with other tools.
+
+00:03:29.060 --> 00:03:33.298
+Select the SARS-CoV-2 row and click BLAST Verify.
+
+00:03:33.298 --> 00:03:44.803
+LGE sends a sample of its reads, 20 by default, to NCBI BLAST against the core nucleotide database, and tracks the job while it runs.
+
+00:03:44.803 --> 00:03:53.540
+Here, 2 reads match SARS-CoV-2 at 99.5 and 100 percent identity, and 2 reads find no significant hit.
+
+00:03:53.540 --> 00:03:56.740
+Expand a read to see its top matches.
+
+00:03:58.060 --> 00:04:01.776
+To use the reads elsewhere, click Extract FASTQ.
+
+00:04:01.776 --> 00:04:13.077
+Choose FASTQ or FASTA, then save them as a bundle in the project, save a file, copy them to the clipboard to paste into a web tool, or share them.
+
+00:04:13.077 --> 00:04:14.780
+Here we save a bundle.
+
+00:04:16.060 --> 00:04:23.660
+The new bundle appears under Extractions with its 2 reads, ready for any other LGE tool or for export.
+
+00:04:24.760 --> 00:04:27.120
+The database sets the question.
+
+00:04:27.120 --> 00:04:32.981
+Viral holds only RefSeq viral genomes and suits a virus screen like this one.
+
+00:04:32.981 --> 00:04:38.614
+Standard-16 adds bacteria, archaea and human, for a broad pathogen screen.
+
+00:04:38.614 --> 00:04:45.160
+SILVA holds ribosomal RNA genes, for asking which bacteria and eukaryotes are present.
+
+00:04:46.260 --> 00:04:56.750
+TaxTriage is built and maintained by a team at the Johns Hopkins University Applied Physics Laboratory, and we thank them for it.
+
+00:04:56.750 --> 00:05:06.020
+The paper is in the journal Bioinformatics, and the code and documentation are at github.com/jhuapl-bio/taxtriage.
