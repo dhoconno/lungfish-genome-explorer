@@ -108,7 +108,7 @@ final class SRADownloadPreparationBrowserCancelTests: XCTestCase {
                 return try await Self.heldOpen(client, accession)
             },
             handOff: { _, _, _, id, _ in
-                // What the download does with its row: keep it running behind a callback of its own.
+                // The download keeps its row running behind a callback of its own.
                 handedOver.withLock { $0.append(id) }
                 OperationCenter.shared.setCancelCallback(for: id) { downloadCancelled.withLock { $0 = true } }
             })
