@@ -71,6 +71,10 @@ HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 PUBLIC_SPARKLE_KEY = "FtnZIDTqGTwkglQR0z8iSgVvxvT26a05QB3cI4xQw/c="
 COORDINATOR_CAPABILITY_ENV = "LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"
+# Q2. In recovery the coordinator names the candidate to the Sparkle floors, which
+# check-sparkle-build-number.py reads, the builder's own floors included.
+SPARKLE_RECOVERY_VERSION_ENV = "LUNGFISH_SPARKLE_RECOVERY_VERSION"
+SPARKLE_RECOVERY_ENCLOSURE_ENV = "LUNGFISH_SPARKLE_RECOVERY_ENCLOSURE_URL"
 RELEASE_PYTHON_ENV = "LUNGFISH_RELEASE_PYTHON"
 PROFILE_FIELDS = frozenset(
     {"schemaVersion", "repository", "signingIdentity", "teamId", "notaryProfile"}
@@ -938,6 +942,9 @@ class SubprocessRunner:
                 self.environment["GH_REPO"] = self.github_repository
                 self.environment.pop("GH_HOST", None)
         self.environment.pop(COORDINATOR_CAPABILITY_ENV, None)
+        # Only the coordinator may name a recovery candidate, never the operator's shell.
+        self.environment.pop(SPARKLE_RECOVERY_VERSION_ENV, None)
+        self.environment.pop(SPARKLE_RECOVERY_ENCLOSURE_ENV, None)
         self.environment.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1", GIT_SSH_COMMAND="ssh -oBatchMode=yes -oConnectTimeout=20")
 
     def run(
@@ -1440,6 +1447,29 @@ def tagged_publication_state(
             )
         )
     return "complete" if all(state == "complete" for state in checks) else "incomplete"
+
+
+def _receipt_build(receipt_path: Path) -> str:
+    """The receipt's planned Sparkle build, or an empty string when it is not a positive integer."""
+    release = _read_bounded_json(receipt_path, "unsigned candidate receipt").get("release")
+    build = release.get("build") if isinstance(release, dict) else None
+    if isinstance(build, str) and build.isdigit() and int(build) > 0:
+        return build
+    return ""
+
+
+def _recovery_floor_environment(
+    request: ReleaseRequest, identity: CandidateIdentity
+) -> dict[str, str]:
+    """The candidate's version and the enclosure URL its appcast item carries."""
+    repository = request.github_repository.removeprefix("github.com/")
+    return {
+        SPARKLE_RECOVERY_VERSION_ENV: identity.version,
+        SPARKLE_RECOVERY_ENCLOSURE_ENV: (
+            f"https://github.com/{repository}/releases/download/{identity.tag}/"
+            f"Lungfish-{identity.version}-arm64.dmg"
+        ),
+    }
 
 
 def _metadata(path: Path) -> dict[str, str]:
@@ -2124,7 +2154,11 @@ class LocalReleaseOperations:
         _record_timing("build-notarized-dmg.sh", time.monotonic() - build.started, build.process.returncode)
 
     def validate_sparkle_build_number(
-        self, request: ReleaseRequest, identity: CandidateIdentity | None = None
+        self,
+        request: ReleaseRequest,
+        identity: CandidateIdentity | None = None,
+        *,
+        recovering: bool | None = None,
     ) -> None:
         if identity is None:
             planned = self.runner.environment.get("LUNGFISH_BUILD_NUMBER", "")
@@ -2157,6 +2191,18 @@ class LocalReleaseOperations:
             ])
         else:
             floors.append((selected.sparkleRelease, selected.appcastFilename, is_fork))
+        # Q2. A rerun after the beta feed took this candidate's build finds the
+        # versioned release and the feed item already there, and only then do the
+        # floors accept an equal build, when that item is the candidate's own.
+        if recovering is None:
+            recovering = identity is not None and self._versioned_release_exists(
+                identity.tag
+            )
+        floor_environment = (
+            _recovery_floor_environment(request, identity)
+            if recovering and identity is not None
+            else None
+        )
         for release, filename, allow_missing in floors:
             command = [
                 sys.executable,
@@ -2168,7 +2214,10 @@ class LocalReleaseOperations:
             ]
             if allow_missing:
                 command.append("--allow-http-not-found")
-            self.runner.run(command)
+            if floor_environment:
+                self.runner.run(command, env=floor_environment)
+            else:
+                self.runner.run(command)
 
     def verify_candidate_receipt(self, request: ReleaseRequest) -> CandidateIdentity:
         return verify_candidate_receipt_exact(
@@ -2302,13 +2351,15 @@ class LocalReleaseOperations:
         key_index = extras.index("--sparkle-public-ed-key")
         del extras[key_index:key_index + 2]
         command.extend(extras)
-        if self._versioned_release_exists(identity.tag):
+        recovering = self._versioned_release_exists(identity.tag)
+        environment = {COORDINATOR_CAPABILITY_ENV: secrets.token_hex(32)}
+        if recovering:
             command.append("--recover-existing-release")
-        self.validate_sparkle_build_number(request, identity)
-        self.runner.run(
-            command,
-            env={COORDINATOR_CAPABILITY_ENV: secrets.token_hex(32)},
-        )
+            # The builder checks the floor again after its recovery step, and it
+            # reads the same candidate context as the floors above (Q2).
+            environment.update(_recovery_floor_environment(request, identity))
+        self.validate_sparkle_build_number(request, identity, recovering=recovering)
+        self.runner.run(command, env=environment)
 
     def independent_verify(
         self, request: ReleaseRequest, identity: CandidateIdentity
@@ -2320,6 +2371,12 @@ class LocalReleaseOperations:
             raise ReleaseError("release metadata channel does not match the candidate")
         if metadata.get("git_commit") != identity.commit:
             raise ReleaseError("release metadata commit does not match the candidate")
+        # PV6. A candidate published from its receipt used to leave this key empty.
+        receipt_build = _receipt_build(identity.receipt)
+        if not receipt_build or metadata.get("build_number") != receipt_build:
+            raise ReleaseError(
+                "release metadata build number does not match the candidate receipt"
+            )
         release_dir = identity.receipt.parent
         dmg = _contained_artifact(
             self.root, release_dir, metadata.get("DMG_PATH", ""), "DMG_PATH"

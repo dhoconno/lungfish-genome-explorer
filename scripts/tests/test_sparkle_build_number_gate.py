@@ -1,4 +1,5 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -151,6 +152,129 @@ class SparkleBuildNumberGateTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 64)
         self.assertIn("must exceed live Sparkle build 4025", result.stderr)
+
+
+CANDIDATE_VERSION = "2026.10.19"
+CANDIDATE_ENCLOSURE = (
+    "https://github.com/example/lungfish/releases/download/"
+    "v2026.10.19/Lungfish-2026.10.19-arm64.dmg"
+)
+RECOVERY_VERSION_ENV = "LUNGFISH_SPARKLE_RECOVERY_VERSION"
+RECOVERY_ENCLOSURE_ENV = "LUNGFISH_SPARKLE_RECOVERY_ENCLOSURE_URL"
+RECOVERY_CONTEXT = {
+    RECOVERY_VERSION_ENV: CANDIDATE_VERSION,
+    RECOVERY_ENCLOSURE_ENV: CANDIDATE_ENCLOSURE,
+}
+
+
+def appcast_item(build, version=CANDIDATE_VERSION, enclosure=CANDIDATE_ENCLOSURE):
+    return (
+        f"<item><title>{version}</title>"
+        f"<sparkle:version>{build}</sparkle:version>"
+        f"<sparkle:shortVersionString>{version}</sparkle:shortVersionString>"
+        f'<enclosure url="{enclosure}" length="175105926" '
+        'type="application/octet-stream"/></item>'
+    )
+
+
+class SparkleBuildNumberRecoveryTests(unittest.TestCase):
+    """Q2: in recovery the floor accepts the candidate's own live item.
+
+    The coordinator names the candidate through two environment variables, so
+    the floors inside the builder, which release.py cannot give arguments,
+    see the same context. Without both variables the floor is the strict one.
+    """
+
+    def run_recovery_gate(self, planned, body, context=RECOVERY_CONTEXT):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            appcast = Path(temp_dir) / "appcast.xml"
+            appcast.write_text(
+                '<?xml version="1.0"?>'
+                '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" '
+                'xmlns:lge="urn:lungfish-genome-explorer:release">'
+                f"<channel>{body}</channel></rss>\n",
+                encoding="utf-8",
+            )
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key not in RECOVERY_CONTEXT
+            }
+            environment.update(context or {})
+            return subprocess.run(
+                [sys.executable, str(SCRIPT), "--planned", planned, "--appcast", str(appcast)],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=environment,
+            )
+
+    def test_recovery_accepts_the_live_item_that_is_the_candidates_own(self):
+        body = appcast_item(9046) + appcast_item(9035, "2026.10.18", "https://example.test/old.dmg")
+
+        result = self.run_recovery_gate("9046", body)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("passed in recovery", result.stdout)
+        self.assertIn("build 9046", result.stdout)
+
+    def test_the_candidates_own_item_is_refused_outside_recovery(self):
+        result = self.run_recovery_gate("9046", appcast_item(9046), context={})
+
+        self.assertEqual(result.returncode, 64)
+        self.assertIn("must exceed live Sparkle build 9046", result.stderr)
+
+    def test_recovery_refuses_a_different_build_of_the_same_number(self):
+        # Another version, another enclosure, or two items where only one is ours.
+        cases = {
+            "another version": appcast_item(9046, "2026.10.18"),
+            "another enclosure": appcast_item(
+                9046, enclosure="https://example.test/Lungfish-2026.10.19-arm64.dmg"
+            ),
+            "no enclosure": (
+                "<item><sparkle:version>9046</sparkle:version>"
+                f"<sparkle:shortVersionString>{CANDIDATE_VERSION}</sparkle:shortVersionString></item>"
+            ),
+            "a second item at the same build": appcast_item(9046)
+            + appcast_item(9046, "2026.10.18", "https://example.test/other.dmg"),
+            "a yank marker at the planned build": (
+                '<lge:yanked build="9046" version="2026.10.19" date="2026-10-16"/>'
+                + appcast_item(9035, "2026.10.18", "https://example.test/old.dmg")
+            ),
+        }
+        for label, body in cases.items():
+            with self.subTest(label):
+                result = self.run_recovery_gate("9046", body)
+
+                self.assertEqual(result.returncode, 64, result.stdout)
+                self.assertIn("must exceed live Sparkle build 9046", result.stderr)
+                self.assertIn("not this candidate", result.stderr)
+
+    def test_recovery_never_lowers_the_floor_below_a_higher_live_build(self):
+        body = appcast_item(9046) + appcast_item(9047, "2026.10.20", "https://example.test/next.dmg")
+
+        result = self.run_recovery_gate("9046", body)
+
+        self.assertEqual(result.returncode, 64)
+        self.assertIn("must exceed live Sparkle build 9047", result.stderr)
+
+    def test_recovery_leaves_a_higher_planned_build_as_it_was(self):
+        result = self.run_recovery_gate("9046", appcast_item(9035, "2026.10.18", "https://example.test/old.dmg"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("passed: 9046 > 9035", result.stdout)
+
+    def test_half_a_recovery_context_is_refused_even_for_a_higher_planned_build(self):
+        for name in RECOVERY_CONTEXT:
+            with self.subTest(name):
+                result = self.run_recovery_gate(
+                    "9046",
+                    appcast_item(9035, "2026.10.18", "https://example.test/old.dmg"),
+                    context={name: RECOVERY_CONTEXT[name]},
+                )
+
+                self.assertEqual(result.returncode, 64)
+                self.assertIn("recovery needs both", result.stderr)
 
 
 if __name__ == "__main__":

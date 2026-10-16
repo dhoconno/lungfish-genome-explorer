@@ -213,6 +213,25 @@ class ReleaseBuilderFixture:
                 handle.write(f"sparkle-gate:{' '.join(sys.argv[1:])}\n")
             if os.environ.get("BUILDER_SPARKLE_GATE_FAIL_ON_CALL") == str(count):
                 raise SystemExit(64)
+            # BUILDER_SPARKLE_FEEDS names a JSON map of feed path suffix to appcast
+            # file. The stub then runs the real gate against those local feeds.
+            feeds = os.environ.get("BUILDER_SPARKLE_FEEDS")
+            if feeds:
+                import json
+                import subprocess
+                mapping = json.loads(Path(feeds).read_text(encoding="utf-8"))
+                arguments = sys.argv[1:]
+                position = arguments.index("--appcast-url")
+                url = arguments[position + 1]
+                arguments[position:position + 2] = [
+                    "--appcast",
+                    next(path for suffix, path in mapping.items() if url.endswith(suffix)),
+                ]
+                raise SystemExit(
+                    subprocess.call(
+                        [sys.executable, os.environ["BUILDER_REAL_SPARKLE_GATE"], *arguments]
+                    )
+                )
             """,
         )
         real_receipt = release_dir / "release-candidate-receipt-real.py"
@@ -2035,6 +2054,119 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
                     self.assertFalse(any(line.startswith(("xcodebuild:", "swift:")) or "notarytool submit" in line for line in retry))
                 finally:
                     fixture.cleanup()
+
+    def test_published_candidate_metadata_holds_the_receipts_build(self):
+        # PV6: a candidate that is published from its receipt writes the
+        # receipt's build, which no environment variable carries on that path.
+        # The package path keeps its own value in package-metadata.txt.
+        packaged = self.fixture.run(
+            "--package-only",
+            "--channel",
+            "stable",
+            extra_env={"LUNGFISH_BUILD_NUMBER": "43"},
+        )
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        receipt = json.loads(
+            (self.fixture.release / "unsigned-candidate-receipt.json").read_text()
+        )
+        self.assertEqual(receipt["release"]["build"], "43")
+        self.assertIn(
+            "build_number=43",
+            (self.fixture.release / "package-metadata.txt").read_text().splitlines(),
+        )
+
+        published = self.fixture.run(
+            *self._stable_resume_args(),
+            "--defer-remote-publish",
+            extra_env={"LUNGFISH_BUILD_NUMBER": ""},
+        )
+
+        self.assertEqual(published.returncode, 0, published.stdout + published.stderr)
+        self.assertIn(
+            "build_number=43",
+            (self.fixture.release / "release-metadata.txt").read_text().splitlines(),
+        )
+        self.assertIn(
+            "build_number=43",
+            (self.fixture.release / "package-metadata.txt").read_text().splitlines(),
+        )
+
+    def test_recovery_rerun_passes_the_builders_floor_only_for_the_candidates_own_item(self):
+        # PV5 (a) at the builder. The beta feed already lists the candidate's
+        # build because the failed run uploaded it, and the builder checks the
+        # floor again in recovery (build-notarized-dmg.sh, after the DMG).
+        # The coordinator names the candidate through the environment, so
+        # the builder's own floor needs no new argument.
+        fixture = ReleaseBuilderFixture(self, app_smoke_required=False)
+        self.addCleanup(fixture.cleanup)
+        notes = fixture.repo / "docs/release-notes/2026.8.1.md"
+        notes.write_text(notes.read_text().replace("Channel: Stable", "Channel: Preview"))
+        fixture._git("add", str(notes))
+        fixture._git("commit", "-q", "-m", "local corrective Preview fixture")
+        fixture.prepare_remote_tag()
+        packaged = fixture.run(
+            "--package-only", "--channel", "preview", extra_env={"LUNGFISH_BUILD_NUMBER": "43"}
+        )
+        self.assertEqual(packaged.returncode, 0, packaged.stdout + packaged.stderr)
+        resume = list(self._stable_resume_args(fixture))
+        resume[resume.index("stable")] = "preview"
+        failed = fixture.run(
+            *resume, extra_env={"BUILDER_FAIL_MUTABLE_ASSET": "sparkle-alpha:appcast-alpha.xml"}
+        )
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+
+        enclosure = (
+            f"https://github.com/{PUBLIC_IDENTITY['repository']}"
+            "/releases/download/v2026.8.1/Lungfish-2026.8.1-arm64.dmg"
+        )
+
+        def item(build, version, url):
+            return (
+                f"<item><sparkle:version>{build}</sparkle:version>"
+                f"<sparkle:shortVersionString>{version}</sparkle:shortVersionString>"
+                f'<enclosure url="{url}" length="1" type="application/octet-stream"/></item>'
+            )
+
+        def feeds(label, beta_item):
+            paths = {}
+            for suffix, body in (
+                ("sparkle-beta/appcast-beta.xml", beta_item),
+                ("sparkle-alpha/appcast-alpha.xml", item(42, "2026.7.9", "https://example.test/old.dmg")),
+            ):
+                path = fixture.root / f"{label}-{suffix.replace('/', '-')}"
+                path.write_text(
+                    '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+                    f"<channel>{body}</channel></rss>",
+                    encoding="utf-8",
+                )
+                paths[suffix] = str(path)
+            mapping = fixture.root / f"{label}-feeds.json"
+            mapping.write_text(json.dumps(paths), encoding="utf-8")
+            return {
+                "BUILDER_SPARKLE_FEEDS": str(mapping),
+                "BUILDER_REAL_SPARKLE_GATE": str(ROOT / "scripts/release/check-sparkle-build-number.py"),
+            }
+
+        context = {
+            "LUNGFISH_SPARKLE_RECOVERY_VERSION": "2026.8.1",
+            "LUNGFISH_SPARKLE_RECOVERY_ENCLOSURE_URL": enclosure,
+        }
+        own = feeds("own", item(43, "2026.8.1", enclosure))
+        strict = fixture.run(*resume, "--recover-existing-release", extra_env=own)
+        self.assertEqual(strict.returncode, 64, strict.stdout + strict.stderr)
+        self.assertIn("must exceed live Sparkle build 43", strict.stderr)
+        other = feeds("other", item(43, "2026.7.9", enclosure.replace("2026.8.1", "2026.7.9")))
+        refused = fixture.run(
+            *resume, "--recover-existing-release", extra_env={**other, **context}
+        )
+        self.assertEqual(refused.returncode, 64, refused.stdout + refused.stderr)
+        self.assertIn("not this candidate", refused.stderr)
+
+        resumed = fixture.run(*resume, "--recover-existing-release", extra_env={**own, **context})
+
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        state = json.loads(fixture.gh_state.read_text())["releases"]
+        self.assertIn("appcast-alpha.xml", {a["name"] for a in state["sparkle-alpha"]["assets"]})
 
     def test_immutable_release_recovery_reuses_exact_dmg_without_signing_or_notarizing(
         self,

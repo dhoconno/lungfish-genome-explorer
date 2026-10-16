@@ -1834,9 +1834,11 @@ if [ -n "$SPARKLE_BRIDGE_APPCAST_FILENAME" ]; then
     fi
 fi
 
+# PV6. SPARKLE_BUILD_NUMBER is empty when this run resumed from a receipt, so the
+# receipt's verified build is what the published metadata records.
 cat >"$METADATA_PATH" <<EOF
 version=${VERSION}
-build_number=${SPARKLE_BUILD_NUMBER}
+build_number=${VERIFIED_SPARKLE_BUILD_NUMBER}
 channel=${CHANNEL}
 git_commit=${COMMIT_SHA}
 signing_identity=<redacted>

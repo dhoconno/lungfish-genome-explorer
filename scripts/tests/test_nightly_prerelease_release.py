@@ -1677,6 +1677,8 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
             def run(self, command, **_kwargs):
                 self.commands.append(command)
+                # The floors ask once whether the versioned release exists (Q2).
+                return subprocess.CompletedProcess(command, 1, "", "")
 
         with tempfile.TemporaryDirectory() as temp:
             receipt = Path(temp) / "unsigned-candidate-receipt.json"
@@ -1702,7 +1704,9 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
 
             operations.validate_sparkle_build_number(request, identity)
 
-        command = " ".join(operations.runner.commands[0])
+        command = " ".join(
+            next(item for item in operations.runner.commands if item[0] != "gh")
+        )
         self.assertIn("--planned 432", command)
         self.assertNotIn("999", command)
 
@@ -1766,6 +1770,318 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             )
 
         self.assertNotIn(variable, runner.environment)
+
+    RECOVERY_NAMES = (
+        "LUNGFISH_SPARKLE_RECOVERY_VERSION",
+        "LUNGFISH_SPARKLE_RECOVERY_ENCLOSURE_URL",
+    )
+    CANDIDATE_ENCLOSURE = (
+        "https://github.com/example/lungfish/releases/download/"
+        "v2026.10.19/Lungfish-2026.10.19-arm64.dmg"
+    )
+
+    @staticmethod
+    def _feed_item(build, version="2026.10.19", tag="v2026.10.19"):
+        url = (
+            "https://github.com/example/lungfish/releases/download/"
+            f"{tag}/Lungfish-{version}-arm64.dmg"
+        )
+        return (
+            f"<item><sparkle:version>{build}</sparkle:version>"
+            f"<sparkle:shortVersionString>{version}</sparkle:shortVersionString>"
+            f'<enclosure url="{url}" length="1" type="application/octet-stream"/></item>'
+        )
+
+    @staticmethod
+    def _feed(*items):
+        return (
+            '<?xml version="1.0"?><rss xmlns:sparkle='
+            '"http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>'
+            + "".join(items)
+            + "</channel></rss>"
+        )
+
+    def _feed_rig(self, temp, feeds, released):
+        """The real floors and resume_publish over a runner that fakes the network.
+
+        ``feeds`` maps a feed asset name to its appcast XML. The runner answers
+        ``gh release view``, runs the real check-sparkle-build-number.py against
+        those local feeds and records the builder command with its environment.
+        """
+        coordinator = self.coordinator
+        root = Path(__file__).resolve().parents[2]
+        names = self.RECOVERY_NAMES
+        events = []
+
+        class FeedRunner:
+            def __init__(self):
+                self.calls = []
+                self.builder = None
+                self.environment = {}
+
+            def run(self, command, *, capture=False, env=None, check=True):
+                self.calls.append((list(command), dict(env or {})))
+                if command[:3] == ["gh", "release", "view"]:
+                    return subprocess.CompletedProcess(
+                        command, 0 if released else 1, "", ""
+                    )
+                if command[1].endswith("check-sparkle-build-number.py"):
+                    arguments = list(command[1:])
+                    position = arguments.index("--appcast-url")
+                    name = arguments[position + 1].rsplit("/", 1)[1]
+                    feed = Path(temp) / name
+                    feed.write_text(feeds[name], encoding="utf-8")
+                    arguments[position:position + 2] = ["--appcast", str(feed)]
+                    environment = {
+                        key: value
+                        for key, value in os.environ.items()
+                        if key not in names
+                    }
+                    environment.update(env or {})
+                    result = subprocess.run(
+                        [command[0], *arguments],
+                        capture_output=True,
+                        text=True,
+                        env=environment,
+                        check=False,
+                    )
+                    if check and result.returncode != 0:
+                        raise coordinator.ReleaseError(
+                            f"command failed with exit {result.returncode}: "
+                            f"{result.stderr.strip()}"
+                        )
+                    return result
+                if "build-notarized-dmg.sh" in " ".join(command):
+                    self.builder = (list(command), dict(env or {}))
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                raise AssertionError(f"unexpected command {command}")
+
+        class Operations(coordinator.LocalReleaseOperations):
+            def doctor_credentials(self, _request):
+                events.append("doctor")
+
+            def ensure_annotated_tag(self, _request, _identity):
+                events.append("tag")
+
+            def independent_verify(self, _request, _identity):
+                events.append("verify")
+
+        operations = object.__new__(Operations)
+        operations.root = root
+        operations.contract = coordinator.load_contract(
+            root / "config/release-contract.json"
+        )
+        operations.runner = FeedRunner()
+        generator = Path(temp) / "generate_appcast"
+        generator.write_text("#!/bin/sh\n", encoding="utf-8")
+        receipt = Path(temp) / "unsigned-candidate-receipt.json"
+        receipt.write_text(json.dumps({"release": {"build": "9046"}}), encoding="utf-8")
+        identity = coordinator.CandidateIdentity(
+            receipt=receipt,
+            commit="a" * 40,
+            version="2026.10.19",
+            tag="v2026.10.19",
+            scratch_path=Path(temp) / "scratch",
+        )
+        request = dataclasses.replace(
+            self.request(mode="resume"),
+            sparkle_generate_appcast=generator,
+            github_repository="example/lungfish",
+        )
+        return (
+            coordinator.ReleaseCoordinator(operations),
+            request,
+            identity,
+            operations.runner,
+            events,
+        )
+
+    def test_rerun_after_the_beta_feed_lists_the_build_resumes_the_publish(self):
+        # PV5 (a). A failure after the beta appcast upload leaves the live feed at
+        # the candidate's own build, and the same command must carry on.
+        old = self._feed_item(9035, "2026.10.18", "v2026.10.18")
+        own = self._feed_item(9046)
+        cases = {
+            "the bridge upload failed": {
+                "appcast-beta.xml": self._feed(own, old),
+                "appcast-alpha.xml": self._feed(old),
+            },
+            "both feeds list the build": {
+                "appcast-beta.xml": self._feed(own, old),
+                "appcast-alpha.xml": self._feed(own, old),
+            },
+        }
+        for label, feeds in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp:
+                coordinator, request, identity, runner, events = self._feed_rig(
+                    temp, feeds, released=True
+                )
+
+                coordinator.publish_verified(request, identity)
+
+                self.assertEqual(events, ["doctor", "tag", "doctor", "verify"])
+                command, environment = runner.builder
+                self.assertIn("--recover-existing-release", command)
+                self.assertEqual(
+                    environment["LUNGFISH_SPARKLE_RECOVERY_VERSION"], "2026.10.19"
+                )
+                self.assertEqual(
+                    environment["LUNGFISH_SPARKLE_RECOVERY_ENCLOSURE_URL"],
+                    self.CANDIDATE_ENCLOSURE,
+                )
+                self.assertRegex(
+                    environment["LUNGFISH_RELEASE_COORDINATOR_CAPABILITY"],
+                    r"^[0-9a-f]{64}$",
+                )
+                floors = [
+                    env
+                    for argv, env in runner.calls
+                    if argv[1].endswith("check-sparkle-build-number.py")
+                ]
+                self.assertEqual(len(floors), 6)
+                self.assertTrue(
+                    all(set(self.RECOVERY_NAMES) <= set(env) for env in floors)
+                )
+
+    def test_rerun_still_stops_at_the_floor_for_another_build_version_or_enclosure(self):
+        old = self._feed_item(9035, "2026.10.18", "v2026.10.18")
+        own = self._feed_item(9046)
+        cases = {
+            "a higher build on the beta feed": (
+                self._feed(self._feed_item(9047, "2026.10.20", "v2026.10.20"), own, old),
+                self._feed(old),
+                "live Sparkle build 9047",
+            ),
+            "another version at the planned build": (
+                self._feed(self._feed_item(9046, "2026.10.18", "v2026.10.18"), old),
+                self._feed(old),
+                "live Sparkle build 9046",
+            ),
+            "another enclosure for the same version": (
+                self._feed(self._feed_item(9046, tag="v2026.10.19-other"), old),
+                self._feed(old),
+                "live Sparkle build 9046",
+            ),
+            "another item at the planned build on the bridge": (
+                self._feed(own, old),
+                self._feed(self._feed_item(9046, "2026.10.18", "v2026.10.18"), old),
+                "live Sparkle build 9046",
+            ),
+        }
+        for label, (beta, alpha, message) in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp:
+                coordinator, request, identity, runner, _events = self._feed_rig(
+                    temp,
+                    {"appcast-beta.xml": beta, "appcast-alpha.xml": alpha},
+                    released=True,
+                )
+
+                with self.assertRaisesRegex(
+                    self.coordinator.ReleaseError, f"exit 64.*{message}"
+                ):
+                    coordinator.publish_verified(request, identity)
+
+                self.assertIsNone(runner.builder)
+
+    def test_first_publish_keeps_the_floor_strict_and_carries_no_recovery_context(self):
+        # Recovery only: with no versioned release the equal build is refused.
+        old = self._feed_item(9035, "2026.10.18", "v2026.10.18")
+        with tempfile.TemporaryDirectory() as temp:
+            coordinator, request, identity, runner, events = self._feed_rig(
+                temp,
+                {
+                    "appcast-beta.xml": self._feed(self._feed_item(9046), old),
+                    "appcast-alpha.xml": self._feed(old),
+                },
+                released=False,
+            )
+
+            with self.assertRaisesRegex(
+                self.coordinator.ReleaseError, "exit 64.*live Sparkle build 9046"
+            ):
+                coordinator.publish_verified(request, identity)
+
+            self.assertEqual(events, ["doctor"])
+            self.assertIsNone(runner.builder)
+        with tempfile.TemporaryDirectory() as temp:
+            coordinator, request, identity, runner, _events = self._feed_rig(
+                temp,
+                {"appcast-beta.xml": self._feed(old), "appcast-alpha.xml": self._feed(old)},
+                released=False,
+            )
+
+            coordinator.publish_verified(request, identity)
+
+            command, environment = runner.builder
+            self.assertNotIn("--recover-existing-release", command)
+            for name in self.RECOVERY_NAMES:
+                self.assertNotIn(name, environment)
+            for argv, env in runner.calls:
+                if argv[1].endswith("check-sparkle-build-number.py"):
+                    self.assertFalse(set(self.RECOVERY_NAMES) & set(env))
+
+    def test_runner_drops_recovery_context_inherited_from_the_operator_shell(self):
+        inherited = dict.fromkeys(self.RECOVERY_NAMES, "from-the-shell")
+        with mock.patch.dict(os.environ, inherited):
+            runner = self.coordinator.SubprocessRunner(
+                Path(__file__).resolve().parents[2]
+            )
+
+        for name in self.RECOVERY_NAMES:
+            self.assertNotIn(name, runner.environment)
+
+    def test_independent_verification_requires_the_receipts_build_in_the_metadata(self):
+        # PV6. The check sits beside the version, channel and commit checks and
+        # precedes every artifact check, so no command may run on a mismatch.
+        class NoCommands:
+            def run(self, command, **_kwargs):
+                raise AssertionError(f"the build check precedes {command}")
+
+            json = text = run
+
+        root = Path(__file__).resolve().parents[2]
+        commit = "a" * 40
+        operations = object.__new__(self.coordinator.LocalReleaseOperations)
+        operations.root = root
+        operations.contract = self.coordinator.load_contract(
+            root / "config/release-contract.json"
+        )
+        operations.runner = NoCommands()
+
+        def verify(build_line):
+            with tempfile.TemporaryDirectory() as temp:
+                release_dir = Path(temp)
+                receipt = release_dir / "unsigned-candidate-receipt.json"
+                receipt.write_text(
+                    json.dumps({"release": {"build": "9046"}}), encoding="utf-8"
+                )
+                lines = ["version=2026.10.19", "channel=preview", f"git_commit={commit}"]
+                lines += [build_line] if build_line is not None else []
+                (release_dir / "release-metadata.txt").write_text(
+                    "\n".join(lines) + "\n", encoding="utf-8"
+                )
+                identity = self.coordinator.CandidateIdentity(
+                    receipt=receipt,
+                    tag="v2026.10.19",
+                    commit=commit,
+                    version="2026.10.19",
+                    scratch_path=release_dir / "scratch",
+                )
+                operations.independent_verify(self.request(channel="preview"), identity)
+
+        for label, line in (
+            ("an empty build, as 2026.10.18 and 2026.10.19 published", "build_number="),
+            ("another build", "build_number=9045"),
+            ("no build key", None),
+        ):
+            with self.subTest(label):
+                with self.assertRaisesRegex(
+                    self.coordinator.ReleaseError, "build number does not match"
+                ):
+                    verify(line)
+        # The receipt's own build passes the check and reaches the artifact checks.
+        with self.assertRaisesRegex(self.coordinator.ReleaseError, "missing DMG_PATH"):
+            verify("build_number=9046")
 
     def test_cli_rejects_direct_credential_paths_and_public_resume(self):
         with tempfile.TemporaryDirectory() as temp_dir:
