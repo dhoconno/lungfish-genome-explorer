@@ -154,11 +154,11 @@ final class SequenceExtractionPipelineConfigTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let source = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishWorkflow/Extraction/SequenceExtractionPipeline.swift"),
+            contentsOf: root.appendingPathComponent("Sources/LungfishWorkflow/Extraction/SequenceExtractionBundleBuilder.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("try? fileManager.removeItem(at: bundleURL)"))
+        XCTAssertTrue(source.contains("try? FileManager.default.removeItem(at: bundleURL)"))
         XCTAssertTrue(source.contains("throw error"))
     }
 }

@@ -46,8 +46,12 @@ final class DownloadBundleNamingPinTests: XCTestCase {
         let third = BundleBuildHelpers.makeUniqueBundleURL(baseName: "MN908947.3", in: directory)
         XCTAssertEqual(third.lastPathComponent, "MN908947.3_2.lungfishref")
 
-        // An empty name is not replaced here. The sequence path gives its own fallback first.
+        // An empty name takes a visible fallback. It gave `.lungfishref`, a folder Finder hides,
+        // until lane A48 folded the extraction builder's uniquer in (2.10 A44 review N3, BIO BR8).
         let empty = BundleBuildHelpers.makeUniqueBundleURL(baseName: "", in: directory)
-        XCTAssertEqual(empty.lastPathComponent, ".lungfishref")
+        XCTAssertEqual(empty.lastPathComponent, "reference.lungfishref")
+        let extracted = BundleBuildHelpers.makeUniqueBundleURL(
+            baseName: "", in: directory, emptyNameFallback: BundleBuildHelpers.extractedSequenceBundleName)
+        XCTAssertEqual(extracted.lastPathComponent, "extracted_sequence.lungfishref")
     }
 }

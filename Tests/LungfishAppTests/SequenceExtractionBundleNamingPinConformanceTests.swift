@@ -48,8 +48,8 @@ final class SequenceExtractionBundleNamingPinConformanceTests: XCTestCase {
         XCTAssertEqual([first, second], ["Segment_4-_HA-1.lungfishref", "Segment_4-_HA-1_1.lungfishref"])
     }
 
-    /// An empty name, here from a blank source name, falls back to a visible name. The pair of
-    /// `BundleBuildHelpers` gives `.lungfishref` for the same input.
+    /// An empty name, here from a blank source name, falls back to a visible name. Since lane A48
+    /// folded this builder's pair into `BundleBuildHelpers`, its one uniquer gives the name.
     func testAnEmptyNameFallsBackToExtractedSequence() async throws {
         try await requireTools()
         let first = try await build(desiredName: nil, sourceName: "  ").lastPathComponent

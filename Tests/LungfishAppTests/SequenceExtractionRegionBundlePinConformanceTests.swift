@@ -196,8 +196,11 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     chromosome chr1:11-40 30 aliases=[] description=nil
     """
 
-    /// At the base the builder's record lists, in a folder reached through a link such as the
-    /// temporary folder, the record files the bundle builder wrote before it as outputs.
+    /// Changed by the fold in two lines of the record. The source index is an `index` input, as on
+    /// the track path, where the base said `input`. At the base the builder's record also listed,
+    /// in a folder reached through a link such as the temporary folder, the six record files the
+    /// bundle builder wrote before it as outputs, with digests of files it then rewrote. The one
+    /// record writer compares paths with links resolved and lists none of them.
     private static let plainRecord = """
     workflow lungfish gui sequence extraction
     tool lungfish gui sequence extraction
@@ -229,40 +232,31 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     resolved start=integer(10)
     step lungfish gui sequence extraction | lungfish-gui | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Plain region | --output | <root>/extractions/Plain_region.lungfishref
       input input <root>/source.lungfishref/genome/sequence.fa.gz digest=true
-      input input <root>/source.lungfishref/genome/sequence.fa.gz.fai digest=true
+      input index <root>/source.lungfishref/genome/sequence.fa.gz.fai digest=true
       input input <root>/source.lungfishref/manifest.json digest=true
-      output output <root>/extractions/Plain_region.lungfishref/.lungfish-provenance.json digest=true
       output output <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz digest=true
       output index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.fai digest=true
       output index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.gzi digest=true
       output output <root>/extractions/Plain_region.lungfishref/manifest.json digest=true
-      output output <root>/extractions/Plain_region.lungfishref/provenance/bundle.lungfish-provenance.json digest=true
-      output output <root>/extractions/Plain_region.lungfishref/provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json digest=true
-      output output <root>/extractions/Plain_region.lungfishref/provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json digest=true
-      output output <root>/extractions/Plain_region.lungfishref/provenance/genome/sequence.fa.gz.lungfish-provenance.json digest=true
-      output output <root>/extractions/Plain_region.lungfishref/provenance/manifest.json.lungfish-provenance.json digest=true
-    file output <root>/extractions/Plain_region.lungfishref/.lungfish-provenance.json digest=true
     file output <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz digest=true
     file index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.fai digest=true
     file index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.gzi digest=true
     file output <root>/extractions/Plain_region.lungfishref/manifest.json digest=true
-    file output <root>/extractions/Plain_region.lungfishref/provenance/bundle.lungfish-provenance.json digest=true
-    file output <root>/extractions/Plain_region.lungfishref/provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json digest=true
-    file output <root>/extractions/Plain_region.lungfishref/provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json digest=true
-    file output <root>/extractions/Plain_region.lungfishref/provenance/genome/sequence.fa.gz.lungfish-provenance.json digest=true
-    file output <root>/extractions/Plain_region.lungfishref/provenance/manifest.json.lungfish-provenance.json digest=true
     file input <root>/source.lungfishref/genome/sequence.fa.gz digest=true
-    file input <root>/source.lungfishref/genome/sequence.fa.gz.fai digest=true
+    file index <root>/source.lungfishref/genome/sequence.fa.gz.fai digest=true
     file input <root>/source.lungfishref/manifest.json digest=true
     """
 
-    /// A blank desired name gives `.lungfishref`, a folder Finder hides, on both paths. The track
-    /// path keeps the raw name in the manifest, an empty one included.
+    /// Changed by the fold for a blank desired name on both paths. At the base it gave
+    /// `.lungfishref`, a folder Finder hides, with the manifest name `.lungfishref` and the
+    /// identifier `org.lungfish.extracted..lungfishref` on the plain path and the identifier
+    /// `org.lungfish.extracted.` on the track path. The one uniquer gives `extracted_sequence` (BR8).
+    /// The track path still keeps the raw name in the manifest, an empty one included.
     private static let emptyNames = """
-    plain Optional("  ") "chr1" -> .lungfishref name=".lungfishref" id=org.lungfish.extracted..lungfishref
+    plain Optional("  ") "chr1" -> extracted_sequence.lungfishref name="extracted_sequence" id=org.lungfish.extracted.extracted_sequence
     plain nil "  " -> extracted_sequence.lungfishref name="extracted_sequence" id=org.lungfish.extracted.extracted_sequence
     plain Optional("") "Seg 4: HA/1" -> Seg_4-_HA-1.lungfishref name="Seg_4-_HA-1" id=org.lungfish.extracted.seg_4-_ha-1
-    track Optional("  ") "chr1" -> .lungfishref name="  " id=org.lungfish.extracted.
+    track Optional("  ") "chr1" -> extracted_sequence.lungfishref name="  " id=org.lungfish.extracted.extracted_sequence
     track nil "  " -> extracted_sequence.lungfishref name="  " id=org.lungfish.extracted.extracted_sequence
     track Optional("") "Seg 4: HA/1" -> Seg_4-_HA-1.lungfishref name="" id=org.lungfish.extracted.seg_4-_ha-1
     """

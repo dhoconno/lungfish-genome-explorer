@@ -17,11 +17,22 @@ package enum BundleBuildHelpers {
             .replacingOccurrences(of: " ", with: "_")
     }
 
-    package static func makeUniqueBundleURL(baseName: String, in directory: URL) -> URL {
-        var candidate = directory.appendingPathComponent("\(baseName).lungfishref", isDirectory: true)
+    /// The name an extracted sequence's bundle takes when its sanitized name is empty.
+    package static let extractedSequenceBundleName = "extracted_sequence"
+
+    /// `baseName.lungfishref` in `directory`, or `baseName_1`, `baseName_2` and on while the name is
+    /// taken. An empty base name takes `emptyNameFallback`, since `.lungfishref` is a folder Finder
+    /// hides (2.10 A44 review N3, 2.11 BIO BR8). The one uniquer of every reference bundle name.
+    package static func makeUniqueBundleURL(
+        baseName: String,
+        in directory: URL,
+        emptyNameFallback: String = "reference"
+    ) -> URL {
+        let base = baseName.isEmpty ? emptyNameFallback : baseName
+        var candidate = directory.appendingPathComponent("\(base).lungfishref", isDirectory: true)
         var counter = 1
         while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = directory.appendingPathComponent("\(baseName)_\(counter).lungfishref", isDirectory: true)
+            candidate = directory.appendingPathComponent("\(base)_\(counter).lungfishref", isDirectory: true)
             counter += 1
         }
         return candidate
