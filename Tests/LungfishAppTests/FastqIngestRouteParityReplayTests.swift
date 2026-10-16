@@ -20,9 +20,9 @@
 //
 // Declared in words, not in the tree. C's bar is the pipeline's fraction times 0.9, with the digest,
 // sidecar, record and removal steps filling the rest, so it only rises and A's bar is not compared.
-// C's row shows five words A's does not: "Recording the digest of the original file...", "Moving the
-// output into place...", "Writing the metadata sidecar...", "Writing the record..." and "Removing
-// the original file...".
+// C's row shows five words A's does not: "Recording the digests of the original and ingested files...",
+// "Moving the output into place...", "Writing the metadata sidecar...", "Writing the record..." and
+// "Removing the original file...".
 //
 // A stand-in clumpify answers every side (G2). It copies the reads through gzip. Side A reads its
 // conda root from LUNGFISH_CONDA_ROOT, which the test sets for its run, and sides C and C' get it
@@ -480,7 +480,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
 extension FastqIngestRouteParityReplayTests {
     /// The five steps the leaf adds to the row (ruling section 3, item e).
     static let newStepWords: Set<String> = [
-        "Recording the digest of the original file...",
+        "Recording the digests of the original and ingested files...",
         "Moving the output into place...",
         "Writing the metadata sidecar...",
         "Writing the record...",

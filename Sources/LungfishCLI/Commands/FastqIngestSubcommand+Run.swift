@@ -167,7 +167,7 @@ struct FastqIngestRun {
 
         // Step 2. The digest is read from the original while it exists, and before anything
         // is published, so a cancel during a long read still publishes nothing.
-        events.emitProgress(0.92, message: "Recording the digest of the original file...")
+        events.emitProgress(0.92, message: "Recording the digests of the original and ingested files...")
         let originals = try inputs.map { url in
             FileRecord(
                 path: url.path,
