@@ -57,11 +57,12 @@ enum ReadsRouteParity {
         let rootC = RouteParityHarness.root(of: .c, in: caseRoot)
         try fileManager.createDirectory(at: rootC, withIntermediateDirectories: true)
         try fixture(rootC)
+        let fixtureDigests = RouteParityHarness.fixtureDigests(under: rootC)
         let rootCPrime = RouteParityHarness.root(of: .cPrime, in: caseRoot)
         try fileManager.copyItem(at: rootC, to: rootCPrime)
         let runC = RouteParitySideRun(side: .c, root: rootC, outcome: try await sideC(rootC))
         let runCPrime = await harness.replay(of: runC, in: rootCPrime)
-        return RouteParityRuns(caseRoot: caseRoot, a: runC, c: runC, cPrime: runCPrime)
+        return RouteParityRuns(caseRoot: caseRoot, a: runC, c: runC, cPrime: runCPrime, fixture: fixtureDigests)
     }
 
     /// ``runCAndCPrime(_:in:fixture:sideC:)`` with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a key

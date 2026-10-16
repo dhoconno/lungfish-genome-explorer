@@ -245,7 +245,7 @@ extension RouteParityHarness {
     }
 
     /// The SHA-256 of each file under `root` by its relative name, the fixture as it was built.
-    static func fixtureDigests(under root: URL) -> [String: String] {
+    public static func fixtureDigests(under root: URL) -> [String: String] {
         var digests: [String: String] = [:]
         for name in relativeFiles(under: root) {
             if let data = readForFacts(root.appendingPathComponent(name)) { digests[name] = digest(data) }
