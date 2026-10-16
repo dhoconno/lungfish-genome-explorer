@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 import os
 @testable import LungfishGenotypeUI
@@ -20,7 +21,6 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
 
     func testTwoEditsInARowPublishBoth() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         let publications = PublicationCount()
         let store = try GenotypeAnnotationStore(
             bundleURL: bundle,
@@ -53,7 +53,6 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
 
     func testStaleRevisionRefusesTheEditAndDropsNone() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         try await GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
         let other = try GenotypeAnnotationStore(bundleURL: bundle, author: "other")
         let publications = PublicationCount()
@@ -98,7 +97,6 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
     /// publish in the order they were made, and the edit controls hold until both end (2.11 S35, R4).
     func testTwoEditsStartedTogetherPublishBothInOrder() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         let publications = PublicationCount()
         let store = try GenotypeAnnotationStore(
             bundleURL: bundle,
@@ -139,8 +137,9 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
     }
 
     private func makeBundleURL() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
+        let root = try TestTempDirectory.make(prefix: "genotype-publication")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let url = root.appendingPathComponent("Fixture.lungfishgenotype")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         try Data(#"{"analysis":"test-fixture"}"#.utf8).write(
             to: url.appendingPathComponent(ONTGenotypeResultBundleManifest.filename)

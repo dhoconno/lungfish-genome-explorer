@@ -2,6 +2,7 @@ import XCTest
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import os
 @testable import LungfishGenotypeUI
 
@@ -12,7 +13,6 @@ import os
 final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
     func testEachEditReportsItsEncodeDigestAndWrite() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         let recorder = StageRecorder()
         let store = try GenotypeAnnotationStore(
             bundleURL: bundle,
@@ -41,7 +41,6 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
     /// The defect of 2.11 S35 M2a. Every encode, digest and write of two edits runs away from the main thread.
     func testNoPublicationStepRunsOnTheMainThread() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         let recorder = StageRecorder()
         let store = try GenotypeAnnotationStore(
             bundleURL: bundle,
@@ -65,7 +64,6 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
     /// published on the main thread before item 3 of M2a2.
     func testEveryPublicationPathRunsOffTheMainThread() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         // A replayed edit starts from the file on disk, so the bundle holds the sidecar the analyst saw.
         try await GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
 
@@ -122,7 +120,6 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
 
     func testStaleRefusalReportsNoStep() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         try await GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
         let other = try GenotypeAnnotationStore(bundleURL: bundle, author: "other")
         let recorder = StageRecorder()
@@ -142,7 +139,6 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
 
     func testHookReportsTheThreadEachStepRunsOn() async throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
         let recorder = StageRecorder()
         let store = try GenotypeAnnotationStore(
             bundleURL: bundle,
@@ -163,7 +159,6 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
 
     func testStoreWithoutAnObserverReportsToTheDebugLog() throws {
         let bundle = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: bundle) }
 
         let store = try GenotypeAnnotationStore(bundleURL: bundle, author: "analyst")
 
@@ -218,8 +213,9 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
     }
 
     private func makeBundleURL() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
+        let root = try TestTempDirectory.make(prefix: "genotype-publication")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let url = root.appendingPathComponent("Fixture.lungfishgenotype")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         try Data(#"{"analysis":"test-fixture"}"#.utf8).write(
             to: url.appendingPathComponent(ONTGenotypeResultBundleManifest.filename)
