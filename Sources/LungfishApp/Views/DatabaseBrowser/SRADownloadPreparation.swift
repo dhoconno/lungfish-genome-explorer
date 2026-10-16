@@ -21,6 +21,19 @@ extension DatabaseBrowserViewModel {
         SRADownloadPreparation(model: self, records: records, operationID: operationID, window: window).start()
     }
 
+    /// What the preparation runs in place of the real thing. Only tests replace these, and put them
+    /// back. The first looks up the metadata of one run, which a test holds open or answers without
+    /// a network. The second hands a confirmed import sheet to the download, which a test replaces to
+    /// keep a handed-over row running without starting one.
+    static var sraRunLookUp: @MainActor (DatabaseBrowserViewModel, String) async throws -> SRARunMetadataLookup.Outcome = {
+        model, accession in
+        try await SRARunMetadataLookup(ena: model.enaService, ncbi: model.ncbiService).lookUpRuns([accession])
+    }
+    static var sraHandOff: @MainActor (DatabaseBrowserViewModel, [SearchResultRecord], FASTQImportConfiguration, UUID, Int) -> Void = {
+        model, records, config, id, count in
+        model.startSRADownloadTask(records: records, importConfig: config, downloadCenterTaskID: id, totalCount: count)
+    }
+
     /// The operation-history line for a lookup that could not detect the import settings, in three
     /// sentences with no colon. The reason is the error's own text, so it is cut to end in exactly
     /// one period whether the error ended in one, in several or in none. A reason that ends in `?`
@@ -88,8 +101,7 @@ private final class SRADownloadPreparation {
         var paired = false
         var bytes: Int64?
         do {
-            let outcome = try await SRARunMetadataLookup(ena: model.enaService, ncbi: model.ncbiService)
-                .lookUpRuns([records[0].accession])
+            let outcome = try await DatabaseBrowserViewModel.sraRunLookUp(model, records[0].accession)
             guard canContinue else { cancel(); return }
             if let notice = outcome.notice {
                 OperationCenter.shared.log(id: operationID, level: .info, message: notice)
@@ -124,9 +136,8 @@ private final class SRADownloadPreparation {
             onImport: { [self] config in
                 guard canContinue else { cancel(); return }
                 finish()
-                model.startSRADownloadTask(
-                    records: records, importConfig: config.namingArchivePlatform(detectedPlatform),
-                    downloadCenterTaskID: operationID, totalCount: records.count)
+                DatabaseBrowserViewModel.sraHandOff(
+                    model, records, config.namingArchivePlatform(detectedPlatform), operationID, records.count)
             },
             onCancel: { [self] in cancel() })
         let settings = NSWindow(contentViewController: controller)
