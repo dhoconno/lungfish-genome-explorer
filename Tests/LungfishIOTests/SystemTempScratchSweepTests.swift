@@ -61,6 +61,32 @@ final class SystemTempScratchSweepTests: XCTestCase {
         assertStays(file, outcome, .notADirectory)
     }
 
+    /// S32 review fix 5. The marker goes last, so a removal that fails part way leaves a folder the next
+    /// launch still claims. The pin can also pass in directory order, so it guards the order and is no
+    /// reliable red.
+    func testARemovalThatFailsLeavesTheMarkerForTheNextLaunch() throws {
+        let scratch = try makeScratch("nfcore-work-", creator: Self.goneCreator())
+        let locked = scratch.appendingPathComponent("locked", isDirectory: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: locked.appendingPathComponent("task.out"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path) }
+
+        let first = SystemTempScratchSweep.sweep(root: systemTemp, processInspector: { _ in nil })
+
+        XCTAssertEqual(first.refused[scratch.lastPathComponent], .removalFailed)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: scratch.appendingPathComponent(OwnedWorkDirectoryMarker.fileName).path),
+            "the marker stays until the rest is gone"
+        )
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path)
+        let second = SystemTempScratchSweep.sweep(root: systemTemp, processInspector: { _ in nil })
+
+        XCTAssertEqual(second.removed.map(\.lastPathComponent), [scratch.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scratch.path))
+    }
+
     func testAFolderSomeoneElseOwnsStays() throws {
         let scratch = try makeScratch("taxtriage-", creator: Self.goneCreator())
 

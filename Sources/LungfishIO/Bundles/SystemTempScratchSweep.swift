@@ -137,7 +137,7 @@ public enum SystemTempScratchSweep {
                 continue
             }
             do {
-                try FileManager.default.removeItem(at: child)
+                try removeLeavingMarkerLast(child)
                 outcome.removed.append(child)
             } catch {
                 outcome.refused[name] = .removalFailed
@@ -202,5 +202,22 @@ public enum SystemTempScratchSweep {
     private static func holdsEntry(named name: String, in directory: URL) -> Bool {
         var info = stat()
         return lstat(directory.appendingPathComponent(name).path, &info) == 0
+    }
+
+    /// Removes the contents first and the marker with the folder last, so a sweep cut short leaves a
+    /// folder the next launch still claims. A quit, a crash or one locked file part way through would
+    /// otherwise leave an unmarked remainder that no launch claims again.
+    private static func removeLeavingMarkerLast(_ child: URL) throws {
+        let fileManager = FileManager.default
+        var firstFailure: Error?
+        for entry in try fileManager.contentsOfDirectory(atPath: child.path) where entry != OwnedWorkDirectoryMarker.fileName {
+            do {
+                try fileManager.removeItem(at: child.appendingPathComponent(entry))
+            } catch {
+                firstFailure = firstFailure ?? error
+            }
+        }
+        if let firstFailure { throw firstFailure }
+        try fileManager.removeItem(at: child)
     }
 }
