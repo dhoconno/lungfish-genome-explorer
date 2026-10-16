@@ -159,7 +159,7 @@ class ScanTestsTests(WorkspaceCase):
         self.assertEqual(by_hand, {"": {file}})
 
     def test_a_folder_named_by_a_bare_uuid_makes_no_prefix(self):
-        # 13 test files name a temporary folder or file with only a UUID, as in the three forms below. They say
+        # 13 test files name a temporary folder or file with only a UUID, as in the four forms below. They say
         # nothing about a suite, so they must not make the empty prefix (Q34's open note, Phase 2.11 lane Q62).
         self.swift("G/FolderTests.swift",
                    'let a = root.appendingPathComponent("\\(UUID().uuidString)")\n'
