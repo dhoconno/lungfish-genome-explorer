@@ -69,6 +69,77 @@ final class FASTQReferenceWrapperRouteReplayTests: XCTestCase {
         )
     }
 
+    // MARK: - Cancel
+
+    // The wrap has no Operations row, so the cancel of the FASTQ operation's task is its only Cancel.
+    // It reaches the command through `CLIBundleBuildRunner.run(arguments:environmentAdditions:)`.
+
+    func testATaskCancelledBeforeLaunchStopsTheWrapperAndMakesNoFolder() async throws {
+        let source = scratch.appendingPathComponent("plain.fa")
+        try ">chr1\nACGTACGT\n".write(to: source, atomically: true, encoding: .utf8)
+        let folder = scratch.appendingPathComponent("Analyses", isDirectory: true)
+        let wrapper = try makeWrapper()
+        let task = Task { () -> URL in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await wrapper.importReferenceBundle(sourceURL: source, outputDirectory: folder, preferredBundleName: "Cancelled")
+        }
+        do {
+            _ = try await task.value
+            XCTFail("a cancelled task must not publish a bundle")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("a cancel is a CancellationError, got \(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a cancel before launch makes no folder")
+    }
+
+    func testCancellingTheTaskMidRunSendsSIGTERMAndEndsInsideTheGrace() async throws {
+        let source = scratch.appendingPathComponent("plain.fa")
+        try ">chr1\nACGTACGT\n".write(to: source, atomically: true, encoding: .utf8)
+        let folder = scratch.appendingPathComponent("Analyses", isDirectory: true)
+        // A stand-in lungfish-cli that turns SIGTERM into exit 125, as the real leaf does, and notes that it
+        // runs. Its fifth word is the --bundle-dir folder of `import fasta <source> --bundle-dir <folder> ...`.
+        // The loop ends by itself after a minute, so a run that nobody cancels fails the time check below.
+        let stub = scratch.appendingPathComponent("lungfish-cli-stand-in")
+        try """
+        #!/bin/sh
+        trap 'exit 125' TERM
+        : > "$5.started"
+        n=0
+        while [ "$n" -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
+        """.write(to: stub, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+        let started = URL(fileURLWithPath: folder.path + ".started")
+        let wrapper = CLIReferenceBundleWrapper(cliURLOverride: stub)
+        let task = Task {
+            try await wrapper.importReferenceBundle(sourceURL: source, outputDirectory: folder, preferredBundleName: "Cancelled")
+        }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(30)
+        while !FileManager.default.fileExists(atPath: started.path), clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: started.path), "the stand-in command never ran")
+        let cancelledAt = clock.now
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("a cancelled run must not return a bundle")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("a cancel is a CancellationError, got \(error)")
+        }
+
+        let elapsed = cancelledAt.duration(to: clock.now)
+        XCTAssertLessThan(
+            elapsed, CLIBundleBuildRunner.terminationGracePeriod + .seconds(2),
+            "SIGTERM ends the command inside the grace the runner gives it before SIGKILL"
+        )
+        let built = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".lungfishref") }
+        XCTAssertEqual(built, [], "a cancelled wrap publishes no bundle")
+    }
+
     /// The wrapper the importer runs by default, on the `lungfish-cli` beside the test bundle. Until
     /// A48 M4 this was the helper's in-process body, the service called with the folder as given.
     private func makeWrapper() throws -> any ReferenceBundleWrapping {
