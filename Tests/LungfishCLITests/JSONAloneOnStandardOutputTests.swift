@@ -10,6 +10,8 @@
 //
 // Standard output is read as a whole by `JSONSerialization`, which refuses a byte before the object and a
 // byte after it, so one parse is the whole check that the JSON is alone.
+// Since 2.11 (lane A48 M2) `extract sequence` prints CLIEvent lines under `--format json`, as `--bundle` does,
+// so its tests decode standard output one line at a time. The refusal without `-o` is A55's and stays.
 
 import Foundation
 import XCTest
@@ -111,7 +113,12 @@ final class JSONAloneOnStandardOutputTests: XCTestCase {
 
     // MARK: extract sequence
 
-    func testExtractSequenceWithAFileWritesTheJSONAloneOnStandardOutput() async throws {
+    private func eventObjects(_ data: Data, file: StaticString = #filePath, line: UInt = #line) throws -> [[String: Any]] {
+        try String(decoding: data, as: UTF8.self).split(separator: "\n")
+            .map { try jsonObject(Data($0.utf8), file: file, line: line) }
+    }
+
+    func testExtractSequenceWithAFileWritesEventLinesAloneOnStandardOutput() async throws {
         let output = folder.appendingPathComponent("region.fa")
         let command = try ExtractSequenceSubcommand.parse([
             input.path, "seqA:1-90", "-o", output.path, "--format", "json", "--no-color",
@@ -119,9 +126,11 @@ final class JSONAloneOnStandardOutputTests: XCTestCase {
 
         let streams = try await StandardStreamCapture.capture(in: folder) { try await command.run() }
 
-        let json = try jsonObject(streams.standardOutput)
-        XCTAssertEqual(json["length"] as? Int, 90)
-        XCTAssertEqual(json["outputFile"] as? String, output.path)
+        let events = try eventObjects(streams.standardOutput)
+        XCTAssertEqual(events.map { $0["event"] as? String }, ["start", "complete"])
+        XCTAssertEqual(events.first?["message"] as? String, "Extracting seqA:1-90 from two.fasta")
+        XCTAssertEqual(events.last?["outputs"] as? [String], [output.path])
+        XCTAssertEqual(events.last?["message"] as? String, "Extracted 90 bp")
         XCTAssertEqual(
             streams.standardErrorText,
             FASTATextModePinTests.extractingLine + "✓ Extracted 90 bp to \(output.path)\n"
@@ -144,7 +153,7 @@ final class JSONAloneOnStandardOutputTests: XCTestCase {
         XCTAssertEqual(streams.standardErrorText, "", "The refusal comes before the status line")
     }
 
-    func testExtractSequenceQuietWritesTheJSONAloneAndNoText() async throws {
+    func testExtractSequenceQuietWritesEventLinesAloneAndNoText() async throws {
         let output = folder.appendingPathComponent("region.fa")
         let command = try ExtractSequenceSubcommand.parse([
             input.path, "seqA:1-90", "-o", output.path, "--format", "json", "--quiet",
@@ -152,8 +161,25 @@ final class JSONAloneOnStandardOutputTests: XCTestCase {
 
         let streams = try await StandardStreamCapture.capture(in: folder) { try await command.run() }
 
-        XCTAssertEqual(try jsonObject(streams.standardOutput)["length"] as? Int, 90)
+        XCTAssertEqual(try eventObjects(streams.standardOutput).map { $0["event"] as? String }, ["start", "complete"])
         XCTAssertEqual(streams.standardErrorText, "")
+    }
+
+    func testExtractSequenceOfAMissingSequenceEndsWithOneFailedLine() async throws {
+        let output = folder.appendingPathComponent("region.fa")
+        let command = try ExtractSequenceSubcommand.parse([
+            input.path, "seqZ:1-10", "-o", output.path, "--format", "json", "--quiet",
+        ])
+        var thrown: Error?
+        let streams = try await StandardStreamCapture.capture(in: folder) {
+            do { try await command.run() } catch { thrown = error }
+        }
+
+        XCTAssertNotNil(thrown)
+        let events = try eventObjects(streams.standardOutput)
+        XCTAssertEqual(events.map { $0["event"] as? String }, ["start", "failed"])
+        XCTAssertTrue((events.last?["error"] as? String ?? "").contains("seqZ"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
 
     // MARK: search (a leaf row 213 does not name, found in the A55 review, fix 7)

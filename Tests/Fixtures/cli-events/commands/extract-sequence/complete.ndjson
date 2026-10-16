@@ -6,7 +6,6 @@
 {"event":"progress","message":"Indexing (samtools faidx)...","progress":0.5,"schemaVersion":2}
 {"event":"progress","message":"Creating bundle...","progress":0.7,"schemaVersion":2}
 {"event":"progress","message":"Extracting annotations...","progress":0.78,"schemaVersion":2}
-{"event":"progress","message":"Extracting variants...","progress":0.82,"schemaVersion":2}
 {"event":"progress","message":"Writing manifest...","progress":0.88,"schemaVersion":2}
 {"event":"progress","message":"Writing provenance...","progress":0.92,"schemaVersion":2}
 {"event":"progress","message":"Bundle ready: Region_1.lungfishref","progress":1,"schemaVersion":2}

@@ -1,3 +1,6 @@
 {"event":"start","message":"Extracting chr1:11-40","progress":0,"schemaVersion":2}
 {"event":"progress","message":"Preparing...","progress":0,"schemaVersion":2}
-{"event":"failed","message":"Extraction cancelled. Nothing was published.","schemaVersion":2}
+{"event":"progress","message":"Writing FASTA...","progress":0.1,"schemaVersion":2}
+{"event":"progress","message":"Checking tools...","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"Compressing (bgzip)...","progress":0.3,"schemaVersion":2}
+{"error":"Extraction cancelled. Nothing was published.","event":"failed","schemaVersion":2}

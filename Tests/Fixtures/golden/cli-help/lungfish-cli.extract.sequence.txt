@@ -8,12 +8,21 @@ When the input contains multiple sequences, specify the sequence name
 as the chromosome. If omitted and the file contains a single sequence,
 that sequence is used.
 
+With --bundle the input is a .lungfishref bundle, and -o names the new
+.lungfishref, which keeps the annotation and variant tracks in the region.
+
+With --format json, standard output holds event lines: one start line,
+progress lines with --bundle, and one complete or failed line. The text
+goes to standard error, and -o is required.
+
 Examples:
   lungfish-cli extract sequence genome.fasta chr1:1000-2000
   lungfish-cli extract sequence genome.fasta chr1:1000-2000
 --reverse-complement
   lungfish-cli extract sequence genome.fasta chr1:1-500 --flank 100
   lungfish-cli extract sequence genome.fasta seq1:1-100 -o region.fasta
+  lungfish-cli extract sequence genome.lungfishref chr1:1000-2000 --bundle -o
+region.lungfishref
 
 USAGE: lungfish-cli extract sequence [<options>] <input> <region>
 
@@ -32,6 +41,25 @@ OPTIONS:
                           --format json
   --line-width <line-width>
                           FASTA line width (default: 70)
+  --bundle                Build a reference bundle of the region from a
+                          .lungfishref input, keeping its annotation and
+                          variant tracks in the region. Needs -o
+                          <name>.lungfishref
+  --name <name>           With --bundle, the bundle's display name (default:
+                          the region or the feature name)
+  --samples <samples>     With --bundle, keep the variant calls of this sample.
+                          Give it once for each sample to keep. A name may hold
+                          commas, dots and spaces
+  --no-samples            With --bundle, keep the variant calls of no sample
+  --feature-name <feature-name>
+                          With --bundle, extract this feature, whose parts the
+                          region lists in order as name:start-end,start-end
+  --feature-type <feature-type>
+                          With --feature-name, the feature's type, such as
+                          gene, CDS or mRNA (default: region)
+  --strand <strand>       With --feature-name, the feature's strand, + or -
+  --concatenate-exons     With --feature-name, join the feature's parts into
+                          one sequence
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

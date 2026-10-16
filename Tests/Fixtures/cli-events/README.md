@@ -177,7 +177,7 @@ Lane Q4 of Phase 2.7 ran `import-fastq`, the folder of `import fastq` and `impor
 
 `results` holds the document that a leaf prints when the contract table marks it `.result`, one file for each of 12 schemas. The file of `r5-map-report` left in Phase 2.10, when `map` began to print events (lane A46). Each file is the standard output of one real run of the built `lungfish-cli` on a repository fixture, run the way the commands above were. The scratch folder is `/work` in the file, and nothing else is edited. `CLIEventContractCoverageTests` decodes each file with the Swift type that reads it, adds one key that no reader knows, and expects the same value back.
 
-Some leaves print text before their document. `convert` prints status lines unless `--quiet` is given, and `translate` and `extract sequence` print the sequences to standard output unless an output file is named. The runs used `--quiet` and an output file, so that standard output holds the document alone.
+Some leaves print text before their document. `convert` prints status lines unless `--quiet` is given, and `translate` prints the sequences to standard output unless an output file is named. The runs used `--quiet` and an output file, so that standard output holds the document alone.
 
 | File | Command |
 | --- | --- |

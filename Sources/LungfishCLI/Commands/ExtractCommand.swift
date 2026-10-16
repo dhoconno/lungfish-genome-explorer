@@ -45,11 +45,19 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             as the chromosome. If omitted and the file contains a single sequence,
             that sequence is used.
 
+            With --bundle the input is a .lungfishref bundle, and -o names the new
+            .lungfishref, which keeps the annotation and variant tracks in the region.
+
+            With --format json, standard output holds event lines: one start line,
+            progress lines with --bundle, and one complete or failed line. The text
+            goes to standard error, and -o is required.
+
             Examples:
               lungfish-cli extract sequence genome.fasta chr1:1000-2000
               lungfish-cli extract sequence genome.fasta chr1:1000-2000 --reverse-complement
               lungfish-cli extract sequence genome.fasta chr1:1-500 --flank 100
               lungfish-cli extract sequence genome.fasta seq1:1-100 -o region.fasta
+              lungfish-cli extract sequence genome.lungfishref chr1:1000-2000 --bundle -o region.lungfishref
             """
     )
 
@@ -147,7 +155,20 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
         // printed one `extract-sequence` result document before.
         let events = CLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: printEventLine)
         events.emitStart("Extracting \(region) from \(URL(fileURLWithPath: input).lastPathComponent)")
+        do {
+            try await extractToFASTA(events: events, runClock: runClock, formatter: formatter)
+        } catch {
+            events.emitFailed(error.localizedDescription)
+            throw error
+        }
+    }
 
+    /// The FASTA run after its `start` line. A run that throws here ends with one `failed` line.
+    private func extractToFASTA(
+        events: CLIEventEmitter,
+        runClock: ProvenanceRunClock,
+        formatter: TerminalFormatter
+    ) async throws {
         // Validate input file exists
         guard FileManager.default.fileExists(atPath: input) else {
             throw CLIError.inputFileNotFound(path: input)

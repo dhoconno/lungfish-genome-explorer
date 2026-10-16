@@ -52,10 +52,11 @@ final class ExtractSequenceBundleSIGTERMTests: XCTestCase {
         XCTAssertEqual(left, [ProvenanceWriter.provenanceFilename], "only the cancelled record is left beside the bundle")
         let lines = stop.standardOutput.split(separator: "\n").map(String.init)
         XCTAssertTrue(lines.first?.contains("Extracting chr1:11-40") == true, "the row's first words. \(lines)")
-        XCTAssertTrue(
-            lines.last?.contains("Extraction cancelled. Nothing was published.") == true,
-            "the last line is the failed event with the cancel's words. \(lines)"
+        let last = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data((lines.last ?? "").utf8)) as? [String: Any], "\(lines)"
         )
+        XCTAssertEqual(last["event"] as? String, "failed", "the last line is the failed event. \(lines)")
+        XCTAssertEqual(last["error"] as? String, "Extraction cancelled. Nothing was published.")
     }
 
     // MARK: - Fixture
