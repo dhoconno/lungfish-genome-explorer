@@ -64,6 +64,16 @@ final class TaxTriageBatchSidebarSampleCountTests: XCTestCase {
         XCTAssertTrue(subtitle.hasPrefix("3 samples · "), subtitle)
     }
 
+    /// A run record that cannot be decoded counts the sample folders, as a batch with no record does.
+    func testUnreadableRunRecordCountsSampleFolders() throws {
+        let batch = try makeBatch(sampleIDs: [], subfolders: ["S1", "S2"])
+        try Data("{".utf8).write(to: batch.appendingPathComponent("taxtriage-result.json"))
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: batch))
+
+        let subtitle = try XCTUnwrap(SidebarProjectScanner.classifierBatchSubtitle(for: info))
+        XCTAssertTrue(subtitle.hasPrefix("2 samples · "), subtitle)
+    }
+
     /// A `taxtriage-batch-<ts>` folder in the project with `subfolders`, and with the run's
     /// `taxtriage-result.json` naming `sampleIDs` unless that list is empty.
     private func makeBatch(sampleIDs: [String], subfolders: [String]) throws -> URL {
