@@ -181,11 +181,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // No-ops on the fast path when this machine already matches the shipped tool set.
         scheduleDependencyReconciliation()
 
-        // Clean up stale temp files from previous sessions
-        Task {
-            await TempFileManager.shared.setMaxAge(hours: AppSettings.shared.tempFileRetentionHours)
-            await TempFileManager.shared.cleanupOnLaunch()
-        }
+        // Clean up stale temp files from previous sessions, and sweep scratch whose creator is gone
+        cleanUpTemporaryFiles(retentionHours: AppSettings.shared.tempFileRetentionHours, atLaunch: true)
 
         // Wire up DownloadCenter to handle bundle import when downloads complete.
         // This is the primary mechanism for getting built bundles into the sidebar
@@ -1766,11 +1763,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         guard retentionHours != lastAppliedTempRetentionHours else { return }
         lastAppliedTempRetentionHours = retentionHours
 
-        Task {
-            await TempFileManager.shared.setMaxAge(hours: retentionHours)
-            // Apply reduced retention immediately instead of waiting for restart.
-            await TempFileManager.shared.cleanupOnLaunch()
-        }
+        // Apply reduced retention immediately instead of waiting for restart.
+        cleanUpTemporaryFiles(retentionHours: retentionHours, atLaunch: false)
     }
 
     private func handleWorkflowLibraryEnablementChanged() {
