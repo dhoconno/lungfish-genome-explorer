@@ -96,7 +96,6 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
 
     func testAGenomeRowWithNoProjectAsksNCBINothingAndMakesNoFolder() async throws {
         let suite = makeTestDefaultsSuite(prefix: "a60-no-project-refusal")
-        suite.defaults.set("cli", forKey: GenomeRowDownloadRouteSettings.defaultsKey)
         let client = RefusingNCBIClient()
         let model = DatabaseBrowserViewModel(
             source: .ncbi, ncbiService: NCBIService(httpClient: client), sraDownloadSuiteName: suite.name)

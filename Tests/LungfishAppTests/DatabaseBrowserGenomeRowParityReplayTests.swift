@@ -3,19 +3,16 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A44, ruling Q2b, panel decisions C4 and G5, on lane Q30's harness. One genome row
-// of the NCBI browser's batch download, an assembly with a project, runs on three sides that start
-// as copies of one empty project.
+// of the NCBI browser's batch download, an assembly with a project, runs on two sides that start
+// as copies of one empty project. Lane A60 of 2.11 deleted the in-process route with its
+// hidden key, and side A with it.
 //
-// - Side A is the in-process route the hidden key keeps for one release. It gets the assembly
-//   summary and builds the bundle in a batch folder under the project's `.tmp` folder, and the
-//   import then copies the bundle into the project's Downloads folder and removes the built one
-//   (`handleMultipleDownloadsSync`).
 // - Side C is the CLI route, `fetch genome <accession> --output-dir <project>/Downloads --format
 //   json` launched through `CLISubprocessTransport`, writing straight into the folder its row's
 //   command names. The import keeps a bundle there in place.
 // - Side C' is the harness's replay of the row's command.
 //
-// Both routes read the loopback NCBI stand-in, which the process environment names, as the CLI
+// Both sides read the loopback NCBI stand-in, which the process environment names, as the CLI
 // pins do. The record each CLI side writes must name every output it lists with that file's
 // digest (B-5), and a signed run passes `provenance verify` on sides C and C'.
 //
@@ -41,29 +38,6 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         case twoAssembliesInAProject
     }
 
-    static let closer = "2.11, which deletes the in-process genome row with its key (C4)"
-
-    /// What side C writes that side A does not, and the reverse, with BIO's reason. The batch
-    /// folder's name holds a UUID, numbered by its place in the tree.
-    static let declared: [RouteParityDeclaredDifference<Case>] = [
-        RouteParityDeclaredDifference(
-            [.oneAssemblyInAProject: 1, .twoAssembliesInAProject: 1],
-            "only in A: Project.lungfish/.tmp/batch-<UUID-<ANY>>/.lungfish-owned-work-directory.json",
-            reason: "The in-process route builds the bundle in a batch folder under the project's .tmp folder, and the "
-                + "import copies the bundle out and leaves the folder with its owner marker. The CLI route stages in a "
-                + "folder of its own under .tmp and removes it.",
-            closedBy: closer
-        ),
-        RouteParityDeclaredDifference(
-            [.oneAssemblyInAProject: 14, .twoAssembliesInAProject: 28],
-            "only in C: Project.lungfish/Downloads/<ANY>.lungfishref/<ANY>lungfish-provenance.json",
-            reason: "fetch genome writes the bundle's provenance record, which names each fetched file with its source "
-                + "URL, digest and size (B-3), a sidecar beside each output and a copy of each in provenance/. The "
-                + "in-process route writes no record, the declared difference that keeps its key (C4).",
-            closedBy: closer
-        ),
-    ]
-
     /// The digest gap of the contract (lane Q30 M2 finding 1), pinned and never declared, which
     /// the contract's fix empties. No difference of this case is a folder digest or a manifest
     /// map entry.
@@ -85,8 +59,7 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         }
     }
 
-    /// One genome row with a project. C against C' lists nothing, A against C exactly the declared
-    /// entries, and each CLI side's record names each output with its digest. Findings P1 and P2
+    /// One genome row with a project. C against C' lists nothing, and each CLI side's record names each output with its digest. Findings P1 and P2
     /// of lane A44 M2c, the digest a record states for `manifest.json` and the numbering of its
     /// ids across the tree, no longer show since lane Q30's mask and the FXP fix.
     func testTheGenomeRowBuildsTheSameBundleOnBothRoutes() async throws {
@@ -100,7 +73,7 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         try await assertParity(.twoAssembliesInAProject)
     }
 
-    /// Runs `parityCase` on its three sides and checks C against C' and A against C.
+    /// Runs `parityCase` on sides C and C' and checks C against C'.
     func assertParity(_ parityCase: Case) async throws {
         let (cli, root) = try await prepare()
         defer { TestTempDirectory.cleanup(root) }
@@ -112,13 +85,13 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
 
         let records = Self.records(of: parityCase)
         let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(120))
-        let runs = try await harness.run(
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
             in: root.appendingPathComponent("case", isDirectory: true),
             fixture: Self.makeProject,
-            sideA: { try await Self.sideA($0, records: records) },
             sideC: { try await Self.sideC($0, cli: cli, records: records) }
         )
-        let result = try harness.evaluate(parityCase, declared: Self.declared, runs: runs)
+        let result = try harness.evaluate(parityCase, declared: [], runs: runs)
         // digest gap, Q30 finding 1
         let gap = result.failures.filter { Self.digestGap.contains($0) }
         XCTAssertEqual(gap, Self.digestGap, "the digest gap moved")
@@ -130,9 +103,6 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         XCTAssertEqual(
             runs.cPrime.replayedArguments.map { Array($0.prefix(2 + records.count)) },
             [["fetch", "genome"] + records.map(\.accession)])
-        for bundle in try Self.bundles(in: runs.a.root, count: records.count) {
-            XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: bundle), "side A writes no record")
-        }
         for run in [runs.c, runs.cPrime] {
             let bundles = try Self.bundles(in: run.root, count: records.count)
             for (bundle, record) in zip(bundles, records) {
@@ -146,7 +116,7 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
     }
 
     /// B-5 with a signing key in the environment. Each CLI side signs its record, and `provenance
-    /// verify` passes on side C's bundle and on the replay's. Side A writes no record to verify.
+    /// verify` passes on side C's bundle and on the replay's.
     func testEachCLISidesSignedRecordPassesProvenanceVerify() async throws {
         let (cli, root) = try await prepare()
         defer { TestTempDirectory.cleanup(root) }
@@ -188,44 +158,19 @@ final class DatabaseBrowserGenomeRowParityReplayTests: XCTestCase {
         root.appendingPathComponent("Project.lungfish", isDirectory: true)
     }
 
-    /// Side A. The in-process route of each row into one batch folder, as the batch loop runs
-    /// them, then the import's copy of each bundle into Downloads.
-    static func sideA(_ root: URL, records: [SearchResultRecord]) async throws -> RouteParitySideOutcome {
-        let project = project(in: root)
-        let service = NCBIService()
-        let genomeVM = GenomeDownloadViewModel(ncbiService: service)
-        let batchFolder = BatchDownloadFolder(projectURL: project)
-        let operationID = UUID()
-        var built: [URL] = []
-        for (index, record) in records.enumerated() {
-            built.append(try await DatabaseBrowserViewModel.downloadGenomeRow(
-                record, index: index, totalCount: records.count, operationID: operationID, route: .legacy,
-                ncbi: service, genomeVM: genomeVM, batchFolder: batchFolder, projectURL: project))
-        }
-        let downloads = project.appendingPathComponent("Downloads", isDirectory: true)
-        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
-        for bundle in built {
-            try FileManager.default.copyItem(at: bundle, to: downloads.appendingPathComponent(bundle.lastPathComponent))
-            try FileManager.default.removeItem(at: bundle)
-        }
-        return RouteParitySideOutcome(end: .completed, detail: "in process")
-    }
-
     /// Side C. The CLI route of each row, as the batch loop runs them, and the one command the
     /// batch row records.
     static func sideC(_ root: URL, cli: URL, records: [SearchResultRecord]) async throws -> RouteParitySideOutcome {
         let project = project(in: root)
         let service = NCBIService()
-        let genomeVM = GenomeDownloadViewModel(ncbiService: service)
-        let batchFolder = BatchDownloadFolder(projectURL: project)
         let operationID = UUID()
         let command = DatabaseBrowserViewModel.batchDownloadCLICommand(
             source: .ncbi, searchType: .genome, accessions: records.map(\.accession), projectURL: project)
         do {
             for (index, record) in records.enumerated() {
                 _ = try await DatabaseBrowserViewModel.downloadGenomeRow(
-                    record, index: index, totalCount: records.count, operationID: operationID, route: .cli,
-                    ncbi: service, genomeVM: genomeVM, batchFolder: batchFolder, projectURL: project, cliURLOverride: cli)
+                    record, index: index, totalCount: records.count, operationID: operationID,
+                    ncbi: service, projectURL: project, cliURLOverride: cli)
             }
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)", recordedCommand: command)

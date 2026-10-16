@@ -66,12 +66,10 @@ final class DatabaseBrowserGenomeRowCancelReplayTests: XCTestCase {
         let operationID = try XCTUnwrap(started?.startedID)
         defer { _ = OperationCenter.shared.acknowledgeCancellation(id: operationID) }
         let service = NCBIService()
-        let genomeVM = GenomeDownloadViewModel(ncbiService: service)
-        let batchFolder = BatchDownloadFolder(projectURL: project)
         let row: @Sendable (Int) async throws -> URL = { index in
             try await DatabaseBrowserViewModel.downloadGenomeRow(
-                records[index], index: index, totalCount: records.count, operationID: operationID, route: .cli,
-                ncbi: service, genomeVM: genomeVM, batchFolder: batchFolder, projectURL: project, cliURLOverride: cli)
+                records[index], index: index, totalCount: records.count, operationID: operationID,
+                ncbi: service, projectURL: project, cliURLOverride: cli)
         }
 
         // Row 1 runs until the stand-in holds its FASTA, then the batch row is cancelled.

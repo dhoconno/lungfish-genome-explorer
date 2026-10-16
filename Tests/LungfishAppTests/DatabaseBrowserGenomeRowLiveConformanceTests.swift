@@ -1,17 +1,17 @@
-// DatabaseBrowserGenomeRowLiveConformanceTests.swift - The genome row's requests to the real NCBI on both routes
+// DatabaseBrowserGenomeRowLiveConformanceTests.swift - The genome row's requests to the real NCBI
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A44, panel decision G5 and the 2.9 O5 ruling. With LUNGFISH_LIVE_NCBI=1, one
-// genome row fetches a small real assembly from NCBI on the in-process route and on the CLI route,
-// each through a loopback recorder that forwards every request to NCBI and points the summary's
-// FTP folder at itself. The class compares the requests the two routes sent, method, target and
-// body, and never the bundles, which follow what NCBI serves that day. The CLI route also searches
-// for the accession, which the browser's row already holds from the user's search, so that request
-// is checked on its own. NCBI answers a client over its rate limit with HTTP 429, and the service
-// then sends the same request again, so the routes start a second apart and the compare leaves out
-// each request NCBI answered 429. Without the switch, or without the managed bgzip and samtools,
-// it skips, and DatabaseBrowserGenomeRowParityReplayTests on the stand-in stays the default.
+// genome row fetches a small real assembly from NCBI on the CLI route, through a loopback recorder
+// that forwards every request to NCBI and points the summary's FTP folder at itself. Until lane
+// A60 of 2.11 deleted the in-process route with its key, the class compared the requests of the
+// two routes. It now checks that the CLI route searches for the accession once and then fetches
+// the assembly, and never the bundle, which follows what NCBI serves that day. NCBI answers a
+// client over its rate limit with HTTP 429, and the service then sends the same request again, so
+// the row starts a second after the search and the check leaves out each request NCBI answered
+// 429. Without the switch, or without the managed bgzip and samtools, it skips, and
+// DatabaseBrowserGenomeRowParityReplayTests on the stand-in stays the default.
 
 import Foundation
 import Synchronization
@@ -55,35 +55,25 @@ final class DatabaseBrowserGenomeRowLiveConformanceTests: XCTestCase {
         let uid = try XCTUnwrap(search.ids.first)
         let record = SearchResultRecord(id: uid, accession: Self.accession, title: Self.accession, source: .ncbi)
 
-        var requests: [GenomeRowDownloadRoute: [LoopbackHTTPRequest]] = [:]
-        var rateLimited = 0
-        for route in [GenomeRowDownloadRoute.legacy, .cli] {
-            // Without a key NCBI takes three E-utilities requests a second, so each route starts a
-            // second after the requests before it.
-            try await Task.sleep(for: .seconds(1))
-            let project = root.appendingPathComponent("\(route.rawValue)/Project.lungfish", isDirectory: true)
-            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-            let start = recorder.answered.count
-            _ = try await DatabaseBrowserViewModel.downloadGenomeRow(
-                record, index: 0, totalCount: 1, operationID: UUID(), route: route,
-                ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
-                batchFolder: BatchDownloadFolder(projectURL: project),
-                projectURL: project, cliURLOverride: cli)
-            let answered = Array(recorder.answered.dropFirst(start))
-            rateLimited += answered.filter { $0.status == Self.rateLimitedStatus }.count
-            requests[route] = Self.withoutRateLimited(answered)
-        }
+        // Without a key NCBI takes three E-utilities requests a second, so the row starts a second
+        // after the search.
+        try await Task.sleep(for: .seconds(1))
+        let project = root.appendingPathComponent("cli/Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let start = recorder.answered.count
+        _ = try await DatabaseBrowserViewModel.downloadGenomeRow(
+            record, index: 0, totalCount: 1, operationID: UUID(), ncbi: service, projectURL: project, cliURLOverride: cli)
+        let answered = Array(recorder.answered.dropFirst(start))
+        let rateLimited = answered.filter { $0.status == Self.rateLimitedStatus }.count
         if rateLimited > 0 {
             print("NCBI answered \(rateLimited) request(s) with HTTP 429, and the service sent each again")
         }
 
-        let inProcess = requests[.legacy] ?? []
-        let throughCLI = requests[.cli] ?? []
+        let throughCLI = Self.withoutRateLimited(answered)
         let searches = throughCLI.filter { $0.path == Self.searchPath }
         XCTAssertEqual(searches.count, 1)
         XCTAssertEqual(searches.first?.queryItems.first { $0.name == "term" }?.value, Self.accession)
-        XCTAssertFalse(inProcess.isEmpty)
-        XCTAssertEqual(Self.bytes(inProcess), Self.bytes(throughCLI.filter { $0.path != Self.searchPath }))
+        XCTAssertFalse(throughCLI.filter { $0.path != Self.searchPath }.isEmpty, "the row fetched the assembly")
     }
 
     /// Method, target and body of each request, in order.

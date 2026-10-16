@@ -1006,9 +1006,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
     private let automationBackend: DatabaseSearchAutomationBackend?
     private let largeResultActionProvider: (@Sendable (_ totalCount: Int, _ sourceLabel: String) async -> LargeResultAction)?
 
-    /// View model for genome assembly downloads (FASTA + GFF3 + bundle building).
-    private lazy var genomeDownloadViewModel = GenomeDownloadViewModel(ncbiService: ncbiService)
-
     /// View model for GenBank nucleotide downloads to .lungfishref bundles.
     private lazy var genBankDownloadViewModel = GenBankBundleDownloadViewModel(ncbiService: ncbiService)
 
@@ -2227,7 +2224,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let includeGFF3Annotations = includeGFF3Annotations
 
         // Capture the genome download view model for genome assembly downloads
-        let genomeVM = genomeDownloadViewModel
         let genBankVM = genBankDownloadViewModel
         if currentSource == .pathoplexus, pathoplexusOrganism == nil {
             errorMessage = "Select a Pathoplexus organism"
@@ -2290,9 +2286,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
             // the sheet controller which gets deallocated on dismissal.
             onDownloadStarted?()
 
-            // Capture project URL for project-local temp allocation, and the genome rows' route once
+            // Capture project URL for project-local temp allocation
             let batchProjectURL = routeContext?.projectURL
-            let genomeRoute = batchProjectURL == nil ? GenomeRowDownloadRoute.legacy : genomeRowRoute
             let nucleotideRoute = batchProjectURL == nil ? NucleotideRowDownloadRoute.legacy : nucleotideRowRoute
             let pathoplexusRoute = batchProjectURL == nil ? PathoplexusRowDownloadRoute.legacy : pathoplexusRowRoute
 
@@ -2328,14 +2323,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         switch currentSource {
                         case .ncbi:
                             // A genome row runs `lungfish-cli fetch genome` into the folder the
-                            // row's command names, or the in-process build behind the hidden key
-                            // (lane A44, DatabaseBrowserViewModel+GenomeRowDownload.swift).
+                            // row's command names (lane A44, DatabaseBrowserViewModel+GenomeRowDownload.swift).
                             if searchType == .genome {
                                 fileURL = try await Self.downloadGenomeRow(
                                     record, index: index, totalCount: totalCount,
-                                    operationID: downloadCenterTaskID, route: genomeRoute,
-                                    ncbi: ncbi, genomeVM: genomeVM,
-                                    batchFolder: batchFolder, projectURL: batchProjectURL
+                                    operationID: downloadCenterTaskID, ncbi: ncbi, projectURL: batchProjectURL
                                 )
                             } else {
                                 // A nucleotide or virus row ends as a .lungfishref bundle. It runs

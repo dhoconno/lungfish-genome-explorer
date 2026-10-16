@@ -27,10 +27,6 @@ final class DatabaseBrowserNucleotideRowRouteTests: XCTestCase {
         }
     }
 
-    func testTheKeyIsNotTheGenomeRowsKey() {
-        XCTAssertNotEqual(NucleotideRowDownloadRouteSettings.defaultsKey, GenomeRowDownloadRouteSettings.defaultsKey)
-    }
-
     @MainActor
     func testTheArgumentsHoldNoKeyAndFollowTheGFF3Setting() {
         let folder = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish/Downloads", isDirectory: true)

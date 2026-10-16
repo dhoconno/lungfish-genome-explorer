@@ -30,7 +30,6 @@ final class DatabaseBrowserPathoplexusRowRouteTests: XCTestCase {
 
     func testTheKeyIsNotTheOtherRowsKeys() {
         XCTAssertNotEqual(PathoplexusRowDownloadRouteSettings.defaultsKey, NucleotideRowDownloadRouteSettings.defaultsKey)
-        XCTAssertNotEqual(PathoplexusRowDownloadRouteSettings.defaultsKey, GenomeRowDownloadRouteSettings.defaultsKey)
     }
 
     @MainActor

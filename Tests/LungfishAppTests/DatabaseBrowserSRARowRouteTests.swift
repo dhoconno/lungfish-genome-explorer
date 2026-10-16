@@ -36,7 +36,6 @@ final class DatabaseBrowserSRARowRouteTests: XCTestCase {
     func testTheKeyIsNotTheOtherRowsKeys() {
         let others = [
             PathoplexusRowDownloadRouteSettings.defaultsKey, NucleotideRowDownloadRouteSettings.defaultsKey,
-            GenomeRowDownloadRouteSettings.defaultsKey,
         ]
         XCTAssertFalse(others.contains(SRARowDownloadRouteSettings.defaultsKey))
     }

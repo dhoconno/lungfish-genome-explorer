@@ -4,10 +4,10 @@
 //
 // Phase 2.10 lane Q-SIGN, family L5 (the ruling of the A52 whole-lane review, Q6). The cases of
 // DatabaseBrowserGenomeRowParityReplayTests run with no signing key. This one runs its genome row again with
-// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side A (the in-process
-// route), side C (`fetch genome`) and side C' (the recorded command), and fails when the CLI route leaves
-// unsigned a record the in-process route signs, or the bundle's record that the result opens first. Side A
-// writes no record, which is the declared difference of that class, so the check on side A is empty.
+// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side C (`fetch genome`)
+// and side C' (the recorded command), and fails when the replay leaves unsigned a record the row signs, or the
+// bundle's record that the result opens first, or a signature fails `provenance verify`. Lane A60 of 2.11
+// deleted the in-process route with its hidden key, and side A with it.
 //
 // It launches the built lungfish-cli and the managed bgzip and samtools, so its name ends in ReplayTests and it
 // runs in the integration tier.
@@ -58,10 +58,10 @@ final class DatabaseBrowserGenomeRowSigningReplayTests: XCTestCase {
 
         let records = [Family.record]
         let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(120))
-        let runs = try await harness.runSigned(
+        let runs = try await ReadsRouteParity.runSignedCAndCPrime(
+            harness,
             in: root.appendingPathComponent("case", isDirectory: true),
             fixture: Family.makeProject,
-            sideA: { try await Family.sideA($0, records: records) },
             sideC: { try await Family.sideC($0, cli: cli, records: records) }
         )
         for run in runs.all {

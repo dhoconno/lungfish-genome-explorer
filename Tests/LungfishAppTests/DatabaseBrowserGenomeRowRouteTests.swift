@@ -18,20 +18,6 @@ import LungfishTestSupport
 final class DatabaseBrowserGenomeRowRouteTests: XCTestCase {
     private let key = "lane-a44-test-key-0000"
 
-    func testTheHiddenKeyPicksTheRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "genome-row-route")
-        let settings = GenomeRowDownloadRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(settings.route, GenomeRowDownloadRouteSettings.defaultRoute, "an unset key")
-        let cases: [(Any, GenomeRowDownloadRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy),
-            ("NO", GenomeRowDownloadRouteSettings.defaultRoute),
-        ]
-        for (value, route) in cases {
-            suite.defaults.set(value, forKey: GenomeRowDownloadRouteSettings.defaultsKey)
-            XCTAssertEqual(settings.route, route, "\(value)")
-        }
-    }
-
     func testTheFolderIsTheProjectsDownloadsFolderOrTheUsers() {
         let project = URL(fileURLWithPath: "/tmp/lane a44/Project.lungfish", isDirectory: true)
         let user = URL(fileURLWithPath: "/Users/someone/Downloads", isDirectory: true)
@@ -113,9 +99,8 @@ final class DatabaseBrowserGenomeRowRouteTests: XCTestCase {
         let record = SearchResultRecord(id: "9900001", accession: "GCF_000000001.1", title: "StandInAsm1", source: .ncbi)
 
         let returned = try await DatabaseBrowserViewModel.downloadGenomeRow(
-            record, index: 0, totalCount: 1, operationID: UUID(), route: .cli,
-            ncbi: service, genomeVM: GenomeDownloadViewModel(ncbiService: service),
-            batchFolder: BatchDownloadFolder(projectURL: project), projectURL: project, cliURLOverride: stub)
+            record, index: 0, totalCount: 1, operationID: UUID(),
+            ncbi: service, projectURL: project, cliURLOverride: stub)
 
         XCTAssertEqual(returned.path, bundle.path)
         XCTAssertEqual(Self.batchFolders(in: project), [])
