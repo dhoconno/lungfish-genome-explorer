@@ -232,12 +232,7 @@ public enum ProjectTempDirectory {
             return directory
         }
 
-        let base = systemTemporaryDirectory()
-        let dirName = "\(prefix)\(UUID().uuidString)"
-        let dirURL = base.appendingPathComponent(dirName, isDirectory: true)
-        try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-        logger.debug("Created temp directory: \(dirURL.path, privacy: .public)")
-        return dirURL
+        return try SystemTempScratchSweep.createMarkedDirectory(prefix: prefix, in: systemTemporaryDirectory(), toolVersion: currentToolVersion)
     }
 
     /// The system scratch root for a run with no project context.

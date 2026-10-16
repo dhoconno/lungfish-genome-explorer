@@ -106,7 +106,7 @@ final class SystemTempScratchPinTests: XCTestCase {
     }
 
     /// The folder sits in the system temp folder, outside the project `.tmp` the project sweep lists,
-    /// and carries no `OwnedWorkDirectoryMarker` that names its creator.
+    /// and carries the `OwnedWorkDirectoryMarker` that names its creator (none at the base, W1).
     private func assertLeftInTheSystemTempFolder(
         _ folder: URL,
         prefix: String,
@@ -124,11 +124,9 @@ final class SystemTempScratchPinTests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: resolved.appendingPathComponent(OwnedWorkDirectoryMarker.fileName).path
-            ),
-            "W1, scratch with no project carries no marker naming its creator",
+        XCTAssertNoThrow(
+            try OwnedWorkDirectoryMarkerStore.load(from: resolved, expectedProjectURL: systemTemp),
+            "S32 M2, scratch with no project carries a marker naming its creator, bound to the system temp folder",
             file: file,
             line: line
         )

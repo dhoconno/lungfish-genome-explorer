@@ -84,9 +84,9 @@ final class SystemTempScratchCLIPinTests: XCTestCase {
             let matches = left.filter { $0.hasPrefix(prefix) }
             XCTAssertEqual(matches.count, 1, "a cancel keeps the \(prefix) folder, saw \(left.sorted())")
             for name in matches {
-                XCTAssertFalse(
+                XCTAssertTrue(
                     Self.holdsMarker(systemTemp.appendingPathComponent(name, isDirectory: true)),
-                    "W1, \(name) carries no marker naming its creator"
+                    "S32 M2, \(name) carries a marker naming its creator (none at the base, W1)"
                 )
             }
         }
