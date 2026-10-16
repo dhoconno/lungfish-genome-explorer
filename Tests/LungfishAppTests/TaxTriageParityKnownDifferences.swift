@@ -2,14 +2,16 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.9 lane Q1a, 2.7 T2. Side A (today's GUI route) and side B (its recorded command, or the
-// pooled command of a request it records none for) differ at the base, and each difference is
-// declared here with its reason, the lane or phase whose change removes it, and how many found
-// differences it matches in each case. TaxTriageCLIGUIParityReplayTests fails on a difference no
-// entry declares and on an entry that matches more or fewer differences in a case than its count,
-// so the list only shrinks, one difference at a time, and a new difference cannot hide under an old
-// pattern. A lane that closes a difference lowers the count, or deletes the case or the entry, in
-// the same commit.
+// Phase 2.9 lane Q1a, 2.7 T2. Side A (the GUI route the hidden key's legacy value selects) and side
+// B (its recorded command, or the pooled command of a request it records none for) differ at the
+// base, and each difference is declared here with its reason, the lane or phase whose change
+// removes it, and how many found differences it matches in each case.
+// TaxTriageCLIGUIParityReplayTests fails on a difference no entry declares and on an entry that
+// matches more or fewer differences in a case than its count, so the list only shrinks, one
+// difference at a time, and a new difference cannot hide under an old pattern. A lane that closes a
+// difference lowers the count, or deletes the case or the entry, in the same commit. Since Phase
+// 2.11 U30 M3 every entry describes that legacy route, so all of them close when K1 deletes it in
+// 2.12.
 
 import Foundation
 
