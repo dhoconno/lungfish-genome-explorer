@@ -32,6 +32,7 @@ Add to these. Never write a second copy in the CLI or the app.
 | The files an EsViritu or TaxTriage sample runs on | `SamplesheetReadSetPlanner`, `TaxTriageReadSetPlanner` | Sources/LungfishWorkflow/Metagenomics/SamplesheetReadSetPlanner.swift, TaxTriage/TaxTriageReadSetPlanner.swift |
 | The files and roles of an assembly sample, for `assemble` and Reassemble | `AssemblyReadSetResolution` | Sources/LungfishWorkflow/Assembly/AssemblyReadSetResolution.swift |
 | Virtual FASTQ materialization | `FASTQCLIMaterializer` | Sources/LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift line 26 |
+| A region bundle with the source tracks and a sample filter | `SequenceExtractionBundleBuilder`, `buildTrackBundle` | Sources/LungfishWorkflow/Extraction/SequenceExtractionBundleBuilder.swift, SequenceExtractionBundleBuilder+Tracks.swift |
 | Multiple sequence alignment | `MAFFTAlignmentPipeline` | Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift line 93 |
 | Viral variant calling | `ViralVariantCallingPipeline` | Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift line 8 |
 | Native tool runs, an adapter on `ToolProcess` (the `run`, `runProcess`, `runWithFileOutput` and `runPipeline` methods, translated in `NativeToolProcessAdapter`) | `NativeToolRunner` | Sources/LungfishWorkflow/Native/NativeToolRunner.swift, Native/NativeToolRunner+ToolProcess.swift |
