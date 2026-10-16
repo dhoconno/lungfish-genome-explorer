@@ -53,7 +53,7 @@ final class PortablePathRerootTests: XCTestCase {
     // Copy Command copies a step's command from a record that
     // `ProvenanceEnvelopeReader` decodes through `PortablePath.resolveJSON(_:forFileAt:)`,
     // and `--repeat-from` reads its run bundle's manifest through the same
-    // function (`LocalWorkflowRunBundle.read(from:)`). Each pin reads the same
+    // function (`LocalWorkflowRunBundleStore.read(from:)`). Each pin reads the same
     // way before and after A34's fix.
 
     private func here(_ tail: String) -> String { Self.here(tail, in: project) }

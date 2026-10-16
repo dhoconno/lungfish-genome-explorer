@@ -94,7 +94,8 @@ final class PortablePathRerootSpanTests: XCTestCase {
     }
 
     /// A tool path and an option given with `=` start paths of their own, so
-    /// the words before a project path stay.
+    /// the words before a project path stay. A path glued to an earlier path
+    /// by `:` stays as recorded, since the scanner copies that token whole.
     func testWordsBeforeAProjectPathStayWhenAnotherPathStartsTheSpan() throws {
         let sidecar = project.appendingPathComponent("Analyses/minimap2-1/.lungfish-provenance.json")
         for (recorded, expected) in [
@@ -102,9 +103,42 @@ final class PortablePathRerootSpanTests: XCTestCase {
              "/usr/bin/samtools index \(Fixture.here("Analyses/minimap2-1", in: project))"),
             ("/opt/bin/fastp --in=\(Fixture.collaborator)/\(Fixture.reads)",
              "/opt/bin/fastp --in=\(Fixture.here(Fixture.reads, in: project))"),
+            ("env PATH=/usr/bin:\(Fixture.collaborator)/Analyses/minimap2-1 tool run",
+             "env PATH=/usr/bin:\(Fixture.collaborator)/Analyses/minimap2-1 tool run"),
         ] {
             let read = try Fixture.read(["reproducibleCommand": recorded], at: sidecar)
             XCTAssertEqual(read["reproducibleCommand"] as? String, expected, recorded)
         }
+    }
+
+    /// One recorded path reads the same as a single value and as a word of a
+    /// command (BIO 6), so a lineage walk and Copy Command agree on where the
+    /// file is.
+    func testAPathReadsTheSameAsAValueAndAsACommandWord() throws {
+        let sidecar = project.appendingPathComponent("Analyses/minimap2-1/.lungfish-provenance.json")
+        for (recorded, tail) in [
+            ("\(Fixture.collaborator)/\(Fixture.reads)", Fixture.reads),
+            ("\(Fixture.share)/\(Fixture.reads)", Fixture.reads),
+            ("\(Fixture.collaborator)/Analyses/minimap2-1", "Analyses/minimap2-1"),
+        ] {
+            let read = try Fixture.read(
+                ["path": recorded, "reproducibleCommand": "/usr/bin/tool -i \(recorded) --flag"], at: sidecar
+            )
+            let readPath = Fixture.here(tail, in: project)
+            XCTAssertEqual(read["path"] as? String, readPath, recorded)
+            XCTAssertEqual(read["reproducibleCommand"] as? String, "/usr/bin/tool -i \(readPath) --flag", recorded)
+        }
+    }
+
+    /// A project nested in a folder named `.lungfish` still moves as a single
+    /// value (`PortablePathRerootTests.testSinglePathValueStillMovesAtALaterProjectComponent`).
+    /// As a word of a command its first `.lungfish/` component is that folder,
+    /// whose tail does not exist here, so it reads as recorded. This is the
+    /// trade of A34's first-component rule.
+    func testProjectNestedInALungfishFolderReadsAsRecordedInACommand() throws {
+        let sidecar = project.appendingPathComponent("Analyses/minimap2-1/.lungfish-provenance.json")
+        let command = "tool -o /Users/collaborator/.lungfish/demo/Project.lungfish/\(Fixture.reads)"
+        let read = try Fixture.read(["reproducibleCommand": command], at: sidecar)
+        XCTAssertEqual(read["reproducibleCommand"] as? String, command)
     }
 }
