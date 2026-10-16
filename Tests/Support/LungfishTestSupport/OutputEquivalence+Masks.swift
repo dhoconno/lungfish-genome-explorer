@@ -74,19 +74,23 @@ extension OutputEquivalence {
             )
         }
 
-        /// The GATK compare's masks (Phase 2.10 decision G5, lane A50 M2): the standard masks, and in payload text the
-        /// date of a VCF's `##GATKCommandLine` header line. GATK writes it from the clock, so two runs never agree on it.
-        /// Only a compare of GATK output asks for this policy, and no other key or line is masked.
+        /// The GATK compare's masks (Phase 2.10 decision G5, lane A50 M2, widened by the A50 M3 ruling R2): the
+        /// standard masks, and in payload text two changes to the `##GATKCommandLine` header line of a VCF. The date
+        /// is masked, because GATK writes it from the clock. The track ID in the line's `--output` path is numbered
+        /// as a file name numbers it, because GATK writes the output's file name there and every run draws a new ID.
+        /// Two runs never agree on either. Only a compare of GATK output asks for this policy, and no other key or
+        /// line is masked.
         public static var gatk: MaskPolicy {
             var policy = standard
-            policy.payloads.append(Masks.gatkCommandLineDate)
+            policy.payloads.append(contentsOf: [Masks.gatkCommandLineUUIDs, Masks.gatkCommandLineDate])
             policy.keepsGATKCommandLine = true
             return policy
         }
 
         /// Whether a VCF's `##GATKCommandLine` header line stays in the compare. The normalizer drops every VCF
         /// header whose key holds `command`, a whole line with its `CommandLine=` value. The GATK compare keeps
-        /// this one line and masks only its date (`Masks.gatkCommandLineDate`), so a changed command still differs.
+        /// this one line, masks its date (`Masks.gatkCommandLineDate`) and numbers its track ID
+        /// (`Masks.gatkCommandLineUUIDs`), so a changed command, folder or track still differs.
         public var keepsGATKCommandLine = false
 
         func masks(for role: TextRole) -> [Mask] {
@@ -131,6 +135,20 @@ extension OutputEquivalence {
                 return trailingDate.stringByReplacingMatches(
                     in: line, range: NSRange(location: 0, length: (line as NSString).length), withTemplate: #",Date="<DATE>">"#
                 )
+            }.joined(separator: "\n")
+        }
+
+        /// Numbers each UUID inside a `##GATKCommandLine=<...>` header line the way `uuids` numbers it in a file
+        /// name, so `--output .../vc-<uuid>.vcf.gz` reads `vc-<UUID-n>`, where n is the number of the file's own ID.
+        /// GATK writes the output path into this line and every run draws a new track ID, so two runs never agree on
+        /// it (A50 M3 ruling by QA and BIO). Only that line is read. Its `ID=`, the options and folders of its
+        /// `CommandLine=`, its `Version=`, every other header line and every record are compared as written, and a
+        /// header that names another track's ID still differs.
+        public static let gatkCommandLineUUIDs = Mask(name: "gatkCommandLineUUIDs") { text, context in
+            guard text.contains("##GATKCommandLine=<") else { return text }
+            return text.components(separatedBy: "\n").map { line -> String in
+                guard line.hasPrefix("##GATKCommandLine=<") else { return line }
+                return Masks.uuids(line, context: context)
             }.joined(separator: "\n")
         }
 
