@@ -92,22 +92,74 @@ extension XCTestCase {
 /// Tears down the suites that `makeTestDefaultsSuite(prefix:)` made for a test case once that case
 /// has finished, after its `tearDown()`. XCTest calls `testCaseDidFinish(_:)` exactly once per case.
 ///
-/// The class is `@unchecked Sendable` because the lock guards its only property.
+/// XCTest accepts an observer on the main thread only. Anywhere else it throws
+/// `NSInternalInconsistencyException` ("Test observers can only be registered and unregistered on the
+/// main thread"), and a nonisolated `async` test runs on a cooperative thread. The sign-up therefore
+/// cannot run in the initializer of `shared`, which runs on the thread of the first caller.
+/// `register(_:for:)` signs the sweeper up instead, on the main thread whichever thread calls it
+/// (Phase 2.11 tier 1, cause D2, pinned by `TestDefaultsSuiteObserverThreadTests`).
+///
+/// The class is `@unchecked Sendable` because the lock guards every property.
 public final class TestDefaultsSuiteSweeper: NSObject, XCTestObservation, @unchecked Sendable {
-    /// The sweeper, registered with XCTest the first time a suite is made.
-    public static let shared: TestDefaultsSuiteSweeper = {
-        let sweeper = TestDefaultsSuiteSweeper()
-        XCTestObservationCenter.shared.addTestObserver(sweeper)
-        return sweeper
-    }()
+    /// The sweeper, signed up with XCTest the first time a suite is registered.
+    public static let shared = TestDefaultsSuiteSweeper()
+
+    private enum SignUp {
+        case notRequested
+        /// A caller off the main thread queued the sign-up on the main queue and it has not run yet.
+        case queued
+        case done
+    }
 
     private let lock = NSLock()
     private var suites: [ObjectIdentifier: [TestDefaultsSuite]] = [:]
+    private var signUp = SignUp.notRequested
 
-    /// Remembers `suite` until `testCase` finishes.
+    /// Whether XCTest has the sweeper as an observer.
+    public var isObserving: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return signUp == .done
+    }
+
+    /// Remembers `suite` until `testCase` finishes, and makes sure XCTest tells the sweeper when that is.
     public func register(_ suite: TestDefaultsSuite, for testCase: XCTestCase) {
         lock.lock()
         suites[ObjectIdentifier(testCase), default: []].append(suite)
+        lock.unlock()
+        observeTestCases()
+    }
+
+    /// Signs the sweeper up with XCTest, once, on the main thread.
+    ///
+    /// A caller on the main thread signs up at once. A caller off it queues the sign-up on the main queue and
+    /// returns without waiting for it, because the main thread can be waiting for this very caller (XCTest
+    /// waits there for an `async` test to end) and waiting here would deadlock. XCTest keeps the main queue
+    /// running while it waits, so the sign-up lands long before the case ends. A case that ended first would
+    /// be left to its teardown blocks, which already remove every suite it made.
+    private func observeTestCases() {
+        if Thread.isMainThread {
+            signUpOnTheMainThread()
+            return
+        }
+        lock.lock()
+        let shouldQueue = signUp == .notRequested
+        if shouldQueue { signUp = .queued }
+        lock.unlock()
+        if shouldQueue {
+            DispatchQueue.main.async { self.signUpOnTheMainThread() }
+        }
+    }
+
+    /// Runs on the main thread only, as a direct call or as a block of the main queue, so two sign-ups never overlap.
+    private func signUpOnTheMainThread() {
+        lock.lock()
+        let needed = signUp != .done
+        lock.unlock()
+        guard needed else { return }
+        XCTestObservationCenter.shared.addTestObserver(self)
+        lock.lock()
+        signUp = .done
         lock.unlock()
     }
 
