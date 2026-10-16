@@ -4,7 +4,6 @@
 
 import Foundation
 import LungfishCore
-import LungfishIO
 
 /// Reads the reference bases that a CDS translation or extraction needs, clamped to the sequence that exists.
 ///
