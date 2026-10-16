@@ -195,7 +195,16 @@ package enum MSAExtractionAnnotationProvenance {
         }
     }
 
-    private static func annotationSelectionValue(
+    /// The identifier of each record of `text`, the first word after `>`, which the record names as the
+    /// selected sequence IDs. One rule serves the viewer and the `import fasta` leaf (ruling A48 F2).
+    package static func selectedSequenceIDs(inFASTA text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline).compactMap { line in
+            guard line.hasPrefix(">") else { return nil }
+            return line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init)
+        }
+    }
+
+    package static func annotationSelectionValue(
         _ annotationsByRecord: [String: [SequenceAnnotation]]
     ) -> ParameterValue {
         .dictionary(

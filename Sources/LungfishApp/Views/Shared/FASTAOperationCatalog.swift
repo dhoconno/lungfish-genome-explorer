@@ -260,10 +260,7 @@ enum FASTAOperationCatalog {
     }
 
     static func selectedIdentifiers(in fasta: String) -> [String] {
-        fasta.split(whereSeparator: \.isNewline).compactMap { line in
-            guard line.hasPrefix(">") else { return nil }
-            return line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init)
-        }
+        MSAExtractionAnnotationProvenance.selectedSequenceIDs(inFASTA: fasta)
     }
 
     /// Makes record identifiers safe for a reference bundle, whose FASTA index and
