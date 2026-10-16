@@ -2543,7 +2543,7 @@ public final class GenotypeAnnotationStore {
         ])
     }
 
-    private func sha256Hex(_ data: Data) -> String {
+    func sha256Hex(_ data: Data) -> String {
         reportPublicationStage(.digest)
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
