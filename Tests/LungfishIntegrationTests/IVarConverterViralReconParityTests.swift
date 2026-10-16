@@ -45,7 +45,7 @@ struct IVarConverterViralReconParityTests {
         "Swift converter matches viralrecon output on SRR36291587 fixture",
         .enabled(
             if: ToolAvailability.requireTools || IVarParityOracle.canRun,
-            "the ivar-oracle environment is not installed under the managed storage root (LUNGFISH_STORAGE_ROOT) or cannot import numpy, scipy, pandas and Bio, which ivar_variants_to_vcf.py needs. python3 scripts/golden/environment.py provision builds it at /Users/Shared/lungfish-golden/storage. LUNGFISH_REQUIRE_TOOLS=1 turns this skip into a failure"
+            "the ivar-oracle environment is not installed under the managed storage root (LUNGFISH_STORAGE_ROOT) or at /Users/Shared/lungfish-golden/storage, or it cannot import numpy, scipy, pandas and Bio, which ivar_variants_to_vcf.py needs. python3 scripts/golden/environment.py provision builds it at /Users/Shared/lungfish-golden/storage. LUNGFISH_REQUIRE_TOOLS=1 turns this skip into a failure"
         )
     )
     func parity() async throws {
@@ -88,6 +88,7 @@ struct IVarConverterViralReconParityTests {
 
         let pyOut = scratch.appendingPathComponent("py.vcf")
         let vendoredScript = fixturesDir.appendingPathComponent("ivar_variants_to_vcf.py")
+        // The first launch of a freshly provisioned environment took 23.5 s once, then 2.4 s.
         let oracle = try ProcessRunner.run(
             oracleInterpreter,
             [
@@ -97,7 +98,7 @@ struct IVarConverterViralReconParityTests {
                 pyOut.path,
                 "--fasta", fixturesDir.appendingPathComponent("MN908947.3.fasta").path
             ],
-            timeout: 30
+            timeout: 120
         )
         guard oracle.status == 0 else {
             // The trait above skipped a machine without the libraries, so a script that still fails
