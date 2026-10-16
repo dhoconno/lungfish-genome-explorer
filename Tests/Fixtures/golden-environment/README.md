@@ -14,7 +14,8 @@ These files pin the managed tools and databases the golden captures in `Tests/Fi
 | Field | Meaning |
 |---|---|
 | `micromamba` | The version and SHA-256 of `Sources/LungfishWorkflow/Resources/Tools/micromamba`, the same values as `bootstrap` in the managed-tools manifest |
-| `environments[].packageSpec` | The pin from `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. A test fails when the two differ. |
+| `environments[].packageSpec` | The pin from `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. A test fails when the two differ, except for a `testOnly` environment. |
+| `environments[].testOnly` | True for an environment that a test needs and the manifest does not pin. Its `packageSpec` lists the specs it was solved from, separated by spaces, and `lock` rewrites it only when it is named. |
 | `environments[].explicit`, `sha256`, `packages` | The explicit file, its SHA-256 and its package count |
 | `databases[].path` | The folder under `storage/databases`, as the goldens record it |
 | `databases[].source.url` | The archive `provision` downloads. An optional `source.sha256` also pins the archive. |
@@ -27,6 +28,6 @@ On 2026-10-08 the explicit files were written with `environment.py lock --from-s
 
 ## The ivar-oracle environment
 
-`ivar-oracle` is the one environment here that is not a managed tool. It holds the Python that runs `Tests/Fixtures/ivar-converter-parity/ivar_variants_to_vcf.py`, the viralrecon script that `IVarConverterViralReconParityTests` compares the Swift converter against. The test looks for it under the conda root of the managed storage, the way `ToolOutputGoldenTests` finds its tools, so point `LUNGFISH_STORAGE_ROOT` at `/Users/Shared/lungfish-golden/storage` once `provision` has built it. Without it the test skips with its reason, and under `LUNGFISH_REQUIRE_TOOLS=1` it fails.
+`ivar-oracle` is the one environment here that is not a managed tool. It holds the Python that runs `Tests/Fixtures/ivar-converter-parity/ivar_variants_to_vcf.py`, the viralrecon script that `IVarConverterViralReconParityTests` compares the Swift converter against. The test looks for it under the conda root of the managed storage and then under `/Users/Shared/lungfish-golden/storage`, so it runs after `provision` whatever `LUNGFISH_STORAGE_ROOT` says. Without it the test skips with its reason, and under `LUNGFISH_REQUIRE_TOOLS=1` it fails.
 
-Its `packageSpec` lists the specs it was solved from, Python 3.12 with numpy, scipy, pandas and biopython from conda-forge, because the managed-tools manifest has no pin for it. On 2026-10-16 the explicit file was written from a micromamba dry-run solve of those specs. `environment.py lock` refuses an environment the manifest lacks, so to relock it run `micromamba create --yes --dry-run --json --no-rc --override-channels -c conda-forge --platform osx-arm64 -p <empty folder> <the specs>`, write each `actions.LINK` entry as `url#md5` under the `@EXPLICIT` header in the order micromamba lists them, then set `packages` and `sha256` in `lock.json`.
+Its `packageSpec` lists the specs it was solved from, Python 3.12 with numpy, scipy, pandas and biopython from conda-forge, because the managed-tools manifest has no pin for it. On 2026-10-16 the explicit file was written from a micromamba dry-run solve of those specs. To relock it run `python3 scripts/golden/environment.py lock --solve --env ivar-oracle` and read the diff of its explicit file. A relock of the managed environments leaves it alone.
