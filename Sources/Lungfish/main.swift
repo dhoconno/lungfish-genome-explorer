@@ -53,9 +53,6 @@ if let helperExitCode = VCFImportHelper.runIfRequested(arguments: CommandLine.ar
 if let helperExitCode = BAMImportHelper.runIfRequested(arguments: CommandLine.arguments) {
     exit(helperExitCode)
 }
-if let helperExitCode = ReferenceImportHelper.runIfRequested(arguments: CommandLine.arguments) {
-    exit(helperExitCode)
-}
 if let helperExitCode = MetagenomicsImportHelper.runIfRequested(arguments: CommandLine.arguments) {
     exit(helperExitCode)
 }

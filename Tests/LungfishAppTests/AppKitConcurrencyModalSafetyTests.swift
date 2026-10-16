@@ -372,27 +372,6 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             source: variantWorkflowSource
         )
 
-        let fastqImportPath = "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift"
-        let fastqImportSource = try String(
-            contentsOf: root.appendingPathComponent(fastqImportPath),
-            encoding: .utf8
-        )
-        assertLogged(
-            path: fastqImportPath,
-            marker: "importAsReferenceBundleViaAppHelper(",
-            source: fastqImportSource
-        )
-
-        let importCenterFASTAPath = "Sources/LungfishApp/App/AppDelegate+ImportCenterFASTA.swift"
-        let importCenterFASTASource = try String(
-            contentsOf: root.appendingPathComponent(importCenterFASTAPath),
-            encoding: .utf8
-        )
-        assertLogged(
-            path: importCenterFASTAPath,
-            marker: "importAsReferenceBundleViaAppHelper(",
-            source: importCenterFASTASource
-        )
         let importCenterResultsPath = "Sources/LungfishApp/App/AppDelegate+ImportCenterMetagenomicsBAM.swift"
         let importCenterResultsSource = try String(
             contentsOf: root.appendingPathComponent(importCenterResultsPath),

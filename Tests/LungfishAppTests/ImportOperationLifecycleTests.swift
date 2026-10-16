@@ -1,7 +1,7 @@
 import XCTest
 import SQLite3
 @testable import LungfishApp
-import LungfishKit
+@testable import LungfishKit
 import LungfishKitTestSupport
 import LungfishWorkflow
 
@@ -11,16 +11,16 @@ final class ImportOperationLifecycleTests: XCTestCase {
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
         let source = URL(fileURLWithPath: "/tmp/synthetic.fa")
-        let output = URL(fileURLWithPath: "/tmp/synthetic.lungfishref")
+        let output = URL(fileURLWithPath: "/tmp/synthetic.lungfishref", isDirectory: true)
         var deliveries: [[URL]] = []
         center.onBundleReady = { deliveries.append($0) }
-        let result = await ReferenceImportOperationLifecycle.run(
-            center: center, sourceURL: source, outputDirectory: output.deletingLastPathComponent(), routeContext: nil
-        ) { id in
-            XCTAssertNil(center.items.first { $0.id == id }?.onCancel)
-            return output
+        // The sidebar drop's route since A48 M4, `import fasta` on the Reference Import row.
+        let result = await MainSplitViewController.importDroppedReference(
+            sourceURL: source, projectURL: output.deletingLastPathComponent(), routeContext: nil, reporter: center
+        ) { _, _ in
+            CLISubprocessTransport.Result(outputs: [output.path], message: "Reference import complete", artifacts: [])
         }
-        XCTAssertEqual(try result.get(), output)
+        XCTAssertEqual(result, .imported(output))
         XCTAssertEqual(center.items.count, 1)
         XCTAssertEqual(center.items.first?.state, .completed)
         XCTAssertEqual(center.items.first?.bundleURLs, [output])
@@ -34,14 +34,14 @@ final class ImportOperationLifecycleTests: XCTestCase {
         let stage = directory.appendingPathComponent("staged")
         let center = OperationCenter()
         center.failureReportStore = .temporaryForTesting()
-        let result = await ReferenceImportOperationLifecycle.run(
-            center: center, sourceURL: directory.appendingPathComponent("synthetic.fa"), outputDirectory: directory, routeContext: nil
-        ) { _ in
+        let result = await MainSplitViewController.importDroppedReference(
+            sourceURL: directory.appendingPathComponent("synthetic.fa"), projectURL: directory, routeContext: nil, reporter: center
+        ) { _, _ in
             try Data("synthetic".utf8).write(to: stage)
             defer { try? FileManager.default.removeItem(at: stage) }
             throw CocoaError(.fileReadCorruptFile)
         }
-        XCTAssertThrowsError(try result.get())
+        guard case .failed = result else { return XCTFail("a failed run fails the drop, got \(result)") }
         XCTAssertFalse(FileManager.default.fileExists(atPath: stage.path))
         XCTAssertEqual(center.items.count, 1)
         XCTAssertEqual(center.items.first?.state, .failed)
