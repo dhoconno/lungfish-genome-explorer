@@ -15,7 +15,12 @@
 // asserting on it, so BIO reads those from the evidence first. `all.odr.json`, the file of every sample, is no
 // sample's payload. TaxTriageParityODRJSON (+Evidence.swift) names its differing keys and never asserts on them
 // (BIO R3).
+//
+// On the real engine a BAM and its index compare by their canonical digest and not by their bytes (`canonicalDigest`,
+// Q32 X1 ruling F2). Build-db's duplicate marking writes the absolute paths of each side's own folders into the
+// `@PG` command lines, so two identical runs never give the same bytes. The file's own SHA-256 stays in the evidence.
 
+import CryptoKit
 import Foundation
 import XCTest
 import LungfishIO
@@ -57,11 +62,15 @@ struct TaxTriageParityPayload: Hashable, Sendable {
     /// The file's path relative to the side root.
     let path: String
     let kind: TaxTriageParityPayloadKind
+    /// The digest the compare reads. On the real engine a BAM and its index carry their canonical digest
+    /// (`TaxTriageParityPayloads.canonicalDigest`, Q32 X1 ruling F2) and every other file its SHA-256.
     let sha256: String
+    /// The SHA-256 of the file's bytes.
+    let rawSHA256: String
     let size: Int64
 
     func withSHA256(_ value: String) -> TaxTriageParityPayload {
-        TaxTriageParityPayload(sample: sample, key: key, path: path, kind: kind, sha256: value, size: size)
+        TaxTriageParityPayload(sample: sample, key: key, path: path, kind: kind, sha256: value, rawSHA256: rawSHA256, size: size)
     }
 }
 
@@ -106,16 +115,23 @@ enum TaxTriageParityPayloads {
         return names.sorted()
     }
 
-    /// Each payload file of the run's analysis folder, none when the run made no folder.
-    static func payloads(of run: TaxTriageParitySideRun, parityCase: TaxTriageParityCase) throws -> [TaxTriageParityPayload] {
+    /// Each payload file of the run's analysis folder, none when the run made no folder. With `samtools` a BAM and
+    /// its index carry their canonical digest (`canonicalDigest`), as the real engine's pass reads them.
+    static func payloads(
+        of run: TaxTriageParitySideRun, parityCase: TaxTriageParityCase, samtools: URL?
+    ) throws -> [TaxTriageParityPayload] {
         guard let analysisPath = run.analysisPath, let analysis = run.analysisFolder,
               FileManager.default.fileExists(atPath: analysis.path) else { return [] }
-        return try payloads(in: analysis, samples: sampleNames(of: run, parityCase: parityCase), pathPrefix: analysisPath)
+        return try payloads(
+            in: analysis, samples: sampleNames(of: run, parityCase: parityCase), pathPrefix: analysisPath, samtools: samtools
+        )
     }
 
     /// Each file below `analysis` whose name starts with one of `samples` and a dot, the longest name first, by
-    /// sample and key. `pathPrefix` goes before each file's path in the folder.
-    static func payloads(in analysis: URL, samples: [String], pathPrefix: String) throws -> [TaxTriageParityPayload] {
+    /// sample and key. `pathPrefix` goes before each file's path in the folder. `samtools` is set on the real engine.
+    static func payloads(
+        in analysis: URL, samples: [String], pathPrefix: String, samtools: URL?
+    ) throws -> [TaxTriageParityPayload] {
         let longestFirst = samples.sorted { $0.count > $1.count }
         var found: [TaxTriageParityPayload] = []
         var keys: Set<String> = []
@@ -129,16 +145,67 @@ enum TaxTriageParityPayloads {
             keys.insert("\(sample)/\(key)")
             let file = analysis.appendingPathComponent(relative)
             let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+            let raw = try ClassifierParityFixtures.sha256(of: file)
             found.append(TaxTriageParityPayload(
                 sample: sample,
                 key: key,
                 path: pathPrefix.isEmpty ? relative : "\(pathPrefix)/\(relative)",
                 kind: .of(name),
-                sha256: try ClassifierParityFixtures.sha256(of: file),
+                sha256: try samtools.map { try canonicalDigest(of: file, samtools: $0) } ?? raw,
+                rawSHA256: raw,
                 size: Int64(size)
             ))
         }
         return found.sorted { ($0.sample, $0.key) < ($1.sample, $1.key) }
+    }
+
+    // MARK: - Canonical digests
+
+    /// The digest the real engine's compare reads for `file` (Q32 X1 ruling F2). Build-db's duplicate marking writes
+    /// the absolute paths of the side's own folders and a random scratch folder into the `CL:` field of four `@PG`
+    /// lines, so two identical runs never give the same BAM or index bytes. A BAM compares by `samtools view -H
+    /// --no-PG` with the `CL:` field of each `@PG` line removed, followed by `samtools view --no-PG`, so a differing
+    /// record, header line or `@PG` ID, PN, PP or VN still differs. A `.bai` or `.csi` whose BAM, its name without
+    /// that suffix, sits beside it compares by `samtools idxstats` of that BAM, since the virtual offsets of an index
+    /// move with the compressed header. Any other file gets its SHA-256. A samtools exit other than 0 throws.
+    static func canonicalDigest(of file: URL, samtools: URL) throws -> String {
+        let name = file.lastPathComponent
+        let lowered = name.lowercased()
+        if lowered.hasSuffix(".bam") {
+            let header = try samtoolsOutput(samtools, ["view", "-H", "--no-PG", file.path])
+            let records = try samtoolsOutput(samtools, ["view", "--no-PG", file.path])
+            return hexDigest(of: withoutCommandLines(header) + records)
+        }
+        for suffix in [".bai", ".csi"] where lowered.hasSuffix(suffix) {
+            let bam = file.deletingLastPathComponent().appendingPathComponent(String(name.dropLast(suffix.count)))
+            if bam.pathExtension.lowercased() == "bam", FileManager.default.fileExists(atPath: bam.path) {
+                return hexDigest(of: try samtoolsOutput(samtools, ["idxstats", bam.path]))
+            }
+        }
+        return try ClassifierParityFixtures.sha256(of: file)
+    }
+
+    /// `header` with the field that starts `CL:` removed from each `@PG` line. Every other field and line stays.
+    static func withoutCommandLines(_ header: String) -> String {
+        header.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            guard line.hasPrefix("@PG\t") else { return String(line) }
+            return line.split(separator: "\t", omittingEmptySubsequences: false)
+                .filter { !$0.hasPrefix("CL:") }
+                .joined(separator: "\t")
+        }
+        .joined(separator: "\n")
+    }
+
+    private static func samtoolsOutput(_ samtools: URL, _ arguments: [String]) throws -> String {
+        let result = try ProcessRunner.run(samtools, arguments, timeout: 120)
+        guard result.status == 0 else {
+            throw LiveNextflowError.misconfigured("samtools \(arguments.joined(separator: " ")) exited \(result.status), \(result.stderr)")
+        }
+        return result.stdout
+    }
+
+    private static func hexDigest(of text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// How `candidate`'s payloads differ from `reference`'s, one difference per file: a sample with no payload on a

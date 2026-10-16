@@ -112,6 +112,19 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
             XCTAssertEqual(rows.filter { $0.side == side }.map(\.key), [accessionMap, report, topReport], side)
         }
         XCTAssertEqual(Set(rows.map(\.sample)), [sample])
+        // Field 4 is the digest a compare reads and the last field the file's own SHA-256 (Q32 X1 ruling F2). The
+        // stand-in compares bytes, so they are one. A table of an earlier run, with 7 fields, reads its field 4 as both.
+        let table = try String(contentsOf: written.appendingPathComponent(TaxTriageParityEvidence.payloadFileName), encoding: .utf8)
+        XCTAssertEqual(table.split(separator: "\n").first, "side\tsample\tkind\tkey\tsha256\tsize\tpath\traw sha256")
+        XCTAssertEqual(rows.map(\.payload.rawSHA256), rows.map(\.payload.sha256))
+        let earlier = scratch.appendingPathComponent("earlier", isDirectory: true)
+        try FileManager.default.createDirectory(at: earlier, withIntermediateDirectories: true)
+        let digest = String(repeating: "a", count: 64)
+        try Data("side\tsample\tkind\tkey\tsha256\tsize\tpath\nA\t\(sample)\treport\t\(report)\t\(digest)\t5\tx/\(report)\n".utf8)
+            .write(to: earlier.appendingPathComponent(TaxTriageParityEvidence.payloadFileName))
+        let earlierRows = try TaxTriageParityEvidence.payloadRows(in: earlier)
+        XCTAssertEqual(earlierRows.map(\.payload.sha256), [digest])
+        XCTAssertEqual(earlierRows.map(\.payload.rawSHA256), [digest])
         for side in TaxTriageParityLivePass.sides {
             XCTAssertEqual(TaxTriageParityPayloads.missing(in: pass.payloads[side] ?? [], side: side, expectedSamples: [sample]), [], "\(side)")
         }
@@ -165,7 +178,7 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
             try Data(file.utf8).write(to: url)
         }
         XCTAssertEqual(
-            try TaxTriageParityPayloads.payloads(in: named, samples: ["S 1", "S 1.v2"], pathPrefix: "")
+            try TaxTriageParityPayloads.payloads(in: named, samples: ["S 1", "S 1.v2"], pathPrefix: "", samtools: nil)
                 .map { "\($0.sample) | \($0.key) | \($0.kind.rawValue)" },
             [
                 "S 1 | report/S 1.odr.txt | report",
@@ -188,6 +201,13 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
         if parityCase.materializesVirtualBundle {
             _ = try await ToolAvailability.require("seqkit", environment: "seqkit")
         }
+        // The real engine compares a BAM and its index canonically (Q32 X1 ruling F2). The stand-in compares bytes.
+        let samtools: URL?
+        if engine.standIn == nil {
+            samtools = try await ToolAvailability.require("samtools", environment: "samtools")
+        } else {
+            samtools = nil
+        }
         let harness = TaxTriageParityHarness(testCase: self, cliBinary: cliBinary)
         func root(_ side: TaxTriageParitySide) -> URL {
             caseRoot.appendingPathComponent(side.folderName, isDirectory: true)
@@ -209,7 +229,7 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
         var payloads: [TaxTriageParitySide: [TaxTriageParityPayload]] = [:]
         for run in runs {
             found[.side(run.side)] = try harness.fixedFactViolations(parityCase, run: run, engine: engine, pristineProject: pristine)
-            payloads[run.side] = try TaxTriageParityPayloads.payloads(of: run, parityCase: parityCase)
+            payloads[run.side] = try TaxTriageParityPayloads.payloads(of: run, parityCase: parityCase, samtools: samtools)
         }
         for (reference, candidate) in TaxTriageParityLivePass.pairs {
             let referenceRun = runs[TaxTriageParityLivePass.sides.firstIndex(of: reference)!]
@@ -218,7 +238,9 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
                 reference: referenceRun, candidate: candidateRun, bundlePaths: parityCase.bundlePaths
             )
         }
-        return TaxTriageParityLivePass(parityCase: parityCase, caseRoot: caseRoot, runs: runs, found: found, payloads: payloads)
+        return TaxTriageParityLivePass(
+            parityCase: parityCase, caseRoot: caseRoot, runs: runs, found: found, payloads: payloads, samtools: samtools
+        )
     }
 
     /// Writes the pass's evidence first, so a failing pass still leaves it, then fails the test on every side fact
@@ -275,4 +297,6 @@ struct TaxTriageParityLivePass {
     let found: [TaxTriageParityScope: [TaxTriageParityDifference]]
     /// Each side's payload files, by sample.
     let payloads: [TaxTriageParitySide: [TaxTriageParityPayload]]
+    /// The managed samtools that a BAM and its index compare by on the real engine, nil on the stand-in (Q32 X1 ruling F2).
+    let samtools: URL?
 }

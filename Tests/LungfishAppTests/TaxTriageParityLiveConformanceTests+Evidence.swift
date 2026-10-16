@@ -5,7 +5,9 @@
 // Phase 2.11 lane Q32, decision B8. A live pass writes into `<LUNGFISH_PARITY_EVIDENCE>/<case>/`:
 //
 // - `records/<side>/<path>`, the raw bytes of every provenance record and source manifest below each side root,
-// - `payload-hashes.tsv`, each sample's payload files by side, sample, kind, key, SHA-256, size and path,
+// - `payload-hashes.tsv`, each sample's payload files by side, sample, kind, key, the SHA-256 a compare reads (the
+//   canonical digest of a BAM and its index on the real engine, +Payloads.swift), size, path and the file's own
+//   SHA-256,
 // - `payloads/<side>/<sample>/<key>`, a copy of each payload file of the asserted kinds up to 64 MB,
 // - `odr/<side>/all.odr.json`, a copy of each side's combined report,
 // - `payload-compare.txt`, every payload difference of every pair, the recorded kinds included,
@@ -103,7 +105,9 @@ enum TaxTriageParityEvidence {
             )
         }
         guard let baseline else { return result }
-        let rows = try payloadRows(in: baseline.appendingPathComponent(pass.parityCase.rawValue, isDirectory: true))
+        let rows = try payloadRows(
+            in: baseline.appendingPathComponent(pass.parityCase.rawValue, isDirectory: true), samtools: pass.samtools
+        )
         for (saved, side) in [(TaxTriageParitySide.a, TaxTriageParitySide.a), (.a, .c), (.c, .c), (.cPrime, .cPrime)] {
             result.append(Comparison(
                 title: "baseline \(saved) against \(side)",
@@ -147,9 +151,12 @@ enum TaxTriageParityEvidence {
                 try copy(run.root.appendingPathComponent(payload.path), to: folder.appendingPathComponent("payloads/\(side)/\(payload.sample)/\(payload.key)"))
             }
         }
-        let header = "side\tsample\tkind\tkey\tsha256\tsize\tpath"
+        // Field 4 is the digest a compare reads and the last field the file's own SHA-256 (Q32 X1 ruling F2).
+        let header = "side\tsample\tkind\tkey\tsha256\tsize\tpath\traw sha256"
         let rows = TaxTriageParityLivePass.sides.flatMap { side in
-            (pass.payloads[side] ?? []).map { [side.rawValue, $0.sample, $0.kind.rawValue, $0.key, $0.sha256, String($0.size), $0.path].joined(separator: "\t") }
+            (pass.payloads[side] ?? []).map {
+                [side.rawValue, $0.sample, $0.kind.rawValue, $0.key, $0.sha256, String($0.size), $0.path, $0.rawSHA256].joined(separator: "\t")
+            }
         }
         try text([header] + rows, to: folder.appendingPathComponent(payloadFileName))
         try text(comparisons.flatMap { ["\($0.title): \($0.differences.count)"] + $0.differences.map { "  \($0)" } }, to: folder.appendingPathComponent("payload-compare.txt"))
@@ -225,18 +232,35 @@ enum TaxTriageParityEvidence {
         var kind: TaxTriageParityPayloadKind { payload.kind }
     }
 
-    /// The rows of the `payload-hashes.tsv` in `caseFolder`, in file order.
-    static func payloadRows(in caseFolder: URL) throws -> [Row] {
+    /// The rows of the `payload-hashes.tsv` in `caseFolder`, in file order. A row of the 7-field form, written before
+    /// the raw column, holds the file's own SHA-256 in field 4. With `samtools`, such a row of a BAM or an index gets
+    /// the canonical digest of the copy that the evidence kept under `payloads/` (Q32 X1 ruling F2), so a baseline of
+    /// an earlier run compares as a run of this one does. A copy that is not there gives the row a digest that no
+    /// file holds, so the compare reports the file as a finding.
+    static func payloadRows(in caseFolder: URL, samtools: URL? = nil) throws -> [Row] {
         let lines = try String(contentsOf: caseFolder.appendingPathComponent(payloadFileName), encoding: .utf8)
             .split(separator: "\n").dropFirst()
         return try lines.map { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count == 7, let kind = TaxTriageParityPayloadKind(rawValue: fields[2]), let size = Int64(fields[5]) else {
+            guard fields.count == 7 || fields.count == 8, let kind = TaxTriageParityPayloadKind(rawValue: fields[2]),
+                  let size = Int64(fields[5]) else {
                 throw LiveNextflowError.misconfigured("\(caseFolder.path)/\(payloadFileName) holds a row that is not a payload: \(line)")
             }
-            return Row(side: fields[0], payload: TaxTriageParityPayload(
-                sample: fields[1], key: fields[3], path: fields[6], kind: kind, sha256: fields[4], size: size
-            ))
+            var payload = TaxTriageParityPayload(
+                sample: fields[1], key: fields[3], path: fields[6], kind: kind, sha256: fields[4],
+                rawSHA256: fields.count == 8 ? fields[7] : fields[4], size: size
+            )
+            let key = fields[3].lowercased()
+            if fields.count == 7, let samtools, kind == .keptReads, [".bam", ".bai", ".csi"].contains(where: { key.hasSuffix($0) }) {
+                let side = TaxTriageParitySide(rawValue: fields[0])?.folderName ?? fields[0]
+                let copy = caseFolder.appendingPathComponent("payloads/\(side)/\(fields[1])/\(fields[3])")
+                if FileManager.default.fileExists(atPath: copy.path) {
+                    payload = payload.withSHA256(try TaxTriageParityPayloads.canonicalDigest(of: copy, samtools: samtools))
+                } else {
+                    payload = payload.withSHA256("no copy of this file in the baseline, \(copy.path)")
+                }
+            }
+            return Row(side: fields[0], payload: payload)
         }
     }
 
