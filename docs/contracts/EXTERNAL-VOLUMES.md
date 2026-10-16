@@ -78,7 +78,7 @@ The owner's Mac measured these on a fresh ExFAT disk image on 2026-10-07. APFS s
 | Inode number of a file | A written file takes the number of its first cluster, which every rename keeps. An empty file gets a number near the top of the range, which changes on every rename | Read a new file's identity after its bytes land, and match empty files by size |
 | `F_FULLFSYNC` | Accepted on files and folders | Flush once per transaction |
 
-The last two rows were measured on the ExFAT driver of macOS 26 on 2026-10-10. Symbolic links, `O_EXCL` creation, `flock` and `fcntl` locks all work on a local ExFAT volume. A rename keeps a written file's inode number, within a folder, across folders and across a remount, so identity checks after a rename hold. File watching uses the foreign-volume policy in `FileSystemWatcher.StreamPolicy`.
+The last two rows were measured on the ExFAT driver of macOS 26 on 2026-10-10. Symbolic links, `O_EXCL` creation, `flock` and `fcntl` locks all work on a local ExFAT volume. A rename keeps a written file's inode number, within a folder, across folders and across a remount, so identity checks after a rename hold. `F_GETPATH` on a folder descriptor opened with `O_EVTONLY` names the folder's new path after the folder is renamed inside its parent folder, so `ProjectStoreWriterLease` finds its lock in a renamed project folder. That was measured on macOS 26 on 2026-10-16 by `ProjectStoreWriterLeaseTests.testReleasedLeaseRemovesItsLockAfterAMoveOnExFAT`, and a move to a different parent folder was not measured. File watching uses the foreign-volume policy in `FileSystemWatcher.StreamPolicy`.
 
 ## How to test
 
