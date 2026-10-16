@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import os.log
 
 private let extractionLogger = Logger(subsystem: LogSubsystem.app, category: "SequenceExtraction")

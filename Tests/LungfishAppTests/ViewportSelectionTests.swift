@@ -154,7 +154,7 @@ final class SequenceExtractionPipelineConfigTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let source = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/ViewModels/SequenceExtractionPipeline.swift"),
+            contentsOf: root.appendingPathComponent("Sources/LungfishWorkflow/Extraction/SequenceExtractionPipeline.swift"),
             encoding: .utf8
         )
 
