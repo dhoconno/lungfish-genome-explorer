@@ -432,7 +432,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchNaoMgsImport: No main window available")
-            NSSound.beep()
+            refuseImportWithoutProject("NAO-MGS results", window: nil)
             return
         }
         let request = sender as? ImportWizardRequest
@@ -466,7 +466,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchPrimerSchemeImport: No main window available")
-            NSSound.beep()
+            refuseImportWithoutProject("a primer scheme", window: nil)
             return
         }
         let request = sender as? ImportWizardRequest
@@ -519,7 +519,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchNvdImport: No main window available")
-            NSSound.beep()
+            refuseImportWithoutProject("NVD results", window: nil)
             return
         }
         let request = sender as? ImportWizardRequest
@@ -553,7 +553,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchCzIdImport: No main window available")
-            NSSound.beep()
+            refuseImportWithoutProject("CZ-ID results", window: nil)
             return
         }
         let request = sender as? ImportWizardRequest
@@ -600,11 +600,7 @@ extension AppDelegate {
                 ?? controller.projectSession.projectURL
                 ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
             onDispatch?(.rejected("Open a project before importing results."))
-            showAlert(
-                title: "No Project Open",
-                message: "Please open a project before importing NVD results.",
-                presentingWindow: targetMainWindowController(routeContext: explicitRouteContext)?.window
-            )
+            refuseImportWithoutProject("NVD results", window: targetMainWindowController(routeContext: explicitRouteContext)?.window)
             return
         }
         guard canWriteProjectOutputs(
@@ -721,11 +717,7 @@ extension AppDelegate {
                 ?? controller.projectSession.projectURL
                 ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
             onDispatch?(.rejected("Open a project before importing results."))
-            showAlert(
-                title: "No Project Open",
-                message: "Please open a project before importing CZ-ID results.",
-                presentingWindow: targetMainWindowController(routeContext: explicitRouteContext)?.window
-            )
+            refuseImportWithoutProject("CZ-ID results", window: targetMainWindowController(routeContext: explicitRouteContext)?.window)
             return
         }
         guard canWriteProjectOutputs(

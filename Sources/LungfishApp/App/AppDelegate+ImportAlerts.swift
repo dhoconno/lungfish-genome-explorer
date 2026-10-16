@@ -87,4 +87,17 @@ extension AppDelegate {
     enum ImportFilesOutcomeSeam {
         @TaskLocal static var presenter: any ImportFilesOutcomePresenting = LiveImportFilesOutcomePresenter()
     }
+
+    /// The one refusal of an import that has no project to land in, the `No Project Open` alert that a
+    /// classifier launch shows too (decisions L1, U5 and Q-U65). The import starts nothing. `thing`
+    /// names what the import brings in, as its Import Center card does, such as `NVD results`. The
+    /// alert is a sheet on `window` when the import has one and app-modal when it has none, through
+    /// ``NoProjectPresenterSeam``. It names no folder, because imports land in different folders.
+    func refuseImportWithoutProject(_ thing: String, window: NSWindow?) {
+        NoProjectPresenterSeam.presenter.present(
+            title: "No Project Open",
+            message: "Open or create a project before importing \(thing).",
+            on: window
+        )
+    }
 }

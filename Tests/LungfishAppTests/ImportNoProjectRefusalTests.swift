@@ -2,12 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.11 lane U62 (SW8, inventory facts F22 and F23). The Import Center starts four imports
-// (NAO-MGS results, a primer scheme, NVD results and CZ-ID results) through `AppDelegate+ToolsMenu.swift`.
-// With no main window open each only beeped, and the NVD and CZ-ID result imports called `showAlert`,
-// which shows nothing when it finds no window. The tests bind a recording presenter through
-// `AppDelegate.NoProjectPresenterSeam`, as ClassifierNoProjectRefusalTests does, because no test can
-// click an application-modal alert away.
+// Phase 2.11 lane U62 (SW8, inventory facts F22 and F23, decisions U5 and Q-U65). The Import Center
+// starts four imports (NAO-MGS results, a primer scheme, NVD results and CZ-ID results) through
+// `AppDelegate+ToolsMenu.swift`. With no main window open each only beeped, and the NVD and CZ-ID
+// result imports called `showAlert`, which shows nothing when it finds no window. All six now
+// refuse in one set of words, `No Project Open` over `Open or create a project before importing
+// <thing>.`, through `AppDelegate.NoProjectPresenterSeam`. The tests bind a recording presenter, as
+// ClassifierNoProjectRefusalTests does, because no test can click an application-modal alert away.
 
 import AppKit
 import XCTest
@@ -24,32 +25,85 @@ final class ImportNoProjectRefusalTests: XCTestCase {
         OperationCenter.useTemporaryFailureReportsForTesting()
     }
 
-    // MARK: - Pins of the refusals as they stand
+    // MARK: - The six refusals
 
-    /// With no main window each of the four imports only beeps. It presents nothing, starts nothing
-    /// and never tells the wizard request that anything happened.
-    func testTheFourImportsWithNoMainWindowPresentNothing() throws {
+    /// With no main window each of the four imports refuses app-modal, with no window given. It
+    /// starts no row, tells the wizard request nothing and puts no sheet on any window.
+    func testEachOfTheFourImportsWithNoMainWindowShowsNoProjectOpenAndStartsNothing() throws {
         for entry in Self.windowlessLaunches {
             let outcome = try run(entry.call)
-            XCTAssertEqual(outcome.presentations.count, 0, "\(entry.name): the beep is all it does")
+            XCTAssertEqual(outcome.presentations.map(\.title), ["No Project Open"], "\(entry.name): one refusal")
+            XCTAssertEqual(outcome.presentations.map(\.message), [refusalMessage(entry.thing)], entry.name)
+            XCTAssertEqual(outcome.presentations.map { $0.window == nil }, [true], "\(entry.name): no window, so app-modal")
             XCTAssertEqual(outcome.startedRows, [], "\(entry.name): starts no row")
             XCTAssertEqual(outcome.dispatched, [], "\(entry.name): the wizard request hears nothing")
+            XCTAssertEqual(outcome.sheetsAdded, 0, "\(entry.name): the presenter shows it, not a sheet of the import")
         }
     }
 
-    /// With no window to find, `showAlert` shows nothing for the NVD and CZ-ID result imports. The
-    /// import is rejected to its caller and no sheet appears on any window.
-    func testTheTwoResultImportsWithNoProjectAndNoWindowShowNothing() throws {
+    /// With no project and no window the NVD and CZ-ID result imports refuse in the same words and
+    /// still reject to their caller.
+    func testTheTwoResultImportsWithNoProjectAndNoWindowShowNoProjectOpenAndRejectTheirCaller() throws {
         for entry in Self.resultImports {
             let outcome = try run(entry.call)
-            XCTAssertEqual(outcome.presentations.count, 0, "\(entry.name): the recorder receives nothing")
+            XCTAssertEqual(outcome.presentations.map(\.title), ["No Project Open"], "\(entry.name): one refusal")
+            XCTAssertEqual(outcome.presentations.map(\.message), [refusalMessage(entry.thing)], entry.name)
+            XCTAssertEqual(outcome.presentations.map { $0.window == nil }, [true], "\(entry.name): no window, so app-modal")
             XCTAssertEqual(outcome.startedRows, [], "\(entry.name): starts no row")
             XCTAssertEqual(outcome.dispatched, [.rejected("Open a project before importing results.")], entry.name)
-            XCTAssertEqual(outcome.sheetsAdded, 0, "\(entry.name): no window shows a sheet")
+            XCTAssertEqual(outcome.sheetsAdded, 0, "\(entry.name): the presenter shows it, not a sheet of the import")
         }
+    }
+
+    /// With a project window and no project the same two imports hand the presenter that window, so
+    /// the refusal is a sheet on it.
+    func testTheTwoResultImportsWithNoProjectOnAWindowShowItOnThatWindow() throws {
+        let delegate = makeAppDelegateWithTemporaryState()
+        let controller = MainWindowController()
+        delegate.mainWindowController = controller
+        delegate.testingSetMainWindowControllers([controller])
+        for entry in Self.resultImports {
+            let recorder = RecordingNoProjectPresenter()
+            let box = DispatchBox()
+            AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) { entry.call(delegate, box) }
+
+            XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open"], entry.name)
+            XCTAssertEqual(recorder.presentations.map(\.message), [refusalMessage(entry.thing)], entry.name)
+            XCTAssertTrue(recorder.presentations.first?.window === controller.window, "\(entry.name): the sheet sits on the project window")
+            XCTAssertEqual(box.values, [.rejected("Open a project before importing results.")], entry.name)
+        }
+    }
+
+    /// The one refusal takes the thing imported and an optional window, and names no folder.
+    func testTheSharedRefusalHandsThePresenterTheWordsAndTheWindow() {
+        let delegate = makeAppDelegateWithTemporaryState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let recorder = RecordingNoProjectPresenter()
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+            delegate.refuseImportWithoutProject("BAM files", window: window)
+            delegate.refuseImportWithoutProject("VCF files", window: nil)
+        }
+
+        XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open", "No Project Open"])
+        XCTAssertEqual(recorder.presentations.map(\.message), [refusalMessage("BAM files"), refusalMessage("VCF files")])
+        XCTAssertTrue(recorder.presentations.first?.window === window)
+        XCTAssertNil(recorder.presentations.last?.window)
+        XCTAssertFalse(recorder.presentations.contains { $0.message.contains("Analyses") }, "an import lands in different folders")
     }
 
     // MARK: - Helpers
+
+    /// The words under the title, in Q-U65's family: one sentence, one final period, no folder.
+    private func refusalMessage(_ thing: String) -> String {
+        "Open or create a project before importing \(thing)."
+    }
 
     private typealias Launch = (name: String, thing: String, call: (AppDelegate, DispatchBox) -> Void)
 
