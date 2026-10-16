@@ -7,7 +7,9 @@ OPTIONS:
   --alignment-track <alignment-track>
                           Bundle alignment track identifier, or its display
                           name when only one track has that name
-  --caller <caller>       Variant caller: lofreq, ivar, medaka, bcftools, clair3
+  --caller <caller>       Variant caller: lofreq, ivar, medaka, bcftools,
+                          clair3, gatk (GATK HaplotypeCaller, attached under
+                          variants/gatk)
   --name, --output-track-name <name>
                           Display name for the created variant track
   --min-af <min-af>       Minimum allele frequency threshold
@@ -41,10 +43,28 @@ OPTIONS:
                           bacterial references) or 2 (diploid, for human and
                           other eukaryotic references). Defaults to a value
                           derived from the bundle's organism metadata, falling
-                          back to 1.
+                          back to 1. For --caller gatk it is the GATK sample
+                          ploidy, a positive number that defaults to 2.
   --extra-args, --advanced-options <extra-args>
                           Additional caller arguments, written exactly as they
                           should be passed to the underlying tool
+  --emit-ref-confidence <emit-ref-confidence>
+                          GATK: reference confidence mode, NONE or GVCF. NONE
+                          writes a plain VCF of the called variants. (default:
+                          NONE)
+  --intervals <intervals> GATK: optional intervals file, a BED file or an
+                          interval list. The value is read as a file path, so a
+                          contig name or a region such as chr1:1-100 is not
+                          accepted
+  --pcr-indel-model <pcr-indel-model>
+                          GATK: PCR indel model (default: CONSERVATIVE)
+  --stand-call-conf <stand-call-conf>
+                          GATK: calling confidence threshold, used when
+                          reference confidence is NONE (default: 30.0)
+  --max-alternate-alleles <max-alternate-alleles>
+                          GATK: maximum alternate alleles (default: 6)
+  --pair-hmm-threads <pair-hmm-threads>
+                          GATK: native PairHMM threads (default: 4)
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
