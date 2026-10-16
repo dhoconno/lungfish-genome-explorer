@@ -365,6 +365,31 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertTrue(outputs.allSatisfy { $0.sizeBytes == nil && $0.sha256 == nil })
     }
 
+    func testARunnerThatThrowsRemovesTheFilesTheRunMadeAndWritesNoRecord() async throws {
+        let reference = try write("reference.fa", contents: ">chr1\nACGT\n")
+        let bam = try write("sample.bam", contents: "bam-bytes")
+        let output = tempDir.appendingPathComponent("sample.vcf.gz")
+        let index = URL(fileURLWithPath: output.path + ".tbi")
+        let earlierRecord = tempDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try Data("earlier-run".utf8).write(to: earlierRecord)
+        let config = GATKHaplotypeCallerConfiguration(referenceFASTAURL: reference, inputBAMURL: bam, outputVCFURL: output)
+        let runner = RecordingGATKCommandRunner { _ in
+            try Data("partial-vcf".utf8).write(to: output)
+            try Data("partial-index".utf8).write(to: index)
+            throw CancellationError()
+        }
+        let request = GATKPipelineExecutionRequest.haplotypeCaller(configuration: config, toolVersion: "4.6.2.0")
+        do {
+            _ = try await GATKPipelineExecutor(runner: runner).run(request)
+            XCTFail("A runner that throws makes the run throw.")
+        } catch is CancellationError {
+            // expected, the error reaches the caller unchanged
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the partial VCF is removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: index.path), "the partial index is removed")
+        XCTAssertEqual(try Data(contentsOf: earlierRecord), Data("earlier-run".utf8), "a thrown runner writes no record over an earlier one")
+    }
+
     func testRemovesNewOutputsWhenCompletedRunCannotWriteProvenance() async throws {
         let reference = try write("reference.fa", contents: ">chr1\nACGT\n")
         let bam = try write("sample.bam", contents: "bam-bytes")
