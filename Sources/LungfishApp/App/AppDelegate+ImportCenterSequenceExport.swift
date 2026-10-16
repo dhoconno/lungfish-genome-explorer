@@ -427,32 +427,4 @@ extension AppDelegate {
         }
         return annotations
     }
-
-    nonisolated func compressExportFile(
-        _ writeURL: URL,
-        to outputURL: URL,
-        compression: SequenceExportCompression
-    ) throws {
-        let process = Process()
-        switch compression {
-        case .gzip:
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        case .zstd:
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/zstd")
-        case .none:
-            return
-        }
-        process.arguments = ["-c", writeURL.path]
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-        process.standardOutput = outputHandle
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "com.lungfish.browser", code: Int(process.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey: "Compression failed for \(outputURL.lastPathComponent)."])
-        }
-    }
 }
