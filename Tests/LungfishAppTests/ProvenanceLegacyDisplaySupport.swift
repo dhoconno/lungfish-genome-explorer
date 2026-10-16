@@ -12,6 +12,7 @@ import Foundation
 @testable import LungfishApp
 import LungfishCore
 import LungfishWorkflow
+import XCTest
 
 // MARK: - Snapshot
 
@@ -118,6 +119,13 @@ struct ProvenanceDisplaySnapshot: Codable, Equatable {
 struct ProvenanceDisplayCase {
     /// The name of the expected file, without its extension.
     let name: String
+
+    /// Naming a case also gives the running test case its own storage root, since a test names its case before it
+    /// loads a record (``ProvenanceDisplayStorageRoot``).
+    init(name: String) {
+        self.name = name
+        ProvenanceDisplayStorageRoot.shared.activate()
+    }
 }
 
 // MARK: - Capture
@@ -322,6 +330,60 @@ struct ProvenanceDisplayRedaction {
             with: "<home>",
             options: .regularExpression
         )
+    }
+}
+
+// MARK: - The storage root of a display case
+
+/// Gives each display test case a managed storage root of its own, so no snapshot depends on where the Mac keeps
+/// its tools (Phase 2.11 SW17 a).
+///
+/// The tab shows a recorded `<tool-root>/envs/htslib/bin/bgzip` under the reader's own tool root. With
+/// `LUNGFISH_STORAGE_ROOT` at `/Users/dho/.lungfish`, the root folder looks like a project to the path presentation,
+/// and the tab shows `conda/envs/htslib/bin/bgzip` where the expected files read `bgzip`. Whether a tool under the
+/// reader's own storage root should read as the tool's name is a display rule in `PortablePath.swift` that waits for
+/// the words pass of Phase 2.12, so the case sets `LUNGFISH_STORAGE_ROOT` to a new folder in the temporary directory
+/// and clears `LUNGFISH_CONDA_ROOT` until XCTest reports the case finished, and then puts both back.
+final class ProvenanceDisplayStorageRoot: NSObject, XCTestObservation, @unchecked Sendable {
+    /// The observer, registered with XCTest the first time a case is named.
+    static let shared: ProvenanceDisplayStorageRoot = {
+        let observer = ProvenanceDisplayStorageRoot()
+        XCTestObservationCenter.shared.addTestObserver(observer)
+        return observer
+    }()
+
+    private let lock = NSLock()
+    private var saved: [String: String?]?
+    private var folder: URL?
+
+    /// Sets the root for the test case that is running. A second call before the case finishes does nothing.
+    func activate() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard saved == nil else { return }
+        let environment = ProcessInfo.processInfo.environment
+        saved = [
+            "LUNGFISH_STORAGE_ROOT": environment["LUNGFISH_STORAGE_ROOT"],
+            "LUNGFISH_CONDA_ROOT": environment["LUNGFISH_CONDA_ROOT"],
+        ]
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("provenance-display-storage-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        folder = root
+        setenv("LUNGFISH_STORAGE_ROOT", root.path, 1)
+        unsetenv("LUNGFISH_CONDA_ROOT")
+    }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let saved else { return }
+        for (name, value) in saved {
+            if let value { setenv(name, value, 1) } else { unsetenv(name) }
+        }
+        if let folder { try? FileManager.default.removeItem(at: folder) }
+        self.saved = nil
+        folder = nil
     }
 }
 
