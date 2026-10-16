@@ -903,6 +903,10 @@ final class MappingViewportRoutingTests: XCTestCase {
             .init(targets: targets, intent: .upsert(body: "Production bridge"))
         )
 
+        // Both requests publish after the calls above return, so wait for them before the read and before the
+        // cleanup removes the bundle they write to (2.11 S35 review fix 4).
+        await waitForAnnotationEdits()
+
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
         )
