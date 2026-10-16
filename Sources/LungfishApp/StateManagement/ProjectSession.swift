@@ -39,6 +39,15 @@ public final class ProjectSession: Identifiable {
     /// inspection run on the caller's storage executor.
     nonisolated static func prepareProject(at url: URL, access: ProjectAccessMode = .writable, deferCleanup: Bool = false) throws -> PreparedProject {
         let standardizedURL = url.standardizedFileURL
+        // A store released a moment ago may still hold the lock this process wrote,
+        // for example after its folder moved. Its cleanup removes that lock wherever
+        // the folder now is, so wait for it before reading the lock (2.11 S60).
+        let lockManager = ProjectLockManager()
+        if !ProjectStore.ownsWriterLease(at: standardizedURL),
+           let record = try? lockManager.readLock(forProjectAt: standardizedURL),
+           lockManager.isOwnedByCurrentProcess(record) {
+            ProjectStore.flushDeferredCleanup()
+        }
         let warning = ProjectStore.ownsWriterLease(at: standardizedURL)
             ? ProjectOpenWarningState.unlocked(projectURL: standardizedURL)
             : ProjectOpenWarningState.evaluate(projectURL: standardizedURL)

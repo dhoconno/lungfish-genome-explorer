@@ -430,7 +430,7 @@ public final class ProjectStore: @unchecked Sendable {
         let lockURL = ProjectLockManager.lockURL(for: url)
         let record = ProjectLockRecord.current(projectURL: url, mode: "write", toolName: "Lungfish ProjectStore", appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")
         try acquireWriterLockRecord(record, projectURL: url, lockURL: lockURL, manager: manager)
-        let lease = ProjectStoreWriterLease(lockURL: lockURL, record: record, synchronization: synchronization)
+        let lease = ProjectStoreWriterLease(lockURL: lockURL, projectURL: url, record: record, synchronization: synchronization)
         synchronization.writerLease = lease
         return lease
     }
