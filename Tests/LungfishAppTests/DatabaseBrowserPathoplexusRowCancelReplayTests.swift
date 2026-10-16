@@ -67,7 +67,7 @@ final class DatabaseBrowserPathoplexusRowCancelReplayTests: XCTestCase {
             routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: UUID()),
             pathoplexusOrganism: PathoplexusLAPISStandIn.organism
         ) { _ in }
-        let operationID = try XCTUnwrap(started.startedID)
+        let operationID = try XCTUnwrap(started?.startedID)
         defer { _ = OperationCenter.shared.acknowledgeCancellation(id: operationID) }
         let service = NCBIService()
         let genBankVM = GenBankBundleDownloadViewModel(ncbiService: service)

@@ -11,9 +11,9 @@
 // (R3, lane A44). NCBI nucleotide and virus records with a project record
 // `fetch ncbi --bundle`, which must parse the same way (lane A45), and
 // Pathoplexus records with a project record `fetch pathoplexus` (lane A45).
-// SRA runs and rows with no project record no command, and the tests pin each
-// as a CLI parity gap. A command added later fails a pin and prompts a parse
-// test in its place.
+// SRA runs begin with no command, which their route sets for each run when the
+// import sheet is confirmed. A download with no project registers no row and
+// says No Project Open (DatabaseBrowserNoProjectDownloadRefusalTests, lane A60).
 
 import XCTest
 @testable import LungfishApp
@@ -53,7 +53,7 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
 
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(reporter.items.count, 1)
-        XCTAssertEqual(result.startedID, item.id)
+        XCTAssertEqual(result?.startedID, item.id)
         XCTAssertEqual(launchedID, item.id)
         XCTAssertEqual(item.title, title)
         XCTAssertEqual(item.initialDetail, "Preparing \(accessions.count) record(s)...")
@@ -128,25 +128,6 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         XCTAssertNil(command.name)
     }
 
-    func testGenomeAssemblyWithNoProjectRecordsNoCommandAsAParityGap() throws {
-        // With no project in the route context the run picks the Downloads
-        // folder of the window the download lands in, which the row cannot
-        // know before the run. A relative `--output-dir .` would break the
-        // absolute-path rule, so the row records no command.
-        let reporter = RecordingOperationReporter()
-        DatabaseBrowserViewModel.beginBatchDownloadOperation(
-            title: "GCF_003047895.1",
-            accessions: ["GCF_003047895.1"],
-            source: .ncbi,
-            searchType: .genome,
-            routeContext: nil,
-            reporter: reporter
-        ) { _ in }
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
-    }
-
     // MARK: - NCBI nucleotide and virus records (lane A45), and Pathoplexus
 
     func testNucleotideAndVirusRowsRecordTheFetchNCBIBundleCommand() throws {
@@ -194,23 +175,6 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         XCTAssertTrue(command.bundle)
     }
 
-    func testNucleotideRowWithNoProjectRecordsNoCommandAsAParityGap() throws {
-        // With no project the run builds in a scratch folder and the import copies the bundle
-        // out, as for a genome assembly, so the row records nil and runs in process.
-        let reporter = RecordingOperationReporter()
-        DatabaseBrowserViewModel.beginBatchDownloadOperation(
-            title: "MN908947.3",
-            accessions: ["MN908947.3"],
-            source: .ncbi,
-            searchType: .nucleotide,
-            routeContext: nil,
-            reporter: reporter
-        ) { _ in }
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
-    }
-
     func testPathoplexusRowsRecordTheFetchPathoplexusCommand() throws {
         let item = try recordedRow(
             title: "PP_0012345, PP_0012346",
@@ -251,24 +215,6 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         XCTAssertTrue(command.noGFF3)
     }
 
-    func testPathoplexusRowWithNoProjectRecordsNoCommandAsAParityGap() throws {
-        // With no project the run builds in a scratch folder and the import copies the bundle out, as
-        // for a genome assembly, so the row records nil and runs in process.
-        let reporter = RecordingOperationReporter()
-        DatabaseBrowserViewModel.beginBatchDownloadOperation(
-            title: "PP_0012345",
-            accessions: ["PP_0012345"],
-            source: .pathoplexus,
-            searchType: .nucleotide,
-            routeContext: nil,
-            pathoplexusOrganism: "mpox",
-            reporter: reporter
-        ) { _ in }
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "download-genome-no-project")
-    }
-
     func testPathoplexusRowWithNoOrganismRecordsNoCommand() throws {
         // The browser refuses a Pathoplexus download with no organism selected, so a row never gets
         // here without one. The command would not parse without it, so it records nil.
@@ -299,7 +245,8 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
                 routeContext: routeContext,
                 reporter: reporter
             ) { _ in launched += 1 }
-            XCTAssertNil(result.startedID, "\(source) \(searchType)")
+            XCTAssertNotNil(result, "\(source) \(searchType): a row with a project reaches the reporter")
+            XCTAssertNil(result?.startedID, "\(source) \(searchType)")
         }
 
         XCTAssertEqual(launched, 0, "a refused row must launch nothing")

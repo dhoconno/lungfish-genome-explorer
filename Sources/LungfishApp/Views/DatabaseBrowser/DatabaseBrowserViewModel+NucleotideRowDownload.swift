@@ -18,8 +18,8 @@ enum NucleotideRowDownloadRoute: String, Sendable, Equatable, CaseIterable {
     /// under the project's `.tmp` folder, and the import copies it into the Downloads folder. It
     /// names the one sequence by the record's LOCUS name, where the CLI route names it by the
     /// accession with its version, and writes the builder's own record, the declared differences
-    /// that keep the key. It goes in 2.11. A row with no project takes it whatever the key holds
-    /// (`download-genome-no-project`).
+    /// that keep the key. It goes in 2.11. A download with no project never starts a row, since
+    /// the browser refuses it (lane A60).
     case legacy
     /// The default. One `lungfish-cli fetch ncbi <accession> --bundle --output-dir <folder>
     /// --format json` child for each row with a project, which writes straight into the project's

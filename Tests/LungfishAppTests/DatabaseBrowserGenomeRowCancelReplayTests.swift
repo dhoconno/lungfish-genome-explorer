@@ -63,7 +63,7 @@ final class DatabaseBrowserGenomeRowCancelReplayTests: XCTestCase {
             accessions: records.map(\.accession), source: .ncbi, searchType: .genome,
             routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: UUID())
         ) { _ in }
-        let operationID = try XCTUnwrap(started.startedID)
+        let operationID = try XCTUnwrap(started?.startedID)
         defer { _ = OperationCenter.shared.acknowledgeCancellation(id: operationID) }
         let service = NCBIService()
         let genomeVM = GenomeDownloadViewModel(ncbiService: service)

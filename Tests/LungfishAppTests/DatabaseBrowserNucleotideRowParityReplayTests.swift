@@ -35,7 +35,7 @@ final class DatabaseBrowserNucleotideRowParityReplayTests: XCTestCase {
         case recordWithoutGFF3
     }
 
-    static let closer = "2.11, which deletes the in-process nucleotide row with its key (C4) once download-genome-no-project is closed"
+    static let closer = "2.11, which deletes the in-process nucleotide row with its key (C4)"
 
     /// Each way side C differs from side A with BIO's reason, as measured (the counts are exact).
     /// The batch folder's name holds a UUID, numbered by its place in the tree.

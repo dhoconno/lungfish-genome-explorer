@@ -18,8 +18,8 @@ enum PathoplexusRowDownloadRoute: String, Sendable, Equatable, CaseIterable {
     /// `.tmp` folder, and the import copies it into the Downloads folder. A record built from the
     /// Pathoplexus FASTA gets no provenance record, and a record built from GenBank names its one
     /// sequence by the LOCUS name and keeps the record of the build, the declared differences that
-    /// keep the key. It goes in 2.11. A row with no project takes it whatever the key holds
-    /// (`download-genome-no-project`).
+    /// keep the key. It goes in 2.11. A download with no project never starts a row, since the
+    /// browser refuses it (lane A60).
     case legacy
     /// The default. One `lungfish-cli fetch pathoplexus <accession> --organism <id> --output-dir
     /// <folder> --format json` child for each row with a project, which writes straight into the

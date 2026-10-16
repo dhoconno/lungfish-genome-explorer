@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 import LungfishCore
 import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishApp
 
@@ -14,7 +15,7 @@ final class SRADownloadPreparationTests: XCTestCase {
     func testPreparationCanBeCancelledBeforeMetadataReturns() async throws {
         _ = NSApplication.shared
         let model = makeModel()
-        model.performBatchDownload()
+        startPreparation(model)
         let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" })
         defer { OperationCenter.shared.acknowledgeCancellation(id: row.id); OperationCenter.shared.clearItem(id: row.id) }
         XCTAssertTrue(row.isCancellable, "Preparation must install Cancel before returning to the UI")
@@ -28,7 +29,7 @@ final class SRADownloadPreparationTests: XCTestCase {
         _ = NSApplication.shared
         OperationCenter.useTemporaryFailureReportsForTesting()
         let model = makeModel()
-        model.performBatchDownload()
+        startPreparation(model)
         let id = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" }?.id)
         defer { OperationCenter.shared.acknowledgeCancellation(id: id); OperationCenter.shared.clearItem(id: id) }
         await waitUntil { OperationCenter.shared.items.first { $0.id == id }?.state == .failed }
@@ -47,7 +48,7 @@ final class SRADownloadPreparationTests: XCTestCase {
             parent.endSheet(browser)
             parent.orderOut(nil) // Neither keyWindow nor mainWindow can supply the destination now.
         }
-        model.performBatchDownload()
+        startPreparation(model)
         let id = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" }?.id)
         defer { OperationCenter.shared.acknowledgeCancellation(id: id); OperationCenter.shared.clearItem(id: id) }
         await waitUntil { parent.attachedSheet?.contentViewController is FASTQImportConfigSheet }
@@ -68,7 +69,7 @@ final class SRADownloadPreparationTests: XCTestCase {
         let model = makeModel()
         model.downloadPresentationWindow = parent
         model.onDownloadStarted = { parent.endSheet(browser) }
-        model.performBatchDownload()
+        startPreparation(model)
         let id = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" }?.id)
         defer { OperationCenter.shared.acknowledgeCancellation(id: id); OperationCenter.shared.clearItem(id: id) }
         await waitUntil { parent.attachedSheet?.contentViewController is FASTQImportConfigSheet }
@@ -85,7 +86,7 @@ final class SRADownloadPreparationTests: XCTestCase {
         let client = SuspendedSRAHTTPClient()
         let model = makeModel(client: client)
         model.downloadPresentationWindow = parent
-        model.performBatchDownload()
+        startPreparation(model)
         let id = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" }?.id)
         defer { OperationCenter.shared.acknowledgeCancellation(id: id); OperationCenter.shared.clearItem(id: id) }
         await waitUntil { await client.started }
@@ -108,7 +109,7 @@ final class SRADownloadPreparationTests: XCTestCase {
         model.downloadPresentationWindow = parent
         var dismissed = false
         model.onDownloadStarted = { dismissed = true; parent.endSheet(browser) }
-        model.performBatchDownload()
+        startPreparation(model)
         let id = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" }?.id)
         defer { OperationCenter.shared.acknowledgeCancellation(id: id); OperationCenter.shared.clearItem(id: id) }
         await waitUntil { await client.started }
@@ -130,7 +131,7 @@ final class SRADownloadPreparationTests: XCTestCase {
         let model = makeModel(client: UnavailableSRAHTTPClient())
         model.downloadPresentationWindow = parent
         model.onDownloadStarted = { parent.endSheet(browser) }
-        model.performBatchDownload()
+        startPreparation(model)
         let id = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "SRR9000001" }?.id)
         defer { OperationCenter.shared.acknowledgeCancellation(id: id); OperationCenter.shared.clearItem(id: id) }
         await waitUntil { parent.attachedSheet?.contentViewController is FASTQImportConfigSheet }
@@ -140,6 +141,18 @@ final class SRADownloadPreparationTests: XCTestCase {
         XCTAssertTrue(row.isCancellable)
         OperationCenter.shared.cancel(id: id)
         await waitUntil { OperationCenter.shared.items.first { $0.id == id }?.state == .cancelled }
+    }
+
+    /// Begins the SRA row and hands it to the preparation, as the browser's download does once its
+    /// row has begun. A download with no project now stops at No Project Open before any row (lane
+    /// A60, DatabaseBrowserNoProjectDownloadRefusalTests), so the row begins here and the model keeps
+    /// no route context, which leaves the preparation's window to `downloadPresentationWindow`.
+    private func startPreparation(_ model: DatabaseBrowserViewModel) {
+        let id = OperationCenter.shared.begin(
+            title: "SRR9000001", detail: "Preparing 1 record(s)...", operationType: .download, cliCommand: nil
+        ).rowID
+        model.isDownloading = true
+        model.prepareSRADownload(records: model.selectedRecord.map { [$0] } ?? [], operationID: id)
     }
 
     private func makeWindows() -> (NSWindow, NSWindow) {

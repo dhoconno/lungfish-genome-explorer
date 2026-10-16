@@ -19,7 +19,7 @@ enum GenomeRowDownloadRoute: String, Sendable, Equatable, CaseIterable {
     /// The app fetches the assembly summary and builds the bundle in process in the batch folder,
     /// under the project's `.tmp` folder, and the import copies it into the Downloads folder. It
     /// writes no provenance record, the declared difference that keeps the key, and goes in 2.11.
-    /// A row with no project takes it whatever the key holds (`download-genome-no-project`).
+    /// A download with no project never starts a row, since the browser refuses it (lane A60).
     case legacy
     /// The default. One `lungfish-cli fetch genome <accession> --output-dir <folder> --format
     /// json` child for each row with a project, which writes straight into the project's
@@ -59,10 +59,11 @@ extension DatabaseBrowserViewModel {
 
     /// The folder a genome row writes its bundle into, which its command names. With a project
     /// it is the project's Downloads folder, where the import keeps a bundle in place
-    /// (`DownloadImportRouting`). A row with no project runs in process (review fix F1), so no
-    /// CLI row writes without one until note N1 of the A44 M2 review. Without one the folder
-    /// would be the user's Downloads folder, never a system scratch folder (UX 8) and never
-    /// `Lungfish Downloads`, where the import would copy the bundle under a new name and delete it.
+    /// (`DownloadImportRouting`). A download with no project never starts a row, since the browser
+    /// refuses it with `No Project Open` (lane A60, decision C2), so no row writes without one.
+    /// Without one the folder would be the user's Downloads folder, never a system scratch folder
+    /// (UX 8) and never `Lungfish Downloads`, where the import would copy the bundle under a new
+    /// name and delete it.
     nonisolated static func genomeRowFolder(projectURL: URL?, userDownloads: URL = userDownloadsFolder) -> URL {
         projectURL?.appendingPathComponent("Downloads", isDirectory: true) ?? userDownloads
     }

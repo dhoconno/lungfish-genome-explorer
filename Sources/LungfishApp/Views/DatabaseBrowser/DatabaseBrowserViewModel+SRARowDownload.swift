@@ -21,8 +21,9 @@ enum SRARowDownloadRoute: String, Sendable, Equatable, CaseIterable {
     /// (`startENADownloadTask`). The records it writes differ from the CLI route's in the kinds the
     /// parity class declares (`DatabaseBrowserSRARowParityReplayTests.declared`), and it states the
     /// metadata sidecar's digest as the import child saw it, not as it stands (BIO ruling on lane A45
-    /// M3c, section b item 3). It goes in 2.11 with the key. A row with no project takes it whatever
-    /// the key holds, because the child publishes into the project's `Imports` folder.
+    /// M3c, section b item 3). It goes in 2.11 with the key. The CLI route needs a project, because
+    /// the child publishes into the project's `Imports` folder, and a download with no project never
+    /// starts a row, since the browser refuses it (lane A60).
     case legacy
     /// The default. One `lungfish-cli fetch sra download <run> --bundle --project <project> <the
     /// sheet's flags> --format json` child for each run, in order, which downloads, imports, writes
@@ -89,8 +90,9 @@ extension DatabaseBrowserViewModel {
 
     /// Starts the download of the SRA runs `records` after the user confirmed the import sheet. On the
     /// CLI route, with a project, each run is one `fetch sra download --bundle` child in order. The row
-    /// began before the sheet, so its command is set here with the sheet's flags. The legacy route, or a
-    /// batch with no project, takes `startENADownloadTask`.
+    /// began before the sheet, so its command is set here with the sheet's flags. The legacy route takes
+    /// `startENADownloadTask`. A batch with no project never gets here, since the browser refuses it
+    /// before its row begins (lane A60).
     func startSRADownloadTask(
         records: [SearchResultRecord],
         importConfig: FASTQImportConfiguration,

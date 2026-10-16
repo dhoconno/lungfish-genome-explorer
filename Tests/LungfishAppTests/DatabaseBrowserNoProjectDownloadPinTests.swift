@@ -1,21 +1,18 @@
-// DatabaseBrowserNoProjectDownloadPinTests.swift - Where a Database Browser download with no project lands
+// DatabaseBrowserNoProjectDownloadPinTests.swift - Where a Database Browser download with no project landed
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.11 lane A60 M1 (plan row K2, decision C2). These pins hold at base 4586560ed and record
-// what a download from the Database Browser does when the window it was opened on has no project.
+// Phase 2.11 lane A60 M1 (plan row K2, decision C2). At base 4586560ed a download from the Database
+// Browser with no project began its row, ran and recorded no command, for the genome, GenBank,
+// virus, Pathoplexus and SRA rows alike. A genome row took the in-process route whatever the hidden
+// key held and made its batch folder in the system scratch folder, and the import copied each bundle
+// into the user's `Downloads/Lungfish Downloads` folder (AppDelegate+Classification.swift), which the
+// row never named. Lane A60 M2 refuses such a download before any row
+// (DatabaseBrowserNoProjectDownloadRefusalTests), which replaced the two pins of the row.
 //
-// - The row begins, runs and records no command, for the genome, GenBank, virus, Pathoplexus and
-//   SRA rows alike, with no route context and with one that names only a window.
-// - A genome row takes the in-process route whatever the hidden key holds, and that route makes its
-//   batch folder in the system scratch folder before it asks NCBI for anything. A row that fails
-//   leaves the empty folder there.
-// - The import never keeps a bundle from that scratch folder in place. It copies it into the user's
-//   `Downloads/Lungfish Downloads` folder (AppDelegate+Classification.swift), which no test here
-//   writes into.
-//
-// The NCBI service is a client that refuses every request and records it, so no test reaches the
-// network.
+// The two pins left hold the in-process route the hidden keys still reach. Its batch folder with no
+// project is in the system scratch folder, and the import never keeps a bundle from there in place.
+// No test here writes into the user's Downloads folder.
 
 import AppKit
 import XCTest
@@ -23,18 +20,11 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishKit
-import LungfishKitTestSupport
 import LungfishOperations
 import LungfishTestSupport
 
 @MainActor
 final class DatabaseBrowserNoProjectDownloadPinTests: XCTestCase {
-    override func setUp() async throws {
-        try await super.setUp()
-        _ = NSApplication.shared
-        OperationCenter.useTemporaryFailureReportsForTesting()
-    }
-
     /// One kind of browser row, with what a person downloads through it.
     struct Kind {
         let name: String
@@ -66,73 +56,6 @@ final class DatabaseBrowserNoProjectDownloadPinTests: XCTestCase {
         OperationRouteContext(projectURL: nil, windowStateScopeID: UUID()),
     ]
 
-    // MARK: - What the row records
-
-    func testEachRowWithNoProjectBeginsLaunchesAndRecordsNoCommand() {
-        for context in Self.noProjectContexts {
-            for kind in Self.kinds {
-                let label = "\(kind.name), context \(context == nil ? "nil" : "with a window only")"
-                let reporter = RecordingOperationReporter()
-                var launched = 0
-                let result = DatabaseBrowserViewModel.beginBatchDownloadOperation(
-                    title: kind.accession,
-                    accessions: [kind.accession],
-                    source: kind.source,
-                    searchType: kind.searchType,
-                    routeContext: context,
-                    pathoplexusOrganism: kind.organism,
-                    reporter: reporter
-                ) { _ in launched += 1 }
-
-                XCTAssertEqual(reporter.items.count, 1, label)
-                XCTAssertNotNil(result.startedID, label)
-                XCTAssertEqual(launched, 1, label)
-                XCTAssertNil(reporter.items.first?.cliCommand, label)
-            }
-        }
-    }
-
-    // MARK: - Where the in-process task writes and what the row shows
-
-    func testAGenomeRowWithNoProjectRunsInProcessInTheSystemScratchFolderWhateverTheKeyHolds() async throws {
-        let suite = makeTestDefaultsSuite(prefix: "a60-no-project-genome")
-        suite.defaults.set("cli", forKey: GenomeRowDownloadRouteSettings.defaultsKey)
-        let client = RefusingNCBIClient()
-        let model = DatabaseBrowserViewModel(
-            source: .ncbi, ncbiService: NCBIService(httpClient: client), sraDownloadSuiteName: suite.name)
-        model.ncbiSearchType = .genome
-        let accession = "GCF_960000001.1"
-        model.selectedRecord = SearchResultRecord(id: "960000001", accession: accession, title: "A60 pin", source: .ncbi)
-        let scratch = ProjectTempDirectory.systemTemporaryDirectory()
-        let before = Self.batchFolders(in: scratch)
-
-        model.performBatchDownload()
-
-        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == accession })
-        defer { OperationCenter.shared.clearItem(id: row.id) }
-        await waitUntil(timeout: .seconds(30)) {
-            OperationCenter.shared.items.first { $0.id == row.id }?.state == .failed
-        }
-        let made = Self.batchFolders(in: scratch).subtracting(before)
-        defer {
-            for name in made { try? FileManager.default.removeItem(at: scratch.appendingPathComponent(name)) }
-        }
-
-        let ended = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == row.id })
-        XCTAssertEqual(ended.state, .failed)
-        XCTAssertNil(ended.cliCommand, "the row records no command")
-        XCTAssertTrue(ended.detail.hasPrefix("Completed with 1 failure(s): \(accession): "), ended.detail)
-        let requested = await client.requestedURLs
-        XCTAssertTrue(
-            requested.contains { $0.contains("esummary") },
-            "the in-process route asks NCBI for the assembly summary, where the CLI route would launch a child: \(requested)")
-        XCTAssertEqual(made.count, 1, "the in-process route made one batch folder in the system scratch folder")
-        for name in made {
-            let contents = try FileManager.default.contentsOfDirectory(atPath: scratch.appendingPathComponent(name).path)
-            XCTAssertEqual(contents, [], "the failed row leaves its empty batch folder behind")
-        }
-    }
-
     func testTheBatchFolderOfARowWithNoProjectIsInTheSystemScratchFolder() throws {
         let folder = try BatchDownloadFolder(projectURL: nil).url()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -145,7 +68,7 @@ final class DatabaseBrowserNoProjectDownloadPinTests: XCTestCase {
     func testTheImportCopiesABundleFromTheScratchFolderInsteadOfKeepingIt() {
         // With no project and no working folder the import copies the bundle into the user's
         // Downloads/Lungfish Downloads folder and removes the one it was given, so the row's
-        // bundle URL names a removed path. No test writes into the user's Downloads folder, so
+        // bundle URL named a removed path. No test writes into the user's Downloads folder, so
         // this pins the rule that sends it there.
         let bundle = ProjectTempDirectory.systemTemporaryDirectory()
             .appendingPathComponent("batch-\(UUID().uuidString)", isDirectory: true)

@@ -1,0 +1,135 @@
+// DatabaseBrowserNoProjectDownloadRefusalTests.swift - A Database Browser download with no project says No Project Open
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 2.11 lane A60 M2 (plan row K2, decision C2 branch b, Q-A2 with UX's words). With no project
+// the browser's download ran in process, built in the system scratch folder, and the import copied
+// the bundle into the user's `Downloads/Lungfish Downloads` folder while the row named only the
+// bundle and recorded no command (`download-genome-no-project`, DatabaseBrowserNoProjectDownloadPinTests
+// at base 4586560ed). That folder is one a person can find, but the row never names it, so C2 takes
+// branch b. The download now refuses before any row, in the words of Q-U65's family, `No Project
+// Open` over `Open or create a project before downloading <thing>.`, through
+// `AppDelegate.NoProjectPresenterSeam`. It starts no row, launches nothing, asks no service and makes
+// no folder. The tests bind a recording presenter, because no test can click an alert away.
+
+import AppKit
+import XCTest
+@testable import LungfishApp
+import LungfishCore
+import LungfishIO
+import LungfishKit
+import LungfishKitTestSupport
+import LungfishTestSupport
+
+@MainActor
+final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        _ = NSApplication.shared
+        OperationCenter.useTemporaryFailureReportsForTesting()
+    }
+
+    func testEachRowWithNoProjectRefusesWithNoProjectOpenAndStartsNothing() {
+        for context in DatabaseBrowserNoProjectDownloadPinTests.noProjectContexts {
+            for kind in DatabaseBrowserNoProjectDownloadPinTests.kinds {
+                let label = "\(kind.name), context \(context == nil ? "nil" : "with a window only")"
+                let reporter = RecordingOperationReporter()
+                let recorder = RecordingNoProjectPresenter()
+                var launched = 0
+                var result: OperationStartResult?
+                AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+                    result = DatabaseBrowserViewModel.beginBatchDownloadOperation(
+                        title: kind.accession,
+                        accessions: [kind.accession],
+                        source: kind.source,
+                        searchType: kind.searchType,
+                        routeContext: context,
+                        pathoplexusOrganism: kind.organism,
+                        reporter: reporter
+                    ) { _ in launched += 1 }
+                }
+
+                XCTAssertNil(result, "\(label): nothing reached the reporter")
+                XCTAssertEqual(reporter.items.count, 0, "\(label): no row")
+                XCTAssertEqual(launched, 0, "\(label): nothing launched")
+                XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open"], label)
+                XCTAssertEqual(
+                    recorder.presentations.map(\.message),
+                    ["Open or create a project before downloading \(kind.thing)."], label)
+                XCTAssertFalse(
+                    recorder.presentations.contains { $0.message.contains("Analyses") || $0.message.contains("Downloads") },
+                    "\(label): the refusal names no folder")
+            }
+        }
+    }
+
+    func testTheRefusalSitsOnTheWindowItIsGivenAndIsAppModalWithNone() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let recorder = RecordingNoProjectPresenter()
+        let reporter = RecordingOperationReporter()
+        var refused = 0
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+            for presentingWindow in [window, nil] as [NSWindow?] {
+                let result = DatabaseBrowserViewModel.beginBatchDownloadOperation(
+                    title: "SRR11140748", accessions: ["SRR11140748"], source: .ena, searchType: .nucleotide,
+                    routeContext: nil, presentingWindow: presentingWindow, reporter: reporter
+                ) { _ in }
+                if result == nil { refused += 1 }
+            }
+        }
+
+        XCTAssertEqual(refused, 2)
+        XCTAssertEqual(reporter.items.count, 0)
+        XCTAssertEqual(
+            recorder.presentations.map(\.message),
+            Array(repeating: "Open or create a project before downloading SRA runs.", count: 2))
+        XCTAssertTrue(recorder.presentations.first?.window === window, "a sheet on the browser's window")
+        XCTAssertNil(recorder.presentations.last?.window, "app-modal with no window")
+    }
+
+    func testAGenomeRowWithNoProjectAsksNCBINothingAndMakesNoFolder() async throws {
+        let suite = makeTestDefaultsSuite(prefix: "a60-no-project-refusal")
+        suite.defaults.set("cli", forKey: GenomeRowDownloadRouteSettings.defaultsKey)
+        let client = RefusingNCBIClient()
+        let model = DatabaseBrowserViewModel(
+            source: .ncbi, ncbiService: NCBIService(httpClient: client), sraDownloadSuiteName: suite.name)
+        model.ncbiSearchType = .genome
+        let accession = "GCF_960000002.1"
+        model.selectedRecord = SearchResultRecord(id: "960000002", accession: accession, title: "A60 refusal", source: .ncbi)
+        var dismissed = false
+        model.onDownloadStarted = { dismissed = true }
+        let scratch = ProjectTempDirectory.systemTemporaryDirectory()
+        let before = DatabaseBrowserNoProjectDownloadPinTests.batchFolders(in: scratch)
+        let recorder = RecordingNoProjectPresenter()
+
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) { model.performBatchDownload() }
+
+        let row = OperationCenter.shared.items.first { $0.title == accession }
+        if let row {
+            // Only a route that still starts the row gets here. Let it end before reading the folder.
+            await waitUntil(timeout: .seconds(30)) {
+                OperationCenter.shared.items.first { $0.id == row.id }?.state.isActive != true
+            }
+            OperationCenter.shared.clearItem(id: row.id)
+        }
+        let made = DatabaseBrowserNoProjectDownloadPinTests.batchFolders(in: scratch).subtracting(before)
+        for name in made { try? FileManager.default.removeItem(at: scratch.appendingPathComponent(name)) }
+
+        XCTAssertNil(row, "no row starts")
+        XCTAssertFalse(dismissed, "the browser stays open, so the person can go and open a project")
+        XCTAssertFalse(model.isDownloading)
+        XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open"])
+        XCTAssertEqual(
+            recorder.presentations.map(\.message), ["Open or create a project before downloading genome assemblies."])
+        let requested = await client.requestedURLs
+        XCTAssertEqual(requested, [], "no service is asked")
+        XCTAssertEqual(made, [], "no folder is made")
+    }
+}
