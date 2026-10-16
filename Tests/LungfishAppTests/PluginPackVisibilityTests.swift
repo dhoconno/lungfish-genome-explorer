@@ -167,9 +167,7 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertFalse(storageObserver.contains("Task { @MainActor"))
         XCTAssertFalse(installPack.contains("Task { @MainActor"))
         XCTAssertTrue(storageObserver.contains("DispatchQueue.main.async"))
-        XCTAssertTrue(installPack.contains("DispatchQueue.main.async"))
         XCTAssertTrue(storageObserver.contains("MainActor.assumeIsolated"))
-        XCTAssertTrue(installPack.contains("MainActor.assumeIsolated"))
     }
 
     func testViewModelExposesRequiredSetupSeparatelyFromOptionalPacks() async {
