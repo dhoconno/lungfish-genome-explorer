@@ -4,7 +4,7 @@ import LungfishIO
 import LungfishOperations
 import LungfishWorkflow
 
-enum ReferenceBundleMergeServiceError: LocalizedError {
+package enum ReferenceBundleMergeServiceError: LocalizedError {
     case requiresAtLeastTwoBundles
     case noFASTAFound(bundleName: String)
     /// One or more source bundles carry payloads the merge cannot rebase yet.
@@ -21,7 +21,7 @@ enum ReferenceBundleMergeServiceError: LocalizedError {
     /// Two or more sources declare the same sequence name.
     case duplicateSequenceNames(collisions: [SequenceNameCollision])
 
-    var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .requiresAtLeastTwoBundles:
             return "Select at least two reference bundles to merge."
@@ -64,7 +64,7 @@ enum ReferenceBundleMergeServiceError: LocalizedError {
 }
 
 /// A source bundle that carries payloads the merge does not support yet.
-struct UnsupportedPayloadReport: Equatable {
+package struct UnsupportedPayloadReport: Equatable {
     let bundleName: String
     /// Human-readable payload kinds, e.g. `["variant tracks", "alignments"]`.
     let payloads: [String]
@@ -84,7 +84,7 @@ struct UnsupportedPayloadReport: Equatable {
 }
 
 /// A sequence name declared by more than one source bundle.
-struct SequenceNameCollision: Equatable {
+package struct SequenceNameCollision: Equatable {
     let sequenceName: String
     let bundleNames: [String]
 }
@@ -95,7 +95,7 @@ struct SequenceNameCollision: Equatable {
 /// database and rebuilt as separate, origin-attributable tracks. Variants, signal tracks,
 /// and alignments are still refused because merging concatenates distinct references,
 /// which would require rebasing their coordinates onto the merged sequence space.
-enum ReferenceBundleMergeService {
+package enum ReferenceBundleMergeService {
     #if DEBUG
     /// Test-only threading probe, fired at the FIRST statement of `mergeOffMain` -- before
     /// any `await`, so it observes the thread the merge body was *entered* on.
@@ -113,34 +113,34 @@ enum ReferenceBundleMergeService {
     #endif
 
     /// A log line the merge wants recorded in the Operations panel, with its severity.
-    struct ProgressLog: Sendable {
-        enum Level: Sendable { case info, warning }
+    package struct ProgressLog: Sendable {
+        package enum Level: Sendable { case info, warning }
 
-        let level: Level
-        let message: String
+        package let level: Level
+        package let message: String
 
-        static func info(_ message: String) -> ProgressLog {
+        package static func info(_ message: String) -> ProgressLog {
             ProgressLog(level: .info, message: message)
         }
 
-        static func warning(_ message: String) -> ProgressLog {
+        package static func warning(_ message: String) -> ProgressLog {
             ProgressLog(level: .warning, message: message)
         }
     }
 
     /// Progress sink that lets the detached merge report back to the main actor.
-    struct ProgressReporter: Sendable {
+    package struct ProgressReporter: Sendable {
         /// `(fractionComplete, userVisibleDetail, optionalLogLine)`
-        let report: @Sendable (Double, String, ProgressLog?) async -> Void
+        package let report: @Sendable (Double, String, ProgressLog?) async -> Void
 
-        init(report: @escaping @Sendable (Double, String, ProgressLog?) async -> Void) {
+        package init(report: @escaping @Sendable (Double, String, ProgressLog?) async -> Void) {
             self.report = report
         }
 
-        static let none = ProgressReporter { _, _, _ in }
+        package static let none = ProgressReporter { _, _, _ in }
     }
 
-    static func merge(
+    package static func merge(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String,
@@ -172,7 +172,7 @@ enum ReferenceBundleMergeService {
     /// keeps `mergeRecordStores`' SQLite union and `writeMergeProvenance`'s whole-bundle
     /// enumeration plus SHA256 hashing off the main thread. All captured values are
     /// `Sendable` snapshots taken at the call site.
-    static func runDetached(
+    package static func runDetached(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String,
@@ -191,7 +191,7 @@ enum ReferenceBundleMergeService {
         return try await task.value
     }
 
-    private static func mergeOffMain(
+    static func mergeOffMain(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String,
@@ -330,10 +330,14 @@ enum ReferenceBundleMergeService {
         }
     }
 
+}
+
+extension ReferenceBundleMergeService {
+
     // MARK: - Source inspection
 
     /// A source bundle resolved into everything the merge needs from it.
-    private struct SourceBundle {
+    struct SourceBundle {
         let bundleURL: URL
         let displayName: String
         /// The rich bundle manifest, or `nil` for a legacy `ReferenceSequenceFolder` bundle.
@@ -353,7 +357,7 @@ enum ReferenceBundleMergeService {
         var annotations: [AnnotationTrackInfo] { manifest?.annotations ?? [] }
     }
 
-    private static func inspectSourceBundles(_ bundleURLs: [URL]) async throws -> [SourceBundle] {
+    static func inspectSourceBundles(_ bundleURLs: [URL]) async throws -> [SourceBundle] {
         var sources: [SourceBundle] = []
         var usedSlugs: Set<String> = []
         for bundleURL in bundleURLs {
@@ -411,13 +415,13 @@ enum ReferenceBundleMergeService {
         return sources
     }
 
-    private static let legacyManifestDecoder: JSONDecoder = {
+    static let legacyManifestDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
 
-    private static func legacyReferenceManifestName(in bundleURL: URL) -> String? {
+    static func legacyReferenceManifestName(in bundleURL: URL) -> String? {
         let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
         guard let data = try? Data(contentsOf: manifestURL),
               let legacy = try? Self.legacyManifestDecoder.decode(
@@ -430,7 +434,7 @@ enum ReferenceBundleMergeService {
     }
 
     /// Reads record names out of a FASTA without loading its sequence bases.
-    private static func readSequenceNames(in fastaURL: URL) async throws -> [String] {
+    static func readSequenceNames(in fastaURL: URL) async throws -> [String] {
         var names: [String] = []
         for try await line in fastaURL.linesAutoDecompressing() where line.hasPrefix(">") {
             let header = line.dropFirst().trimmingCharacters(in: .whitespaces)
@@ -440,7 +444,7 @@ enum ReferenceBundleMergeService {
         return names
     }
 
-    private static func validateNoUnsupportedPayloads(in sources: [SourceBundle]) throws {
+    static func validateNoUnsupportedPayloads(in sources: [SourceBundle]) throws {
         var offenders: [UnsupportedPayloadReport] = []
         for source in sources {
             guard let manifest = source.manifest else { continue }
@@ -474,7 +478,7 @@ enum ReferenceBundleMergeService {
     /// on the duplicate record, after which `NativeBundleBuilder` silently falls back to a
     /// manual index. The output would carry an ambiguous `.fai` and annotations would bind
     /// to whichever duplicate the index happened to keep.
-    private static func validateNoSequenceNameCollisions(in sources: [SourceBundle]) throws {
+    static func validateNoSequenceNameCollisions(in sources: [SourceBundle]) throws {
         var bundlesBySequenceName: [String: [String]] = [:]
         for source in sources {
             for name in source.sequenceNames {
@@ -493,7 +497,7 @@ enum ReferenceBundleMergeService {
     // MARK: - Annotation preservation
 
     /// The outcome of re-exporting source annotation tracks for the merged build.
-    private struct AnnotationExport {
+    struct AnnotationExport {
         let inputs: [AnnotationInput]
         /// A warning to persist in the merged manifest when tracks had to be skipped.
         let warning: BundleWarning?
@@ -512,7 +516,7 @@ enum ReferenceBundleMergeService {
     /// so such tracks are skipped -- but every skip is accumulated into a returned
     /// `BundleWarning` and reported at `.warning` level, so the loss is recorded in the
     /// merged manifest and visible in the Operations log rather than silent.
-    private static func exportAnnotationInputs(
+    static func exportAnnotationInputs(
         from sources: [SourceBundle],
         into tempDirectory: URL,
         reporter: ProgressReporter
@@ -603,7 +607,7 @@ enum ReferenceBundleMergeService {
     }
 
     /// The outcome of trying to carry GenBank record stores across a merge.
-    private struct MergedRecordStore {
+    struct MergedRecordStore {
         /// The unioned store, or `nil` when no store could be carried across.
         let url: URL?
         /// A warning to persist in the merged manifest when a store was dropped.
@@ -614,7 +618,7 @@ enum ReferenceBundleMergeService {
     ///
     /// Returns an empty result when no source carries a store, which keeps FASTA-only
     /// merges byte identical to their previous behaviour.
-    private static func mergeRecordStores(
+    static func mergeRecordStores(
         from sources: [SourceBundle],
         into tempDirectory: URL
     ) throws -> MergedRecordStore {
@@ -668,7 +672,11 @@ enum ReferenceBundleMergeService {
         return MergedRecordStore(url: mergedStoreURL, warning: nil)
     }
 
-    private static func mergedSourceInfo(from sources: [SourceBundle], bundleName: String) -> SourceInfo {
+}
+
+extension ReferenceBundleMergeService {
+
+    static func mergedSourceInfo(from sources: [SourceBundle], bundleName: String) -> SourceInfo {
         let organisms = orderedUnique(
             sources.compactMap { $0.manifest?.source.organism }.filter { !$0.isEmpty }
         )
@@ -682,7 +690,7 @@ enum ReferenceBundleMergeService {
         )
     }
 
-    private static func mergedWarnings(from sources: [SourceBundle]) -> [BundleWarning] {
+    static func mergedWarnings(from sources: [SourceBundle]) -> [BundleWarning] {
         var merged: [BundleWarning] = []
         for source in sources {
             for warning in source.manifest?.warnings ?? [] where !merged.contains(warning) {
@@ -692,12 +700,12 @@ enum ReferenceBundleMergeService {
         return merged
     }
 
-    private static func orderedUnique(_ values: [String]) -> [String] {
+    static func orderedUnique(_ values: [String]) -> [String] {
         var seen: Set<String> = []
         return values.filter { seen.insert($0).inserted }
     }
 
-    private static func slugify(_ raw: String) -> String {
+    static func slugify(_ raw: String) -> String {
         let mapped = raw.lowercased().map { character -> Character in
             if character.isLetter || character.isNumber { return character }
             return "_"
@@ -710,7 +718,7 @@ enum ReferenceBundleMergeService {
 
     /// Mirrors `ReferenceBundleImportService`'s uniquing so a merge into a directory that
     /// already holds a bundle of the requested name gets "<name> 2" rather than colliding.
-    private static func makeUniqueBundleName(base: String, in directory: URL) -> String {
+    static func makeUniqueBundleName(base: String, in directory: URL) -> String {
         var candidate = base
         var counter = 2
         while FileManager.default.fileExists(
@@ -722,14 +730,14 @@ enum ReferenceBundleMergeService {
         return candidate
     }
 
-    private static func bundleURL(forBundleName bundleName: String, in directory: URL) -> URL {
+    static func bundleURL(forBundleName bundleName: String, in directory: URL) -> URL {
         let safeName = bundleName
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "/", with: "-")
         return directory.appendingPathComponent("\(safeName).lungfishref", isDirectory: true)
     }
 
-    private static func resolveFASTAURL(in bundleURL: URL) throws -> URL {
+    static func resolveFASTAURL(in bundleURL: URL) throws -> URL {
         if let simpleFASTA = ReferenceSequenceFolder.fastaURL(in: bundleURL) {
             return simpleFASTA
         }
@@ -758,7 +766,7 @@ enum ReferenceBundleMergeService {
         )
     }
 
-    private static func appendFASTAContents(
+    static func appendFASTAContents(
         from fastaURL: URL,
         to outputHandle: FileHandle
     ) async throws {
@@ -768,7 +776,7 @@ enum ReferenceBundleMergeService {
         }
     }
 
-    private static func writeMergeProvenance(
+    static func writeMergeProvenance(
         sourceBundleURLs: [URL],
         inputPayloadURLs: [URL],
         bundleURL: URL,
@@ -866,7 +874,7 @@ enum ReferenceBundleMergeService {
         }
     }
 
-    private static func finalGenomePayloadURL(in bundleURL: URL, outputPayloadURLs: [URL]) -> URL? {
+    static func finalGenomePayloadURL(in bundleURL: URL, outputPayloadURLs: [URL]) -> URL? {
         if let manifest = try? BundleManifest.load(from: bundleURL),
            let genome = manifest.genome,
            let genomeURL = try? BundleManifest.validatedBundleMemberURL(
@@ -879,7 +887,7 @@ enum ReferenceBundleMergeService {
         return outputPayloadURLs.first(where: isFASTAFileURL(_:))?.standardizedFileURL
     }
 
-    private static func rewriteBuilderReplayArgv(
+    static func rewriteBuilderReplayArgv(
         _ argv: [String],
         tempInputPaths: [String],
         durableFASTAURL: URL?,
@@ -917,7 +925,7 @@ enum ReferenceBundleMergeService {
         return rewritten
     }
 
-    private static func resolvedBundleIdentifier(in bundleURL: URL, fallbackName: String) -> String {
+    static func resolvedBundleIdentifier(in bundleURL: URL, fallbackName: String) -> String {
         if let manifest = try? BundleManifest.load(from: bundleURL) {
             return manifest.identifier
         }
@@ -932,7 +940,7 @@ enum ReferenceBundleMergeService {
         return "org.lungfish.\(String(sanitized))"
     }
 
-    private static func rewriteBuilderArgument(
+    static func rewriteBuilderArgument(
         _ argument: String,
         tempInputPaths: Set<String>,
         durableFASTAPath: String?
@@ -947,7 +955,7 @@ enum ReferenceBundleMergeService {
         return argument
     }
 
-    private static func uniqueDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+    static func uniqueDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
         var seen: Set<String> = []
         var result: [ProvenanceFileDescriptor] = []
         for descriptor in descriptors {
@@ -958,7 +966,7 @@ enum ReferenceBundleMergeService {
         return result
     }
 
-    private static func fileFormat(for url: URL) -> FileFormat? {
+    static func fileFormat(for url: URL) -> FileFormat? {
         var candidate = url
         if candidate.pathExtension.lowercased() == "gz" {
             candidate = candidate.deletingPathExtension()
@@ -975,7 +983,7 @@ enum ReferenceBundleMergeService {
         }
     }
 
-    private static func isFASTAFileURL(_ url: URL) -> Bool {
+    static func isFASTAFileURL(_ url: URL) -> Bool {
         let lowercasedName = url.lastPathComponent.lowercased()
         return lowercasedName.hasSuffix(".fa")
             || lowercasedName.hasSuffix(".fasta")
