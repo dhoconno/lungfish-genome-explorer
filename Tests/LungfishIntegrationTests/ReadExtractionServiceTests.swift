@@ -355,8 +355,10 @@ final class ReadExtractionServiceTests: XCTestCase {
 
     /// Extracts reads from a test SQLite database matching the NAO-MGS schema.
     /// This is the path used by NAO-MGS "Extract FASTQ" in the app.
-    func testExtractFromDatabaseByTaxId() async throws {
-        let dbURL = try createTestNaoMgsDatabase()
+    func testExtractFromDatabaseByTaxId() async throws { try await checkExtractFromDatabaseByTaxId(legacy: false) }
+
+    private func checkExtractFromDatabaseByTaxId(legacy: Bool) async throws {
+        let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
         let config = DatabaseExtractionConfig(
             databaseURL: dbURL,
             sampleId: "test_sample",
@@ -378,8 +380,10 @@ final class ReadExtractionServiceTests: XCTestCase {
     }
 
     /// Verifies that accession-based extraction works.
-    func testExtractFromDatabaseByAccession() async throws {
-        let dbURL = try createTestNaoMgsDatabase()
+    func testExtractFromDatabaseByAccession() async throws { try await checkExtractFromDatabaseByAccession(legacy: false) }
+
+    private func checkExtractFromDatabaseByAccession(legacy: Bool) async throws {
+        let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
         let config = DatabaseExtractionConfig(
             databaseURL: dbURL,
             sampleId: "test_sample",
@@ -393,8 +397,10 @@ final class ReadExtractionServiceTests: XCTestCase {
     }
 
     /// Verifies that a nonexistent taxid produces an empty extraction error.
-    func testExtractFromDatabaseNoMatchingTaxId() async throws {
-        let dbURL = try createTestNaoMgsDatabase()
+    func testExtractFromDatabaseNoMatchingTaxId() async throws { try await checkExtractFromDatabaseNoMatchingTaxId(legacy: false) }
+
+    private func checkExtractFromDatabaseNoMatchingTaxId(legacy: Bool) async throws {
+        let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
         let config = DatabaseExtractionConfig(
             databaseURL: dbURL,
             sampleId: "test_sample",
@@ -416,8 +422,10 @@ final class ReadExtractionServiceTests: XCTestCase {
     }
 
     /// Verifies that maxReads limit is respected.
-    func testExtractFromDatabaseMaxReads() async throws {
-        let dbURL = try createTestNaoMgsDatabase()
+    func testExtractFromDatabaseMaxReads() async throws { try await checkExtractFromDatabaseMaxReads(legacy: false) }
+
+    private func checkExtractFromDatabaseMaxReads(legacy: Bool) async throws {
+        let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
         let config = DatabaseExtractionConfig(
             databaseURL: dbURL,
             sampleId: "test_sample",
@@ -432,8 +440,10 @@ final class ReadExtractionServiceTests: XCTestCase {
     }
 
     /// Verifies that output filenames with special characters are sanitized.
-    func testExtractFromDatabaseSanitizesFilename() async throws {
-        let dbURL = try createTestNaoMgsDatabase()
+    func testExtractFromDatabaseSanitizesFilename() async throws { try await checkExtractFromDatabaseSanitizesFilename(legacy: false) }
+
+    private func checkExtractFromDatabaseSanitizesFilename(legacy: Bool) async throws {
+        let dbURL = try createTestNaoMgsDatabase(legacy: legacy)
         let config = DatabaseExtractionConfig(
             databaseURL: dbURL,
             sampleId: "test_sample",
@@ -477,7 +487,10 @@ final class ReadExtractionServiceTests: XCTestCase {
     ///
     /// Contains 5 reads for taxid 11137 (Human coronavirus 229E) and 3 reads
     /// for taxid 694009 (Betapolyomavirus hominis), all under sample "test_sample".
-    private func createTestNaoMgsDatabase() throws -> URL {
+    ///
+    /// `accession_summaries` carries `reference_length_source` as `createSchema` writes it today. With `legacy`
+    /// it has the shape of a database imported before 2026-09-23, which only `openReadWrite` brings up to date.
+    private func createTestNaoMgsDatabase(legacy: Bool = false) throws -> URL {
         let dbURL = tempDir.appendingPathComponent("test_hits.sqlite")
 
         var db: OpaquePointer?
@@ -546,6 +559,7 @@ final class ReadExtractionServiceTests: XCTestCase {
             reference_length INTEGER NOT NULL,
             covered_base_pairs INTEGER NOT NULL,
             coverage_fraction REAL NOT NULL,
+            \(legacy ? "" : "reference_length_source TEXT NOT NULL DEFAULT 'alignment-extent',")
             PRIMARY KEY (sample, tax_id, accession)
         );
         CREATE TABLE sample_hit_counts (
