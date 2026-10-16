@@ -57,9 +57,12 @@ struct TaxTriageParityHarness {
         if parityCase.rebuildsAfterTheCleanup { runA = await rebuildAfterTheCleanup(runA) }
         var runB = await runReplay(of: runA, parityCase, root: root(.b), engine: engine)
         if parityCase.rebuildsAfterTheCleanup { runB = await rebuildAfterTheCleanup(runB) }
-        // Lane Q1b. Side C's routed command and side C' replaying the argv C's record names, both
-        // through the built lungfish-cli (TaxTriageCLIGUIParityReplayTests+RouteC.swift).
-        var runC = await runRoutedSide(parityCase, root: root(.c), engine: engine)
+        // Lane Q1b. Side C, the route the hidden key's `cli` value selects (Phase 2.11 U30 M3), or
+        // X8's plain --output, and side C' replaying the argv C's record names, all through the
+        // built lungfish-cli (TaxTriageCLIGUIParityReplayTests+RouteC.swift).
+        var runC = parityCase.runsGUISide
+            ? try await runGUISide(parityCase, side: .c, root: root(.c), engine: engine)
+            : await runRoutedSide(parityCase, root: root(.c), engine: engine)
         if parityCase.rebuildsAfterTheCleanup { runC = await rebuildAfterTheCleanup(runC) }
         var runCPrime = await runRecordedArgv(of: runC, parityCase, root: root(.cPrime), engine: engine)
         if parityCase.rebuildsAfterTheCleanup { runCPrime = await rebuildAfterTheCleanup(runCPrime) }

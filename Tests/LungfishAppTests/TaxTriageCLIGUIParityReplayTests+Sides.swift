@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Side A drives today's GUI route, `AppDelegate.runTaxTriage`, with the config the TaxTriage
-// wizard builds for the case's bundles and the GUI's runner seam
-// (`AppDelegate.TaxTriageLaunchSeam.makeRunner`) bound to the case's engine. Side B rebases the
+// Side A drives the GUI route the hidden key's `legacy` value selects, `launchTaxTriage(route: .legacy)`
+// and so `AppDelegate.runTaxTriage`, with the config the TaxTriage wizard builds for the case's bundles
+// and the GUI's runner seam (`AppDelegate.TaxTriageLaunchSeam.makeRunner`) bound to the case's engine.
+// Side C drives the same launch with the `cli` value (Phase 2.11 U30 M3). Side B rebases the
 // command side A's row recorded onto a fresh root and runs it in this process with the CLI's
 // pipeline seam (`TaxTriageCommand.RunSubcommand.makePipeline`) bound to the same engine
 // (2.7 T2). Each run keeps the launches the stand-in recorded while it ran.
@@ -177,9 +178,10 @@ enum TaxTriageParitySide: String, CaseIterable, Sendable, CustomStringConvertibl
     case a = "A"
     /// The command side A's row recorded, rebased onto a fresh root and run in this process.
     case b = "B"
-    /// The routed command, the `taxtriage run --project` that the GUI route through `lungfish-cli`
-    /// runs from 2.10 (2.8 T1, T4 and T17), run by the built `lungfish-cli` on the case's engine
-    /// (lane Q1b, TaxTriageCLIGUIParityReplayTests+RouteC.swift).
+    /// The route the hidden key's `cli` value selects, `launchTaxTriage(route: .cli)`, which runs
+    /// `taxtriage run --project` through the built `lungfish-cli` on the case's engine with an
+    /// Operations panel row (2.8 T1, T4 and T17, Phase 2.11 U30 M3). X8, which no GUI route makes,
+    /// runs its plain `--output` through the same binary (lane Q1b, TaxTriageCLIGUIParityReplayTests+RouteC.swift).
     case c = "C"
     /// The argv side C's root record names, rebased onto a fresh root and run by the built
     /// `lungfish-cli` that side C ran.
@@ -190,8 +192,8 @@ enum TaxTriageParitySide: String, CaseIterable, Sendable, CustomStringConvertibl
     /// The folder of the side's root, a name a recorded command needs no quote for.
     var folderName: String { self == .cPrime ? "C-prime" : rawValue }
 
-    /// Whether the side runs a GUI route and so has an Operations panel row.
-    var hasRow: Bool { self == .a }
+    /// Whether the side runs a GUI route and so has an Operations panel row, on every case but X8.
+    var hasRow: Bool { self == .a || self == .c }
 }
 
 /// How a side's run ended.
@@ -356,15 +358,20 @@ struct TaxTriageParitySideRun {
 }
 
 extension TaxTriageParityHarness {
-    /// Side A. Hands the wizard's config to `runTaxTriage` with the GUI's runner seam bound to
-    /// the engine, keeps every detail of the row and every line of the viewer's overlay, waits
-    /// for the row to finish and reads it.
+    /// A GUI side. Hands the wizard's config to `launchTaxTriage`, the dialog's launch, on the route
+    /// of the hidden key's value the side stands for (Phase 2.11 U30 M3, ARCH 7, both routes in one
+    /// parity class). Side A takes `legacy`, which runs `runTaxTriage` with the GUI's runner seam
+    /// bound to the engine. Side C takes `cli`, which runs `taxtriage run --project` through the
+    /// built `lungfish-cli` on the classifier CLI route's row (`cliRouteExecutable`). The side keeps
+    /// every detail of the row and every line of the viewer's overlay, waits for the row to finish
+    /// and reads it.
     func runGUISide(
         _ parityCase: TaxTriageParityCase,
+        side: TaxTriageParitySide = .a,
         root: URL,
         engine: TaxTriageParityEngine
     ) async throws -> TaxTriageParitySideRun {
-        let side = TaxTriageParitySide.a
+        let route: TaxTriageLaunchRoute = side == .a ? .legacy : .cli
         let project = root.appendingPathComponent(ClassifierParityFixtures.projectName, isDirectory: true)
         let config = parityCase.wizardConfig(project: project, engine: engine)
         let delegate = testCase.makeAppDelegateWithTemporaryState()
@@ -383,12 +390,15 @@ extension TaxTriageParityHarness {
         let existing = Set(OperationCenter.shared.items.map(\.id))
         let recorder = RowDetailRecorder(ignoring: existing)
         defer { recorder.stop() }
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue(engine.makeRunner) {
-            delegate.runTaxTriage(
-                config: config,
-                viewerController: viewer,
-                routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-            )
+        let routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
+        switch route {
+        case .legacy:
+            AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue(engine.makeRunner) {
+                delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: routeContext, route: .legacy)
+            }
+        case .cli:
+            let cli = try cliRouteExecutable(engine: engine)
+            delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: routeContext, route: .cli, cliURLOverride: cli)
         }
         let started = try XCTUnwrap(
             OperationCenter.shared.items.first { !existing.contains($0.id) },

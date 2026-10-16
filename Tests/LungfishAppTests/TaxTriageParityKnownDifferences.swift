@@ -50,18 +50,23 @@ enum TaxTriageParityKnownDifferences {
         layout + pooledLayout + records + pooledRecords + facts + faultLayout + faultRecords + faultFacts
             + executorLayout + executorRecords + routeC
 
-    /// The legacy GUI route stays in process through 2.9 (2.8 T1), so a difference that comes from
-    /// it closes when the route runs through lungfish-cli.
-    static let guiRoute = "2.10, the GUI route through lungfish-cli (A3 and U8, Moved out of 2.8)"
-    /// `taxtriage run` on the executor runs build-db taxtriage, with its cleanup as a recorded
-    /// removal step (2.8 T5).
-    static let executorIndex = "A2, taxtriage run on the executor builds taxtriage.sqlite (2.8 T5)"
-    /// A row of several samples records no command, so side B runs the pooled command.
-    static let perSample = "2.10, a recorded command for several samples (cli-parity-gap taxtriage-multi-sample, A3 and U8)"
-    /// The GUI claims its folder before the pipeline lists its outputs, `taxtriage run` after.
-    static let folderClaim = "A2 or the 2.10 GUI route, once both routes claim the folder before the pipeline lists its outputs"
-    /// A one-sample row records a plain `--output` into the GUI's own batch folder (2.8 T17).
-    static let rowSpelling = "2.10, a one-sample row that records --project, so its replay lays the result out as the app does (2.8 T17)"
+    // Since Phase 2.11 U30 M3 side C runs the GUI route the hidden key's `cli` value selects, which
+    // holds every fixed fact with its row, and C against C' declares nothing for X1 to X7. The
+    // differences below come from the in-process route the `legacy` value keeps for one Preview, which
+    // side A runs, so each closes when K1 deletes that route and its key (2.12).
+
+    /// The legacy GUI route runs in process (2.8 T1).
+    static let guiRoute = "2.12, K1 deletes the legacy route that side A runs. Side C, the cli route, holds the fact since 2.11 U30 M3"
+    /// The legacy route's build-db step indexes the result, and its one-sample row's plain `--output`
+    /// replays a run that builds no database. `taxtriage run --project` builds it (2.8 T5).
+    static let executorIndex = "2.12, K1 deletes the legacy route, whose row replays a plain --output. Side C's --project run builds taxtriage.sqlite (2.8 T5)"
+    /// The legacy row of several samples records no command, so side B runs the pooled command.
+    static let perSample = "2.12, K1 deletes the legacy route, whose row of several samples records no command (cli-parity-gap taxtriage-multi-sample). Side C's row records it since 2.11 U30 M3"
+    /// The legacy route claims its folder before the pipeline lists its outputs, and the plain
+    /// `--output` its row records claims it after.
+    static let folderClaim = "2.12, K1 deletes the legacy route, whose row records a plain --output. Side C's --project run claims its folder first"
+    /// The legacy one-sample row records a plain `--output` into the GUI's own batch folder (2.8 T17).
+    static let rowSpelling = "2.12, K1 deletes the legacy route, whose one-sample row records --output (2.8 T17). Side C's row records --project since 2.11 U30 M3"
 
     private static func pair(
         _ counts: [TaxTriageParityCase: Int], _ id: String, _ reason: String, closedBy: String

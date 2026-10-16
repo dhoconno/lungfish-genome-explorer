@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.9 lane Q1b, a rider of A2, with 2.7 T2 and 2.8 T1, T2, T4, T5 and T17. The TaxTriage
-// GUI keeps its in-process launch until 2.10, so no row runs the route through lungfish-cli yet.
-// Side C runs the command that route runs, `taxtriage run --project` with the inputs and settings
-// of the wizard's config, through the built `lungfish-cli` on the case's engine. Side C' reads the
-// argv side C's root record names, rebases it onto its own root and runs it through the same
+// Phase 2.9 lane Q1b, a rider of A2, with 2.7 T2 and 2.8 T1, T2, T4, T5 and T17. Since Phase 2.11
+// lane U30 M3 side C is the GUI route the hidden key's `cli` value selects, `launchTaxTriage(route: .cli)`,
+// which runs `taxtriage run --project` with the inputs and settings of the wizard's config through the
+// built `lungfish-cli` on the case's engine, with its Operations panel row (runGUISide). Side C' reads
+// the argv side C's root record names, rebases it onto its own root and runs it through the same
 // binary. C against C' checks that the recorded command gives the same result and declares
 // nothing (the acceptance of 2.7 T2). A against C declares what the switch of the route changes,
 // a list that may only shrink.
@@ -14,10 +14,11 @@
 // - One sample runs `--project` in place of side A's `--output`, so the run lays out its own
 //   `Analyses/taxtriage-batch-<timestamp>/` (T4), and its finalize builds `taxtriage.sqlite` and
 //   records the cleanup that keeps `top/` (T5).
-// - Several samples run the samples' folder as one `--input` with `--project`, one Nextflow per
-//   sample (T2). X8 keeps side B's plain `--output`, one Nextflow for both samples (T2, T7).
-// - A cancel (X6) is the transport's cancel, SIGTERM to the CLI's process tree once the engine
-//   runs, as the window's Cancel sends it.
+// - Several samples run one `--input` per bundle with `--project` and `--batch`, one Nextflow per
+//   sample (T2), and the row records that command (X3 and X4). X8, which no GUI route makes, keeps
+//   side B's plain `--output` through the built binary, one Nextflow for both samples (T2, T7).
+// - A cancel (X6) is the row's Cancel, which the transport sends as SIGTERM to the CLI's process
+//   tree with the grace the app gives it (`CLIProcessLauncher.operationGrace`) once the engine runs.
 
 import Foundation
 import XCTest
@@ -56,8 +57,33 @@ struct TaxTriageParityRecordedArgvError: Error, CustomStringConvertible {
 }
 
 extension TaxTriageParityHarness {
-    /// Side C. The routed command of the case's request (`routedCommand`), run by the built
-    /// `lungfish-cli` on the engine.
+    /// The `lungfish-cli` that side C's route launches. The app's transport gives the CLI the app's
+    /// subprocess environment, which names this Mac's managed tool root, so on a stand-in engine it
+    /// launches a script that exports the engine's `cliEnvironment` and then execs the built binary,
+    /// whose own argv the root record names. A managed engine adds nothing, so the built binary runs
+    /// as the app runs it.
+    func cliRouteExecutable(engine: TaxTriageParityEngine) throws -> URL {
+        guard !engine.cliEnvironment.isEmpty else { return cliBinary }
+        if let storage = engine.cliEnvironment["LUNGFISH_STORAGE_ROOT"] {
+            try FileManager.default.createDirectory(atPath: storage, withIntermediateDirectories: true)
+        }
+        let script = engine.root.appendingPathComponent("cli-route", isDirectory: true)
+            .appendingPathComponent(CLICommandIdentity.executableName)
+        let exports = engine.cliEnvironment.sorted { $0.key < $1.key }.map { "export \($0.key)=\(Self.shellQuoted($0.value))" }
+        let text = (["#!/bin/sh"] + exports + ["exec \(Self.shellQuoted(cliBinary.path)) \"$@\""]).joined(separator: "\n") + "\n"
+        try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return script
+    }
+
+    /// `value` in single quotes for a POSIX shell.
+    nonisolated static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Side C of X8, which no GUI route makes. The routed command of the case's request
+    /// (`routedCommand`), run by the built `lungfish-cli` on the engine.
     func runRoutedSide(
         _ parityCase: TaxTriageParityCase,
         root: URL,

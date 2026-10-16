@@ -9,8 +9,10 @@
 // transcript. Either route refuses a launch with no project open in the same words.
 
 import AppKit
+import os
 import XCTest
 @testable import LungfishApp
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
@@ -126,6 +128,43 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         XCTAssertFalse(command.contains("--project"), command)
         let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
         XCTAssertTrue(finished, "the legacy row did not finish")
+    }
+
+    /// The M1 review's item 3 (b), the legacy side of a mixed-platform request (U30 M3). A bundle whose
+    /// reads record Oxford Nanopore runs on the dialog's Illumina on `legacy`, because the serial batch
+    /// hands each sample the dialog's config. On `cli` the command runs the sample on the platform its
+    /// reads record (`TaxTriageRunBundleInputsTests.testEachSampleRunsOnThePlatformItsBundleRecordsAndAPooledRunOfTwoPlatformsIsRefused`),
+    /// a declared difference that Q32 M3 and BIO read.
+    func testTheLegacyValueRunsABundleThatRecordsNanoporeOnTheDialogsPlatform() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let bundle = made.project.appendingPathComponent("Imports/ont.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let reads = bundle.appendingPathComponent("ont.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try FASTQMetadataStore.write(PersistedFASTQMetadata(sequencingPlatform: .oxfordNanopore), for: reads)
+        let routeContext = OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
+        let (viewer, window) = makeViewerInWindow()
+        defer { close(window) }
+        let received = OSAllocatedUnfairLock<[TaxTriageConfig]>(initialState: [])
+        let existing = Set(OperationCenter.shared.items.map(\.id))
+        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
+            TaxTriageSerialBatchRunner(runPipeline: { config, _ in
+                received.withLock { $0.append(config) }
+                throw CancellationError()
+            })
+        }) {
+            makeAppDelegateWithTemporaryState().launchTaxTriage(
+                config: config(inputs: [bundle]), viewerController: viewer, routeContext: routeContext, route: .legacy
+            )
+        }
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) })
+        rowIDs.append(row.id)
+        let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
+        XCTAssertTrue(finished, "the legacy row did not finish")
+
+        let configs = received.withLock { $0 }
+        XCTAssertEqual(configs.map(\.platform), [.illumina], "the sample's run takes the dialog's platform")
+        XCTAssertEqual(configs.flatMap(\.samples).map(\.platform), [.illumina], "and so does its sample")
     }
 
     // MARK: - cli

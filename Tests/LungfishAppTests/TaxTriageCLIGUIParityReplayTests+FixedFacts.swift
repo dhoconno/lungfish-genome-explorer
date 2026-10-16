@@ -296,6 +296,10 @@ extension TaxTriageParityHarness {
             violate("the row shows no error and no alert", "error \(row.errorMessage ?? "none"), alert \(row.alertText ?? "none")")
         }
 
+        guard run.side == .a else {
+            cliRouteCommandViolations(parityCase, samples: samples, run: run, analysis: analysis, engine: engine, violate: violate)
+            return
+        }
         guard count == 1 else {
             if let command = run.recordedCommand {
                 violate("a row of several samples records no command (cli-parity-gap taxtriage-multi-sample)", command)
@@ -319,6 +323,42 @@ extension TaxTriageParityHarness {
         // `--output` is optional since `taxtriage run` takes `--project` (A2), and the row still names it.
         if parsed.outputDir.map(Self.resolved) != Self.resolved(analysis.path) {
             violate("the one-sample row's command writes the GUI's own folder (2.8 T17, until A2)", parsed.outputDir ?? "no --output")
+        }
+    }
+
+    /// The command side C's row records on the route the hidden key's `cli` value selects (Phase
+    /// 2.11 U30 M3). It is `taxtriage run --project` with one `--input` per bundle, `--sample` for one
+    /// sample and `--batch` for several, so a request of several samples records its command
+    /// (cli-parity-gap taxtriage-multi-sample on this route). It is also the argv the result's root
+    /// record names, so Copy CLI Command replays what ran (BIO's 2.10 requirement), which side C'
+    /// runs.
+    private func cliRouteCommandViolations(
+        _ parityCase: TaxTriageParityCase,
+        samples: [TaxTriageParitySampleFacts],
+        run: TaxTriageParitySideRun,
+        analysis: URL,
+        engine: TaxTriageParityEngine,
+        violate: (String, String) -> Void
+    ) {
+        let parsed = try? RecordedCLICommand.parse(run.recordedCommand) as? TaxTriageCommand.RunSubcommand
+        let bundles = parityCase.bundlePaths.map { Self.resolved(run.project.appendingPathComponent($0, isDirectory: true).path) }
+        guard let parsed,
+              parsed.inputs.map(Self.resolved).sorted() == bundles.sorted(),
+              parsed.input2 == nil,
+              parsed.sampleId == (samples.count == 1 ? samples[0].sampleID : nil),
+              parsed.batch == (samples.count > 1),
+              parsed.project.map(Self.resolved) == Self.resolved(run.project.path),
+              parsed.outputDir == nil,
+              parsed.databasePath.map(Self.resolved) == Self.resolved(engine.databasePath.path),
+              parsed.nfProfile == engine.profile,
+              parsed.maxCpus == engine.maxCpus else {
+            violate("the row records the taxtriage run --project command of the run", run.recordedCommand ?? "nil")
+            return
+        }
+        let words = run.recordedCommand.flatMap { try? RecordedCLICommand.arguments(of: $0) }
+        let recorded = (try? ProvenanceEnvelopeReader.load(from: analysis)).map { Array($0.argv.dropFirst()) }
+        if words == nil || words != recorded {
+            violate("the row's command is the argv the root record names", "row \(words ?? []), record \(recorded ?? [])")
         }
     }
 

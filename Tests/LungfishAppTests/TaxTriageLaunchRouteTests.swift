@@ -185,6 +185,28 @@ final class TaxTriageLaunchRouteTests: XCTestCase {
         XCTAssertEqual(parsed.project, project.path)
     }
 
+    /// The M1 review's item 1, a declared difference of the two routes (U30 M3). Loose files named with a
+    /// dot and a space keep their names on `cli`, so the launch runs, and each route spells a sample's
+    /// folder by its own rule. `legacy` keeps the dot (`TaxTriageSerialBatchRunner.sanitizedDirectoryName`)
+    /// and the command turns it into an underscore (`AnalysesFolder.batchSampleDirectory`), so `S.1` is
+    /// folder `S.1` on `legacy` and `S_1` on `cli`. Both spell `blank 1` as `blank_1`.
+    func testEachRouteSpellsASampleFolderByItsOwnRule() throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let imports = project.appendingPathComponent("Imports", isDirectory: true)
+        // The command drops the last two extensions of each of several inputs, so `.fastq.gz` keeps the dot.
+        let samples = try ["S.1", "blank 1"].map { TaxTriageSample(sampleId: $0, fastq1: try write("\($0).fastq.gz", in: imports), platform: .illumina) }
+
+        XCTAssertEqual(try launch(samples, project: project).sampleIDs, ["S.1", "blank 1"], "the command keeps both names, so nothing is refused")
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        try FileManager.default.createDirectory(at: batch, withIntermediateDirectories: true)
+        XCTAssertEqual(samples.map { TaxTriageSerialBatchRunner.sanitizedDirectoryName(for: $0.sampleId) }, ["S.1", "blank_1"], "legacy")
+        XCTAssertEqual(
+            try samples.map { try AnalysesFolder.batchSampleDirectory(named: $0.sampleId, in: batch).lastPathComponent },
+            ["S_1", "blank_1"],
+            "cli"
+        )
+    }
+
     /// The M1 review's item 2. Several samples the command would not name as the dialog shows them are
     /// refused in words, first two samples that would share one name and then a sample whose name would
     /// change. One sample keeps its name through `--sample`, so it runs.

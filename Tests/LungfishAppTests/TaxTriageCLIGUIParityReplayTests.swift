@@ -7,10 +7,10 @@
 // the QA ruling on O5, under which this class runs only the stand-in. Each case runs two sides,
 // one after another, on one stand-in engine.
 //
-// - Side A is today's GUI route. `AppDelegate.runTaxTriage(config:...)` runs the config the
-//   TaxTriage wizard builds for the case's bundles on `OperationCenter.shared`, with
-//   `AppDelegate.TaxTriageLaunchSeam.makeRunner` bound to the engine and `LUNGFISH_CLI_PATH`
-//   naming the built CLI for its `build-db taxtriage` step (2.7 T9).
+// - Side A is the GUI route the hidden key's `legacy` value selects. `launchTaxTriage(route: .legacy)`
+//   runs `AppDelegate.runTaxTriage` with the config the TaxTriage wizard builds for the case's
+//   bundles on `OperationCenter.shared`, with `AppDelegate.TaxTriageLaunchSeam.makeRunner` bound to
+//   the engine and `LUNGFISH_CLI_PATH` naming the built CLI for its `build-db taxtriage` step (2.7 T9).
 // - Side B is the command side A's row recorded, rebased onto a fresh root and run in this
 //   process with `TaxTriageCommand.RunSubcommand.makePipeline` bound to the same engine, as
 //   docs/contracts/CLI-EQUIVALENCE.md replays a command. A request of several samples records
@@ -21,9 +21,11 @@
 // and compares the two side roots, every provenance record by its facts and the terminal state
 // (TaxTriageCLIGUIParityReplayTests+Compare.swift). TaxTriageParityKnownDifferences declares every
 // difference of A against B with its count, and the case fails on any other. Lane Q1b adds sides
-// C and C' to the same cases (TaxTriageCLIGUIParityReplayTests+RouteC.swift): C runs the routed
-// `taxtriage run --project` through the built `lungfish-cli`, and C' the argv C's root record
-// names, rebased. C against C' declares nothing (2.7 T2).
+// C and C' to the same cases (TaxTriageCLIGUIParityReplayTests+RouteC.swift). Since Phase 2.11 U30
+// M3 C is the GUI route the key's `cli` value selects, `launchTaxTriage(route: .cli)`, which runs
+// `taxtriage run --project` through the built `lungfish-cli` with its own row, so both routes sit
+// in one parity class (ARCH 7). C' runs the argv C's root record names, rebased, which C's row
+// records too. C against C' declares nothing (2.7 T2).
 //
 // The stand-in starts processes and side A runs on `OperationCenter.shared`, so the class name ends
 // in ReplayTests, which sends it to the serial replay tier. `TaxTriageParityEngine` takes the
