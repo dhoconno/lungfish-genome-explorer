@@ -1,28 +1,22 @@
-// ManagedToolsCLIGUIParityReplayTests+Database.swift - A database update keeps its catalog id, version and digest on both routes
+// ManagedToolsCLIGUIParityReplayTests+Database.swift - A database update keeps its catalog id, version and digest on the CLI route
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A52 review, Fix 3 b (BIO 4, panel decision C10, ARCH Q4), as BIO ruled on the first
 // run of this case. The Plugin Manager's database update is the third launch the managed tools route
 // moves onto the CLI. The registry's `updateDatabase(catalogID:)` computes the catalog id, the version
-// and the payload digest of the row, and both routes reach that one method, so the row a route leaves
-// must carry the same three values.
+// and the payload digest of the row, so the row the leaf leaves must carry the values the catalog names.
+// The in-process route, which this case once compared the leaf against, went in Phase 2.11 (K3).
 //
-// Side A is `PluginManagerViewModel.updateDatabaseThroughRoute` under
-// `ManagedToolsRouteSettings.testOverride = .legacy`, whose `legacy` closure calls registry A. Side C is
-// `DbCommand.DbUpdateSubcommand.execute(eventsOn:quiet:emit:)`, the leaf, with `registryOverride` set to
-// registry C. Both registries use a stand-in archive installer like the one in `ManagedToolLeafFixtures`
-// and start from copies of one installed Viral database, set to an older version through the manifest so
-// that the update has a version to move. ManagedToolLeafFixtures is a file of LungfishCLITests, which
-// LungfishAppTests does not depend on, so the registry is built here the same way.
+// The side is `DbCommand.DbUpdateSubcommand.execute(eventsOn:quiet:emit:)`, the leaf, with `registryOverride`
+// set to a registry that uses a stand-in archive installer like the one in `ManagedToolLeafFixtures` and
+// starts from an installed Viral database, set to an older version through the manifest so that the update
+// has a version to move. ManagedToolLeafFixtures is a file of LungfishCLITests, which LungfishAppTests does
+// not depend on, so the registry is built here the same way.
 //
-// `canonicalReceiptSHA256` is bound on each side to its own receipt and is not compared across the sides,
-// because the receipt holds the run's own id and clock, so two runs of one route differ on it too. The
-// case checks the receipt in three other ways. Each row is verified against its own receipt with
-// `MetagenomicsDatabaseConformanceIdentity.verify`, and the two identities are equal on the values the
-// route decides. The two database folders, payload and receipt, compare equal under the contract's masks
-// (`OutputEquivalence`, kind `.files`). And the receipt of side A states the version the update started
-// from and the version it moved to, which the folder comparison carries to side C.
+// `canonicalReceiptSHA256` is bound to the row's own receipt. The case verifies the row against its receipt
+// with `MetagenomicsDatabaseConformanceIdentity.verify`, and the receipt states the version the update
+// started from and the version it moved to.
 //
 // The built CLI has no archive stand-in, so side C' and a cancel through the transport are covered by
 // `ManagedToolLeavesLiveConformanceTests`, which runs once with LUNGFISH_REQUIRE_TOOLS=1.
@@ -115,35 +109,18 @@ extension ManagedToolsCLIGUIParityReplayTests {
         return identity
     }
 
-    func testADatabaseUpdateKeepsCatalogIDVersionAndDigestOnBothRoutes() async throws {
+    func testADatabaseUpdateKeepsCatalogIDVersionAndDigestOnTheCLIRoute() async throws {
         let caseRoot = scratch.appendingPathComponent("database", isDirectory: true)
-        let startA = try await installedViralRegistry(
-            in: RouteParityHarness.root(of: .a, in: caseRoot).appendingPathComponent("databases", isDirectory: true)
-        )
-        let startC = try await installedViralRegistry(
+        let start = try await installedViralRegistry(
             in: RouteParityHarness.root(of: .c, in: caseRoot).appendingPathComponent("databases", isDirectory: true)
         )
-        let registryA = startA.registry
-        let registryC = startC.registry
-        let installedRowA = try await registryA.database(named: "Viral")
-        let installedRowC = try await registryC.database(named: "Viral")
-        let installedA = try XCTUnwrap(installedRowA)
-        let installedC = try XCTUnwrap(installedRowC)
+        let registry = start.registry
+        let installedRow = try await registry.database(named: "Viral")
+        let installed = try XCTUnwrap(installedRow)
 
-        // Side A. The Plugin Manager's call on the in-process route, with registry A behind `legacy`.
-        ManagedToolsRouteSettings.testOverride = .legacy
-        defer { ManagedToolsRouteSettings.testOverride = nil }
-        try await PluginManagerViewModel(automaticallyRefresh: false).updateDatabaseThroughRoute(
-            catalogID: "kraken2-viral",
-            operationID: UUID(),
-            legacy: { catalogID, progress in try await registryA.updateDatabase(catalogID: catalogID, progress: progress) },
-            registry: registryA,
-            progress: { _, _ in }
-        )
-
-        // Side C. The leaf, on registry C, with the record it writes kept under the case root.
+        // The leaf, on the registry, with the record it writes kept under the case root.
         CondaCommand.storageRootOverride = RouteParityHarness.root(of: .c, in: caseRoot).appendingPathComponent("storage")
-        DbCommand.DbUpdateSubcommand.registryOverride = registryC
+        DbCommand.DbUpdateSubcommand.registryOverride = registry
         defer {
             CondaCommand.storageRootOverride = nil
             DbCommand.DbUpdateSubcommand.registryOverride = nil
@@ -152,67 +129,25 @@ extension ManagedToolsCLIGUIParityReplayTests {
         let ignoreEvents: @Sendable (String) -> Void = { _ in }
         try await command.execute(eventsOn: true, quiet: true, emit: ignoreEvents)
 
-        let updatedRowA = try await registryA.database(named: "Viral")
-        // The app reloads the manifest the command saved, so side C reads its row the same way.
-        try await registryC.reloadFromDisk()
-        let updatedRowC = try await registryC.database(named: "Viral")
-        let rowA = try XCTUnwrap(updatedRowA)
-        let rowC = try XCTUnwrap(updatedRowC)
-        func facts(_ row: MetagenomicsDatabaseInfo) -> String {
-            "catalogID \(row.catalogID ?? "nil"), version \(row.version ?? "nil"), payloadDigest \(row.payloadDigest ?? "nil")"
-        }
-        let both = "A: \(facts(rowA)) | C: \(facts(rowC))"
+        // The app reloads the manifest the command saved, so it reads its row the same way.
+        try await registry.reloadFromDisk()
+        let updatedRow = try await registry.database(named: "Viral")
+        let row = try XCTUnwrap(updatedRow)
 
-        // The three values the route decides.
-        XCTAssertEqual(rowA.catalogID, "kraken2-viral", "the row proved its catalog identity: \(both)")
-        XCTAssertEqual(rowA.catalogID, rowC.catalogID, "catalogID: \(both)")
-        XCTAssertEqual(rowA.version, rowC.version, "version: \(both)")
-        XCTAssertNotNil(rowA.payloadDigest, "the update states the digest of the payload it kept")
-        XCTAssertEqual(rowA.payloadDigest, rowC.payloadDigest, "payloadDigest: \(both)")
+        // The values the route decides, and the row against its own receipt.
+        XCTAssertEqual(row.catalogID, "kraken2-viral", "the row proved its catalog identity")
+        XCTAssertNotNil(row.payloadDigest, "the update states the digest of the payload it kept")
+        _ = try provenIdentity(side: "C", installed: installed, oldPayloadDigest: start.oldPayloadDigest, row: row)
 
-        // Each row against its own receipt, then the two identities on the values the route decides. Path,
-        // receipt digest and retrieval time vary with the root, the run and the clock, so they are not compared.
-        let identityA = try provenIdentity(
-            side: "A", installed: installedA, oldPayloadDigest: startA.oldPayloadDigest, row: rowA
-        )
-        let identityC = try provenIdentity(
-            side: "C", installed: installedC, oldPayloadDigest: startC.oldPayloadDigest, row: rowC
-        )
-        func decided(_ identity: MetagenomicsDatabaseConformanceIdentity) -> [String: String] {
-            [
-                "catalogID": identity.catalogID ?? "nil",
-                "catalogVersion": identity.catalogVersion ?? "nil",
-                "installedVersion": identity.installedVersion ?? "nil",
-                "payloadAggregateSHA256": identity.payloadAggregateSHA256,
-                "sourcePolicy": identity.sourcePolicy,
-                "requestedSourceURL": identity.requestedSourceURL ?? "nil",
-                "receivedArchiveSHA256": identity.receivedArchiveSHA256 ?? "nil",
-            ]
-        }
-        let decidedA = decided(identityA)
-        let decidedC = decided(identityC)
-        for key in decidedA.keys.sorted() {
-            XCTAssertEqual(decidedA[key], decidedC[key], "identity \(key): A \(decidedA[key] ?? "nil") | C \(decidedC[key] ?? "nil")")
-        }
-
-        // The two folders, payload and receipt, under the contract's masks. The receipt is read as written
-        // apart from the values the provenance masks hide: ids, dates, wall time, the executable and the roots.
-        let folderDifferences = try OutputEquivalence.differences(
-            XCTUnwrap(rowA.path), XCTUnwrap(rowC.path), kind: .files
-        )
-        XCTAssertEqual(
-            folderDifferences, [], "the database folders differ under the contract's masks: \(folderDifferences)"
-        )
-
-        // The receipt states the update it records, so two equal receipts cannot both be wrong the same way.
-        let receiptA = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: XCTUnwrap(rowA.path)))
-        let options = receiptA.options.resolvedDefaults
+        // The receipt states the update it records.
+        let receipt = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: XCTUnwrap(row.path)))
+        let options = receipt.options.resolvedDefaults
         XCTAssertEqual(
             options["updatedFromVersion"]?.stringValue, installedViralVersion,
             "the receipt names the version the update started from"
         )
         XCTAssertEqual(
-            options["updatedToVersion"]?.stringValue, rowA.version, "the receipt names the version the update moved to"
+            options["updatedToVersion"]?.stringValue, row.version, "the receipt names the version the update moved to"
         )
     }
 }

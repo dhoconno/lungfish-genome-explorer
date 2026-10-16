@@ -1,4 +1,4 @@
-// PluginManagerViewModel+OperationBegin.swift - Operations panel registration and routes for Plugin Manager launches
+// PluginManagerViewModel+OperationBegin.swift - Operations panel registration and CLI launches for Plugin Manager launches
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -7,7 +7,7 @@ import LungfishKit
 import LungfishWorkflow
 
 /// The begin helpers for the pack install and database update launches in the
-/// baselined PluginManagerViewModel.swift (finding R4), and the route each launch takes
+/// baselined PluginManagerViewModel.swift (finding R4), and the CLI launch each takes
 /// (Phase 2.10 lane A52). They live here, not beside their launch sites, so the baselined
 /// file does not grow (scripts/ratchets/file-size.sh). Each helper registers its row through
 /// `OperationReporting` and calls `launch` only when the row started, so a test
@@ -18,9 +18,8 @@ extension PluginManagerViewModel {
     /// it starts, calls `launch` with the operation ID. The row locks no bundle.
     ///
     /// The row records `lungfish-cli conda install --pack <pack ID> [--reinstall] --format json`,
-    /// the argv the CLI route runs (`CLIManagedToolsRunner.installPack`). A reinstall recreates
-    /// the pack's environments instead of installing only what is missing, as the in-process
-    /// call with `reinstall` true does, so the row now reproduces it.
+    /// the argv the app runs (`CLIManagedToolsRunner.installPack`). A reinstall recreates
+    /// the pack's environments instead of installing only what is missing.
     @discardableResult
     static func beginPluginPackOperation(
         pack: PluginPack,
@@ -48,7 +47,7 @@ extension PluginManagerViewModel {
     /// download row.
     ///
     /// The row records `lungfish-cli conda db update <catalog ID> --yes --format json`, the argv the
-    /// CLI route runs (`CLIManagedToolsRunner.updateDatabase`). `catalogID` is the resolved
+    /// app runs (`CLIManagedToolsRunner.updateDatabase`). `catalogID` is the resolved
     /// catalog identifier the run hands to `MetagenomicsDatabaseRegistry.updateDatabase`, and the
     /// command calls the same registry method with the same identifier.
     @discardableResult
@@ -74,15 +73,13 @@ extension PluginManagerViewModel {
         return result
     }
 
-    // MARK: - Routes
+    // MARK: - Launches
 
-    /// Installs or reinstalls `pack` on the route the hidden key names (panel decision C4).
-    ///
-    /// The legacy route is `provider.install` in this process. The CLI route runs
-    /// `conda install --pack` on the row `operationID`, whose events the row shows, and the
-    /// caller reads the pack's status afterwards as it did. A cancel the row acknowledged ends
-    /// this call without a throw, because the command put back what it moved aside and the row
-    /// says Cancelled, where a throw would raise the failure alert.
+    /// Installs or reinstalls `pack` (panel decision C4). It runs `conda install --pack` on the
+    /// row `operationID`, whose events the row shows, and the caller reads the pack's status
+    /// afterwards. A cancel the row acknowledged ends this call without a throw, because the
+    /// command put back what it moved aside and the row says Cancelled, where a throw would raise
+    /// the failure alert.
     func installPackThroughRoute(
         pack: PluginPack,
         reinstall: Bool,
@@ -91,56 +88,43 @@ extension PluginManagerViewModel {
         cliURLOverride: URL? = nil,
         progress: @escaping @Sendable (PluginPackInstallProgress) -> Void
     ) async throws {
-        switch ManagedToolsRouteSettings.currentRoute {
-        case .legacy:
-            try await provider.install(pack: pack, reinstall: reinstall, progress: progress)
-        case .cli:
-            let packID = pack.id
-            // The command changed the environments in another process, whatever way it ended, so
-            // the status service forgets what it cached before the caller reads the status.
-            do {
-                _ = try await CLIManagedToolsRunner.launch(
-                    CLIManagedToolsRunner.installPack(packID: packID, reinstall: reinstall),
-                    operationID: operationID,
-                    overlay: { [weak self] message in self?.packProgressMessage[packID] = message },
-                    cliURLOverride: cliURLOverride
-                )
-            } catch is CancellationError {
-                await provider.invalidateVisibleStatusesCache()
-                return
-            } catch {
-                await provider.invalidateVisibleStatusesCache()
-                throw error
-            }
+        let packID = pack.id
+        // The command changed the environments in another process, whatever way it ended, so
+        // the status service forgets what it cached before the caller reads the status.
+        do {
+            _ = try await CLIManagedToolsRunner.launch(
+                CLIManagedToolsRunner.installPack(packID: packID, reinstall: reinstall),
+                operationID: operationID,
+                overlay: { [weak self] message in self?.packProgressMessage[packID] = message },
+                cliURLOverride: cliURLOverride
+            )
+        } catch is CancellationError {
             await provider.invalidateVisibleStatusesCache()
+            return
+        } catch {
+            await provider.invalidateVisibleStatusesCache()
+            throw error
         }
+        await provider.invalidateVisibleStatusesCache()
     }
 
-    /// Updates the database `catalogID` on the route the hidden key names (panel decision C10).
-    ///
-    /// The legacy route is `legacy`, the registry call in this process. The CLI route runs
-    /// `conda db update` on the row `operationID` and reloads the registry from disk afterwards,
-    /// because the command saved the manifest in another process. A cancel throws
-    /// `CancellationError`, which the caller does not report as a failure.
+    /// Updates the database `catalogID` (panel decision C10). It runs `conda db update` on the row
+    /// `operationID` and reloads the registry from disk afterwards, because the command saved the
+    /// manifest in another process. A cancel throws `CancellationError`, which the caller does not
+    /// report as a failure.
     func updateDatabaseThroughRoute(
         catalogID: String,
         operationID: UUID,
-        legacy: @Sendable (String, @escaping @Sendable (Double, String) -> Void) async throws -> Void,
         registry: MetagenomicsDatabaseRegistry = .shared,
         cliURLOverride: URL? = nil,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws {
-        switch ManagedToolsRouteSettings.currentRoute {
-        case .legacy:
-            try await legacy(catalogID, progress)
-        case .cli:
-            _ = try await CLIManagedToolsRunner.launch(
-                CLIManagedToolsRunner.updateDatabase(catalogID: catalogID),
-                operationID: operationID,
-                progress: progress,
-                cliURLOverride: cliURLOverride
-            )
-            try await registry.reloadFromDisk()
-        }
+        _ = try await CLIManagedToolsRunner.launch(
+            CLIManagedToolsRunner.updateDatabase(catalogID: catalogID),
+            operationID: operationID,
+            progress: progress,
+            cliURLOverride: cliURLOverride
+        )
+        try await registry.reloadFromDisk()
     }
 }

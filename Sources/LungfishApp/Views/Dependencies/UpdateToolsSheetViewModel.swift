@@ -249,21 +249,19 @@ final class UpdateToolsSheetViewModel {
         var errorDescription: String? { message }
     }
 
-    /// Applies `selection` on the route the hidden key names (panel decisions C4 and C10). The
-    /// legacy route is the reconciler in this process. The CLI route runs `tools update --apply
-    /// --only` on one Operations row and rebuilds the result from the plan and the receipt after
-    /// it, because the command ran the reconciler in its own process. A selection that names no
-    /// item, such as a plan that holds only the bootstrap update, runs `tools update --apply
-    /// --required-only` instead, since required items are always selected and the bootstrap and
-    /// the pipeline prefetch always run. Only a missing storage root and a refused row keep the
-    /// reconciler in this process.
+    /// Applies `selection` (panel decisions C4 and C10) with `tools update --apply --only` on one
+    /// Operations row and rebuilds the result from the plan and the receipt after it, because the
+    /// command ran the reconciler in its own process. A selection that names no item, such as a plan
+    /// that holds only the bootstrap update, runs `tools update --apply --required-only` instead,
+    /// since required items are always selected and the bootstrap and the pipeline prefetch always
+    /// run. Only a missing storage root and a refused row keep the reconciler in this process.
     private func applySelection(
         _ selection: PlanSelection,
         reconciler: DependencyReconciler,
         progress: @escaping @Sendable (String, Double, String) -> Void
     ) async throws -> ReconciliationResult {
         let ids = CLIManagedToolsRunner.itemIDs(of: selection, in: plan)
-        guard ManagedToolsRouteSettings.currentRoute == .cli, let storageRoot else {
+        guard let storageRoot else {
             return try await reconciler.apply(plan, selection: selection, progress: progress)
         }
         let invocation = ids.isEmpty

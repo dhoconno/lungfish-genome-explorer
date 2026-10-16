@@ -18,10 +18,6 @@ import LungfishKitTestSupport
 /// highlighting, and database removal. These tests exercise the
 /// ``PluginManagerViewModel`` data layer and ``MetagenomicsDatabaseInfo``
 /// catalog without rendering SwiftUI views or performing real downloads.
-/// Thrown by `waitUntil` after it has already recorded the timeout as a failure, so the
-/// calling test stops instead of failing a second time on a follow-up unwrap.
-private struct WaitTimeout: Error {}
-
 @MainActor
 final class DatabasesTabTests: XCTestCase {
 
@@ -32,13 +28,9 @@ final class DatabasesTabTests: XCTestCase {
 
     override func setUpWithError() throws {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        // The update cases inject `updateDatabaseAction`, the in-process route. The default route runs
-        // `lungfish-cli conda db update` (lane A52), which an injected action never reaches.
-        ManagedToolsRouteSettings.testOverride = .legacy
     }
 
     override func tearDownWithError() throws {
-        ManagedToolsRouteSettings.testOverride = nil
         try? FileManager.default.removeItem(at: tempDir)
         MainActor.assumeIsolated {
             ManagedStorageConfigStore.overrideSharedForTesting(nil)
@@ -610,27 +602,6 @@ final class DatabasesTabTests: XCTestCase {
         )
     }
 
-    /// The Update action must address the registry by the *resolved* catalog id, so a row
-    /// registered from disk (which records none) updates like a catalog-installed one.
-    func testUpdateDatabasePassesTheResolvedCatalogID() async throws {
-        let database = try outdatedStandard8()
-        XCTAssertNil(database.catalogID, "fixture models a registerExisting row")
-
-        let recorded = OSAllocatedUnfairLock<[String]>(initialState: [])
-        let vm = PluginManagerViewModel(
-            automaticallyRefresh: false,
-            updateDatabaseAction: { catalogID, progress in
-                recorded.withLock { $0.append(catalogID) }
-                progress(1.0, "done")
-            }
-        )
-
-        vm.updateDatabase(database)
-        try await waitUntil { recorded.withLock { !$0.isEmpty } }
-
-        XCTAssertEqual(recorded.withLock { $0 }, ["kraken2-standard-8"])
-    }
-
     /// A row with no update on offer, one already updating, and one whose name matches no
     /// catalog entry are all ineligible, so the button cannot start work that would fail.
     func testUpdateEnablement() throws {
@@ -660,64 +631,6 @@ final class DatabasesTabTests: XCTestCase {
 
         vm.removingDatabases.insert(outdated.name)
         XCTAssertFalse(vm.canUpdateDatabase(outdated))
-    }
-
-    /// A database that cannot be swapped in place reports guidance on the row, not an error
-    /// alert, and leaves no failure recorded against the download.
-    func testUpdateNotSupportedIsSurfacedInline() async throws {
-        let database = try outdatedStandard8()
-        let vm = PluginManagerViewModel(
-            automaticallyRefresh: false,
-            updateDatabaseAction: { _, _ in
-                throw MetagenomicsDatabaseRegistryError.updateNotSupported(
-                    name: "Standard-8",
-                    reason: "it is rebuilt by reinstalling"
-                )
-            }
-        )
-
-        vm.updateDatabase(database)
-        try await waitUntil { vm.databaseUpdateNotice["Standard-8"] != nil }
-
-        let notice = try XCTUnwrap(vm.databaseUpdateNotice["Standard-8"])
-        XCTAssertTrue(notice.contains("rebuilt by reinstalling"), notice)
-        XCTAssertNil(vm.downloadError["Standard-8"], "guidance must not masquerade as a download failure")
-        XCTAssertFalse(vm.updatingDatabases.contains("Standard-8"))
-    }
-
-    /// A real failure lands in the row's error slot so the existing Dismiss affordance clears it.
-    func testUpdateFailureIsRecordedAsAnError() async throws {
-        let database = try outdatedStandard8()
-        struct Boom: LocalizedError { var errorDescription: String? { "network went away" } }
-        let center = OperationCenter()
-        center.failureReportStore = .temporaryForTesting()
-        let vm = PluginManagerViewModel(
-            automaticallyRefresh: false,
-            operationCenter: center,
-            updateDatabaseAction: { _, _ in throw Boom() }
-        )
-
-        vm.updateDatabase(database)
-        try await waitUntil { vm.downloadError["Standard-8"] != nil }
-
-        XCTAssertEqual(vm.downloadError["Standard-8"], "network went away")
-        XCTAssertNil(vm.databaseUpdateNotice["Standard-8"])
-    }
-
-    /// Polls on the main actor until `condition` holds, so a test can await a `Task` the
-    /// view model started without the view model having to expose its handle.
-    private func waitUntil(
-        timeout: TimeInterval = 5,
-        _ condition: @MainActor () -> Bool
-    ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() {
-            if Date() > deadline {
-                XCTFail("condition not met within \(timeout)s")
-                throw WaitTimeout()
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
     }
 
     // MARK: - Viral Database Properties

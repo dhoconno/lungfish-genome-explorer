@@ -1,4 +1,4 @@
-// ManagedToolsCLIGUIParityReplayTests+Completed.swift - The managed tools commands run to their end on sides A, C and C'
+// ManagedToolsCLIGUIParityReplayTests+Completed.swift - The managed tools commands run to their end on sides C and C'
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -7,32 +7,25 @@
 // against a stand-in micromamba that finishes (ManagedToolsStandInConda), and compare the roots the
 // sides leave with kind `.managedPlan`.
 //
-// - Side A is the in-process route at the base. The Update Tools sheet runs the reconciler in this
-//   process, and the Plugin Manager reinstalls the pack through `PluginPackStatusService`, both under
-//   `ManagedToolsRouteSettings.testOverride = .legacy`.
 // - Side C is the argv the L10 runner builds, run by the built `lungfish-cli` through the app's
 //   transport launcher, with the root's environment. Side C' is the command the row recorded.
+// - There is no side A since Phase 2.11 (K3). The in-process route, the reconciler in the Update Tools
+//   sheet and the pack service in the Plugin Manager, went with its hidden key. Side C is the reference,
+//   and C against C' declares nothing.
 //
 // The harness's own `run` replays the recorded command with the root of side C rebased, and refuses a
 // command that names no path under that root. These commands name none, because the storage root
-// travels in the environment as for every route, so the cases run the three sides themselves and hand
+// travels in the environment as for every route, so the cases run the two sides themselves and hand
 // the runs to `harness.evaluate`.
 //
-// The differences of A against C that the declared list holds, with where each is checked.
+// What the cases check besides the roots.
 //
-// 1. Rows. The in-process Update Tools run opens a parent row and a row for every item through the
-//    reconciler's sink, with no command, where the CLI route opens one row whose command names the
-//    chosen items. Checked by the row assertions in each case, since a row is not a file of a root.
-// 2. Records. The CLI pack leaf writes a record for every run, where the in-process pack route writes
-//    none. Declared below. The dependency record is compared under the provenance masks, which hide the
-//    executable of the process that wrote it, and the clock values and ids of the receipt, the pack
-//    status cache and the records are masked by key (docs/contracts/CLI-EQUIVALENCE.md, row "Masks").
-// 3. Cancel. The in-process route cannot stop micromamba and the sheet has no Cancel. The cancel
-//    cases of ManagedToolsCLIGUIParityReplayTests cover the CLI route on sides C and C'.
-// 4. A database that cannot be updated in place shows a notice in process and a failed row on the CLI
-//    route. The built CLI has no archive stand-in, so ManagedToolLeavesLiveConformanceTests covers it.
-// 5. A pack's per-requirement progress feeds the row log in process, and the CLI route shows the
-//    leaf's progress messages. Checked by the pack case's row assertion.
+// 1. Rows. The CLI route opens one row for the run, and its command names the chosen items. Checked by
+//    the row assertions in each case, since a row is not a file of a root.
+// 2. Cancel. The cancel cases of ManagedToolsCLIGUIParityReplayTests cover sides C and C'.
+// 3. A database that cannot be updated in place ends in a failed row and an alert on the CLI route. The
+//    built CLI has no archive stand-in, so ManagedToolLeavesLiveConformanceTests covers it. Whether the
+//    app should show guidance in the row instead is A52's open UX item (declared difference 4).
 
 import Foundation
 import Synchronization
@@ -44,7 +37,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 
-/// The rows the reconciler opens through its sink on the in-process route.
+/// The rows the reconciler opens through its sink when a sheet runs it in this process.
 final class RecordingDependencySink: DependencyOperationSink {
     struct Row: Sendable, Equatable {
         let title: String
@@ -78,41 +71,29 @@ extension ManagedToolsCLIGUIParityReplayTests {
         }
     }
 
-    /// The differences of A against C, each counted. The list only shrinks.
-    static let declared: [RouteParityDeclaredDifference<CompletedCase>] = [
-        RouteParityDeclaredDifference(
-            [.packReinstall: 1],
-            "only in C: storage/provenance/packs/<UTC-STAMP>-multiple-sequence-alignment-reinstall.lungfish-provenance.json",
-            reason: "The in-process pack route writes no record. conda install --pack writes one for every run, install or reinstall (lane A52 M2).",
-            closedBy: "the phase that removes the in-process route (2.11)"
-        ),
-    ]
+    /// The differences the cases declare. None, since side C is the reference.
+    static let declared: [RouteParityDeclaredDifference<CompletedCase>] = []
 
     // MARK: - Running a case
 
-    /// Runs `sideA` in root A, the argv `invocation` on side C and the command the row recorded on
-    /// side C', each in a root that started as a copy of the fixture, then compares the three.
+    /// Runs the argv `invocation` on side C and the command the row recorded on side C', each in a root
+    /// that started as a copy of the fixture, then compares the two.
     func runCompleted(
         _ parityCase: CompletedCase,
         invocation: CLIManagedToolsRunner.Invocation,
         recordedCommand command: String?,
-        fixture: (URL) throws -> Void,
-        sideA: (URL) async throws -> RouteParitySideOutcome
+        fixture: (URL) throws -> Void
     ) async throws -> RouteParityResult {
         XCTAssertEqual(command, invocation.recordedCommand, "the row records the argv the runner runs")
         let fileManager = FileManager.default
         let caseRoot = scratch.appendingPathComponent("completed-\(parityCase)", isDirectory: true)
         try? fileManager.removeItem(at: caseRoot)
-        let rootA = RouteParityHarness.root(of: .a, in: caseRoot)
         let rootC = RouteParityHarness.root(of: .c, in: caseRoot)
         let rootCPrime = RouteParityHarness.root(of: .cPrime, in: caseRoot)
-        try fileManager.createDirectory(at: rootA, withIntermediateDirectories: true)
-        try fixture(rootA)
-        for root in [rootC, rootCPrime] {
-            try fileManager.copyItem(at: rootA, to: root)
-        }
+        try fileManager.createDirectory(at: rootC, withIntermediateDirectories: true)
+        try fixture(rootC)
+        try fileManager.copyItem(at: rootC, to: rootCPrime)
 
-        let runA = RouteParitySideRun(side: .a, root: rootA, outcome: try await sideA(rootA))
         let run = await RouteParityHarness.runCLI(
             cli, arguments: invocation.argv, timeout: .seconds(120), environment: Self.environment(for: rootC)
         )
@@ -134,62 +115,21 @@ extension ManagedToolsCLIGUIParityReplayTests {
         )
         XCTAssertEqual(replay.end, .completed, "side C': \(replay.detail) \(replay.stderr)")
 
-        let runs = RouteParityRuns(caseRoot: caseRoot, a: runA, c: runC, cPrime: runCPrime)
+        let runs = RouteParityRuns(caseRoot: caseRoot, a: runC, c: runC, cPrime: runCPrime)
         let result = try harness.evaluate(parityCase, declared: Self.declared, runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
         return result
     }
 
-    /// The conda manager of a side's root, as the built CLI builds its own: no bundled micromamba, so
-    /// the installed copy under the conda root is used, and no shared package cache.
-    func condaManager(in root: URL) -> CondaManager {
-        CondaManager(
-            rootPrefix: Self.storageRoot(of: root).appendingPathComponent("conda", isDirectory: true),
-            bundledMicromambaProvider: { nil },
-            bundledMicromambaVersionProvider: { nil }
-        )
-    }
-
     // MARK: - Update Tools
 
-    /// Side A of the Update Tools case. The sheet's view model runs the reconciler in this process.
-    func updateToolsInProcess(root: URL, sink: RecordingDependencySink) async throws -> RouteParitySideOutcome {
-        ManagedToolsRouteSettings.testOverride = .legacy
-        defer { ManagedToolsRouteSettings.testOverride = nil }
-        let storage = Self.storageRoot(of: root)
-        let registry = MetagenomicsDatabaseRegistry(
-            baseDirectory: scratch.appendingPathComponent("registry-A", isDirectory: true)
-        )
-        var services = ReconcilerServices.live(
-            condaManager: condaManager(in: root), storageRoot: storage, metagenomicsRegistry: registry
-        )
-        // The built CLI reads the databases of its own storage root, which is empty.
-        services.registryDatabaseVersions = { [:] }
-        let reconciler = DependencyReconciler(
-            manifest: ManagedToolLock.bundled,
-            storageRoot: storage,
-            services: services,
-            appVersion: LungfishAppVersion.short,
-            operationCenter: sink
-        )
-        let plan = try await reconciler.currentPlan()
-        let viewModel = UpdateToolsSheetViewModel(plan: plan, reconciler: reconciler, storageRoot: storage)
-        await viewModel.run()
-        let failed = viewModel.failureSummary
-        return RouteParitySideOutcome(
-            end: failed == nil && viewModel.completed ? .completed : .failed,
-            detail: failed ?? "in process"
-        )
-    }
-
-    func testAnUpdateToolsRunCompletedOnSidesAAndCAndCPrime() async throws {
+    func testAnUpdateToolsRunCompletedOnSidesCAndCPrime() async throws {
         let ids = ["pigz", "samtools"]
         let invocation = CLIManagedToolsRunner.updateTools(ids: ids)
         let reporter = RecordingOperationReporter()
         OperationCenterDependencySink.beginDependencyOperation(
             title: "Update tools", detail: "\(ids.count) item(s)", cliCommand: invocation.recordedCommand, reporter: reporter
         ) { _ in }
-        let sink = RecordingDependencySink()
 
         _ = try await runCompleted(
             .updateTools,
@@ -203,31 +143,17 @@ extension ManagedToolsCLIGUIParityReplayTests {
                 try ManagedToolsStandInConda.make(
                     storageRoot: Self.storageRoot(of: root), current: others, outdated: ["pigz"], templates: ids
                 )
-            },
-            sideA: { root in try await updateToolsInProcess(root: root, sink: sink) }
+            }
         )
 
-        // Rows, difference 1 of the list above.
+        // Rows, check 1 of the list above.
         XCTAssertEqual(reporter.items.count, 1, "the CLI route opens one row for the run")
         XCTAssertNotNil(reporter.items.first?.cliCommand, "and it records the command")
-        XCTAssertGreaterThan(sink.started.count, 1, "the in-process route opens a parent row and one row per item")
     }
 
     // MARK: - Pack reinstall
 
-    /// Side A of the pack case. The Plugin Manager's install call runs the pack service in this process.
-    func packReinstallInProcess(root: URL, pack: PluginPack) async throws -> RouteParitySideOutcome {
-        ManagedToolsRouteSettings.testOverride = .legacy
-        defer { ManagedToolsRouteSettings.testOverride = nil }
-        let service = PluginPackStatusService(condaManager: condaManager(in: root))
-        let viewModel = PluginManagerViewModel(automaticallyRefresh: false)
-        try await viewModel.installPackThroughRoute(
-            pack: pack, reinstall: true, operationID: UUID(), provider: service
-        ) { _ in }
-        return RouteParitySideOutcome(end: .completed, detail: "in process")
-    }
-
-    func testAPackReinstallCompletedOnSidesAAndCAndCPrime() async throws {
+    func testAPackReinstallCompletedOnSidesCAndCPrime() async throws {
         let pack = try XCTUnwrap(PluginPack.builtInPack(id: "multiple-sequence-alignment"))
         let reporter = RecordingOperationReporter()
         PluginManagerViewModel.beginPluginPackOperation(pack: pack, reinstall: true, reporter: reporter) { _ in }
@@ -244,8 +170,7 @@ extension ManagedToolsCLIGUIParityReplayTests {
                 try ManagedToolsStandInConda.make(
                     storageRoot: Self.storageRoot(of: root), current: [], outdated: environments, templates: environments
                 )
-            },
-            sideA: { root in try await packReinstallInProcess(root: root, pack: pack) }
+            }
         )
         XCTAssertEqual(reporter.items.count, 1, "the CLI route opens one row for the reinstall")
     }

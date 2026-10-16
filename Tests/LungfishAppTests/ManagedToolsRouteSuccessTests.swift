@@ -25,11 +25,9 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
 
     override func setUpWithError() throws {
         scratch = try TestTempDirectory.make(prefix: "managed-tools-route-success")
-        ManagedToolsRouteSettings.testOverride = .cli
     }
 
     override func tearDownWithError() throws {
-        ManagedToolsRouteSettings.testOverride = nil
         TestTempDirectory.cleanup(scratch)
     }
 
@@ -331,7 +329,6 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
         try await viewModel.updateDatabaseThroughRoute(
             catalogID: "kraken2-viral",
             operationID: try XCTUnwrap(started),
-            legacy: { _, _ in XCTFail("the CLI route does not update in process") },
             registry: app,
             cliURLOverride: cli
         ) { fraction, _ in seen.append(fraction) }

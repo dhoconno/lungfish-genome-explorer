@@ -1,12 +1,11 @@
-// ManagedToolsRouteTests.swift - The hidden key of the managed tools route, and the commands the runner builds
+// ManagedToolsRouteTests.swift - The commands the managed tools runner builds
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A52 M3 (family L10, panel decision C4). The Update Tools run, the Plugin Manager's
-// pack install and reinstall, and its database update take the CLI route or, behind a hidden key for
-// one release, the in-process route. The test reads each value of the key from a defaults suite of
-// its own, checks that a test override wins, and checks that each command the runner builds is the
-// argv its row records and parses back to its leaf.
+// pack install and reinstall, and its database update run the CLI. The tests check that each command
+// the runner builds is the argv its row records and parses back to its leaf. The hidden key and the
+// in-process route went in Phase 2.11 (K3).
 
 import XCTest
 @testable import LungfishApp
@@ -16,47 +15,6 @@ import LungfishTestSupport
 import LungfishWorkflow
 
 final class ManagedToolsRouteTests: XCTestCase {
-    private func route(holding value: Any?) -> ManagedToolsRoute {
-        let suite = makeTestDefaultsSuite(prefix: "managed-tools-route")
-        if let value { suite.defaults.set(value, forKey: ManagedToolsRouteSettings.defaultsKey) }
-        return ManagedToolsRouteSettings(defaults: suite.defaults).route
-    }
-
-    func testTheKeyReadsEachValueAndAnUnknownOneTakesTheDefault() {
-        XCTAssertEqual(route(holding: nil), ManagedToolsRouteSettings.defaultRoute, "an unset key")
-        XCTAssertEqual(route(holding: "cli"), .cli)
-        XCTAssertEqual(route(holding: "CLI"), .cli)
-        XCTAssertEqual(route(holding: "legacy"), .legacy)
-        XCTAssertEqual(route(holding: true), .cli)
-        XCTAssertEqual(route(holding: false), .legacy)
-        XCTAssertEqual(route(holding: "in-process"), ManagedToolsRouteSettings.defaultRoute, "a value nothing reads")
-        XCTAssertEqual(route(holding: 7), ManagedToolsRouteSettings.defaultRoute, "a number is not a route")
-        XCTAssertEqual(ManagedToolsRoute.allCases.count, 2)
-    }
-
-    /// Lane A52's last commit (panel decision C4). Side A against C holds only declared differences
-    /// (ManagedToolsCLIGUIParityReplayTests), so the three launches take the CLI route unless the
-    /// key names the in-process route, which stays for one release.
-    func testTheDefaultRouteIsTheCLIAndTheKeyStillKeepsTheInProcessRoute() {
-        XCTAssertEqual(ManagedToolsRouteSettings.defaultRoute, .cli)
-        XCTAssertEqual(route(holding: nil), .cli, "an unset key takes the CLI route")
-        XCTAssertEqual(route(holding: "in-process"), .cli, "a value nothing reads takes the CLI route")
-        XCTAssertEqual(route(holding: "legacy"), .legacy, "the key keeps the in-process route")
-        XCTAssertEqual(route(holding: false), .legacy)
-    }
-
-    func testAnOverrideWinsOverTheKeyAndClearsAfterwards() {
-        defer { ManagedToolsRouteSettings.testOverride = nil }
-        ManagedToolsRouteSettings.testOverride = .legacy
-        XCTAssertEqual(ManagedToolsRouteSettings.currentRoute, .legacy)
-        ManagedToolsRouteSettings.testOverride = .cli
-        XCTAssertEqual(ManagedToolsRouteSettings.currentRoute, .cli)
-        ManagedToolsRouteSettings.testOverride = nil
-        XCTAssertEqual(
-            ManagedToolsRouteSettings.currentRoute,
-            ManagedToolsRouteSettings(defaults: .standard).route
-        )
-    }
 
     func testEachCommandIsTheArgvItsRowRecordsAndParsesBackToItsLeaf() throws {
         let tools = CLIManagedToolsRunner.updateTools(ids: ["pigz", "samtools"])

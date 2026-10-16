@@ -247,13 +247,6 @@ final class PluginManagerViewModel {
     /// rather than raised as an app-level error.
     var databaseUpdateNotice: [String: String] = [:]
 
-    /// Applies a metagenomics database update. Injected so the action is testable without
-    /// the real registry, the network, or a multi-gigabyte download.
-    private let updateDatabaseAction: @Sendable (
-        _ catalogID: String,
-        _ progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> Void
-
     /// Database name pending removal confirmation, drives the confirmation alert.
     var databasePendingRemoval: String?
 
@@ -372,21 +365,11 @@ final class PluginManagerViewModel {
         packStatusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared,
         notificationCenter: NotificationCenter = .default,
         automaticallyRefresh: Bool = true,
-        operationCenter: OperationCenter = .shared,
-        updateDatabaseAction: @escaping @Sendable (
-            String,
-            @escaping @Sendable (Double, String) -> Void
-        ) async throws -> Void = { catalogID, progress in
-            try await MetagenomicsDatabaseRegistry.shared.updateDatabase(
-                catalogID: catalogID,
-                progress: progress
-            )
-        }
+        operationCenter: OperationCenter = .shared
     ) {
         self.packStatusProvider = packStatusProvider
         self.notificationCenter = notificationCenter
         self.operationCenter = operationCenter
-        self.updateDatabaseAction = updateDatabaseAction
         refreshStorageLocationState()
         self.storageLocationChangeObserver = StorageLocationChangeObserver(
             notificationCenter: notificationCenter
@@ -831,7 +814,7 @@ final class PluginManagerViewModel {
                 }
 
                 do {
-                    try await updateDatabaseThroughRoute(catalogID: catalogID, operationID: operationID, legacy: updateDatabaseAction) { [weak self] fraction, message in
+                    try await updateDatabaseThroughRoute(catalogID: catalogID, operationID: operationID) { [weak self] fraction, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 guard let self else { return }
