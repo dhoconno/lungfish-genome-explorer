@@ -58,6 +58,21 @@ final class NextflowEngineDockerWaitTests: XCTestCase {
         XCTAssertEqual(probe.daemonQueries, 3, "the first ask, then one per poll until the daemon answers")
     }
 
+    /// Lane U64 M2. Row 24 of the owner's check list names the first line, and the bar never moves back (UX 3),
+    /// so each line's fraction is at least the one before it.
+    func testTheWaitsFirstLineIsRow24sWordsAndItsFractionsNeverMoveBack() async throws {
+        let open = try writeOpen(exitStatus: 0)
+        let probe = ScriptedDockerProbe(answers: [false, true])
+        let progress = ProgressMessages()
+
+        try await engine(open: open.executable).waitForDocker(probe: probe, progress: progress.report)
+
+        XCTAssertEqual(progress.all.first, "0.01 Docker daemon unavailable. Launching Docker Desktop...")
+        let fractions = progress.all.compactMap { $0.split(separator: " ").first.flatMap { Double($0) } }
+        XCTAssertEqual(fractions.count, progress.all.count, "every line starts with its fraction")
+        XCTAssertEqual(fractions, fractions.sorted(), "the bar never moves back")
+    }
+
     func testACancelBeforeOpenEndsTheWaitAndNeverStartsDockerDesktop() async throws {
         let open = try writeOpen(exitStatus: 0)
         let probe = ScriptedDockerProbe(answers: [false])
