@@ -25,8 +25,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/testing/preferences-leaks.py"
 ALLOWED = ROOT / "scripts/testing/preferences-leaks-allowed.txt"
 
-# The allowed list may only shrink. Lower this number with it, never raise it.
-SEEDED_ROWS = 1
+# The allowed list may only shrink. Lower this number with it, never raise it. It is empty since
+# Phase 2.11 lane Q62, which removed the plists of the fork suites that AppIdentityTests makes.
+SEEDED_ROWS = 0
 
 # The eleven classes the owner named, moved onto TestDefaultsSuite by the first milestone of Q10.
 ELEVEN = {
@@ -154,6 +155,24 @@ class ScanTestsTests(WorkspaceCase):
 
     def test_a_suite_named_by_a_bare_uuid_has_the_empty_prefix(self):
         file = self.swift("B/BareTests.swift", "let d = UserDefaults(suiteName: UUID().uuidString)!\n")
+        by_hand, _ = self.prefixes()
+        self.assertEqual(by_hand, {"": {file}})
+
+    def test_a_folder_named_by_a_bare_uuid_makes_no_prefix(self):
+        # 13 test files name a temporary folder or file with only a UUID, as in the three forms below. They say
+        # nothing about a suite, so they must not make the empty prefix (Q34's open note, Phase 2.11 lane Q62).
+        self.swift("G/FolderTests.swift",
+                   'let a = root.appendingPathComponent("\\(UUID().uuidString)")\n'
+                   'let b = root.appendingPathComponent(UUID().uuidString)\n'
+                   'let c = "" + UUID().uuidString\n'
+                   'let d = "-\\(UUID().uuidString)"\n')
+        by_hand, by_helper = self.prefixes()
+        self.assertEqual((by_hand, by_helper), ({}, {}))
+
+    def test_a_suite_named_by_a_bare_uuid_still_makes_the_empty_prefix_beside_a_folder_that_does_not(self):
+        file = self.swift("G/BothTests.swift",
+                          'let folder = root.appendingPathComponent("\\(UUID().uuidString)")\n'
+                          'let d = UserDefaults(suiteName: UUID().uuidString)!\n')
         by_hand, _ = self.prefixes()
         self.assertEqual(by_hand, {"": {file}})
 
@@ -335,6 +354,28 @@ class CheckTests(WorkspaceCase):
         self.assertIn("1 on the allowed list", out)
         self.assertNotIn("another checkout", out)
 
+    def test_a_bare_uuid_plist_is_counted_as_another_apps_when_a_test_names_a_folder_that_way(self):
+        # Before Q62 the folder below made the empty prefix, so a bare-UUID plist that some other app wrote
+        # failed the tier as if a test had left it.
+        self.swift("G/FolderTests.swift", 'let a = root.appendingPathComponent("\\(UUID().uuidString)")\n')
+        self.take_snapshot()
+        self.plist("")
+        status, out, err = self.check()
+        self.assertEqual(status, 0, out + err)
+        self.assertIn("1 from other apps", out)
+        self.assertFalse(self.report.exists())
+
+    def test_a_bare_uuid_plist_still_counts_against_a_test_that_names_a_suite_that_way(self):
+        # Only the row keeps the tier green. Without it the snapshot refuses to start, because lint sees the call.
+        file = self.swift("G/SuiteTests.swift", 'let d = UserDefaults(suiteName: UUID().uuidString)!\n')
+        self.allow(("(none)", file))
+        self.take_snapshot()
+        self.plist("")
+        status, out, err = self.check()
+        self.assertEqual(status, 0, out + err)
+        self.assertIn("1 on the allowed list", out)
+        self.assertNotIn("other apps", out)
+
     def test_a_suffix_after_the_uuid_still_counts_against_the_prefix(self):
         self.take_snapshot()
         name = self.plist("FooTests", suffix="-unset")
@@ -344,24 +385,18 @@ class CheckTests(WorkspaceCase):
 
     def test_the_fork_suites_app_identity_tests_leave_count_against_their_prefix(self):
         # AppIdentityTests.swift joins "org.example.test-" to UUID().uuidString.lowercased(), and
-        # LungfishAppIdentity builds its fork suites from that namespace, so each run leaves
-        # <prefix>-<lowercase uuid>.<channel>.preferences.plist. Lint cannot see the call, which
-        # is in Sources, so the file carries a row.
-        file = self.swift("B/AppIdentityTests.swift",
-                          'let namespace = "org.example.test-" + UUID().uuidString.lowercased()\n')
+        # LungfishAppIdentity builds its fork suites from that namespace, so a run that does not
+        # remove them leaves <prefix>-<lowercase uuid>.<channel>.preferences.plist. Lint cannot see
+        # the call, which is in Sources. The file carried a row until Phase 2.11 lane Q62 made the
+        # test remove those plists, and it carries none now, so the check fails on such a plist.
+        self.swift("B/AppIdentityTests.swift",
+                   'let namespace = "org.example.test-" + UUID().uuidString.lowercased()\n')
         self.take_snapshot()
         name = f"org.example.test-{uuid(90).lower()}.preview.preferences.plist"
         (self.preferences / name).write_text("{}")
         status, out, err = self.check()
         self.assertEqual(status, 1, out + err)
         self.assertIn(name, err)
-
-        self.allow(("org.example.test", file))
-        self.take_snapshot()
-        (self.preferences / f"org.example.test-{uuid(91).lower()}.preview.preferences.plist").write_text("{}")
-        status, out, err = self.check()
-        self.assertEqual(status, 0, out + err)
-        self.assertIn("1 on the allowed list", out)
 
     def test_a_plist_that_appears_during_the_settle_is_caught_by_the_second_scan(self):
         self.take_snapshot()

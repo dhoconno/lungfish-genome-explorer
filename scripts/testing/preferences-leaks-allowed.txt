@@ -9,10 +9,8 @@
 # its rows in the same commit, and `preferences-leaks.py lint` fails on a row whose file no longer
 # builds its prefix by hand and on a test file that calls UserDefaults(suiteName:) and has no row.
 # Never add a row. The prefix (none) is a suite named by a bare UUID.
-# The org.example.test row covers the fork suites that LungfishAppIdentity builds from the
-# namespace AppIdentityTests makes, so lint, which looks for UserDefaults(suiteName:) in Tests,
-# cannot see them.
+#
+# The list is empty. AppIdentityTests, the last file on it, removes the plist of every fork suite it
+# makes (Phase 2.11 lane Q62), so a plist named org.example.test-<UUID> now fails the gate.
 #
 # One row per file: <prefix> <path from the repository root>.
-
-org.example.test                        Tests/LungfishCoreTests/AppIdentityTests.swift

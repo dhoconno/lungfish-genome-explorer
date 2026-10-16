@@ -20,6 +20,8 @@ profile) and `check` after their processes exit, and records a failure as an err
 
 Only names are compared. A new plist whose prefix no file under Tests builds belongs to another
 app (com.openai.chat.RemoteFeatureFlags-<UUID>.plist) and is counted but never fails the tier.
+A plist named by a bare UUID counts against the tests only when a test names a suite that way,
+suiteName: UUID(). A test that names a temporary folder by a bare UUID does not make that prefix.
 So does a new plist named for a prefix a test passes to TestDefaultsSuite when the allowed list
 lacks it. The helper keeps its plist in the temporary directory and TestDefaultsSuiteTests fails
 if it ever writes here, so a checkout that still builds that suite by hand wrote the file.
@@ -124,7 +126,8 @@ class Built(NamedTuple):
 
 def scan_tests(tests_root: Path) -> Built:
     """Read the Swift files under `tests_root`. A literal that names a temporary folder counts as
-    built by hand too, which only makes the check count more prefixes."""
+    built by hand too, which only makes the check count more prefixes. A literal that begins at the
+    UUID makes no prefix, and only a suite named by a bare UUID makes the empty one."""
     repo = tests_root.parent
     by_hand: dict[str, set[str]] = {}
     by_helper: dict[str, set[str]] = {}
@@ -139,7 +142,12 @@ def scan_tests(tests_root: Path) -> Built:
             relative = path.relative_to(repo).as_posix()
             for pattern in (UUID_LITERAL, JOINED_LITERAL):
                 for match in pattern.finditer(text):
-                    by_hand.setdefault(without_separator(match.group(1)), set()).add(relative)
+                    prefix = without_separator(match.group(1))
+                    # A literal that begins at the UUID, "\(UUID().uuidString)", names a temporary folder or
+                    # file in 13 test files and says nothing about a suite, so it makes no prefix. Were the
+                    # empty prefix made here, every bare-UUID plist of another app would count against them.
+                    if prefix:
+                        by_hand.setdefault(prefix, set()).add(relative)
             if BARE_SUITE.search(text):
                 by_hand.setdefault("", set()).add(relative)
             for match in HELPER_CALL.finditer(text):

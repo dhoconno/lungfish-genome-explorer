@@ -166,9 +166,9 @@ extension AppIdentityTests {
         let stableDefaults = stable.preferences
         let debugDefaults = debug.preferences
         defer {
-            previewDefaults.removePersistentDomain(forName: preview.preferencesSuiteName!)
-            stableDefaults.removePersistentDomain(forName: stable.preferencesSuiteName!)
-            debugDefaults.removePersistentDomain(forName: debug.preferencesSuiteName!)
+            Self.removeForkSuite(previewDefaults, named: preview.preferencesSuiteName!)
+            Self.removeForkSuite(stableDefaults, named: stable.preferencesSuiteName!)
+            Self.removeForkSuite(debugDefaults, named: debug.preferencesSuiteName!)
         }
         previewDefaults.set("preview-only", forKey: "identity-test")
         #expect(preview.preferences.string(forKey: "identity-test") == "preview-only")
@@ -264,6 +264,33 @@ extension AppIdentityTests {
         #expect(preview.managedStorageDirectoryName == ".lungfish")
         let debug = try RuntimeAppIdentityResolver.resolve(enclosingAppInfo: upstreamInfo(.debug))
         #expect(debug.managedStorageDirectoryName == ".lungfish-debug")
+    }
+
+    /// Empties a fork's preference suite and removes the plist the system wrote for it.
+    ///
+    /// A fork suite is named by a plain string, `<namespace>.<channel>.preferences`, so the system stores it at
+    /// `~/Library/Preferences/<name>.plist`, and `removePersistentDomain(forName:)` alone leaves that file empty, one per
+    /// suite and run (Phase 2.11 P5). It cannot move into the temporary directory the way `TestDefaultsSuite` does,
+    /// because a namespace is never a path.
+    ///
+    /// The order matters. The system creates a plist that is missing at once, but it writes a change to a plist that
+    /// exists several seconds later (about 7.7 s in the measurement of lane Q62), so removing the file after emptying
+    /// the domain lets the emptied domain come back as a new file. The first `synchronize()` makes the system write
+    /// the value, the file goes, emptying the domain then makes the system create the emptied file at once, the
+    /// second `synchronize()` waits for it, and the file goes again with nothing left to write.
+    private static func removeForkSuite(_ defaults: UserDefaults, named name: String) {
+        let file = preferencesFolder.appendingPathComponent(name + ".plist")
+        _ = defaults.synchronize()
+        try? FileManager.default.removeItem(at: file)
+        defaults.removePersistentDomain(forName: name)
+        _ = defaults.synchronize()
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    /// The folder in which the system keeps a suite named by a plain string, for the real user whatever `HOME` says.
+    private static var preferencesFolder: URL {
+        URL(fileURLWithPath: NSHomeDirectoryForUser(NSUserName()) ?? NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library/Preferences", isDirectory: true)
     }
 
     private func upstreamInfo(_ identity: LungfishAppIdentity) -> [String: Any] {
