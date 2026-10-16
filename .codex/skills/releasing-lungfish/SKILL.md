@@ -185,6 +185,22 @@ If signing, notarization, or publication stops, preserve the candidate and
 run the identical `publish` command again. Receipt verification precedes every
 credentialed continuation. Recovery uses the same candidate and never rebuilds.
 
+A rerun after the beta feed took the candidate's build resumes with the same
+command. When the versioned release is public, `publish` gives every live-feed
+floor, the builder's own floor included, the candidate's version and DMG URL.
+A live build equal to the planned one then passes only if each feed item at that
+build has that version and that URL. Another item at the planned build, a higher
+live build, and a first publish with no versioned release still stop at the
+floor with exit 64. The release metadata `build_number` must equal the receipt
+build, and the final verification fails when it does not.
+
+Over a draft versioned release `publish` stops before the builder with a message
+that names the manual step. Run `gh release view TAG --json isDraft,assets`. If
+the DMG asset digest equals the local DMG, publish the draft with
+`gh release edit TAG --draft=false`. If the draft has no asset or a wrong one,
+delete it with `gh release delete TAG` and never add `--cleanup-tag`, so the tag
+stays. Then run the same `publish` command again.
+
 ## Compiler cache
 
 Only disposable SwiftPM and DerivedData intermediates are reused under
@@ -250,6 +266,12 @@ pending inputs. An ambiguous upload without a durable submission ID fails closed
 preserve the journal and reconcile the submission with Apple before retrying. Never
 delete transaction state to force a second submission. Changed artifact bytes,
 submission IDs or signing context block continuation.
+
+`publish` itself ends with status 1 and prints the builder's status by name.
+Exit 75 means Apple has not decided yet (status In Progress), and the same
+`publish` command polls the same submission again. Exit 76 means the signing
+pipeline stopped with its transaction retained. The `Signing transaction
+retained` line above the message gives the reason, so read it before any rerun.
 
 ## Release compilation
 

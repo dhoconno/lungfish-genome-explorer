@@ -990,6 +990,7 @@ class SubprocessRunner:
         if check and result.returncode != 0:
             raise ReleaseError(
                 f"command failed with exit {result.returncode}: {command[0]}"
+                f"{_signing_exit_note(command, result.returncode)}"
             )
         return result
 
@@ -1447,6 +1448,39 @@ def tagged_publication_state(
             )
         )
     return "complete" if all(state == "complete" for state in checks) else "incomplete"
+
+
+_SIGNING_EXIT_NOTES = {
+    75: (
+        " (Apple has not finished notarizing, status In Progress. Run the same"
+        " publish command again, which polls the same submission)"
+    ),
+    76: (
+        " (the signing pipeline stopped and retained its signing transaction."
+        " The Signing transaction retained line above says why. Keep"
+        " signing-transaction and read Durable signing recovery in the"
+        " releasing-lungfish skill before any rerun)"
+    ),
+}
+
+
+def _signing_exit_note(command: list[str], status: int) -> str:
+    """Name exit 75 and 76 of the builder, which ends with the signing pipeline's status."""
+    if status in _SIGNING_EXIT_NOTES and any(
+        Path(part).name == "build-notarized-dmg.sh" for part in command
+    ):
+        return _SIGNING_EXIT_NOTES[status]
+    return ""
+
+
+def _draft_release_refusal(tag: str) -> str:
+    return (
+        f"GitHub release {tag} is a draft, which publish cannot resume. The manual step"
+        f" is to run `gh release view {tag} --json isDraft,assets`. If its DMG asset digest"
+        f" equals the candidate's DMG, publish it with `gh release edit {tag} --draft=false`."
+        f" If it has no asset or a wrong one, delete it with `gh release delete {tag}` and"
+        " never add --cleanup-tag, so the tag stays. Then run the same publish command again."
+    )
 
 
 def _receipt_build(receipt_path: Path) -> str:
@@ -2195,9 +2229,7 @@ class LocalReleaseOperations:
         # versioned release and the feed item already there, and only then do the
         # floors accept an equal build, when that item is the candidate's own.
         if recovering is None:
-            recovering = identity is not None and self._versioned_release_exists(
-                identity.tag
-            )
+            recovering = identity is not None and self._recovering(identity.tag)
         floor_environment = (
             _recovery_floor_environment(request, identity)
             if recovering and identity is not None
@@ -2303,13 +2335,34 @@ class LocalReleaseOperations:
         if not direct or peeled != identity.commit:
             raise ReleaseError("pushed annotated tag failed exact commit verification")
 
-    def _versioned_release_exists(self, tag: str) -> bool:
-        return (
-            self.runner.run(
-                ["gh", "release", "view", tag], capture=True, check=False
-            ).returncode
-            == 0
+    def _versioned_release_state(self, tag: str) -> str:
+        """absent, draft or published, from one ``gh release view``."""
+        result = self.runner.run(
+            ["gh", "release", "view", tag, "--json", "isDraft"],
+            capture=True,
+            check=False,
         )
+        if result.returncode != 0:
+            return "absent"
+        try:
+            draft = json.loads(result.stdout or "").get("isDraft")
+        except (ValueError, AttributeError):
+            draft = None
+        if not isinstance(draft, bool):
+            raise ReleaseError(f"GitHub release state is unreadable: {tag}")
+        return "draft" if draft else "published"
+
+    def _recovering(self, tag: str) -> bool:
+        """True when the public versioned release exists, so a rerun is a recovery.
+
+        A draft stops the publish here, before the builder (Q3). The builder only
+        resumes a public release and refuses a draft, and its own draft branch is
+        not reachable from release.py, so the operator takes the manual step first.
+        """
+        state = self._versioned_release_state(tag)
+        if state == "draft":
+            raise ReleaseError(_draft_release_refusal(tag))
+        return state == "published"
 
     def resume_publish(
         self, request: ReleaseRequest, identity: CandidateIdentity
@@ -2351,7 +2404,7 @@ class LocalReleaseOperations:
         key_index = extras.index("--sparkle-public-ed-key")
         del extras[key_index:key_index + 2]
         command.extend(extras)
-        recovering = self._versioned_release_exists(identity.tag)
+        recovering = self._recovering(identity.tag)
         environment = {COORDINATOR_CAPABILITY_ENV: secrets.token_hex(32)}
         if recovering:
             command.append("--recover-existing-release")

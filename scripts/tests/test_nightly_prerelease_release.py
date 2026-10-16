@@ -1822,8 +1822,14 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             def run(self, command, *, capture=False, env=None, check=True):
                 self.calls.append((list(command), dict(env or {})))
                 if command[:3] == ["gh", "release", "view"]:
+                    # released is False (absent), True (public), "draft" or "garbled".
+                    body = (
+                        "garbled"
+                        if released == "garbled"
+                        else json.dumps({"isDraft": released == "draft"})
+                    )
                     return subprocess.CompletedProcess(
-                        command, 0 if released else 1, "", ""
+                        command, 1 if released is False else 0, body, ""
                     )
                 if command[1].endswith("check-sparkle-build-number.py"):
                     arguments = list(command[1:])
@@ -2019,6 +2025,82 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
             for argv, env in runner.calls:
                 if argv[1].endswith("check-sparkle-build-number.py"):
                     self.assertFalse(set(self.RECOVERY_NAMES) & set(env))
+
+    def test_publish_over_a_draft_release_stops_before_the_builder_and_names_the_step(self):
+        # PV5 (b), Q3. A draft counts as an existing release, so recovery would be
+        # requested and the builder refuse it. Publish stops first, with the step.
+        old = self._feed(self._feed_item(9035, "2026.10.18", "v2026.10.18"))
+        with tempfile.TemporaryDirectory() as temp:
+            coordinator, request, identity, runner, events = self._feed_rig(
+                temp,
+                {"appcast-beta.xml": old, "appcast-alpha.xml": old},
+                released="draft",
+            )
+
+            with self.assertRaises(self.coordinator.ReleaseError) as raised:
+                coordinator.publish_verified(request, identity)
+
+            message = str(raised.exception)
+            for words in (
+                "v2026.10.19 is a draft",
+                "The manual step",
+                "gh release view v2026.10.19 --json isDraft,assets",
+                "gh release edit v2026.10.19 --draft=false",
+                "gh release delete v2026.10.19",
+                "never add --cleanup-tag",
+                "run the same publish command again",
+            ):
+                self.assertIn(words, message)
+            self.assertIsNone(runner.builder)
+            self.assertEqual(events, ["doctor"])
+            with self.assertRaisesRegex(self.coordinator.ReleaseError, "is a draft"):
+                coordinator.operations.resume_publish(request, identity)
+            self.assertIsNone(runner.builder)
+
+    def test_publish_stops_when_the_release_state_cannot_be_read(self):
+        old = self._feed(self._feed_item(9035, "2026.10.18", "v2026.10.18"))
+        with tempfile.TemporaryDirectory() as temp:
+            coordinator, request, identity, runner, _events = self._feed_rig(
+                temp,
+                {"appcast-beta.xml": old, "appcast-alpha.xml": old},
+                released="garbled",
+            )
+
+            with self.assertRaisesRegex(
+                self.coordinator.ReleaseError, "release state is unreadable: v2026.10.19"
+            ):
+                coordinator.publish_verified(request, identity)
+
+            self.assertIsNone(runner.builder)
+
+    def test_signing_exit_statuses_75_and_76_reach_the_log_by_name(self):
+        # The builder ends with the signing pipeline's status, so release.py sees
+        # 75 (In Progress) or 76 (transaction retained) and used to print only the number.
+        runner = self.coordinator.SubprocessRunner(Path(__file__).resolve().parents[2])
+        cases = (
+            (75, "build-notarized-dmg.sh", ("Apple has not finished notarizing", "In Progress", "same publish command")),
+            (76, "build-notarized-dmg.sh", ("signing transaction", "Signing transaction retained", "Durable signing recovery")),
+        )
+        for status, script, words in cases:
+            with self.subTest(status):
+                with self.assertRaises(self.coordinator.ReleaseError) as raised:
+                    runner.run(["/bin/bash", "-c", f"exit {status}", script])
+
+                message = str(raised.exception)
+                self.assertTrue(
+                    message.startswith(f"command failed with exit {status}: /bin/bash")
+                )
+                for word in words:
+                    self.assertIn(word, message)
+        # Any other status, or 75 and 76 from another command, keep the plain message.
+        for status, script in ((64, "build-notarized-dmg.sh"), (76, "other-tool")):
+            with self.subTest(status=status, script=script):
+                with self.assertRaises(self.coordinator.ReleaseError) as raised:
+                    runner.run(["/bin/bash", "-c", f"exit {status}", script])
+
+                self.assertEqual(
+                    str(raised.exception), f"command failed with exit {status}: /bin/bash"
+                )
 
     def test_runner_drops_recovery_context_inherited_from_the_operator_shell(self):
         inherited = dict.fromkeys(self.RECOVERY_NAMES, "from-the-shell")
