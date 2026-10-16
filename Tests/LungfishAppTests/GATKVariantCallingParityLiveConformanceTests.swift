@@ -1,0 +1,202 @@
+// GATKVariantCallingParityLiveConformanceTests.swift - The GATK row's parity on real GATK
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 2.11 lane A50 M3 (2.9 O5, live tests first). `GATKVariantCallingCLIGUIParityReplayTests` shows the
+// GATK row's parity on a stand-in GATK and stays the default. This class runs its sides A, C and C' on the
+// managed gatk-core environment, with the tiny reference and the forty-read BAM of
+// `GATKVariantCallPinConformanceTests` (one heterozygous SNP), built here with samtools from SAM text.
+//
+// - Side A is the `legacy` route in process with `ManagedGATKCommandRunner`, on the dialog's request with the
+//   version the installed GATK answers and the gatk-core environment of this process's conda root.
+// - Side C is the `cli` route, the built `lungfish-cli variants call --caller gatk` with the same conda root.
+// - Side C' is the replay of the command side C's row recorded.
+//
+// Both routes record the same version and environment here, so A against C declares only the commands. The VCF
+// is the bundle's bgzip `.vcf.gz`, compared under `MaskPolicy.gatk`, so the G5 rule (the `##GATKCommandLine`
+// line stays in the compare and only its `Date=` is masked) runs on real GATK output. Real GATK adds two
+// differences that any two runs show, C against C' included, and no route causes. GATK's log in the execution
+// record holds the clock, and the `##GATKCommandLine` line names the output, whose name holds the track's ID.
+// The contract masks neither, so the class pins them apart (`isRunToRun`) and checks that, with the bundle's
+// path, the track's ID and the date set aside, every side's `##GATKCommandLine` line is the same.
+//
+// The class name holds Conformance, so the unit tier never runs it. Without gatk-core or samtools it skips, and
+// under `LUNGFISH_REQUIRE_TOOLS=1` it fails. Run it with `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_CONDA_ROOT=<root>
+// swift test --skip-update --filter GATKVariantCallingParityLiveConformanceTests`.
+
+import Foundation
+import XCTest
+@testable import LungfishApp
+import LungfishCore
+import LungfishIO
+import LungfishKit
+import LungfishKitTestSupport
+import LungfishTestSupport
+import LungfishWorkflow
+
+@MainActor
+final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
+    typealias StandIn = GATKVariantCallingCLIGUIParityReplayTests
+
+    private var scratch: URL!
+    private var cli: URL!
+
+    override func setUpWithError() throws {
+        scratch = try TestTempDirectory.make(prefix: "gatk-call-parity-live")
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so no side can run"
+        )
+    }
+
+    override func tearDownWithError() throws {
+        TestTempDirectory.cleanup(scratch)
+    }
+
+    func testRealGATKWritesTheSameTrackOnBothRoutes() async throws {
+        let conda = CondaManager.shared
+        do {
+            _ = try await conda.toolPath(name: "gatk", environment: "gatk-core")
+            _ = try await conda.toolPath(name: "samtools", environment: "samtools")
+        } catch {
+            try ToolAvailability.skipOrFail("gatk-core or samtools is not installed: \(error)")
+        }
+        let probed = await GATKInstalledToolVersion.probe(condaManager: conda)
+        let version = try XCTUnwrap(probed, "the installed GATK answers --version")
+        let condaEnvironment = conda.rootPrefix.appendingPathComponent("envs/gatk-core", isDirectory: true).path
+        let inputs = try await makeInputs(conda)
+        let environment = ["LUNGFISH_CONDA_ROOT": conda.rootPrefix.path]
+        let wrapper = scratch.appendingPathComponent("lungfish-cli-live")
+        try StandIn.writeExecutable(
+            "#!/bin/sh\nexport LUNGFISH_CONDA_ROOT='\(conda.rootPrefix.path)'\nexec '\(cli.path)' \"$@\"\n", to: wrapper
+        )
+        let harness = RouteParityHarness(
+            cliBinary: cli, kind: .bundle, masks: .gatk, replayTimeout: .seconds(600), environment: { _ in environment }
+        )
+        let runs = try await harness.run(
+            in: scratch.appendingPathComponent("call", isDirectory: true),
+            fixture: { try StandIn.writeFixture($0, from: inputs) },
+            sideA: {
+                await StandIn.sideA(
+                    $0, runner: ManagedGATKCommandRunner(), toolVersion: version, condaEnvironment: condaEnvironment
+                )
+            },
+            sideC: { await StandIn.sideC($0, cli: wrapper) }
+        )
+        // A against C declares the commands. Each pair also shows the run-to-run differences, which the contract
+        // masks nowhere, so the class checks them apart and pins how many there are.
+        let result = try harness.evaluate(StandIn.Case.haplotypeCaller, declared: Self.declared, runs: runs)
+        XCTAssertEqual(result.failures.filter { !Self.isRunToRun($0) }, [], "only the declared commands and the run-to-run differences")
+        XCTAssertEqual(
+            result.failures.filter(Self.isRunToRun).count, 8,
+            "each pair differs in the execution record's two stderr keys and in the two sides' ##GATKCommandLine lines"
+        )
+
+        var commandLines: [String] = []
+        for run in [runs.a, runs.c, runs.cPrime] {
+            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
+            let bundle = StandIn.bundleURL(in: run.root)
+            let track = try XCTUnwrap(BundleManifest.load(from: bundle).variants.first, "side \(run.side) attaches a track")
+            XCTAssertEqual(track.version, version, "side \(run.side)")
+            XCTAssertTrue(track.path.hasSuffix(".vcf.gz"), "side \(run.side) keeps the bgzip VCF: \(track.path)")
+            // G5 on the bgzip VCF. GATK's command line header is in the file with the version both records name.
+            var header = ""
+            var calls = 0
+            try bundle.appendingPathComponent(track.path).forEachLineAutoDecompressing { line in
+                if line.hasPrefix("##GATKCommandLine=<") { header = line }
+                if !line.hasPrefix("#"), !line.isEmpty { calls += 1 }
+            }
+            XCTAssertTrue(header.contains("ID=HaplotypeCaller"), "side \(run.side): \(header)")
+            XCTAssertTrue(header.contains("Version=\"\(version)\""), "side \(run.side): \(header)")
+            XCTAssertTrue(header.contains("Date=\""), "side \(run.side): \(header)")
+            XCTAssertGreaterThanOrEqual(calls, 1, "side \(run.side): GATK calls the heterozygous SNP")
+            commandLines.append(Self.commandLineAsideFromTheRun(header, bundle: bundle))
+        }
+        XCTAssertEqual(
+            Set(commandLines).count, 1,
+            "with the bundle's path, the track's ID and the date set aside, every side ran one GATK command:\n"
+                + commandLines.joined(separator: "\n")
+        )
+    }
+
+    /// Every A against C difference on real GATK that a route causes. Only the commands differ, as on the
+    /// stand-in, since both routes record the same version and environment here.
+    nonisolated static let declared: [RouteParityDeclaredDifference<StandIn.Case>] = StandIn.commandDifferences
+
+    /// A difference that any two runs of real GATK show, whatever their routes. GATK's log in the execution
+    /// record's `stderr` and `steps[0].stderr` holds the clock, and the `##GATKCommandLine` line names the
+    /// output, whose name holds the track's ID. The payload masks hide neither (G5 masks only `Date=`), and a
+    /// new mask needs a reviewed change to the "Same result" table of CLI-EQUIVALENCE.md.
+    nonisolated static func isRunToRun(_ failure: String) -> Bool {
+        let line = failure.split(separator: "\n").first.map(String.init) ?? failure
+        return line.hasSuffix("/variants/gatk/.lungfish-provenance.json at stderr")
+            || line.hasSuffix("/variants/gatk/.lungfish-provenance.json at steps[0].stderr")
+            || (line.contains("/variants/gatk/vc-<UUID-1>.vcf.gz: only in ") && line.contains(": ##GATKCommandLine=<ID=HaplotypeCaller,"))
+    }
+
+    /// The `##GATKCommandLine` line with the bundle's path, the track's ID and the date set aside.
+    nonisolated static func commandLineAsideFromTheRun(_ line: String, bundle: URL) -> String {
+        var text = line
+        for path in [bundle.resolvingSymlinksInPath().path, bundle.path] {
+            text = text.replacingOccurrences(of: path, with: "<BUNDLE>")
+        }
+        for pattern in [#"vc-[0-9a-fA-F-]{36}"#, #"Date="[^"]*""#] {
+            text = text.replacingOccurrences(of: pattern, with: "<RUN>", options: .regularExpression)
+        }
+        return text
+    }
+
+    // MARK: - The tiny inputs
+
+    /// 300 bases from a fixed generator, as `GATKPinBundle.referenceSequence` writes them.
+    nonisolated static let referenceSequence: String = {
+        var state: UInt32 = 12345
+        let bases = Array("ACGT")
+        return String((0..<300).map { _ -> Character in
+            state = state &* 1_664_525 &+ 1_013_904_223
+            return bases[Int((state >> 24) & 3)]
+        })
+    }()
+
+    /// Forty reads of 100 bases that all cover position 150, half with another base, on both strands.
+    nonisolated static func samText() -> String {
+        let reference = Array(referenceSequence)
+        let alternate: Character = reference[149] == "A" ? "C" : "A"
+        var lines = ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:300", "@RG\tID:rg1\tSM:sample\tPL:ILLUMINA\tLB:lib1"]
+        for index in 0..<40 {
+            let start = 51 + index * 2
+            var bases = Array(reference[(start - 1)..<(start + 99)])
+            if index % 2 == 1 { bases[150 - start] = alternate }
+            let flag = index % 4 < 2 ? 0 : 16
+            let quality = String(repeating: "I", count: 100)
+            lines.append("read\(index)\t\(flag)\tchr1\t\(start)\t60\t100M\t*\t0\t0\t\(String(bases))\t\(quality)\tRG:Z:rg1")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The reference with its index and sequence dictionary and the BAM with its index, under the names
+    /// `writeFixture` copies.
+    private func makeInputs(_ conda: CondaManager) async throws -> URL {
+        let inputs = scratch.appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let reference = inputs.appendingPathComponent("genome.fasta")
+        try Data(">chr1\n\(Self.referenceSequence)\n".utf8).write(to: reference)
+        try Data("chr1\t300\t6\t300\t301\n".utf8).write(to: inputs.appendingPathComponent("genome.fasta.fai"))
+        let sam = scratch.appendingPathComponent("sample.sam")
+        try Data(Self.samText().utf8).write(to: sam)
+        let bam = inputs.appendingPathComponent("test.paired_end.sorted.bam")
+        let steps: [(tool: String, arguments: [String], environment: String)] = [
+            ("gatk", ["CreateSequenceDictionary", "-R", reference.path, "-O", inputs.appendingPathComponent("genome.dict").path], "gatk-core"),
+            ("samtools", ["view", "-b", "-o", bam.path, sam.path], "samtools"),
+            ("samtools", ["index", bam.path], "samtools"),
+        ]
+        for step in steps {
+            let run = try await conda.runTool(
+                name: step.tool, arguments: step.arguments, environment: step.environment, timeout: 600
+            )
+            XCTAssertEqual(run.exitCode, 0, "\(step.tool) \(step.arguments[0]): \(run.stderr)")
+        }
+        return inputs
+    }
+}

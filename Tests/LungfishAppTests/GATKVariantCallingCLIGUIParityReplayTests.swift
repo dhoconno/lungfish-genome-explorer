@@ -82,7 +82,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
             ? "cp '\(Self.fixtures.appendingPathComponent("test.vcf.gz").path)' \"$out\"\n"
                 + "cp '\(Self.fixtures.appendingPathComponent("test.vcf.gz.tbi").path)' \"$out.tbi\"\n"
             : "echo $$ > \"$(dirname \"$out\")/gatk-stand-in.pid\"\n/bin/sleep 300 &\nwait\n"
-        try writeExecutable(
+        try Self.writeExecutable(
             """
             #!/bin/sh
             if [ "$1" = "--version" ]; then echo "\(micromambaVersion)"; exit 0; fi
@@ -100,7 +100,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
             """,
             to: conda.appendingPathComponent("bin/micromamba")
         )
-        try writeExecutable("#!/bin/sh\nexit 0\n", to: conda.appendingPathComponent("envs/gatk-core/bin/gatk"))
+        try Self.writeExecutable("#!/bin/sh\nexit 0\n", to: conda.appendingPathComponent("envs/gatk-core/bin/gatk"))
         return [
             "LUNGFISH_STORAGE_ROOT": storage.path,
             "LUNGFISH_CONDA_ROOT": conda.path,
@@ -114,7 +114,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
     private func wrappedCLI(_ environment: [String: String], name: String) throws -> URL {
         let exports = environment.keys.sorted().map { "export \($0)='\(environment[$0]!)'" }.joined(separator: "\n")
         let wrapper = scratch.appendingPathComponent(name)
-        try writeExecutable("#!/bin/sh\n\(exports)\nexec '\(cli.path)' \"$@\"\n", to: wrapper)
+        try Self.writeExecutable("#!/bin/sh\n\(exports)\nexec '\(cli.path)' \"$@\"\n", to: wrapper)
         return wrapper
     }
 
@@ -124,21 +124,25 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         root.appendingPathComponent("Sample.lungfishref", isDirectory: true)
     }
 
-    /// One bundle with the fixture's reference and BAM. The cancel case adds the record a first run left in
-    /// `variants/gatk` (review A50 amendment 6).
-    nonisolated static func writeFixture(_ root: URL, firstRunRecord: Data? = nil) throws {
+    /// One bundle with the fixture's reference and BAM, or with the files of the same names in `inputs` and
+    /// their sequence dictionary `genome.dict` (the live class's). The cancel case adds the record a first run
+    /// left in `variants/gatk` (review A50 amendment 6).
+    nonisolated static func writeFixture(_ root: URL, firstRunRecord: Data? = nil, from inputs: URL = fixtures) throws {
         let bundle = bundleURL(in: root)
         for folder in ["genome", "alignments", "variants/gatk"] {
             try FileManager.default.createDirectory(at: bundle.appendingPathComponent(folder), withIntermediateDirectories: true)
         }
-        let copies = [
+        var copies = [
             ("genome.fasta", "genome/reference.fa"), ("genome.fasta.fai", "genome/reference.fa.fai"),
             ("test.paired_end.sorted.bam", "alignments/sample.bam"), ("test.paired_end.sorted.bam.bai", "alignments/sample.bam.bai"),
         ]
-        for (source, target) in copies {
-            try FileManager.default.copyItem(at: fixtures.appendingPathComponent(source), to: bundle.appendingPathComponent(target))
+        if FileManager.default.fileExists(atPath: inputs.appendingPathComponent("genome.dict").path) {
+            copies.append(("genome.dict", "genome/reference.dict"))
         }
-        let fai = try String(contentsOf: fixtures.appendingPathComponent("genome.fasta.fai"), encoding: .utf8)
+        for (source, target) in copies {
+            try FileManager.default.copyItem(at: inputs.appendingPathComponent(source), to: bundle.appendingPathComponent(target))
+        }
+        let fai = try String(contentsOf: inputs.appendingPathComponent("genome.fasta.fai"), encoding: .utf8)
         let fields = fai.split(separator: "\n").first?.split(separator: "\t").map(String.init) ?? []
         guard fields.count >= 5, let length = Int64(fields[1]), let offset = Int64(fields[2]),
               let lineBases = Int(fields[3]), let lineWidth = Int(fields[4]) else {
@@ -166,7 +170,10 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
     /// The request the dialog builds for the bundle in `root` (`BAMVariantCallingDialogState.makeGATKRequest`),
     /// reference confidence NONE, the configuration's defaults, the free text of the Extra arguments field and
     /// the lock's pinned version.
-    nonisolated static func dialogRequest(in root: URL, trackID: String) -> GATKPipelineExecutionRequest {
+    /// The live class passes the version the installed GATK answers and its conda root's environment.
+    nonisolated static func dialogRequest(
+        in root: URL, trackID: String, toolVersion: String = dialogVersion, condaEnvironment: String = standInCondaEnvironment
+    ) -> GATKPipelineExecutionRequest {
         let bundle = bundleURL(in: root)
         return .haplotypeCaller(
             configuration: GATKHaplotypeCallerConfiguration(
@@ -176,10 +183,12 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
                 emitReferenceConfidence: .none,
                 extraArguments: ["--min-base-quality-score", "20"]
             ),
-            toolVersion: dialogVersion,
-            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: "/opt/lungfish/conda/envs/gatk-core")
+            toolVersion: toolVersion,
+            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: condaEnvironment)
         )
     }
+
+    nonisolated static let standInCondaEnvironment = "/opt/lungfish/conda/envs/gatk-core"
 
     /// The row's argv for the bundle in `root`, which side C runs and its row records.
     nonisolated static func rowArguments(in root: URL) -> [String] {
@@ -191,14 +200,19 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         )
     }
 
-    /// Side A. The `legacy` route's in-process run on the dialog's request, its runner a stand-in that
-    /// writes what the stand-in GATK of side C writes.
-    private func sideA(_ root: URL) async -> RouteParitySideOutcome {
+    /// Side A. The `legacy` route's in-process run on the dialog's request with `runner`, a stand-in that
+    /// writes what the stand-in GATK of side C writes, or the managed GATK in the live class.
+    static func sideA(
+        _ root: URL,
+        runner: some GATKCommandRunning,
+        toolVersion: String = dialogVersion,
+        condaEnvironment: String = standInCondaEnvironment
+    ) async -> RouteParitySideOutcome {
         let trackID = "vc-\(UUID().uuidString.lowercased())"
         do {
             let attachment = try await InspectorViewController.runGATKVariantCallingInProcess(
-                request: Self.dialogRequest(in: root, trackID: trackID),
-                runner: FixtureGATKRunner(vcf: Self.fixtures.appendingPathComponent("test.vcf.gz")),
+                request: dialogRequest(in: root, trackID: trackID, toolVersion: toolVersion, condaEnvironment: condaEnvironment),
+                runner: runner,
                 bundleURL: Self.bundleURL(in: root),
                 alignmentTrackID: "aln-1",
                 outputTrackID: trackID,
@@ -212,7 +226,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
 
     /// Side C. The row's begin helper on the argv the `cli` route builds, then `CLIVariantCallingRunner`
     /// on the built CLI. It returns the row's command, which side C' replays.
-    private func sideC(_ root: URL, cli wrapper: URL) async -> RouteParitySideOutcome {
+    static func sideC(_ root: URL, cli wrapper: URL) async -> RouteParitySideOutcome {
         let reporter = RecordingOperationReporter()
         let arguments = Self.rowArguments(in: root)
         InspectorViewController.beginVariantCallingOperation(
@@ -246,8 +260,8 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
             declared: Self.declared,
             in: scratch.appendingPathComponent("call", isDirectory: true),
             fixture: { try Self.writeFixture($0) },
-            sideA: { await self.sideA($0) },
-            sideC: { await self.sideC($0, cli: wrapper) }
+            sideA: { await Self.sideA($0, runner: FixtureGATKRunner(vcf: Self.fixtures.appendingPathComponent("test.vcf.gz"))) },
+            sideC: { await Self.sideC($0, cli: wrapper) }
         )
         XCTAssertEqual(result.runs.a.outcome.end, .completed, result.runs.a.outcome.detail)
         XCTAssertEqual(result.runs.c.outcome.end, .completed, result.runs.c.outcome.detail)
@@ -282,6 +296,38 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
                 .map { String(format: "%02x", $0) }.joined()
             XCTAssertEqual(digest, input.sha256, "the recorded digest of \(input.path)")
         }
+    }
+
+    /// The limit of review A50 R1 and Notes 1, declared and pinned. Every GATK run in a bundle writes
+    /// `variants/gatk/.lungfish-provenance.json`, so a second run replaces the execution record the first
+    /// track's attach record names as an input. The first track's VCF and index keep the digests its attach
+    /// record holds and the execution record does not, so `provenance verify` of the first track finds one
+    /// changed input. ARCH objection 5 of 2.10 keeps the layout in 2.11. A per-run record name (2.12, after a
+    /// BIO and ARCH ruling) turns the last assertion around, and the test then pins the fix.
+    func testASecondRunReplacesTheExecutionRecordTheFirstTrackNames() async throws {
+        let wrapper = try wrappedCLI(try standInEnvironment(.writes), name: "lungfish-cli-twice")
+        let root = scratch.appendingPathComponent("twice", isDirectory: true)
+        try Self.writeFixture(root)
+        for run in 1...2 {
+            let outcome = await Self.sideC(root, cli: wrapper)
+            XCTAssertEqual(outcome.end, .completed, "run \(run): \(outcome.detail)")
+        }
+        let bundle = Self.bundleURL(in: root)
+        let tracks = try BundleManifest.load(from: bundle).variants
+        XCTAssertEqual(tracks.count, 2, "each run attaches its own track")
+        let databasePath = try XCTUnwrap(tracks.first { $0.name == Self.trackName }?.databasePath, "the first run's track")
+        let attachURL = bundle.appendingPathComponent(
+            databasePath.replacingOccurrences(of: ".db", with: ProvenanceRecorder.provenanceFilename)
+        )
+        let attach = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: attachURL)).legacyWorkflowRun()
+        let inputs = try XCTUnwrap(attach.steps.first).inputs
+        XCTAssertEqual(inputs.count, 3, "the VCF, its index and the execution record")
+        let changed = try inputs.filter { input in
+            let digest = SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: input.path)))
+                .map { String(format: "%02x", $0) }.joined()
+            return digest != input.sha256
+        }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
+        XCTAssertEqual(changed, [ProvenanceRecorder.provenanceFilename], "only the shared execution record changed under the first track")
     }
 
     /// SWIFT 3 and SC4, review A50 R3 and amendment 6. The row's Cancel reaches the leaf through the
@@ -355,38 +401,47 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
 
     /// Every A against C difference, with BIO's reason (review A50 R1). Each closes in 2.12, when the
     /// in-process route leaves with its key (K3).
-    nonisolated static let declared: [RouteParityDeclaredDifference<Case>] = {
-        let execution = "differs: Sample.lungfishref/variants/gatk/.lungfish-provenance.json at "
-        let attach = "differs: Sample.lungfishref/variants/gatk/vc-<UUID-1>.lungfish-provenance.json at "
-        let closedBy = "2.12, the in-process GATK route leaves with its key (K3)"
-        let command = "The in-process route passes no command, so its execution record names the first GATK command. "
-            + "The leaf names the lungfish-cli variants call --caller gatk command it ran, which replays the run."
-        let attachCommand = "The in-process attach names lungfish-app gatk-attach, which no binary runs. "
-            + "The leaf's attach record names the leaf's command (review A50 F1)."
+    nonisolated static let declared: [RouteParityDeclaredDifference<Case>] = commandDifferences + {
         let version = "The dialog records the lock's pinned GATK version, the leaf the version the installed GATK "
             + "answers to --version (BIO 3). Here the pin is 4.6.2.0 and the stand-in answers 4.6.1.0."
         let environment = "Each route names the gatk-core environment of its own conda root, the app's for the dialog "
             + "and the one LUNGFISH_CONDA_ROOT names for the leaf, a stand-in here."
-        func entry(_ count: Int, _ id: String, _ reason: String) -> RouteParityDeclaredDifference<Case> {
-            RouteParityDeclaredDifference([.haplotypeCaller: count], id, reason: reason, closedBy: closedBy)
-        }
         return [
-            entry(28, execution + "argv[<ANY>]", command),
-            entry(1, execution + "reproducibleCommand", command),
-            entry(28, attach + "argv[<ANY>]", attachCommand),
-            entry(28, attach + "steps[0].argv[<ANY>]", attachCommand),
-            entry(1, attach + "reproducibleCommand", attachCommand),
-            entry(1, attach + "steps[0].reproducibleCommand", attachCommand),
-            entry(2, execution + "<ANY>toolVersion", version),
-            entry(1, execution + "tool.version", version),
-            entry(1, attach + "options.explicit.variantCallerVersion.value", version),
-            entry(2, "differs: Sample.lungfishref/variants/gatk/vc-<UUID-1>.db: only in <ANY>: variant_caller_version<ANY>", version),
-            entry(1, "differs: Sample.lungfishref/manifest.json at variants[0].version", version),
-            entry(2, "differs: Sample.lungfishref/variants/gatk/<ANY>.lungfish-provenance.json at options.explicit.condaEnvironment.value", environment),
+            declaredEntry(2, executionRecord + "<ANY>toolVersion", version),
+            declaredEntry(1, executionRecord + "tool.version", version),
+            declaredEntry(1, attachRecord + "options.explicit.variantCallerVersion.value", version),
+            declaredEntry(2, "differs: Sample.lungfishref/variants/gatk/vc-<UUID-1>.db: only in <ANY>: variant_caller_version<ANY>", version),
+            declaredEntry(1, "differs: Sample.lungfishref/manifest.json at variants[0].version", version),
+            declaredEntry(2, "differs: Sample.lungfishref/variants/gatk/<ANY>.lungfish-provenance.json at options.explicit.condaEnvironment.value", environment),
         ]
     }()
 
-    private func writeExecutable(_ text: String, to url: URL) throws {
+    /// The differences of the two routes' commands. They hold on real GATK too, so the live class declares them.
+    nonisolated static let commandDifferences: [RouteParityDeclaredDifference<Case>] = {
+        let command = "The in-process route passes no command, so its execution record names the first GATK command. "
+            + "The leaf names the lungfish-cli variants call --caller gatk command it ran, which replays the run."
+        let attachCommand = "The in-process attach names lungfish-app gatk-attach, which no binary runs. "
+            + "The leaf's attach record names the leaf's command (review A50 F1)."
+        return [
+            declaredEntry(28, executionRecord + "argv[<ANY>]", command),
+            declaredEntry(1, executionRecord + "reproducibleCommand", command),
+            declaredEntry(28, attachRecord + "argv[<ANY>]", attachCommand),
+            declaredEntry(28, attachRecord + "steps[0].argv[<ANY>]", attachCommand),
+            declaredEntry(1, attachRecord + "reproducibleCommand", attachCommand),
+            declaredEntry(1, attachRecord + "steps[0].reproducibleCommand", attachCommand),
+        ]
+    }()
+
+    nonisolated static let executionRecord = "differs: Sample.lungfishref/variants/gatk/.lungfish-provenance.json at "
+    nonisolated static let attachRecord = "differs: Sample.lungfishref/variants/gatk/vc-<UUID-1>.lungfish-provenance.json at "
+
+    nonisolated static func declaredEntry(_ count: Int, _ id: String, _ reason: String) -> RouteParityDeclaredDifference<Case> {
+        RouteParityDeclaredDifference(
+            [.haplotypeCaller: count], id, reason: reason, closedBy: "2.12, the in-process GATK route leaves with its key (K3)"
+        )
+    }
+
+    nonisolated static func writeExecutable(_ text: String, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
