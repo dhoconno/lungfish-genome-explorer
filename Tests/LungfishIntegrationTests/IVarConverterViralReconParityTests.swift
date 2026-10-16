@@ -3,28 +3,39 @@ import Foundation
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
+/// The Python 3 that runs `ivar_variants_to_vcf.py`, the viralrecon script the Swift converter is
+/// compared against. The script imports numpy, Bio, scipy and pandas (`ivar_variants_to_vcf.py:10-13`).
+enum IVarParityOracle {
+    static let modules = ["numpy", "scipy", "pandas", "Bio"]
+
+    /// The first executable named `python3` on PATH, which is the one `/usr/bin/env python3` runs.
+    static var interpreter: URL? {
+        let path = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+        return path.split(separator: ":")
+            .map { URL(fileURLWithPath: String($0)).appendingPathComponent("python3") }
+            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    }
+
+    /// True when the interpreter exists and imports every module the script needs. The probe waits up to 30 seconds.
+    static var canRun: Bool {
+        guard let interpreter else { return false }
+        return ToolAvailability.pythonCanImport(modules, interpreter: interpreter, timeout: 30)
+    }
+}
+
 @Suite("IVarConverterViralReconParity")
 struct IVarConverterViralReconParityTests {
-    @Test("Swift converter matches viralrecon output on SRR36291587 fixture")
+    @Test(
+        "Swift converter matches viralrecon output on SRR36291587 fixture",
+        .enabled(
+            if: ToolAvailability.requireTools || IVarParityOracle.canRun,
+            "the python3 on PATH is missing or cannot import numpy, scipy, pandas and Bio, which ivar_variants_to_vcf.py needs. LUNGFISH_REQUIRE_TOOLS=1 turns this skip into a failure"
+        )
+    )
     func parity() async throws {
-        guard FileManager.default.fileExists(atPath: "/usr/bin/env") else {
-            guard try ToolAvailability.skipOrFailForSwiftTesting("python3 not found via /usr/bin/env") else { return }
-            return
-        }
-        let python3Check = Process()
-        python3Check.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        python3Check.arguments = ["python3", "--version"]
-        python3Check.standardOutput = FileHandle.nullDevice
-        python3Check.standardError = FileHandle.nullDevice
-        do {
-            try python3Check.run()
-            python3Check.waitUntilExit()
-            guard python3Check.terminationStatus == 0 else {
-                guard try ToolAvailability.skipOrFailForSwiftTesting("python3 not available (exit \(python3Check.terminationStatus))") else { return }
-                return
-            }
-        } catch {
-            guard try ToolAvailability.skipOrFailForSwiftTesting("python3 not available: \(error)") else { return }
+        guard let oracleInterpreter = IVarParityOracle.interpreter else {
+            // Reached only under LUNGFISH_REQUIRE_TOOLS=1, because without it the trait above skips the test.
+            Issue.record("python3 was not found on PATH, so ivar_variants_to_vcf.py could not run and nothing was compared")
             return
         }
 
@@ -33,10 +44,8 @@ struct IVarConverterViralReconParityTests {
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures/ivar-converter-parity")
         let tsvGZ = fixturesDir.appendingPathComponent("sarscov2-srr36291587.tsv.gz")
-        let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("parity-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: scratch) }
+        let scratch = try TestTempDirectory.make(prefix: "parity")
+        defer { TestTempDirectory.cleanup(scratch) }
         let tsv = scratch.appendingPathComponent("ivar.tsv")
         FileManager.default.createFile(atPath: tsv.path, contents: nil)
         let outFH = try FileHandle(forWritingTo: tsv)
@@ -63,21 +72,20 @@ struct IVarConverterViralReconParityTests {
 
         let pyOut = scratch.appendingPathComponent("py.vcf")
         let vendoredScript = fixturesDir.appendingPathComponent("ivar_variants_to_vcf.py")
-        let py = Process()
-        py.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        py.arguments = [
-            "python3",
-            ProcessInfo.processInfo.environment["LUNGFISH_IVAR_TO_VCF_PY"] ?? vendoredScript.path,
-            tsv.path,
-            pyOut.path,
-            "--fasta", fixturesDir.appendingPathComponent("MN908947.3.fasta").path
-        ]
-        try py.run()
-        py.waitUntilExit()
-        guard py.terminationStatus == 0 else {
-            guard try ToolAvailability.skipOrFailForSwiftTesting(
-                "ivar_variants_to_vcf.py failed (exit \(py.terminationStatus)); check its Python dependencies (numpy, biopython, scipy, pandas) are installed"
-            ) else { return }
+        let oracle = try ProcessRunner.run(
+            oracleInterpreter,
+            [
+                ProcessInfo.processInfo.environment["LUNGFISH_IVAR_TO_VCF_PY"] ?? vendoredScript.path,
+                tsv.path,
+                pyOut.path,
+                "--fasta", fixturesDir.appendingPathComponent("MN908947.3.fasta").path
+            ],
+            timeout: 30
+        )
+        guard oracle.status == 0 else {
+            // The trait above skipped a machine without the libraries, so a script that still fails
+            // is a failure. Returning quietly here would count a pass that compared nothing.
+            Issue.record("ivar_variants_to_vcf.py exited \(oracle.status) under \(oracleInterpreter.path), so nothing was compared. The end of its stderr reads: \(oracle.stderr.suffix(600))")
             return
         }
 
@@ -92,14 +100,15 @@ struct IVarConverterViralReconParityTests {
         }
         let cleanedSwift = stripCosmetic(swift)
         let cleanedPython = stripCosmetic(python)
+        var mismatchNote: Comment?
         if cleanedSwift != cleanedPython {
-            // Persist outputs alongside the parity script so a failed run is debuggable.
-            let dump = URL(fileURLWithPath: "/tmp/parity-check")
-            try? FileManager.default.createDirectory(at: dump, withIntermediateDirectories: true)
-            try? swift.write(to: dump.appendingPathComponent("swift-out.vcf"), atomically: true, encoding: .utf8)
-            try? python.write(to: dump.appendingPathComponent("python-out.vcf"), atomically: true, encoding: .utf8)
+            // Keep both outputs in a folder from TestTempDirectory, so a failed run is debuggable.
+            let dump = try TestTempDirectory.make(prefix: "ivar-parity-mismatch")
+            try swift.write(to: dump.appendingPathComponent("swift-out.vcf"), atomically: true, encoding: .utf8)
+            try python.write(to: dump.appendingPathComponent("python-out.vcf"), atomically: true, encoding: .utf8)
+            mismatchNote = "The Swift VCF and the viralrecon VCF differ. Both outputs are kept in \(dump.path)"
         }
-        #expect(cleanedSwift == cleanedPython)
+        #expect(cleanedSwift == cleanedPython, mismatchNote)
     }
 
     /// Regenerates the chapter-fixture iVar VCF using the live converter against

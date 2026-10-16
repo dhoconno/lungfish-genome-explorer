@@ -51,6 +51,31 @@ public enum ToolAvailability {
         return false
     }
 
+    /// True when `interpreter`, a Python 3 executable, imports every module in `modules`
+    /// within `timeout` seconds. A test whose oracle is a Python script passes this to
+    /// `.enabled(if:)`, so a machine whose Python lacks the libraries shows a skip with its
+    /// reason, not a pass that compared nothing. It never skips or fails a test itself. When
+    /// the answer is false it writes one line to stderr with the interpreter and the last line
+    /// of Python's message, so the log says why.
+    public static func pythonCanImport(
+        _ modules: [String],
+        interpreter: URL,
+        timeout: TimeInterval = 30
+    ) -> Bool {
+        let source = "import importlib, sys; [importlib.import_module(name) for name in sys.argv[1:]]"
+        let detail: String
+        do {
+            let result = try ProcessRunner.run(interpreter, ["-c", source] + modules, timeout: timeout)
+            if result.status == 0 { return true }
+            detail = result.stderr.split(whereSeparator: \.isNewline).last.map(String.init) ?? "exit \(result.status)"
+        } catch {
+            detail = "\(error)"
+        }
+        let line = "ToolAvailability: \(interpreter.path) cannot import \(modules.joined(separator: ", ")). \(detail)\n"
+        FileHandle.standardError.write(Data(line.utf8))
+        return false
+    }
+
     /// Resolves a tool executable in a managed conda environment, or skips/fails.
     public static func require(_ executable: String, environment: String, file: StaticString = #filePath, line: UInt = #line) async throws -> URL {
         do {
