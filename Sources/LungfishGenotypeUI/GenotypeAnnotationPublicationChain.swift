@@ -93,6 +93,9 @@ final class GenotypeAnnotationPublicationChain {
     private static var editsInFlightEverywhere = 0
     private static var everyEditWaiters: [CheckedContinuation<Void, Never>] = []
 
+    /// Whether an edit the UI started on any chain has not ended yet.
+    static var hasEditsInFlightEverywhere: Bool { editsInFlightEverywhere > 0 }
+
     /// Starts `work` in this event's turn and counts it among the edits `waitForEveryEdit` waits on.
     static func startEdit(_ work: @escaping @MainActor () async -> Void) {
         editsInFlightEverywhere += 1
@@ -123,4 +126,55 @@ final class GenotypeAnnotationPublicationChain {
 /// Marks the task that runs a step of the chain, so an edit called inside a step runs in it.
 enum GenotypeAnnotationPublicationStepScope {
     @TaskLocal static var isInside = false
+}
+
+// MARK: Quit
+
+/// Lets the first of two events end a wait, once. The wait for the edits to end cannot be
+/// cancelled, so a timer races it, and whichever ends first opens the gate.
+@MainActor
+private final class AnnotationSaveWaitGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+extension GenotypeResultViewController {
+    /// Whether an annotation edit is still saving. Quit waits for it (2.11 S35).
+    public static var isSavingAnnotationEdits: Bool {
+        GenotypeAnnotationPublicationChain.hasEditsInFlightEverywhere
+    }
+
+    /// Returns once every annotation edit has saved, or after `timeout`, so a stalled volume
+    /// cannot block Quit. An edit renames `annotations.json` and then its record, and a process
+    /// that ends between the two renames leaves a new file beside the record of the edit before.
+    public static func waitForAnnotationEditsToSave(timeout: Duration = .seconds(15)) async {
+        guard isSavingAnnotationEdits else { return }
+        let gate = AnnotationSaveWaitGate()
+        Task { @MainActor in
+            await GenotypeAnnotationPublicationChain.waitForEveryEdit()
+            gate.open()
+        }
+        let deadline = Task { @MainActor in
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            gate.open()
+        }
+        await gate.wait()
+        deadline.cancel()
+    }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LungfishGenotypeUI
 
 /// Keeps project work reachable until it finishes, including cancelled loads
 /// whose originating selection or window has already gone away.
@@ -6,7 +7,7 @@ import Foundation
 enum ProjectTaskTerminationRegistry {
     private static var tasks: [UUID: Task<Void, Never>] = [:]
 
-    static var hasPendingTasks: Bool { !tasks.isEmpty }
+    static var hasPendingTasks: Bool { !tasks.isEmpty || GenotypeResultViewController.isSavingAnnotationEdits }
 
     static func start(
         _ operation: @escaping @MainActor @Sendable () async -> Void
@@ -28,5 +29,8 @@ enum ProjectTaskTerminationRegistry {
             pending.forEach { $0.cancel() }
             for task in pending { await task.value }
         }
+        // An annotation edit renames its pair of files away from the main thread, so Quit
+        // waits for the edits that are saving, up to a deadline (2.11 S35).
+        await GenotypeResultViewController.waitForAnnotationEditsToSave()
     }
 }
