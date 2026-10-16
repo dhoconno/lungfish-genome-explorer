@@ -32,14 +32,13 @@ extension ViewerViewController {
             return
         }
 
-        let refsDir: URL
         let stagingRoot: URL
         let durableSourceURLs = ([sourceAlignmentBundleURL] + fastaExportSourceURLs()).compactMap { $0 }
         do {
-            refsDir = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
-            // The FASTA and BED are one in-process annotation-extraction staging
-            // set. Keep them in a plain registered session directory rather than
-            // appending an unrecorded BED file to a provenance-bearing FASTA bundle.
+            _ = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
+            // The FASTA, the BED and the selection are one annotation-extraction
+            // staging set. Keep them in a plain registered session directory rather
+            // than appending an unrecorded BED file to a provenance-bearing FASTA bundle.
             stagingRoot = try TempFileManager.shared.createRegisteredTempDirectory(
                 prefix: "lungfish-fasta-ops-annotated-"
             )
@@ -51,10 +50,14 @@ extension ViewerViewController {
         let stem = Self.sanitizedFilesystemStem(suggestedName)
         let sourceURL = stagingRoot.appendingPathComponent("selection.fasta")
         let annotationURL = stagingRoot.appendingPathComponent("selected-annotations.bed")
-        let provenanceClock = ProvenanceRunClock()
+        // The BED drops each annotation's id, chromosome and note, which the extraction record
+        // keeps, so the selection goes to the command beside it (ruling A48 F2, BIO 4).
+        let selectionURL = stagingRoot.appendingPathComponent("selected-annotations.json")
         do {
             try records.joined(separator: "").write(to: sourceURL, atomically: true, encoding: .utf8)
             try Self.writeAnnotationBED(annotationsByRecord, to: annotationURL)
+            try JSONEncoder().encode(MSAExtractionAnnotationProvenance.annotationSelectionValue(annotationsByRecord))
+                .write(to: selectionURL)
         } catch {
             TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
             try? FileManager.default.removeItem(at: stagingRoot)
@@ -63,6 +66,17 @@ extension ViewerViewController {
             return
         }
 
+        // The import runs `import fasta` (2.11 A48 M3), which builds the bundle, attaches the BED as
+        // a track and writes the extraction record, so the app writes nothing after it exits.
+        let arguments = AppDelegate.referenceImportArguments(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            preferredBundleName: suggestedName,
+            provenanceInputFiles: durableSourceURLs,
+            annotationsURL: annotationURL,
+            annotationSelectionURL: selectionURL,
+            sourceAlignmentBundleURL: sourceAlignmentBundleURL
+        )
         let startResult = Self.beginAnnotatedReferenceImportOperation(
             sourceURL: sourceURL,
             projectURL: projectURL,
@@ -70,61 +84,18 @@ extension ViewerViewController {
             bundleStem: stem,
             routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
         ) { opID in
-            Task.detached {
+            Task { @MainActor in
                 defer {
                     TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
                     try? FileManager.default.removeItem(at: stagingRoot)
                 }
-                do {
-                    let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
-                        sourceURL: sourceURL,
-                        outputDirectory: refsDir,
-                        preferredBundleName: suggestedName,
-                        provenanceInputFiles: durableSourceURLs
-                    ) { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: min(0.82, progress * 0.82),
-                                    detail: message
-                                )
-                            }
-                        }
-                    }
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
-                        }
-                    }
-                    let annotationResult = try await ReferenceBundleAnnotationImportService()
-                        .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: result.bundleURL)
-                    try MSAExtractionAnnotationProvenance.write(
-                        bundleURL: result.bundleURL,
-                        sourceAlignmentBundleURL: sourceAlignmentBundleURL,
-                        sourceFASTAURL: sourceURL,
-                        sourceAnnotationURL: annotationURL,
-                        durableSourceURLs: durableSourceURLs,
-                        selectedSequenceIDs: FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: "")),
-                        selectedAnnotationsByRecord: annotationsByRecord,
-                        annotationResult: annotationResult,
-                        runClock: provenanceClock
-                    )
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)",
-                                bundleURLs: [result.bundleURL]
-                            )
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                        }
-                    }
+                let outcome = await AppDelegate.runReferenceImport(
+                    arguments: arguments,
+                    operationID: opID,
+                    detail: Self.annotatedReferenceImportDetail(bundleURL:),
+                    run: { arguments, id in try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: id) }
+                )
+                if let error = outcome.error {
                     logger.error("createReferenceBundle: Annotated bundle creation failed - \(error.localizedDescription, privacy: .public)")
                 }
             }
@@ -134,6 +105,14 @@ extension ViewerViewController {
             TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
             try? FileManager.default.removeItem(at: stagingRoot)
         }
+    }
+
+    /// The row's complete words for the annotated bundle at `bundleURL`, with the feature count of
+    /// the track the command attached, read from its manifest.
+    nonisolated static func annotatedReferenceImportDetail(bundleURL: URL) -> String {
+        let featureCount = (try? BundleManifest.load(from: bundleURL))?.annotations
+            .reduce(0) { $0 + ($1.featureCount ?? 0) } ?? 0
+        return "Created \(bundleURL.lastPathComponent) with \(featureCount) annotation(s)"
     }
 
     nonisolated private static func writeAnnotationBED(

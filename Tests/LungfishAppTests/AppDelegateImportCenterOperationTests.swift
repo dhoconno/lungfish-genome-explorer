@@ -95,6 +95,39 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         }
     }
 
+    func testReferenceImportRecordsTheCommandItRuns() throws {
+        // 2.11 A48 M3. The run is `import fasta` on CLIBundleBuildRunner, so the row records the
+        // argv the runner gets, its durable inputs and the merge of the source's record included.
+        let reporter = RecordingOperationReporter()
+        let sourceURL = URL(fileURLWithPath: "/tmp/lane 1a2/Staged/selection.fasta")
+        let inputs = [URL(fileURLWithPath: "/tmp/lane 1a2/Source.lungfishref"), URL(fileURLWithPath: "/tmp/b.fa")]
+
+        AppDelegate.beginReferenceImportOperation(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            preferredBundleName: "-Selection 1",
+            provenanceInputFiles: inputs,
+            rehydrateSourceProvenance: true,
+            routeContext: nil,
+            reporter: reporter
+        ) { _ in }
+
+        let item = try XCTUnwrap(reporter.items.first)
+        let arguments = AppDelegate.referenceImportArguments(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            preferredBundleName: "-Selection 1",
+            provenanceInputFiles: inputs,
+            rehydrateSourceProvenance: true
+        )
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), arguments)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ImportCommand.FASTASubcommand.self)
+        XCTAssertEqual(command.name, "-Selection 1")
+        XCTAssertEqual(command.provenanceInputs, inputs.map(\.path))
+        XCTAssertTrue(command.rehydrateSourceProvenance)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
     // MARK: - Application export and native bundle imports
 
     func testGeneiousImportRecordsItsRowAndARunnableCommand() throws {

@@ -23,30 +23,36 @@ extension AppDelegate {
     /// with the operation ID only when the row started. The row locks no
     /// bundle, as before.
     ///
-    /// The row records `lungfish-cli import fasta <source> --output-dir
-    /// <project>`, with `--name` added when the run has a preferred bundle
-    /// name. `--output-dir` names the project, because the command appends the
-    /// Reference Sequences folder itself, which is where the run writes. The
-    /// run can also carry durable provenance input files, which no command
-    /// option reproduces.
+    /// The row records the command ``referenceImportArguments(sourceURL:projectURL:preferredBundleName:provenanceInputFiles:rehydrateSourceProvenance:)``
+    /// gives for the same values, `lungfish-cli import fasta <source>
+    /// --output-dir <project>` with `--name` when the run has a preferred
+    /// bundle name, a `--provenance-input` for each durable input file and
+    /// `--rehydrate-source-provenance` when the run merges the source's
+    /// record. `--output-dir` names the project, because the command appends
+    /// the Reference Sequences folder itself, which is where the run writes.
     @discardableResult
     static func beginReferenceImportOperation(
         sourceURL: URL,
         projectURL: URL,
         preferredBundleName: String?,
+        provenanceInputFiles: [URL] = [],
+        rehydrateSourceProvenance: Bool = false,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
-        var arguments = ["fasta", sourceURL.path, "--output-dir", projectURL.path]
-        if let name = preferredBundleName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-            arguments += ["--name", name]
-        }
+        let arguments = referenceImportArguments(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            preferredBundleName: preferredBundleName,
+            provenanceInputFiles: provenanceInputFiles,
+            rehydrateSourceProvenance: rehydrateSourceProvenance
+        )
         let result = reporter.begin(
             title: "Reference Import",
             detail: "Importing \(sourceURL.lastPathComponent)...",
             operationType: .bundleBuild,
-            cliCommand: OperationCenter.buildCLICommand(subcommand: "import", args: arguments),
+            cliCommand: OperationCenter.buildCLICommand(subcommand: "import fasta", args: Array(arguments.dropFirst(2))),
             routeContext: routeContext
         )
         switch result {
@@ -56,6 +62,66 @@ extension AppDelegate {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
+    }
+
+    /// The argv after `lungfish-cli` that imports `sourceURL` into the project at `projectURL`
+    /// with `import fasta` and prints its events (2.11 A48 M3). A blank name is no name, as the
+    /// service treats it, so the command carries no `--name` then, and an empty list of durable
+    /// inputs is none, so the record names the source as the helper route did.
+    static func referenceImportArguments(
+        sourceURL: URL,
+        projectURL: URL,
+        preferredBundleName: String?,
+        provenanceInputFiles: [URL] = [],
+        annotationsURL: URL? = nil,
+        annotationSelectionURL: URL? = nil,
+        sourceAlignmentBundleURL: URL? = nil,
+        rehydrateSourceProvenance: Bool = false
+    ) -> [String] {
+        let name = preferredBundleName.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        return ReferenceBundleImportService.importFASTAArguments(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            preferredBundleName: name,
+            provenanceInputFiles: provenanceInputFiles,
+            annotationsURL: annotationsURL,
+            annotationSelectionURL: annotationSelectionURL,
+            sourceAlignmentBundleURL: sourceAlignmentBundleURL,
+            rehydrateSourceProvenance: rehydrateSourceProvenance
+        ) + ["--format", "json"]
+    }
+
+    /// Runs `import fasta` on `arguments` for the row `operationID` and ends the row. The command
+    /// builds, publishes and records the bundle, and attaches and records whatever its options
+    /// ask, so nothing here writes after it exits (plan decision C5, pin P7). The row completes
+    /// with `detail` for the bundle the command's `complete` line names, fails with the command's
+    /// `failed` message, or is left as the runner's cancel acknowledged it.
+    ///
+    /// - Parameter run: Runs the command, the row's runner in the app and a test's own runner.
+    /// - Returns: The published bundle, nil when the run failed or was cancelled, and the error
+    ///   of a failed run, which the caller shows.
+    @MainActor
+    static func runReferenceImport(
+        arguments: [String],
+        operationID: UUID,
+        reporter: any OperationReporting = OperationCenter.shared,
+        detail: (URL) -> String = { "Imported \($0.lastPathComponent)" },
+        run: ([String], UUID) async throws -> CLISubprocessTransport.Result
+    ) async -> (bundleURL: URL?, error: (any Error)?) {
+        do {
+            let result = try await run(arguments, operationID)
+            guard let path = result.outputs.first else {
+                let error = ReferenceImportRunError.noBundle
+                return (nil, reporter.fail(id: operationID, detail: error.localizedDescription) ? error : nil)
+            }
+            let bundleURL = URL(fileURLWithPath: path, isDirectory: true)
+            let completed = reporter.complete(id: operationID, detail: detail(bundleURL), bundleURLs: [bundleURL])
+            return (completed ? bundleURL : nil, nil)
+        } catch is CancellationError {
+            return (nil, nil) // The runner acknowledged the cancel on the row, and nothing was published.
+        } catch {
+            return (nil, reporter.fail(id: operationID, detail: error.localizedDescription) ? error : nil)
+        }
     }
 
     /// Registers the Geneious Import row and calls `launch` with the operation
@@ -380,5 +446,14 @@ extension AppDelegate {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
+    }
+}
+
+/// A reference import whose command completed without naming the bundle it published.
+enum ReferenceImportRunError: Error, LocalizedError {
+    case noBundle
+
+    var errorDescription: String? {
+        "The import finished without naming the bundle it built."
     }
 }

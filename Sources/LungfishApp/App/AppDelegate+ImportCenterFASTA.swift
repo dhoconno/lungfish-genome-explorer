@@ -52,9 +52,8 @@ extension AppDelegate {
             return
         }
 
-        let refsDir: URL
         do {
-            refsDir = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
+            _ = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
         } catch {
             showAlert(title: "Import Failed", message: "Could not prepare Reference Sequences folder: \(error.localizedDescription)")
             return
@@ -68,62 +67,31 @@ extension AppDelegate {
             projectURL: projectURL,
             windowStateScopeID: routeContext?.windowStateScopeID ?? controller.projectSession.windowStateScope.id
         )
+        // The import runs `import fasta` (2.11 A48 M3), which builds and publishes the bundle in
+        // the Reference Sequences folder, records the durable inputs and merges the source's
+        // record, so the app writes nothing after it exits.
+        let provenanceInputFiles = durableProvenanceInputFiles ?? []
+        let arguments = Self.referenceImportArguments(
+            sourceURL: url,
+            projectURL: projectURL,
+            preferredBundleName: preferredBundleName,
+            provenanceInputFiles: provenanceInputFiles,
+            rehydrateSourceProvenance: rehydrateSourceProvenance
+        )
         Self.beginReferenceImportOperation(
             sourceURL: url,
             projectURL: projectURL,
             preferredBundleName: preferredBundleName,
+            provenanceInputFiles: provenanceInputFiles,
+            rehydrateSourceProvenance: rehydrateSourceProvenance,
             routeContext: routeContext
         ) { opID in
-            Task.detached { [weak self] in
-                do {
-                    let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
-                        sourceURL: url,
-                        outputDirectory: refsDir,
-                        preferredBundleName: preferredBundleName,
-                        provenanceInputFiles: durableProvenanceInputFiles
-                    ) { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.updateWithLog(
-                                    id: opID,
-                                    progress: progress,
-                                    detail: message
-                                )
-                            }
-                        }
-                    }
-                    if rehydrateSourceProvenance {
-                        do {
-                            try FASTQOperationProvenanceRehydrator().rehydrateReferenceBundleProvenance(
-                                sourceURL: url,
-                                referenceBundleURL: result.bundleURL
-                            )
-                        } catch {
-                            try? FileManager.default.removeItem(at: result.bundleURL)
-                            throw error
-                        }
-                    }
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "Imported \(result.bundleURL.lastPathComponent)",
-                                bundleURLs: [result.bundleURL]
-                            ) else { return }
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                            self?.showAlert(
-                                title: "Reference Import Failed",
-                                message: error.localizedDescription
-                            )
-                        }
-                    }
-                }
+            Task { @MainActor [weak self] in
+                let outcome = await Self.runReferenceImport(arguments: arguments, operationID: opID, run: { arguments, id in
+                    try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: id)
+                })
+                guard let error = outcome.error else { return }
+                self?.showAlert(title: "Reference Import Failed", message: error.localizedDescription)
             }
         }
     }
