@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane Q32 M2, with 2.10 T2, QA 4 and SWIFT 7. Side C, the routed `taxtriage run --project` through
-// the built lungfish-cli, is cancelled as a CLI route's Cancel does it: SIGTERM to the CLI's tree through
-// CLIRunCancellation, with `CLIProcessLauncher.operationGrace` (6 s) before SIGKILL, the grace CLIClassifierRunner
+// the built lungfish-cli, is cancelled as a CLI route's Cancel does it: SIGTERM to the CLI alone through
+// CLIRunCancellation (`CLIClassifierRunner.signalsCommandFirst`, U30 W2), so its own container cleanup runs, with
+// `CLIProcessLauncher.operationGrace` (6 s) before SIGKILL to its group and tree, the grace CLIClassifierRunner
 // gives. The harness cancels once the stand-in records a launch, which a real engine never does, so this file
 // starts the CLI itself and cancels once a container of the run runs, found by its mounts below the side root or
 // the work folder the launch names, as NextflowContainerCleanupLiveConformanceTests finds them. The command must
