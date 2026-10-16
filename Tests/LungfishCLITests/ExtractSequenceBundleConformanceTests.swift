@@ -54,6 +54,10 @@ final class ExtractSequenceBundleConformanceTests: XCTestCase {
         XCTAssertEqual(envelope.steps.map(\.toolName), ["lungfish extract sequence", "bgzip", "samtools faidx"])
         for step in envelope.steps.dropFirst() {
             XCTAssertNotEqual(step.toolVersion, "unknown", "\(step.toolName) names the version that ran")
+            XCTAssertEqual(
+                step.toolVersionEvidence?.recordedString, step.toolVersion, "\(step.toolName) names where its version comes from"
+            )
+            XCTAssertNotNil(step.managedToolID, "\(step.toolName) names its tool by the lock entry")
             XCTAssertFalse(step.outputs.isEmpty, "\(step.toolName) names what it wrote")
         }
         XCTAssertEqual(

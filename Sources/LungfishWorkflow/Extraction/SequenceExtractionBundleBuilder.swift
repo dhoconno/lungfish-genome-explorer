@@ -324,8 +324,12 @@ public final class SequenceExtractionBundleBuilder: Sendable {
 
     /// The bgzip and samtools faidx steps that made the bundle's genome, each with the version of the
     /// tool that ran and the argv the runner gave it, so the record names every tool of the run
-    /// (2.11 A48 M2, BIO 4). A bundle with no compressed genome names neither.
-    private func genomeToolSteps(bundleURL: URL, startedAt: Date, completedAt: Date) async throws -> [ProvenanceStep] {
+    /// (2.11 A48 M2, BIO 4). A bundle with no compressed genome names neither. Each version is typed
+    /// evidence, as the FASTQ ingestion steps record it. A probe that answers is observed, and one that
+    /// does not leaves the lock's pin for the tool's id, recorded as a pin and never as the word unknown
+    /// (2.11 landing 4 Handoff 1). The method is internal so a test can drive it with a runner whose
+    /// probes fail.
+    func genomeToolSteps(bundleURL: URL, startedAt: Date, completedAt: Date) async throws -> [ProvenanceStep] {
         let genome = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let compressed = genome.appendingPathComponent("sequence.fa.gz")
         guard FileManager.default.fileExists(atPath: compressed.path) else { return [] }
@@ -337,19 +341,25 @@ public final class SequenceExtractionBundleBuilder: Sendable {
         let faidxArgv = ["samtools", "faidx", "sequence.fa.gz"]
         let compressedDescriptor = try ProvenanceFileDescriptor.file(url: compressed, format: .fasta, role: .output)
         let indexDescriptors = try indexes.map { try ProvenanceFileDescriptor.file(url: $0, format: .text, role: .index) }
-        let bgzipVersion = await toolRunner.getToolVersion(.bgzip) ?? "unknown"
-        let samtoolsVersion = await toolRunner.getToolVersion(.samtools) ?? "unknown"
+        let bgzipEvidence = FASTQIngestionPipeline.versionEvidence(
+            observed: await toolRunner.getToolVersion(.bgzip), for: .bgzip
+        )
+        let samtoolsEvidence = FASTQIngestionPipeline.versionEvidence(
+            observed: await toolRunner.getToolVersion(.samtools), for: .samtools
+        )
         let wallTime = completedAt.timeIntervalSince(startedAt)
         return [
             ProvenanceStep(
-                toolName: "bgzip", toolVersion: bgzipVersion, argv: bgzipArgv,
+                toolName: "bgzip", toolVersion: bgzipEvidence.recordedString, argv: bgzipArgv,
                 reproducibleCommand: bgzipArgv.joined(separator: " "), inputs: [], outputs: [compressedDescriptor],
-                exitStatus: 0, wallTimeSeconds: wallTime, stderr: nil, startedAt: startedAt, completedAt: completedAt
+                exitStatus: 0, wallTimeSeconds: wallTime, stderr: nil, startedAt: startedAt, completedAt: completedAt,
+                managedToolID: NativeTool.bgzip.managedToolID, toolVersionEvidence: bgzipEvidence
             ),
             ProvenanceStep(
-                toolName: "samtools faidx", toolVersion: samtoolsVersion, argv: faidxArgv,
+                toolName: "samtools faidx", toolVersion: samtoolsEvidence.recordedString, argv: faidxArgv,
                 reproducibleCommand: faidxArgv.joined(separator: " "), inputs: [compressedDescriptor], outputs: indexDescriptors,
-                exitStatus: 0, wallTimeSeconds: wallTime, stderr: nil, startedAt: startedAt, completedAt: completedAt
+                exitStatus: 0, wallTimeSeconds: wallTime, stderr: nil, startedAt: startedAt, completedAt: completedAt,
+                managedToolID: NativeTool.samtools.managedToolID, toolVersionEvidence: samtoolsEvidence
             ),
         ]
     }
