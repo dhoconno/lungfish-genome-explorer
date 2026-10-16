@@ -182,17 +182,16 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
     // MARK: - Where the output is staged (review A47 fix 6 (d), SWIFT 4)
 
     /// Runs the leaf in this process on `input` and returns, at the moment the staged output is synced, the entries
-    /// of the project's `.tmp` folder that hold it (below `project`, nil for none) and the hidden stage folders
-    /// beside the input.
-    private func stagingSeen(running input: URL, project: URL?) async throws -> (underTmp: [String], besideInput: [String]) {
+    /// of the temp folder `tmp` that hold it (a project's `.tmp` or the system temp folder, nil for none) and the
+    /// hidden stage folders beside the input.
+    private func stagingSeen(running input: URL, under tmp: URL?) async throws -> (underTmp: [String], besideInput: [String]) {
         let underTmp = IngestLog()
         let besideInput = IngestLog()
         let folder = input.deletingLastPathComponent()
         try await FastqIngestObservation.$observer.withValue({ step in
             guard step == .stageSynced else { return }
-            if let project {
-                let tmp = project.appendingPathComponent(".tmp").path
-                for name in (try? FileManager.default.subpathsOfDirectory(atPath: tmp)) ?? [] where name.hasSuffix("/\(input.deletingPathExtension().lastPathComponent).fastq.gz") {
+            if let tmp {
+                for name in (try? FileManager.default.subpathsOfDirectory(atPath: tmp.path)) ?? [] where name.hasSuffix("/\(input.deletingPathExtension().lastPathComponent).fastq.gz") {
                     underTmp.append(name)
                 }
             }
@@ -217,7 +216,7 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         let input = bundle.appendingPathComponent("reads.fastq")
         try Self.reads.write(to: input, atomically: true, encoding: .utf8)
 
-        let seen = try await stagingSeen(running: input, project: project)
+        let seen = try await stagingSeen(running: input, under: project.appendingPathComponent(".tmp"))
 
         XCTAssertEqual(seen.underTmp.count, 1, "the staged output sits under the project's .tmp folder: \(seen.underTmp)")
         XCTAssertTrue(seen.underTmp.first?.hasPrefix("lungfish-ingest-") == true, "\(seen.underTmp)")
@@ -230,18 +229,60 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         )
     }
 
-    /// Anywhere else the hidden folder sits beside the input, as it always did.
-    func testAFileOutsideAProjectStillStagesBesideTheInput() async throws {
+    /// Points `TMPDIR` at `folder` while `body` runs, so the system temp folder is one of the test's own.
+    private func withSystemTemp<T>(_ folder: URL, _ body: () async throws -> T) async throws -> T {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let previous = ProcessInfo.processInfo.environment["TMPDIR"]
+        setenv("TMPDIR", folder.path, 1)
+        defer {
+            if let previous { setenv("TMPDIR", previous, 1) } else { unsetenv("TMPDIR") }
+        }
+        return try await body()
+    }
+
+    /// Anywhere else the hidden folder sits in the system temp folder when that folder shares the input's volume,
+    /// with the marker the app's launch sweep reads (2.11 S8), and nothing stages beside the input.
+    func testAFileOutsideAProjectStagesInTheSystemTempFolderOnItsVolume() async throws {
         try await requireCompressor()
         let root = try TestTempDirectory.make(prefix: "fastq-ingest-no-project")
         defer { TestTempDirectory.cleanup(root) }
         let input = root.appendingPathComponent("reads.fastq")
         try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+        let systemTemp = root.appendingPathComponent("T", isDirectory: true)
 
-        let seen = try await stagingSeen(running: input, project: nil)
+        let seen = try await withSystemTemp(systemTemp) { try await stagingSeen(running: input, under: systemTemp) }
 
+        XCTAssertEqual(seen.underTmp.count, 1, "the staged output sits in the system temp folder: \(seen.underTmp)")
+        XCTAssertTrue(seen.underTmp.first?.hasPrefix("lungfish-ingest-") == true, "\(seen.underTmp)")
+        XCTAssertEqual(seen.besideInput, [], "nothing stages beside the input")
+        XCTAssertEqual(try names(in: systemTemp), [], "the work folder is gone when the run ends")
+        XCTAssertEqual(try names(in: root).filter { !$0.hasPrefix(".lungfish-provenance") }, ["T", "reads.fastq.gz", "reads.fastq.gz.lungfish-meta.json", "reads.fastq.gz.lungfish-provenance.json"])
+    }
+
+    /// S8's case for another volume, as an input on an ExFAT disk has. The hidden folder sits beside the input as it
+    /// always did, so the publish stays a rename within one volume, and `exfat-tests.sh --simulate` runs this case
+    /// with the fallback renames.
+    func testAFileOnAnotherVolumeThanTheSystemTempFolderStagesBesideTheInput() async throws {
+        try await requireCompressor()
+        let root = try TestTempDirectory.make(prefix: "fastq-ingest-other-volume")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("reads.fastq")
+        try Self.reads.write(to: input, atomically: true, encoding: .utf8)
+        let systemTemp = root.appendingPathComponent("T", isDirectory: true)
+        let tempPath = systemTemp.resolvingSymlinksInPath().path + "/"
+
+        let seen = try await withSystemTemp(systemTemp) {
+            try await FastqIngestRun.$volumeReader.withValue({ url in
+                url.resolvingSymlinksInPath().path.hasPrefix(tempPath) ? -1 : FastqIngestRun.volume(of: url)
+            }) {
+                try await stagingSeen(running: input, under: systemTemp)
+            }
+        }
+
+        XCTAssertEqual(seen.underTmp, [], "nothing stages in a system temp folder on another volume")
         XCTAssertEqual(seen.besideInput.count, 1, "\(seen.besideInput)")
-        XCTAssertEqual(try names(in: root).filter { !$0.hasPrefix(".lungfish-provenance") }, ["reads.fastq.gz", "reads.fastq.gz.lungfish-meta.json", "reads.fastq.gz.lungfish-provenance.json"])
+        XCTAssertEqual(try names(in: systemTemp), [], "the system temp candidate is removed")
+        XCTAssertEqual(try names(in: root).filter { !$0.hasPrefix(".lungfish-provenance") }, ["T", "reads.fastq.gz", "reads.fastq.gz.lungfish-meta.json", "reads.fastq.gz.lungfish-provenance.json"])
     }
 
     // MARK: - The output is read once (review A47 fix 6 (e), SWIFT 5)

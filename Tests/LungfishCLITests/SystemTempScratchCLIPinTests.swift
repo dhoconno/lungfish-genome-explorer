@@ -101,9 +101,10 @@ final class SystemTempScratchCLIPinTests: XCTestCase {
         }
     }
 
-    /// W11 and SW7 (a). An in-place ingest of an input outside a project stages in a hidden
-    /// `.lungfish-ingest-<UUID>` folder beside its input, which no sweep covers.
-    func testAnIngestOfAnInputOutsideAProjectStagesBesideItsInput() throws {
+    /// S8 (W11, SW7 a, Q-S67). An in-place ingest of an input outside a project stages in a `lungfish-ingest-<UUID>`
+    /// folder in the system temp folder when that folder shares the input's volume, with the marker the launch
+    /// sweep reads. At the base it staged in a hidden folder beside the input, which no sweep covers.
+    func testAnIngestOfAnInputOutsideAProjectStagesInTheSystemTempFolder() throws {
         let folder = root.appendingPathComponent("outside", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let input = folder.appendingPathComponent("reads.fastq")
@@ -111,10 +112,31 @@ final class SystemTempScratchCLIPinTests: XCTestCase {
 
         let staging = try FastqIngestRun.makeStagingFolder(for: input)
 
+        XCTAssertEqual(staging.deletingLastPathComponent().resolvingSymlinksInPath().path, systemTemp.path)
+        XCTAssertTrue(staging.lastPathComponent.hasPrefix("lungfish-ingest-"), staging.lastPathComponent)
+        XCTAssertTrue(Self.holdsMarker(staging), "the folder carries the marker the launch sweep reads")
+        XCTAssertEqual(Self.names(in: folder), ["reads.fastq"], "nothing stages beside the input")
+    }
+
+    /// S8 for another volume (an input on an ExFAT disk). The publish is a rename within one volume, so the folder
+    /// stays beside the input and the system temp candidate is removed.
+    func testAnIngestOfAnInputOnAnotherVolumeThanTheSystemTempFolderStagesBesideIt() throws {
+        let folder = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let input = folder.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: input, atomically: true, encoding: .utf8)
+        let tempPath = systemTemp.path + "/"
+
+        let staging = try FastqIngestRun.$volumeReader.withValue({ url in
+            url.resolvingSymlinksInPath().path.hasPrefix(tempPath) ? -1 : FastqIngestRun.volume(of: url)
+        }) {
+            try FastqIngestRun.makeStagingFolder(for: input)
+        }
+
         XCTAssertEqual(staging.deletingLastPathComponent().resolvingSymlinksInPath().path, folder.path)
         XCTAssertTrue(staging.lastPathComponent.hasPrefix(".lungfish-ingest-"), staging.lastPathComponent)
-        XCTAssertTrue(Self.names(in: systemTemp).isEmpty, "nothing stages in the system temp folder")
         XCTAssertFalse(Self.holdsMarker(staging), "the folder beside the input carries no marker")
+        XCTAssertTrue(Self.names(in: systemTemp).isEmpty, "the system temp candidate is removed")
     }
 
     /// An input in a project stages under the project `.tmp` with the marker the project sweep reads.

@@ -105,14 +105,16 @@ struct FastqIngestRun {
 
     /// The hidden folder the pipeline writes into. An input that sits in a project stages under the project's
     /// `.tmp` folder, so no stage file ever sits in a bundle (SWIFT 4) and the project's cleanup finds the folder
-    /// of a run that was killed outright. Anywhere else the folder sits beside the input. The rename into the
-    /// input's folder must stay on one volume, so a `.tmp` folder that cannot be made, or that sits on another
-    /// volume than the input's folder, gives way to the folder beside the input.
+    /// of a run that was killed outright. Next comes the system temp folder, with the marker the app's launch sweep
+    /// reads (2.11 S8). Last the folder sits beside the input. The rename into the input's folder must stay on one
+    /// volume, so a folder that cannot be made, or that sits on another volume than the input's folder, gives way
+    /// to the next.
     static func makeStagingFolder(for input: URL) throws -> URL {
         let folder = input.deletingLastPathComponent()
-        if let project = ProjectTempDirectory.findProjectRoot(input),
-           let staging = try? ProjectTempDirectory.create(prefix: "lungfish-ingest-", in: project) {
-            if let stagingVolume = volume(of: staging), stagingVolume == volume(of: folder) {
+        let roots: [URL?] = ProjectTempDirectory.findProjectRoot(input).map { [$0, nil] } ?? [nil]
+        for root in roots {
+            guard let staging = try? ProjectTempDirectory.create(prefix: "lungfish-ingest-", in: root) else { continue }
+            if let stagingVolume = volumeReader(staging), stagingVolume == volumeReader(folder) {
                 return staging
             }
             try? FileManager.default.removeItem(at: staging)
@@ -122,8 +124,11 @@ struct FastqIngestRun {
         return beside
     }
 
+    /// Reads the volume of a folder. A test replaces it to put the system temp folder on another volume.
+    @TaskLocal static var volumeReader: @Sendable (URL) -> Int? = { FastqIngestRun.volume(of: $0) }
+
     /// The number of the volume that holds `url`, nil when it cannot be read.
-    private static func volume(of url: URL) -> Int? {
+    static func volume(of url: URL) -> Int? {
         let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
         return attributes?[.systemNumber] as? Int
     }

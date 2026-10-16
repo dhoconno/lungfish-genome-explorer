@@ -67,10 +67,14 @@ final class FastqIngestSIGTERMTests: XCTestCase {
         let input = folder.appendingPathComponent("SRR9_1.fastq")
         try FastqIngestPublishDurabilityTests.reads.write(to: input, atomically: true, encoding: .utf8)
         let originalBytes = try Data(contentsOf: input)
+        // 2.11 S8. An input outside a project stages in the system temp folder on its volume, here the test's own.
+        let systemTemp = root.appendingPathComponent("T", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemTemp, withIntermediateDirectories: true)
 
         let cli = try CLISIGTERMHarness.launchCLI(
             ["fastq", "ingest", input.path, "--delete-originals", "--quiet"],
             environment: [
+                "TMPDIR": systemTemp.path,
                 "LUNGFISH_CONDA_ROOT": condaRoot.path,
                 "LUNGFISH_STORAGE_ROOT": root.appendingPathComponent("storage", isDirectory: true).path,
                 "LUNGFISH_CONDA_SHARED_PKGS": "0",
@@ -88,9 +92,12 @@ final class FastqIngestSIGTERMTests: XCTestCase {
             return XCTFail("The leaf never started the stand-in clumpify.\(stop.diagnostics)")
         }
         let hidden = try names(in: folder).filter { $0.hasPrefix(".") && $0 != ProvenanceRecorder.provenanceFilename }
-        XCTAssertEqual(hidden.count, 1, "the leaf builds its output in one hidden folder beside the input: \(hidden)")
-        if let staging = hidden.first {
-            let part = try names(in: folder.appendingPathComponent(staging, isDirectory: true))
+        XCTAssertEqual(hidden, [], "nothing stages beside the input")
+        let staged = try names(in: systemTemp)
+        XCTAssertEqual(staged.count, 1, "the leaf builds its output in one folder in the system temp folder: \(staged)")
+        if let staging = staged.first {
+            XCTAssertTrue(staging.hasPrefix("lungfish-ingest-"), staging)
+            let part = try names(in: systemTemp.appendingPathComponent(staging, isDirectory: true)).filter { !$0.hasPrefix(".") }
             XCTAssertEqual(part, ["SRR9.fastq.gz"], "a half-written output exists while the tool runs")
         }
         XCTAssertFalse(
@@ -107,6 +114,7 @@ final class FastqIngestSIGTERMTests: XCTestCase {
         // The folder holds the original, as it was, and the cancelled record. No part file,
         // no hidden folder, no output and no sidecar remain.
         XCTAssertEqual(try names(in: folder), [ProvenanceRecorder.provenanceFilename, "SRR9_1.fastq"])
+        XCTAssertEqual(try names(in: systemTemp), [], "the cancel removes the staging folder")
         XCTAssertEqual(try Data(contentsOf: input), originalBytes, "the original is as it was")
         let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: recordURL))
         XCTAssertEqual(record.workflowName, "lungfish fastq ingest")
