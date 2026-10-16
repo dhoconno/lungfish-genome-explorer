@@ -75,7 +75,10 @@ public struct Kraken2AnalysisRunTool: AnalysisRunTool {
         for url in inputURLs {
             if !CLISequenceInputMaterialization.requiresMaterialization(url),
                SequenceInputResolver.resolvePrimarySequenceURL(for: url) == nil {
-                throw CLISequenceInputMaterializationError.unreadableSequenceInput(url.path)
+                // A refusal like the parse error above, so it exits 3 as `esviritu detect` does for the same input (2.11 U64).
+                throw Kraken2RunRefusal.input(
+                    CLISequenceInputMaterializationError.unreadableSequenceInput(url.path).localizedDescription
+                )
             }
         }
         if case .directory(let directory) = runRequest.destination {

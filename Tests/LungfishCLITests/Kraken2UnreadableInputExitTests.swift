@@ -50,14 +50,16 @@ final class Kraken2UnreadableInputExitTests: XCTestCase {
 
     // MARK: - kraken2 classify
 
-    func testKraken2ClassifyEndsAnUnreadableInputWithExit64() throws {
+    /// Both spellings are one command, and the refusal keeps its words.
+    func testKraken2ClassifyRefusesAnUnreadableInputWithExit3BeforeAnyFolder() throws {
         let before = try listing(of: fixtures.projectURL)
-        let result = try runCLI([
-            "kraken2", "classify", unreadable.path, "--db", "FixtureDB", "--project", fixtures.projectURL.path,
-        ])
-        XCTAssertEqual(result.exitCode, CLIExitCode.workflowError.rawValue, result.output)
-        XCTAssertTrue(result.output.contains(Self.stem), result.output)
-        XCTAssertEqual(try listing(of: fixtures.projectURL), before, "no folder exists after the command ends")
+        for path in [["kraken2", "classify"], ["conda", "classify"]] {
+            let result = try runCLI(path + [unreadable.path, "--db", "FixtureDB", "--project", fixtures.projectURL.path])
+            XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, "\(path.joined(separator: " ")): \(result.output)")
+            XCTAssertTrue(result.output.contains(Self.stem), result.output)
+            XCTAssertTrue(result.output.contains(unreadable.lastPathComponent), result.output)
+            XCTAssertEqual(try listing(of: fixtures.projectURL), before, "no folder exists after the refusal")
+        }
     }
 
     // MARK: - esviritu detect, the reference
