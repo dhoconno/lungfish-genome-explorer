@@ -11,8 +11,7 @@ import LungfishWorkflow
 
 /// The Import Center's sequence export lives here, moved out of
 /// AppDelegate+ImportCenter.swift, which is at its size baseline. It holds the
-/// single and batch export, the reference bundle export, their provenance and
-/// the compression step.
+/// single and batch export, the reference bundle export and their provenance.
 extension AppDelegate {
 
     /// Loads sequences from sidebar URLs or documents, writes to output file, and optionally compresses.
@@ -429,7 +428,7 @@ extension AppDelegate {
         return annotations
     }
 
-    nonisolated private func compressExportFile(
+    nonisolated func compressExportFile(
         _ writeURL: URL,
         to outputURL: URL,
         compression: SequenceExportCompression
