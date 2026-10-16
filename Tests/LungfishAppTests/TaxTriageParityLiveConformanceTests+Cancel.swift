@@ -67,7 +67,7 @@ extension TaxTriageParityLiveConformanceTests {
         let run = try LiveNextflowRun.begin()
         let root = run.directory.appendingPathComponent("X6/\(TaxTriageParitySide.c.folderName)", isDirectory: true)
         var workFolders = [root]
-        defer { XCTAssertEqual(run.teardown(engineWorkFolders: workFolders).problems, []) }
+        defer { let end = run.teardown(engineWorkFolders: workFolders); print("[live-nextflow] X6 teardown removed \(end.removedContainerIDs.map { String($0.prefix(12)) })"); XCTAssertEqual(end.problems, []) }
         let evidence = try TaxTriageParityEvidence.requireFolder()
         try TaxTriageParityEvidence.prepare(.x6, in: evidence, baseline: nil)
         let engine = try await Self.liveEngine(run)
