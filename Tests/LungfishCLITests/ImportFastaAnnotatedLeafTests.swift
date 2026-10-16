@@ -104,7 +104,37 @@ final class ImportFastaAnnotatedLeafTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: project.path), [])
     }
 
+    /// The leaf reads the input to name the selected records, which a compressed input cannot give
+    /// after the build (A48 M3 review, Fix 2). It refuses first, with the input error code.
+    func testAnnotationsWithACompressedInputAreRefusedBeforeAnythingIsWritten() async throws {
+        let staged = try stageSelection()
+        let compressed = root.appendingPathComponent("selection.fasta.gz")
+        try gzip(staged.fasta, to: compressed)
+        do {
+            try await ImportCommand.FASTASubcommand.parse([
+                compressed.path, "--output-dir", project.path, "--annotations", staged.bed.path, "--quiet",
+            ]).run()
+            XCTFail("Expected a refusal")
+        } catch let exit as ExitCode {
+            XCTAssertEqual(exit.rawValue, 3)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: project.path), [])
+    }
+
     // MARK: - Fixtures
+
+    private func gzip(_ source: URL, to destination: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", source.path]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        try data.write(to: destination, options: .atomic)
+    }
 
     private func stageSelection() throws -> (fasta: URL, bed: URL, selectionJSON: URL, selection: ParameterValue) {
         let staging = root.appendingPathComponent("staging", isDirectory: true)

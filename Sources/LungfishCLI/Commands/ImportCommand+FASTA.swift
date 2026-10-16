@@ -155,6 +155,15 @@ extension ImportCommand {
             if let annotationsURL, !FileManager.default.fileExists(atPath: annotationsURL.path) {
                 throw ImportFASTARefusal(message: "Annotation file not found: \(annotationsURL.path)", exitCode: .inputError)
             }
+            // The selected record IDs come from reading the input as text after the build, which a
+            // compressed input cannot give, so refuse before anything is written (A48 M3 review, Fix 2).
+            if annotationsURL != nil,
+               ReferenceBundleImportService.compressionExtensions.contains(inputURL.pathExtension.lowercased()) {
+                throw ImportFASTARefusal(
+                    message: "--annotations needs an uncompressed input. Decompress \(inputURL.lastPathComponent) first.",
+                    exitCode: .inputError
+                )
+            }
             let selection = try annotationSelectionValue()
 
             let outputDirectory = resolveOutputDirectory(outputDir)
