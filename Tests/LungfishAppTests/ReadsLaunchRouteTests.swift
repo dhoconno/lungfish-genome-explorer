@@ -1,4 +1,4 @@
-// ReadsLaunchRouteTests.swift - The mapping and assembly keys, the CLI route's argv and the L6 runner
+// ReadsLaunchRouteTests.swift - The mapping and ONT import keys, the CLI route's argv and the L6 runner
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -49,15 +49,14 @@ final class ReadsLaunchRouteTests: XCTestCase {
         let defaults = makeTestDefaultsSuite(prefix: "reads-route").defaults
         let settings = ReadsLaunchRouteSettings(defaults: defaults)
         XCTAssertEqual(ReadsLaunchPath.mapping.defaultsKey, "ReadsLaunchRoute.mapping")
-        XCTAssertEqual(ReadsLaunchPath.assembly.defaultsKey, "ReadsLaunchRoute.assembly")
         XCTAssertEqual(ReadsLaunchPath.ontImport.defaultsKey, "ReadsLaunchRoute.ontImport")
         defaults.set("legacy", forKey: ReadsLaunchPath.mapping.defaultsKey)
         XCTAssertEqual(settings.route(for: .mapping), .legacy)
-        XCTAssertEqual(settings.route(for: .assembly), .cli, "the other launch keeps its own route")
-        defaults.set("legacy", forKey: ReadsLaunchPath.assembly.defaultsKey)
+        XCTAssertEqual(settings.route(for: .ontImport), .cli, "the other launch keeps its own route")
+        defaults.set("legacy", forKey: ReadsLaunchPath.ontImport.defaultsKey)
         defaults.removeObject(forKey: ReadsLaunchPath.mapping.defaultsKey)
         XCTAssertEqual(settings.route(for: .mapping), .cli, "an unset key reads the default again")
-        XCTAssertEqual(settings.route(for: .assembly), .legacy)
+        XCTAssertEqual(settings.route(for: .ontImport), .legacy)
     }
 
     func testTheCLIRouteRecordsTheMapArgvItRuns() throws {
@@ -158,7 +157,6 @@ final class ReadsLaunchRouteTests: XCTestCase {
         let opID = try XCTUnwrap(AssemblyRunner.startManagedAssembly(
             request: request,
             routeContext: nil,
-            route: .cli,
             runner: CLIReadsRunner(cliURLOverride: cli)
         ))
         defer { OperationCenter.shared.clearItem(id: opID) }
@@ -180,44 +178,10 @@ final class ReadsLaunchRouteTests: XCTestCase {
 
     // MARK: - Each key value runs its route (ARCH 7, lane A46 M3)
 
-    /// The Reassemble key's `legacy` value runs the managed pipeline in this process and launches
-    /// no `lungfish-cli`. The reads are missing, so the pipeline fails at once.
-    func testTheLegacyReassembleRouteRunsInProcessAndLaunchesNoCommand() async throws {
-        let root = try TestTempDirectory.make(prefix: "reassemble-legacy-route")
-        defer { TestTempDirectory.cleanup(root) }
-        let launched = root.appendingPathComponent("launched")
-        let cli = try standInCLI("touch '\(launched.path)'; exit 1")
-        let request = AssemblyRunRequest(
-            tool: .megahit,
-            readType: .illuminaShortReads,
-            inputURLs: [root.appendingPathComponent("missing.fastq")],
-            projectName: "demo",
-            outputDirectory: root.appendingPathComponent("Assemblies", isDirectory: true),
-            threads: 1
-        ).normalizedForExecution()
-
-        let opID = try XCTUnwrap(AssemblyRunner.startManagedAssembly(
-            request: request, routeContext: nil, route: .legacy, runner: CLIReadsRunner(cliURLOverride: cli)
-        ))
-        defer { OperationCenter.shared.clearItem(id: opID) }
-        let ended = await waitUntil(timeout: .seconds(30)) {
-            OperationCenter.shared.items.first { $0.id == opID }?.finishedAt != nil
-        }
-
-        XCTAssertTrue(ended, "the row ends")
-        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == opID })
-        XCTAssertTrue(
-            item.logEntries.contains { $0.message == "Launching managed assembly pipeline" },
-            "the in-process pipeline ran: \(item.logEntries.map(\.message))"
-        )
-        XCTAssertFalse(FileManager.default.fileExists(atPath: launched.path), "the legacy route launches no lungfish-cli")
-    }
-
-    /// Reassemble reads its key in `runValidated`. `legacy` runs the managed pipeline in this
-    /// process and launches no `lungfish-cli`, and `cli` launches the `lungfish-cli` that
-    /// LUNGFISH_CLI_PATH names, a stand-in that fails with its `failed` line. An unset key takes the
-    /// default, which is the CLI route. The reads are missing, so the in-process run fails at once too.
-    func testEachReassembleKeyValueRunsItsRoute() async throws {
+    /// Reassemble starts the CLI route in `runValidated`, which launches the `lungfish-cli` that
+    /// LUNGFISH_CLI_PATH names, a stand-in that fails with its `failed` line. The reads are missing,
+    /// so the stand-in is all that runs.
+    func testReassembleRunsTheCLIRoute() async throws {
         // runValidated asks AppDelegate.shared, which reads NSApp, so the application must exist
         // when this class runs on its own.
         _ = NSApplication.shared
@@ -225,52 +189,39 @@ final class ReadsLaunchRouteTests: XCTestCase {
         defer {
             if let saved { setenv("LUNGFISH_CLI_PATH", saved, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
         }
-        let keyValues: [(String?, Bool)] = [("legacy", false), ("cli", true), (nil, true)]
-        for (keyValue, runsCLI) in keyValues {
-            let value = keyValue ?? "unset"
-            let root = try TestTempDirectory.make(prefix: "reassemble-key-\(value)")
-            defer { TestTempDirectory.cleanup(root) }
-            let launched = root.appendingPathComponent("launched")
-            let cli = try standInCLI("""
-            touch '\(launched.path)'
-            echo '{"error":"the stand-in refused","event":"failed","schemaVersion":2}'
-            exit 1
-            """)
-            setenv("LUNGFISH_CLI_PATH", cli.path, 1)
-            let suite = makeTestDefaultsSuite(prefix: "reads-route")
-            if let keyValue { suite.defaults.set(keyValue, forKey: ReadsLaunchPath.assembly.defaultsKey) }
-            let request = AssemblyRunRequest(
-                tool: .megahit,
-                readType: .illuminaShortReads,
-                inputURLs: [root.appendingPathComponent("missing.fastq")],
-                projectName: "key-\(value)",
-                outputDirectory: root.appendingPathComponent("Assemblies", isDirectory: true),
-                threads: 1
-            )
-            let before = Set(OperationCenter.shared.items.map(\.id))
+        let root = try TestTempDirectory.make(prefix: "reassemble-cli-launch")
+        defer { TestTempDirectory.cleanup(root) }
+        let launched = root.appendingPathComponent("launched")
+        let cli = try standInCLI("""
+        touch '\(launched.path)'
+        echo '{"error":"the stand-in refused","event":"failed","schemaVersion":2}'
+        exit 1
+        """)
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [root.appendingPathComponent("missing.fastq")],
+            projectName: "reassemble-cli",
+            outputDirectory: root.appendingPathComponent("Assemblies", isDirectory: true),
+            threads: 1
+        )
+        let before = Set(OperationCenter.shared.items.map(\.id))
 
-            AssemblyRunner.runValidated(request: request, routeSettings: ReadsLaunchRouteSettings(defaults: suite.defaults))
-            var ended: OperationCenter.Item?
-            await waitUntil(timeout: .seconds(30)) {
-                ended = OperationCenter.shared.items.first {
-                    !before.contains($0.id) && $0.title.hasSuffix("Assembly: key-\(value)") && $0.finishedAt != nil
-                }
-                return ended != nil
+        AssemblyRunner.runValidated(request: request)
+        var ended: OperationCenter.Item?
+        await waitUntil(timeout: .seconds(30)) {
+            ended = OperationCenter.shared.items.first {
+                !before.contains($0.id) && $0.title.hasSuffix("Assembly: reassemble-cli") && $0.finishedAt != nil
             }
-
-            let item = try XCTUnwrap(ended, "the \(value) row never ended")
-            defer { OperationCenter.shared.clearItem(id: item.id) }
-            XCTAssertEqual(item.state, .failed, "\(value): \(item.detail)")
-            XCTAssertEqual(FileManager.default.fileExists(atPath: launched.path), runsCLI, "\(value) launches lungfish-cli only on cli")
-            if runsCLI {
-                XCTAssertEqual(item.detail, "the stand-in refused", "\(value): the failed line is the row's detail")
-            } else {
-                XCTAssertTrue(
-                    item.logEntries.contains { $0.message == "Launching managed assembly pipeline" },
-                    "the in-process pipeline ran: \(item.logEntries.map(\.message))"
-                )
-            }
+            return ended != nil
         }
+
+        let item = try XCTUnwrap(ended, "the row never ended")
+        defer { OperationCenter.shared.clearItem(id: item.id) }
+        XCTAssertEqual(item.state, .failed, item.detail)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: launched.path), "Reassemble launches lungfish-cli")
+        XCTAssertEqual(item.detail, "the stand-in refused", "the failed line is the row's detail")
     }
 
     /// Map Reads reads its key at launch. `legacy` runs the in-process route, whose row records the

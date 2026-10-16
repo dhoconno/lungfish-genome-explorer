@@ -4,12 +4,12 @@
 //
 // Phase 2.10 lane Q-SIGN, family L6 (the ruling of the A52 whole-lane review, Q6). The case of
 // AssemblyRouteParityReplayTests runs with no signing key. This one runs the same Reassemble again with
-// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side A (the in-process
-// route), side C (`AssemblyRunner.startManagedAssembly(route: .cli)` on the built CLI) and side C' (the recorded
-// command), and fails when the CLI route leaves unsigned a record the in-process route signs, or the reference
-// bundle's record that the result opens first.
+// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side C
+// (`AssemblyRunner.startManagedAssembly` on the built CLI) and side C' (the recorded command), and fails when
+// side C' leaves unsigned a record side C signs, or when the reference bundle's record that the result opens
+// first is unsigned on either side. Phase 2.11 (K3) deleted the in-process route that was side A.
 //
-// The stand-in SPAdes of that class answers every side. Its micromamba sits in a conda root of this test's own,
+// The stand-in SPAdes of that class answers both sides. Its micromamba sits in a conda root of this test's own,
 // which also links the storage root's htslib and samtools envs, so the case states bgzip and samtools with
 // ToolAvailability. It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier.
@@ -69,31 +69,28 @@ final class AssemblyRouteSigningReplayTests: XCTestCase {
             cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120),
             environment: { _ in tools }
         )
-        let runs = try await harness.runSigned(
+        let runs = try await ReadsRouteParity.runSignedCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("signed", isDirectory: true),
             fixture: Family.writeFixture,
-            sideA: { root in
-                let request = Family.request(in: root)
-                let (_, item) = try await ReadsRouteParity.record(title: Family.title) { AssemblyRoute.startInProcess(request) }
-                return ReadsRouteParity.outcome(of: item)
-            },
             sideC: { root in
                 let request = Family.request(in: root).normalizedForExecution()
                 let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
                 let (_, item) = try await ReadsRouteParity.record(title: Family.title) {
-                    AssemblyRunner.startManagedAssembly(request: request, routeContext: nil, route: .cli, runner: runner)
+                    AssemblyRunner.startManagedAssembly(request: request, routeContext: nil, runner: runner)
                 }
                 return ReadsRouteParity.outcome(of: item, recordsCommand: true)
             }
         )
 
-        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        let ends = [runs.c, runs.cPrime]
+        XCTAssertEqual(ends.map(\.outcome.end), [.completed, .completed], ends.map(\.outcome.detail).joined(separator: "\n"))
         RouteParityHarness.assertNoSignatureLost(runs, opening: Self.openingRecord)
         await harness.assertSignaturesVerify(runs, opening: Self.openingRecord)
     }
 
     /// A conda root of this test's own: the stand-in micromamba and SPAdes of the parity class, and the storage
-    /// root's htslib and samtools envs, linked. Side A reads it from LUNGFISH_CONDA_ROOT, set until tearDown, and
+    /// root's htslib and samtools envs, linked. Side C reads it from LUNGFISH_CONDA_ROOT, set until tearDown, and
     /// every CLI run gets the returned environment.
     private func installStandInTools() async throws -> [String: String] {
         let bgzip = try await ToolAvailability.require("bgzip", environment: "htslib")

@@ -3,28 +3,27 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A46 M3 (panel G1, C4 and C13, ARCH 2 and 3, BIO 1 to 3, UX 1, 3 and 4, QA 1, 4
-// and 5). Reassemble runs on the route its key `ReadsLaunchRoute.assembly` picks. The parity case
-// runs one Reassemble on the three sides of RouteParityHarness.
+// and 5). Phase 2.11 (K3) deleted the in-process route and its key `ReadsLaunchRoute.assembly`, so
+// Reassemble runs on the CLI route only. The parity case runs one Reassemble on the two sides of
+// RouteParityHarness that are left.
 //
-// - Side A, the in-process route, as `runValidated` starts it (`AssemblyRoute.startInProcess`).
-// - Side C, the CLI route, `AssemblyRunner.startManagedAssembly(route: .cli)` on the built CLI.
+// - Side C, the CLI route, `AssemblyRunner.startManagedAssembly` on the built CLI.
 // - Side C', the command side C's row recorded, rebased and run by the built CLI.
 //
-// It holds A against C and C against C' to nothing declared, each side's row to side A's (the
-// stage words, the bar, the lines logged and the end), and the record of side C to the command
-// its row recorded. `testTheRecordedCommandRebuildsTheBundle` replays the command the record
+// It holds C against C' to nothing declared, the bar of side C's row to rising only, and the
+// record of side C to the command its row recorded. `testTheRecordedCommandRebuildsTheBundle`
+// replays the command the record
 // names, moved here from AssembleCommandReferenceBundleTests because it needs bgzip
 // (ruling-A46-masks section 2). The SIGTERM case cancels `assemble` through the real transport
 // once its assembler runs.
 //
-// A stand-in SPAdes answers every side (ruling-A46-bundle section 5, G2). Its micromamba sits in
+// A stand-in SPAdes answers both sides (ruling-A46-bundle section 5, G2). Its micromamba sits in
 // a conda root of the test's own, which also links the storage root's htslib and samtools envs,
-// so each case states bgzip and samtools with ToolAvailability. Side A reads that conda root from
-// LUNGFISH_CONDA_ROOT, which the test sets for its run, and sides C and C' get it through the
-// app's subprocess environment and the harness. The real MEGAHIT stays in
-// AssemblyRouteConformanceTests, on a root that holds it.
+// so each case states bgzip and samtools with ToolAvailability. Side C gets that conda root from
+// LUNGFISH_CONDA_ROOT, which the test sets for its run, through the app's subprocess environment,
+// and side C' gets it through the harness.
 //
-// The CLI route has one state the in-process route never reaches, "row cancelled, result listed",
+// The CLI route has one state the in-process route never reached, "row cancelled, result listed",
 // a cancel that comes after the command finished (fix 8 of lane A46, its ruling section 5).
 // ReadsLaunchRouteTests.testACancelThatComesAfterMapFinishedKeepsItsResult holds it.
 //
@@ -46,10 +45,6 @@ final class AssemblyRouteParityReplayTests: XCTestCase {
     private var scratch: URL!
     private var cliBinary: URL!
     private var savedEnvironment: [String: String?] = [:]
-
-    enum Case: String, Sendable {
-        case spadesReassemble
-    }
 
     override func setUp() async throws {
         try await super.setUp()
@@ -75,52 +70,38 @@ final class AssemblyRouteParityReplayTests: XCTestCase {
         try await super.tearDown()
     }
 
-    // MARK: - A against C, C against C'
+    // MARK: - C against C'
 
-    func testTheReassembleRoutesAgreeAndTheRecordedCommandReproducesTheCLIRoute() async throws {
+    func testTheReassembleRouteRecordsTheCommandItRunsAndTheRecordedCommandReproducesIt() async throws {
         let tools = try await installStandInTools()
         let harness = RouteParityHarness(
             cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120),
             environment: { _ in tools.environment }
         )
-        var rows: [RouteParitySide: MappingRouteRow] = [:]
-        let runs = try await harness.run(
+        var rowC: MappingRouteRow?
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("parity", isDirectory: true),
             fixture: Self.writeFixture,
-            sideA: { root in
-                let request = Self.request(in: root)
-                let (row, item) = try await ReadsRouteParity.record(title: Self.title) { AssemblyRoute.startInProcess(request) }
-                rows[.a] = ReadsRouteParity.rooted(row, root)
-                return ReadsRouteParity.outcome(of: item)
-            },
             sideC: { root in
                 let request = Self.request(in: root).normalizedForExecution()
                 let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
                 let (row, item) = try await ReadsRouteParity.record(title: Self.title) {
-                    AssemblyRunner.startManagedAssembly(request: request, routeContext: nil, route: .cli, runner: runner)
+                    AssemblyRunner.startManagedAssembly(request: request, routeContext: nil, runner: runner)
                 }
-                rows[.c] = ReadsRouteParity.rooted(row, root)
+                rowC = row
                 return ReadsRouteParity.outcome(of: item, recordsCommand: true)
             }
         )
 
-        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
-        // BIO's ruling D1 on A46 M3. Only this record names `lungfish-cli assemble`, and its output
-        // names the bundle (AssembleCommandReferenceBundleTests).
-        let declared = [
-            RouteParityDeclaredDifference(
-                [Case.spadesReassemble: 1], "only in C: Project.lungfish/Assemblies/demo/.lungfish-provenance.json",
-                reason: "C writes the record naming its row's command, A never wrote one", closedBy: "2.11, E14 deletion"
-            ),
-        ]
-        let result = try harness.evaluate(Case.spadesReassemble, declared: declared, runs: runs)
-        RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.spadesReassemble)")
-        // BIO's ruling D4 on A46 M3. Both routes show the same words and end the same way, and C's bar
-        // only rises. The bar and the log change at a move on every route (ADDING-AN-OPERATION.md, What
-        // a CLI route's row shows), so A's drop from 0.01 to 0 and its log leave with the in-process route.
-        XCTAssertEqual(rows[.c]?.shown, rows[.a]?.shown, "the CLI route's row shows the in-process row's words")
-        XCTAssertEqual(rows[.c]?.end, rows[.a]?.end, "the CLI route's row ends as the in-process row ends")
-        XCTAssertEqual(rows[.c]?.bar, rows[.c]?.bar.sorted(), "the CLI route's bar only rises")
+        let ends = [runs.c, runs.cPrime]
+        XCTAssertEqual(ends.map(\.outcome.end), [.completed, .completed], ends.map(\.outcome.detail).joined(separator: "\n"))
+        // C against C' declares nothing. The command the row recorded rebuilds the same folder and bundle.
+        let found = try harness.differences(runs.c, runs.cPrime)
+        RouteParityHarness.assertNoFailures(found.map { "\($0.id): \($0.detail)" }, in: "spadesReassemble, C against C'")
+        // The bar and the log change at a move on every route (ADDING-AN-OPERATION.md, What a CLI
+        // route's row shows), and the CLI route's bar only rises.
+        XCTAssertEqual(rowC?.bar, rowC?.bar.sorted(), "the CLI route's bar only rises")
 
         // The record names the command the row recorded (CLI-EQUIVALENCE, provenance names the command).
         let folder = Self.assemblyFolder(in: runs.c.root)

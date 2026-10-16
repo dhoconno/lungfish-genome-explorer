@@ -15,17 +15,6 @@ import LungfishKit
 /// Logger for assembly runner operations.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyRunner")
 
-private func performAssemblyOperationCenterUpdate(_ block: @escaping @MainActor @Sendable () -> Void) async {
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                block()
-                continuation.resume()
-            }
-        }
-    }
-}
-
 /// Hands the shared input resolution the materializer closure the runner was
 /// given: the derivative service's, or a test's.
 private struct ClosureAssemblyInputMaterializer: CLISequenceInputMaterializing, Sendable {
@@ -78,12 +67,11 @@ public enum AssemblyRunner {
         }
     }
 
-    /// Checks that the run may write and has room, then starts it on the route the Reassemble key
-    /// picks, `lungfish-cli assemble` unless the key says `legacy` (Phase 2.10 lane A46, decision C4).
+    /// Checks that the run may write and has room, then starts it on `lungfish-cli assemble` (Phase
+    /// 2.10 lane A46, decision C4). The in-process route and its key went in Phase 2.11 (K3).
     static func runValidated(
         request: AssemblyRunRequest,
-        routeContext: OperationRouteContext? = nil,
-        routeSettings: ReadsLaunchRouteSettings = ReadsLaunchRouteSettings()
+        routeContext: OperationRouteContext? = nil
     ) {
         let request = request.normalizedForExecution()
         let projectName = request.projectName
@@ -116,10 +104,10 @@ public enum AssemblyRunner {
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        startManagedAssembly(request: request, routeContext: routeContext, route: routeSettings.route(for: .assembly))
+        startManagedAssembly(request: request, routeContext: routeContext)
     }
 
-    // MARK: - The route behind the Reassemble key
+    // MARK: - The CLI route
 
     /// The argv the Reassemble key's CLI route runs, the command its row records
     /// (`cliCommandPreview`). `request` writes into `outputDirectory`, the pipeline's folder, and
@@ -133,12 +121,12 @@ public enum AssemblyRunner {
     }
 
     /// The part of `runValidated` after its checks, which a test calls. Begins the row for the
-    /// normalized `request` and runs it on `route`. Returns the row's ID, or nil when it was refused.
+    /// normalized `request` and runs it on `lungfish-cli assemble`. Returns the row's ID, or nil when
+    /// it was refused.
     @discardableResult
     static func startManagedAssembly(
         request: AssemblyRunRequest,
         routeContext: OperationRouteContext?,
-        route: ReadsLaunchRoute,
         runner: CLIReadsRunner = CLIReadsRunner()
     ) -> UUID? {
         let executionRequest = Self.executionRequest(for: request)
@@ -147,18 +135,6 @@ public enum AssemblyRunner {
             outputDirectory: executionRequest.outputDirectory,
             routeContext: routeContext
         ) { opID in
-            guard route == .cli else {
-                let task = Task.detached {
-                    await runManagedAssemblyOperation(
-                        request: executionRequest,
-                        baseOutputDirectory: request.outputDirectory,
-                        projectName: request.projectName,
-                        operationID: opID
-                    )
-                }
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-                return
-            }
             let arguments = managedAssemblyCLIArguments(for: request, outputDirectory: executionRequest.outputDirectory)
             Task.detached {
                 await runManagedAssemblyThroughCLI(
@@ -445,117 +421,6 @@ public enum AssemblyRunner {
             }
         case .spades, .megahit, .skesa:
             break
-        }
-    }
-
-    static func runManagedAssemblyOperation(
-        request: AssemblyRunRequest,
-        baseOutputDirectory: URL,
-        projectName: String,
-        operationID opID: UUID
-    ) async {
-        do {
-            await performAssemblyOperationCenterUpdate {
-                _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Running \(request.tool.displayName)...")
-                OperationCenter.shared.log(id: opID, level: .info, message: "Launching managed assembly pipeline")
-            }
-
-            let materializationDirectory = request.outputDirectory
-                .appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
-            try validatePreMaterializationTopology(for: request)
-            let materializationResult = try await materializedManagedAssemblyRequestResult(
-                from: request,
-                tempDirectory: materializationDirectory,
-                materialize: { bundleURL, tempDirectory, progress in
-                    try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
-                        fromBundle: bundleURL,
-                        tempDirectory: tempDirectory,
-                        progress: progress
-                    )
-                }
-            )
-            let executionRequest = materializationResult.request
-
-            let pipeline = ManagedAssemblyPipeline()
-            let result = try await pipeline.run(
-                request: executionRequest,
-                onOutput: { line in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(id: opID, level: .info, message: line)
-                        }
-                    }
-                },
-                progress: { _, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.updateProgress(id: opID, evidence: nil, detail: message)
-                        }
-                    }
-                }
-            )
-
-            await performAssemblyOperationCenterUpdate {
-                OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
-            }
-
-            // The words and fractions from 0.92 are those `lungfish-cli assemble --reference-bundle`
-            // prints (Phase 2.10 lane A46). The row logs each step of the bundle, and its start keeps
-            // the line logged above.
-            let bundleURL = try await AssemblyReferenceBundle.publish(
-                result: result,
-                request: executionRequest,
-                requestedInputURLs: request.inputURLs,
-                originalInputURLs: materializationResult.originalInputURLs,
-                materializationStartedAt: materializationResult.materializationStartedAt,
-                materializationEndedAt: materializationResult.materializationEndedAt,
-                readSets: materializationResult.readSets,
-                outputDirectory: baseOutputDirectory,
-                bundleName: projectName
-            ) { fraction, message in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                        if message != AssemblyReferenceBundle.startMessage {
-                            OperationCenter.shared.log(id: opID, level: .info, message: message)
-                        }
-                    }
-                }
-            }
-
-            await performAssemblyOperationCenterUpdate {
-                if result.outcome == .completedWithNoContigs {
-                    _ = OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: result), bundleURLs: [bundleURL])
-                } else {
-                    _ = OperationCenter.shared.complete(
-                        id: opID,
-                        detail: completionDetail(for: result),
-                        bundleURLs: [bundleURL]
-                    )
-                }
-            }
-
-            guard await MainActor.run(body: { OperationCenter.shared.items.first { $0.id == opID }?.state == .completed }) else { return }
-            postNotification(
-                title: completionNotificationTitle(for: result),
-                body: completionNotificationBody(
-                    for: result,
-                    toolDisplayName: request.tool.displayName,
-                    projectName: projectName
-                ),
-                isSuccess: true
-            )
-        } catch {
-            await performAssemblyOperationCenterUpdate {
-                _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
-            }
-            guard await MainActor.run(body: { OperationCenter.shared.items.first { $0.id == opID }?.state == .failed }) else { return }
-            postNotification(
-                title: "Assembly Failed",
-                body: error.localizedDescription,
-                isSuccess: false
-            )
         }
     }
 

@@ -42,6 +42,50 @@ enum ReadsRouteParity {
         return RouteParitySideOutcome(end: end, detail: "\(item.state) \(item.detail)", recordedCommand: recordsCommand ? item.cliCommand : nil)
     }
 
+    /// The runs of a case that has no side A, since its in-process route is gone (Phase 2.11, K3). Root C
+    /// starts as the fixture and root C' as a copy of it, `sideC` runs on root C, and the harness replays the
+    /// command side C recorded on root C'. The runs hold side C as the reference too, so the signature checks
+    /// compare side C' with side C, and `RouteParityHarness.differences(_:_:)` holds C against C'.
+    static func runCAndCPrime(
+        _ harness: RouteParityHarness,
+        in caseRoot: URL,
+        fixture: (URL) throws -> Void,
+        sideC: (URL) async throws -> RouteParitySideOutcome
+    ) async throws -> RouteParityRuns {
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: caseRoot)
+        let rootC = RouteParityHarness.root(of: .c, in: caseRoot)
+        try fileManager.createDirectory(at: rootC, withIntermediateDirectories: true)
+        try fixture(rootC)
+        let rootCPrime = RouteParityHarness.root(of: .cPrime, in: caseRoot)
+        try fileManager.copyItem(at: rootC, to: rootCPrime)
+        let runC = RouteParitySideRun(side: .c, root: rootC, outcome: try await sideC(rootC))
+        let runCPrime = await harness.replay(of: runC, in: rootCPrime)
+        return RouteParityRuns(caseRoot: caseRoot, a: runC, c: runC, cPrime: runCPrime)
+    }
+
+    /// ``runCAndCPrime(_:in:fixture:sideC:)`` with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a key
+    /// written under `caseRoot` after the root is cleared, put back afterwards, as
+    /// `RouteParityHarness.runSigned` does. A class that calls it runs in the integration tier.
+    static func runSignedCAndCPrime(
+        _ harness: RouteParityHarness,
+        in caseRoot: URL,
+        fixture: (URL) throws -> Void,
+        sideC: (URL) async throws -> RouteParitySideOutcome
+    ) async throws -> RouteParityRuns {
+        let saved = RouteParityHarness.SigningEnvironment(keyFile: RouteParityHarness.signingKeyURL(in: caseRoot))
+        defer { saved.restore() }
+        return try await runCAndCPrime(
+            harness,
+            in: caseRoot,
+            fixture: { root in
+                try fixture(root)
+                _ = try RouteParityHarness.writeSigningKey(in: caseRoot)
+            },
+            sideC: sideC
+        )
+    }
+
     /// `row` with the side's root read as `<ROOT>`, so the rows of two sides compare.
     static func rooted(_ row: MappingRouteRow, _ root: URL) -> MappingRouteRow {
         func masked(_ text: String) -> String {
