@@ -148,4 +148,102 @@ final class MSAExtractionAnnotationProvenanceTests: XCTestCase {
         XCTAssertEqual(gene["name"], .string("gene1"))
         XCTAssertEqual(gene["intervals"], .array([.dictionary(["start": .integer(0), "end": .integer(4)])]))
     }
+
+    /// Pin P2 of ruling A48 F2. The record keeps each selected annotation's `id`, `chromosome` and
+    /// `note`, which a BED cannot carry, the staged BED's digest and size, and the track's feature count.
+    func testSelectionKeepsIdChromosomeAndNote() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("msa-extraction-selection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let durableSourceURL = root.appendingPathComponent("source.lungfishmsa", isDirectory: true)
+        try FileManager.default.createDirectory(at: durableSourceURL, withIntermediateDirectories: true)
+        let fastaURL = root.appendingPathComponent("selection.fasta")
+        let bedURL = root.appendingPathComponent("selected-annotations.bed")
+        try ">seqA first\nACGTACGTAC\n>seqB\nGGCCAATTGGCC\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        // The two lines the viewer writes for this selection, the second an origin-spanning feature
+        // in genomic order with its qualifier's `;` and `=` escaped.
+        let bed = "seqA\t1\t6\tgeneA\t0\t+\t1\t6\t0,0,0\t1\t5,\t0,\tgene\tproduct=a%3Bb%3Dc,d\n"
+            + "seqB\t0\t12\tcdsB\t0\t-\t0\t12\t0,0,0\t2\t3,2,\t0,10,\tCDS\t\n"
+        try bed.write(to: bedURL, atomically: true, encoding: .utf8)
+
+        let geneID = UUID(uuidString: "AAAAAAAA-1111-2222-3333-444444444444")!
+        let cdsID = UUID(uuidString: "BBBBBBBB-1111-2222-3333-444444444444")!
+        let selection: [String: [SequenceAnnotation]] = [
+            "seqA": [SequenceAnnotation(
+                id: geneID, type: .gene, name: "geneA", chromosome: "seqA",
+                intervals: [AnnotationInterval(start: 1, end: 6)], strand: .forward,
+                qualifiers: ["product": AnnotationQualifier("a;b=c,d")], note: "kept note"
+            )],
+            "seqB": [SequenceAnnotation(
+                id: cdsID, type: .cds, name: "cdsB", chromosome: "seqB-origin",
+                intervals: [AnnotationInterval(start: 10, end: 12), AnnotationInterval(start: 0, end: 3)],
+                strand: .reverse, note: "spans the origin"
+            )],
+        ]
+
+        let bundleURL = root.appendingPathComponent("Extracted.lungfishref", isDirectory: true)
+        let annotationsURL = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+        try FileManager.default.createDirectory(at: annotationsURL, withIntermediateDirectories: true)
+        try #"{"schemaVersion":1}"#.write(
+            to: bundleURL.appendingPathComponent(BundleManifest.filename), atomically: true, encoding: .utf8
+        )
+        try Data([0x53, 0x51, 0x4c, 0x69]).write(to: annotationsURL.appendingPathComponent("msa_selection.db"))
+        let track = AnnotationTrackInfo(
+            id: "msa_selection", name: "MSA Selection", path: "annotations/msa_selection.db",
+            databasePath: "annotations/msa_selection.db", annotationType: .custom, featureCount: 2
+        )
+
+        let sidecarURL = try MSAExtractionAnnotationProvenance.write(
+            bundleURL: bundleURL,
+            sourceAlignmentBundleURL: durableSourceURL,
+            sourceFASTAURL: fastaURL,
+            sourceAnnotationURL: bedURL,
+            durableSourceURLs: [durableSourceURL],
+            selectedSequenceIDs: MSAExtractionAnnotationProvenance.selectedSequenceIDs(
+                inFASTA: try String(contentsOf: fastaURL, encoding: .utf8)
+            ),
+            selectedAnnotationsByRecord: selection,
+            annotationResult: ReferenceBundleAnnotationImportResult(bundleURL: bundleURL, track: track, featureCount: 2),
+            startedAt: Date(timeIntervalSince1970: 100),
+            completedAt: Date(timeIntervalSince1970: 101)
+        )
+
+        let explicit = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL)).options.explicit
+        XCTAssertEqual(explicit["selected_sequence_ids"], .array([.string("seqA"), .string("seqB")]))
+        XCTAssertEqual(
+            explicit["selected_annotations_by_record"],
+            MSAExtractionAnnotationProvenance.annotationSelectionValue(selection)
+        )
+        guard case .dictionary(let byRecord)? = explicit["selected_annotations_by_record"] else {
+            return XCTFail("Expected the selection by record")
+        }
+        XCTAssertEqual(byRecord.keys.sorted(), ["seqA", "seqB"])
+        let facts = ["seqA": (geneID, "seqA", "kept note"), "seqB": (cdsID, "seqB-origin", "spans the origin")]
+        for (record, fact) in facts {
+            guard case .array(let annotations)? = byRecord[record], annotations.count == 1,
+                  case .dictionary(let annotation)? = annotations.first else {
+                return XCTFail("Expected one annotation for \(record)")
+            }
+            XCTAssertEqual(annotation["id"], .string(fact.0.uuidString), record)
+            XCTAssertEqual(annotation["chromosome"], .string(fact.1), record)
+            XCTAssertEqual(annotation["note"], .string(fact.2), record)
+        }
+        guard case .array(let geneList)? = byRecord["seqA"], case .dictionary(let gene)? = geneList.first,
+              case .array(let cdsList)? = byRecord["seqB"], case .dictionary(let cds)? = cdsList.first else {
+            return XCTFail("Expected the selected annotations")
+        }
+        XCTAssertEqual(gene["qualifiers"], .dictionary(["product": .array([.string("a;b=c,d")])]))
+        XCTAssertEqual(cds["intervals"], .array([
+            .dictionary(["start": .integer(10), "end": .integer(12)]),
+            .dictionary(["start": .integer(0), "end": .integer(3)]),
+        ]))
+        XCTAssertEqual(
+            explicit["selected_annotation_bed_sha256"],
+            ProvenanceRecorder.sha256(of: bedURL).map(ParameterValue.string)
+        )
+        XCTAssertEqual(explicit["selected_annotation_bed_size"], .integer(Data(bed.utf8).count))
+        XCTAssertEqual(explicit["feature_count"], .integer(2))
+    }
 }
