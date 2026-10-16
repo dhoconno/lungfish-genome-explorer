@@ -382,8 +382,8 @@ extension SequenceViewerView {
                 let visibleFilter = computeVisibleSampleFilter()
                 createExtractionBundle(
                     from: result,
+                    request: request,
                     bundleName: config.bundleName,
-                    concatenateExons: config.concatenateExons,
                     sampleFilter: visibleFilter
                 )
             }
@@ -395,140 +395,119 @@ extension SequenceViewerView {
 
     func createExtractionBundle(
         from result: LungfishCore.ExtractionResult,
+        request: ExtractionRequest,
         bundleName: String,
-        concatenateExons: Bool = false,
         sampleFilter: Set<String>? = nil
     ) {
-        let sourceBundleName = currentReferenceBundle?.manifest.name
         let outputDir = extractionsDirectory()
         let projectURL = ProjectTempDirectory.findProjectRoot(outputDir)
         guard canWriteExtractionProjectOutputs(
             projectURL: projectURL,
             workflowName: "Sequence extraction"
         ) else { return }
-
-        // Collect all annotation tracks with SQLite databases from the source bundle.
-        var sourceAnnotationTracks: [SequenceExtractionPipeline.SourceAnnotationTrack] = []
-        var sourceVariantTracks: [SequenceExtractionPipeline.SourceVariantTrack] = []
-        var sourceBundleChromosomes: [ChromosomeInfo] = []
-        if let bundle = currentReferenceBundle {
-            sourceBundleChromosomes = bundle.manifest.genome?.chromosomes ?? []
-            sourceAnnotationTracks = bundle.annotationTrackIds.compactMap { trackID in
-                guard let trackInfo = bundle.annotationTrack(id: trackID),
-                      let dbPath = trackInfo.databasePath,
-                      let databaseURL = try? bundle.memberURL(
-                          for: dbPath,
-                          field: "annotations[\(trackID)].databasePath"
-                      ) else {
-                    return nil
-                }
-                return SequenceExtractionPipeline.SourceAnnotationTrack(
-                    id: trackInfo.id,
-                    name: trackInfo.name,
-                    databaseURL: databaseURL,
-                    annotationType: trackInfo.annotationType
-                )
-            }
-
-            // Collect variant tracks with SQLite databases
-            sourceVariantTracks = bundle.variantTrackIds.compactMap { trackID in
-                guard let trackInfo = bundle.variantTrack(id: trackID),
-                      let dbPath = trackInfo.databasePath,
-                      let databaseURL = try? bundle.memberURL(
-                          for: dbPath,
-                          field: "variants[\(trackID)].databasePath"
-                      ) else {
-                    return nil
-                }
-                return SequenceExtractionPipeline.SourceVariantTrack(
-                    id: trackInfo.id,
-                    name: trackInfo.name,
-                    databaseURL: databaseURL,
-                    variantType: trackInfo.variantType
-                )
-            }
+        let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        guard let bundle = currentReferenceBundle else {
+            createExtractionBundleInProcess(
+                from: result,
+                bundleName: bundleName,
+                concatenateExons: request.concatenateExons,
+                outputDir: outputDir,
+                routeContext: routeContext
+            )
+            return
         }
 
-        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName), annotationTracks=\(sourceAnnotationTracks.count), variantTracks=\(sourceVariantTracks.count), sourceChromosomes=\(sourceBundleChromosomes.count)")
-
-        // Register the row on the main actor, then run bundle building in a
-        // detached task. On completion we hop back to the main actor for import/refresh.
+        // The region extraction runs `extract sequence --bundle` (2.11 A48 M2), which reads the
+        // source bundle's annotation and variant tracks itself, keeps the samples the viewer shows,
+        // stages the new bundle and publishes it under the name chosen here.
+        let outputBundleURL = SequenceExtractionBundleBuilder.uniqueBundleURL(
+            for: result,
+            desiredBundleName: bundleName,
+            in: outputDir
+        )
+        let arguments = SequenceExtractionPipeline.cliArguments(
+            source: request.source,
+            flank5Prime: request.flank5Prime,
+            flank3Prime: request.flank3Prime,
+            reverseComplement: request.reverseComplement,
+            concatenateExons: request.concatenateExons,
+            sourceBundleURL: bundle.url,
+            bundleName: bundleName,
+            sampleFilter: sampleFilter,
+            outputBundleURL: outputBundleURL
+        )
+        extractionLogger.info("createExtractionBundle: source=\(bundle.url.path), outputBundle=\(outputBundleURL.path)")
         Self.beginExtractionBundleOperation(
             sourceName: result.sourceName,
-            routeContext: OperationRouteContext(
-                projectURL: projectURL,
-                windowStateScope: windowStateScope
-            )
+            arguments: arguments,
+            routeContext: routeContext
         ) { itemId in
-            let capturedResult = result
-            let capturedOutputDir = outputDir
-            let capturedSourceBundleURL = currentReferenceBundle?.url
-            let capturedSourceBundleName = sourceBundleName
-            let capturedSourceBundleChromosomes = sourceBundleChromosomes
-            let capturedBundleName = bundleName
-            let capturedSourceAnnotationTracks = sourceAnnotationTracks
-            let capturedSourceVariantTracks = sourceVariantTracks
-            let capturedSampleFilter = sampleFilter
-            let capturedConcatenateExons = concatenateExons
+            Task { @MainActor in
+                do {
+                    let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: itemId)
+                    let bundleURL = run.outputs.first.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? outputBundleURL
+                    extractionLogger.info("createExtractionBundle: SUCCESS -> \(bundleURL.path)")
+                    _ = DownloadCenter.shared.complete(
+                        id: itemId,
+                        detail: run.message ?? "Bundle ready",
+                        bundleURLs: [bundleURL]
+                    )
+                } catch is CancellationError {
+                    // The runner acknowledged the cancel on the row, and the command published nothing.
+                } catch {
+                    Self.failExtractionBundle(
+                        itemId: itemId,
+                        description: error.localizedDescription,
+                        detail: "\(error)"
+                    )
+                }
+            }
+        }
+    }
 
+    /// Builds the bundle in process for a viewer with no reference bundle, whose sequence comes
+    /// from the document it shows rather than from a bundle `extract sequence --bundle` can read.
+    /// Such a viewer has no track and no sample to keep.
+    private func createExtractionBundleInProcess(
+        from result: LungfishCore.ExtractionResult,
+        bundleName: String,
+        concatenateExons: Bool,
+        outputDir: URL,
+        routeContext: OperationRouteContext
+    ) {
+        Self.beginExtractionBundleOperation(
+            sourceName: result.sourceName,
+            arguments: nil,
+            routeContext: routeContext
+        ) { itemId in
             Task.detached(priority: .userInitiated) {
                 do {
-                    try FileManager.default.createDirectory(
-                        at: capturedOutputDir, withIntermediateDirectories: true
-                    )
-
-                    let pipeline = SequenceExtractionPipeline()
-                    let bundleURL = try await pipeline.buildBundle(
-                        from: capturedResult,
-                        outputDirectory: capturedOutputDir,
-                        sourceBundleURL: capturedSourceBundleURL,
-                        sourceBundleName: capturedSourceBundleName,
-                        desiredBundleName: capturedBundleName,
-                        sourceBundleChromosomes: capturedSourceBundleChromosomes,
-                        sourceAnnotationTracks: capturedSourceAnnotationTracks,
-                        sourceVariantTracks: capturedSourceVariantTracks,
-                        sampleFilter: capturedSampleFilter,
-                        isConcatenated: capturedConcatenateExons,
+                    try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+                    let bundleURL = try await SequenceExtractionPipeline().buildBundle(
+                        from: result,
+                        outputDirectory: outputDir,
+                        desiredBundleName: bundleName,
+                        isConcatenated: concatenateExons,
                         progressHandler: { progress, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    _ = DownloadCenter.shared.update(
-                                        id: itemId,
-                                        progress: progress,
-                                        detail: message
-                                    )
+                                    _ = DownloadCenter.shared.update(id: itemId, progress: progress, detail: message)
                                 }
                             }
                         }
                     )
-
-                    let finalBundleURL = bundleURL
                     scheduleExtractionOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
-
-                            // Mark as complete for UI cards.
-                            _ = DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
+                            extractionLogger.info("createExtractionBundle: SUCCESS -> \(bundleURL.path)")
+                            _ = DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [bundleURL])
                         }
                     }
                 } catch {
-                    let errorDesc = error.localizedDescription
-                    let errorStr = "\(error)"
+                    let description = error.localizedDescription
+                    let detail = "\(error)"
                     scheduleExtractionOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            extractionLogger.error("Bundle creation failed: \(errorStr)")
-                            _ = DownloadCenter.shared.fail(
-                                id: itemId,
-                                detail: "Failed: \(errorDesc)"
-                            )
-                            let alert = NSAlert()
-                            alert.messageText = "Bundle Creation Failed"
-                            alert.informativeText = errorDesc
-                            alert.alertStyle = .warning
-                            alert.addButton(withTitle: "OK")
-                            if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-                                alert.beginSheetModal(for: window)
-                            }
+                            Self.failExtractionBundle(itemId: itemId, description: description, detail: detail)
                         }
                     }
                 }
@@ -536,20 +515,34 @@ extension SequenceViewerView {
         }
     }
 
+    /// Fails the row with the error's words and shows them in an alert over the key window.
+    private static func failExtractionBundle(itemId: UUID, description: String, detail: String) {
+        extractionLogger.error("Bundle creation failed: \(detail)")
+        _ = DownloadCenter.shared.fail(id: itemId, detail: "Failed: \(description)")
+        let alert = NSAlert()
+        alert.messageText = "Bundle Creation Failed"
+        alert.informativeText = description
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window)
+        }
+    }
+
     /// Registers the row for building a bundle from an extracted sequence and,
     /// only when it starts, calls `launch` with the operation ID. The row locks
-    /// no bundle and records no command.
+    /// no bundle. With `arguments`, the `lungfish-cli` argv of
+    /// `extract sequence --bundle` that the route runs (2.11 A48 M2), the row
+    /// records that command.
     ///
-    /// cli-parity-gap: region-bundle-extraction. The closest command is
-    /// `extract sequence`, which writes the extracted FASTA to a file or to
-    /// standard output. The run builds a
-    /// `.lungfishref` bundle from the extraction result, with the source
-    /// bundle's annotation and variant tracks and an optional sample filter.
-    /// No lungfish-cli command does that, so the row keeps recording no
-    /// command until one exists.
+    /// cli-parity-gap: region-extraction-without-bundle. A viewer with no
+    /// reference bundle reads its sequence from the document it shows, which
+    /// `extract sequence --bundle` cannot read, so it passes no `arguments`,
+    /// builds the bundle in process, and its row records no command.
     @discardableResult
     static func beginExtractionBundleOperation(
         sourceName: String,
+        arguments: [String]?,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
@@ -558,7 +551,9 @@ extension SequenceViewerView {
             title: "Extracting \(sourceName)",
             detail: "Preparing...",
             operationType: .bundleBuild,
-            cliCommand: nil,
+            cliCommand: arguments.map {
+                OperationCenter.buildCLICommand(subcommand: "extract sequence", args: Array($0.dropFirst(2)))
+            },
             routeContext: routeContext
         )
         switch result {
