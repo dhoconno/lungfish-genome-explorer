@@ -11,9 +11,9 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 93 | 0 | LungfishApp |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 602 | 219614 | 180 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 605 | 219662 | 180 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1994 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishCLI | library | Sources/LungfishCLI | 273 | 70109 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishCLI | library | Sources/LungfishCLI | 276 | 70141 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 168 | 45169 | 325 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | 5588 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -35,7 +35,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1543 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 852 | 219761 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 852 | 219766 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 40 | 19732 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 8 | 6176 | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1390 | LungfishAssemblyUI, LungfishKit, LungfishTestSupport |
@@ -109,7 +109,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 602, lines 219614
+- Swift files. 605, lines 219662
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -119,7 +119,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| App | 82 | 22679 |
+| App | 85 | 22727 |
 | Services | 80 | 20037 |
 | StateManagement | 7 | 595 |
 | Support | 2 | 94 |
@@ -361,7 +361,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCLI
-- Swift files. 273, lines 70109
+- Swift files. 276, lines 70141
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. ArgumentParser (swift-argument-parser)
 - Used by. LungfishCLIExecutable
@@ -371,7 +371,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| Commands | 254 | 65923 |
+| Commands | 257 | 65955 |
 | Options | 2 | 487 |
 | Output | 2 | 554 |
 | Support | 14 | 2835 |
