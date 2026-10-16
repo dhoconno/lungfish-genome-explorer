@@ -1,26 +1,19 @@
-// ONTImportCLIGUIParityReplayTests.swift - The ONT import on the CLI route against the in-process route it replaced
+// ONTImportCLIGUIParityReplayTests.swift - The ONT import on the CLI route against the command it records
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A53 M3 (panel decisions G1, C4, C5 and C11, ARCH 2, 3 and 7, BIO 1 and 2, UX 1, 3 and 4,
 // ruling A53-M3). The window's ONT import runs `lungfish-cli fastq import-ont --format json` on the L6
-// runner. The parity class runs one import of the shared three-barcode run folder (ONTImportFreezeFixture)
-// on the three sides of RouteParityHarness.
+// runner. Phase 2.11 (K3) deleted the in-process route and its hidden key `ReadsLaunchRoute.ontImport`, so
+// the parity class runs one import of the shared three-barcode run folder (ONTImportFreezeFixture) on the
+// two sides of RouteParityHarness that are left.
 //
-// - Side A, the in-process route, ONTImportOperationCoordinator under the `legacy` value of its hidden key
-//   `ReadsLaunchRoute.ontImport`. It begins the row, runs ONTImportWorkflow in this process with the
-//   caller `gui`, and completes the row. The app keeps the route behind the key for one release (C4, FX53).
-// - Side C, the CLI route, ONTImportOperationCoordinator on the built command under the key's `cli` value.
-//   Sides A and C run the same call, and only the key differs.
+// - Side C, the CLI route, ONTImportOperationCoordinator on the built command.
 // - Side C', the command side C's row recorded, rebased and run by the built CLI.
 //
-// BIO 1 reads the reads of each barcode from each side's manifest. The `caller` is the route's identity
-// and the contract masks it (ruling A53-M3), and both routes record `LungfishAppVersion.short`, so the
-// only difference A against C declares is the one BIO's ruling D8 on lane A46 gave the other L6 leaves.
-// The record names its row's command, and the in-process row recorded the command without the
-// `--format json` that only the CLI route runs with. C against C' declares nothing. UX 1 and 3 compare
-// the rows of sides A and C: the same stage words in the same order and the same end, with a bar that
-// only rises. The failure case shows the words of a failed import on both routes.
+// BIO 1 reads the reads of each barcode from each side's manifest. C against C' declares nothing. UX 1 and 3
+// read the row of side C: a bar that only rises, and a log that keeps each stage word the row showed. The
+// failure case shows the words of a failed import in the row.
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the integration tier.
 
@@ -62,68 +55,40 @@ final class ONTImportCLIGUIParityReplayTests: XCTestCase {
         try await super.tearDown()
     }
 
-    // MARK: - A against C, C against C'
+    // MARK: - C against C'
 
-    func testTheChunkedImportAgreesOnBothRoutes() async throws {
+    func testTheChunkedImportAgreesWithItsRecordedCommand() async throws {
         try await assertParity(.chunkedRun, storageMode: .chunked)
     }
 
-    func testTheFlattenedImportAgreesOnBothRoutes() async throws {
+    func testTheFlattenedImportAgreesWithItsRecordedCommand() async throws {
         try await assertParity(.flattenedRun, storageMode: .flattened)
     }
 
-    /// BIO's ruling D8 on lane A46, for this leaf. The record of each run, the run folder's and each
-    /// bundle's, names its row's command, and the in-process row recorded the command without
-    /// `--format json`. The pair is two entries at the end of each argv list and the words at the end of
-    /// each command line, in the record and in its step. A chunked import writes 20 records and a
-    /// flattened one 13, the run folder's, each bundle's and one for each file a bundle keeps.
-    private static let declared: [RouteParityDeclaredDifference<Case>] = {
-        let reason = "the in-process row recorded fastq import-ont without --format json, and the record names its row's command"
-        func entry(_ id: String, chunked: Int, flattened: Int) -> RouteParityDeclaredDifference<Case> {
-            RouteParityDeclaredDifference(
-                [.chunkedRun: chunked, .flattenedRun: flattened], "differs: <ANY>.lungfish-provenance.json at \(id)",
-                reason: reason, closedBy: "2.11"
-            )
-        }
-        return [
-            entry("argv[<ANY>]", chunked: 40, flattened: 26),
-            entry("durableReplayArgv[<ANY>]", chunked: 40, flattened: 26),
-            entry("reproducibleCommand", chunked: 20, flattened: 13),
-            entry("steps[<ANY>].argv[<ANY>]", chunked: 40, flattened: 26),
-            entry("steps[<ANY>].durableReplayArgv[<ANY>]", chunked: 40, flattened: 26),
-            entry("steps[<ANY>].reproducibleCommand", chunked: 20, flattened: 13),
-        ]
-    }()
-
     private func assertParity(_ parityCase: Case, storageMode: ONTImportStorageMode) async throws {
-        var rows: [RouteParitySide: MappingRouteRow] = [:]
-        let keys = makeKeys()
-        let runs = try await harness.run(
+        var rowC: MappingRouteRow?
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("parity-\(parityCase.rawValue)", isDirectory: true),
             fixture: Self.writeFixture,
-            sideA: { root in
-                let (row, item) = try await ReadsRouteParity.record(title: Self.title) {
-                    self.startImport(keys: keys.a, root: root, storageMode: storageMode)
-                }
-                rows[.a] = ReadsRouteParity.rooted(row, root)
-                return ReadsRouteParity.outcome(of: item)
-            },
             sideC: { root in
                 let (row, item) = try await ReadsRouteParity.record(title: Self.title) {
-                    self.startImport(keys: keys.c, root: root, storageMode: storageMode)
+                    self.startImport(root: root, storageMode: storageMode)
                 }
-                rows[.c] = ReadsRouteParity.rooted(row, root)
+                rowC = ReadsRouteParity.rooted(row, root)
                 return ReadsRouteParity.outcome(of: item, recordsCommand: true)
             }
         )
 
-        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
-        let result = try harness.evaluate(parityCase, declared: Self.declared, runs: runs)
-        RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
+        let sides = [runs.c, runs.cPrime]
+        XCTAssertEqual(sides.map(\.outcome.end), [.completed, .completed], sides.map(\.outcome.detail).joined(separator: "\n"))
+        // C against C' declares nothing. The command the row recorded rebuilds the same project.
+        let found = try harness.differences(runs.c, runs.cPrime)
+        RouteParityHarness.assertNoFailures(found.map { "\($0.id): \($0.detail)" }, in: "\(parityCase), C against C'")
 
-        // BIO 1 and 2, equal reads per barcode on every side, from each side's own manifest.
+        // BIO 1 and 2, equal reads per barcode on both sides, from each side's own manifest.
         let expected = ONTImportFreezeFixture.readsPerBarcode.map { "\($0.barcode)=\($0.reads)" }
-        for run in runs.all {
+        for run in sides {
             let folder = Self.project(in: run.root).appendingPathComponent("Imports/Run1", isDirectory: true)
             let manifest = try XCTUnwrap(DemultiplexManifest.load(from: folder), "side \(run.side) wrote no manifest")
             XCTAssertEqual(manifest.barcodes.map { "\($0.barcodeID)=\($0.readCount)" }, expected, "side \(run.side), reads per barcode")
@@ -133,59 +98,36 @@ final class ONTImportCLIGUIParityReplayTests: XCTestCase {
         let command = try XCTUnwrap(runs.c.outcome.recordedCommand)
         XCTAssertTrue(command.hasSuffix(" --format json"), command)
 
-        // UX 1 and 3, the CLI route's row shows the in-process row's words, in its order, ends the same
-        // way, and its bar only rises. The closing stage word names the seconds it took, which no two
-        // runs share.
-        let rowA = try XCTUnwrap(rows[.a])
-        let rowC = try XCTUnwrap(rows[.c])
-        XCTAssertEqual(Self.untimed(rowC.shown), Self.untimed(rowA.shown), "the CLI route's row shows the in-process row's words")
-        XCTAssertEqual(rowC.end, rowA.end, "the CLI route's row ends as the in-process row ends")
-        XCTAssertEqual(rowC.bar, MappingRouteRow.heldBar(rowA.bar), "the CLI route's bar is the in-process bar, held")
-        XCTAssertEqual(rowC.bar, MappingRouteRow.heldBar(rowC.bar), "the CLI route's bar only rises")
-        // The last detail is the end of the row, which is not a stage word and is not logged.
-        for word in rowC.shown.dropLast() where !word.isEmpty {
-            XCTAssertTrue(rowC.logged.contains("info \(word)"), "the CLI route's log keeps the stage word \(word)")
+        // UX 1 and 3, the CLI route's bar only rises, and its log keeps each stage word it showed. The last
+        // detail is the end of the row, which is not a stage word and is not logged.
+        let row = try XCTUnwrap(rowC)
+        XCTAssertEqual(row.bar, MappingRouteRow.heldBar(row.bar), "the CLI route's bar only rises")
+        for word in row.shown.dropLast() where !word.isEmpty {
+            XCTAssertTrue(row.logged.contains("info \(word)"), "the CLI route's log keeps the stage word \(word)")
         }
     }
 
     // MARK: - A failed import (W3)
 
-    /// A chunk the import cannot read fails it on either route. The sheet keeps the words of the failure
-    /// (decision W3), so the CLI route must give the words the in-process row gave, which the command
-    /// forwards in its `failed` line.
-    func testAFailedImportGivesTheSameWordsOnBothRoutes() async throws {
-        let rootA = scratch.appendingPathComponent("failure-A", isDirectory: true)
-        let rootC = scratch.appendingPathComponent("failure-C", isDirectory: true)
-        var unreadable: [URL] = []
-        for root in [rootA, rootC] {
-            try Self.writeFixture(root)
-            let chunk = Self.source(in: root).appendingPathComponent("barcode01/chunk_1.fastq")
-            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: chunk.path)
-            unreadable.append(chunk)
-        }
-        defer {
-            for chunk in unreadable { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: chunk.path) }
+    /// A chunk the import cannot read fails it. The sheet keeps the words of the failure (decision W3), which
+    /// the command forwards in its `failed` line.
+    func testAFailedImportFailsTheRowWithTheCommandsWordsAndLeavesNoPartialBundle() async throws {
+        let root = scratch.appendingPathComponent("failure-C", isDirectory: true)
+        try Self.writeFixture(root)
+        let chunk = Self.source(in: root).appendingPathComponent("barcode01/chunk_1.fastq")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: chunk.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: chunk.path) }
+
+        let (_, item) = try await ReadsRouteParity.record(title: Self.title) {
+            startImport(root: root, storageMode: .chunked)
         }
 
-        let keys = makeKeys()
-        let (_, itemA) = try await ReadsRouteParity.record(title: Self.title) {
-            startImport(keys: keys.a, root: rootA, storageMode: .chunked)
-        }
-        let (_, itemC) = try await ReadsRouteParity.record(title: Self.title) {
-            startImport(keys: keys.c, root: rootC, storageMode: .chunked)
-        }
-
-        XCTAssertEqual(itemA.state, .failed, itemA.detail)
-        XCTAssertEqual(itemC.state, .failed, itemC.detail)
-        XCTAssertFalse(itemC.detail.isEmpty)
-        XCTAssertEqual(
-            Self.withoutRootOrAddress(itemC.detail, root: rootC), Self.withoutRootOrAddress(itemA.detail, root: rootA),
-            "both routes fail with the words of the import error"
-        )
-        XCTAssertEqual(itemC.bundleURLs, [], "a failed import lists nothing")
+        XCTAssertEqual(item.state, .failed, item.detail)
+        XCTAssertFalse(item.detail.isEmpty)
+        XCTAssertEqual(item.bundleURLs, [], "a failed import lists nothing")
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: Self.project(in: rootC).appendingPathComponent("Imports/Run1/barcode01.lungfishfastq").path
+                atPath: Self.project(in: root).appendingPathComponent("Imports/Run1/barcode01.lungfishfastq").path
             ),
             "the command left no partial bundle"
         )
@@ -206,39 +148,12 @@ final class ONTImportCLIGUIParityReplayTests: XCTestCase {
         _ = try ONTImportFreezeFixture.makeSource(in: root.appendingPathComponent("Run1", isDirectory: true))
     }
 
-    /// `words` with the seconds of the closing stage word hidden.
-    static func untimed(_ words: [String]) -> [String] {
-        words.map { $0.replacingOccurrences(of: #", [0-9.]+s\)"#, with: ", <T>s)", options: .regularExpression) }
-    }
-
-    /// An error text with the side's root, the addresses of the objects it prints and the UUID of the
-    /// import's staging folder hidden.
-    static func withoutRootOrAddress(_ text: String, root: URL) -> String {
-        [root.resolvingSymlinksInPath().path, root.path].reduce(text) { $0.replacingOccurrences(of: $1, with: "<ROOT>") }
-            .replacingOccurrences(of: #"0x[0-9a-f]+"#, with: "<ADDRESS>", options: .regularExpression)
-            .replacingOccurrences(
-                of: #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#, with: "<UUID>", options: .regularExpression
-            )
-    }
-
-    /// The key suites of the two sides, side A holding `legacy` and side C holding `cli` at
-    /// `ReadsLaunchRoute.ontImport`. Each suite is removed when the test ends.
-    private func makeKeys() -> (a: TestDefaultsSuite, c: TestDefaultsSuite) {
-        let a = makeTestDefaultsSuite(prefix: "ont-import-parity-a")
-        a.defaults.set(ReadsLaunchRoute.legacy.rawValue, forKey: ReadsLaunchPath.ontImport.defaultsKey)
-        let c = makeTestDefaultsSuite(prefix: "ont-import-parity-c")
-        c.defaults.set(ReadsLaunchRoute.cli.rawValue, forKey: ReadsLaunchPath.ontImport.defaultsKey)
-        return (a, c)
-    }
-
-    /// Starts the import of the run folder under `root` on a coordinator that reads its route from
-    /// `keys`, and returns at once, as the window's task does. Sides A and C call it with their own
-    /// suite, so the key is the only difference between them.
-    private func startImport(keys: TestDefaultsSuite, root: URL, storageMode: ONTImportStorageMode) {
+    /// Starts the import of the run folder under `root` on a coordinator that runs the built command, and
+    /// returns at once, as the window's task does.
+    private func startImport(root: URL, storageMode: ONTImportStorageMode) {
         let coordinator = ONTImportOperationCoordinator(
             operationCenter: OperationCenter.shared,
-            runner: CLIReadsRunner(cliURLOverride: cliBinary),
-            routeSettings: ReadsLaunchRouteSettings(defaults: keys.defaults)
+            runner: CLIReadsRunner(cliURLOverride: cliBinary)
         )
         Task { @MainActor in
             _ = try? await coordinator.importDirectory(

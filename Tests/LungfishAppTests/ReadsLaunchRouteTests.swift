@@ -1,4 +1,4 @@
-// ReadsLaunchRouteTests.swift - The mapping and ONT import keys, the CLI route's argv and the L6 runner
+// ReadsLaunchRouteTests.swift - The mapping key, the CLI route's argv and the L6 runner
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -49,14 +49,10 @@ final class ReadsLaunchRouteTests: XCTestCase {
         let defaults = makeTestDefaultsSuite(prefix: "reads-route").defaults
         let settings = ReadsLaunchRouteSettings(defaults: defaults)
         XCTAssertEqual(ReadsLaunchPath.mapping.defaultsKey, "ReadsLaunchRoute.mapping")
-        XCTAssertEqual(ReadsLaunchPath.ontImport.defaultsKey, "ReadsLaunchRoute.ontImport")
         defaults.set("legacy", forKey: ReadsLaunchPath.mapping.defaultsKey)
         XCTAssertEqual(settings.route(for: .mapping), .legacy)
-        XCTAssertEqual(settings.route(for: .ontImport), .cli, "the other launch keeps its own route")
-        defaults.set("legacy", forKey: ReadsLaunchPath.ontImport.defaultsKey)
         defaults.removeObject(forKey: ReadsLaunchPath.mapping.defaultsKey)
         XCTAssertEqual(settings.route(for: .mapping), .cli, "an unset key reads the default again")
-        XCTAssertEqual(settings.route(for: .ontImport), .legacy)
     }
 
     func testTheCLIRouteRecordsTheMapArgvItRuns() throws {

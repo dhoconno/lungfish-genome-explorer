@@ -4,11 +4,11 @@
 //
 // Phase 2.10 lane Q-SIGN, family L6 (the ruling of the A52 whole-lane review, Q6). The cases of
 // ONTImportCLIGUIParityReplayTests run with no signing key. This one imports the shared three-barcode run folder
-// again with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side A (the
-// in-process route under the `legacy` value of its hidden key), side C (the `cli` value, which runs
-// `fastq import-ont` on the built CLI) and side C' (the recorded command), and fails when the CLI route leaves
-// unsigned a record the in-process route signs, the run folder's record that the result opens first, or the
-// record of a barcode bundle that the sidebar lists.
+// again with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side C (the
+// built CLI's `fastq import-ont`) and side C' (the recorded command), and fails when side C' leaves unsigned a
+// record side C signs, or when the run folder's record that the result opens first, or the record of a barcode
+// bundle that the sidebar lists, is unsigned on either side. Phase 2.11 (K3) deleted the in-process route that
+// was side A.
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the integration tier.
 
@@ -59,47 +59,31 @@ final class ONTImportSigningReplayTests: XCTestCase {
     }
 
     func testAChunkedImportLosesNoSignatureOnTheCLIRoute() async throws {
-        let keys = makeKeys()
-        let runs = try await harness.runSigned(
+        let runs = try await ReadsRouteParity.runSignedCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("signed", isDirectory: true),
             fixture: Family.writeFixture,
-            sideA: { root in
-                let (_, item) = try await ReadsRouteParity.record(title: Self.title) {
-                    self.startImport(keys: keys.a, root: root)
-                }
-                return ReadsRouteParity.outcome(of: item)
-            },
             sideC: { root in
                 let (_, item) = try await ReadsRouteParity.record(title: Self.title) {
-                    self.startImport(keys: keys.c, root: root)
+                    self.startImport(root: root)
                 }
                 return ReadsRouteParity.outcome(of: item, recordsCommand: true)
             }
         )
 
-        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        let sides = [runs.c, runs.cPrime]
+        XCTAssertEqual(sides.map(\.outcome.end), [.completed, .completed], sides.map(\.outcome.detail).joined(separator: "\n"))
         RouteParityHarness.assertNoSignatureLost(runs, opening: Self.openingRecord)
         RouteParityHarness.assertNoSignatureLost(runs, opening: Self.barcodeRecord)
         await harness.assertSignaturesVerify(runs, opening: Self.openingRecord)
     }
 
-    /// The key suites of the two sides, side A holding `legacy` and side C holding `cli` at
-    /// `ReadsLaunchRoute.ontImport`. Each suite is removed when the test ends.
-    private func makeKeys() -> (a: TestDefaultsSuite, c: TestDefaultsSuite) {
-        let a = makeTestDefaultsSuite(prefix: "ont-import-signing-a")
-        a.defaults.set(ReadsLaunchRoute.legacy.rawValue, forKey: ReadsLaunchPath.ontImport.defaultsKey)
-        let c = makeTestDefaultsSuite(prefix: "ont-import-signing-c")
-        c.defaults.set(ReadsLaunchRoute.cli.rawValue, forKey: ReadsLaunchPath.ontImport.defaultsKey)
-        return (a, c)
-    }
-
-    /// Starts the chunked import of the run folder under `root` on a coordinator that reads its route from
-    /// `keys`, and returns at once, as the window's task does.
-    private func startImport(keys: TestDefaultsSuite, root: URL) {
+    /// Starts the chunked import of the run folder under `root` on a coordinator that runs the built
+    /// command, and returns at once, as the window's task does.
+    private func startImport(root: URL) {
         let coordinator = ONTImportOperationCoordinator(
             operationCenter: OperationCenter.shared,
-            runner: CLIReadsRunner(cliURLOverride: cliBinary),
-            routeSettings: ReadsLaunchRouteSettings(defaults: keys.defaults)
+            runner: CLIReadsRunner(cliURLOverride: cliBinary)
         )
         Task { @MainActor in
             _ = try? await coordinator.importDirectory(

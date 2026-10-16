@@ -14,8 +14,6 @@
 // - The bundles stay off the row, and the row stays cancellable, until the command has finished (UX 4).
 // - A `failed` line fails the row with its words, and the call throws them (W3).
 // - The row's cancel stops the command and the row reads Cancelled (UX 4).
-// - The hidden key `ReadsLaunchRoute.ontImport` picks the route, and each key value runs its own (C4, ARCH 7,
-//   FX53). The default is the CLI route, and `legacy` keeps the in-process import for one release.
 
 import Foundation
 import XCTest
@@ -162,85 +160,6 @@ final class ONTImportCLIRouteTests: XCTestCase {
         let pid = try XCTUnwrap(Int32(try String(contentsOf: stub.pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
         let gone = await waitUntil(timeout: .seconds(30)) { kill(pid, 0) != 0 }
         XCTAssertTrue(gone, "the command is still running after the cancel")
-    }
-
-    // MARK: - The hidden key (C4)
-
-    func testTheHiddenKeyPicksTheRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "ont-import-route")
-        let settings = ReadsLaunchRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(ReadsLaunchPath.ontImport.defaultsKey, "ReadsLaunchRoute.ontImport")
-        XCTAssertEqual(settings.route(for: .ontImport), .cli, "an unset key")
-        let cases: [(Any, ReadsLaunchRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy), ("NO", .cli),
-        ]
-        for (value, route) in cases {
-            suite.defaults.set(value, forKey: ReadsLaunchPath.ontImport.defaultsKey)
-            XCTAssertEqual(settings.route(for: .ontImport), route, "\(value)")
-        }
-    }
-
-    /// ARCH 7, a test per key value at the launch. The stand-in records its argv when it is launched, so a
-    /// route that launches nothing leaves no argv file.
-    func testEachKeyValueRunsItsRoute() async throws {
-        let stub = try makeStub(lines: Self.successLines(bundles: ["barcode01"]), status: 0)
-        let suite = makeTestDefaultsSuite(prefix: "ont-import-route-launch")
-
-        // legacy, the import runs in this process and launches nothing.
-        suite.defaults.set("legacy", forKey: ReadsLaunchPath.ontImport.defaultsKey)
-        let legacyReporter = RecordingOperationReporter()
-        let legacyCoordinator = ONTImportOperationCoordinator(
-            operationCenter: legacyReporter,
-            runner: CLIReadsRunner(cliURLOverride: stub.cli),
-            routeSettings: ReadsLaunchRouteSettings(defaults: suite.defaults)
-        )
-        let legacyOutcome = try await legacyCoordinator.importDirectory(
-            sourceURL: source, projectURL: project, includeUnclassified: true, routeContext: nil
-        )
-        XCTAssertFalse(FileManager.default.fileExists(atPath: stub.argvFile.path), "the legacy key launches nothing")
-        let legacyItem = try XCTUnwrap(legacyReporter.items.first)
-        XCTAssertFalse(
-            try XCTUnwrap(legacyItem.cliCommand).contains("--format json"),
-            "the in-process row records the command without the events flag"
-        )
-        // The row that importInProcess begins records the command that reproduces the run. It parses with the
-        // command line's own parser and carries the values the run used (CLI-EQUIVALENCE).
-        let legacyCommand = try RecordedCLICommand.parse(legacyItem.cliCommand, as: FastqImportONTSubcommand.self)
-        XCTAssertEqual(legacyCommand.input, source.path)
-        XCTAssertEqual(
-            legacyCommand.output,
-            project.appendingPathComponent("Imports", isDirectory: true)
-                .appendingPathComponent(root.lastPathComponent, isDirectory: true).path
-        )
-        XCTAssertTrue(legacyCommand.includeUnclassified)
-        XCTAssertEqual(legacyCommand.concurrency, 4)
-        XCTAssertEqual(legacyCommand.storageMode, .chunked)
-        XCTAssertEqual(legacyItem.state, .completed)
-        XCTAssertEqual(legacyItem.detail, "3 barcode bundles, 6 reads")
-        XCTAssertEqual(
-            legacyOutcome.bundleURLs.map { $0.deletingPathExtension().lastPathComponent },
-            ONTImportFreezeFixture.readsPerBarcode.map(\.barcode),
-            "the in-process import writes one bundle for each barcode, in barcode order"
-        )
-
-        // cli, the import runs the command on a fresh project and a fresh row.
-        suite.defaults.set("cli", forKey: ReadsLaunchPath.ontImport.defaultsKey)
-        let cliReporter = RecordingOperationReporter()
-        let cliCoordinator = ONTImportOperationCoordinator(
-            operationCenter: cliReporter,
-            runner: CLIReadsRunner(cliURLOverride: stub.cli),
-            routeSettings: ReadsLaunchRouteSettings(defaults: suite.defaults)
-        )
-        try await cliCoordinator.importDirectory(
-            sourceURL: source,
-            projectURL: root.appendingPathComponent("project-cli", isDirectory: true),
-            includeUnclassified: true,
-            routeContext: nil
-        )
-        let launched = try String(contentsOf: stub.argvFile, encoding: .utf8).split(separator: "\n").map(String.init)
-        let cliItem = try XCTUnwrap(cliReporter.items.first)
-        XCTAssertEqual(launched, try RecordedCLICommand.arguments(of: cliItem.cliCommand), "the row records the argv that ran")
-        XCTAssertEqual(Array(launched.suffix(2)), ["--format", "json"], "the CLI key runs the command with events")
     }
 
     // MARK: - Helpers

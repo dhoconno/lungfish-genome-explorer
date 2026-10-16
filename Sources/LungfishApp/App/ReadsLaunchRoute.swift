@@ -1,29 +1,25 @@
-// ReadsLaunchRoute.swift - The hidden keys that pick the route of a Map Reads and an ONT import launch
+// ReadsLaunchRoute.swift - The hidden key that picks the route of a Map Reads launch
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import Foundation
 
-/// The route a Map Reads or ONT import launch takes (Phase 2.10, decision C4). The in-process
-/// route and its key stay for one release now that the key defaults to `cli` (2.7 E14).
+/// The route a Map Reads launch takes (Phase 2.10, decision C4). The in-process route and its key
+/// stay for one release now that the key defaults to `cli` (2.7 E14). The Reassemble and ONT import
+/// keys went in Phase 2.11 (K3).
 enum ReadsLaunchRoute: String, Sendable, Equatable, CaseIterable {
     /// The route of the releases before the flip. The app runs the launch in process. A
     /// key set to `legacy` keeps it for one release.
     case legacy
-    /// The default since lane A46 M3's last commit. The app runs `lungfish-cli map` or
-    /// `lungfish-cli fastq import-ont` on `CLIReadsRunner` and records
-    /// the argv it runs.
+    /// The default since lane A46 M3's last commit. The app runs `lungfish-cli map` on
+    /// `CLIReadsRunner` and records the argv it runs.
     case cli
 }
 
-/// The two launches of the L6 family that keep a key. Each has its own key, so one can move to
-/// the CLI route, or back, without the other.
+/// The launch of the L6 family that keeps a key.
 enum ReadsLaunchPath: String, Sendable, Equatable, CaseIterable {
     /// Map Reads (census row p19).
     case mapping
-    /// The ONT import of a dropped or imported run folder (census row p26). It keeps a key because
-    /// its A against C declares the legacy row's missing `--format json` (Phase 2.10 lane A53, C4).
-    case ontImport
 
     /// The hidden `UserDefaults` key of the launch, such as `ReadsLaunchRoute.mapping`. It holds
     /// `cli` or `legacy`, or a Boolean that is true for the CLI route, for example
