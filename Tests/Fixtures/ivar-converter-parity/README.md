@@ -13,12 +13,9 @@ or CI provisioning.
 - Source: https://github.com/nf-core/viralrecon/blob/928d1437b478e484ec2d9b7a4e686d18782928c9/bin/ivar_variants_to_vcf.py
 - Pinned commit: `928d1437b478e484ec2d9b7a4e686d18782928c9` (nf-core/viralrecon, 2025-09-24)
 
-The script requires `numpy`, `biopython`, `scipy`, and `pandas` on the
-`python3` used to run it (`pip install numpy biopython scipy pandas`).
+The script needs `numpy`, `biopython`, `scipy` and `pandas`. The test runs it under the `ivar-oracle` Python of the golden environment lock (`Tests/Fixtures/golden-environment/README.md`), never the `python3` on PATH. `python3 scripts/golden/environment.py provision` builds that environment at `/Users/Shared/lungfish-golden/storage`, and the test looks under the conda root of the managed storage and then there.
 
-The test runs automatically whenever `python3` is available and skips (or
-fails under `LUNGFISH_REQUIRE_TOOLS=1`) when it is not; there is no longer
-an env-var gate. To run it directly:
+When the environment is not installed the test skips with its reason, and under `LUNGFISH_REQUIRE_TOOLS=1` it fails. A script that exits non-zero under a working Python is a failure on any machine. To run it directly:
 
 ```bash
 swift test --filter IVarConverterViralReconParity
