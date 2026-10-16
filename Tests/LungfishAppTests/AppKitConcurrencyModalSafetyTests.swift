@@ -383,15 +383,15 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             source: fastqImportSource
         )
 
-        let importCenterPath = "Sources/LungfishApp/App/AppDelegate+ImportCenter.swift"
-        let importCenterSource = try String(
-            contentsOf: root.appendingPathComponent(importCenterPath),
+        let importCenterFASTAPath = "Sources/LungfishApp/App/AppDelegate+ImportCenterFASTA.swift"
+        let importCenterFASTASource = try String(
+            contentsOf: root.appendingPathComponent(importCenterFASTAPath),
             encoding: .utf8
         )
         assertLogged(
-            path: importCenterPath,
+            path: importCenterFASTAPath,
             marker: "importAsReferenceBundleViaAppHelper(",
-            source: importCenterSource
+            source: importCenterFASTASource
         )
         let importCenterResultsPath = "Sources/LungfishApp/App/AppDelegate+ImportCenterMetagenomicsBAM.swift"
         let importCenterResultsSource = try String(
