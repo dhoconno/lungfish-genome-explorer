@@ -1,0 +1,4 @@
+{"event":"start","message":"Merging 2 reference bundles","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing to merge 2 reference bundles…","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Inspecting source bundles…","progress":0.02,"schemaVersion":2}
+{"error":"Reference bundle merge needs every sequence name to be unique across the selected bundles, and these names collide:\n\n• \"chrA\" appears in Alpha, Gamma.\n\nRename the colliding records in their source bundles and try again.","event":"failed","schemaVersion":2}

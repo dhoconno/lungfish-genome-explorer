@@ -1,18 +1,18 @@
-// ReferenceBundleMergeOperationTests.swift - The merge service's Operations panel row
+// ReferenceBundleMergeOperationTests.swift - The sidebar's reference bundle merge row, run as bundle merge
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// `ReferenceBundleMergeService.merge` takes its reporter as a parameter (R4),
-// so these tests watch the row without touching `OperationCenter.shared`.
-// The merge has no lungfish-cli equivalent yet, so its row records no command
-// and the test pins that.
+// `ReferenceBundleMergeRoute.merge` takes its reporter and its launch as parameters (R4), so these tests
+// watch the row without touching `OperationCenter.shared` and without starting a command. Phase 2.11 lane
+// A49 M2 closed the parity gap `reference-bundle-merge`. The row records the `bundle merge` command it runs.
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
+@testable import LungfishWorkflow
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
-import LungfishWorkflow
 
 @MainActor
 final class ReferenceBundleMergeOperationTests: XCTestCase {
@@ -31,59 +31,85 @@ final class ReferenceBundleMergeOperationTests: XCTestCase {
         super.tearDown()
     }
 
-    func testMergeRecordsABundleBuildRowWithNoCommandAsAParityGap() async throws {
-        let reporter = RecordingOperationReporter()
-        let onlyBundle = tempDirectory.appendingPathComponent("A.lungfishref", isDirectory: true)
+    private struct CommandFailure: LocalizedError {
+        var errorDescription: String? { "Reference bundle merge needs every sequence name to be unique." }
+    }
 
-        do {
-            _ = try await ReferenceBundleMergeService.merge(
-                sourceBundleURLs: [onlyBundle],
-                outputDirectory: tempDirectory,
-                bundleName: "Merged",
-                reporter: reporter
-            )
-            XCTFail("a one-bundle merge must fail")
-        } catch ReferenceBundleMergeServiceError.requiresAtLeastTwoBundles {
-            // Expected. The merge fails before it touches disk.
+    private func sources() -> [URL] {
+        ["A", "B"].map { tempDirectory.appendingPathComponent("\($0).lungfishref", isDirectory: true) }
+    }
+
+    func testTheRowRecordsTheBundleMergeCommandItRuns() async throws {
+        let reporter = RecordingOperationReporter()
+        let merged = tempDirectory.appendingPathComponent("Merged.lungfishref", isDirectory: true)
+        var launched: [String] = []
+
+        let url = try await ReferenceBundleMergeRoute.merge(
+            sourceBundleURLs: sources(),
+            outputDirectory: tempDirectory,
+            bundleName: "Merged",
+            reporter: reporter
+        ) { arguments, _ in
+            launched = arguments
+            return ReferenceBundleMergeRoute.Run(outputs: [merged.path], message: "Merged 2 reference bundles")
         }
 
+        XCTAssertEqual(url.path, merged.path)
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(reporter.items.count, 1)
         XCTAssertEqual(item.title, "Merge Reference Bundles")
         XCTAssertEqual(item.operationType, .bundleBuild)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        // CLI parity gap. No lungfish-cli command merges reference bundles.
-        // The closest is `bundle create`. When a merge command exists, record
-        // it and replace this pin with a parse test.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "reference-bundle-merge")
-        XCTAssertEqual(item.state, .failed)
-        XCTAssertEqual(item.failure?.errorMessage, "Select at least two reference bundles to merge.")
-        XCTAssertEqual(item.logs.first?.message, "Merging 1 reference bundles into \"Merged\".")
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.logs.first?.message, "Merging 2 reference bundles into \"Merged\".")
+        // The row records the command it ran. It parses back to the options the route gave it.
+        let command = try XCTUnwrap(item.cliCommand)
+        let parsed = try RecordedCLICommand.parse(command, as: BundleMergeSubcommand.self)
+        XCTAssertEqual(parsed.bundles, sources().map(\.path))
+        XCTAssertEqual(parsed.name, "Merged")
+        XCTAssertEqual(parsed.outputDirectory, tempDirectory.path)
+        XCTAssertEqual(Array(launched.prefix(2)), ["bundle", "merge"])
+        XCTAssertEqual(Array(launched.suffix(2)), ["--format", "json"])
     }
 
-    func testRefusedMergeThrowsAndWritesNothing() async throws {
-        let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
-        let sources = ["A", "B"].map {
-            tempDirectory.appendingPathComponent("\($0).lungfishref", isDirectory: true)
-        }
-        let outputDirectory = tempDirectory.appendingPathComponent("Output", isDirectory: true)
-
+    func testAFailedCommandFailsTheRowWithItsWords() async throws {
+        let reporter = RecordingOperationReporter()
         do {
-            _ = try await ReferenceBundleMergeService.merge(
-                sourceBundleURLs: sources,
-                outputDirectory: outputDirectory,
-                bundleName: "Merged",
-                reporter: reporter
-            )
+            _ = try await ReferenceBundleMergeRoute.merge(
+                sourceBundleURLs: sources(), outputDirectory: tempDirectory, bundleName: "Merged", reporter: reporter
+            ) { _, _ in throw CommandFailure() }
+            XCTFail("a failed command must fail the merge")
+        } catch is CommandFailure {
+            // Expected. The route rethrows the command's error.
+        }
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertEqual(item.failure?.errorMessage, "Reference bundle merge needs every sequence name to be unique.")
+    }
+
+    func testARefusedMergeThrowsAndLaunchesNothing() async throws {
+        let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
+        var launched = false
+        do {
+            _ = try await ReferenceBundleMergeRoute.merge(
+                sourceBundleURLs: sources(), outputDirectory: tempDirectory, bundleName: "Merged", reporter: reporter
+            ) { _, _ in
+                launched = true
+                return ReferenceBundleMergeRoute.Run(outputs: [], message: nil)
+            }
             XCTFail("a refused begin must stop the merge")
         } catch let error as OperationRefusedError {
             XCTAssertEqual(error.refusal.blockingOperationTitle, "Importing BAM")
         }
-
         XCTAssertEqual(reporter.items.map(\.state), [.refused])
         XCTAssertTrue(reporter.items[0].logs.isEmpty, "a refused merge reports nothing further")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.path), "a refused merge writes nothing")
+        XCTAssertFalse(launched, "a refused merge launches no command")
+    }
+
+    func testTheArgumentsKeepANameThatStartsWithAHyphenAsOneWord() {
+        let arguments = ReferenceBundleMergeRoute.arguments(
+            sourceBundleURLs: sources(), outputDirectory: tempDirectory, bundleName: "-lab set, 2"
+        )
+        XCTAssertTrue(arguments.contains("--name=-lab set, 2"))
+        XCTAssertEqual(Array(arguments.prefix(2)), ["bundle", "merge"])
     }
 }

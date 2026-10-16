@@ -102,9 +102,12 @@ extension ReferenceBundleMergeService {
         from fastaURL: URL,
         to outputHandle: FileHandle
     ) async throws {
+        var lineCount = 0
         for try await line in fastaURL.linesAutoDecompressing() {
             outputHandle.write(Data(line.utf8))
             outputHandle.write(Data("\n".utf8))
+            lineCount += 1
+            if lineCount % 4096 == 0 { try Task.checkCancellation() }
         }
     }
 
@@ -118,7 +121,8 @@ extension ReferenceBundleMergeService {
         mergedAnnotationTrackCount: Int,
         startedAt: Date,
         completedAt: Date,
-        provenanceWriter: BundleMergeProvenanceSidecarWriter
+        provenanceWriter: BundleMergeProvenanceSidecarWriter,
+        stageRewrites: [(String, String)] = []
     ) throws {
         let outputPayloadURLs = try BundleMergeProvenance.regularPayloadFileURLs(in: bundleURL)
         let nestedSteps = try normalizedNestedSteps(
@@ -126,7 +130,8 @@ extension ReferenceBundleMergeService {
             inputPayloadURLs: inputPayloadURLs,
             outputPayloadURLs: outputPayloadURLs,
             bundleURL: bundleURL,
-            resolvedBundleName: resolvedBundleName
+            resolvedBundleName: resolvedBundleName,
+            stageRewrites: stageRewrites
         )
         try BundleMergeProvenance.write(
             request: BundleMergeProvenance.Request(
@@ -165,7 +170,8 @@ extension ReferenceBundleMergeService {
         inputPayloadURLs: [URL],
         outputPayloadURLs: [URL],
         bundleURL: URL,
-        resolvedBundleName: String
+        resolvedBundleName: String,
+        stageRewrites: [(String, String)] = []
     ) throws -> [ProvenanceStep] {
         guard let envelope else { return [] }
         let sourceInputs = try inputPayloadURLs.map {
@@ -190,9 +196,11 @@ extension ReferenceBundleMergeService {
                 tempInputPaths: step.inputs.map(\.path),
                 durableFASTAURL: durableFASTAURL,
                 bundleURL: bundleURL,
-                resolvedBundleName: resolvedBundleName
+                resolvedBundleName: resolvedBundleName,
+                stageRewrites: stageRewrites
             )
             return step.with { copy in
+                copy.argv = step.argv.map { applyStageRewrites($0, stageRewrites) }
                 copy.durableReplayArgv = argv
                 copy.reproducibleCommand = BundleMergeProvenance.commandLine(from: argv)
                 copy.inputs = inputs
@@ -200,7 +208,7 @@ extension ReferenceBundleMergeService {
                 // The options named the staged input as the replay command did, and both now name the durable FASTA.
                 let fastaPath = durableFASTAURL?.standardizedFileURL.path, staged = Set(step.inputs.map(\.path))
                 copy.resolvedOptions = step.resolvedOptions.mapValues { option in
-                    option.rewritingPaths { rewriteBuilderArgument($0, tempInputPaths: staged, durableFASTAPath: fastaPath) }
+                    option.rewritingPaths { rewriteBuilderArgument($0, tempInputPaths: staged, durableFASTAPath: fastaPath, stageRewrites: stageRewrites) }
                 }
             }
         }
@@ -224,7 +232,8 @@ extension ReferenceBundleMergeService {
         tempInputPaths: [String],
         durableFASTAURL: URL?,
         bundleURL: URL,
-        resolvedBundleName: String
+        resolvedBundleName: String,
+        stageRewrites: [(String, String)]
     ) -> [String] {
         let durableFASTAPath = durableFASTAURL?.standardizedFileURL.path
         let tempInputPaths = Set(tempInputPaths)
@@ -232,7 +241,8 @@ extension ReferenceBundleMergeService {
             rewriteBuilderArgument(
                 argument,
                 tempInputPaths: tempInputPaths,
-                durableFASTAPath: durableFASTAPath
+                durableFASTAPath: durableFASTAPath,
+                stageRewrites: stageRewrites
             )
         }
 
@@ -275,8 +285,13 @@ extension ReferenceBundleMergeService {
     static func rewriteBuilderArgument(
         _ argument: String,
         tempInputPaths: Set<String>,
-        durableFASTAPath: String?
+        durableFASTAPath: String?,
+        stageRewrites: [(String, String)] = []
     ) -> String {
+        var argument = argument
+        for (stage, output) in stageRewrites where argument.contains(stage) {
+            argument = argument.replacingOccurrences(of: stage, with: output)
+        }
         guard let durableFASTAPath else { return argument }
         if tempInputPaths.contains(argument) {
             return durableFASTAPath
@@ -323,5 +338,63 @@ extension ReferenceBundleMergeService {
             || lowercasedName.hasSuffix(".fa.gz")
             || lowercasedName.hasSuffix(".fasta.gz")
             || lowercasedName.hasSuffix(".fna.gz")
+    }
+
+    /// The strings that name the stage inside the builder's record, each with the one that names the
+    /// output folder in its place, longest first, so the durable record reads as if the builder had
+    /// written to the output folder.
+    static func stagePathRewrites(stage: URL, output: URL) -> [(String, String)] {
+        var pairs = [(stage.resolvingSymlinksInPath().path, output.resolvingSymlinksInPath().path)]
+        if stage.path != pairs[0].0 { pairs.append((stage.path, output.path)) }
+        return pairs.sorted { $0.0.count > $1.0.count }
+    }
+
+    /// Publishes the staged bundle under its name in `directory` with one rename, so no reader sees a
+    /// part of it. A stage on another volume than `directory`, which no rename reaches, is moved by copy.
+    static func publish(stagedBundleURL: URL, into directory: URL) throws -> URL {
+        let destination = directory.appendingPathComponent(stagedBundleURL.lastPathComponent, isDirectory: true)
+        if onSameVolume(stagedBundleURL, directory) {
+            _ = try PortableRename.exclusive(stagedBundleURL, to: destination)
+        } else {
+            try FileManager.default.moveItem(at: stagedBundleURL, to: destination)
+        }
+        return destination
+    }
+
+    private static func onSameVolume(_ first: URL, _ second: URL) -> Bool {
+        let key = URLResourceKey.volumeIdentifierKey
+        guard let one = try? first.resourceValues(forKeys: [key]).volumeIdentifier as? NSObject,
+              let other = try? second.resourceValues(forKeys: [key]).volumeIdentifier as? NSObject else {
+            return false
+        }
+        return one.isEqual(other)
+    }
+
+    static func applyStageRewrites(_ text: String, _ rewrites: [(String, String)]) -> String {
+        rewrites.reduce(text) { $1.0.isEmpty ? $0 : $0.replacingOccurrences(of: $1.0, with: $1.1) }
+    }
+
+    /// The builder wrote the records of the bundle, the sidecar of each file and the bundle's own, in the stage,
+    /// so they name it. This rewrites the stage's name in them, in its project-relative spelling, its absolute
+    /// ones and each with its slashes escaped, to the output folder's, so they read as if the builder had written
+    /// to the output folder.
+    static func rewriteStagePaths(inRecordsOf bundle: URL, stage: URL, output: URL) throws {
+        var pairs = stagePathRewrites(stage: stage, output: output)
+        if let root = PortablePath.anchors(for: stage).project?.resolvingSymlinksInPath().path {
+            func portable(_ url: URL) -> String? {
+                let path = url.resolvingSymlinksInPath().path
+                guard path == root || path.hasPrefix(root + "/") else { return nil }
+                return "@" + path.dropFirst(root.count)
+            }
+            if let from = portable(stage), let to = portable(output) { pairs.insert((from, to), at: 0) }
+        }
+        pairs += pairs.map { ($0.0.replacingOccurrences(of: "/", with: "\\/"), $0.1.replacingOccurrences(of: "/", with: "\\/")) }
+        guard let enumerator = FileManager.default.enumerator(at: bundle, includingPropertiesForKeys: nil) else { return }
+        let files = enumerator.compactMap { $0 as? URL }.filter { $0.lastPathComponent.hasSuffix(ProvenanceWriter.provenanceFilename) }
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let rewritten = applyStageRewrites(text, pairs)
+            if rewritten != text { try rewritten.write(to: file, atomically: true, encoding: .utf8) }
+        }
     }
 }

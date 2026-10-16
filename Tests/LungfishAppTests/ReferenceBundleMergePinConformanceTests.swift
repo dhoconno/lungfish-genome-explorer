@@ -163,7 +163,7 @@ final class ReferenceBundleMergePinConformanceTests: XCTestCase {
     private static func scrub(_ value: Any, _ replacements: [(String, String)]) -> Any {
         if let dictionary = value as? [String: Any] {
             var result: [String: Any] = [:]
-            for (key, inner) in dictionary where !volatileKeys.contains(key) && !key.hasSuffix("At") && !key.lowercased().contains("date") {
+            for (key, inner) in dictionary where !volatileKeys.contains(key) && !key.hasSuffix("At") && key.lowercased().range(of: "date") == nil {
                 result[key] = scrub(inner, replacements)
             }
             return result

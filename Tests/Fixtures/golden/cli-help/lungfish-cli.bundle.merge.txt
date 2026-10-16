@@ -1,0 +1,47 @@
+OVERVIEW: Merge reference bundles into one new reference bundle
+
+Concatenates the sequences of two or more .lungfishref bundles into one new
+bundle and
+carries their annotation tracks across as separate tracks named for their
+source. Bundles
+with variant, signal or alignment tracks are refused, because their coordinates
+would have
+to be rebased onto the merged reference, and so are sequence names that two
+bundles share.
+The new bundle is built in the project's .tmp folder and published under its
+name with one
+rename, so no reader sees a part of it. SIGTERM stops the run before it
+publishes, records
+it as cancelled and exits 125. This is the CLI equivalent of the sidebar's
+Merge into New
+Bundle for reference bundles.
+
+Examples:
+  lungfish-cli bundle merge A.lungfishref B.lungfishref --name "Merged Genomes"
+  lungfish-cli bundle merge A.lungfishref B.lungfishref --name Merged
+--output-directory ./out --format json
+
+USAGE: lungfish-cli bundle merge <bundles> ... --name <name> [--output-directory <output-directory>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+
+ARGUMENTS:
+  <bundles>               Paths of the .lungfishref bundles to merge, at least
+                          two
+
+OPTIONS:
+  --name <name>           Name of the merged bundle
+  -o, --output-directory <output-directory>
+                          Folder to create the merged bundle in. Defaults to
+                          the folder of the first bundle
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

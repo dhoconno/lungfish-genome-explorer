@@ -153,6 +153,17 @@ package enum ReferenceBundleMergeService {
         )
     }
 
+    /// Merges `sourceBundleURLs` into a new bundle named `bundleName` in `outputDirectory`, writes its record
+    /// beside it and reports no progress.
+    package static func merge(sourceBundleURLs: [URL], outputDirectory: URL, bundleName: String) async throws -> URL {
+        try await merge(
+            sourceBundleURLs: sourceBundleURLs,
+            outputDirectory: outputDirectory,
+            bundleName: bundleName,
+            provenanceWriter: .live
+        )
+    }
+
     /// Runs the merge on the cooperative thread pool, unconditionally.
     ///
     /// Note on why this is belt-and-braces rather than load-bearing. Under the Swift 6.2
@@ -186,7 +197,12 @@ package enum ReferenceBundleMergeService {
                 reporter: reporter
             )
         }
-        return try await task.value
+        // The task is detached, so a cancel of the caller reaches it only when it is passed on.
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     static func mergeOffMain(
@@ -214,6 +230,10 @@ package enum ReferenceBundleMergeService {
             contextURL: outputDirectory
         )
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        // The bundle is built in a stage inside the temporary folder and published under its name
+        // with one rename, so no reader sees a part of it (2.11 A49 M2, SC5).
+        let stageDirectory = tempDirectory.appendingPathComponent("stage", isDirectory: true)
+        try FileManager.default.createDirectory(at: stageDirectory, withIntermediateDirectories: true)
 
         // Crash-recovery sentinel. The previous implementation got this for free by routing
         // through `ReferenceBundleImportService.importAsReferenceBundle`; building through
@@ -235,6 +255,7 @@ package enum ReferenceBundleMergeService {
             var sourceFASTAURLs: [URL] = []
             do {
                 for source in sources {
+                    try Task.checkCancellation()
                     sourceFASTAURLs.append(source.fastaURL)
                     try await appendFASTAContents(from: source.fastaURL, to: outputHandle)
                 }
@@ -268,6 +289,7 @@ package enum ReferenceBundleMergeService {
                 )
             }
 
+            try Task.checkCancellation()
             let mergedRecordStore = try mergeRecordStores(
                 from: sources,
                 into: tempDirectory
@@ -288,7 +310,7 @@ package enum ReferenceBundleMergeService {
                 identifier: "org.lungfish.merge.\(UUID().uuidString.lowercased())",
                 fastaURL: mergedFASTA,
                 annotationFiles: annotationInputs,
-                outputDirectory: outputDirectory,
+                outputDirectory: stageDirectory,
                 source: mergedSourceInfo(from: sources, bundleName: resolvedBundleName),
                 compressFASTA: true,
                 warnings: mergedWarnings(from: sources)
@@ -302,24 +324,30 @@ package enum ReferenceBundleMergeService {
                 let scaled = 0.55 + (progress * 0.4)
                 Task { await reporter.report(scaled, message, nil) }
             }
-            createdBundleURL = builtBundleURL
+            // A cancel that came while the bundle was built publishes nothing, and the stage goes.
+            try Task.checkCancellation()
+            // The builder's own record names the stage, so it is read there before the bundle moves.
+            let builderProvenance = try ProvenanceEnvelopeReader.load(from: builtBundleURL)
+            let publishedBundleURL = try publish(stagedBundleURL: builtBundleURL, into: outputDirectory)
+            try rewriteStagePaths(inRecordsOf: publishedBundleURL, stage: stageDirectory, output: outputDirectory)
+            createdBundleURL = publishedBundleURL
 
             await reporter.report(0.96, "Writing provenance\u{2026}", nil)
-            let builderProvenance = try ProvenanceEnvelopeReader.load(from: builtBundleURL)
             try writeMergeProvenance(
                 sourceBundleURLs: sourceBundleURLs,
                 inputPayloadURLs: sourceFASTAURLs,
-                bundleURL: builtBundleURL,
+                bundleURL: publishedBundleURL,
                 requestedBundleName: bundleName,
                 resolvedBundleName: resolvedBundleName,
                 nestedProvenance: builderProvenance,
                 mergedAnnotationTrackCount: annotationInputs.count,
                 startedAt: runClock.startedAt,
                 completedAt: runClock.now,
-                provenanceWriter: provenanceWriter
+                provenanceWriter: provenanceWriter,
+                stageRewrites: stagePathRewrites(stage: stageDirectory, output: outputDirectory)
             )
             await reporter.report(1.0, "Merge complete", nil)
-            return builtBundleURL
+            return publishedBundleURL
         } catch {
             if let createdBundleURL {
                 try? FileManager.default.removeItem(at: createdBundleURL)

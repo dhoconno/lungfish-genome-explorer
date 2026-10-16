@@ -250,6 +250,7 @@ public enum ScientificProvenancePolicy {
         ),
         // The removal's record names each removed file with its digest (2.10 A51, BIO 6).
         "bam remove-track": dataWriting("cli.bam.remove-track", writer: "BundleAlignmentTrackRemovalRecord"),
+        "bundle merge": dataWriting("cli.bundle.merge", writer: "ReferenceBundleMergeService"),
         // The consensus record names its thresholds and the user's all-N answer (2.10 A51, BIO).
         "bam consensus": dataWriting("cli.bam.consensus", writer: "AlignmentConsensusPublicationService"),
     ]

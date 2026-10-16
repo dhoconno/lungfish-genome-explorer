@@ -25,6 +25,7 @@ SUBCOMMANDS:
                           alignment tracks
   mark-duplicates         Add duplicate-marked copies of a bundle's alignment
                           tracks, keeping the originals
+  merge                   Merge reference bundles into one new reference bundle
   export                  Export a bundle to a portable artifact
   validate                Validate a reference bundle
   list                    List bundle contents

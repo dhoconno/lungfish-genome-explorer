@@ -30,6 +30,7 @@ struct BundleCommand: AsyncParsableCommand {
             BundleExtractAnnotationsSubcommand.self,
             BundleDeduplicateAlignmentsSubcommand.self,
             BundleMarkDuplicatesSubcommand.self,
+            BundleMergeSubcommand.self,
             BundleExportSubcommand.self,
             BundleValidateSubcommand.self,
             BundleListSubcommand.self,

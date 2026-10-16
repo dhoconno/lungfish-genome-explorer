@@ -72,7 +72,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (60)
+    // MARK: Leaves that emit events (62)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -88,6 +88,8 @@ package enum CLIEventContractTable {
         "build-db taxtriage": .events(flag: formatJSON, channel: .standardOutput),
         "bundle deduplicate-alignments": .events(flag: formatJSON, channel: .standardOutput),
         "bundle mark-duplicates": .events(flag: formatJSON, channel: .standardOutput),
+        // Events since 2.11 A49 M2, a new leaf over the merge service that the sidebar ran in the app.
+        "bundle merge": .events(flag: formatJSON, channel: .standardOutput),
         "conda classify": .events(flag: formatJSON, channel: .standardOutput),
         "conda db update": .events(flag: formatJSON, channel: .standardOutput),
         "conda install": .events(flag: formatJSON, channel: .standardOutput),

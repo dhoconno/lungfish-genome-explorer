@@ -265,15 +265,15 @@ extension SidebarViewController: NSMenuDelegate {
                             bundleName: bundleName
                         )
                     case .reference:
-                        mergedURL = try await ReferenceBundleMergeService.merge(
-                            sourceBundleURLs: selectedURLs,
-                            outputDirectory: destinationDirectory,
-                            bundleName: bundleName
+                        mergedURL = try await ReferenceBundleMergeRoute.merge(
+                            sourceBundleURLs: selectedURLs, outputDirectory: destinationDirectory, bundleName: bundleName
                         )
                     }
 
                     await self.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)?.value
                     _ = self.selectItem(forURL: mergedURL)
+                } catch is CancellationError {
+                    // The row shows the cancel and the command published nothing.
                 } catch {
                     self.presentError(error)
                 }

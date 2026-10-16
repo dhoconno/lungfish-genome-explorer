@@ -262,6 +262,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "bundle info": "cli.bundle",
         "bundle list": "cli.bundle",
         "bundle mark-duplicates": "cli.bundle",
+        "bundle merge": "cli.bundle.merge",
         "bundle validate": "cli.bundle",
         "conda classify": "cli.kraken2.classify",
         "conda db download": "cli.conda.db.download",
