@@ -133,6 +133,30 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
             TaxTriageParityPayloads.failures(found: differences, parityCase: .x1, scope: .pair(.a, .c)),
             ["not declared: report: \(sample): differs: \(report)\n        " + (differences.first { $0.id.hasSuffix(report) }?.detail ?? "")]
         )
+
+        // Sample names with dots and spaces. No case of the harness holds one (BIO memo row 5), so this shows only how
+        // files are given to samples: the longest name keeps its files, a folder named as the sample drops out of
+        // the key, and the combined report, a hidden folder and a file of no sample stay out.
+        let named = scratch.appendingPathComponent("named", isDirectory: true)
+        let files = [
+            "report/S 1.odr.txt", "report/S 1.v2.odr.txt", "S 1.v2/top/S 1.v2.top_report.tsv",
+            "minimap2/S 1.v2.S 1.v2.dwnld.references.bam", "report/all.odr.json", "S 1.v2/.inputs/S 1.v2.fastq", "trace.txt",
+        ]
+        for file in files {
+            let url = named.appendingPathComponent(file)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(file.utf8).write(to: url)
+        }
+        XCTAssertEqual(
+            try TaxTriageParityPayloads.payloads(in: named, samples: ["S 1", "S 1.v2"], pathPrefix: "")
+                .map { "\($0.sample) | \($0.key) | \($0.kind.rawValue)" },
+            [
+                "S 1 | report/S 1.odr.txt | report",
+                "S 1.v2 | minimap2/S 1.v2.S 1.v2.dwnld.references.bam | kept reads",
+                "S 1.v2 | report/S 1.v2.odr.txt | report",
+                "S 1.v2 | top/S 1.v2.top_report.tsv | report",
+            ]
+        )
     }
 
     // MARK: - One pass
@@ -144,6 +168,9 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
         engine: TaxTriageParityEngine,
         caseRoot: URL
     ) async throws -> TaxTriageParityLivePass {
+        if parityCase.materializesVirtualBundle {
+            _ = try await ToolAvailability.require("seqkit", environment: "seqkit")
+        }
         let harness = TaxTriageParityHarness(testCase: self, cliBinary: cliBinary)
         func root(_ side: TaxTriageParitySide) -> URL {
             caseRoot.appendingPathComponent(side.folderName, isDirectory: true)

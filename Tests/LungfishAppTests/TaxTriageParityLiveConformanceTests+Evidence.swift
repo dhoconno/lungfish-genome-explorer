@@ -153,15 +153,13 @@ enum TaxTriageParityEvidence {
 
     /// The engine, the variables, the cores and the load, then each side's end, folder and commands.
     static func runLines(_ pass: TaxTriageParityLivePass, notes: [String]) -> [String] {
-        var loads = [Double](repeating: 0, count: 3)
-        let sampled = getloadavg(&loads, 3)
         let environment = ProcessInfo.processInfo.environment
         let variables = [
             folderVariable, baselineVariable, LiveNextflowSwitch.liveRootVariable, LiveNextflowSwitch.storageRootVariable,
             LiveNextflowSwitch.requireToolsVariable, LiveNextflowSwitch.archiveFolderVariable, "LUNGFISH_CLI_PATH",
         ]
         var lines = ["case \(pass.parityCase.rawValue), written \(ISO8601DateFormatter().string(from: Date()))"] + notes
-        lines.append("cores \(ProcessInfo.processInfo.activeProcessorCount), load average \(sampled == 3 ? loads.map { String(format: "%.2f", $0) }.joined(separator: " ") : "unread")")
+        lines.append(machineLine())
         lines += variables.map { "\($0)=\(environment[$0] ?? "")" }
         for run in pass.runs {
             lines.append("side \(run.side): \(run.terminal), analysis \(run.analysisPath ?? "none")")
@@ -183,13 +181,21 @@ enum TaxTriageParityEvidence {
         return lines + TaxTriageParityODRJSON.report(pass).prefix(40)
     }
 
-    private static func copy(_ source: URL, to destination: URL) throws {
+    /// The cores and the load average over 1, 5 and 15 minutes, which show a run with every core busy.
+    static func machineLine() -> String {
+        var loads = [Double](repeating: 0, count: 3)
+        let sampled = getloadavg(&loads, 3)
+        let load = sampled == 3 ? loads.map { String(format: "%.2f", $0) }.joined(separator: " ") : "unread"
+        return "cores \(ProcessInfo.processInfo.activeProcessorCount), load average \(load)"
+    }
+
+    static func copy(_ source: URL, to destination: URL) throws {
         guard FileManager.default.fileExists(atPath: source.path) else { return }
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: source, to: destination)
     }
 
-    private static func text(_ lines: [String], to file: URL) throws {
+    static func text(_ lines: [String], to file: URL) throws {
         try (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
     }
 
@@ -242,8 +248,12 @@ enum TaxTriageParityODRJSON {
     static func report(_ pass: TaxTriageParityLivePass) -> [String] {
         var lines: [String] = []
         for (reference, candidate) in TaxTriageParityLivePass.pairs {
-            let runs = [reference, candidate].map { side in pass.runs.first { $0.side == side } }
-            let paths = differingPaths(runs[0].flatMap(file(of:)), reference, runs[1].flatMap(file(of:)), candidate)
+            let files = [reference, candidate].map { side in pass.runs.first { $0.side == side }.flatMap(file(of:)) }
+            guard files.contains(where: { $0 != nil }) else {
+                lines.append("\(reference) against \(candidate), all.odr.json: neither side holds the file")
+                continue
+            }
+            let paths = differingPaths(files[0], reference, files[1], candidate)
             lines.append("\(reference) against \(candidate), all.odr.json: \(paths.count) differing values")
             lines += foldedKeys(paths).map { "  key \($0)" }
             lines += paths.map { "    \($0)" }
