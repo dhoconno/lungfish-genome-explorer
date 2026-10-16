@@ -97,6 +97,35 @@ public enum SystemTempScratchSweep {
         return directory
     }
 
+    /// Creates `directory`, whose name its caller laid out before it touched the disk (Bracken's staging), the
+    /// user's alone (`0700`), and binds the same marker to it and its parent folder. The sweep claims it only
+    /// while its name is an LGE prefix from ``prefixes`` followed by a UUID.
+    public static func createMarkedDirectory(at directory: URL, prefix: String, toolName: String, toolVersion: String) throws {
+        let root = directory.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let physicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        let physical = physicalRoot.appendingPathComponent(directory.lastPathComponent, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: physical, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700]
+        )
+        try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+            physical,
+            request: OwnedWorkDirectoryCreationRequest(
+                projectURL: physicalRoot,
+                parentDirectoryURL: physicalRoot,
+                prefix: prefix,
+                runID: UUID(),
+                processIdentity: try OwnedProcessIdentity.current(),
+                state: .active,
+                lockRelativePath: nil,
+                keepIntermediates: false,
+                toolName: toolName,
+                toolVersion: toolVersion
+            )
+        )
+        logger.debug("Created marked system temp directory: \(directory.path, privacy: .public)")
+    }
+
     // MARK: - Sweeping
 
     /// Removes the children of `root` that LGE made and whose creator is gone. Runs no faster than

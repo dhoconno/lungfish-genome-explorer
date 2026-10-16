@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// Stages a Bracken run in a whitespace-free scratch directory.
 ///
@@ -37,10 +38,13 @@ struct BrackenScratchStaging: Sendable {
     let sourceDistributionURL: URL
     let stagedDistributionURL: URL
 
-    /// `FileManager.temporaryDirectory` unless its path has whitespace, in
-    /// which case `/tmp`.
+    /// The start of the scratch directory's name, which the launch sweep claims.
+    static let scratchPrefix = "lungfish-bracken-"
+
+    /// The system temp folder that `TMPDIR` names, as for all scratch with
+    /// no project, unless its path has whitespace, in which case `/tmp`.
     static func defaultScratchRoot() -> URL {
-        let temporary = FileManager.default.temporaryDirectory
+        let temporary = ProjectTempDirectory.systemTemporaryDirectory()
         if Self.hasWhitespace(temporary.path) {
             return URL(fileURLWithPath: "/tmp", isDirectory: true)
         }
@@ -58,7 +62,7 @@ struct BrackenScratchStaging: Sendable {
         scratchRoot: URL = defaultScratchRoot()
     ) -> BrackenScratchStaging {
         let scratch = scratchRoot.appendingPathComponent(
-            "lungfish-bracken-\(UUID().uuidString)",
+            "\(scratchPrefix)\(UUID().uuidString)",
             isDirectory: true
         )
         let databasePath = config.databasePath.standardizedFileURL
@@ -95,11 +99,18 @@ struct BrackenScratchStaging: Sendable {
         [stagedReportURL, stagedOutputURL, stagedReportOutputURL, stagedDatabasePath, stagedDistributionURL]
     }
 
-    /// Creates the scratch directory, copies the report in, and links the
+    /// Creates the scratch directory, the user's alone and marked for the
+    /// app's launch sweep, which removes it once this process is gone if
+    /// `cleanUp()` never runs. Then copies the report in, and links the
     /// database or distribution when their real paths carry whitespace.
     func prepare() throws {
         let fm = FileManager.default
-        try fm.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
+        try SystemTempScratchSweep.createMarkedDirectory(
+            at: scratchDirectory,
+            prefix: Self.scratchPrefix,
+            toolName: "BrackenScratchStaging",
+            toolVersion: WorkflowRun.currentAppVersion
+        )
         try fm.copyItem(at: sourceReportURL, to: stagedReportURL)
         if stagedDatabasePath != sourceDatabasePath {
             try fm.createSymbolicLink(at: stagedDatabasePath, withDestinationURL: sourceDatabasePath)

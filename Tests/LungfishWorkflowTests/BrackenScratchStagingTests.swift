@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// The conda `bracken` launcher expands `${INPUT}`, `${OUTPUT}` and
@@ -164,5 +166,52 @@ final class BrackenScratchStagingTests: XCTestCase {
 
         XCTAssertNoThrow(try staging.collectOutputs())
         XCTAssertFalse(fm.fileExists(atPath: config.brackenURL.path))
+    }
+
+    // MARK: - System temp scratch (Phase 2.11 S32 M3, W9)
+
+    /// The scratch root is the system temp folder that `TMPDIR` names, as for every other scratch with no project,
+    /// where `FileManager.temporaryDirectory` ignores the variable.
+    func testDefaultScratchRootIsTheFolderTMPDIRNames() throws {
+        let temp = try TestTempDirectory.make(prefix: "bracken-tmpdir").resolvingSymlinksInPath()
+        defer { TestTempDirectory.cleanup(temp) }
+        let previous = ProcessInfo.processInfo.environment["TMPDIR"]
+        setenv("TMPDIR", temp.path, 1)
+        defer {
+            if let previous { setenv("TMPDIR", previous, 1) } else { unsetenv("TMPDIR") }
+        }
+
+        XCTAssertEqual(BrackenScratchStaging.defaultScratchRoot().standardizedFileURL.path, temp.path)
+    }
+
+    /// `prepare()` makes the scratch folder the user's alone with the marker the app's launch sweep reads, so a
+    /// run that is killed before `cleanUp()` leaves a folder the sweep removes once its creator is gone.
+    func testPrepareMarksTheScratchFolderForTheLaunchSweep() throws {
+        let fm = FileManager.default
+        let temp = try TestTempDirectory.make(prefix: "bracken-marked-scratch")
+        defer { TestTempDirectory.cleanup(temp) }
+        let scratchRoot = temp.appendingPathComponent("T", isDirectory: true)
+        let outputDirectory = temp.appendingPathComponent("out", isDirectory: true)
+        let databasePath = temp.appendingPathComponent("db", isDirectory: true)
+        try fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try fm.createDirectory(at: databasePath, withIntermediateDirectories: true)
+        let config = makeConfig(outputDirectory: outputDirectory, databasePath: databasePath)
+        try "kreport".write(to: config.reportURL, atomically: true, encoding: .utf8)
+        let staging = BrackenScratchStaging.plan(
+            config: config,
+            distributionURL: databasePath.appendingPathComponent("database150mers.kmer_distrib"),
+            scratchRoot: scratchRoot
+        )
+
+        try staging.prepare()
+
+        let name = staging.scratchDirectory.lastPathComponent
+        XCTAssertTrue(fm.fileExists(atPath: staging.scratchDirectory.appendingPathComponent(OwnedWorkDirectoryMarker.fileName).path))
+        let mode = try fm.attributesOfItem(atPath: staging.scratchDirectory.path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o700, "the scratch is the user's alone")
+        XCTAssertEqual(try String(contentsOf: staging.stagedReportURL, encoding: .utf8), "kreport")
+        XCTAssertEqual(SystemTempScratchSweep.sweep(root: scratchRoot).refused[name], .liveCreator)
+        let gone = SystemTempScratchSweep.sweep(root: scratchRoot, processInspector: { _ in nil })
+        XCTAssertEqual(gone.removed.map(\.lastPathComponent), [name], "the sweep claims it once its creator is gone")
     }
 }
