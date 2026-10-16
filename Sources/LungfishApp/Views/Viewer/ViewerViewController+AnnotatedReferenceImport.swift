@@ -78,9 +78,7 @@ extension ViewerViewController {
             sourceAlignmentBundleURL: sourceAlignmentBundleURL
         )
         let startResult = Self.beginAnnotatedReferenceImportOperation(
-            sourceURL: sourceURL,
-            projectURL: projectURL,
-            preferredBundleName: suggestedName,
+            arguments: arguments,
             bundleStem: stem,
             routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
         ) { opID in

@@ -68,7 +68,7 @@ extension AppDelegate {
     /// with `import fasta` and prints its events (2.11 A48 M3). A blank name is no name, as the
     /// service treats it, so the command carries no `--name` then, and an empty list of durable
     /// inputs is none, so the record names the source as the helper route did.
-    static func referenceImportArguments(
+    nonisolated static func referenceImportArguments(
         sourceURL: URL,
         projectURL: URL,
         preferredBundleName: String?,

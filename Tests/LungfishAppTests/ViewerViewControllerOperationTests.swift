@@ -112,17 +112,26 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         XCTAssertEqual(item.cliCommand, "lungfish-cli " + arguments.map(shellEscape).joined(separator: " "))
     }
 
-    // MARK: - Annotated reference import, a CLI parity gap
+    // MARK: - Annotated reference import, the gap closed by 2.11 A48 M3
 
-    func testAnnotatedReferenceImportRecordsItsRowAndNoCommandAsAParityGap() throws {
+    func testAnnotatedReferenceImportRecordsItsRowAndTheCommandItRuns() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
         var launchedID: UUID?
-
-        ViewerViewController.beginAnnotatedReferenceImportOperation(
+        let staging = stagedFASTAURL.deletingLastPathComponent()
+        let alignment = URL(fileURLWithPath: "/tmp/lane 1a2/Aligned.lungfishmsa", isDirectory: true)
+        let arguments = AppDelegate.referenceImportArguments(
             sourceURL: stagedFASTAURL,
             projectURL: projectURL,
             preferredBundleName: "Reviewed clusters",
+            provenanceInputFiles: [alignment],
+            annotationsURL: staging.appendingPathComponent("selected-annotations.bed"),
+            annotationSelectionURL: staging.appendingPathComponent("selected-annotations.json"),
+            sourceAlignmentBundleURL: alignment
+        )
+
+        ViewerViewController.beginAnnotatedReferenceImportOperation(
+            arguments: arguments,
             bundleStem: "Reviewed-clusters",
             routeContext: routeContext,
             reporter: reporter
@@ -136,11 +145,15 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // The run imports a staged scratch FASTA, then attaches the selected
-        // annotations as a BED track and writes the extraction provenance. No
-        // command covers the later steps, so the row records no command.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "annotated-reference-import")
+        // The run is `import fasta` with the annotations, the selection and the
+        // durable sources, which attaches the track and writes the extraction
+        // record itself, so the row records the argv the runner gets.
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), arguments)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ImportCommand.FASTASubcommand.self)
+        XCTAssertEqual(command.inputFile, stagedFASTAURL.path)
+        XCTAssertEqual(command.outputDir, projectURL.path)
+        XCTAssertEqual(command.annotationSelection, staging.appendingPathComponent("selected-annotations.json").path)
+        XCTAssertEqual(command.sourceAlignmentBundle, alignment.path)
     }
 
     // MARK: - Sites with no lock launch nothing when the begin is refused
@@ -163,7 +176,9 @@ final class ViewerViewControllerOperationTests: XCTestCase {
             cliArguments: durableFASTAArguments(), selectedCount: 2, routeContext: nil, reporter: reporter
         ) { _ in launched.append("reference bundle from a FASTA selection") })
         check("annotated reference import", ViewerViewController.beginAnnotatedReferenceImportOperation(
-            sourceURL: stagedFASTAURL, projectURL: projectURL, preferredBundleName: "Reviewed clusters",
+            arguments: AppDelegate.referenceImportArguments(
+                sourceURL: stagedFASTAURL, projectURL: projectURL, preferredBundleName: "Reviewed clusters"
+            ),
             bundleStem: "Reviewed-clusters", routeContext: nil, reporter: reporter
         ) { _ in launched.append("annotated reference import") })
 

@@ -80,18 +80,16 @@ extension ViewerViewController {
     /// Registers the annotated reference import row and, only when it starts,
     /// calls `launch` with the operation ID. The row locks no bundle.
     ///
-    /// cli-parity-gap: annotated-reference-import. The run imports a staged
-    /// FASTA the way `lungfish-cli import fasta <staged FASTA> --output-dir
-    /// <project>` does, then attaches the selected annotations to the new
-    /// bundle as a BED track and writes the extraction provenance. No command
-    /// covers either later step, and the staged FASTA is a scratch file, so
-    /// the row records no command. The run can also carry durable provenance
-    /// input files, which no command option reproduces.
+    /// `arguments` is the argv after `lungfish-cli` that the run hands
+    /// `CLIBundleBuildRunner` (`AppDelegate.referenceImportArguments`), `import
+    /// fasta` on the staged FASTA with `--annotations`, `--annotation-selection`,
+    /// `--source-alignment-bundle` and a `--provenance-input` for each durable
+    /// source, so the row records the command the run is (2.11 A48 M3). The
+    /// staged files are removed once the run ends, so a copied command replays
+    /// only while they are kept.
     @discardableResult
     static func beginAnnotatedReferenceImportOperation(
-        sourceURL: URL,
-        projectURL: URL,
-        preferredBundleName: String,
+        arguments: [String],
         bundleStem: String,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
@@ -101,7 +99,7 @@ extension ViewerViewController {
             title: "Annotated Reference Import",
             detail: "Creating \(bundleStem).lungfishref...",
             operationType: .bundleBuild,
-            cliCommand: nil,
+            cliCommand: OperationCenter.buildCLICommand(subcommand: "import fasta", args: Array(arguments.dropFirst(2))),
             routeContext: routeContext
         )
         switch result {
