@@ -43,15 +43,45 @@ final class SRADownloadPreparationOutageLineTests: XCTestCase {
         return row.logEntries.filter { $0.message.hasPrefix("Could not detect SRA import settings") }
     }
 
-    func testBothArchivesFailingLogsTodaysLineWithTwoPeriodsAndAColon() async throws {
+    func testBothArchivesFailingLogsTheReasonInOneSentenceWithOnePeriod() async throws {
         let reason = await bothArchivesFailedReason(SRAPreparationUnavailableClient())
-        XCTAssertTrue(reason.hasSuffix("."), "the two-archive reason already ends with a period: \(reason)")
+        XCTAssertTrue(reason.hasSuffix(".") && !reason.hasSuffix(".."),
+                      "the two-archive reason already ends with one period: \(reason)")
 
         let lines = try await outageLines()
         XCTAssertEqual(lines.count, 1)
         let line = try XCTUnwrap(lines.first)
         XCTAssertEqual(line.level, .info)
-        XCTAssertEqual(line.message, "Could not detect SRA import settings: \(reason). Choose the settings manually.")
-        XCTAssertTrue(line.message.contains(".. "), "today's line shows two periods in a row")
+        XCTAssertEqual(line.message, "Could not detect SRA import settings. \(reason) Choose the settings manually.")
+        XCTAssertFalse(line.message.contains(".."), "the reason's period is not doubled")
+        XCTAssertFalse(line.message.replacingOccurrences(of: reason, with: "").contains(":"),
+                       "the words around the reason hold no colon")
+    }
+
+    func testTheReasonEndsInExactlyOnePeriodWhetherTheErrorTextHasOneOrNot() {
+        let frame = { (reason: String) in "Could not detect SRA import settings. \(reason) Choose the settings manually." }
+        let cases: [(error: String, reason: String)] = [
+            ("The Internet connection appears to be offline.", "The Internet connection appears to be offline."),
+            ("The Internet connection appears to be offline", "The Internet connection appears to be offline."),
+            ("ENA returned HTTP 500 (server error), and NCBI timed out..", "ENA returned HTTP 500 (server error), and NCBI timed out."),
+            ("The archive stopped answering...", "The archive stopped answering."),
+            ("  The archive stopped answering. \n", "The archive stopped answering."),
+            ("Is the archive down?", "Is the archive down?"),
+        ]
+        for item in cases {
+            let line = DatabaseBrowserViewModel.sraOutageLine(reason: item.error)
+            XCTAssertEqual(line, frame(item.reason), "error text \(item.error.debugDescription)")
+            XCTAssertFalse(line.contains(".."), "error text \(item.error.debugDescription)")
+            XCTAssertFalse(line.contains(":"), "error text \(item.error.debugDescription)")
+        }
+    }
+
+    func testAnEmptyReasonLeavesItsSentenceOut() {
+        for empty in ["", " ", ".", " . \n"] {
+            XCTAssertEqual(
+                DatabaseBrowserViewModel.sraOutageLine(reason: empty),
+                "Could not detect SRA import settings. Choose the settings manually.",
+                "error text \(empty.debugDescription)")
+        }
     }
 }

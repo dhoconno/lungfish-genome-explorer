@@ -20,6 +20,19 @@ extension DatabaseBrowserViewModel {
         }
         SRADownloadPreparation(model: self, records: records, operationID: operationID, window: window).start()
     }
+
+    /// The operation-history line for a lookup that could not detect the import settings, in three
+    /// sentences with no colon. The reason is the error's own text, so it is cut to end in exactly
+    /// one period whether the error ended in one, in several or in none. A reason that ends in `?`
+    /// or `!` keeps its mark, and an empty one leaves its sentence out.
+    static func sraOutageLine(reason: String) -> String {
+        var sentence = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = sentence.last, last == "." || last.isWhitespace { sentence.removeLast() }
+        if let last = sentence.last, last != "?", last != "!" { sentence += "." }
+        return ["Could not detect SRA import settings.", sentence, "Choose the settings manually."]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
 }
 
 @MainActor
@@ -96,7 +109,7 @@ private final class SRADownloadPreparation {
             // but make its reason visible in the operation history.
             OperationCenter.shared.log(
                 id: operationID, level: .info,
-                message: "Could not detect SRA import settings: \(error.localizedDescription). Choose the settings manually.")
+                message: DatabaseBrowserViewModel.sraOutageLine(reason: error.localizedDescription))
         }
         guard canContinue else { cancel(); return }
         let pairs = records.map {
