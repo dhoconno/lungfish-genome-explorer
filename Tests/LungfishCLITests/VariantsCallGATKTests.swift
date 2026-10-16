@@ -98,7 +98,8 @@ final class VariantsCallGATKTests: XCTestCase {
         XCTAssertTrue(output.contains("/variants/gatk/vc-") && output.hasSuffix(".vcf"), "the VCF goes where older bundles hold theirs: \(output)")
         XCTAssertEqual(command.arguments, dialogArguments(bundle: bundle, output: output), "no flags is the dialog's call")
 
-        XCTAssertEqual(ran.events.map(\.event), ["runStart", "attachStart", "attachComplete", "runComplete"])
+        XCTAssertEqual(ran.events.map(\.event), ["runStart", "stageProgress", "stageProgress", "runComplete"])
+        XCTAssertEqual(ran.events.map(\.progress), [0.0, 0.75, 0.97, 1.0], "the attach steps move the bar")
         let complete = try XCTUnwrap(ran.events.last)
         XCTAssertEqual(complete.variantTrackName, "Sample GATK")
         XCTAssertEqual(complete.variantTrackID, ran.attachment.trackInfo.id)

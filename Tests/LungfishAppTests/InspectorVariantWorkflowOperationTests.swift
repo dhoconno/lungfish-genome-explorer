@@ -4,8 +4,8 @@
 //
 // Both variant-calling launches lock the bundle (R4). A held lock must refuse
 // the row and launch nothing, and the recorded row must carry its type, its
-// lock and its command. The GATK run has no lungfish-cli equivalent yet, so
-// its test pins today's command and fails when one is added.
+// lock and its command. The GATK row records the `variants call --caller
+// gatk` command since Phase 2.11 lane A50 M3 closed gap gatk-variant-calling.
 
 import XCTest
 @testable import LungfishApp
@@ -106,28 +106,19 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertEqual(command.minimumDepth, 10)
     }
 
-    // MARK: - GATK, a CLI parity gap
+    // MARK: - GATK
 
     private func gatkRequest() -> GATKPipelineExecutionRequest {
         let directory = URL(fileURLWithPath: "/tmp/lane 1a1/gatk", isDirectory: true)
-        let reference = directory.appendingPathComponent("reference.fa")
-        let bam = directory.appendingPathComponent("sample.bam")
-        let output = directory.appendingPathComponent("sample.vcf.gz")
-        return GATKPipelineExecutionRequest(
-            workflowName: "GATK HaplotypeCaller",
-            toolName: "gatk-haplotype-caller",
-            toolVersion: "4.6.2.0",
-            command: GATKCommand(arguments: [
-                "HaplotypeCaller", "-R", reference.path, "-I", bam.path, "-O", output.path,
-            ]),
-            outputDirectory: directory,
-            inputs: [
-                GATKFileArtifact(url: reference, format: .fasta, role: .reference),
-                GATKFileArtifact(url: bam, format: .bam, role: .input),
-            ],
-            outputs: [GATKFileArtifact(url: output, format: .vcf, role: .output)],
-            options: [:],
-            resolvedDefaults: [:]
+        return .haplotypeCaller(
+            configuration: GATKHaplotypeCallerConfiguration(
+                referenceFASTAURL: directory.appendingPathComponent("reference.fa"),
+                inputBAMURL: directory.appendingPathComponent("sample.bam"),
+                outputVCFURL: directory.appendingPathComponent("sample.vcf.gz"),
+                emitReferenceConfidence: .none,
+                extraArguments: ["--min-base-quality-score", "20"]
+            ),
+            toolVersion: "4.6.2.0"
         )
     }
 
@@ -140,6 +131,7 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
             detail: "Running GATK HaplotypeCaller...",
             bundleURL: bundleURL,
             request: gatkRequest(),
+            cliArguments: [],
             routeContext: nil,
             reporter: center
         ) { _ in launched = true }
@@ -150,15 +142,19 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertFalse(launched, "a refused row must start no GATK pipeline and attach nothing")
     }
 
-    func testGATKVariantCallingRecordsNoCommandAsAParityGapAndLogsTheGATKCommands() throws {
+    func testGATKVariantCallingRecordsTheVariantsCallCommandAndLogsTheGATKCommands() throws {
         let reporter = RecordingOperationReporter()
         let request = gatkRequest()
+        let arguments = CLIVariantCallingRunner.buildGATKCLIArguments(
+            request: request, bundleURL: bundleURL, alignmentTrackID: "aln-1", outputTrackName: "Sample 1 \u{2022} GATK HaplotypeCaller"
+        )
 
         InspectorViewController.beginGATKVariantCallingOperation(
             title: "Calling variants with GATK HaplotypeCaller",
             detail: "Running GATK HaplotypeCaller...",
             bundleURL: bundleURL,
             request: request,
+            cliArguments: arguments,
             routeContext: nil,
             reporter: reporter
         ) { _ in }
@@ -167,11 +163,21 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertEqual(item.operationType, .variantCalling)
         XCTAssertEqual(item.targetBundleURL, bundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        // No lungfish-cli command runs GATK and attaches the VCF to the
-        // bundle. The closest is `gatk haplotype-caller --execute`. The row
-        // records no command and logs the GATK commands instead.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "gatk-variant-calling")
+        // Both routes of the row record the `variants call --caller gatk` command that runs the
+        // dialog's call, each value an option of its own and only the free text in --extra-args.
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: VariantsCommand.CallSubcommand.self)
+        XCTAssertEqual(command.bundlePath, bundleURL.path)
+        XCTAssertEqual(command.alignmentTrackID, "aln-1")
+        XCTAssertEqual(command.caller, "gatk")
+        XCTAssertEqual(command.outputTrackName, "Sample 1 \u{2022} GATK HaplotypeCaller")
+        XCTAssertEqual(command.ploidy, 2)
+        XCTAssertEqual(command.gatkOptions.emitReferenceConfidence, "NONE")
+        XCTAssertEqual(command.gatkOptions.pcrIndelModel, "CONSERVATIVE")
+        XCTAssertEqual(command.gatkOptions.standCallConf, 30.0)
+        XCTAssertEqual(command.gatkOptions.maxAlternateAlleles, 6)
+        XCTAssertEqual(command.gatkOptions.pairHMMThreads, 4)
+        XCTAssertNil(command.gatkOptions.intervals)
+        XCTAssertEqual(command.advancedOptions, "--min-base-quality-score 20")
         XCTAssertEqual(
             item.logs.map(\.message),
             request.commands.map { "GATK command: \($0.shellCommand)" }

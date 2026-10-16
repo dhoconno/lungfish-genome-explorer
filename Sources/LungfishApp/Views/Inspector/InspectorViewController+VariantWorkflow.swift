@@ -79,14 +79,37 @@ extension InspectorViewController {
         }
 
         if let gatkRequest = state.pendingGATKRequest {
-            launchGATKVariantCallingOperation(
+            let displayName = state.selectedToolDisplayName
+            let trimmedName = state.outputTrackName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let outputTrackName = trimmedName.isEmpty ? displayName : trimmedName
+            let cliArguments = CLIVariantCallingRunner.buildGATKCLIArguments(
                 request: gatkRequest,
                 bundleURL: bundleURL,
                 alignmentTrackID: state.selectedAlignmentTrackID,
-                outputTrackID: state.generatedTrackID,
-                outputTrackName: state.outputTrackName.trimmingCharacters(in: .whitespacesAndNewlines),
-                displayName: state.selectedToolDisplayName
+                outputTrackName: outputTrackName
             )
+            // The hidden key keeps the in-process route for one release (Phase 2.11 lane A50 M3, C4).
+            switch GATKVariantCallingRouteSettings.currentRoute {
+            case .cli:
+                launchCLIVariantCallingOperation(
+                    title: "Calling variants with \(displayName)",
+                    detail: "Running \(displayName)...",
+                    bundleURL: bundleURL,
+                    cliArguments: cliArguments,
+                    failureTitle: "GATK Variant Calling Failed",
+                    reloadFailurePrefix: "GATK completed"
+                )
+            case .legacy:
+                launchGATKVariantCallingOperation(
+                    request: gatkRequest,
+                    bundleURL: bundleURL,
+                    alignmentTrackID: state.selectedAlignmentTrackID,
+                    outputTrackID: state.generatedTrackID,
+                    outputTrackName: outputTrackName,
+                    displayName: displayName,
+                    cliArguments: cliArguments
+                )
+            }
             return
         }
 
@@ -98,13 +121,32 @@ extension InspectorViewController {
             return
         }
 
-        let cliArguments = CLIVariantCallingRunner.buildCLIArguments(request: request)
+        launchCLIVariantCallingOperation(
+            title: "Calling variants with \(state.selectedCaller.displayName)",
+            detail: "Preparing \(state.selectedCaller.displayName)...",
+            bundleURL: bundleURL,
+            cliArguments: CLIVariantCallingRunner.buildCLIArguments(request: request),
+            failureTitle: "Variant Calling Failed",
+            reloadFailurePrefix: "Variant calling completed"
+        )
+    }
+
+    /// Runs `lungfish-cli variants call` with `cliArguments` on `CLIVariantCallingRunner`, on a row that
+    /// records the command. Every caller of the dialog takes it, and the GATK row does on the `cli` route.
+    private func launchCLIVariantCallingOperation(
+        title: String,
+        detail: String,
+        bundleURL: URL,
+        cliArguments: [String],
+        failureTitle: String,
+        reloadFailurePrefix: String
+    ) {
         let shouldReloadMappingViewer = (parent as? MainSplitViewController)?
             .viewerController
             .activeMappingViewportController != nil
         Self.beginVariantCallingOperation(
-            title: "Calling variants with \(state.selectedCaller.displayName)",
-            detail: "Preparing \(state.selectedCaller.displayName)...",
+            title: title,
+            detail: detail,
             bundleURL: bundleURL,
             cliArguments: cliArguments,
             routeContext: operationRouteContext(for: bundleURL)
@@ -133,7 +175,7 @@ extension InspectorViewController {
                                 } catch {
                                     self.presentSimpleAlert(
                                         title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
-                                        message: "Variant calling completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                                        message: "\(reloadFailurePrefix), but the bundle could not be reloaded: \(error.localizedDescription)"
                                     )
                                 }
                             }
@@ -155,7 +197,7 @@ extension InspectorViewController {
                                 errorMessage: message
                             ) else { return }
                             self?.presentSimpleAlert(
-                                title: "Variant Calling Failed",
+                                title: failureTitle,
                                 message: message
                             )
                         }
@@ -178,7 +220,8 @@ extension InspectorViewController {
         alignmentTrackID: String,
         outputTrackID: String,
         outputTrackName: String,
-        displayName: String
+        displayName: String,
+        cliArguments: [String]
     ) {
         let shouldReloadMappingViewer = (parent as? MainSplitViewController)?
             .viewerController
@@ -188,35 +231,29 @@ extension InspectorViewController {
             detail: "Running \(displayName)...",
             bundleURL: bundleURL,
             request: request,
+            cliArguments: cliArguments,
             routeContext: operationRouteContext(for: bundleURL)
         ) { opID in
             let task = Task(priority: .userInitiated) { [weak self] in
                 do {
-                    let executor = GATKPipelineExecutor(runner: ManagedGATKCommandRunner())
-                    let result = try await executor.run(request)
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.updateWithLog(
-                                id: opID,
-                                progress: 0.75,
-                                detail: "Attaching GATK variants to bundle..."
-                            )
+                    let attachment = try await Self.runGATKVariantCallingInProcess(
+                        request: request,
+                        runner: ManagedGATKCommandRunner(),
+                        bundleURL: bundleURL,
+                        alignmentTrackID: alignmentTrackID,
+                        outputTrackID: outputTrackID,
+                        outputTrackName: outputTrackName
+                    ) {
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: 0.75,
+                                    detail: "Attaching GATK variants to bundle..."
+                                )
+                            }
                         }
                     }
-
-                    let outputVCFURL = try Self.primaryGATKVCFOutputURL(from: request)
-                    let attachment = try await GATKBundleVariantAttachmentService().attach(
-                        request: GATKBundleVariantAttachmentRequest(
-                            bundleURL: bundleURL,
-                            alignmentTrackID: alignmentTrackID,
-                            outputTrackID: outputTrackID,
-                            outputTrackName: outputTrackName.isEmpty ? displayName : outputTrackName,
-                            outputVCFURL: outputVCFURL,
-                            executionProvenanceURL: result.provenanceURL,
-                            executionRequest: request
-                        )
-                    )
 
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
@@ -304,21 +341,19 @@ extension InspectorViewController {
         return result
     }
 
-    /// Registers the GATK variant-calling row and, only when it starts, calls
-    /// `launch` with the operation ID. The row locks `bundleURL`.
-    ///
-    /// cli-parity-gap: gatk-variant-calling. `lungfish-cli gatk
-    /// haplotype-caller --execute` runs the GATK step, but no CLI command
-    /// attaches the VCF to the bundle, and the pipeline runs in the app
-    /// process (finding R3). The row records no command until a CLI command
-    /// covers the run. The GATK commands go to the row's log instead, so its
-    /// history keeps them.
+    /// Registers the GATK variant-calling row of the `legacy` route and, only
+    /// when it starts, calls `launch` with the operation ID. The row locks
+    /// `bundleURL` and records the `lungfish-cli variants call --caller gatk`
+    /// command built from `cliArguments`, the command the `cli` route runs
+    /// (Phase 2.11 lane A50 M3). The GATK commands of the in-process run also
+    /// go to the row's log, so its history keeps them.
     @discardableResult
     static func beginGATKVariantCallingOperation(
         title: String,
         detail: String,
         bundleURL: URL,
         request: GATKPipelineExecutionRequest,
+        cliArguments: [String],
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
@@ -328,7 +363,10 @@ extension InspectorViewController {
             detail: detail,
             operationType: .variantCalling,
             targetBundleURL: bundleURL,
-            cliCommand: nil,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "variants",
+                args: Array(cliArguments.dropFirst())
+            ),
             routeContext: routeContext
         )
         switch result {
@@ -343,7 +381,34 @@ extension InspectorViewController {
         return result
     }
 
-    private static func primaryGATKVCFOutputURL(
+    /// The in-process run of the `legacy` route, kept for one release (C4). `GATKPipelineExecutor` runs
+    /// on `runner`, then the attach writes into `variants/gatk/`, and `onAttachStart` runs between the
+    /// two. The row passes `ManagedGATKCommandRunner`, and side A of the GATK parity class a stand-in.
+    nonisolated static func runGATKVariantCallingInProcess<Runner: GATKCommandRunning>(
+        request: GATKPipelineExecutionRequest,
+        runner: Runner,
+        bundleURL: URL,
+        alignmentTrackID: String,
+        outputTrackID: String,
+        outputTrackName: String,
+        onAttachStart: @escaping @Sendable () -> Void = {}
+    ) async throws -> GATKBundleVariantAttachmentResult {
+        let result = try await GATKPipelineExecutor(runner: runner).run(request)
+        onAttachStart()
+        return try await GATKBundleVariantAttachmentService().attach(
+            request: GATKBundleVariantAttachmentRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: alignmentTrackID,
+                outputTrackID: outputTrackID,
+                outputTrackName: outputTrackName,
+                outputVCFURL: try primaryGATKVCFOutputURL(from: request),
+                executionProvenanceURL: result.provenanceURL,
+                executionRequest: request
+            )
+        )
+    }
+
+    nonisolated private static func primaryGATKVCFOutputURL(
         from request: GATKPipelineExecutionRequest
     ) throws -> URL {
         guard let output = request.outputs.first(where: { $0.format == .vcf })?.url else {

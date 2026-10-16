@@ -148,7 +148,8 @@ extension VariantsCommand.CallSubcommand {
         do {
             emitEvent(event("runStart", 0.0, "Running GATK HaplotypeCaller..."))
             let result = try await GATKPipelineExecutor(runner: runner).run(request)
-            emitEvent(event("attachStart", 0.75, "Attaching GATK variants to bundle..."))
+            // The attach steps report progress, so the row's bar moves as the in-process route's did.
+            emitEvent(event("stageProgress", 0.75, "Attaching GATK variants to bundle..."))
             let attachment = try await GATKBundleVariantAttachmentService().attach(
                 request: GATKBundleVariantAttachmentRequest(
                     bundleURL: bundleURL,
@@ -161,7 +162,7 @@ extension VariantsCommand.CallSubcommand {
                     invocationArgv: recordedArguments
                 )
             )
-            emitEvent(event("attachComplete", 0.97, "Attached variant track \(attachment.trackInfo.name)", attachment: attachment))
+            emitEvent(event("stageProgress", 0.97, "Attached variant track \(attachment.trackInfo.name)", attachment: attachment))
             emitEvent(event("runComplete", 1.0, "Variant calling complete", attachment: attachment))
             return attachment
         } catch {

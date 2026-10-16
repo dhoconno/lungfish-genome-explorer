@@ -130,6 +130,51 @@ struct CLIVariantCallingRunner {
         return arguments
     }
 
+    /// The `variants call --caller gatk` argv of the Call Variants dialog's GATK row, built from the
+    /// dialog's request (Phase 2.11 lane A50 M3). Each value of the request is an option of its own, and
+    /// only the free text of the Extra arguments field rides in `--extra-args` (BIO objections 2 and 3 of
+    /// Phase 2.10), so the command runs the dialog's call.
+    static func buildGATKCLIArguments(
+        request: GATKPipelineExecutionRequest,
+        bundleURL: URL,
+        alignmentTrackID: String,
+        outputTrackName: String
+    ) -> [String] {
+        var arguments = [
+            "variants",
+            "call",
+            "--bundle", bundleURL.path,
+            "--alignment-track", alignmentTrackID,
+            "--caller", "gatk",
+            "--name", outputTrackName,
+            "--format", "json",
+            "--no-progress",
+        ]
+        let options: [(flag: String, key: String)] = [
+            ("--ploidy", "ploidy"),
+            ("--emit-ref-confidence", "emitReferenceConfidence"),
+            ("--pcr-indel-model", "pcrIndelModel"),
+            ("--stand-call-conf", "standardMinConfidenceThresholdForCalling"),
+            ("--max-alternate-alleles", "maxAlternateAlleles"),
+            ("--pair-hmm-threads", "nativePairHMMThreads"),
+        ]
+        for option in options {
+            if let value = request.options[option.key] {
+                arguments += [option.flag, value]
+            }
+        }
+        let gatkArguments = request.command.arguments
+        if let flag = gatkArguments.firstIndex(of: "-L"), gatkArguments.indices.contains(flag + 1) {
+            arguments += ["--intervals", gatkArguments[flag + 1]]
+        }
+        let extra = request.options["extraArguments"]
+            .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
+        if !extra.isEmpty {
+            arguments += ["--extra-args", AdvancedCommandLineOptions.join(extra)]
+        }
+        return arguments
+    }
+
     /// Runs `arguments`, invoking `onEvent` for every progress/log line and
     /// returning the parsed completion fields on success.
     func run(
