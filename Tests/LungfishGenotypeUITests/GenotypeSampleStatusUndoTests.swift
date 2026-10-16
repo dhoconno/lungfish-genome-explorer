@@ -14,7 +14,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
 
     // MARK: - Audit trail in the store
 
-    func testSetSampleStatusRecordsThePriorStatusInBefore() throws {
+    func testSetSampleStatusRecordsThePriorStatusInBefore() async throws {
         let bundleURL = try makeBundleDirectory()
         defer { TestTempDirectory.cleanup(bundleURL.deletingLastPathComponent()) }
         let store = try GenotypeAnnotationStore(
@@ -23,9 +23,9 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             seedBuiltInSmartCohorts: false
         )
 
-        try store.setSampleStatus(.needsReview, sample: "AnimalA")
-        try store.setSampleStatus(.confirmed, sample: "AnimalA")
-        try store.setSampleStatus(.reviewed, sample: "AnimalB")
+        try await store.setSampleStatus(.needsReview, sample: "AnimalA")
+        try await store.setSampleStatus(.confirmed, sample: "AnimalA")
+        try await store.setSampleStatus(.reviewed, sample: "AnimalB")
 
         let audits = store.sidecar.auditLog.filter { $0.action == "setSampleStatus" }
         XCTAssertEqual(audits.map(\.sample), ["AnimalA", "AnimalA", "AnimalB"])
@@ -34,7 +34,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(try persistedSidecar(bundleURL).auditLog, store.sidecar.auditLog)
     }
 
-    func testSetCallStatusRecordsThePriorStatusOfTheSameSlot() throws {
+    func testSetCallStatusRecordsThePriorStatusOfTheSameSlot() async throws {
         let bundleURL = try makeBundleDirectory()
         defer { TestTempDirectory.cleanup(bundleURL.deletingLastPathComponent()) }
         let store = try GenotypeAnnotationStore(
@@ -43,9 +43,9 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             seedBuiltInSmartCohorts: false
         )
 
-        try store.setCallStatus(.needsReview, sample: "AnimalA", locus: "MHC-A", slot: .h1)
-        try store.setCallStatus(.confirmed, sample: "AnimalA", locus: "MHC-A", slot: .h2)
-        try store.setCallStatus(.reviewed, sample: "AnimalA", locus: "MHC-A", slot: .h1)
+        try await store.setCallStatus(.needsReview, sample: "AnimalA", locus: "MHC-A", slot: .h1)
+        try await store.setCallStatus(.confirmed, sample: "AnimalA", locus: "MHC-A", slot: .h2)
+        try await store.setCallStatus(.reviewed, sample: "AnimalA", locus: "MHC-A", slot: .h1)
 
         let audits = store.sidecar.auditLog.filter { $0.action == "setCallStatus" }
         XCTAssertEqual(audits.map(\.slot), [.h1, .h2, .h1])
@@ -53,7 +53,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(audits.map(\.after), ["needsReview", "confirmed", "reviewed"])
     }
 
-    func testClearSampleStatusRemovesTheFlagAndRecordsTheRemovedStatus() throws {
+    func testClearSampleStatusRemovesTheFlagAndRecordsTheRemovedStatus() async throws {
         let bundleURL = try makeBundleDirectory()
         defer { TestTempDirectory.cleanup(bundleURL.deletingLastPathComponent()) }
         let store = try GenotypeAnnotationStore(
@@ -61,10 +61,10 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             author: "analyst",
             seedBuiltInSmartCohorts: false
         )
-        try store.setSampleStatus(.confirmed, sample: "AnimalA")
-        try store.setSampleStatus(.reviewed, sample: "AnimalB")
+        try await store.setSampleStatus(.confirmed, sample: "AnimalA")
+        try await store.setSampleStatus(.reviewed, sample: "AnimalB")
 
-        try store.clearSampleStatus(sample: "AnimalA", author: "second analyst")
+        try await store.clearSampleStatus(sample: "AnimalA", author: "second analyst")
 
         XCTAssertEqual(store.sidecar.sampleStatusFlags.map(\.sample), ["AnimalB"])
         let audit = try XCTUnwrap(store.sidecar.auditLog.last)
@@ -78,7 +78,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(try persistedSidecar(bundleURL), store.sidecar)
     }
 
-    func testClearSampleStatusLeavesASampleWithoutAFlagAlone() throws {
+    func testClearSampleStatusLeavesASampleWithoutAFlagAlone() async throws {
         let bundleURL = try makeBundleDirectory()
         defer { TestTempDirectory.cleanup(bundleURL.deletingLastPathComponent()) }
         let store = try GenotypeAnnotationStore(
@@ -86,12 +86,12 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             author: "analyst",
             seedBuiltInSmartCohorts: false
         )
-        try store.setSampleStatus(.reviewed, sample: "AnimalB")
+        try await store.setSampleStatus(.reviewed, sample: "AnimalB")
         let sidecarBefore = store.sidecar
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
         let bytesBefore = try Data(contentsOf: annotationURL)
 
-        try store.clearSampleStatus(sample: "AnimalA")
+        try await store.clearSampleStatus(sample: "AnimalA")
 
         XCTAssertEqual(store.sidecar, sidecarBefore)
         XCTAssertEqual(try Data(contentsOf: annotationURL), bytesBefore)
@@ -99,8 +99,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
 
     // MARK: - Undo and Redo of the sample status commands
 
-    func testMarkSampleReviewedUndoesToNoStatusAndRedoes() throws {
-        try assertUndoAndRedo(
+    func testMarkSampleReviewedUndoesToNoStatusAndRedoes() async throws {
+        try await assertUndoAndRedo(
             priorStatus: nil,
             command: { $0.markSelectedSampleReviewed(nil) },
             status: .reviewed,
@@ -108,8 +108,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         )
     }
 
-    func testMarkSampleConfirmedUndoesToNoStatusAndRedoes() throws {
-        try assertUndoAndRedo(
+    func testMarkSampleConfirmedUndoesToNoStatusAndRedoes() async throws {
+        try await assertUndoAndRedo(
             priorStatus: nil,
             command: { $0.markSelectedSampleConfirmed(nil) },
             status: .confirmed,
@@ -117,8 +117,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         )
     }
 
-    func testFlagSampleForReviewUndoesToNoStatusAndRedoes() throws {
-        try assertUndoAndRedo(
+    func testFlagSampleForReviewUndoesToNoStatusAndRedoes() async throws {
+        try await assertUndoAndRedo(
             priorStatus: nil,
             command: { $0.flagSelectedSampleNeedsReview(nil) },
             status: .needsReview,
@@ -126,8 +126,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         )
     }
 
-    func testMarkSampleReviewedUndoesToThePriorStatusAndRedoes() throws {
-        try assertUndoAndRedo(
+    func testMarkSampleReviewedUndoesToThePriorStatusAndRedoes() async throws {
+        try await assertUndoAndRedo(
             priorStatus: .needsReview,
             command: { $0.markSelectedSampleReviewed(nil) },
             status: .reviewed,
@@ -135,8 +135,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         )
     }
 
-    func testMarkSampleConfirmedUndoesToThePriorStatusAndRedoes() throws {
-        try assertUndoAndRedo(
+    func testMarkSampleConfirmedUndoesToThePriorStatusAndRedoes() async throws {
+        try await assertUndoAndRedo(
             priorStatus: .reviewed,
             command: { $0.markSelectedSampleConfirmed(nil) },
             status: .confirmed,
@@ -144,8 +144,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         )
     }
 
-    func testFlagSampleForReviewUndoesToThePriorStatusAndRedoes() throws {
-        try assertUndoAndRedo(
+    func testFlagSampleForReviewUndoesToThePriorStatusAndRedoes() async throws {
+        try await assertUndoAndRedo(
             priorStatus: .confirmed,
             command: { $0.flagSelectedSampleNeedsReview(nil) },
             status: .needsReview,
@@ -153,8 +153,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         )
     }
 
-    func testCommandThatKeepsTheStatusRegistersNoUndo() throws {
-        let fixture = try makeHostedController(priorStatus: .reviewed)
+    func testCommandThatKeepsTheStatusRegistersNoUndo() async throws {
+        let fixture = try await makeHostedController(priorStatus: .reviewed)
         defer { fixture.tearDown() }
 
         performAsOneUserEvent(fixture.undoManager) {
@@ -174,8 +174,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(try persistedSidecar(fixture.bundleURL), sidecar)
     }
 
-    func testUndoWritesToTheBundleTheCommandChangedAfterTheViewerMovesOn() throws {
-        let fixture = try makeHostedController(priorStatus: .reviewed)
+    func testUndoWritesToTheBundleTheCommandChangedAfterTheViewerMovesOn() async throws {
+        let fixture = try await makeHostedController(priorStatus: .reviewed)
         defer { fixture.tearDown() }
         performAsOneUserEvent(fixture.undoManager) {
             fixture.controller.markSelectedSampleConfirmed(nil)
@@ -210,8 +210,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
     /// The viewer often reopens the bundle's annotation store. Undo must go
     /// through the store on screen so that store stays in step with the file
     /// and the next command still saves.
-    func testUndoAfterTheViewerReopensTheSameBundleKeepsItsStoreCurrent() throws {
-        let fixture = try makeHostedController(priorStatus: .reviewed)
+    func testUndoAfterTheViewerReopensTheSameBundleKeepsItsStoreCurrent() async throws {
+        let fixture = try await makeHostedController(priorStatus: .reviewed)
         defer { fixture.tearDown() }
         performAsOneUserEvent(fixture.undoManager) {
             fixture.controller.markSelectedSampleConfirmed(nil)
@@ -270,8 +270,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         actionName: String,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
-        let fixture = try makeHostedController(priorStatus: priorStatus)
+    ) async throws {
+        let fixture = try await makeHostedController(priorStatus: priorStatus)
         defer { fixture.tearDown() }
         var refreshedStatuses: [GenotypeAnnotationSidecar.StatusValue?] = []
         let reviewedSample = sample
@@ -373,15 +373,15 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
     /// command per `performAsOneUserEvent`, as AppKit groups one per event.
     private func makeHostedController(
         priorStatus: GenotypeAnnotationSidecar.StatusValue?
-    ) throws -> HostedController {
+    ) async throws -> HostedController {
         let bundleURL = try makeBundleDirectory()
         let seed = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "first analyst")
         if let priorStatus {
-            try seed.setSampleStatus(priorStatus, sample: sample)
+            try await seed.setSampleStatus(priorStatus, sample: sample)
         } else {
             // The tests read the sidecar before the first command, so the
             // bundle starts with the sidecar the viewer would show.
-            try seed.publishUnsavedBuiltInSmartCohorts()
+            try await seed.publishUnsavedBuiltInSmartCohorts()
         }
         let controller = makeManualHaplotypeGuardedController()
         controller.annotationAuthorProvider = { "second analyst" }

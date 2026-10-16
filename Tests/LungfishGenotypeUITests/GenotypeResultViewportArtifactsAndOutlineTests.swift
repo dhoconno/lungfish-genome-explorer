@@ -1040,7 +1040,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     }
 
 
-    func testTransitionToGenotypeOnlyClearsSmartCohortAndSkipsHaplotypeWork() throws {
+    func testTransitionToGenotypeOnlyClearsSmartCohortAndSkipsHaplotypeWork() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeCapabilityTransition")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1092,7 +1092,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
 
         controller.testingApplySmartCohort(cohort)
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
         XCTAssertNil(controller.testingActiveSmartCohort)
         XCTAssertEqual(controller.testingCohortSubjectBuildCount, 0)
         XCTAssertEqual(controller.testingHaplotypeWorkCount, 0)
@@ -2337,7 +2337,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testEvidenceRetainsProvisionalExonTwoAndAnnotationPresentation()
-        throws
+        async throws
     {
         let bundleURL = try TestTempDirectory.make(prefix: "EvidencePresentation")
         defer { TestTempDirectory.cleanup(bundleURL) }
@@ -2364,15 +2364,15 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             genotype: genotype,
             sample: "AnimalA"
         )
-        try store.addMatrixComment(
+        try await store.addMatrixComment(
             target: rowTarget,
             body: "Review provisional sequence"
         )
-        try store.addMatrixComment(
+        try await store.addMatrixComment(
             target: .column(sample: "AnimalA"),
             body: "Retained sample annotation"
         )
-        try store.addMatrixComment(
+        try await store.addMatrixComment(
             target: cellTarget,
             body: "Supported call needs review"
         )

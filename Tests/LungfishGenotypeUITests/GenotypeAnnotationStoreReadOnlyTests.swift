@@ -6,7 +6,7 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
-    func testReadOnlyVolumeSuppressesPersistAndStillShowsTheBuiltInCohorts() throws {
+    func testReadOnlyVolumeSuppressesPersistAndStillShowsTheBuiltInCohorts() async throws {
         // Construct a directory we then make read-only via chmod, exercising
         // the same code path a mounted-share bundle would hit.
         let dir = FileManager.default.temporaryDirectory
@@ -32,7 +32,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
                        "Read-only volume should not have a freshly-created sidecar")
 
         let before = store.sidecar
-        XCTAssertThrowsError(try store.applyOverride(
+        await XCTAssertThrowsErrorInIsolation(try await store.applyOverride(
             sample: "H1", locus: "MHC-A", slot: .h1,
             originalCall: "M2A", overrideCall: "A1_063",
             reasonTag: .crossContamination, rationale: ""
@@ -45,7 +45,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
                        "Read-only store should not have persisted to disk")
     }
 
-    func testCallOverrideBatchRejectsReadOnlyBeforeObservableMutation() throws {
+    func testCallOverrideBatchRejectsReadOnlyBeforeObservableMutation() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
         try FileManager.default.createDirectory(
@@ -64,7 +64,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
                 ONTGenotypeResultBundleManifest.filename
             )
         )
-        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try await GenotypeAnnotationStore(bundleURL: dir, author: "seed")
             .publishUnsavedBuiltInSmartCohorts()
         let annotationURL = dir.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
@@ -113,7 +113,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBefore)
     }
 
-    func testWritableVolumeSeedsInMemoryAndPersistsWithTheFirstEdit() throws {
+    func testWritableVolumeSeedsInMemoryAndPersistsWithTheFirstEdit() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -126,13 +126,13 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         // Opening writes nothing. The first edit writes the cohorts with itself.
         let sidecarPath = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename).path
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarPath))
-        try store.addSampleNote(sample: "Animal-1", body: "First edit")
+        try await store.addSampleNote(sample: "Animal-1", body: "First edit")
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarPath))
         let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: URL(fileURLWithPath: sidecarPath)))
         XCTAssertEqual(written.smartCohorts.count, store.sidecar.smartCohorts.count)
     }
 
-    func testManualHaplotypeReplacementRejectsReadOnlyWithoutMutation() throws {
+    func testManualHaplotypeReplacementRejectsReadOnlyWithoutMutation() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
         try FileManager.default.createDirectory(
@@ -151,7 +151,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
                 ONTGenotypeResultBundleManifest.filename
             )
         )
-        try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        try await GenotypeAnnotationStore(bundleURL: dir, author: "seed")
             .publishUnsavedBuiltInSmartCohorts()
         let annotationURL = dir.appendingPathComponent(
             GenotypeAnnotationSidecar.filename

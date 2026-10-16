@@ -142,7 +142,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
 
     // MARK: - The first real edit writes the built-ins with itself
 
-    func testFirstSampleNoteOnAFreshBundleWritesTheNoteAndTheBuiltInsInOneWrite() throws {
+    func testFirstSampleNoteOnAFreshBundleWritesTheNoteAndTheBuiltInsInOneWrite() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let counter = PublicationCounter()
@@ -154,7 +154,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         )
         XCTAssertEqual(counter.count, 0, "opening publishes nothing")
 
-        try store.addSampleNote(sample: "Animal-1", body: "First note")
+        try await store.addSampleNote(sample: "Animal-1", body: "First note")
 
         XCTAssertEqual(counter.count, 1, "the edit and the built-ins share one publication")
         let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
@@ -168,7 +168,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         XCTAssertEqual(reopened.sidecar, written)
     }
 
-    func testFirstSampleNoteOnACLIAnnotatedBundleWritesTheNoteAndTheBuiltInsInOneWrite() throws {
+    func testFirstSampleNoteOnACLIAnnotatedBundleWritesTheNoteAndTheBuiltInsInOneWrite() async throws {
         let layout = try makeCLIAnnotatedBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let counter = PublicationCounter()
@@ -181,7 +181,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         let priorDigest = sha256Hex(try Data(contentsOf: layout.annotationURL))
         let priorAuditCount = store.sidecar.auditLog.count
 
-        try store.addSampleNote(sample: "Animal-1", body: "First note")
+        try await store.addSampleNote(sample: "Animal-1", body: "First note")
 
         XCTAssertEqual(counter.count, 1)
         let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
@@ -193,7 +193,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         try assertFreshRecord(layout, action: "addSampleNote")
     }
 
-    func testFirstCohortSaveWritesTheBuiltInsAndTheSavedCohortTogether() throws {
+    func testFirstCohortSaveWritesTheBuiltInsAndTheSavedCohortTogether() async throws {
         let layout = try makeCLIAnnotatedBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let counter = PublicationCounter()
@@ -204,7 +204,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
             publicationFaultInjector: counter.inject
         )
 
-        try store.saveSmartCohort(GenotypeCohortSmartFilter(
+        try await store.saveSmartCohort(GenotypeCohortSmartFilter(
             name: "Analyst custom",
             scope: "bundle",
             isStarred: true,
@@ -221,7 +221,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
     /// The Haplotype Calls and Genotype Matrix switch no longer does, because
     /// it is app state (plan decision S11). A settings write is a real write,
     /// so it carries the built-ins and must not trip the revision guard.
-    func testASettingWriteCarriesTheBuiltInsAndKeepsTheRevisionGuardQuiet() throws {
+    func testASettingWriteCarriesTheBuiltInsAndKeepsTheRevisionGuardQuiet() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let counter = PublicationCounter()
@@ -232,7 +232,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
             publicationFaultInjector: counter.inject
         )
 
-        try store.updateSettings { $0.activeHaplotypeDefinitionSetID = "analyst-definitions" }
+        try await store.updateSettings { $0.activeHaplotypeDefinitionSetID = "analyst-definitions" }
 
         XCTAssertEqual(counter.count, 1)
         let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
@@ -243,13 +243,13 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         try assertFreshRecord(layout, action: "updateSettings")
     }
 
-    func testTheNextEditAfterTheFirstDoesNotRewriteTheBuiltInsTwice() throws {
+    func testTheNextEditAfterTheFirstDoesNotRewriteTheBuiltInsTwice() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try openLikeTheController(layout)
-        try store.addSampleNote(sample: "Animal-1", body: "One")
+        try await store.addSampleNote(sample: "Animal-1", body: "One")
 
-        try store.addSampleNote(sample: "Animal-1", body: "Two")
+        try await store.addSampleNote(sample: "Animal-1", body: "Two")
 
         let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(written.smartCohorts.map(\.name), Self.builtInNames)
@@ -260,12 +260,12 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
 
     /// Since plan decision S13 the deletion is recorded as a dismissal, so the
     /// cohort does not come back from memory on the next open either.
-    func testADeletedBuiltInIsNotWrittenBackByOpeningAndStaysDeleted() throws {
+    func testADeletedBuiltInIsNotWrittenBackByOpeningAndStaysDeleted() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let first = try openLikeTheController(layout)
-        try first.addSampleNote(sample: "Animal-1", body: "First note")
-        try first.deleteSmartCohort(name: "Homozygous", scope: "bundle")
+        try await first.addSampleNote(sample: "Animal-1", body: "First note")
+        try await first.deleteSmartCohort(name: "Homozygous", scope: "bundle")
         XCTAssertFalse(first.sidecar.smartCohorts.map(\.name).contains("Homozygous"))
         let before = try GenotypeBundleTreeSnapshot.entries(of: layout.root)
 
@@ -304,7 +304,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
             "the cohort list in the window must not change"
         )
 
-        try store.addSampleNote(sample: "Animal-1", body: "Later note")
+        try await store.addSampleNote(sample: "Animal-1", body: "Later note")
 
         let afterNote = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(afterNote.smartCohorts.map(\.name), Self.builtInNames)
@@ -312,7 +312,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         XCTAssertEqual(afterNote.sampleNotes.map(\.body), ["Later note"])
     }
 
-    func testARejectedMatrixEditKeepsTheBuiltInsAndPublishesNothing() throws {
+    func testARejectedMatrixEditKeepsTheBuiltInsAndPublishesNothing() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try openLikeTheController(layout)
@@ -320,7 +320,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
             locus: "MHC-A1", genotype: "A", sample: "Animal-1"
         )
 
-        XCTAssertThrowsError(try store.setMatrixReviewSynchronously(
+        await XCTAssertThrowsErrorInIsolation(try await store.setMatrixReviewSynchronously(
             .falsePositive,
             targets: [target],
             evidence: .init([target: 0]),
@@ -371,7 +371,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
 
     // MARK: - A refused write
 
-    func testARefusedWriteKeepsTheUnsavedBuiltInsInTheView() throws {
+    func testARefusedWriteKeepsTheUnsavedBuiltInsInTheView() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try openLikeTheController(layout)
@@ -384,7 +384,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         try external.encoded().write(to: layout.annotationURL)
         let before = try GenotypeBundleTreeSnapshot.entries(of: layout.root)
 
-        XCTAssertThrowsError(try store.addSampleNote(sample: "Animal-1", body: "Refused"))
+        await XCTAssertThrowsErrorInIsolation(try await store.addSampleNote(sample: "Animal-1", body: "Refused"))
 
         // The refused write took the publication lock, which leaves its empty
         // lock file beside the bundle. Nothing else changed.
@@ -394,7 +394,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         XCTAssertEqual(store.sidecar.sampleNotes.map(\.body), ["Written elsewhere"])
         XCTAssertEqual(store.sidecar.smartCohorts.map(\.name), Self.builtInNames)
         // The store caught up with the file, so the next edit goes through.
-        try store.addSampleNote(sample: "Animal-1", body: "Accepted")
+        try await store.addSampleNote(sample: "Animal-1", body: "Accepted")
         let written = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(written.sampleNotes.map(\.body), ["Written elsewhere", "Accepted"])
         XCTAssertEqual(written.smartCohorts.map(\.name), Self.builtInNames)

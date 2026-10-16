@@ -5,7 +5,7 @@ import LungfishIO
 import LungfishWorkflow
 
 extension GenotypeAnnotationStore {
-    struct ProvenanceEditContext {
+    struct ProvenanceEditContext: Sendable {
         var explicitOptions: [String: ParameterValue]
         var resolvedDefaults: [String: ParameterValue]
         var resolvedAuthor: String?
@@ -42,11 +42,14 @@ extension GenotypeAnnotationStore {
         return try GenotypeAnnotationSidecar.decode(data)
     }
 
-    func annotationPublicationPayload(
+    /// Builds the pair a publication writes. It reads no state of the store, so it runs on the
+    /// thread that publishes (2.11 S35).
+    nonisolated func annotationPublicationPayload(
         sidecar: GenotypeAnnotationSidecar,
         action: String,
         editContext: ProvenanceEditContext?,
         snapshot: GenotypeAnnotationPublicationSnapshot,
+        unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter],
         startedAt: Date,
         endedAt: Date
     ) throws -> GenotypeAnnotationPublicationPayload {
@@ -61,6 +64,7 @@ extension GenotypeAnnotationStore {
             priorData: snapshot.annotationData,
             output: output,
             editContext: editContext,
+            unsavedBuiltInSmartCohorts: unsavedBuiltInSmartCohorts,
             startedAt: startedAt,
             endedAt: endedAt
         )
@@ -79,7 +83,7 @@ extension GenotypeAnnotationStore {
         return try GenotypeAnnotationPublicationPayload(annotationData: annotationData, provenanceData: JSONSerialization.data(withJSONObject: encoded, options: [.sortedKeys]))
     }
 
-    private func provenanceDescriptor(
+    private nonisolated func provenanceDescriptor(
         data: Data,
         url: URL,
         role: FileRole
@@ -94,13 +98,14 @@ extension GenotypeAnnotationStore {
         )
     }
 
-    private func makeAnnotationProvenance(
+    private nonisolated func makeAnnotationProvenance(
         sidecar: GenotypeAnnotationSidecar,
         action: String,
         annotationURL: URL,
         priorData: Data?,
         output: ProvenanceFileDescriptor,
         editContext: ProvenanceEditContext?,
+        unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter],
         startedAt: Date,
         endedAt: Date
     ) throws -> ProvenanceEnvelope {
@@ -114,7 +119,9 @@ extension GenotypeAnnotationStore {
         if let editContext {
             explicitOptions.merge(editContext.explicitOptions) { _, payload in payload }
         }
-        explicitOptions.merge(seededBuiltInSmartCohortOptions(publishing: sidecar)) { current, _ in current }
+        explicitOptions.merge(Self.seededBuiltInSmartCohortOptions(unsavedBuiltInSmartCohorts, publishing: sidecar)) {
+            current, _ in current
+        }
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let durableReplayArgv: [String]?
         if editContext?.callOverrideReplayPayload != nil {
@@ -307,7 +314,7 @@ extension GenotypeAnnotationStore {
         )
     }
 
-    func sha256Hex(_ data: Data) -> String {
+    nonisolated func sha256Hex(_ data: Data) -> String {
         reportPublicationStage(.digest)
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }

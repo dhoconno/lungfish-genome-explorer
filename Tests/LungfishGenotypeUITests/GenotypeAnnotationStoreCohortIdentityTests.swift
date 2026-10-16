@@ -54,7 +54,7 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         XCTAssertEqual(try onDisk(layout).smartCohorts.map(\.id), [nil])
     }
 
-    func testTheFirstSaveStoresTheDerivedIDOfEveryCohortInTheFile() throws {
+    func testTheFirstSaveStoresTheDerivedIDOfEveryCohortInTheFile() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         try writeSidecar(layout, cohorts: [Self.cohort("Analyst custom"), Self.cohort("Other"), Self.cohort("Analyst custom")])
@@ -62,7 +62,7 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         XCTAssertEqual(Set(derivedBefore).count, 3)
         let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: false)
 
-        try store.addSampleNote(sample: "Animal-1", body: "First note")
+        try await store.addSampleNote(sample: "Animal-1", body: "First note")
 
         let saved = try onDisk(layout)
         XCTAssertEqual(saved.smartCohorts.map(\.id), derivedBefore.map { Optional($0) })
@@ -79,7 +79,7 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         try await store.upsertMatrixComment(body: "Replayed", targets: [.column(sample: "Animal-1")], author: "analyst")
 
         XCTAssertEqual(try onDisk(layout).smartCohorts.map(\.id), [nil], "a replayed edit publishes exactly its replayed result")
-        try store.addSampleNote(sample: "Animal-1", body: "A whole-sidecar save")
+        try await store.addSampleNote(sample: "Animal-1", body: "A whole-sidecar save")
         XCTAssertEqual(
             try onDisk(layout).smartCohorts.map(\.id),
             [GenotypeCohortSmartFilter.derivedID(scope: "bundle", name: "Analyst custom")].map { Optional($0) }
@@ -88,63 +88,64 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
 
     // MARK: - Delete, restore and rename
 
-    func testDeletingAndRestoringABuiltInKeepsEveryIDAndGivesTheRestoredCohortItsFixedID() throws {
+    func testDeletingAndRestoringABuiltInKeepsEveryIDAndGivesTheRestoredCohortItsFixedID() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
-        try store.saveSmartCohort(Self.cohort("Analyst custom"))
+        try await store.saveSmartCohort(Self.cohort("Analyst custom"))
         let before = try idsByName(layout)
         XCTAssertEqual(before.count, 5)
         XCTAssertEqual(before["Homozygous"], Self.builtInIDs[2])
 
-        try store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
 
         var expected = before
         expected["Homozygous"] = nil
         XCTAssertEqual(try idsByName(layout), expected, "no other cohort changes its id")
 
-        XCTAssertEqual(try store.restoreBuiltInSmartCohorts(), ["Homozygous"])
+        let restored1 = try await store.restoreBuiltInSmartCohorts()
+        XCTAssertEqual(restored1, ["Homozygous"])
 
         XCTAssertEqual(try idsByName(layout), before, "the restored cohort has the id it had, at the end of the list")
     }
 
-    func testANewCohortStoresTheIDDerivedFromItsScopeAndNameAndSavingItAgainKeepsIt() throws {
+    func testANewCohortStoresTheIDDerivedFromItsScopeAndNameAndSavingItAgainKeepsIt() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: false)
         let derived = GenotypeCohortSmartFilter.derivedID(scope: "bundle", name: "Analyst custom")
 
-        try store.saveSmartCohort(Self.cohort("Analyst custom"))
+        try await store.saveSmartCohort(Self.cohort("Analyst custom"))
         XCTAssertEqual(try idsByName(layout), ["Analyst custom": derived.uuidString])
 
         var changed = Self.cohort("Analyst custom")
         changed.predicate = .hasErrorAtAnyLocus
-        try store.saveSmartCohort(changed)
+        try await store.saveSmartCohort(changed)
 
         let saved = try onDisk(layout)
         XCTAssertEqual(saved.smartCohorts.map(\.id), [derived])
         XCTAssertEqual(saved.smartCohorts.first?.predicate, .hasErrorAtAnyLocus)
     }
 
-    func testASavedCohortThatIsRenamedInTheFileKeepsItsIDThroughTheNextSave() throws {
+    func testASavedCohortThatIsRenamedInTheFileKeepsItsIDThroughTheNextSave() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let first = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
-        try first.addSampleNote(sample: "Animal-1", body: "First note")
+        try await first.addSampleNote(sample: "Animal-1", body: "First note")
         var sidecar = try onDisk(layout)
         XCTAssertEqual(sidecar.smartCohorts.map { $0.id?.uuidString }, Self.builtInIDs.map { Optional($0) })
         sidecar.smartCohorts[1].name = "Needs review (strict)"
         try sidecar.encoded().write(to: layout.annotationURL)
 
         let second = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: false)
-        try second.addSampleNote(sample: "Animal-1", body: "Second note")
+        try await second.addSampleNote(sample: "Animal-1", body: "Second note")
 
         let saved = try onDisk(layout)
         XCTAssertEqual(saved.smartCohorts.map(\.name), ["Incomplete haplotypes", "Needs review (strict)", "Homozygous", "Recombinants"])
         XCTAssertEqual(saved.smartCohorts.map { $0.id?.uuidString }, Self.builtInIDs.map { Optional($0) })
     }
 
-    func testARenamedBuiltInIsNeitherSeededNorRestoredAgainUnderItsOldName() throws {
+    func testARenamedBuiltInIsNeitherSeededNorRestoredAgainUnderItsOldName() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         var renamed = GenotypeAnnotationStore.builtInSmartCohorts[1]
@@ -154,8 +155,9 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
 
         XCTAssertEqual(store.sidecar.smartCohorts.map(\.name), ["Needs review (strict)", "Incomplete haplotypes", "Homozygous", "Recombinants"])
-        XCTAssertEqual(try store.restoreBuiltInSmartCohorts(), [])
-        try store.addSampleNote(sample: "Animal-1", body: "A whole-sidecar save")
+        let restored2 = try await store.restoreBuiltInSmartCohorts()
+        XCTAssertEqual(restored2, [])
+        try await store.addSampleNote(sample: "Animal-1", body: "A whole-sidecar save")
         let ids = try onDisk(layout).smartCohorts.compactMap(\.id)
         XCTAssertEqual(ids.count, 4)
         XCTAssertEqual(Set(ids).count, 4, "no id is stored twice")
@@ -163,13 +165,13 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
 
     // MARK: - A cohort edit that is the first save
 
-    func testADeleteThatIsTheFirstSaveStoresTheIDsTheExportDerivedBeforeIt() throws {
+    func testADeleteThatIsTheFirstSaveStoresTheIDsTheExportDerivedBeforeIt() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let derived = try writeOlderSidecarWithTwins(layout)
         let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
 
-        try store.deleteSmartCohort(name: "Other", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Other", scope: "bundle")
 
         let saved = try onDisk(layout)
         XCTAssertEqual(saved.smartCohorts.map(\.name), ["Errors", "Errors", "Late"] + Self.builtInNames)
@@ -177,13 +179,13 @@ final class GenotypeAnnotationStoreCohortIdentityTests: XCTestCase {
         XCTAssertEqual(saved.smartCohorts.dropFirst(3).map { $0.id?.uuidString }, Self.builtInIDs.map { Optional($0) })
     }
 
-    func testANewCohortThatIsTheFirstSaveKeepsEveryIDTheExportDerived() throws {
+    func testANewCohortThatIsTheFirstSaveKeepsEveryIDTheExportDerived() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let derived = try writeOlderSidecarWithTwins(layout)
         let store = try GenotypeAnnotationStore(bundleURL: layout.bundleURL, author: "analyst", seedBuiltInSmartCohorts: true)
 
-        try store.saveSmartCohort(Self.cohort("New"))
+        try await store.saveSmartCohort(Self.cohort("New"))
 
         let saved = try onDisk(layout)
         XCTAssertEqual(Array(saved.smartCohorts.prefix(4).map(\.id)), derived.map { Optional($0) })

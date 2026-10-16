@@ -65,7 +65,7 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
 
     /// The Inspector builds its rows from the sidecar, so a saved filter's
     /// sidecar must reach it before the mark, or the mark finds no row.
-    func testASavedFiltersSidecarReachesTheInspectorBeforeItsMark() throws {
+    func testASavedFiltersSidecarReachesTheInspectorBeforeItsMark() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = configuredController(fixture)
@@ -74,7 +74,7 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
         controller.onActiveSmartCohortChanged = { events.append("mark " + ($0?.name ?? "none")) }
         controller.testingSetUnifiedSampleFilter("AnimalA")
 
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
 
         XCTAssertEqual(events, ["sidecar Filter: AnimalA", "mark Filter: AnimalA"])
     }

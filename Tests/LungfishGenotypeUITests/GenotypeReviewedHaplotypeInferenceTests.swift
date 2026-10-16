@@ -320,7 +320,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
     /// haplotype editor of a haplotyped MiSeq bundle. A false positive another
     /// writer stored must change the live calls after Reload exactly as it does
     /// after a stale publication, and the review capability must be republished.
-    func testEffectiveEditorReloadReinfersCallsAndRepublishesReviewCapability() throws {
+    func testEffectiveEditorReloadReinfersCallsAndRepublishesReviewCapability() async throws {
         let root = try TestTempDirectory.make(prefix: "EffectiveEditorReloadReinference")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
@@ -374,13 +374,13 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         )
         let column = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
-        try concurrent.setMatrixReviewSynchronously(
+        try await concurrent.setMatrixReviewSynchronously(
             .falsePositive,
             targets: [target],
             evidence: GenotypeMatrixEvidenceIndex([target: 3]),
             author: "other"
         )
-        try concurrent.upsertMatrixCommentSynchronously(body: "concurrent", targets: [column], author: "other")
+        try await concurrent.upsertMatrixCommentSynchronously(body: "concurrent", targets: [column], author: "other")
 
         controller.testingReloadEffectiveHaplotypeEditor()
 
@@ -403,7 +403,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
     /// The same recovery for the effective editor. With no store held, Reload
     /// reopens it from disk and re-infers the live calls from the reloaded
     /// reviews instead of failing (the wave-1 review of D5c).
-    func testEffectiveEditorReloadReopensTheStoreWhenTheControllerHoldsNone() throws {
+    func testEffectiveEditorReloadReopensTheStoreWhenTheControllerHoldsNone() async throws {
         let root = try TestTempDirectory.make(prefix: "EffectiveEditorReloadWithoutStore")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
@@ -446,7 +446,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             sample: "AnimalA"
         )
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
-        try concurrent.setMatrixReviewSynchronously(
+        try await concurrent.setMatrixReviewSynchronously(
             .falsePositive,
             targets: [target],
             evidence: GenotypeMatrixEvidenceIndex([target: 3]),

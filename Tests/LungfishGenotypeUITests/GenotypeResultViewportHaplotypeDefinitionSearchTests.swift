@@ -1145,7 +1145,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
     }
 
 
-    func testSavingSharedSearchMaterializesDisplayedAliasAndSamplePriorityStableIDs() throws {
+    func testSavingSharedSearchMaterializesDisplayedAliasAndSamplePriorityStableIDs() async throws {
         let allele007 = "01_Mafa_A1_INTERNAL_007"
         let allele007b = "01_Mafa_A1_INTERNAL_007B"
         let coincidental1178 = "04_Mafa_B_1178_MARKER"
@@ -1182,7 +1182,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             alleleFieldKey: alleleField.key
         )
 
-        func savedIDs(for query: String) throws -> [String] {
+        func savedIDs(for query: String) async throws -> [String] {
             let root = try TestTempDirectory.make(prefix: "GenotypeSavedSharedSearch")
             defer { TestTempDirectory.cleanup(root) }
             let bundleURL = root.appendingPathComponent(
@@ -1203,7 +1203,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
                 referenceMetadata: metadata
             ))
             controller.testingSetQuickFilterSearchText(query)
-            try controller.testingSaveCurrentFilterAsSmartCohort()
+            try await controller.testingSaveCurrentFilterAsSmartCohort()
             let sidecar = try GenotypeAnnotationStore(
                 bundleURL: bundleURL,
                 author: "test"
@@ -1217,18 +1217,14 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             return ids
         }
 
-        XCTAssertEqual(
-            try savedIDs(for: "A1*007"),
-            ["CR1178", "CR1178b"]
-        )
-        XCTAssertEqual(
-            try savedIDs(for: "1178"),
-            ["CR1178", "CR1178b"]
-        )
+        let alleleIDs = try await savedIDs(for: "A1*007")
+        XCTAssertEqual(alleleIDs, ["CR1178", "CR1178b"])
+        let numberIDs = try await savedIDs(for: "1178")
+        XCTAssertEqual(numberIDs, ["CR1178", "CR1178b"])
     }
 
 
-    func testSavingFilterPreservesActiveProjectionAndNewSearchOverridesIt() throws {
+    func testSavingFilterPreservesActiveProjectionAndNewSearchOverridesIt() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeSavedProjection")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
@@ -1257,7 +1253,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             searchProjectionText: "A1*001"
         ))
 
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
         var sidecar = try GenotypeAnnotationStore(
             bundleURL: bundleURL,
             author: "test"
@@ -1265,7 +1261,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
         XCTAssertEqual(sidecar.smartCohorts.last?.searchProjectionText, "A1*001")
 
         controller.testingSetQuickFilterSearchText("AnimalA")
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
         sidecar = try GenotypeAnnotationStore(
             bundleURL: bundleURL,
             author: "test"
@@ -2669,12 +2665,12 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
     }
 
 
-    func testMatrixVisibilityActionsDoNotMutateBundleArtifactsOrAudit() throws {
+    func testMatrixVisibilityActionsDoNotMutateBundleArtifactsOrAudit() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeVisibilityNoMutation")
         defer { TestTempDirectory.cleanup(root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 12)
-        try GenotypeAnnotationStore(bundleURL: root, author: "seed")
+        try await GenotypeAnnotationStore(bundleURL: root, author: "seed")
             .publishUnsavedBuiltInSmartCohorts()
         let annotationsURL = root.appendingPathComponent(
             GenotypeAnnotationSidecar.filename

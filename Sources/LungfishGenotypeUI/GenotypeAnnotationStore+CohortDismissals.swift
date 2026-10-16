@@ -45,7 +45,10 @@ extension GenotypeAnnotationStore {
     /// The record option naming the built-in cohorts that `sidecar`, as it is
     /// published, writes to the bundle for the first time. Empty for an edit
     /// that writes none, such as a replayed edit, which starts from the file.
-    func seededBuiltInSmartCohortOptions(publishing sidecar: GenotypeAnnotationSidecar) -> [String: ParameterValue] {
+    nonisolated static func seededBuiltInSmartCohortOptions(
+        _ unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter],
+        publishing sidecar: GenotypeAnnotationSidecar
+    ) -> [String: ParameterValue] {
         let seeded = unsavedBuiltInSmartCohorts.filter { sidecar.smartCohorts.contains($0) }
         guard !seeded.isEmpty else { return [:] }
         return ["seededBuiltInSmartCohorts": .array(seeded.map { .string($0.name) })]
@@ -65,27 +68,29 @@ extension GenotypeAnnotationStore {
     /// - Returns: The names it brought back. When there is nothing to restore
     ///   it writes nothing.
     @discardableResult
-    func restoreBuiltInSmartCohorts(author editAuthor: String? = nil) throws -> [String] {
-        let dismissed = sidecar.settings.dismissedBuiltInSmartCohorts ?? []
-        let restored = Self.builtInSmartCohortsMissing(from: sidecar)
-        guard !restored.isEmpty || !dismissed.isEmpty else { return [] }
-        let author = editAuthor ?? self.author
-        let names = restored.map(\.name)
-        try publishWholeSidecar(action: "restoreBuiltInSmartCohorts", options: [
-            "restoredBuiltInSmartCohorts": .array(names.map(ParameterValue.string)),
-            "clearedDismissals": .array(dismissed.map(ParameterValue.string)),
-        ]) { sidecar in
-            sidecar.smartCohorts.append(contentsOf: restored)
-            sidecar.settings.dismissedBuiltInSmartCohorts = nil
-            sidecar.append(audit: .init(
-                action: "restoreBuiltInSmartCohorts", sample: "bundle", locus: nil, slot: nil,
-                before: dismissed.isEmpty ? nil : dismissed.joined(separator: ", "),
-                after: names.joined(separator: ", "),
-                color: nil, reason: "smartCohort", rationale: nil,
-                author: author, timestamp: now()
-            ))
+    func restoreBuiltInSmartCohorts(author editAuthor: String? = nil) async throws -> [String] {
+        return try await publicationChain.run {
+            let dismissed = sidecar.settings.dismissedBuiltInSmartCohorts ?? []
+            let restored = Self.builtInSmartCohortsMissing(from: sidecar)
+            guard !restored.isEmpty || !dismissed.isEmpty else { return [] }
+            let author = editAuthor ?? self.author
+            let names = restored.map(\.name)
+            try await publishWholeSidecar(action: "restoreBuiltInSmartCohorts", options: [
+                "restoredBuiltInSmartCohorts": .array(names.map(ParameterValue.string)),
+                "clearedDismissals": .array(dismissed.map(ParameterValue.string)),
+            ]) { sidecar in
+                sidecar.smartCohorts.append(contentsOf: restored)
+                sidecar.settings.dismissedBuiltInSmartCohorts = nil
+                sidecar.append(audit: .init(
+                    action: "restoreBuiltInSmartCohorts", sample: "bundle", locus: nil, slot: nil,
+                    before: dismissed.isEmpty ? nil : dismissed.joined(separator: ", "),
+                    after: names.joined(separator: ", "),
+                    color: nil, reason: "smartCohort", rationale: nil,
+                    author: author, timestamp: now()
+                ))
+            }
+            return names
         }
-        return names
     }
 
     private static func builtInSmartCohortsMissing(from sidecar: GenotypeAnnotationSidecar) -> [GenotypeCohortSmartFilter] {

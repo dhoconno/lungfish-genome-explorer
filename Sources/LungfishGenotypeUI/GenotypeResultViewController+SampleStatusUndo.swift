@@ -36,18 +36,25 @@ extension GenotypeResultViewController {
         let shownStore = annotationStore.flatMap {
             $0.bundleURL.standardizedFileURL.path == bundleURL.standardizedFileURL.path ? $0 : nil
         }
+        let author = annotationAuthorProvider()
+        let store: GenotypeAnnotationStore
         do {
-            let author = annotationAuthorProvider()
-            let store = try shownStore ?? GenotypeAnnotationStore(
+            store = try shownStore ?? GenotypeAnnotationStore(
                 bundleURL: bundleURL,
                 author: author,
                 seedBuiltInSmartCohorts: false
             )
+        } catch {
+            presentSheetAlert(error: error)
+            return
+        }
+        // The edit publishes away from the main actor and the refresh follows it (2.11 S35 M2a).
+        store.beginEdit { [self] in
             let previous = store.sidecar.sampleStatusFlags.first { $0.sample == sample }?.value
             if let value {
-                try store.setSampleStatus(value, sample: sample, author: author)
+                try await store.setSampleStatus(value, sample: sample, author: author)
             } else {
-                try store.clearSampleStatus(sample: sample, author: author)
+                try await store.clearSampleStatus(sample: sample, author: author)
             }
             if previous != value, let undoManager = view.window?.undoManager {
                 undoManager.registerUndo(withTarget: self) { target in
@@ -60,11 +67,14 @@ extension GenotypeResultViewController {
                 }
                 undoManager.setActionName(name)
             }
-        } catch {
+            if shownStore != nil {
+                refreshAfterSampleStatusChange()
+            }
+        } onFailure: { [self] error in
             presentSheetAlert(error: error)
-        }
-        if shownStore != nil {
-            refreshAfterSampleStatusChange()
+            if shownStore != nil {
+                refreshAfterSampleStatusChange()
+            }
         }
     }
 }

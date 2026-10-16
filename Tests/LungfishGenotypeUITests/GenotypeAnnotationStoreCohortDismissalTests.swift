@@ -16,13 +16,13 @@ import LungfishWorkflow
 final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
     private static let builtInNames = ["Incomplete haplotypes", "Needs review", "Homozygous", "Recombinants"]
 
-    func testADeletedBuiltInStaysDeletedAfterReopenAndReopeningWritesNothing() throws {
+    func testADeletedBuiltInStaysDeletedAfterReopenAndReopeningWritesNothing() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try open(layout)
-        try store.addSampleNote(sample: "Animal-1", body: "First note")
+        try await store.addSampleNote(sample: "Animal-1", body: "First note")
 
-        try store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
 
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(onDisk.smartCohorts.map(\.name), ["Incomplete haplotypes", "Needs review", "Recombinants"])
@@ -37,24 +37,24 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: layout.root), before)
     }
 
-    func testTheFirstEditThatWritesTheBuiltInsNamesThemInItsRecordAndTheNextNamesNone() throws {
+    func testTheFirstEditThatWritesTheBuiltInsNamesThemInItsRecordAndTheNextNamesNone() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try open(layout)
 
-        try store.addSampleNote(sample: "Animal-1", body: "First note")
+        try await store.addSampleNote(sample: "Animal-1", body: "First note")
         try assertRecord(layout, action: "addSampleNote", seeded: Self.builtInNames)
 
-        try store.addSampleNote(sample: "Animal-1", body: "Second note")
+        try await store.addSampleNote(sample: "Animal-1", body: "Second note")
         try assertRecord(layout, action: "addSampleNote", seeded: nil)
     }
 
-    func testDeletingAnUnsavedBuiltInFirstSeedsOnlyTheOthersAndNamesThem() throws {
+    func testDeletingAnUnsavedBuiltInFirstSeedsOnlyTheOthersAndNamesThem() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try open(layout)
 
-        try store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
 
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(onDisk.smartCohorts.map(\.name), ["Incomplete haplotypes", "Needs review", "Recombinants"])
@@ -64,15 +64,15 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
         XCTAssertEqual(try open(layout).sidecar.smartCohorts.map(\.name), onDisk.smartCohorts.map(\.name))
     }
 
-    func testRestoreBringsTheDismissedBuiltInsBackWithItsOwnRecordedEdit() throws {
+    func testRestoreBringsTheDismissedBuiltInsBackWithItsOwnRecordedEdit() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try open(layout)
-        try store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
-        try store.deleteSmartCohort(name: "Needs review", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Needs review", scope: "bundle")
         XCTAssertTrue(store.canRestoreBuiltInSmartCohorts)
 
-        let restored = try store.restoreBuiltInSmartCohorts(author: "reviewer")
+        let restored = try await store.restoreBuiltInSmartCohorts(author: "reviewer")
 
         XCTAssertEqual(restored, ["Needs review", "Homozygous"])
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
@@ -94,19 +94,20 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
         XCTAssertEqual(Set(try open(layout).sidecar.smartCohorts.map(\.name)), Set(Self.builtInNames))
     }
 
-    func testRestoreWithNothingToRestoreWritesNothing() throws {
+    func testRestoreWithNothingToRestoreWritesNothing() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try open(layout)
         let before = try GenotypeBundleTreeSnapshot.entries(of: layout.root)
 
         XCTAssertFalse(store.canRestoreBuiltInSmartCohorts)
-        XCTAssertEqual(try store.restoreBuiltInSmartCohorts(), [])
+        let restored1 = try await store.restoreBuiltInSmartCohorts()
+        XCTAssertEqual(restored1, [])
 
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: layout.root), before)
     }
 
-    func testAnAnalystCohortWithABuiltInsNameIsNeverReplacedBySeedingOrRestore() throws {
+    func testAnAnalystCohortWithABuiltInsNameIsNeverReplacedBySeedingOrRestore() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let own = GenotypeCohortSmartFilter(
@@ -122,7 +123,8 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
         XCTAssertEqual(store.sidecar.smartCohorts.map(\.name), ["Homozygous", "Incomplete haplotypes", "Needs review"])
         XCTAssertEqual(store.sidecar.smartCohorts.first, own)
 
-        XCTAssertEqual(try store.restoreBuiltInSmartCohorts(), ["Recombinants"])
+        let restored2 = try await store.restoreBuiltInSmartCohorts()
+        XCTAssertEqual(restored2, ["Recombinants"])
 
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertEqual(onDisk.smartCohorts.map(\.name), ["Homozygous", "Incomplete haplotypes", "Needs review", "Recombinants"])
@@ -133,36 +135,36 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
         try assertRecord(layout, action: "restoreBuiltInSmartCohorts", seeded: ["Incomplete haplotypes", "Needs review"])
     }
 
-    func testDeletingAnAnalystCohortWithABuiltInsNameStaysDeleted() throws {
+    func testDeletingAnAnalystCohortWithABuiltInsNameStaysDeleted() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try open(layout)
-        try store.saveSmartCohort(GenotypeCohortSmartFilter(
+        try await store.saveSmartCohort(GenotypeCohortSmartFilter(
             name: "Homozygous", scope: "bundle", isStarred: false, predicate: .hasAnyComment
         ))
         try assertRecord(layout, action: "saveSmartCohort", seeded: ["Incomplete haplotypes", "Needs review", "Recombinants"])
 
-        try store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
 
         XCTAssertFalse(try open(layout).sidecar.smartCohorts.map(\.name).contains("Homozygous"))
     }
 
-    func testDeletingAnAnalystCohortRecordsNoDismissal() throws {
+    func testDeletingAnAnalystCohortRecordsNoDismissal() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try open(layout)
-        try store.saveSmartCohort(GenotypeCohortSmartFilter(
+        try await store.saveSmartCohort(GenotypeCohortSmartFilter(
             name: "Analyst custom", scope: "bundle", isStarred: true, predicate: .hasErrorAtAnyLocus
         ))
 
-        try store.deleteSmartCohort(name: "Analyst custom", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Analyst custom", scope: "bundle")
 
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: layout.annotationURL))
         XCTAssertNil(onDisk.settings.dismissedBuiltInSmartCohorts)
         XCTAssertEqual(onDisk.smartCohorts.map(\.name), Self.builtInNames)
     }
 
-    func testAReadOnlyBundleDeletesAndRestoresForTheSessionOnly() throws {
+    func testAReadOnlyBundleDeletesAndRestoresForTheSessionOnly() async throws {
         try XCTSkipIf(getuid() == 0, "a read-only folder is writable to root")
         let layout = try makeFreshBundle()
         defer {
@@ -173,9 +175,10 @@ final class GenotypeAnnotationStoreCohortDismissalTests: XCTestCase {
         let store = try open(layout)
         let before = try GenotypeBundleTreeSnapshot.entries(of: layout.root)
 
-        try store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Homozygous", scope: "bundle")
         XCTAssertFalse(store.sidecar.smartCohorts.map(\.name).contains("Homozygous"))
-        XCTAssertEqual(try store.restoreBuiltInSmartCohorts(), ["Homozygous"])
+        let restored3 = try await store.restoreBuiltInSmartCohorts()
+        XCTAssertEqual(restored3, ["Homozygous"])
 
         XCTAssertTrue(store.sidecar.smartCohorts.map(\.name).contains("Homozygous"))
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: layout.root), before)

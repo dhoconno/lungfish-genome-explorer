@@ -188,7 +188,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
         )
     }
 
-    func testGenotypeOnlyDocumentHidesCohortsWithoutRewritingPreseededSidecar() throws {
+    func testGenotypeOnlyDocumentHidesCohortsWithoutRewritingPreseededSidecar() async throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "inspector-genotype-only-cohorts-\(UUID().uuidString).lungfishgenotype",
@@ -209,7 +209,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
         try sidecar.encoded().write(to: annotationURL)
         // Opening a store writes nothing now, so the sidecar gets its built-in
         // cohorts through an explicit publish before the Inspector looks at it.
-        try GenotypeAnnotationStore(bundleURL: bundleURL, author: "test")
+        try await GenotypeAnnotationStore(bundleURL: bundleURL, author: "test")
             .publishUnsavedBuiltInSmartCohorts()
         let bytesBeforeOpen = try Data(contentsOf: annotationURL)
         let call = ONTGenotypeCall(

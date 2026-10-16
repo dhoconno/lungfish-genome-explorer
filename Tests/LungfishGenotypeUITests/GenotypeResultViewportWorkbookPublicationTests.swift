@@ -359,7 +359,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testFailedNativeSidecarPublicationSurfacesErrorWithoutDeferredMutation() throws {
+    func testFailedNativeSidecarPublicationSurfacesErrorWithoutDeferredMutation() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixWorkbookPublicationFailure")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -369,7 +369,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
-        try concurrent.addMatrixComment(target: target, body: "concurrent")
+        try await concurrent.addMatrixComment(target: target, body: "concurrent")
         var surfacedError: Error?
         controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
 
@@ -380,7 +380,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testStalePublicationReloadsAndPublishesExactConcurrentAnnotationUnionOnly() throws {
+    func testStalePublicationReloadsAndPublishesExactConcurrentAnnotationUnionOnly() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixStaleExactUnion")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -415,17 +415,17 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         ))
 
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
-        try concurrent.setMatrixStyle(
+        try await concurrent.setMatrixStyle(
             target: styled,
             style: .init(fillColor: "#FFEEDD")
         )
-        try concurrent.setMatrixReviewSynchronously(
+        try await concurrent.setMatrixReviewSynchronously(
             .falsePositive,
             targets: [reviewed],
             evidence: GenotypeMatrixEvidenceIndex([reviewed: 10]),
             author: "other"
         )
-        try concurrent.upsertMatrixCommentSynchronously(
+        try await concurrent.upsertMatrixCommentSynchronously(
             body: "concurrent",
             targets: [commented],
             author: "other"
@@ -457,7 +457,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testStalePublicationReappliesActiveSearchAfterReloadingConcurrentComment() throws {
+    func testStalePublicationReappliesActiveSearchAfterReloadingConcurrentComment() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixStaleSearchComment")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -484,7 +484,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
 
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
-        try concurrent.upsertMatrixCommentSynchronously(
+        try await concurrent.upsertMatrixCommentSynchronously(
             body: "concurrent-search-note",
             targets: [matchingTarget],
             author: "other"
@@ -506,7 +506,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testStaleAnnotationFailureReconcilesCandidateDisplayOnlySidecarChangeIntoMatrix() throws {
+    func testStaleAnnotationFailureReconcilesCandidateDisplayOnlySidecarChangeIntoMatrix() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixStaleCandidateDisplay")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -538,7 +538,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
         var latestSettings = concurrent.sidecar.settings.mhcCandidateDisplay
         latestSettings.showKnown = false
-        try concurrent.updateMHCCandidateDisplaySettings(latestSettings)
+        try await concurrent.updateMHCCandidateDisplaySettings(latestSettings)
         var surfacedError: Error?
         controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
         controller.testingResetMatrixReloadCounters()
@@ -649,7 +649,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     /// controller holds no store while the editor stays mounted, and Reload
     /// is the user's recovery. It reopens the store from disk and reconciles
     /// every surface instead of failing (the wave-1 review of D5c).
-    func testManualEditorReloadReopensTheStoreWhenTheControllerHoldsNone() throws {
+    func testManualEditorReloadReopensTheStoreWhenTheControllerHoldsNone() async throws {
         let root = try TestTempDirectory.make(prefix: "ManualEditorReloadWithoutStore")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -669,7 +669,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         controller.onMatrixReviewCapabilityChanged = { capabilities.append($0) }
         controller.onAnnotationSidecarChanged = { sidecars.append($0) }
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
-        try concurrent.upsertMatrixCommentSynchronously(body: "concurrent", targets: [column], author: "other")
+        try await concurrent.upsertMatrixCommentSynchronously(body: "concurrent", targets: [column], author: "other")
         controller.testingRemoveEffectiveHaplotypeAnnotationStore()
 
         editor.reload()
@@ -679,7 +679,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         XCTAssertEqual(capabilities.last?.commentsByTarget[column]?.body, "concurrent")
     }
 
-    func testManualEditorReloadRedrawsChangedCellsAndRepublishesReviewCapability() throws {
+    func testManualEditorReloadRedrawsChangedCellsAndRepublishesReviewCapability() async throws {
         let root = try TestTempDirectory.make(prefix: "ManualEditorReloadReconcile")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -713,13 +713,13 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
         // Another window reviews a cell and comments on the selected column.
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
-        try concurrent.setMatrixReviewSynchronously(
+        try await concurrent.setMatrixReviewSynchronously(
             .falsePositive,
             targets: [reviewed],
             evidence: GenotypeMatrixEvidenceIndex([reviewed: 10]),
             author: "other"
         )
-        try concurrent.upsertMatrixCommentSynchronously(
+        try await concurrent.upsertMatrixCommentSynchronously(
             body: "concurrent",
             targets: [column],
             author: "other"

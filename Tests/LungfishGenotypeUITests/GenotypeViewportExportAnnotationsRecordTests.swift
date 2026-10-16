@@ -68,12 +68,12 @@ final class GenotypeViewportExportAnnotationsRecordTests: GenotypeResultViewport
         )
     }
 
-    func testTheRecordSaysTheFileEqualsTheCaptureOnceAnEditSavedTheBuiltIns() throws {
+    func testTheRecordSaysTheFileEqualsTheCaptureOnceAnEditSavedTheBuiltIns() async throws {
         let (root, bundleURL) = try makeBundleFolder()
         defer { TestTempDirectory.cleanup(root) }
         let controller = configuredController(bundleURL: bundleURL)
         let store = try XCTUnwrap(controller.annotationStore)
-        try store.addSampleNote(sample: "AnimalA", body: "Saved with the built-ins")
+        try await store.addSampleNote(sample: "AnimalA", body: "Saved with the built-ins")
 
         let captured = try capturedAnnotationsData(of: controller)
 

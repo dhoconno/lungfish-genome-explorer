@@ -18,7 +18,7 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
     private static let staleMessage =
         "The genotype annotations changed in another process. Reload the bundle before saving this edit."
 
-    func testTwoEditsInARowPublishBoth() throws {
+    func testTwoEditsInARowPublishBoth() async throws {
         let bundle = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: bundle) }
         let publications = PublicationCount()
@@ -29,9 +29,9 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
             publicationFaultInjector: publications.inject
         )
 
-        try store.setSampleStatus(.reviewed, sample: "Animal-1")
+        try await store.setSampleStatus(.reviewed, sample: "Animal-1")
         let firstBytes = try Data(contentsOf: annotationURL(bundle))
-        try store.addSampleNote(sample: "Animal-2", body: "second edit")
+        try await store.addSampleNote(sample: "Animal-2", body: "second edit")
 
         XCTAssertEqual(publications.count, 2)
         let fileBytes = try Data(contentsOf: annotationURL(bundle))
@@ -51,10 +51,10 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
         XCTAssertEqual(record.outputs.first?.checksumSHA256, sha256Hex(fileBytes))
     }
 
-    func testStaleRevisionRefusesTheEditAndDropsNone() throws {
+    func testStaleRevisionRefusesTheEditAndDropsNone() async throws {
         let bundle = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: bundle) }
-        try GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
+        try await GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
         let other = try GenotypeAnnotationStore(bundleURL: bundle, author: "other")
         let publications = PublicationCount()
         let stale = try GenotypeAnnotationStore(
@@ -63,11 +63,11 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
             seedBuiltInSmartCohorts: true,
             publicationFaultInjector: publications.inject
         )
-        try other.setSampleStatus(.reviewed, sample: "Animal-1")
+        try await other.setSampleStatus(.reviewed, sample: "Animal-1")
         let otherAnnotation = try Data(contentsOf: annotationURL(bundle))
         let otherRecord = try Data(contentsOf: provenanceURL(bundle))
 
-        XCTAssertThrowsError(try stale.addSampleNote(sample: "Animal-2", body: "stale edit")) { error in
+        await XCTAssertThrowsErrorInIsolation(try await stale.addSampleNote(sample: "Animal-2", body: "stale edit")) { error in
             XCTAssertEqual(error.localizedDescription, Self.staleMessage)
         }
 
@@ -78,7 +78,7 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
         XCTAssertEqual(stale.sidecar.sampleStatusFlags.map(\.sample), ["Animal-1"])
         XCTAssertTrue(stale.sidecar.sampleNotes.isEmpty)
 
-        try stale.addSampleNote(sample: "Animal-2", body: "stale edit")
+        try await stale.addSampleNote(sample: "Animal-2", body: "stale edit")
 
         XCTAssertEqual(publications.count, 1)
         let file = try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL(bundle)))
@@ -92,6 +92,33 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
         let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL(bundle)))
         XCTAssertEqual(record.options.explicit["action"], .string("addSampleNote"))
         XCTAssertEqual(record.options.resolvedDefaults["author"], .string("stale"))
+    }
+
+    /// Two edits the UI starts in one turn, the second before the first has published, both
+    /// publish in the order they were made, and the edit controls hold until both end (2.11 S35, R4).
+    func testTwoEditsStartedTogetherPublishBothInOrder() async throws {
+        let bundle = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let publications = PublicationCount()
+        let store = try GenotypeAnnotationStore(
+            bundleURL: bundle,
+            author: "analyst",
+            seedBuiltInSmartCohorts: true,
+            publicationFaultInjector: publications.inject
+        )
+
+        store.beginEdit({ try await store.setSampleStatus(.reviewed, sample: "Animal-1") }, onFailure: { XCTFail("\($0)") })
+        store.beginEdit({ try await store.addSampleNote(sample: "Animal-2", body: "second edit") }, onFailure: { XCTFail("\($0)") })
+        XCTAssertTrue(store.isHoldingEdits)
+        await store.waitForEdits()
+
+        XCTAssertFalse(store.isHoldingEdits)
+        XCTAssertEqual(publications.count, 2)
+        let file = try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL(bundle)))
+        XCTAssertEqual(file.sampleStatusFlags.map(\.sample), ["Animal-1"])
+        XCTAssertEqual(file.sampleNotes.map(\.body), ["second edit"])
+        XCTAssertEqual(Array(file.auditLog.map(\.action).suffix(2)), ["setSampleStatus", "addSampleNote"])
+        XCTAssertEqual(store.sidecar, file)
     }
 
     // MARK: - Helpers

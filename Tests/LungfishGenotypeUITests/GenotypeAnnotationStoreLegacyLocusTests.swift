@@ -73,11 +73,11 @@ final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
         XCTAssertEqual(GenotypeMatrixTargetLocusAlias.empty.savedTargets(for: current), [])
     }
 
-    func testClearingAtTheCurrentLocusClearsTheLegacyReview() throws {
+    func testClearingAtTheCurrentLocusClearsTheLegacyReview() async throws {
         let (store, url) = try makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
 
-        try store.clearMatrixReviewSynchronously(targets: [current], author: "editor", locusAlias: alias)
+        try await store.clearMatrixReviewSynchronously(targets: [current], author: "editor", locusAlias: alias)
 
         XCTAssertEqual(store.sidecar.matrixReviews.map(\.target), [unrelated])
         XCTAssertEqual(try replayedSidecar(bundleURL: url), try publishedSidecar(bundleURL: url))
@@ -85,11 +85,11 @@ final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
         XCTAssertEqual(store.sidecar.smartCohorts.count, 4)
     }
 
-    func testSettingAtTheCurrentLocusReplacesTheLegacyReview() throws {
+    func testSettingAtTheCurrentLocusReplacesTheLegacyReview() async throws {
         let (store, url) = try makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
 
-        try store.setMatrixReviewSynchronously(
+        try await store.setMatrixReviewSynchronously(
             .falsePositive, targets: [current],
             evidence: GenotypeMatrixEvidenceIndex([current: 674]),
             author: "editor", locusAlias: alias
@@ -102,21 +102,21 @@ final class GenotypeAnnotationStoreLegacyLocusTests: XCTestCase {
         XCTAssertEqual(try replayedSidecar(bundleURL: url), try publishedSidecar(bundleURL: url))
     }
 
-    func testRemovingAtTheCurrentLocusRemovesTheLegacyComment() throws {
+    func testRemovingAtTheCurrentLocusRemovesTheLegacyComment() async throws {
         let (store, url) = try makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
 
-        try store.removeMatrixCommentsSynchronously(targets: [current], author: "editor", locusAlias: alias)
+        try await store.removeMatrixCommentsSynchronously(targets: [current], author: "editor", locusAlias: alias)
 
         XCTAssertEqual(store.sidecar.matrixComments, [])
         XCTAssertEqual(try replayedSidecar(bundleURL: url), try publishedSidecar(bundleURL: url))
     }
 
-    func testWithoutAnAliasTheLegacyEntriesStay() throws {
+    func testWithoutAnAliasTheLegacyEntriesStay() async throws {
         let (store, url) = try makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
 
-        try store.clearMatrixReviewSynchronously(targets: [current], author: "editor")
+        try await store.clearMatrixReviewSynchronously(targets: [current], author: "editor")
 
         XCTAssertEqual(store.sidecar.matrixReviews.map(\.target), [legacy, unrelated])
     }

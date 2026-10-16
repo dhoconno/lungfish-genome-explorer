@@ -3043,7 +3043,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testInspectorTwoSlotValidationFailurePublishesNothingAndDoesNotNotify() throws {
+    func testInspectorTwoSlotValidationFailurePublishesNothingAndDoesNotNotify() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeResultBatchValidation")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
@@ -3091,7 +3091,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             locus: "MHC-DP"
         )
         // The test compares sidecar bytes, so the bundle starts with a sidecar.
-        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
+        try await XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         let annotationURL = bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -4688,14 +4688,14 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testHaplotypedMiSeqNoOpPublishesNothing() throws {
+    func testHaplotypedMiSeqNoOpPublishesNothing() async throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         // The test compares sidecar bytes, so the bundle starts with a sidecar.
-        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
+        try await XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         var inspectorNotifications = 0
         controller.onAnnotationSidecarChanged = { _ in
             inspectorNotifications += 1
@@ -5079,7 +5079,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqPublicationFaultPreservesSynchronizedState()
-        throws {
+        async throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -5094,7 +5094,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         state.manualHaplotypeBandExpanded = true
         controller.testingApplyDisplayState(state)
         // The view switch writes only app state since plan decision S11, so publish the sidecar the edit reads.
-        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
+        try await XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         let matrix = try XCTUnwrap(
             controller.view.firstDescendant(
                 ofType: GenotypeComparisonMatrixView.self
@@ -5178,7 +5178,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqReadOnlyEditPreservesSynchronizedState()
-        throws {
+        async throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -5189,7 +5189,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         state.manualHaplotypeBandExpanded = true
         controller.testingApplyDisplayState(state)
         // The view switch writes only app state since plan decision S11, so publish the sidecar the edit reads.
-        try XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
+        try await XCTUnwrap(controller.annotationStore).publishUnsavedBuiltInSmartCohorts()
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o555],
             ofItemAtPath: fixture.bundleURL.path

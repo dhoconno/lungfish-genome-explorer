@@ -10,7 +10,7 @@ import os
 /// thread, and a Debug build logs it for the GUI walk.
 @MainActor
 final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
-    func testEachEditReportsItsEncodeDigestAndWrite() throws {
+    func testEachEditReportsItsEncodeDigestAndWrite() async throws {
         let bundle = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: bundle) }
         let recorder = StageRecorder()
@@ -22,7 +22,7 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
             publicationStageObserver: recorder.record
         )
 
-        try store.setSampleStatus(.reviewed, sample: "Animal-1")
+        try await store.setSampleStatus(.reviewed, sample: "Animal-1")
 
         let first = recorder.events
         XCTAssertEqual(Set(first.map(\.stage)), [.encode, .digest, .write])
@@ -30,7 +30,7 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
         XCTAssertEqual(first.last?.stage, .write)
         XCTAssertEqual(first.filter { $0.stage == .write }.count, 1)
 
-        try store.addSampleNote(sample: "Animal-2", body: "second edit")
+        try await store.addSampleNote(sample: "Animal-2", body: "second edit")
 
         let both = recorder.events
         XCTAssertEqual(both.filter { $0.stage == .encode }.count, 2)
@@ -38,10 +38,30 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
         XCTAssertEqual(both.last?.stage, .write)
     }
 
-    func testStaleRefusalReportsNoStep() throws {
+    /// The defect of 2.11 S35 M2a. Every encode, digest and write of two edits runs away from the main thread.
+    func testNoPublicationStepRunsOnTheMainThread() async throws {
         let bundle = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: bundle) }
-        try GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
+        let recorder = StageRecorder()
+        let store = try GenotypeAnnotationStore(
+            bundleURL: bundle,
+            author: "analyst",
+            seedBuiltInSmartCohorts: true,
+            publicationFaultInjector: nil,
+            publicationStageObserver: recorder.record
+        )
+
+        try await store.setSampleStatus(.reviewed, sample: "Animal-1")
+        try await store.addSampleNote(sample: "Animal-2", body: "second edit")
+
+        XCTAssertEqual(recorder.events.filter { $0.stage == .write }.count, 2)
+        XCTAssertEqual(recorder.events.filter(\.onMainThread), [])
+    }
+
+    func testStaleRefusalReportsNoStep() async throws {
+        let bundle = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        try await GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
         let other = try GenotypeAnnotationStore(bundleURL: bundle, author: "other")
         let recorder = StageRecorder()
         let stale = try GenotypeAnnotationStore(
@@ -51,9 +71,9 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
             publicationFaultInjector: nil,
             publicationStageObserver: recorder.record
         )
-        try other.setSampleStatus(.reviewed, sample: "Animal-1")
+        try await other.setSampleStatus(.reviewed, sample: "Animal-1")
 
-        XCTAssertThrowsError(try stale.addSampleNote(sample: "Animal-2", body: "stale edit"))
+        await XCTAssertThrowsErrorInIsolation(try await stale.addSampleNote(sample: "Animal-2", body: "stale edit"))
 
         XCTAssertEqual(recorder.events, [])
     }

@@ -119,7 +119,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
 
     /// Return saves from any field, so the analyst can save with the card's
     /// header scrolled out of the detail pane. The message still lands in view.
-    func testAFailedSaveMessageIsVisibleWithoutScrollingTheDetailPane() throws {
+    func testAFailedSaveMessageIsVisibleWithoutScrollingTheDetailPane() async throws {
         let fixture = try makeBundleWithSidecar()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeManualHaplotypeGuardedController()
@@ -158,7 +158,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
             scrollView.contentView.documentVisibleRect.intersects(headerTop()),
             "the card's header starts out of view"
         )
-        try writeSidecarFromAnotherProcess(fixture)
+        try await writeSidecarFromAnotherProcess(fixture)
 
         controller.testingSaveManualHaplotypeDraft()
         var frame = NSRect.zero
@@ -226,7 +226,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         controller.configure(result: fixture.result)
         controller.testingShowMatrixTargetSelection([.column(sample: sample)])
         controller.testingUpdateManualHaplotypeLabel("WALK3")
-        try writeSidecarFromAnotherProcess(fixture)
+        try await writeSidecarFromAnotherProcess(fixture)
         controller.testingSetManualHaplotypeDraftDecisionProvider { _ in .save }
         var panels = 0
         controller.excelSavePanelPresenter = { _, _, completion in
@@ -256,7 +256,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         controller.configure(result: fixture.result)
         controller.testingShowMatrixTargetSelection([.column(sample: sample)])
         controller.testingUpdateManualHaplotypeLabel("WALK3")
-        try writeSidecarFromAnotherProcess(fixture)
+        try await writeSidecarFromAnotherProcess(fixture)
         controller.testingSaveManualHaplotypeDraft()
         XCTAssertEqual(controller.testingManualHaplotypeEditorPersistenceError, staleMessage)
         controller.testingSetManualHaplotypeDraftDecisionProvider { _ in .cancel }
@@ -500,13 +500,13 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
 
     /// Another writer adds a note after the viewer opened its store, so the
     /// viewer's next save is refused as stale.
-    private func writeSidecarFromAnotherProcess(_ fixture: Fixture) throws {
+    private func writeSidecarFromAnotherProcess(_ fixture: Fixture) async throws {
         let other = try GenotypeAnnotationStore(
             bundleURL: fixture.bundleURL,
             author: "Other analyst",
             seedBuiltInSmartCohorts: false
         )
-        try other.addSampleNote(sample: sample, body: "Written elsewhere")
+        try await other.addSampleNote(sample: sample, body: "Written elsewhere")
     }
 
     private func descendant(of root: NSView, identifier: String) -> NSView? {

@@ -887,7 +887,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testControllerExportSnapshotIncludesSavedFilterContext() throws {
+    func testControllerExportSnapshotIncludesSavedFilterContext() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeExportContext")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
@@ -927,7 +927,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         ))
 
         controller.testingSetUnifiedSampleFilter("DW472")
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
         controller.testingSetUnifiedSampleFilter("")
         let snapshot = try controller.captureExcelExportSnapshot()
 
@@ -1362,7 +1362,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testSaveCurrentFilterPersistsMetadataSmartCohortWithAudit() throws {
+    func testSaveCurrentFilterPersistsMetadataSmartCohortWithAudit() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -1377,7 +1377,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         ))
         controller.testingSetUnifiedSampleFilter("Cohort=Kenyon20")
 
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
 
         let sidecar = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
         let saved = sidecar.smartCohorts.first { $0.name == "Filter: Cohort=Kenyon20" }
@@ -1387,7 +1387,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testSavedTextFilterRoundTripsAsMatrixRowFilter() throws {
+    func testSavedTextFilterRoundTripsAsMatrixRowFilter() async throws {
         let bundleURL = try TestTempDirectory.make(prefix: "SavedTextFilter")
         defer { TestTempDirectory.cleanup(bundleURL) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -1403,7 +1403,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
         ))
         controller.testingSetUnifiedSampleFilter("MHC-B")
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
         controller.testingSetUnifiedSampleFilter("")
 
         XCTAssertEqual(controller.testingVisibleGenotypes, ["04_Mafa_B_001_01"])
@@ -1862,7 +1862,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testHaplotypeMatrixUsesSavedTextFilterWhenQuickSearchIsCleared() throws {
+    func testHaplotypeMatrixUsesSavedTextFilterWhenQuickSearchIsCleared() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeSavedMatrixFilter")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
@@ -1929,7 +1929,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
 
         controller.testingSetUnifiedSampleFilter("MHC-B")
-        try controller.testingSaveCurrentFilterAsSmartCohort()
+        try await controller.testingSaveCurrentFilterAsSmartCohort()
         controller.testingSetUnifiedSampleFilter("")
 
         let text = controller.testingHaplotypeMatrixText
@@ -2378,7 +2378,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testUsingCustomHaplotypeDefinitionPersistsActiveDefinitionAndRefreshesCalls() throws {
+    func testUsingCustomHaplotypeDefinitionPersistsActiveDefinitionAndRefreshesCalls() async throws {
         let projectRoot = try TestTempDirectory.make(prefix: "GenotypeUseDefinition")
         defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
@@ -2414,7 +2414,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         ))
         XCTAssertNotEqual(controller.callEvidence(sample: "DW472", locus: "MHC-B")?.h1Name, "NewB")
 
-        try controller.testingUseHaplotypeDefinition(id: definitionID)
+        try await controller.testingUseHaplotypeDefinition(id: definitionID)
 
         let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-B"))
         XCTAssertEqual(evidence.h1Name, "NewB")

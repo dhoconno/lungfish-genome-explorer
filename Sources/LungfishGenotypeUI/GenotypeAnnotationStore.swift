@@ -7,11 +7,14 @@ import LungfishWorkflow
 
 enum GenotypeAnnotationStorePersistenceError: Error, LocalizedError {
     case staleRevision
+    case publicationInFlight
 
     var errorDescription: String? {
         switch self {
         case .staleRevision:
             return "The genotype annotations changed in another process. Reload the bundle before saving this edit."
+        case .publicationInFlight:
+            return "Another annotation edit is still being saved. Try again when it finishes."
         }
     }
 }
@@ -44,6 +47,9 @@ public final class GenotypeAnnotationStore {
     /// Where each encode, digest and write of a publication reports its thread (2.11 S35).
     @ObservationIgnored
     let publicationStageObserver: GenotypeAnnotationPublicationStageObserver?
+
+    /// The serial chain every edit publishes on (2.11 S35, plan S2).
+    let publicationChain = GenotypeAnnotationPublicationChain()
 
     @ObservationIgnored
     private let isoFormatter: ISO8601DateFormatter = {
@@ -124,20 +130,24 @@ public final class GenotypeAnnotationStore {
 
     /// Publishes the sidecar the analyst sees, built-in smart cohorts included,
     /// when it holds cohorts the bundle's file does not.
-    func publishUnsavedBuiltInSmartCohorts() throws {
-        guard !unsavedBuiltInSmartCohorts.isEmpty else { return }
-        try persist(action: "seedBuiltInSmartCohorts")
+    func publishUnsavedBuiltInSmartCohorts() async throws {
+        try await publicationChain.run {
+            guard !unsavedBuiltInSmartCohorts.isEmpty else { return }
+            try await persist(action: "seedBuiltInSmartCohorts")
+        }
     }
 
     /// Publishes the sidecar the analyst sees as it stands, cohorts or none.
     func publishViewedSidecar() throws {
-        try persist(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
+        try persistOnMainActor(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
     }
 
     /// Applies `edit` to the sidecar the analyst sees and publishes it whole, naming `options` in its record.
-    func publishWholeSidecar(action: String, options: [String: ParameterValue], _ edit: (inout GenotypeAnnotationSidecar) -> Void) throws {
-        edit(&sidecar)
-        try persist(action: action, editContext: options.isEmpty ? nil : ProvenanceEditContext(explicitOptions: options))
+    func publishWholeSidecar(action: String, options: [String: ParameterValue], _ edit: (inout GenotypeAnnotationSidecar) -> Void) async throws {
+        try await publicationChain.run {
+            edit(&sidecar)
+            try await persist(action: action, editContext: options.isEmpty ? nil : ProvenanceEditContext(explicitOptions: options))
+        }
     }
 
     func now() -> String { isoFormatter.string(from: Date()) }
@@ -146,24 +156,26 @@ public final class GenotypeAnnotationStore {
                        originalCall: String, overrideCall: String,
                        reasonTag: GenotypeAnnotationSidecar.OverrideReasonTag,
                        rationale: String,
-                       author editAuthor: String? = nil) throws {
-        _ = try mutateCallOverrides(
-            [
-                CallOverrideMutation(
-                    target: .init(
-                        sample: sample,
-                        locus: locus,
-                        slot: slot
+                       author editAuthor: String? = nil) async throws {
+        try await publicationChain.run {
+            _ = try mutateCallOverrides(
+                [
+                    CallOverrideMutation(
+                        target: .init(
+                            sample: sample,
+                            locus: locus,
+                            slot: slot
+                        ),
+                        baseline: originalCall,
+                        after: overrideCall,
+                        reason: reasonTag,
+                        rationale: rationale
                     ),
-                    baseline: originalCall,
-                    after: overrideCall,
-                    reason: reasonTag,
-                    rationale: rationale
-                ),
-            ],
-            author: editAuthor ?? self.author,
-            analysisIdentity: nil
-        )
+                ],
+                author: editAuthor ?? self.author,
+                analysisIdentity: nil
+            )
+        }
     }
 
     // MARK: - Lightweight status/annotation mutators (R3-R3ML-9)
@@ -192,115 +204,125 @@ public final class GenotypeAnnotationStore {
         h1: String,
         h2: String,
         author editAuthor: String? = nil
-    ) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        let diploidCall = "\(h1)/\(h2)"
-        sidecar.callStatusFlags.removeAll {
-            $0.sample == sample && $0.locus == locus && ($0.slot == .h1 || $0.slot == .h2)
+    ) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            let diploidCall = "\(h1)/\(h2)"
+            sidecar.callStatusFlags.removeAll {
+                $0.sample == sample && $0.locus == locus && ($0.slot == .h1 || $0.slot == .h2)
+            }
+            sidecar.callStatusFlags.append(.init(
+                sample: sample, locus: locus, slot: .h1,
+                value: .confirmed, author: author, timestamp: timestamp
+            ))
+            sidecar.callStatusFlags.append(.init(
+                sample: sample, locus: locus, slot: .h2,
+                value: .confirmed, author: author, timestamp: timestamp
+            ))
+            sidecar.append(audit: .init(
+                action: "confirmed", sample: sample, locus: locus, slot: nil,
+                before: diploidCall, after: diploidCall,
+                color: nil, reason: GenotypeAnnotationSidecar.OverrideReasonTag.confirmed.rawValue,
+                rationale: nil, author: author, timestamp: timestamp
+            ))
+            try await persist(action: "confirmCall")
         }
-        sidecar.callStatusFlags.append(.init(
-            sample: sample, locus: locus, slot: .h1,
-            value: .confirmed, author: author, timestamp: timestamp
-        ))
-        sidecar.callStatusFlags.append(.init(
-            sample: sample, locus: locus, slot: .h2,
-            value: .confirmed, author: author, timestamp: timestamp
-        ))
-        sidecar.append(audit: .init(
-            action: "confirmed", sample: sample, locus: locus, slot: nil,
-            before: diploidCall, after: diploidCall,
-            color: nil, reason: GenotypeAnnotationSidecar.OverrideReasonTag.confirmed.rawValue,
-            rationale: nil, author: author, timestamp: timestamp
-        ))
-        try persist(action: "confirmCall")
     }
 
     func setSampleStatus(
         _ value: GenotypeAnnotationSidecar.StatusValue,
         sample: String,
         author editAuthor: String? = nil
-    ) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        let previous = sidecar.sampleStatusFlags.first { $0.sample == sample }?.value
-        sidecar.sampleStatusFlags.removeAll { $0.sample == sample }
-        sidecar.sampleStatusFlags.append(.init(
-            sample: sample, value: value, author: author, timestamp: timestamp
-        ))
-        sidecar.append(audit: .init(
-            action: "setSampleStatus", sample: sample, locus: nil, slot: nil,
-            before: previous?.rawValue, after: value.rawValue,
-            color: nil, reason: nil, rationale: nil,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "setSampleStatus")
+    ) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            let previous = sidecar.sampleStatusFlags.first { $0.sample == sample }?.value
+            sidecar.sampleStatusFlags.removeAll { $0.sample == sample }
+            sidecar.sampleStatusFlags.append(.init(
+                sample: sample, value: value, author: author, timestamp: timestamp
+            ))
+            sidecar.append(audit: .init(
+                action: "setSampleStatus", sample: sample, locus: nil, slot: nil,
+                before: previous?.rawValue, after: value.rawValue,
+                color: nil, reason: nil, rationale: nil,
+                author: author, timestamp: timestamp
+            ))
+            try await persist(action: "setSampleStatus")
+        }
     }
 
     /// Removes the sample's status flag and records the removed value as the
     /// audit entry's `before`. A sample without a flag is left alone.
-    func clearSampleStatus(sample: String, author editAuthor: String? = nil) throws {
-        guard let previous = sidecar.sampleStatusFlags.first(where: { $0.sample == sample }) else {
-            return
+    func clearSampleStatus(sample: String, author editAuthor: String? = nil) async throws {
+        try await publicationChain.run {
+            guard let previous = sidecar.sampleStatusFlags.first(where: { $0.sample == sample }) else {
+                return
+            }
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            sidecar.sampleStatusFlags.removeAll { $0.sample == sample }
+            sidecar.append(audit: .init(
+                action: "clearSampleStatus", sample: sample, locus: nil, slot: nil,
+                before: previous.value.rawValue, after: nil,
+                color: nil, reason: nil, rationale: nil,
+                author: author, timestamp: timestamp
+            ))
+            try await persist(action: "clearSampleStatus")
         }
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        sidecar.sampleStatusFlags.removeAll { $0.sample == sample }
-        sidecar.append(audit: .init(
-            action: "clearSampleStatus", sample: sample, locus: nil, slot: nil,
-            before: previous.value.rawValue, after: nil,
-            color: nil, reason: nil, rationale: nil,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "clearSampleStatus")
     }
 
     func setCallStatus(_ value: GenotypeAnnotationSidecar.StatusValue,
                        sample: String, locus: String, slot: HaplotypeSlot,
-                       author editAuthor: String? = nil) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        let previous = sidecar.callStatusFlags.first {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
-        }?.value
-        sidecar.callStatusFlags.removeAll {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
+                       author editAuthor: String? = nil) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            let previous = sidecar.callStatusFlags.first {
+                $0.sample == sample && $0.locus == locus && $0.slot == slot
+            }?.value
+            sidecar.callStatusFlags.removeAll {
+                $0.sample == sample && $0.locus == locus && $0.slot == slot
+            }
+            sidecar.callStatusFlags.append(.init(
+                sample: sample, locus: locus, slot: slot,
+                value: value, author: author, timestamp: timestamp
+            ))
+            sidecar.append(audit: .init(
+                action: "setCallStatus", sample: sample, locus: locus, slot: slot,
+                before: previous?.rawValue, after: value.rawValue,
+                color: nil, reason: nil, rationale: nil,
+                author: author, timestamp: timestamp
+            ))
+            try await persist(action: "setCallStatus")
         }
-        sidecar.callStatusFlags.append(.init(
-            sample: sample, locus: locus, slot: slot,
-            value: value, author: author, timestamp: timestamp
-        ))
-        sidecar.append(audit: .init(
-            action: "setCallStatus", sample: sample, locus: locus, slot: slot,
-            before: previous?.rawValue, after: value.rawValue,
-            color: nil, reason: nil, rationale: nil,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "setCallStatus")
     }
 
     func setCellHighlight(sample: String, locus: String, slot: HaplotypeSlot,
                           fillHex: String?, borderHex: String?,
-                          author editAuthor: String? = nil) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        sidecar.cellHighlights.removeAll {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
-        }
-        if fillHex != nil || borderHex != nil {
-            sidecar.cellHighlights.append(.init(
-                sample: sample, locus: locus, slot: slot,
-                fillColor: fillHex, borderColor: borderHex,
+                          author editAuthor: String? = nil) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            sidecar.cellHighlights.removeAll {
+                $0.sample == sample && $0.locus == locus && $0.slot == slot
+            }
+            if fillHex != nil || borderHex != nil {
+                sidecar.cellHighlights.append(.init(
+                    sample: sample, locus: locus, slot: slot,
+                    fillColor: fillHex, borderColor: borderHex,
+                    author: author, timestamp: timestamp
+                ))
+            }
+            sidecar.append(audit: .init(
+                action: "setCellHighlight", sample: sample, locus: locus, slot: slot,
+                before: nil, after: nil, color: fillHex ?? borderHex,
+                reason: nil, rationale: nil,
                 author: author, timestamp: timestamp
             ))
+            try await persist(action: "setCellHighlight")
         }
-        sidecar.append(audit: .init(
-            action: "setCellHighlight", sample: sample, locus: locus, slot: slot,
-            before: nil, after: nil, color: fillHex ?? borderHex,
-            reason: nil, rationale: nil,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "setCellHighlight")
     }
 
     func addCellComment(
@@ -309,105 +331,115 @@ public final class GenotypeAnnotationStore {
         slot: HaplotypeSlot,
         body: String,
         author editAuthor: String? = nil
-    ) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        sidecar.cellComments.append(.init(
-            sample: sample, locus: locus, slot: slot,
-            body: body, author: author, timestamp: timestamp
-        ))
-        sidecar.append(audit: .init(
-            action: "addCellComment", sample: sample, locus: locus, slot: slot,
-            before: nil, after: nil, color: nil,
-            reason: nil, rationale: body, author: author, timestamp: timestamp
-        ))
-        try persist(action: "addCellComment")
+    ) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            sidecar.cellComments.append(.init(
+                sample: sample, locus: locus, slot: slot,
+                body: body, author: author, timestamp: timestamp
+            ))
+            sidecar.append(audit: .init(
+                action: "addCellComment", sample: sample, locus: locus, slot: slot,
+                before: nil, after: nil, color: nil,
+                reason: nil, rationale: body, author: author, timestamp: timestamp
+            ))
+            try await persist(action: "addCellComment")
+        }
     }
 
     func setMatrixStyle(
         target: GenotypeAnnotationSidecar.MatrixTarget,
         style: GenotypeAnnotationSidecar.MatrixStyle?,
         author editAuthor: String? = nil
-    ) throws {
-        try setMatrixStyles([(target: target, style: style)], author: editAuthor)
+    ) async throws {
+        try await publicationChain.run {
+            try await setMatrixStyles([(target: target, style: style)], author: editAuthor)
+        }
     }
 
     func setMatrixStyles(
         _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, style: GenotypeAnnotationSidecar.MatrixStyle?)],
         author editAuthor: String? = nil
-    ) throws {
-        guard !edits.isEmpty else { return }
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        for edit in edits {
-            let target = edit.target
-            let style = edit.style
-            let previous = sidecar.matrixStyles.first { $0.target == target }?.style
-            sidecar.matrixStyles.removeAll { $0.target == target }
-            if let style, !style.isEmpty {
-                sidecar.matrixStyles.append(.init(
-                    target: target,
-                    style: style,
+    ) async throws {
+        try await publicationChain.run {
+            guard !edits.isEmpty else { return }
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            for edit in edits {
+                let target = edit.target
+                let style = edit.style
+                let previous = sidecar.matrixStyles.first { $0.target == target }?.style
+                sidecar.matrixStyles.removeAll { $0.target == target }
+                if let style, !style.isEmpty {
+                    sidecar.matrixStyles.append(.init(
+                        target: target,
+                        style: style,
+                        author: author,
+                        timestamp: timestamp
+                    ))
+                }
+                sidecar.append(audit: .init(
+                    action: "setMatrixStyle",
+                    sample: target.auditSample,
+                    locus: target.locus,
+                    slot: nil,
+                    before: matrixStyleSummary(previous),
+                    after: matrixStyleSummary(style),
+                    color: style?.fillColor ?? style?.textColor ?? style?.borderColor,
+                    reason: "matrix-style",
+                    rationale: target.auditDescription,
                     author: author,
                     timestamp: timestamp
                 ))
             }
-            sidecar.append(audit: .init(
-                action: "setMatrixStyle",
-                sample: target.auditSample,
-                locus: target.locus,
-                slot: nil,
-                before: matrixStyleSummary(previous),
-                after: matrixStyleSummary(style),
-                color: style?.fillColor ?? style?.textColor ?? style?.borderColor,
-                reason: "matrix-style",
-                rationale: target.auditDescription,
-                author: author,
-                timestamp: timestamp
-            ))
+            try await persist(action: edits.count == 1 ? "setMatrixStyle" : "setMatrixStyles", editContext: matrixStyleEditContext(edits: edits))
         }
-        try persist(action: edits.count == 1 ? "setMatrixStyle" : "setMatrixStyles", editContext: matrixStyleEditContext(edits: edits))
     }
 
     func addMatrixComment(
         target: GenotypeAnnotationSidecar.MatrixTarget,
         body: String,
         author editAuthor: String? = nil
-    ) throws {
-        try addMatrixComments([(target: target, body: body)], author: editAuthor)
+    ) async throws {
+        try await publicationChain.run {
+            try await addMatrixComments([(target: target, body: body)], author: editAuthor)
+        }
     }
 
     func addMatrixComments(
         _ edits: [(target: GenotypeAnnotationSidecar.MatrixTarget, body: String)],
         author editAuthor: String? = nil
-    ) throws {
-        guard !edits.isEmpty else { return }
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        for edit in edits {
-            let target = edit.target
-            let body = edit.body
-            sidecar.matrixComments.append(.init(
-                target: target,
-                body: body,
-                author: author,
-                timestamp: timestamp
-            ))
-            sidecar.append(audit: .init(
-                action: "addMatrixComment",
-                sample: target.auditSample,
-                locus: target.locus,
-                slot: nil,
-                before: nil,
-                after: body,
-                color: nil,
-                reason: "matrix-comment",
-                rationale: target.auditDescription,
-                author: author,
-                timestamp: timestamp
-            ))
+    ) async throws {
+        try await publicationChain.run {
+            guard !edits.isEmpty else { return }
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            for edit in edits {
+                let target = edit.target
+                let body = edit.body
+                sidecar.matrixComments.append(.init(
+                    target: target,
+                    body: body,
+                    author: author,
+                    timestamp: timestamp
+                ))
+                sidecar.append(audit: .init(
+                    action: "addMatrixComment",
+                    sample: target.auditSample,
+                    locus: target.locus,
+                    slot: nil,
+                    before: nil,
+                    after: body,
+                    color: nil,
+                    reason: "matrix-comment",
+                    rationale: target.auditDescription,
+                    author: author,
+                    timestamp: timestamp
+                ))
+            }
+            try await persist(action: edits.count == 1 ? "addMatrixComment" : "addMatrixComments", editContext: matrixCommentEditContext(edits: edits))
         }
-        try persist(action: edits.count == 1 ? "addMatrixComment" : "addMatrixComments", editContext: matrixCommentEditContext(edits: edits))
     }
 
     public func setMatrixReview(
@@ -416,12 +448,14 @@ public final class GenotypeAnnotationStore {
         evidence: GenotypeMatrixEvidenceIndex,
         author: String
     ) async throws {
-        try setMatrixReviewSynchronously(
-            disposition,
-            targets: targets,
-            evidence: evidence,
-            author: author
-        )
+        try await publicationChain.run {
+            try await setMatrixReviewSynchronously(
+                disposition,
+                targets: targets,
+                evidence: evidence,
+                author: author
+            )
+        }
     }
 
     func setMatrixReviewSynchronously(
@@ -430,190 +464,196 @@ public final class GenotypeAnnotationStore {
         evidence: GenotypeMatrixEvidenceIndex,
         author: String,
         locusAlias: GenotypeMatrixTargetLocusAlias = .empty
-    ) throws {
-        let normalizedTargets = try normalizedMatrixTargets(targets)
-        guard normalizedTargets.allSatisfy({
-            if case .cell = $0 { return true }
-            return false
-        }) else {
-            throw GenotypeMatrixReviewMutationError.invalidReviewTargets
-        }
-        let editAuthor = author
-        var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
-        try transactMatrixMutation(action: "setMatrixReview") { latest, timestamp in
-            let supportedCount = normalizedTargets.reduce(0) {
-                $0 + (evidence.isSupported($1) ? 1 : 0)
-            }
-            let unsupportedCount = normalizedTargets.count - supportedCount
+    ) async throws {
+        try await publicationChain.run {
+            let normalizedTargets = try normalizedMatrixTargets(targets)
             guard normalizedTargets.allSatisfy({
-                GenotypeMatrixReviewEligibility.permits(disposition, rawSupport: evidence.passedUniqueReads(for: $0))
+                if case .cell = $0 { return true }
+                return false
             }) else {
-                throw GenotypeMatrixReviewMutationError.ineligibleEvidence
+                throw GenotypeMatrixReviewMutationError.invalidReviewTargets
             }
-
-            let legacyTargets = Self.legacyTargets(of: normalizedTargets, alias: locusAlias, saved: latest.matrixReviews.map(\.target))
-            let targetSet = Set(normalizedTargets + legacyTargets)
-            var retainedReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
-            retainedReviews.reserveCapacity(latest.matrixReviews.count)
-            var reviewsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]] = [:]
-            var existing: [GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewDisposition] = [:]
-            for review in latest.matrixReviews {
-                diagnostics.reviewRecordsExamined += 1
-                if targetSet.contains(review.target) {
-                    reviewsByTarget[review.target, default: []].append(review)
-                    existing[review.target] = review.disposition
-                } else {
-                    retainedReviews.append(review)
+            let editAuthor = author
+            var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
+            try await transactMatrixMutation(action: "setMatrixReview") { latest, timestamp in
+                let supportedCount = normalizedTargets.reduce(0) {
+                    $0 + (evidence.isSupported($1) ? 1 : 0)
                 }
-            }
-            Self.foldLegacyReviews(into: &existing, targets: normalizedTargets, alias: locusAlias)
-            let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
-            latest.matrixReviews = retainedReviews
-            var targetMutations = Self.legacyReviewRemovals(
-                legacyTargets, reviewsByTarget: reviewsByTarget, in: &latest, author: editAuthor, timestamp: timestamp)
-            for target in normalizedTargets {
-                let beforeReviews = reviewsByTarget[target] ?? []
-                let annotation = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
-                    target: target,
-                    disposition: disposition,
+                let unsupportedCount = normalizedTargets.count - supportedCount
+                guard normalizedTargets.allSatisfy({
+                    GenotypeMatrixReviewEligibility.permits(disposition, rawSupport: evidence.passedUniqueReads(for: $0))
+                }) else {
+                    throw GenotypeMatrixReviewMutationError.ineligibleEvidence
+                }
+
+                let legacyTargets = Self.legacyTargets(of: normalizedTargets, alias: locusAlias, saved: latest.matrixReviews.map(\.target))
+                let targetSet = Set(normalizedTargets + legacyTargets)
+                var retainedReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
+                retainedReviews.reserveCapacity(latest.matrixReviews.count)
+                var reviewsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]] = [:]
+                var existing: [GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewDisposition] = [:]
+                for review in latest.matrixReviews {
+                    diagnostics.reviewRecordsExamined += 1
+                    if targetSet.contains(review.target) {
+                        reviewsByTarget[review.target, default: []].append(review)
+                        existing[review.target] = review.disposition
+                    } else {
+                        retainedReviews.append(review)
+                    }
+                }
+                Self.foldLegacyReviews(into: &existing, targets: normalizedTargets, alias: locusAlias)
+                let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
+                latest.matrixReviews = retainedReviews
+                var targetMutations = Self.legacyReviewRemovals(
+                    legacyTargets, reviewsByTarget: reviewsByTarget, in: &latest, author: editAuthor, timestamp: timestamp)
+                for target in normalizedTargets {
+                    let beforeReviews = reviewsByTarget[target] ?? []
+                    let annotation = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
+                        target: target,
+                        disposition: disposition,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    latest.matrixReviews.append(annotation)
+                    let audit = GenotypeAnnotationSidecar.AuditEntry(
+                        action: "setMatrixReview",
+                        sample: target.auditSample,
+                        locus: target.locus,
+                        slot: nil,
+                        before: existing[target]?.rawValue,
+                        after: disposition.rawValue,
+                        color: nil,
+                        reason: "matrix-review",
+                        rationale: target.stableAuditDescription,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    latest.append(audit: audit)
+                    targetMutations.append(.init(
+                        target: target,
+                        beforeComments: nil,
+                        resolvedCurrentComment: nil,
+                        afterComments: nil,
+                        beforeReviews: beforeReviews,
+                        afterReviews: [annotation],
+                        canonicalizationAudits: [],
+                        actionAudit: audit
+                    ))
+                }
+                let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                    action: .setMatrixReview,
                     author: editAuthor,
-                    timestamp: timestamp
+                    timestamp: timestamp,
+                    targetMutations: targetMutations
                 )
-                latest.matrixReviews.append(annotation)
-                let audit = GenotypeAnnotationSidecar.AuditEntry(
-                    action: "setMatrixReview",
-                    sample: target.auditSample,
-                    locus: target.locus,
-                    slot: nil,
-                    before: existing[target]?.rawValue,
-                    after: disposition.rawValue,
-                    color: nil,
-                    reason: "matrix-review",
-                    rationale: target.stableAuditDescription,
+                return matrixSemanticEditContext(
+                    targets: normalizedTargets,
+                    beforeValues: beforeValues,
+                    afterValues: Array(repeating: disposition.rawValue, count: normalizedTargets.count),
                     author: editAuthor,
-                    timestamp: timestamp
+                    replayPayload: replayPayload,
+                    extra: [
+                        "disposition": .string(disposition.rawValue),
+                        "eligibilityRule": .string(
+                            disposition == .falsePositive
+                                ? "passedUniqueReads > 0"
+                                : "passedUniqueReads == 0 (attested)"
+                        ),
+                        "supportedCount": .integer(supportedCount),
+                        "unsupportedCount": .integer(unsupportedCount),
+                    ]
                 )
-                latest.append(audit: audit)
-                targetMutations.append(.init(
-                    target: target,
-                    beforeComments: nil,
-                    resolvedCurrentComment: nil,
-                    afterComments: nil,
-                    beforeReviews: beforeReviews,
-                    afterReviews: [annotation],
-                    canonicalizationAudits: [],
-                    actionAudit: audit
-                ))
             }
-            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
-                action: .setMatrixReview,
-                author: editAuthor,
-                timestamp: timestamp,
-                targetMutations: targetMutations
-            )
-            return matrixSemanticEditContext(
-                targets: normalizedTargets,
-                beforeValues: beforeValues,
-                afterValues: Array(repeating: disposition.rawValue, count: normalizedTargets.count),
-                author: editAuthor,
-                replayPayload: replayPayload,
-                extra: [
-                    "disposition": .string(disposition.rawValue),
-                    "eligibilityRule": .string(
-                        disposition == .falsePositive
-                            ? "passedUniqueReads > 0"
-                            : "passedUniqueReads == 0 (attested)"
-                    ),
-                    "supportedCount": .integer(supportedCount),
-                    "unsupportedCount": .integer(unsupportedCount),
-                ]
-            )
+            lastMatrixBulkMutationDiagnostics = diagnostics
         }
-        lastMatrixBulkMutationDiagnostics = diagnostics
     }
 
     public func clearMatrixReview(
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String
     ) async throws {
-        try clearMatrixReviewSynchronously(targets: targets, author: author)
+        try await publicationChain.run {
+            try await clearMatrixReviewSynchronously(targets: targets, author: author)
+        }
     }
 
     func clearMatrixReviewSynchronously(
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String,
         locusAlias: GenotypeMatrixTargetLocusAlias = .empty
-    ) throws {
-        let requestedTargets = try normalizedMatrixTargets(targets)
-        guard requestedTargets.allSatisfy({
-            if case .cell = $0 { return true }
-            return false
-        }) else {
-            throw GenotypeMatrixReviewMutationError.invalidReviewTargets
-        }
-        let editAuthor = author
-        var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
-        try transactMatrixMutation(action: "clearMatrixReview") { latest, timestamp in
-            let normalizedTargets = requestedTargets + Self.legacyTargets(of: requestedTargets, alias: locusAlias, saved: latest.matrixReviews.map(\.target))
-            let targetSet = Set(normalizedTargets)
-            var retainedReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
-            retainedReviews.reserveCapacity(latest.matrixReviews.count)
-            var reviewsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]] = [:]
-            var existing: [GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewDisposition] = [:]
-            for review in latest.matrixReviews {
-                diagnostics.reviewRecordsExamined += 1
-                if targetSet.contains(review.target) {
-                    reviewsByTarget[review.target, default: []].append(review)
-                    existing[review.target] = review.disposition
-                } else {
-                    retainedReviews.append(review)
+    ) async throws {
+        try await publicationChain.run {
+            let requestedTargets = try normalizedMatrixTargets(targets)
+            guard requestedTargets.allSatisfy({
+                if case .cell = $0 { return true }
+                return false
+            }) else {
+                throw GenotypeMatrixReviewMutationError.invalidReviewTargets
+            }
+            let editAuthor = author
+            var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
+            try await transactMatrixMutation(action: "clearMatrixReview") { latest, timestamp in
+                let normalizedTargets = requestedTargets + Self.legacyTargets(of: requestedTargets, alias: locusAlias, saved: latest.matrixReviews.map(\.target))
+                let targetSet = Set(normalizedTargets)
+                var retainedReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
+                retainedReviews.reserveCapacity(latest.matrixReviews.count)
+                var reviewsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]] = [:]
+                var existing: [GenotypeAnnotationSidecar.MatrixTarget: GenotypeAnnotationSidecar.MatrixReviewDisposition] = [:]
+                for review in latest.matrixReviews {
+                    diagnostics.reviewRecordsExamined += 1
+                    if targetSet.contains(review.target) {
+                        reviewsByTarget[review.target, default: []].append(review)
+                        existing[review.target] = review.disposition
+                    } else {
+                        retainedReviews.append(review)
+                    }
                 }
-            }
-            let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
-            latest.matrixReviews = retainedReviews
-            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
-            for target in normalizedTargets {
-                let beforeReviews = reviewsByTarget[target] ?? []
-                let audit = GenotypeAnnotationSidecar.AuditEntry(
-                    action: "clearMatrixReview",
-                    sample: target.auditSample,
-                    locus: target.locus,
-                    slot: nil,
-                    before: existing[target]?.rawValue,
-                    after: nil,
-                    color: nil,
-                    reason: "matrix-review",
-                    rationale: target.stableAuditDescription,
+                let beforeValues = normalizedTargets.map { existing[$0]?.rawValue }
+                latest.matrixReviews = retainedReviews
+                var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
+                for target in normalizedTargets {
+                    let beforeReviews = reviewsByTarget[target] ?? []
+                    let audit = GenotypeAnnotationSidecar.AuditEntry(
+                        action: "clearMatrixReview",
+                        sample: target.auditSample,
+                        locus: target.locus,
+                        slot: nil,
+                        before: existing[target]?.rawValue,
+                        after: nil,
+                        color: nil,
+                        reason: "matrix-review",
+                        rationale: target.stableAuditDescription,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    latest.append(audit: audit)
+                    targetMutations.append(.init(
+                        target: target,
+                        beforeComments: nil,
+                        resolvedCurrentComment: nil,
+                        afterComments: nil,
+                        beforeReviews: beforeReviews,
+                        afterReviews: [],
+                        canonicalizationAudits: [],
+                        actionAudit: audit
+                    ))
+                }
+                let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                    action: .clearMatrixReview,
                     author: editAuthor,
-                    timestamp: timestamp
+                    timestamp: timestamp,
+                    targetMutations: targetMutations
                 )
-                latest.append(audit: audit)
-                targetMutations.append(.init(
-                    target: target,
-                    beforeComments: nil,
-                    resolvedCurrentComment: nil,
-                    afterComments: nil,
-                    beforeReviews: beforeReviews,
-                    afterReviews: [],
-                    canonicalizationAudits: [],
-                    actionAudit: audit
-                ))
+                return matrixSemanticEditContext(
+                    targets: normalizedTargets,
+                    beforeValues: beforeValues,
+                    afterValues: Array(repeating: nil, count: normalizedTargets.count),
+                    author: editAuthor,
+                    replayPayload: replayPayload
+                )
             }
-            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
-                action: .clearMatrixReview,
-                author: editAuthor,
-                timestamp: timestamp,
-                targetMutations: targetMutations
-            )
-            return matrixSemanticEditContext(
-                targets: normalizedTargets,
-                beforeValues: beforeValues,
-                afterValues: Array(repeating: nil, count: normalizedTargets.count),
-                author: editAuthor,
-                replayPayload: replayPayload
-            )
+            lastMatrixBulkMutationDiagnostics = diagnostics
         }
-        lastMatrixBulkMutationDiagnostics = diagnostics
     }
 
     public func upsertMatrixComment(
@@ -621,280 +661,297 @@ public final class GenotypeAnnotationStore {
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String
     ) async throws {
-        try upsertMatrixCommentSynchronously(body: body, targets: targets, author: author)
+        try await publicationChain.run {
+            try await upsertMatrixCommentSynchronously(body: body, targets: targets, author: author)
+        }
     }
 
     func upsertMatrixCommentSynchronously(
         body: String,
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String
-    ) throws {
-        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw GenotypeMatrixReviewMutationError.emptyCommentBody
-        }
-        let normalizedTargets = try normalizedMatrixTargets(targets)
-        let editAuthor = author
-        var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
-        try transactMatrixMutation(action: "upsertMatrixComment") { latest, timestamp in
-            diagnostics.commentRecordsExamined += latest.matrixComments.count
-            let currentComments = latest.resolvedMatrixComments
-            let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
-            let targetSet = Set(normalizedTargets)
-            var retainedComments: [GenotypeAnnotationSidecar.MatrixComment] = []
-            retainedComments.reserveCapacity(latest.matrixComments.count)
-            var commentsByTarget: [
-                GenotypeAnnotationSidecar.MatrixTarget:
-                    [GenotypeAnnotationSidecar.MatrixComment]
-            ] = [:]
-            for comment in latest.matrixComments {
-                diagnostics.commentRecordsExamined += 1
-                if targetSet.contains(comment.target) {
-                    commentsByTarget[comment.target, default: []].append(comment)
-                } else {
-                    retainedComments.append(comment)
+    ) async throws {
+        try await publicationChain.run {
+            guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GenotypeMatrixReviewMutationError.emptyCommentBody
+            }
+            let normalizedTargets = try normalizedMatrixTargets(targets)
+            let editAuthor = author
+            var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
+            try await transactMatrixMutation(action: "upsertMatrixComment") { latest, timestamp in
+                diagnostics.commentRecordsExamined += latest.matrixComments.count
+                let currentComments = latest.resolvedMatrixComments
+                let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
+                let targetSet = Set(normalizedTargets)
+                var retainedComments: [GenotypeAnnotationSidecar.MatrixComment] = []
+                retainedComments.reserveCapacity(latest.matrixComments.count)
+                var commentsByTarget: [
+                    GenotypeAnnotationSidecar.MatrixTarget:
+                        [GenotypeAnnotationSidecar.MatrixComment]
+                ] = [:]
+                for comment in latest.matrixComments {
+                    diagnostics.commentRecordsExamined += 1
+                    if targetSet.contains(comment.target) {
+                        commentsByTarget[comment.target, default: []].append(comment)
+                    } else {
+                        retainedComments.append(comment)
+                    }
                 }
+                var representedHistory = matrixCommentHistoryIndex(
+                    latest.auditLog,
+                    recordsExamined: &diagnostics.auditRecordsExamined
+                )
+                latest.matrixComments = retainedComments
+                var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
+                for target in normalizedTargets {
+                    let beforeComments = commentsByTarget[target] ?? []
+                    let canonicalizationAudits = canonicalizeLegacyMatrixComments(
+                        in: &latest,
+                        target: target,
+                        comments: beforeComments,
+                        current: currentComments[target],
+                        representedHistory: &representedHistory,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    let comment = GenotypeAnnotationSidecar.MatrixComment(
+                        target: target,
+                        body: body,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    latest.matrixComments.append(comment)
+                    let audit = GenotypeAnnotationSidecar.AuditEntry(
+                        action: "upsertMatrixComment",
+                        sample: target.auditSample,
+                        locus: target.locus,
+                        slot: nil,
+                        before: currentComments[target]?.body,
+                        after: body,
+                        color: nil,
+                        reason: "matrix-comment",
+                        rationale: target.stableAuditDescription,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    latest.append(audit: audit)
+                    targetMutations.append(.init(
+                        target: target,
+                        beforeComments: beforeComments,
+                        resolvedCurrentComment: currentComments[target],
+                        afterComments: [comment],
+                        beforeReviews: nil,
+                        afterReviews: nil,
+                        canonicalizationAudits: canonicalizationAudits,
+                        actionAudit: audit
+                    ))
+                }
+                let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                    action: .upsertMatrixComment,
+                    author: editAuthor,
+                    timestamp: timestamp,
+                    targetMutations: targetMutations
+                )
+                return matrixSemanticEditContext(
+                    targets: normalizedTargets,
+                    beforeValues: beforeValues,
+                    afterValues: Array(repeating: body, count: normalizedTargets.count),
+                    author: editAuthor,
+                    replayPayload: replayPayload,
+                    extra: ["commentBody": .string(body)]
+                )
             }
-            var representedHistory = matrixCommentHistoryIndex(
-                latest.auditLog,
-                recordsExamined: &diagnostics.auditRecordsExamined
-            )
-            latest.matrixComments = retainedComments
-            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
-            for target in normalizedTargets {
-                let beforeComments = commentsByTarget[target] ?? []
-                let canonicalizationAudits = canonicalizeLegacyMatrixComments(
-                    in: &latest,
-                    target: target,
-                    comments: beforeComments,
-                    current: currentComments[target],
-                    representedHistory: &representedHistory,
-                    author: editAuthor,
-                    timestamp: timestamp
-                )
-                let comment = GenotypeAnnotationSidecar.MatrixComment(
-                    target: target,
-                    body: body,
-                    author: editAuthor,
-                    timestamp: timestamp
-                )
-                latest.matrixComments.append(comment)
-                let audit = GenotypeAnnotationSidecar.AuditEntry(
-                    action: "upsertMatrixComment",
-                    sample: target.auditSample,
-                    locus: target.locus,
-                    slot: nil,
-                    before: currentComments[target]?.body,
-                    after: body,
-                    color: nil,
-                    reason: "matrix-comment",
-                    rationale: target.stableAuditDescription,
-                    author: editAuthor,
-                    timestamp: timestamp
-                )
-                latest.append(audit: audit)
-                targetMutations.append(.init(
-                    target: target,
-                    beforeComments: beforeComments,
-                    resolvedCurrentComment: currentComments[target],
-                    afterComments: [comment],
-                    beforeReviews: nil,
-                    afterReviews: nil,
-                    canonicalizationAudits: canonicalizationAudits,
-                    actionAudit: audit
-                ))
-            }
-            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
-                action: .upsertMatrixComment,
-                author: editAuthor,
-                timestamp: timestamp,
-                targetMutations: targetMutations
-            )
-            return matrixSemanticEditContext(
-                targets: normalizedTargets,
-                beforeValues: beforeValues,
-                afterValues: Array(repeating: body, count: normalizedTargets.count),
-                author: editAuthor,
-                replayPayload: replayPayload,
-                extra: ["commentBody": .string(body)]
-            )
+            lastMatrixBulkMutationDiagnostics = diagnostics
         }
-        lastMatrixBulkMutationDiagnostics = diagnostics
     }
 
     public func removeMatrixComments(
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String
     ) async throws {
-        try removeMatrixCommentsSynchronously(targets: targets, author: author)
+        try await publicationChain.run {
+            try await removeMatrixCommentsSynchronously(targets: targets, author: author)
+        }
     }
 
     func removeMatrixCommentsSynchronously(
         targets: [GenotypeAnnotationSidecar.MatrixTarget],
         author: String,
         locusAlias: GenotypeMatrixTargetLocusAlias = .empty
-    ) throws {
-        let requestedTargets = try normalizedMatrixTargets(targets)
-        let editAuthor = author
-        var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
-        try transactMatrixMutation(action: "removeMatrixComment") { latest, timestamp in
-            diagnostics.commentRecordsExamined += latest.matrixComments.count
-            let currentComments = latest.resolvedMatrixComments
-            let normalizedTargets = requestedTargets + Self.legacyTargets(of: requestedTargets, alias: locusAlias, saved: latest.matrixComments.map(\.target))
-            let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
-            let targetSet = Set(normalizedTargets)
-            var retainedComments: [GenotypeAnnotationSidecar.MatrixComment] = []
-            retainedComments.reserveCapacity(latest.matrixComments.count)
-            var commentsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixComment]] = [:]
-            for comment in latest.matrixComments {
-                diagnostics.commentRecordsExamined += 1
-                if targetSet.contains(comment.target) {
-                    commentsByTarget[comment.target, default: []].append(comment)
-                } else {
-                    retainedComments.append(comment)
+    ) async throws {
+        try await publicationChain.run {
+            let requestedTargets = try normalizedMatrixTargets(targets)
+            let editAuthor = author
+            var diagnostics = GenotypeMatrixBulkMutationDiagnostics()
+            try await transactMatrixMutation(action: "removeMatrixComment") { latest, timestamp in
+                diagnostics.commentRecordsExamined += latest.matrixComments.count
+                let currentComments = latest.resolvedMatrixComments
+                let normalizedTargets = requestedTargets + Self.legacyTargets(of: requestedTargets, alias: locusAlias, saved: latest.matrixComments.map(\.target))
+                let beforeValues = normalizedTargets.map { currentComments[$0]?.body }
+                let targetSet = Set(normalizedTargets)
+                var retainedComments: [GenotypeAnnotationSidecar.MatrixComment] = []
+                retainedComments.reserveCapacity(latest.matrixComments.count)
+                var commentsByTarget: [GenotypeAnnotationSidecar.MatrixTarget: [GenotypeAnnotationSidecar.MatrixComment]] = [:]
+                for comment in latest.matrixComments {
+                    diagnostics.commentRecordsExamined += 1
+                    if targetSet.contains(comment.target) {
+                        commentsByTarget[comment.target, default: []].append(comment)
+                    } else {
+                        retainedComments.append(comment)
+                    }
                 }
-            }
-            var representedHistory = matrixCommentHistoryIndex(
-                latest.auditLog,
-                recordsExamined: &diagnostics.auditRecordsExamined
-            )
-            latest.matrixComments = retainedComments
-            var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
-            for target in normalizedTargets {
-                let beforeComments = commentsByTarget[target] ?? []
-                let canonicalizationAudits = canonicalizeLegacyMatrixComments(
-                    in: &latest,
-                    target: target,
-                    comments: beforeComments,
-                    current: currentComments[target],
-                    representedHistory: &representedHistory,
-                    author: editAuthor,
-                    timestamp: timestamp
+                var representedHistory = matrixCommentHistoryIndex(
+                    latest.auditLog,
+                    recordsExamined: &diagnostics.auditRecordsExamined
                 )
-                let audit = GenotypeAnnotationSidecar.AuditEntry(
-                    action: "removeMatrixComment",
-                    sample: target.auditSample,
-                    locus: target.locus,
-                    slot: nil,
-                    before: currentComments[target]?.body,
-                    after: nil,
-                    color: nil,
-                    reason: "matrix-comment",
-                    rationale: target.stableAuditDescription,
+                latest.matrixComments = retainedComments
+                var targetMutations: [GenotypeMatrixAnnotationReplayPayload.TargetMutation] = []
+                for target in normalizedTargets {
+                    let beforeComments = commentsByTarget[target] ?? []
+                    let canonicalizationAudits = canonicalizeLegacyMatrixComments(
+                        in: &latest,
+                        target: target,
+                        comments: beforeComments,
+                        current: currentComments[target],
+                        representedHistory: &representedHistory,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    let audit = GenotypeAnnotationSidecar.AuditEntry(
+                        action: "removeMatrixComment",
+                        sample: target.auditSample,
+                        locus: target.locus,
+                        slot: nil,
+                        before: currentComments[target]?.body,
+                        after: nil,
+                        color: nil,
+                        reason: "matrix-comment",
+                        rationale: target.stableAuditDescription,
+                        author: editAuthor,
+                        timestamp: timestamp
+                    )
+                    latest.append(audit: audit)
+                    targetMutations.append(.init(
+                        target: target,
+                        beforeComments: beforeComments,
+                        resolvedCurrentComment: currentComments[target],
+                        afterComments: [],
+                        beforeReviews: nil,
+                        afterReviews: nil,
+                        canonicalizationAudits: canonicalizationAudits,
+                        actionAudit: audit
+                    ))
+                }
+                let replayPayload = GenotypeMatrixAnnotationReplayPayload(
+                    action: .removeMatrixComment,
                     author: editAuthor,
-                    timestamp: timestamp
+                    timestamp: timestamp,
+                    targetMutations: targetMutations
                 )
-                latest.append(audit: audit)
-                targetMutations.append(.init(
-                    target: target,
-                    beforeComments: beforeComments,
-                    resolvedCurrentComment: currentComments[target],
-                    afterComments: [],
-                    beforeReviews: nil,
-                    afterReviews: nil,
-                    canonicalizationAudits: canonicalizationAudits,
-                    actionAudit: audit
-                ))
+                return matrixSemanticEditContext(
+                    targets: normalizedTargets,
+                    beforeValues: beforeValues,
+                    afterValues: Array(repeating: nil, count: normalizedTargets.count),
+                    author: editAuthor,
+                    replayPayload: replayPayload
+                )
             }
-            let replayPayload = GenotypeMatrixAnnotationReplayPayload(
-                action: .removeMatrixComment,
-                author: editAuthor,
-                timestamp: timestamp,
-                targetMutations: targetMutations
-            )
-            return matrixSemanticEditContext(
-                targets: normalizedTargets,
-                beforeValues: beforeValues,
-                afterValues: Array(repeating: nil, count: normalizedTargets.count),
-                author: editAuthor,
-                replayPayload: replayPayload
-            )
+            lastMatrixBulkMutationDiagnostics = diagnostics
         }
-        lastMatrixBulkMutationDiagnostics = diagnostics
     }
 
-    func addSampleNote(sample: String, body: String, author editAuthor: String? = nil) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        sidecar.sampleNotes.append(.init(
-            sample: sample, body: body, author: author, timestamp: timestamp
-        ))
-        sidecar.append(audit: .init(
-            action: "addSampleNote", sample: sample, locus: nil, slot: nil,
-            before: nil, after: nil, color: nil,
-            reason: nil, rationale: body, author: author, timestamp: timestamp
-        ))
-        try persist(action: "addSampleNote")
+    func addSampleNote(sample: String, body: String, author editAuthor: String? = nil) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            sidecar.sampleNotes.append(.init(
+                sample: sample, body: body, author: author, timestamp: timestamp
+            ))
+            sidecar.append(audit: .init(
+                action: "addSampleNote", sample: sample, locus: nil, slot: nil,
+                before: nil, after: nil, color: nil,
+                reason: nil, rationale: body, author: author, timestamp: timestamp
+            ))
+            try await persist(action: "addSampleNote")
+        }
     }
 
     func updateSettings(
         author editAuthor: String? = nil,
         _ mutate: (inout GenotypeAnnotationSidecar.Settings) -> Void
-    ) throws {
-        let before = sidecar.settings
-        mutate(&sidecar.settings)
-        guard sidecar.settings != before else { return }
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        sidecar.append(audit: .init(
-            action: "updateSettings", sample: "bundle", locus: nil, slot: nil,
-            before: settingsSummary(before), after: settingsSummary(sidecar.settings),
-            color: nil, reason: "settings", rationale: nil,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "updateSettings")
+    ) async throws {
+        try await publicationChain.run {
+            let before = sidecar.settings
+            mutate(&sidecar.settings)
+            guard sidecar.settings != before else { return }
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            sidecar.append(audit: .init(
+                action: "updateSettings", sample: "bundle", locus: nil, slot: nil,
+                before: settingsSummary(before), after: settingsSummary(sidecar.settings),
+                color: nil, reason: "settings", rationale: nil,
+                author: author, timestamp: timestamp
+            ))
+            try await persist(action: "updateSettings")
+        }
     }
 
     func updateGenotypeLocusDisplayOrder(
         _ requestedOrder: [String]?,
         bundleDefault: [String]?,
         author editAuthor: String? = nil
-    ) throws {
-        guard !isReadOnly else { return }
-        let order = try requestedOrder.map(MHCAlleleDisplayOrder.validatedLocusDisplayOrder)
-        let before = sidecar.settings.genotypeLocusDisplayOrder
-        guard before != order else { return }
-        let author = editAuthor ?? self.author
-        sidecar.settings.genotypeLocusDisplayOrder = order
-        sidecar.append(audit: .init(
-            action: "updateGenotypeLocusDisplayOrder", sample: "bundle", locus: nil, slot: nil,
-            before: before?.joined(separator: ", ") ?? "bundle-default",
-            after: order?.joined(separator: ", ") ?? "bundle-default",
-            color: nil, reason: "genotype-row-display-order", rationale: nil,
-            author: author, timestamp: now()
-        ))
-        try persist(action: "updateGenotypeLocusDisplayOrder", editContext: .init(
-            explicitOptions: [
-                "genotypeLocusDisplayOrder": order.map { .array($0.map(ParameterValue.string)) } ?? .string("bundle-default"),
-            ],
-            resolvedDefaults: [
-                "bundleLocusDisplayOrder": .array((bundleDefault ?? []).map(ParameterValue.string)),
-                "effectiveLocusDisplayOrder": .array((order ?? bundleDefault ?? []).map(ParameterValue.string)),
-                "unlistedLoci": .string("after-specified-groups"),
-            ],
-            resolvedAuthor: author
-        ))
+    ) async throws {
+        try await publicationChain.run {
+            guard !isReadOnly else { return }
+            let order = try requestedOrder.map(MHCAlleleDisplayOrder.validatedLocusDisplayOrder)
+            let before = sidecar.settings.genotypeLocusDisplayOrder
+            guard before != order else { return }
+            let author = editAuthor ?? self.author
+            sidecar.settings.genotypeLocusDisplayOrder = order
+            sidecar.append(audit: .init(
+                action: "updateGenotypeLocusDisplayOrder", sample: "bundle", locus: nil, slot: nil,
+                before: before?.joined(separator: ", ") ?? "bundle-default",
+                after: order?.joined(separator: ", ") ?? "bundle-default",
+                color: nil, reason: "genotype-row-display-order", rationale: nil,
+                author: author, timestamp: now()
+            ))
+            try await persist(action: "updateGenotypeLocusDisplayOrder", editContext: .init(
+                explicitOptions: [
+                    "genotypeLocusDisplayOrder": order.map { .array($0.map(ParameterValue.string)) } ?? .string("bundle-default"),
+                ],
+                resolvedDefaults: [
+                    "bundleLocusDisplayOrder": .array((bundleDefault ?? []).map(ParameterValue.string)),
+                    "effectiveLocusDisplayOrder": .array((order ?? bundleDefault ?? []).map(ParameterValue.string)),
+                    "unlistedLoci": .string("after-specified-groups"),
+                ],
+                resolvedAuthor: author
+            ))
+        }
     }
 
     func updateMHCCandidateDisplaySettings(
         _ display: ONTMHCCandidateDisplaySettings,
         author editAuthor: String? = nil
-    ) throws {
-        guard !isReadOnly else { return }
-        let author = editAuthor ?? self.author
-        let runClock = ProvenanceRunClock()
-        let timestamp = now()
-        var latestForRollback = lastPersistedSidecar
-        var publishedSidecar: GenotypeAnnotationSidecar?
-        do {
-            _ = try transactAnnotationPublication { snapshot in
-                var latest = try decodedLatestSidecar(from: snapshot.annotationData)
-                latestForRollback = latest
+    ) async throws {
+        try await publicationChain.run {
+            guard !isReadOnly else { return }
+            let author = editAuthor ?? self.author
+            let runClock = ProvenanceRunClock()
+            let timestamp = now()
+            let expected = lastPersistedSidecar
+            let expectedDisplay = expected.settings.mhcCandidateDisplay
+            // The stale check below makes the file's display `expectedDisplay`, so its summary is made here.
+            let beforeSummary = mhcCandidateDisplaySummary(expectedDisplay)
+            let afterSummary = mhcCandidateDisplaySummary(display)
+            let editContext = mhcCandidateDisplayEditContext(display)
+            let unsaved = unsavedBuiltInSmartCohorts
+            let outcome = await publishAwayFromMainActor(expected: expected) { [self] snapshot, decoded in
+                var latest = decoded
                 let before = latest.settings.mhcCandidateDisplay
                 guard display != before else {
-                    publishedSidecar = latest
-                    return nil
+                    return GenotypeAnnotationPublicationStep(payload: nil, published: latest, value: ())
                 }
-                guard before == lastPersistedSidecar.settings.mhcCandidateDisplay else {
+                guard before == expectedDisplay else {
                     throw GenotypeAnnotationStorePersistenceError.staleRevision
                 }
                 latest.settings.mhcCandidateDisplay = display
@@ -903,8 +960,8 @@ public final class GenotypeAnnotationStore {
                     sample: "bundle",
                     locus: nil,
                     slot: nil,
-                    before: mhcCandidateDisplaySummary(before),
-                    after: mhcCandidateDisplaySummary(display),
+                    before: beforeSummary,
+                    after: afterSummary,
                     color: nil,
                     reason: "mhc-candidate-display-settings",
                     rationale: nil,
@@ -914,95 +971,106 @@ public final class GenotypeAnnotationStore {
                 let payload = try annotationPublicationPayload(
                     sidecar: latest,
                     action: "updateMHCCandidateDisplaySettings",
-                    editContext: mhcCandidateDisplayEditContext(display),
+                    editContext: editContext,
                     snapshot: snapshot,
+                    unsavedBuiltInSmartCohorts: unsaved,
                     startedAt: runClock.startedAt,
                     endedAt: runClock.now
                 )
-                publishedSidecar = latest
-                return payload
+                return GenotypeAnnotationPublicationStep(payload: payload, published: latest, value: ())
             }
-            if let publishedSidecar {
-                adoptPersisted(publishedSidecar)
+            switch outcome.result {
+            case .success(let step):
+                if let published = step.published {
+                    adoptPersisted(published)
+                }
+            case .failure(let error):
+                adoptPersisted(outcome.latest ?? expected)
+                throw error
             }
-        } catch {
-            adoptPersisted(latestForRollback)
-            throw error
         }
     }
 
-    func saveSmartCohort(_ cohort: GenotypeCohortSmartFilter, author editAuthor: String? = nil) throws {
-        let author = editAuthor ?? self.author
-        let existing = sidecar.smartCohorts.first { $0.name == cohort.name && $0.scope == cohort.scope }
-        sidecar.smartCohorts.removeAll { $0.name == cohort.name && $0.scope == cohort.scope }
-        sidecar.smartCohorts.append(cohort.inheritingID(from: existing))
-        let timestamp = now()
-        sidecar.append(audit: .init(
-            action: "saveSmartCohort", sample: "bundle", locus: nil, slot: nil,
-            before: existing.map(smartCohortSummary),
-            after: smartCohortSummary(cohort),
-            color: nil, reason: "smartCohort", rationale: cohort.description,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "saveSmartCohort")
+    func saveSmartCohort(_ cohort: GenotypeCohortSmartFilter, author editAuthor: String? = nil) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let existing = sidecar.smartCohorts.first { $0.name == cohort.name && $0.scope == cohort.scope }
+            sidecar.smartCohorts.removeAll { $0.name == cohort.name && $0.scope == cohort.scope }
+            sidecar.smartCohorts.append(cohort.inheritingID(from: existing))
+            let timestamp = now()
+            sidecar.append(audit: .init(
+                action: "saveSmartCohort", sample: "bundle", locus: nil, slot: nil,
+                before: existing.map(smartCohortSummary),
+                after: smartCohortSummary(cohort),
+                color: nil, reason: "smartCohort", rationale: cohort.description,
+                author: author, timestamp: timestamp
+            ))
+            try await persist(action: "saveSmartCohort")
+        }
     }
 
     /// Deleting a built-in cohort records its dismissal, so it stays deleted after reopen (plan decision S13).
-    func deleteSmartCohort(name: String, scope: String, author editAuthor: String? = nil) throws {
-        let author = editAuthor ?? self.author
-        let existing = sidecar.smartCohorts.first { $0.name == name && $0.scope == scope }
-        sidecar.smartCohorts.removeAll { $0.name == name && $0.scope == scope }
-        guard let existing else { return }
-        Self.recordDismissal(of: existing, in: &sidecar.settings)
-        let timestamp = now()
-        sidecar.append(audit: .init(
-            action: "deleteSmartCohort", sample: "bundle", locus: nil, slot: nil,
-            before: smartCohortSummary(existing), after: nil,
-            color: nil, reason: "smartCohort", rationale: existing.description,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "deleteSmartCohort")
+    func deleteSmartCohort(name: String, scope: String, author editAuthor: String? = nil) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let existing = sidecar.smartCohorts.first { $0.name == name && $0.scope == scope }
+            sidecar.smartCohorts.removeAll { $0.name == name && $0.scope == scope }
+            guard let existing else { return }
+            Self.recordDismissal(of: existing, in: &sidecar.settings)
+            let timestamp = now()
+            sidecar.append(audit: .init(
+                action: "deleteSmartCohort", sample: "bundle", locus: nil, slot: nil,
+                before: smartCohortSummary(existing), after: nil,
+                color: nil, reason: "smartCohort", rationale: existing.description,
+                author: author, timestamp: timestamp
+            ))
+            try await persist(action: "deleteSmartCohort")
+        }
     }
 
     func addManualHaplotypeAssignment(
         _ assignment: ManualHaplotypeAssignment,
         author editAuthor: String? = nil
-    ) throws {
-        let author = editAuthor ?? self.author
-        sidecar.manualHaplotypeAssignments.append(assignment)
-        appendManualHaplotypeAssignmentAudit(action: "addManualHaplotypeAssignment",
-                                             assignment: assignment,
-                                             before: nil,
-                                             after: assignment.label,
-                                             timestamp: now(),
-                                             author: author)
-        try persist(action: "addManualHaplotypeAssignment")
+    ) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            sidecar.manualHaplotypeAssignments.append(assignment)
+            appendManualHaplotypeAssignmentAudit(action: "addManualHaplotypeAssignment",
+                                                 assignment: assignment,
+                                                 before: nil,
+                                                 after: assignment.label,
+                                                 timestamp: now(),
+                                                 author: author)
+            try await persist(action: "addManualHaplotypeAssignment")
+        }
     }
 
     func removeManualHaplotypeAssignments(
         matching predicate: (ManualHaplotypeAssignment) -> Bool,
         author editAuthor: String? = nil
-    ) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        var removed: [ManualHaplotypeAssignment] = []
-        sidecar.manualHaplotypeAssignments.removeAll { assignment in
-            let shouldRemove = predicate(assignment)
-            if shouldRemove {
-                removed.append(assignment)
+    ) async throws {
+        try await publicationChain.run {
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            var removed: [ManualHaplotypeAssignment] = []
+            sidecar.manualHaplotypeAssignments.removeAll { assignment in
+                let shouldRemove = predicate(assignment)
+                if shouldRemove {
+                    removed.append(assignment)
+                }
+                return shouldRemove
             }
-            return shouldRemove
+            guard !removed.isEmpty else { return }
+            for assignment in removed {
+                appendManualHaplotypeAssignmentAudit(action: "removeManualHaplotypeAssignment",
+                                                     assignment: assignment,
+                                                     before: assignment.label,
+                                                     after: nil,
+                                                     timestamp: timestamp,
+                                                     author: author)
+            }
+            try await persist(action: "removeManualHaplotypeAssignments")
         }
-        guard !removed.isEmpty else { return }
-        for assignment in removed {
-            appendManualHaplotypeAssignmentAudit(action: "removeManualHaplotypeAssignment",
-                                                 assignment: assignment,
-                                                 before: assignment.label,
-                                                 after: nil,
-                                                 timestamp: timestamp,
-                                                 author: author)
-        }
-        try persist(action: "removeManualHaplotypeAssignments")
     }
 
     /// Atomically replaces the complete set of recognized manual haplotype
@@ -1304,6 +1372,7 @@ public final class GenotypeAnnotationStore {
                     action: "replaceManualHaplotypeAssignments",
                     editContext: editContext,
                     snapshot: snapshot,
+                    unsavedBuiltInSmartCohorts: unsavedBuiltInSmartCohorts,
                     startedAt: runClock.startedAt,
                     endedAt: runClock.now
                 )
@@ -1574,6 +1643,7 @@ public final class GenotypeAnnotationStore {
                 action: "mutateCallOverrides",
                 editContext: editContext,
                 snapshot: snapshot,
+                unsavedBuiltInSmartCohorts: unsavedBuiltInSmartCohorts,
                 startedAt: runClock.startedAt,
                 endedAt: runClock.now
             )
@@ -1656,39 +1726,41 @@ public final class GenotypeAnnotationStore {
         locus: String,
         slot: HaplotypeSlot,
         author editAuthor: String? = nil
-    ) throws {
-        let matches = sidecar.callOverrides.enumerated().filter {
-            _, entry in
-            entry.sample == sample
-                && entry.locus == locus
-                && entry.slot == slot
+    ) async throws {
+        try await publicationChain.run {
+            let matches = sidecar.callOverrides.enumerated().filter {
+                _, entry in
+                entry.sample == sample
+                    && entry.locus == locus
+                    && entry.slot == slot
+            }
+            let target = GenotypeEffectiveHaplotypeKey(
+                sample: sample,
+                locus: locus,
+                slot: slot
+            )
+            guard !matches.contains(where: {
+                $0.element.analysisIdentity != nil
+            }) else {
+                throw CallOverrideMutationError.identityRequiredForClear(target)
+            }
+            guard let existing = authoritativeCallOverride(matches) else {
+                return
+            }
+            _ = try mutateCallOverrides(
+                [
+                    CallOverrideMutation(
+                        target: target,
+                        baseline: existing.originalCall,
+                        after: existing.originalCall,
+                        reason: existing.reasonTag,
+                        rationale: "Restore pipeline call"
+                    ),
+                ],
+                author: editAuthor ?? self.author,
+                analysisIdentity: nil
+            )
         }
-        let target = GenotypeEffectiveHaplotypeKey(
-            sample: sample,
-            locus: locus,
-            slot: slot
-        )
-        guard !matches.contains(where: {
-            $0.element.analysisIdentity != nil
-        }) else {
-            throw CallOverrideMutationError.identityRequiredForClear(target)
-        }
-        guard let existing = authoritativeCallOverride(matches) else {
-            return
-        }
-        _ = try mutateCallOverrides(
-            [
-                CallOverrideMutation(
-                    target: target,
-                    baseline: existing.originalCall,
-                    after: existing.originalCall,
-                    reason: existing.reasonTag,
-                    rationale: "Restore pipeline call"
-                ),
-            ],
-            author: editAuthor ?? self.author,
-            analysisIdentity: nil
-        )
     }
 
     /// Bulk-add manual haplotype assignments in a single persist call.
@@ -1697,20 +1769,22 @@ public final class GenotypeAnnotationStore {
     func addManualHaplotypeAssignments(
         _ assignments: [ManualHaplotypeAssignment],
         author editAuthor: String? = nil
-    ) throws {
-        guard !assignments.isEmpty else { return }
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        sidecar.manualHaplotypeAssignments.append(contentsOf: assignments)
-        for assignment in assignments {
-            appendManualHaplotypeAssignmentAudit(action: "addManualHaplotypeAssignment",
-                                                 assignment: assignment,
-                                                 before: nil,
-                                                 after: assignment.label,
-                                                 timestamp: timestamp,
-                                                 author: author)
+    ) async throws {
+        try await publicationChain.run {
+            guard !assignments.isEmpty else { return }
+            let author = editAuthor ?? self.author
+            let timestamp = now()
+            sidecar.manualHaplotypeAssignments.append(contentsOf: assignments)
+            for assignment in assignments {
+                appendManualHaplotypeAssignmentAudit(action: "addManualHaplotypeAssignment",
+                                                     assignment: assignment,
+                                                     before: nil,
+                                                     after: assignment.label,
+                                                     timestamp: timestamp,
+                                                     author: author)
+            }
+            try await persist(action: "addManualHaplotypeAssignments")
         }
-        try persist(action: "addManualHaplotypeAssignments")
     }
 
     private func appendManualHaplotypeAssignmentAudit(
@@ -1884,41 +1958,50 @@ public final class GenotypeAnnotationStore {
             inout GenotypeAnnotationSidecar,
             String
         ) throws -> ProvenanceEditContext
-    ) throws {
+    ) async throws {
         guard !isReadOnly else {
             throw GenotypeMatrixReviewMutationError.readOnly
         }
         let previousSidecar = sidecar
         let runClock = ProvenanceRunClock()
-        var latestForRollback = lastPersistedSidecar
-        var publishedSidecar: GenotypeAnnotationSidecar?
+        let expected = lastPersistedSidecar
+        let unsaved = unsavedBuiltInSmartCohorts
+        // The stale check below makes the file equal `expected`, so the edit is made on it here and
+        // the file is only checked and written away from the main actor.
+        var desired = expected
+        let editContext: ProvenanceEditContext
         do {
-            _ = try transactAnnotationPublication { snapshot in
-                var latest = try decodedLatestSidecar(from: snapshot.annotationData)
-                latestForRollback = latest
-                guard latest == lastPersistedSidecar else {
-                    throw GenotypeAnnotationStorePersistenceError.staleRevision
-                }
-                try latest.promoteToCurrentSchema()
-                let timestamp = now()
-                let editContext = try mutate(&latest, timestamp)
-                let payload = try annotationPublicationPayload(
-                    sidecar: latest,
-                    action: action,
-                    editContext: editContext,
-                    snapshot: snapshot,
-                    startedAt: runClock.startedAt,
-                    endedAt: runClock.now
-                )
-                publishedSidecar = latest
-                return payload
-            }
-            if let publishedSidecar {
-                adoptPersisted(publishedSidecar)
+            try desired.promoteToCurrentSchema()
+            editContext = try mutate(&desired, now())
+        } catch {
+            adoptPersisted(expected)
+            if sidecar != previousSidecar {
                 matrixMutationRevision &+= 1
             }
-        } catch {
-            adoptPersisted(latestForRollback)
+            throw error
+        }
+        let published = desired
+        let outcome = await publishAwayFromMainActor(expected: expected) { [self] snapshot, latest in
+            guard latest == expected else {
+                throw GenotypeAnnotationStorePersistenceError.staleRevision
+            }
+            let payload = try annotationPublicationPayload(
+                sidecar: published,
+                action: action,
+                editContext: editContext,
+                snapshot: snapshot,
+                unsavedBuiltInSmartCohorts: unsaved,
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now
+            )
+            return GenotypeAnnotationPublicationStep(payload: payload, published: published, value: ())
+        }
+        switch outcome.result {
+        case .success:
+            adoptPersisted(published)
+            matrixMutationRevision &+= 1
+        case .failure(let error):
+            adoptPersisted(outcome.latest ?? expected)
             if sidecar != previousSidecar {
                 matrixMutationRevision &+= 1
             }

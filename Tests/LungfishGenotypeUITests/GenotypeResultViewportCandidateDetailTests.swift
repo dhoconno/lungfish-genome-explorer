@@ -1698,7 +1698,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
         var concurrentSettings = concurrent.sidecar.settings.mhcCandidateDisplay
         concurrentSettings.showKnown = false
-        try concurrent.updateMHCCandidateDisplaySettings(concurrentSettings)
+        try await concurrent.updateMHCCandidateDisplaySettings(concurrentSettings)
         var state = controller.testingDisplayState
         var staleSettings = try XCTUnwrap(state.mhcCandidateDisplaySettings)
         staleSettings.showSingletonCandidates = false

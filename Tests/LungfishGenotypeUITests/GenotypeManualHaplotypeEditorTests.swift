@@ -262,7 +262,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
     }
 
     func testPreparedThenCancelledSaveDoesNotPublishSidecarOrAudit()
-        throws
+        async throws
     {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -284,7 +284,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
             author: "Analyst"
         )
         // The test compares sidecar bytes, so the bundle starts with a sidecar.
-        try store.publishUnsavedBuiltInSmartCohorts()
+        try await store.publishUnsavedBuiltInSmartCohorts()
         let model = GenotypeManualHaplotypeEditorModel(
             snapshot: .init(
                 draft: makeDraft(

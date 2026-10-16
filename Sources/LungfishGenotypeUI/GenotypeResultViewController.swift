@@ -539,6 +539,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private var deferredMatrixAnnotationMutations: [DeferredMatrixAnnotationMutation] = []
     private var deferredMatrixAnnotationMutationHead = 0
     private var deferredMatrixAnnotationRetryTask: GenotypeMatrixAnnotationRetryCancellation?
+    private var isDrainingMatrixAnnotationMutations = false
     private var pendingConfigurationResult: ONTGenotypeResultBundleData?
     var excelSavePanelPresenter: (NSSavePanel, NSWindow, @escaping (URL?) -> Void) -> Void = { panel, window, completion in
         panel.beginSheetModal(for: window) { response in completion(response == .OK ? panel.url : nil) }
@@ -722,9 +723,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     @objc private func handleSmartCohortSaveRequested(_ notification: Notification) {
         guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard hasHaplotypingResult else { return }
-        do {
-            try saveCurrentFilterAsSmartCohort()
-        } catch {
+        annotationStore?.beginEdit { [self] in
+            try await saveCurrentFilterAsSmartCohort()
+        } onFailure: { [self] error in
             presentSheetAlert(error: error)
         }
     }
@@ -736,19 +737,19 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
               let cohort = try? JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data),
               let store = annotationStore else { return }
         let author = annotationAuthorProvider()
-        do {
-            try store.deleteSmartCohort(name: cohort.name, scope: cohort.scope, author: author)
+        store.beginEdit { [self] in
+            try await store.deleteSmartCohort(name: cohort.name, scope: cohort.scope, author: author)
             if activeSmartCohort?.name == cohort.name && activeSmartCohort?.scope == cohort.scope {
                 activeSmartCohort = nil
             }
             refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
             onAnnotationSidecarChanged?(store.sidecar)
-        } catch {
+        } onFailure: { [self] error in
             presentSheetAlert(error: error)
         }
     }
 
-    private func saveCurrentFilterAsSmartCohort() throws {
+    private func saveCurrentFilterAsSmartCohort() async throws {
         guard hasHaplotypingResult else { return }
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
@@ -798,7 +799,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             predicate: predicate,
             searchProjectionText: searchProjectionText
         )
-        try store.saveSmartCohort(cohort, author: author)
+        try await store.saveSmartCohort(cohort, author: author)
         onAnnotationSidecarChanged?(store.sidecar)
         activeSmartCohort = cohort
         refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
@@ -1144,7 +1145,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
         if Self.reviewCommandSelectors.contains(action) {
-            return reviewCommandTargetSample != nil
+            return reviewCommandTargetSample != nil && annotationStore?.isHoldingEdits != true
         }
         if action == #selector(performFindPanelAction(_:)) {
             return menuItem.tag == NSTextFinder.Action.showFindInterface.rawValue
@@ -1722,8 +1723,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             onDisplayStateChanged?(displayState)
             return
         }
-        do {
-            try store.updateGenotypeLocusDisplayOrder(
+        store.beginEdit { [self] in
+            try await store.updateGenotypeLocusDisplayOrder(
                 requestedState.genotypeLocusDisplayOrder,
                 bundleDefault: result?.genotypeLocusDisplayOrder,
                 author: annotationAuthorProvider()
@@ -1735,7 +1736,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             onLocusDisplayOrderPersistenceWarningChanged?(nil)
             onAnnotationSidecarChanged?(store.sidecar)
             onDisplayStateChanged?(persisted)
-        } catch {
+        } onFailure: { [self] error in
             var restored = displayState
             restored.genotypeLocusDisplayOrder = store.sidecar.settings.genotypeLocusDisplayOrder
             _ = rebuildMatrixAnnotationIndexes()
@@ -1882,14 +1883,14 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         _ request: GenotypeMatrixStyleRequest,
         store: GenotypeAnnotationStore,
         author: String
-    ) throws {
+    ) async throws {
         let requestedTargets = uniqueMatrixTargets(request.targets)
         if case .clear = request.field {
             let targets = matrixStyleTargetsToClear(for: requestedTargets, in: store.sidecar)
             let reloadTargets = uniqueMatrixTargets(requestedTargets + targets)
             guard !reloadTargets.isEmpty else { return }
             if !targets.isEmpty {
-                try store.setMatrixStyles(targets.map { (target: $0, style: nil) }, author: author)
+                try await store.setMatrixStyles(targets.map { (target: $0, style: nil) }, author: author)
             }
             comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
             refreshCurrentSelectionDetails()
@@ -1923,7 +1924,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             return (target: target, style: next)
         }
         let edits = broadEdits + cellEdits
-        try store.setMatrixStyles(edits, author: author)
+        try await store.setMatrixStyles(edits, author: author)
         comparisonMatrix.applyAnnotationSidecar(store.sidecar, reloading: reloadTargets)
         if targets != requestedTargets {
             comparisonMatrix.replaceMatrixTargetSelection(targets)
@@ -1951,18 +1952,18 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         _ request: GenotypeMatrixReviewRequest,
         store: GenotypeAnnotationStore,
         author: String
-    ) throws {
+    ) async throws {
         let targets = uniqueMatrixTargets(request.targets)
         switch request.intent {
         case let .set(disposition):
-            try store.setMatrixReviewSynchronously(
+            try await store.setMatrixReviewSynchronously(
                 disposition,
                 targets: targets,
                 evidence: matrixEvidenceIndex,
                 author: author, locusAlias: matrixTargetLocusAlias
             )
         case .clear:
-            try store.clearMatrixReviewSynchronously(targets: targets, author: author, locusAlias: matrixTargetLocusAlias)
+            try await store.clearMatrixReviewSynchronously(targets: targets, author: author, locusAlias: matrixTargetLocusAlias)
         }
         finishMatrixAnnotationPublication(store: store, targets: targets, reviewChanged: true)
     }
@@ -1980,7 +1981,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         _ request: GenotypeMatrixCommentEditRequest,
         store: GenotypeAnnotationStore,
         author: String
-    ) throws {
+    ) async throws {
         let targets = uniqueMatrixTargets(request.targets)
         switch request.intent {
         case let .upsert(body):
@@ -1988,15 +1989,15 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                targets.contains(where: { matrixCommentsByTarget[$0] != nil }) {
                 throw GenotypeMatrixAnnotationCommandError.explicitBulkCommentReplaceRequired
             }
-            try store.upsertMatrixCommentSynchronously(
+            try await store.upsertMatrixCommentSynchronously(
                 body: body.trimmingCharacters(in: .whitespacesAndNewlines),
                 targets: targets,
                 author: author
             )
         case .remove:
-            try store.removeMatrixCommentsSynchronously(targets: targets, author: author, locusAlias: matrixTargetLocusAlias)
+            try await store.removeMatrixCommentsSynchronously(targets: targets, author: author, locusAlias: matrixTargetLocusAlias)
         case let .replace(body):
-            try store.upsertMatrixCommentSynchronously(
+            try await store.upsertMatrixCommentSynchronously(
                 body: body.trimmingCharacters(in: .whitespacesAndNewlines),
                 targets: targets,
                 author: author
@@ -2016,43 +2017,37 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private static let deferredMatrixAnnotationStatus =
         "Saving annotation after the workbook update finishes."
 
+    /// Queues `mutation` and starts the queue when it was empty. The head stays queued while its
+    /// publication awaits, so later mutations and a new result wait behind it (2.11 S35).
     private func submitMatrixAnnotationMutation(
         _ mutation: DeferredMatrixAnnotationMutation
     ) {
-        guard deferredMatrixAnnotationMutationCount == 0 else {
-            deferredMatrixAnnotationMutations.append(mutation)
-            reportDeferredMatrixAnnotationSave()
-            scheduleDeferredMatrixAnnotationRetry()
+        let startsQueue = deferredMatrixAnnotationMutationCount == 0
+        deferredMatrixAnnotationMutations.append(mutation)
+        guard startsQueue else {
+            if !isDrainingMatrixAnnotationMutations {
+                reportDeferredMatrixAnnotationSave()
+                scheduleDeferredMatrixAnnotationRetry()
+            }
             return
         }
-        switch attemptMatrixAnnotationMutation(mutation) {
-        case .success:
-            return
-        case .lockHeld:
-            deferredMatrixAnnotationMutations.append(mutation)
-            reportDeferredMatrixAnnotationSave()
-            scheduleDeferredMatrixAnnotationRetry()
-        case let .failure(error, sidecarBeforeAttempt):
-            surfaceMatrixAnnotationMutationFailure(
-                error,
-                mutation: mutation,
-                sidecarBeforeAttempt: sidecarBeforeAttempt
-            )
-        }
+        mutation.store.beginEdit { [self] in
+            await retryDeferredMatrixAnnotationMutations()
+        } onFailure: { _ in }
     }
 
     private func attemptMatrixAnnotationMutation(
         _ mutation: DeferredMatrixAnnotationMutation
-    ) -> MatrixAnnotationMutationAttempt {
+    ) async -> MatrixAnnotationMutationAttempt {
         let sidecarBeforeAttempt = mutation.store.sidecar
         do {
             switch mutation {
             case let .style(request, store, author):
-                try applyMatrixStyle(request, store: store, author: author)
+                try await applyMatrixStyle(request, store: store, author: author)
             case let .review(request, store, author):
-                try applyMatrixReview(request, store: store, author: author)
+                try await applyMatrixReview(request, store: store, author: author)
             case let .comment(request, store, author):
-                try editMatrixComment(request, store: store, author: author)
+                try await editMatrixComment(request, store: store, author: author)
             }
             return .success
         } catch {
@@ -2087,16 +2082,19 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             [weak self] in
             guard let self else { return }
             self.deferredMatrixAnnotationRetryTask = nil
-            self.retryDeferredMatrixAnnotationMutations()
+            Task.immediate { await self.retryDeferredMatrixAnnotationMutations() }
         }
     }
 
-    private func retryDeferredMatrixAnnotationMutations() {
+    private func retryDeferredMatrixAnnotationMutations() async {
+        guard !isDrainingMatrixAnnotationMutations else { return }
+        isDrainingMatrixAnnotationMutations = true
+        defer { isDrainingMatrixAnnotationMutations = false }
         while deferredMatrixAnnotationMutationCount > 0 {
             let mutation = deferredMatrixAnnotationMutations[
                 deferredMatrixAnnotationMutationHead
             ]
-            switch attemptMatrixAnnotationMutation(mutation) {
+            switch await attemptMatrixAnnotationMutation(mutation) {
             case .success:
                 discardFirstDeferredMatrixAnnotationMutation()
             case .lockHeld:
@@ -5881,11 +5879,11 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         rebuildActiveHaplotypeAnalysisIndexes()
     }
 
-    private func useHaplotypeDefinition(id: String) throws {
+    private func useHaplotypeDefinition(id: String) async throws {
         guard let definitionSet = haplotypeDefinitionStore.mergedRegistry().definitionSet(id: id) else { return }
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
-        try store.updateSettings(author: author) { settings in
+        try await store.updateSettings(author: author) { settings in
             settings.activeHaplotypeDefinitionSetID = id
             settings.activeHaplotypeAssayID = definitionSet.assayID
         }
@@ -6802,53 +6800,55 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         let matching = observations.filter { selectedIds.contains("\($0.locus)::\($0.genotype)") }
         guard !matching.isEmpty else { return }
         let tokenIndex = manualHaplotypingDraftColorTokenIndex
-        do {
-            var bulk: [ManualHaplotypeAssignment] = []
-            for observation in matching {
-                for sampleId in observation.sampleIds {
-                    bulk.append(.init(
-                        sample: sampleId,
-                        locus: observation.locus,
-                        slot: .h1,
-                        label: label,
-                        colorTokenIndex: tokenIndex,
-                        diagnosticAlleles: [observation.genotype],
-                        notes: ""
-                    ))
-                }
+        var bulk: [ManualHaplotypeAssignment] = []
+        for observation in matching {
+            for sampleId in observation.sampleIds {
+                bulk.append(.init(
+                    sample: sampleId,
+                    locus: observation.locus,
+                    slot: .h1,
+                    label: label,
+                    colorTokenIndex: tokenIndex,
+                    diagnosticAlleles: [observation.genotype],
+                    notes: ""
+                ))
             }
-            guard !bulk.isEmpty else { return }
-            try store.addManualHaplotypeAssignments(bulk, author: author)
+        }
+        guard !bulk.isEmpty else { return }
+        manualHaplotypingSelection.removeAll()
+        manualHaplotypingDraftLabel = ""
+        store.beginEdit { [self] in
+            try await store.addManualHaplotypeAssignments(bulk, author: author)
             onAnnotationSidecarChanged?(store.sidecar)
-        } catch {
+            rebuildArtifactLens()
+        } onFailure: { [self] error in
             if let window = view.window ?? NSApp.keyWindow {
                 NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
             } else {
                 NSApp.presentError(error)
             }
+            rebuildArtifactLens()
         }
-        manualHaplotypingSelection.removeAll()
-        manualHaplotypingDraftLabel = ""
-        rebuildArtifactLens()
     }
 
     private func deleteManualHaplotype(matching assignment: ManualHaplotypeAssignment) {
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
-        do {
-            try store.removeManualHaplotypeAssignments(
+        store.beginEdit { [self] in
+            try await store.removeManualHaplotypeAssignments(
                 matching: { other in other.label == assignment.label },
                 author: author
             )
             onAnnotationSidecarChanged?(store.sidecar)
-        } catch {
+            rebuildArtifactLens()
+        } onFailure: { [self] error in
             if let window = view.window ?? NSApp.keyWindow {
                 NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
             } else {
                 NSApp.presentError(error)
             }
+            rebuildArtifactLens()
         }
-        rebuildArtifactLens()
     }
 
     private func exportManualDefinitions() {
@@ -8094,8 +8094,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         let author = annotationAuthorProvider()
         let h1 = evidence.h1Name.isEmpty ? evidence.callName : evidence.h1Name
         let h2 = evidence.h2Name.isEmpty || evidence.h2Name == "-" ? h1 : evidence.h2Name
-        do {
-            try store.confirmCall(sample: evidence.sample, locus: evidence.locus, h1: h1, h2: h2, author: author)
+        store.beginEdit { [self] in
+            try await store.confirmCall(sample: evidence.sample, locus: evidence.locus, h1: h1, h2: h2, author: author)
             rebuildHaplotypeLens()
             rebuildOutline()
             rebuildHaplotypeMatrix()
@@ -8111,7 +8111,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                 rebuildArtifactLens()
             }
             onAnnotationSidecarChanged?(store.sidecar)
-        } catch {
+        } onFailure: { [self] error in
             presentSheetAlert(error: error)
         }
     }
@@ -10275,8 +10275,8 @@ extension GenotypeResultViewController {
         refreshAfterHaplotypeDefinitionChange()
     }
 
-    func testingUseHaplotypeDefinition(id: String) throws {
-        try useHaplotypeDefinition(id: id)
+    func testingUseHaplotypeDefinition(id: String) async throws {
+        try await useHaplotypeDefinition(id: id)
     }
 
     var testingSplitIsVertical: Bool {
@@ -10879,8 +10879,8 @@ extension GenotypeResultViewController {
         invalidateGenotypeSearchIndex()
     }
 
-    func testingSaveCurrentFilterAsSmartCohort() throws {
-        try saveCurrentFilterAsSmartCohort()
+    func testingSaveCurrentFilterAsSmartCohort() async throws {
+        try await saveCurrentFilterAsSmartCohort()
     }
 
     func testingApplySmartCohort(_ cohort: GenotypeCohortSmartFilter) {

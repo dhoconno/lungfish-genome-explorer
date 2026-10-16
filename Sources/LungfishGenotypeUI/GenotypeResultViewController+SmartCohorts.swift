@@ -39,11 +39,11 @@ extension GenotypeResultViewController {
     @objc func handleSmartCohortsRestoreRequested(_ notification: Notification) {
         guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         guard hasHaplotypingResult, let store = annotationStore else { return }
-        do {
-            try store.restoreBuiltInSmartCohorts(author: annotationAuthorProvider())
+        store.beginEdit { [self] in
+            try await store.restoreBuiltInSmartCohorts(author: annotationAuthorProvider())
             refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
             onAnnotationSidecarChanged?(store.sidecar)
-        } catch {
+        } onFailure: { [self] error in
             presentSheetAlert(error: error)
         }
     }
