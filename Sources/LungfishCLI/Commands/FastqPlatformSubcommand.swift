@@ -116,7 +116,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         }
 
         if setPlatform != nil || readType != nil || confirm {
-            try await runChange(bundleURLs: urls, formatter: formatter)
+            try await runChangeCancellingOnSIGTERM(bundleURLs: urls)
             return
         }
 
@@ -148,7 +148,40 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         }
     }
 
-    private func runChange(bundleURLs: [URL], formatter: TerminalFormatter) async throws {
+    /// Records the change so that SIGTERM cancels it instead of ending the command (Phase 2.11 lane S61,
+    /// decisions P2 and C5). The Inspector's platform notice stops this command with SIGTERM and gives it
+    /// `operationGrace`. The run ends at its next step and restores the metadata files it had changed.
+    /// It records itself as cancelled under the first bundle's `provenance/cancelled` folder, ends the
+    /// stream with one `failed` line, and exits 125.
+    func runChangeCancellingOnSIGTERM(bundleURLs: [URL]) async throws {
+        let startedAt = Date()
+        let ran = await runCancellingOnSIGTERM { [self] in
+            try await runChange(bundleURLs: bundleURLs, formatter: TerminalFormatter(useColors: globalOptions.useColors))
+        }
+        guard case .failure(let error) = ran else { return }
+        guard error is CancellationError || SIGTERMCancellation.signalCaught else { throw error }
+        let output = AlignmentWorkflowLeafOutput(
+            eventsOn: globalOptions.outputFormat == .json,
+            quiet: globalOptions.quiet,
+            emit: { printEventLine($0) }
+        )
+        let workflow = "lungfish fastq platform"
+        throw output.cancelled(
+            "Platform label change cancelled. The recorded labels were restored.",
+            record: CancelledAlignmentWorkflowRecord(
+                workflow: workflow,
+                argv: [CLICommandIdentity.executableName] + CommandLine.arguments.dropFirst(),
+                explicit: [:],
+                note: "Cancelled before the label change finished. The recorded labels were restored.",
+                startedAt: startedAt,
+                url: CancelledAlignmentWorkflowRecord.newURL(
+                    in: CancelledAlignmentWorkflowRecord.folder(in: bundleURLs[0]), workflow: workflow
+                )
+            )
+        )
+    }
+
+    func runChange(bundleURLs: [URL], formatter: TerminalFormatter) async throws {
         let runClock = ProvenanceRunClock()
         let platform = setPlatform.flatMap(Self.parsePlatform)
         let explicitReadType = readType.flatMap(Self.parseReadType)
@@ -190,6 +223,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         var changes: [FASTQPlatformLabelService.Change] = []
         do {
             for target in targets {
+                try Task.checkCancellation()
                 changes.append(try FASTQPlatformLabelService.apply(
                     toBundle: target,
                     platform: confirm ? nil : platform,
@@ -198,16 +232,21 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
                     source: source
                 ))
             }
+            try Task.checkCancellation()
             for change in changes {
                 try await recordProvenance(change: change, inputs: inputRecords, runClock: runClock)
             }
         } catch {
-            // The failure is reported before the restore, so a restore that throws
-            // still leaves the stream with its one terminal event.
-            if globalOptions.outputFormat == .json {
-                events.emitFailed(error.localizedDescription)
-            } else {
-                print(formatter.error(error.localizedDescription))
+            // A cancel writes no failure here, since `runChangeCancellingOnSIGTERM` ends the stream with the
+            // cancelled one once the labels are restored. Any other failure is reported before the
+            // restore, so a restore that throws still leaves the stream with its one terminal event.
+            let cancelled = error is CancellationError || Task.isCancelled
+            if !cancelled {
+                if globalOptions.outputFormat == .json {
+                    events.emitFailed(error.localizedDescription)
+                } else {
+                    print(formatter.error(error.localizedDescription))
+                }
             }
             // When the first change fails nothing was written, since each
             // metadata file is replaced atomically. Restoring would only
@@ -215,6 +254,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             if !changes.isEmpty {
                 try snapshot.restore()
             }
+            if cancelled { throw CancellationError() }
             throw CLIExitCode.outputError.exitCode
         }
 

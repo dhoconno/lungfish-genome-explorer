@@ -21,7 +21,7 @@ import XCTest
 @MainActor
 final class FiveRunnersCancelReadingTests: XCTestCase {
     /// The runners whose command scopes `SIGTERMCancellation`, by name.
-    static let convertedRunners: Set<String> = ["primer-trim", "tree", "align mafft", "msa action"]
+    static let convertedRunners: Set<String> = ["primer-trim", "tree", "align mafft", "msa action", "fastq platform"]
 
     private enum Ending: Equatable {
         case completed

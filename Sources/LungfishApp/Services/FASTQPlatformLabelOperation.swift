@@ -99,6 +99,9 @@ enum FASTQPlatformLabelOperation {
                 do {
                     let outcome = try await transport.run(
                         arguments: arguments,
+                        // The command restores the label and records its cancelled run inside the grace.
+                        terminationGracePeriod: CLIProcessLauncher.operationGrace,
+                        drainGracePeriod: CLIProcessLauncher.operationDrain,
                         isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
                         onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
                     )
