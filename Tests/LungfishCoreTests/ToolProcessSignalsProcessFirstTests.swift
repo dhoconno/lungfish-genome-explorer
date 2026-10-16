@@ -62,6 +62,7 @@ final class ToolProcessSignalsProcessFirstTests: XCTestCase {
             marker: folder.appendingPathComponent("unused")
         )
         XCTAssertLessThan(outcome.elapsed, .seconds(10), "SIGKILL did not end the run at the grace")
+        XCTAssertGreaterThanOrEqual(outcome.elapsed, .milliseconds(400), "the shell ignores SIGTERM, so only the SIGKILL at the 500 ms grace ends it")
     }
 
     /// Runs `/bin/sh` with `trap` as its SIGTERM action, cancels the run once the shell is ready and
