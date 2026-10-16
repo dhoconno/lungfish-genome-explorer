@@ -1,7 +1,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishKit
 import LungfishOperations
 import LungfishWorkflow
 
@@ -113,75 +112,11 @@ enum ReferenceBundleMergeService {
     nonisolated(unsafe) static var recordStoreThreadingProbe: (@Sendable () -> Void)?
     #endif
 
-    /// Reports the run through `reporter`, and throws `OperationRefusedError`,
-    /// having written nothing, when `begin` is refused.
-    @MainActor
-    static func merge(
-        sourceBundleURLs: [URL],
-        outputDirectory: URL,
-        bundleName: String,
-        reporter: any OperationReporting = OperationCenter.shared
-    ) async throws -> URL {
-        let operationID = try reporter.begin(
-            title: "Merge Reference Bundles",
-            detail: "Preparing to merge \(sourceBundleURLs.count) reference bundles\u{2026}",
-            operationType: .bundleBuild,
-            cliCommand: nil // cli-parity-gap: reference-bundle-merge. No command merges bundles. The closest is `bundle create`.
-        ).requireStarted()
-        reporter.log(
-            id: operationID,
-            level: .info,
-            message: "Merging \(sourceBundleURLs.count) reference bundles into \"\(bundleName)\"."
-        )
-
-        // The progress sink is the ONLY thing that touches the main actor. Everything else
-        // runs on the cooperative pool -- see `runDetached`.
-        let progressReporter = ProgressReporter { progress, detail, log in
-            await MainActor.run {
-                _ = reporter.update(id: operationID, progress: progress, detail: detail)
-                if let log {
-                    reporter.log(id: operationID, level: log.level, message: log.message)
-                }
-            }
-        }
-
-        do {
-            let mergedURL = try await runDetached(
-                sourceBundleURLs: sourceBundleURLs,
-                outputDirectory: outputDirectory,
-                bundleName: bundleName,
-                provenanceWriter: .live,
-                reporter: progressReporter
-            )
-            reporter.log(
-                id: operationID,
-                level: .info,
-                message: "Merged bundle written to \(mergedURL.lastPathComponent)."
-            )
-            reporter.complete(
-                id: operationID,
-                detail: "Merged \(sourceBundleURLs.count) reference bundles",
-                bundleURLs: [mergedURL]
-            )
-            return mergedURL
-        } catch {
-            reporter.log(
-                id: operationID,
-                level: .error,
-                message: "Reference bundle merge failed: \(error.localizedDescription)"
-            )
-            reporter.fail(
-                id: operationID,
-                detail: "Reference bundle merge failed",
-                errorMessage: error.localizedDescription
-            )
-            throw error
-        }
-    }
-
     /// A log line the merge wants recorded in the Operations panel, with its severity.
     struct ProgressLog: Sendable {
-        let level: OperationLogLevel
+        enum Level: Sendable { case info, warning }
+
+        let level: Level
         let message: String
 
         static func info(_ message: String) -> ProgressLog {
@@ -237,7 +172,7 @@ enum ReferenceBundleMergeService {
     /// keeps `mergeRecordStores`' SQLite union and `writeMergeProvenance`'s whole-bundle
     /// enumeration plus SHA256 hashing off the main thread. All captured values are
     /// `Sendable` snapshots taken at the call site.
-    private static func runDetached(
+    static func runDetached(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String,
