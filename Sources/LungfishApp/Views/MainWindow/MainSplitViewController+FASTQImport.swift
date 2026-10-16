@@ -819,7 +819,7 @@ extension MainSplitViewController {
                                 errorMessage: errorDesc,
                                 errorDetail: "\(error)"
                             )
-                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc, cancelled: !accepted)
 
                             guard accepted else { return }
                             let alert = NSAlert()
@@ -952,7 +952,7 @@ extension MainSplitViewController {
                                 errorMessage: errorDesc,
                                 errorDetail: "\(error)"
                             )
-                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc)
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc, cancelled: !accepted)
 
                             guard accepted else { return }
                             let alert = NSAlert()
