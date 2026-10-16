@@ -83,7 +83,7 @@ A few integration tests run real tools rather than mocks. They are not gated
 behind an opt-in variable: each one runs when the tool or database it needs is
 present on the machine and skips when it is not.
 
-- `IVarConverterViralReconParityTests` asserts the Swift iVar TSV-to-VCF converter byte-matches the upstream `nf-core/viralrecon` Python script (vendored at `Tests/Fixtures/ivar-converter-parity/ivar_variants_to_vcf.py`) on a real SARS-CoV-2 fixture. Runs whenever `python3` is available.
+- `IVarConverterViralReconParityTests` asserts the Swift iVar TSV-to-VCF converter byte-matches the upstream `nf-core/viralrecon` Python script (vendored at `Tests/Fixtures/ivar-converter-parity/ivar_variants_to_vcf.py`) on a real SARS-CoV-2 fixture. Runs under the ivar-oracle Python of the golden environment lock (python3 scripts/golden/environment.py provision builds it), skips with its reason when that Python is not installed and fails when LUNGFISH_REQUIRE_TOOLS=1 is set.
 - `ReadsToVariantsEndToEndTests` runs the post-mapping reads-to-variants pipeline against a small SARS-CoV-2 amplicon fixture. Requires the managed conda envs (`samtools`, `ivar`, `lofreq`, `bcftools`, `htslib`) to be provisioned (run the app once and accept the on-demand install, or run `lungfish-cli conda install`).
 
 Setting `LUNGFISH_REQUIRE_TOOLS=1` turns these (and other
