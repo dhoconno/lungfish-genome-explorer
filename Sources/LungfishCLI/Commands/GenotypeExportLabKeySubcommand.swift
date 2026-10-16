@@ -529,8 +529,9 @@ extension LabKeyExporter {
             lines.append("  \(collision.id.uuidString.lowercased()) is the id of \(list).")
         }
         lines.append(
-            "To export, keep one cohort of each id above and delete the others in Lungfish. "
-                + "A cohort you save again from its filter gets an id of its own."
+            "To export, delete the cohorts named above in Lungfish, "
+                + "save each one you still need again from its filter, then export again. "
+                + "A delete removes every cohort with the same name and scope."
         )
         return lines.joined(separator: "\n")
     }

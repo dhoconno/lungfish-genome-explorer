@@ -82,7 +82,7 @@ final class GenotypeCohortIdCollisionTests: XCTestCase {
         XCTAssertEqual(attempt.standardError, """
         Cannot export because smart cohorts share a cohort_id, and a reader of smart_cohorts.csv could not tell them apart. No file was written.
           \(Self.sharedID) is the id of cohort 2 "Needs review" (scope bundle) and cohort 5 "Errors at MHC-A" (scope bundle).
-        To export, keep one cohort of each id above and delete the others in Lungfish. A cohort you save again from its filter gets an id of its own.
+        To export, delete the cohorts named above in Lungfish, save each one you still need again from its filter, then export again. A delete removes every cohort with the same name and scope.
 
         """)
     }
@@ -134,7 +134,7 @@ final class GenotypeCohortIdCollisionTests: XCTestCase {
         Cannot export because smart cohorts share a cohort_id, and a reader of smart_cohorts.csv could not tell them apart. No file was written.
           \(Self.otherSharedID) is the id of cohort 1 "Incomplete haplotypes" (scope bundle) and cohort 3 "Homozygous" (scope bundle).
           \(Self.sharedID) is the id of cohort 2 "Needs review" (scope bundle) and cohort 4 "Recombinants" (scope bundle).
-        To export, keep one cohort of each id above and delete the others in Lungfish. A cohort you save again from its filter gets an id of its own.
+        To export, delete the cohorts named above in Lungfish, save each one you still need again from its filter, then export again. A delete removes every cohort with the same name and scope.
 
         """)
     }
