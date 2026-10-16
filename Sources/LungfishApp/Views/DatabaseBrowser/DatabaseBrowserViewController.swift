@@ -2288,7 +2288,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
             // Capture project URL for project-local temp allocation
             let batchProjectURL = routeContext?.projectURL
-            let nucleotideRoute = batchProjectURL == nil ? NucleotideRowDownloadRoute.legacy : nucleotideRowRoute
             let pathoplexusRoute = batchProjectURL == nil ? PathoplexusRowDownloadRoute.legacy : pathoplexusRowRoute
 
             // Use Task.detached to break out of MainActor context.
@@ -2332,13 +2331,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             } else {
                                 // A nucleotide or virus row ends as a .lungfishref bundle. It runs
                                 // `lungfish-cli fetch ncbi --bundle` into the folder the row's command
-                                // names, or the in-process build behind the hidden key (lane A45,
-                                // DatabaseBrowserViewModel+NucleotideRowDownload.swift).
+                                // names (lane A45, DatabaseBrowserViewModel+NucleotideRowDownload.swift).
                                 fileURL = try await Self.downloadNucleotideRow(
-                                    record, index: index, totalCount: totalCount,
-                                    operationID: downloadCenterTaskID, route: nucleotideRoute,
-                                    ncbi: ncbi, genBankVM: genBankVM, includeGFF3Annotations: includeGFF3Annotations,
-                                    batchFolder: batchFolder, projectURL: batchProjectURL
+                                    record, index: index, totalCount: totalCount, operationID: downloadCenterTaskID,
+                                    ncbi: ncbi, includeGFF3Annotations: includeGFF3Annotations, projectURL: batchProjectURL
                                 )
                             }
 

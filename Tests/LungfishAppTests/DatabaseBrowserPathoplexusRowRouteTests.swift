@@ -28,10 +28,6 @@ final class DatabaseBrowserPathoplexusRowRouteTests: XCTestCase {
         }
     }
 
-    func testTheKeyIsNotTheOtherRowsKeys() {
-        XCTAssertNotEqual(PathoplexusRowDownloadRouteSettings.defaultsKey, NucleotideRowDownloadRouteSettings.defaultsKey)
-    }
-
     @MainActor
     func testTheArgumentsHoldTheOrganismAndNoKeyAndFollowTheGFF3Setting() {
         let folder = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish/Downloads", isDirectory: true)

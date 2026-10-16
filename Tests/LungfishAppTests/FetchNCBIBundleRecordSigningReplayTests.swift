@@ -37,13 +37,15 @@ final class FetchNCBIBundleRecordSigningReplayTests: XCTestCase {
         let signing = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
         defer { signing.restore() }
 
-        // The in-process row leaves a bundle with the builder's record in the project's Downloads folder.
+        // The builder leaves a bundle with its own record in the project's Downloads folder, as the
+        // in-process row did before lane A60 of 2.11 deleted it.
         let root = scratch.appendingPathComponent("root", isDirectory: true)
-        try DatabaseBrowserNucleotideRowParityReplayTests.makeProject(root)
-        let outcome = try await DatabaseBrowserNucleotideRowParityReplayTests.sideA(
-            root, record: DatabaseBrowserNucleotideRowParityReplayTests.record(of: .recordWithGFF3)
-        )
-        XCTAssertEqual(outcome.end, .completed, outcome.detail)
+        let downloads = DatabaseBrowserNucleotideRowParityReplayTests.project(in: root)
+            .appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        _ = try await GenBankDownloadBundleBuilder(ncbiService: NCBIService()).downloadAndBuild(
+            accession: DatabaseBrowserNucleotideRowParityReplayTests.record(of: .recordWithGFF3).accession,
+            outputDirectory: downloads, includeGFF3Annotations: true, progressHandler: nil)
         let bundle = try DatabaseBrowserNucleotideRowParityReplayTests.onlyBundle(in: root)
 
         try FetchNCBIBundleRecord.rebase(bundle: bundle, from: scratch.appendingPathComponent("staging", isDirectory: true))

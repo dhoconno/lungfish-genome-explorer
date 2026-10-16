@@ -3,8 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A45, panel decision C4. A nucleotide or virus row runs `lungfish-cli fetch ncbi
-// --bundle` by default. A declared difference between the routes (the sequence's name, the record)
-// keeps the in-process route behind a hidden key for one release, and each key value has a test.
+// --bundle`. Lane A60 of 2.11 deleted the in-process route with its hidden key.
 
 import XCTest
 @testable import LungfishApp
@@ -12,21 +11,6 @@ import LungfishCore
 import LungfishTestSupport
 
 final class DatabaseBrowserNucleotideRowRouteTests: XCTestCase {
-    func testTheHiddenKeyPicksTheRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "nucleotide-row-route")
-        let settings = NucleotideRowDownloadRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(NucleotideRowDownloadRouteSettings.defaultRoute, .cli, "the flip: the CLI route is the default")
-        XCTAssertEqual(settings.route, .cli, "an unset key")
-        let cases: [(Any, NucleotideRowDownloadRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy),
-            ("NO", NucleotideRowDownloadRouteSettings.defaultRoute),
-        ]
-        for (value, route) in cases {
-            suite.defaults.set(value, forKey: NucleotideRowDownloadRouteSettings.defaultsKey)
-            XCTAssertEqual(settings.route, route, "\(value)")
-        }
-    }
-
     @MainActor
     func testTheArgumentsHoldNoKeyAndFollowTheGFF3Setting() {
         let folder = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish/Downloads", isDirectory: true)
