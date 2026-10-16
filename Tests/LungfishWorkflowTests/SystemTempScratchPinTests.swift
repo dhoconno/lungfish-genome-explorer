@@ -5,8 +5,9 @@
 // Phase 2.11 lane S32 M1 (2.10 P1 and P3, 2.11 S3). Each pin points the system temp folder at a
 // folder under a TestTempDirectory root through `TMPDIR`, which
 // `ProjectTempDirectory.systemTemporaryDirectory()` honours, so no pin touches the real system temp
-// folder. The project sweep (`AnalysisRunScratch`) lists only `<project>/.tmp`, so a folder in the
-// system temp folder is one that nothing removes.
+// folder. The project sweep (`AnalysisRunScratch`) lists only `<project>/.tmp`, so at the base a folder
+// in the system temp folder was one that nothing removed. Since S32 M2 it carries a marker and the
+// launch sweep (`SystemTempScratchSweep`) claims it once its creator is gone.
 
 import Darwin
 import Foundation

@@ -1,0 +1,197 @@
+// SystemTempScratchSweepTests.swift - The sweep claims only LGE scratch whose creator is gone
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 2.11 lane S32 M2 item 2 (2.10 P1, SC6). One test for each refusal: a foreign owner, a
+// symbolic link, a live creator, no marker, another prefix and a folder a record names. Every sweep
+// runs on a folder under a TestTempDirectory root, never the real system temp folder.
+
+import Darwin
+import Foundation
+import LungfishCore
+import LungfishTestSupport
+@testable import LungfishIO
+import XCTest
+
+final class SystemTempScratchSweepTests: XCTestCase {
+    private var root: URL!
+    /// Stands in for the system temp folder.
+    private var systemTemp: URL!
+
+    override func setUpWithError() throws {
+        root = try TestTempDirectory.make(prefix: "system-temp-scratch-sweep").resolvingSymlinksInPath()
+        systemTemp = root.appendingPathComponent("T", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemTemp, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        TestTempDirectory.cleanup(root)
+    }
+
+    func testScratchWhoseCreatorIsGoneIsRemoved() throws {
+        let gone = try makeScratch("taxtriage-", creator: Self.goneCreator())
+        let otherBoot = try makeScratch("nfcore-work-", creator: Self.creatorOnAnotherBoot())
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        XCTAssertEqual(Set(outcome.removed.map(\.lastPathComponent)), [gone.lastPathComponent, otherBoot.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: gone.path), "a reused PID with another start time is gone")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: otherBoot.path), "a creator from another boot is gone")
+        XCTAssertTrue(outcome.refused.isEmpty, "\(outcome.refused)")
+    }
+
+    func testAFolderSomeoneElseOwnsStays() throws {
+        let scratch = try makeScratch("taxtriage-", creator: Self.goneCreator())
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp, userID: getuid() + 1)
+
+        assertStays(scratch, outcome, .foreignOwner)
+    }
+
+    func testASymbolicLinkStaysAndSoDoesItsTarget() throws {
+        let elsewhere = root.appendingPathComponent("elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let target = try makeScratch("taxtriage-", creator: Self.goneCreator(), in: elsewhere)
+        let link = systemTemp.appendingPathComponent("taxtriage-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        assertStays(link, outcome, .symbolicLink)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target.appendingPathComponent(OwnedWorkDirectoryMarker.fileName).path))
+    }
+
+    func testScratchWhoseCreatorIsAliveStays() throws {
+        let scratch = try SystemTempScratchSweep.createMarkedDirectory(prefix: "nfcore-run-", in: systemTemp, toolVersion: "test")
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        assertStays(scratch, outcome, .liveCreator)
+    }
+
+    func testACreatorThatCannotBeReadStays() throws {
+        let scratch = try makeScratch("taxtriage-", creator: Self.goneCreator())
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp, processInspector: { _ in throw POSIXError(.EPERM) })
+
+        assertStays(scratch, outcome, .creatorUnknown)
+    }
+
+    func testAFolderWithNoMarkerOrAnotherRootsMarkerStays() throws {
+        let unmarked = systemTemp.appendingPathComponent("taxtriage-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: unmarked, withIntermediateDirectories: false)
+        let otherRoot = root.appendingPathComponent("other", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherRoot, withIntermediateDirectories: true)
+        let moved = try makeScratch("taxtriage-", creator: Self.goneCreator(), in: otherRoot)
+        let movedHere = systemTemp.appendingPathComponent(moved.lastPathComponent, isDirectory: true)
+        try FileManager.default.moveItem(at: moved, to: movedHere)
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        assertStays(unmarked, outcome, .noMarker)
+        assertStays(movedHere, outcome, .noMarker)
+    }
+
+    func testAnotherPrefixStays() throws {
+        let foreign = try makeScratch("foreign-", creator: Self.goneCreator())
+        let noUUID = systemTemp.appendingPathComponent("taxtriage-scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: noUUID, withIntermediateDirectories: false)
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        assertStays(foreign, outcome, .otherPrefix)
+        assertStays(noUUID, outcome, .otherPrefix)
+    }
+
+    func testAFolderARecordNamesStays() throws {
+        let named = try makeScratch("taxtriage-", creator: Self.goneCreator())
+        let recordedFile = named.appendingPathComponent("output/report.tsv")
+        let holdsRecord = try makeScratch("taxtriage-", creator: Self.goneCreator())
+        try Data("{}".utf8).write(to: holdsRecord.appendingPathComponent(".lungfish-provenance.json"))
+        let holdsRunRecord = try makeScratch("nfcore-run-", creator: Self.goneCreator())
+        try Data("{}".utf8).write(to: holdsRunRecord.appendingPathComponent(AnalysisRunRecord.fileName))
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp, recordedPaths: [recordedFile])
+
+        assertStays(named, outcome, .namedByRecord)
+        assertStays(holdsRecord, outcome, .namedByRecord)
+        assertStays(holdsRunRecord, outcome, .namedByRecord)
+    }
+
+    func testScratchKeptForDebuggingStays() throws {
+        let kept = try makeScratch("nfcore-run-", creator: Self.goneCreator(), keepIntermediates: true)
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        assertStays(kept, outcome, .keptForDebugging)
+    }
+
+    func testTheSweepTouchesNothingBelowItsRootsChildren() throws {
+        let holder = systemTemp.appendingPathComponent("not-lge", isDirectory: true)
+        try FileManager.default.createDirectory(at: holder, withIntermediateDirectories: false)
+        let nested = try makeScratch("taxtriage-", creator: Self.goneCreator(), in: holder)
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        XCTAssertTrue(outcome.removed.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: nested.path))
+    }
+
+    // MARK: - Helpers
+
+    /// A marked folder whose marker names `creator`, made as `ProjectTempDirectory` makes one.
+    private func makeScratch(
+        _ prefix: String,
+        creator: OwnedProcessIdentity,
+        in parent: URL? = nil,
+        keepIntermediates: Bool = false
+    ) throws -> URL {
+        let parent = parent ?? systemTemp!
+        return try OwnedWorkDirectoryMarkerStore.createDirectory(
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: parent,
+                parentDirectoryURL: parent,
+                prefix: prefix,
+                runID: UUID(),
+                processIdentity: creator,
+                state: .active,
+                lockRelativePath: nil,
+                keepIntermediates: keepIntermediates,
+                toolName: "ProjectTempDirectory",
+                toolVersion: "test"
+            )
+        )
+    }
+
+    /// This process's PID with another start time, as a PID the system reused.
+    private static func goneCreator() throws -> OwnedProcessIdentity {
+        let current = try OwnedProcessIdentity.current()
+        return OwnedProcessIdentity(
+            processIdentifier: current.processIdentifier,
+            processStartTime: current.processStartTime &+ 1,
+            bootSessionID: current.bootSessionID
+        )
+    }
+
+    private static func creatorOnAnotherBoot() throws -> OwnedProcessIdentity {
+        let current = try OwnedProcessIdentity.current()
+        return OwnedProcessIdentity(
+            processIdentifier: current.processIdentifier,
+            processStartTime: current.processStartTime,
+            bootSessionID: UUID().uuidString
+        )
+    }
+
+    private func assertStays(
+        _ folder: URL,
+        _ outcome: SystemTempScratchSweep.Outcome,
+        _ refusal: SystemTempScratchSweep.Refusal,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var info = stat()
+        XCTAssertEqual(lstat(folder.path, &info), 0, "\(folder.lastPathComponent) stays", file: file, line: line)
+        XCTAssertEqual(outcome.refused[folder.lastPathComponent], refusal, file: file, line: line)
+        XCTAssertFalse(outcome.removed.map(\.lastPathComponent).contains(folder.lastPathComponent), file: file, line: line)
+    }
+}
