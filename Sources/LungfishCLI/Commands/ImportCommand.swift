@@ -2402,7 +2402,7 @@ private func printNaoMgsTaxonSummary(
 ///
 /// Returns the provided path as a URL, or defaults to the current working
 /// directory if no path was specified.
-private func resolveOutputDirectory(_ outputDir: String?) -> URL {
+func resolveOutputDirectory(_ outputDir: String?) -> URL {
     if let dir = outputDir {
         return URL(fileURLWithPath: dir)
     }
@@ -2410,7 +2410,7 @@ private func resolveOutputDirectory(_ outputDir: String?) -> URL {
 }
 
 /// Formats a number with thousands separators.
-private func formatNumber(_ value: Int64) -> String {
+func formatNumber(_ value: Int64) -> String {
     let formatter = NumberFormatter()
     formatter.numberStyle = .decimal
     formatter.groupingSeparator = ","
@@ -2418,7 +2418,7 @@ private func formatNumber(_ value: Int64) -> String {
 }
 
 /// Formats a base count with appropriate unit suffix (bp, kb, Mb, Gb).
-private func formatBases(_ bases: Int64) -> String {
+func formatBases(_ bases: Int64) -> String {
     if bases < 1_000 {
         return "\(bases) bp"
     } else if bases < 1_000_000 {
@@ -2430,7 +2430,7 @@ private func formatBases(_ bases: Int64) -> String {
     }
 }
 
-private struct ImportArtifactConflictError: Error, LocalizedError {
+struct ImportArtifactConflictError: Error, LocalizedError {
     let sourceURL: URL
     let destinationURL: URL
 
@@ -2442,7 +2442,7 @@ private struct ImportArtifactConflictError: Error, LocalizedError {
     }
 }
 
-private func copyImportArtifactIfNeeded(from sourceURL: URL, to destinationURL: URL) throws -> Bool {
+func copyImportArtifactIfNeeded(from sourceURL: URL, to destinationURL: URL) throws -> Bool {
     let fileManager = FileManager.default
     if sourceURL.canonicalFilePath == destinationURL.canonicalFilePath {
         return false
@@ -2466,13 +2466,13 @@ private func importArtifactsMatch(_ lhs: URL, _ rhs: URL) throws -> Bool {
     return try ProvenanceFileHasher.sha256(of: lhs) == ProvenanceFileHasher.sha256(of: rhs)
 }
 
-private func removeCreatedImportArtifacts(_ urls: [URL]) {
+func removeCreatedImportArtifacts(_ urls: [URL]) {
     for url in urls.reversed() {
         try? FileManager.default.removeItem(at: url)
     }
 }
 
-private func detectNativeToolVersion(_ tool: NativeTool) async -> String {
+func detectNativeToolVersion(_ tool: NativeTool) async -> String {
     do {
         let result = try await NativeToolRunner.shared.run(tool, arguments: ["--version"], timeout: 30)
         let combined = (result.stdout + "\n" + result.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2485,7 +2485,7 @@ private func detectNativeToolVersion(_ tool: NativeTool) async -> String {
     }
 }
 
-private func nativeToolProvenanceStep(
+func nativeToolProvenanceStep(
     toolName: String,
     toolVersion: String,
     result: NativeToolResult,
@@ -2512,7 +2512,7 @@ private func nativeToolProvenanceStep(
 }
 
 /// Recursively scans a directory and returns regular files sorted by path.
-private func scanRegularFilesRecursively(in directory: URL) -> [URL] {
+func scanRegularFilesRecursively(in directory: URL) -> [URL] {
     let fm = FileManager.default
     guard let enumerator = fm.enumerator(
         at: directory,

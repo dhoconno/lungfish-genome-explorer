@@ -2066,7 +2066,7 @@ extension AppDelegate {
         return trimmed.isEmpty ? nil : value
     }
 
-    private nonisolated static func estimatedRemainingText(progress: Double, startedAt: Date) -> String {
+    nonisolated static func estimatedRemainingText(progress: Double, startedAt: Date) -> String {
         guard progress > 0.01, progress < 1.0 else { return "" }
         let elapsed = Date().timeIntervalSince(startedAt)
         guard elapsed > 0.5 else { return "" }
@@ -2824,7 +2824,7 @@ extension AppDelegate {
         )
     }
 
-    nonisolated private func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> [SequenceAnnotation] {
+    nonisolated func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> [SequenceAnnotation] {
         var annotations: [SequenceAnnotation] = []
         for track in manifest.annotations {
             guard let dbPath = track.databasePath else { continue }
@@ -2890,7 +2890,7 @@ extension AppDelegate {
     /// annotation database (BigBed tracks) via the bundle's data provider.
     /// For GenBank files, reads both sequences and annotations from the file.
     /// For FASTA files, reads sequences only.
-    nonisolated private func loadSequencesForExport(from url: URL) async throws -> ([LungfishCore.Sequence], [SequenceAnnotation]) {
+    nonisolated func loadSequencesForExport(from url: URL) async throws -> ([LungfishCore.Sequence], [SequenceAnnotation]) {
         // Reference bundle: read FASTA path from manifest
         if url.pathExtension.lowercased() == "lungfishref" {
             let manifest = try BundleManifest.load(from: url)
@@ -2937,7 +2937,7 @@ extension AppDelegate {
     }
 
     /// Returns current date in GenBank format (DD-MMM-YYYY)
-    nonisolated private static func currentDateString() -> String {
+    nonisolated static func currentDateString() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "dd-MMM-yyyy"
         formatter.locale = Locale(identifier: "en_US_POSIX")
