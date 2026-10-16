@@ -39,7 +39,7 @@ extension VariantsCommand.CallSubcommand {
         guard case .failure(let error) = outcome else { return }
         guard error is CancellationError else { throw error }
         writeCancelledRecord(startedAt: startedAt)
-        FileHandle.standardError.write(Data("Variant calling cancelled. The bundle is as it was.\n".utf8))
+        FileHandle.standardError.write(Data("Variant calling cancelled. No variant track was attached.\n".utf8))
         throw CLIExitCode.cancelled.exitCode
     }
 
