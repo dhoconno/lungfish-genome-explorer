@@ -157,7 +157,8 @@ extension VariantsCommand.CallSubcommand {
                     outputTrackName: trackName,
                     outputVCFURL: outputURL,
                     executionProvenanceURL: result.provenanceURL,
-                    executionRequest: request
+                    executionRequest: request,
+                    invocationArgv: recordedArguments
                 )
             )
             emitEvent(event("attachComplete", 0.97, "Attached variant track \(attachment.trackInfo.name)", attachment: attachment))

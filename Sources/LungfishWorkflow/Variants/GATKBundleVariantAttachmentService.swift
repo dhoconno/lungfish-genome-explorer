@@ -12,6 +12,10 @@ public struct GATKBundleVariantAttachmentRequest: Sendable {
     public let executionProvenanceURL: URL?
     public let executionRequest: GATKPipelineExecutionRequest
     public let importProfile: VCFImportProfile
+    /// The command the attach record names as the run's. `lungfish-cli variants call --caller gatk` passes
+    /// the command it ran, so the record the completion event names replays the run (review A50 F1, the
+    /// lane A43 pattern). Nil names the in-app attach, as before.
+    public let invocationArgv: [String]?
 
     public init(
         bundleURL: URL,
@@ -22,7 +26,8 @@ public struct GATKBundleVariantAttachmentRequest: Sendable {
         outputIndexURL: URL? = nil,
         executionProvenanceURL: URL? = nil,
         executionRequest: GATKPipelineExecutionRequest,
-        importProfile: VCFImportProfile = .auto
+        importProfile: VCFImportProfile = .auto,
+        invocationArgv: [String]? = nil
     ) {
         self.bundleURL = bundleURL
         self.alignmentTrackID = alignmentTrackID
@@ -33,6 +38,7 @@ public struct GATKBundleVariantAttachmentRequest: Sendable {
         self.executionProvenanceURL = executionProvenanceURL
         self.executionRequest = executionRequest
         self.importProfile = importProfile
+        self.invocationArgv = invocationArgv
     }
 }
 
@@ -325,7 +331,7 @@ public actor GATKBundleVariantAttachmentService {
             inputs.append(ProvenanceRecorder.fileRecord(url: executionProvenanceURL, format: .json, role: .input))
         }
 
-        let command = [
+        let command = request.invocationArgv ?? [
             "lungfish-app",
             "gatk-attach",
             "--bundle", request.bundleURL.path,

@@ -116,6 +116,7 @@ final class VariantsCallGATKTests: XCTestCase {
         XCTAssertEqual(execution.parameters["shellCommands"].map { "\($0)" }?.contains("HaplotypeCaller"), true)
         XCTAssertEqual(execution.parameters["option.emitReferenceConfidence"]?.stringValue, "NONE")
         let attach = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: ran.attachment.provenanceURL)).legacyWorkflowRun()
+        XCTAssertEqual(try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: ran.attachment.provenanceURL)).argv, ran.argv, "the record the completion event names is the leaf's own command")
         XCTAssertEqual(attach.parameters["shellCommand"]?.stringValue, command.shellCommand)
     }
 
