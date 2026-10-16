@@ -19,13 +19,11 @@ final class GATKVariantCallPinConformanceTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GATKVariantCallPinConformanceTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        root = try TestTempDirectory.make(prefix: "gatk-variant-call-pin")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        TestTempDirectory.cleanup(root)
     }
 
     /// Forty reads of 100 bases that all cover the SNP, half with the alternate base, on both strands.

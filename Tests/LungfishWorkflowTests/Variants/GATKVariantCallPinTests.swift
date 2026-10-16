@@ -12,6 +12,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
@@ -173,13 +174,11 @@ final class GATKVariantCallPinTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("GATKVariantCallPinTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        root = try TestTempDirectory.make(prefix: "gatk-variant-call-pin")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        TestTempDirectory.cleanup(root)
     }
 
     private var vcfText: String {
