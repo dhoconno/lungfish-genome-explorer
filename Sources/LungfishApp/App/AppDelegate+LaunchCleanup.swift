@@ -8,15 +8,15 @@ import LungfishIO
 
 extension AppDelegate {
     /// Applies the temp file retention and removes stale temp files. At launch it also starts the sweep
-    /// of LGE scratch in the system temp folder whose creator is gone (2.11 S3). A change of the
-    /// retention setting runs the cleanup again but never the sweep.
+    /// of LGE scratch in the system temp folder whose creator is gone (2.11 S3), once both cleanup calls
+    /// have returned. A change of the retention setting runs the cleanup again but never the sweep.
     func cleanUpTemporaryFiles(retentionHours: Int, atLaunch: Bool) {
         Task {
             await TempFileManager.shared.setMaxAge(hours: retentionHours)
             await TempFileManager.shared.cleanupOnLaunch()
-        }
-        if atLaunch {
-            Self.startSystemTempScratchSweep()
+            if atLaunch {
+                AppDelegate.startSystemTempScratchSweep()
+            }
         }
     }
 
