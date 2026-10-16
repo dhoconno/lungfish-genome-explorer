@@ -142,6 +142,14 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
             TaxTriageParityPayloads.failures(found: differences, parityCase: .x1, scope: .pair(.a, .c)),
             ["not declared: report: \(sample): differs: \(report)\n        " + (differences.first { $0.id.hasSuffix(report) }?.detail ?? "")]
         )
+        func only(_ kind: String, _ key: String) -> TaxTriageParityDifference {
+            TaxTriageParityDifference(id: "\(kind): \(sample): only in C: \(key)", detail: "")
+        }
+        let top = only("report", topReport)
+        let fastp = only("kept reads", "fastp/\(sample).fastp.fastq.gz")
+        XCTAssertEqual(TaxTriageParityPayloads.failures(found: [top, fastp], parityCase: .x1, scope: .pair(.a, .c)), [])
+        XCTAssertEqual(TaxTriageParityPayloads.failures(found: [top, only("kept reads", "minimap2/\(sample).bam")], parityCase: .x1, scope: .pair(.a, .c)).count, 1)
+        XCTAssertEqual(TaxTriageParityPayloads.failures(found: [fastp], parityCase: .x1, scope: .pair(.c, .cPrime)).count, 1)
 
         // Sample names with dots and spaces. No case of the harness holds one (BIO memo row 5), so this shows only how
         // files are given to samples: the longest name keeps its files, a folder named as the sample drops out of

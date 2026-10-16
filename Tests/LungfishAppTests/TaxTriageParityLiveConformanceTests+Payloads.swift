@@ -78,6 +78,23 @@ enum TaxTriageParityPayloads {
         ),
     ]
 
+    /// The folders side A's cleanup deletes after a run (`performCleanupForSingleResult`, BuildDbCommand+TaxTriageCore.swift:479-514),
+    /// and `fastp/` for its FASTQ files. A file that only side C holds in one of them is the GUI route's cleanup. A against C
+    /// records it in `payload-compare.txt` and does not fail on it. The `top/` declaration above keeps its own count.
+    static let cleanedByTheGUIRoute: Set<String> = [
+        "count", "filterkraken", "get", "map", "samtools", "bedtools", "top", "mergedsubspecies", "mergedkrakenreport",
+    ]
+
+    /// Whether `difference` names a file only side C holds in a folder that side A's cleanup deletes.
+    static func isCleanedByTheGUIRoute(_ difference: TaxTriageParityDifference) -> Bool {
+        guard let marker = difference.id.range(of: ": only in C: ") else { return false }
+        let key = String(difference.id[marker.upperBound...])
+        let parts = key.split(separator: "/").map(String.init)
+        guard parts.count > 1, let folder = parts.first else { return false }
+        let name = key.lowercased()
+        return cleanedByTheGUIRoute.contains(folder) || (folder == "fastp" && (name.hasSuffix(".fastq") || name.hasSuffix(".gz")))
+    }
+
     /// The sample names of `run`, as the request and the engine wrote them: the case's samples, the result's and the
     /// organism reports'.
     static func sampleNames(of run: TaxTriageParitySideRun, parityCase: TaxTriageParityCase) -> [String] {
@@ -171,7 +188,10 @@ enum TaxTriageParityPayloads {
             !difference.id.hasPrefix(TaxTriageParityPayloadKind.other.rawValue + ":")
         }
         let entries = declared.filter { $0.counts[parityCase] != nil && $0.scope == scope }
-        var lines = asserted.filter { difference in !entries.contains { $0.matches(difference) } }.map { "not declared: \($0)" }
+        var lines = asserted
+            .filter { difference in !entries.contains { $0.matches(difference) } }
+            .filter { difference in !(scope == .pair(.a, .c) && isCleanedByTheGUIRoute(difference)) }
+            .map { "not declared: \($0)" }
         for entry in entries {
             let matched = asserted.filter(entry.matches)
             let count = entry.counts[parityCase] ?? 0
