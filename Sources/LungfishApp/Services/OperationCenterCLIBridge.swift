@@ -29,6 +29,7 @@ import LungfishWorkflow
 /// - A `progress` event sets the row's detail to its message. The bar is held. It moves
 ///   to the event's fraction only when that is higher than the bar, so a lower fraction
 ///   after a higher one leaves the bar alone. A `start` event holds the bar the same way.
+///   The bar is the row's `progress` value. The panel does not draw it, since it draws a bar only for progress evidence.
 ///   An empty message changes the bar only.
 /// - A progress message is logged at info once. It is not logged when the row's log
 ///   already ends with it at info, so a command that repeats a line, or a reader that

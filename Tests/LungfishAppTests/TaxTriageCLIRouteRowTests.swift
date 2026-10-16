@@ -110,9 +110,9 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
 
     // MARK: - The bar
 
-    /// UX F6, F13 and check list row 16. The bar of a batch reaches 90 percent when the last sample's engine
-    /// stage ends, 95 percent at `Building TaxTriage database…` and never moves back, and the stage's line is
-    /// shown and logged once though the command writes it at the start and the end of the stage.
+    /// UX F6, F13 and check list row 16. The held progress of a batch reaches 0.90 when the last sample's engine
+    /// stage ends, 0.95 at `Building TaxTriage database…` and never moves back. The panel draws no bar for it (U30 W4
+    /// ruling). The stage's line is shown and logged once, though the command writes it at the start and the end of the stage.
     func testTheBarReachesNinetyThenNinetyFiveAtTheDatabaseAndNeverMovesBack() throws {
         let transcript = try CapturedClassifierTranscript.load(command: "taxtriage-run", run: "complete-batch", root: root)
         var events = CLIClassifierRowEvents(tool: .taxTriage, sampleIDs: ["S.1", "blank 1"])

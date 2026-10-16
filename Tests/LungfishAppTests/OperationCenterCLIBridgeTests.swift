@@ -254,6 +254,9 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         await eventsApplied()
         XCTAssertEqual(item(id)?.progress, 1.0, "a start event never moves the bar back")
         XCTAssertEqual(item(id)?.detail, "Starting again")
+        XCTAssertNil(item(id)?.progressEvidence, "the bridge holds the row's progress value and records no evidence")
+        XCTAssertNil(item(id)?.displayProgressFraction, "a bridged row draws no bar (U30 W4 ruling)")
+        XCTAssertEqual(item(id)?.displayProgressLabel, item(id)?.displayStateLabel, "the label names the state with no percentage")
     }
 
     /// Producers on several threads never lower the bar. Each event reads the bar and writes it in one
