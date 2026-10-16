@@ -21,7 +21,7 @@ final class GenotypeCohortSharedIDRemedyTests: XCTestCase {
     /// An id that a sidecar stores and that no derivation from a scope and a name produces.
     private static let sharedID = UUID(uuidString: "6f2c7d1e-4b8a-4c35-9e07-3a1d5b9f8c42")!
 
-    func testDeletingTheNamedCohortsAndSavingAgainLeavesNoSharedId() throws {
+    func testDeletingTheNamedCohortsAndSavingAgainLeavesNoSharedId() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         try writeSidecar(
@@ -34,10 +34,10 @@ final class GenotypeCohortSharedIDRemedyTests: XCTestCase {
         let store = try open(layout)
         XCTAssertEqual(store.sidecar.resolvedSmartCohortIDs, [Self.sharedID, Self.sharedID])
 
-        try store.deleteSmartCohort(name: "Errors at MHC-A", scope: "bundle")
-        try store.deleteSmartCohort(name: "Late calls", scope: "bundle")
-        try store.saveSmartCohort(cohort("Filter: Errors at MHC-A", .hasErrorAt(locus: "MHC-A")))
-        try store.saveSmartCohort(cohort("Filter: Late calls", .hasAnyComment))
+        try await store.deleteSmartCohort(name: "Errors at MHC-A", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Late calls", scope: "bundle")
+        try await store.saveSmartCohort(cohort("Filter: Errors at MHC-A", .hasErrorAt(locus: "MHC-A")))
+        try await store.saveSmartCohort(cohort("Filter: Late calls", .hasAnyComment))
 
         let onDisk = try reread(layout)
         XCTAssertEqual(onDisk.smartCohorts.count, 2)
@@ -46,7 +46,7 @@ final class GenotypeCohortSharedIDRemedyTests: XCTestCase {
         XCTAssertFalse(onDisk.resolvedSmartCohortIDs.contains(Self.sharedID), "and neither is the shared id")
     }
 
-    func testADeleteRemovesEveryCohortWithTheSameNameAndScope() throws {
+    func testADeleteRemovesEveryCohortWithTheSameNameAndScope() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         try writeSidecar(
@@ -59,14 +59,14 @@ final class GenotypeCohortSharedIDRemedyTests: XCTestCase {
         )
         let store = try open(layout)
 
-        try store.deleteSmartCohort(name: "Errors", scope: "bundle")
+        try await store.deleteSmartCohort(name: "Errors", scope: "bundle")
 
         XCTAssertEqual(try reread(layout).smartCohorts.map(\.name), ["Other"], "the unlisted twin goes with the named one")
     }
 
     /// The evidence that a save alone is not the remedy. If the store changes how a save treats the id of the
     /// cohort it replaces, this test and the refusal's words change together.
-    func testSavingAgainAloneKeepsASharedIdSoTheLineDeletesFirst() throws {
+    func testSavingAgainAloneKeepsASharedIdSoTheLineDeletesFirst() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         try writeSidecar(
@@ -78,7 +78,7 @@ final class GenotypeCohortSharedIDRemedyTests: XCTestCase {
         )
         let store = try open(layout)
 
-        try store.saveSmartCohort(cohort("Filter: Errors at MHC-A", .hasErrorAt(locus: "MHC-A")))
+        try await store.saveSmartCohort(cohort("Filter: Errors at MHC-A", .hasErrorAt(locus: "MHC-A")))
 
         let onDisk = try reread(layout)
         XCTAssertEqual(onDisk.smartCohorts.count, 2)
