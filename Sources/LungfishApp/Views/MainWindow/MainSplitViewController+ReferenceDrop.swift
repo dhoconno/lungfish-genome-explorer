@@ -13,6 +13,27 @@ enum DroppedReferenceImportOutcome: Equatable {
     case cancelled
 }
 
+/// The drop's completed notice for one end of a reference import (U62).
+struct DroppedReferenceNotice: Equatable {
+    let success: Bool
+    let error: String?
+    let cancelled: Bool
+}
+
+extension DroppedReferenceImportOutcome {
+    /// What the drop posts for this end. Only a cancel sets U62's `cancelled` key.
+    var notice: DroppedReferenceNotice {
+        switch self {
+        case .imported:
+            DroppedReferenceNotice(success: true, error: nil, cancelled: false)
+        case .cancelled:
+            DroppedReferenceNotice(success: false, error: "Import cancelled", cancelled: true)
+        case .failed(let message):
+            DroppedReferenceNotice(success: false, error: message, cancelled: false)
+        }
+    }
+}
+
 extension MainSplitViewController {
     /// Imports the standalone reference `sourceURL` dropped on the sidebar into the project at
     /// `projectURL` with `lungfish-cli import fasta` (2.11 lane A48 M4, plan decision C3). It uses the

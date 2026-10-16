@@ -97,4 +97,10 @@ final class SidebarReferenceDropRouteTests: XCTestCase {
         XCTAssertEqual(outcome, .failed("Unsupported reference format: .txt"))
         XCTAssertEqual(reporter.items.map(\.state), [.failed])
     }
+
+    func testEachEndOfTheDropMapsToItsNoticeAndOnlyACancelSetsTheCancelledKey() {
+        XCTAssertEqual(DroppedReferenceImportOutcome.imported(bundleURL).notice, DroppedReferenceNotice(success: true, error: nil, cancelled: false))
+        XCTAssertEqual(DroppedReferenceImportOutcome.cancelled.notice, DroppedReferenceNotice(success: false, error: "Import cancelled", cancelled: true))
+        XCTAssertEqual(DroppedReferenceImportOutcome.failed("disk full").notice, DroppedReferenceNotice(success: false, error: "disk full", cancelled: false))
+    }
 }

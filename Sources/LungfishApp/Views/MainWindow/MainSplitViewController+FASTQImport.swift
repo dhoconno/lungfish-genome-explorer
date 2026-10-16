@@ -76,18 +76,17 @@ extension MainSplitViewController {
                 return
             }
 
-            switch await Self.importDroppedReference(sourceURL: url, projectURL: projectURL, routeContext: operationRouteContext) {
-            case .imported:
-                // OperationCenter delivers and routes the final bundle once.
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
-            case .cancelled:
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Import cancelled", cancelled: true)
-            case .failed(let errorMessage):
+            let outcome = await Self.importDroppedReference(sourceURL: url, projectURL: projectURL, routeContext: operationRouteContext)
+            if case .failed(let errorMessage) = outcome {
                 mainSplitLogger.error(
                     "handleSidebarFileDropped: Reference import failed for \(url.lastPathComponent, privacy: .public): \(errorMessage, privacy: .public)"
                 )
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: errorMessage)
             }
+            // OperationCenter delivers and routes the final bundle once.
+            let notice = outcome.notice
+            postSidebarFileDropCompleted(
+                requestID: requestID, sourceURL: url, success: notice.success, error: notice.error, cancelled: notice.cancelled
+            )
             return
         }
 
