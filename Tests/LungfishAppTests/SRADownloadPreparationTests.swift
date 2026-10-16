@@ -144,9 +144,11 @@ final class SRADownloadPreparationTests: XCTestCase {
     }
 
     /// Begins the SRA row and hands it to the preparation, as the browser's download does once its
-    /// row has begun. A download with no project now stops at No Project Open before any row (lane
-    /// A60, DatabaseBrowserNoProjectDownloadRefusalTests), so the row begins here and the model keeps
-    /// no route context, which leaves the preparation's window to `downloadPresentationWindow`.
+    /// row has begun. Never call `model.performBatchDownload()` in this file. The model keeps no
+    /// route context, so that call stops at the No Project Open refusal before any row (lane A60,
+    /// DatabaseBrowserNoProjectDownloadRefusalTests), and the live presenter's app-modal alert
+    /// waits for a click that never comes, which hangs the run. The row begins here instead, which
+    /// leaves the preparation's window to `downloadPresentationWindow`.
     private func startPreparation(_ model: DatabaseBrowserViewModel) {
         let id = OperationCenter.shared.begin(
             title: "SRR9000001", detail: "Preparing 1 record(s)...", operationType: .download, cliCommand: nil
