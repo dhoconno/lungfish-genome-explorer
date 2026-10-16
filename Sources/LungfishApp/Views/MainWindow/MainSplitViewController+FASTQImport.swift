@@ -133,7 +133,7 @@ extension MainSplitViewController {
                 sourceURL: url,
                 presentingWindow: view.window
             ) else {
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Annotation import cancelled.")
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Annotation import cancelled.", cancelled: true)
                 return
             }
             let bundleURL = importConfiguration.bundleURL
@@ -155,7 +155,7 @@ extension MainSplitViewController {
                     postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
                 } catch {
                     _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: error.localizedDescription)
+                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: error.localizedDescription, cancelled: error is CancellationError)
                 }
             }
             if case .refused = startResult {
@@ -370,7 +370,7 @@ extension MainSplitViewController {
             },
             onCancel: { [weak self] in
                 for pair in pairs {
-                    self?.postSidebarFileDropCompleted(requestID: requestID, sample: pair, success: false, error: "Cancelled by user")
+                    self?.postSidebarFileDropCompleted(requestID: requestID, sample: pair, success: false, error: "Cancelled by user", cancelled: true)
                 }
             }
         )
@@ -518,7 +518,7 @@ extension MainSplitViewController {
                 self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
             case .failure(let error):
                 mainSplitLogger.error("importFASTQFileInBackground: \(error)")
-                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription, cancelled: error is CancellationError)
                 guard !(error is CancellationError) else { return }
                 let alert = NSAlert()
                 alert.messageText = "Failed to Import FASTQ"
@@ -658,7 +658,7 @@ extension MainSplitViewController {
                         requestID: requestID,
                         sourceURL: sourceURL,
                         success: false,
-                        error: "Cancelled by user"
+                        error: "Cancelled by user", cancelled: true
                     )
                 }
             )
@@ -791,7 +791,7 @@ extension MainSplitViewController {
                                 detail: "Done in \(String(format: "%.1f", elapsed))s",
                                 result: result
                             ) else {
-                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
+                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user", cancelled: true)
                                 return
                             }
                             self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
@@ -924,7 +924,7 @@ extension MainSplitViewController {
                                 detail: "Done in \(String(format: "%.1f", elapsed))s",
                                 result: result
                             ) else {
-                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
+                                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user", cancelled: true)
                                 return
                             }
                             self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
@@ -1015,7 +1015,7 @@ extension MainSplitViewController {
                 }
             } catch is CancellationError { // The row reads Cancelled, so no sheet
                 viewerController?.hideProgress()
-                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Import cancelled")
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Import cancelled", cancelled: true)
             } catch {
                 mainSplitLogger.error("importONTDirectoryInBackground: \(error)")
                 viewerController?.hideProgress()
@@ -1034,11 +1034,10 @@ extension MainSplitViewController {
         }
     }
 
-    func postSidebarFileDropCompleted(requestID: String?, sourceURL: URL, success: Bool, error: String?) {
-        var userInfo: [String: Any] = [
-            "url": sourceURL,
-            "success": success
-        ]
+    /// Posts the end of one dropped file. `cancelled` says the user cancelled it, which File > Import
+    /// Files... counts as neither a success nor a failure (Phase 2.11 lane U62). `success` is false then.
+    func postSidebarFileDropCompleted(requestID: String?, sourceURL: URL, success: Bool, error: String?, cancelled: Bool = false) {
+        var userInfo: [String: Any] = ["url": sourceURL, "success": success, "cancelled": cancelled]
         if let requestID {
             userInfo["requestID"] = requestID
         }

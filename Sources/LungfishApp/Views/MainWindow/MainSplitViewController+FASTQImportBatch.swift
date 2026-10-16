@@ -125,7 +125,7 @@ extension MainSplitViewController {
                     viewerController?.hideProgress()
                     mainSplitLogger.error("importFASTQBatch: \(error)")
                     self?.postSidebarFileDropCompleted(
-                        requestID: requestID, sample: pair, success: false, error: error.localizedDescription
+                        requestID: requestID, sample: pair, success: false, error: error.localizedDescription, cancelled: error is CancellationError
                     )
                     guard !(error is CancellationError) else { return }
                     let alert = NSAlert()
@@ -148,9 +148,9 @@ extension MainSplitViewController {
     /// tracks each dropped file, such as File > Import, finishes only when
     /// each file has one, and posting it for R1 alone left a pair's request,
     /// and its activity indicator, open after the import ended.
-    func postSidebarFileDropCompleted(requestID: String?, sample: FASTQFilePair, success: Bool, error: String?) {
+    func postSidebarFileDropCompleted(requestID: String?, sample: FASTQFilePair, success: Bool, error: String?, cancelled: Bool = false) {
         for url in Self.sidebarDropCompletionURLs(of: sample) {
-            postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: success, error: error)
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: success, error: error, cancelled: cancelled)
         }
     }
 

@@ -223,6 +223,7 @@ extension AppDelegate {
             let fileCount = trackedURLs.count
             let requestID = UUID().uuidString
             let tracker = SidebarImportRequestTracker(requestID: requestID, trackedURLs: trackedURLs)
+            let cancelTally = ImportFilesCancelTally()
             activityIndicator?.show(
                 message: "Importing \(fileCount) file\(fileCount == 1 ? "" : "s")...",
                 style: .indeterminate
@@ -236,6 +237,7 @@ extension AppDelegate {
                 let completionRequestID = completion.userInfo?["requestID"] as? String
                 let completedURL = completion.userInfo?["url"] as? URL
                 let wasSuccessful = (completion.userInfo?["success"] as? Bool) == true
+                let wasCancelled = (completion.userInfo?["cancelled"] as? Bool) == true
 
                 scheduleOnMainRunLoop {
                     guard let update = tracker.registerCompletion(
@@ -245,6 +247,7 @@ extension AppDelegate {
                     ) else {
                         return
                     }
+                    cancelTally.add(wasCancelled)
 
                     if update.isFinished {
                         if let observerToken = tracker.observerToken {
@@ -258,7 +261,7 @@ extension AppDelegate {
                         )
 
                         outcomePresenter.present(
-                            ImportFilesOutcome(succeeded: update.succeeded, failed: update.failed),
+                            ImportFilesOutcome(update: update, cancelled: cancelTally.count),
                             on: controller?.window ?? NSApp.keyWindow
                         )
                     }

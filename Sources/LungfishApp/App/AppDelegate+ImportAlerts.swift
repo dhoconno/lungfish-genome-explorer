@@ -18,11 +18,38 @@ struct ImportFilesOutcome: Equatable, Sendable {
 
     let succeeded: Int
     let failed: Int
+    /// The files the user cancelled. A cancelled file is neither a success nor a failure, so the
+    /// alert neither counts nor names it.
+    let cancelled: Int
+
+    init(succeeded: Int, failed: Int, cancelled: Int = 0) {
+        self.succeeded = succeeded
+        self.failed = failed
+        self.cancelled = cancelled
+    }
+
+    /// The outcome of a request whose tracker filed each cancelled file as a failed one, because the
+    /// file posted `success: false`.
+    init(update: SidebarImportRequestTrackerUpdate, cancelled: Int) {
+        self.init(succeeded: update.succeeded, failed: update.failed - cancelled, cancelled: cancelled)
+    }
 
     /// The alert this outcome shows, or nil when no file failed.
     var alert: Alert? {
         guard failed > 0 else { return nil }
         return Alert(title: "Import Completed with Errors", message: "\(succeeded) succeeded, \(failed) failed.")
+    }
+}
+
+/// Counts the files of one File > Import Files... request that the user cancelled.
+///
+/// The request's tracker files every `success: false` as a failed file, and the outcome takes the
+/// cancelled ones back out. Only the main run loop touches it, as it does the tracker.
+final class ImportFilesCancelTally: @unchecked Sendable {
+    private(set) var count = 0
+
+    func add(_ wasCancelled: Bool) {
+        if wasCancelled { count += 1 }
     }
 }
 
