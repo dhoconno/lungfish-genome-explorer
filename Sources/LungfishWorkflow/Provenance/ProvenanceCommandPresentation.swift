@@ -109,9 +109,14 @@ public enum ProvenanceCommandPresentation {
 
     private static func present(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool) -> String {
         guard let part = pathPart(of: word.value) else { return word.raw }
-        let label = displayPath(part.path, projectURL: projectURL, fileExists: fileExists)
-        guard label != part.path || word.joinedProjectPath else { return word.raw }
-        return part.isRedirect ? part.prefix + shellEscape(label) : shellEscape(part.prefix + label)
+        // A path glued to the `;` that ends its command, as in the guards of an older Kraken2 batch script, keeps
+        // that `;` outside the shortened path and its quotes.
+        let terminator = part.path.hasSuffix(";") ? ";" : ""
+        let path = String(part.path.dropLast(terminator.count))
+        let label = displayPath(path, projectURL: projectURL, fileExists: fileExists)
+        guard label != path || word.joinedProjectPath else { return word.raw }
+        let shown = part.isRedirect ? part.prefix + shellEscape(label) : shellEscape(part.prefix + label)
+        return shown + terminator
     }
 
     /// The programs whose `-c` argument is a script.

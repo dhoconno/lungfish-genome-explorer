@@ -257,6 +257,24 @@ struct ProvenanceCommandPresentationTests {
             == "/usr/bin/gzip -c Analyses/x.kraken")
     }
 
+    /// Kraken2 batch records written until Phase 2.9 hold a `/bin/sh -c` script that guards each sample with
+    /// `/bin/test -d DB; /bin/test -f DB/.lungfish-provenance.json; ...` (`legacyBatchReplayCommand` in
+    /// `Tests/LungfishAppTests/ClassifierLegacyRuns.swift` builds it, and `kraken2-batch.facts.json` pins its bytes).
+    /// The splitter cuts on white space only, so `DB;` is one word, and the managed database sits under
+    /// `~/.lungfish/`, where the path presentation cuts a path. The `;` that ends the command stays outside the
+    /// shortened path and its quotes, so the row keeps the command boundaries and gains no `'\''` noise.
+    @Test("An older Kraken2 batch record's replay script keeps its command boundaries and shortens its paths")
+    func aLegacyKraken2BatchReplayScriptKeepsItsCommandBoundaries() {
+        let root = "/Users/someone/Desktop/HG002 chr20.lungfish"
+        let db = "/Users/someone/.lungfish/databases/kraken2/Viral"
+        let script = "set -e\n/bin/test -d \(db); /bin/test -f \(db)/.lungfish-provenance.json;"
+            + " lungfish-cli kraken2 classify --db Viral --output-dir '\(root)/Analyses/kraken2-batch/SampleA' '\(root)/reads.fastq'"
+        let command = "/bin/sh -c \(shellEscape(script))"
+        #expect(display(command) == "/bin/sh -c 'set -e\n/bin/test -d databases/kraken2/Viral;"
+            + " /bin/test -f databases/kraken2/Viral/.lungfish-provenance.json;"
+            + " lungfish-cli kraken2 classify --db Viral --output-dir Analyses/kraken2-batch/SampleA reads.fastq'")
+    }
+
     @Test("The Kraken2 golden record's gzip step shows its program, and showing it writes nothing")
     func theKraken2GoldenShellStepShowsItsProgramAndTheRecordIsUntouched() throws {
         let url = ProvenanceCompatCorpus.repositoryRoot
