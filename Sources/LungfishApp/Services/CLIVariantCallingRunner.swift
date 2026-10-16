@@ -163,12 +163,14 @@ struct CLIVariantCallingRunner {
                 arguments += [option.flag, value]
             }
         }
-        let gatkArguments = request.command.arguments
-        if let flag = gatkArguments.firstIndex(of: "-L"), gatkArguments.indices.contains(flag + 1) {
-            arguments += ["--intervals", gatkArguments[flag + 1]]
-        }
         let extra = request.options["extraArguments"]
             .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
+        // The builder appends the free text last, so only the arguments before it can hold the intervals
+        // file of the request. A -L typed in Extra arguments stays in --extra-args, as on the in-process route.
+        let ownArguments = Array(request.command.arguments.dropLast(extra.count))
+        if let flag = ownArguments.firstIndex(of: "-L"), ownArguments.indices.contains(flag + 1) {
+            arguments += ["--intervals", ownArguments[flag + 1]]
+        }
         if !extra.isEmpty {
             arguments += ["--extra-args", AdvancedCommandLineOptions.join(extra)]
         }
