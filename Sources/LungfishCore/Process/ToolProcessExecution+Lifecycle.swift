@@ -333,7 +333,11 @@ extension ToolProcessExecution {
     /// tree are gone, so a tool that honours SIGTERM does not cost the grace.
     func terminateStage(_ index: Int) {
         let pid = state.withLock { $0.stages[index].pid }
-        ProcessGroupTerminator.terminate(processGroupLeader: pid, gracePeriod: specs[index].terminationGracePeriod) { [self] in
+        ProcessGroupTerminator.terminate(
+            processGroupLeader: pid,
+            gracePeriod: specs[index].terminationGracePeriod,
+            processFirst: specs[index].signalsProcessFirst
+        ) { [self] in
             queue.async { [self] in
                 state.withLock { $0.pendingKills -= 1 }
                 evaluateCompletion()

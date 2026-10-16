@@ -35,6 +35,9 @@ enum ProcessGroupTerminator {
 
     private struct Termination {
         let leader: pid_t
+        /// SIGTERM went to the leader alone, so the tree gets no signal before SIGKILL
+        /// (`ToolProcessSpec.signalsProcessFirst`).
+        let processFirst: Bool
         let killAt: ContinuousClock.Instant
         /// Set once SIGKILL went out. The termination ends by then at the latest.
         var settleBy: ContinuousClock.Instant?
@@ -61,31 +64,43 @@ enum ProcessGroupTerminator {
 
     /// Sends SIGTERM to the group led by `leader` and to its tree now, SIGKILL
     /// to whatever is left after `gracePeriod`, and calls `completion` on a
-    /// private queue once the group and tree are empty.
+    /// private queue once the group and tree are empty. With `processFirst` SIGTERM goes to the
+    /// leader alone, and the group and tree only get SIGKILL after `gracePeriod`.
     static func terminate(
         processGroupLeader leader: pid_t,
         gracePeriod: Duration,
+        processFirst: Bool = false,
         completion: @escaping @Sendable () -> Void
     ) {
         queue.async {
-            begin(leader: leader, gracePeriod: gracePeriod, completion: completion)
+            begin(leader: leader, gracePeriod: gracePeriod, processFirst: processFirst, completion: completion)
         }
     }
 
-    private static func begin(leader: pid_t, gracePeriod: Duration, completion: @escaping @Sendable () -> Void) {
+    private static func begin(
+        leader: pid_t,
+        gracePeriod: Duration,
+        processFirst: Bool,
+        completion: @escaping @Sendable () -> Void
+    ) {
         guard leader > 1 else {
             completion()
             return
         }
         let now = clock.now
-        killpg(leader, SIGTERM)
+        if processFirst {
+            Darwin.kill(leader, SIGTERM)
+        } else {
+            killpg(leader, SIGTERM)
+        }
         var termination = Termination(
             leader: leader,
+            processFirst: processFirst,
             killAt: now.advanced(by: max(gracePeriod, .zero)),
             lastSnapshot: now,
             completion: completion
         )
-        discover(&termination, in: childrenByParent(ProcessTreeTerminator.processTableLister.snapshot()), signal: SIGTERM)
+        discover(&termination, in: childrenByParent(ProcessTreeTerminator.processTableLister.snapshot()), signal: graceSignal(of: termination))
         pending.withLock { state in
             state.terminations[state.nextID] = termination
             state.nextID += 1
@@ -133,7 +148,7 @@ enum ProcessGroupTerminator {
         for id in terminations.keys.sorted() {
             guard var termination = terminations[id] else { continue }
             if let children {
-                discover(&termination, in: children, signal: termination.settleBy == nil ? SIGTERM : SIGKILL)
+                discover(&termination, in: children, signal: termination.settleBy == nil ? graceSignal(of: termination) : SIGKILL)
                 termination.lastSnapshot = now
             }
             if isEmpty(termination) {
@@ -159,6 +174,12 @@ enum ProcessGroupTerminator {
         }
         completions.forEach { $0() }
         armTimer()
+    }
+
+    /// The signal a descendant found during the grace gets, SIGTERM, or 0 (none, a check only)
+    /// when the termination signals the process first.
+    private static func graceSignal(of termination: Termination) -> Int32 {
+        termination.processFirst ? 0 : SIGTERM
     }
 
     /// True when the leader has exited and no process of its group or known

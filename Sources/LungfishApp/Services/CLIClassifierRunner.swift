@@ -75,6 +75,14 @@ struct CLIClassifierRunner {
     /// command exited, the launcher's ``CLIProcessLauncher/operationDrain``.
     static let drainGracePeriod = CLIProcessLauncher.operationDrain
 
+    /// Whether a cancel sends SIGTERM to the command alone, so the command stops its own tree and
+    /// its cleanup runs before SIGKILL. `taxtriage run` stops Nextflow and then removes the run's
+    /// Docker containers with `docker`, which a SIGTERM to every descendant killed, so its cancel
+    /// left the containers behind where the legacy route's in-app cleanup removed them (U30 walk W2).
+    static func signalsCommandFirst(_ tool: CLIClassifierTool) -> Bool {
+        tool == .taxTriage
+    }
+
     private let transport: CLISubprocessTransport
 
     init(cliURLOverride: URL? = nil) {
@@ -106,6 +114,7 @@ struct CLIClassifierRunner {
             result = try await transport.run(
                 arguments: request.arguments,
                 terminationGracePeriod: Self.terminationGracePeriod,
+                signalsCommandFirst: Self.signalsCommandFirst(request.tool),
                 drainGracePeriod: Self.drainGracePeriod,
                 isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
                 onEvent: { event in

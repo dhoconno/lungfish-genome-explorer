@@ -136,12 +136,16 @@ public actor CLISubprocessTransport {
     ///     standard error that is not blank arrives as an info `.log` event,
     ///     so the operation log keeps it at info level. The bridge hops each
     ///     event to the main actor itself.
+    ///   - signalsCommandFirst: Whether a cancel sends SIGTERM to the CLI alone and leaves its
+    ///     children to it until SIGKILL after `terminationGracePeriod`
+    ///     (`ToolProcessSpec.signalsProcessFirst`), for a command whose cancel runs a cleanup tool.
     ///   - workingDirectory: The folder the CLI runs in, where a relative path in
     ///     `arguments` resolves, such as the `--output` name of a clipboard or
     ///     share destination. Nil keeps the app's own folder.
     public func run(
         arguments: [String],
         terminationGracePeriod: Duration = .zero,
+        signalsCommandFirst: Bool = false,
         drainGracePeriod: Duration? = nil,
         environmentAdditions: [String: String] = [:],
         completionOutlivesCancel: Bool = false,
@@ -207,15 +211,17 @@ public actor CLISubprocessTransport {
             onEvent(.log(level: .info, message: line))
         }
 
+        var spec = CLIProcessLauncher.spec(
+            executableURL: binaryURL,
+            arguments: arguments,
+            terminationGracePeriod: terminationGracePeriod,
+            drainGracePeriod: drainGracePeriod,
+            environmentAdditions: environmentAdditions,
+            workingDirectory: workingDirectory
+        )
+        spec.signalsProcessFirst = signalsCommandFirst
         let outcome = await CLIProcessLauncher.run(
-            CLIProcessLauncher.spec(
-                executableURL: binaryURL,
-                arguments: arguments,
-                terminationGracePeriod: terminationGracePeriod,
-                drainGracePeriod: drainGracePeriod,
-                environmentAdditions: environmentAdditions,
-                workingDirectory: workingDirectory
-            ),
+            spec,
             cancellation: cancellation,
             onStdoutLine: handleLine,
             onStderrLine: handleStandardErrorLine

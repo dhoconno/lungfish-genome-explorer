@@ -82,6 +82,13 @@ public struct ToolProcessSpec: Sendable {
     /// still holding output when ``drainGracePeriod`` runs out get a short
     /// fixed grace of their own, because the run is already over for them.
     public var terminationGracePeriod: Duration
+    /// Whether a cancel or a timeout sends SIGTERM to the process alone and leaves its group and
+    /// tree to it until SIGKILL at the end of ``terminationGracePeriod``. The default, false,
+    /// sends SIGTERM to the group and to every descendant, also each one that starts in the
+    /// grace. A command that stops its own children on SIGTERM and then runs a cleanup tool sets
+    /// it, since that tool would get SIGTERM too, as `lungfish-cli taxtriage run`'s `docker ps`
+    /// did when its cancel left three containers behind (Phase 2.11 U30 walk, W2).
+    public var signalsProcessFirst = false
     /// How long to wait for end of file on captured streams after the process
     /// exits. A background descendant that inherited a pipe can hold it open
     /// long after the process exits, and the run must not wait for it.
