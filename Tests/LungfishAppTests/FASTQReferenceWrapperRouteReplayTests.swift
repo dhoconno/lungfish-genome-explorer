@@ -69,6 +69,37 @@ final class FASTQReferenceWrapperRouteReplayTests: XCTestCase {
         )
     }
 
+    /// Plan decision C5 on the wrapper route, the twin of `ReferenceImportLeafExitReplayTests` (ruling A48 F2
+    /// pin P7). The command merges the FASTA's record and publishes the bundle, so the bundle's file list and
+    /// the digest of every file, its record included, read when the command returns equal those read when the
+    /// importer returns.
+    func testTheWrapperRouteWritesNoByteAfterTheCLIExits() async throws {
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        let source = project.appendingPathComponent("source.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let output = try await Self.writeOperationOutput(in: analyses.appendingPathComponent("run-1", isDirectory: true))
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .ribosomalRNAFilter(retention: .rRNA, ensure: .rrna),
+            inputURLs: [source],
+            outputMode: .perInput
+        )
+        let wrapper = DigestingWrapper(inner: try makeWrapper())
+        let importer = BundleFASTQOperationImporter(destinationDirectory: analyses, referenceBundleWrapper: wrapper)
+
+        let imported = try await importer.importOutputs(
+            at: [output], forResolvedRequest: request, originalRequest: request, outputDirectory: output.deletingLastPathComponent()
+        )
+
+        let bundle = try XCTUnwrap(imported.first)
+        let atExit = try XCTUnwrap(wrapper.digestAtExit, "the importer ran the wrapper")
+        XCTAssertNotNil(
+            atExit["/" + ProvenanceWriter.provenanceFilename],
+            "the command wrote the bundle's record before it exited: \(atExit.keys.sorted())"
+        )
+        XCTAssertEqual(try Self.digest(of: bundle), atExit, "the app wrote into the bundle after the command exited")
+    }
+
     // MARK: - Cancel
 
     // The wrap has no Operations row, so the cancel of the FASTQ operation's task is its only Cancel.
@@ -149,6 +180,49 @@ final class FASTQReferenceWrapperRouteReplayTests: XCTestCase {
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH"
         )
         return CLIReferenceBundleWrapper(cliURLOverride: cli)
+    }
+
+    /// The wrapper the importer runs, with the bundle's digest read the moment the command returns.
+    private final class DigestingWrapper: ReferenceBundleWrapping, @unchecked Sendable {
+        private let inner: any ReferenceBundleWrapping
+        private let lock = NSLock()
+        private var stored: [String: String]?
+
+        init(inner: any ReferenceBundleWrapping) {
+            self.inner = inner
+        }
+
+        /// The digest of the bundle at the moment the wrapped command returned, nil before it ran.
+        var digestAtExit: [String: String]? {
+            lock.withLock { stored }
+        }
+
+        func importReferenceBundle(
+            sourceURL: URL,
+            outputDirectory: URL,
+            preferredBundleName: String?
+        ) async throws -> URL {
+            let bundle = try await inner.importReferenceBundle(
+                sourceURL: sourceURL, outputDirectory: outputDirectory, preferredBundleName: preferredBundleName
+            )
+            let digest = try FASTQReferenceWrapperRouteReplayTests.digest(of: bundle)
+            lock.withLock { stored = digest }
+            return bundle
+        }
+    }
+
+    /// The SHA-256 of every regular file under `bundle`, by its path inside the bundle with a leading slash.
+    /// The keys come from `subpathsOfDirectory`, not from the enumerator's URLs, because
+    /// `resolvingSymlinksInPath` drops a leading `/private` that the enumerator's URLs keep.
+    private static func digest(of bundle: URL) throws -> [String: String] {
+        let root = bundle.resolvingSymlinksInPath()
+        var result: [String: String] = [:]
+        for subpath in try FileManager.default.subpathsOfDirectory(atPath: root.path) {
+            let url = root.appendingPathComponent(subpath)
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            result["/" + subpath] = try ProvenanceFileHasher.sha256(of: url)
+        }
+        return result
     }
 
     // MARK: - Fixture
