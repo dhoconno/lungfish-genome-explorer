@@ -117,4 +117,41 @@ extension OutputEquivalenceTests {
             XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
         }
     }
+
+    func testTheGATKCompareNumbersTheTrackIDInTheGATKCommandLineHeader() throws {
+        let top = try TestTempDirectory.make(prefix: "gatk-header-track-id")
+        addTeardownBlock { TestTempDirectory.cleanup(top) }
+        let a = top.appendingPathComponent("a", isDirectory: true)
+        let b = top.appendingPathComponent("b", isDirectory: true)
+        let idA = "0f8e1c2a-3b4d-4e5f-8a6b-7c8d9e0f1a2b"
+        let idB = "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d"
+        let idOther = "11111111-2222-4333-8444-555555555555"
+        let write = { (root: URL, fileID: String, headerID: String, ploidy: Int, folder: String) throws in
+            let output = "\(root.path)/\(folder)/vc-\(headerID).vcf"
+            let header = "##GATKCommandLine=<ID=HaplotypeCaller,CommandLine=\"HaplotypeCaller --sample-ploidy \(ploidy) --output \(output)\","
+                + "Version=\"4.6.2.0\",Date=\"October 16, 2026, 1:41:26\u{202F}PM CDT\">"
+            let text = ["##fileformat=VCFv4.2", header, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO", "chr1\t4\t.\tT\tG\t60\tPASS\tDP=18", ""]
+                .joined(separator: "\n")
+            let url = root.appendingPathComponent("variants/gatk/vc-\(fileID).vcf")
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        // The bundle kind numbers the UUID in each file name, as the live class's compare does. The files kind reads
+        // names as written, so each file would exist on one side only.
+        let gatk = { try OutputEquivalence.differences(a, b, kind: .bundle, masks: .gatk) }
+        try write(a, idA, idA, 2, "variants/gatk")
+        try write(b, idB, idB, 2, "variants/gatk")
+        XCTAssertEqual(try gatk(), [], "each header names its own file's ID, so only the IDs differ and they are numbered")
+        let cases: [(label: String, headerID: String, ploidy: Int, folder: String)] = [
+            ("another track's ID", idOther, 2, "variants/gatk"),
+            ("another parameter", idB, 1, "variants/gatk"),
+            ("another folder", idB, 2, "variants/other"),
+        ]
+        for (label, headerID, ploidy, folder) in cases {
+            try write(b, idB, headerID, ploidy, folder)
+            let result = try gatk()
+            XCTAssertEqual(result.count, 1, "\(label): \(result)")
+            XCTAssertTrue(result.first?.hasPrefix("differs: variants/gatk/vc-<UUID-1>.vcf") == true, "\(label): \(result)")
+        }
+    }
 }
