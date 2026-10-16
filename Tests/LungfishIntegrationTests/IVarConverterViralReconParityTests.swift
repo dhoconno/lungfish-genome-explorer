@@ -1,22 +1,34 @@
 import Testing
 import Foundation
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// The Python 3 that runs `ivar_variants_to_vcf.py`, the viralrecon script the Swift converter is
 /// compared against. The script imports numpy, Bio, scipy and pandas (`ivar_variants_to_vcf.py:10-13`).
+///
+/// The interpreter is never the python3 on PATH. It is the `ivar-oracle` conda environment that
+/// `Tests/Fixtures/golden-environment/lock.json` pins, found the way `ToolOutputGoldenTests` finds its
+/// tools, under the conda root of the managed storage (`LUNGFISH_STORAGE_ROOT`).
+/// `python3 scripts/golden/environment.py provision` builds it at `/Users/Shared/lungfish-golden/storage`.
 enum IVarParityOracle {
+    static let environment = "ivar-oracle"
     static let modules = ["numpy", "scipy", "pandas", "Bio"]
 
-    /// The first executable named `python3` on PATH, which is the one `/usr/bin/env python3` runs.
-    static var interpreter: URL? {
-        let path = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
-        return path.split(separator: ":")
-            .map { URL(fileURLWithPath: String($0)).appendingPathComponent("python3") }
-            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    /// Where the environment's Python lives under the current managed storage, installed or not.
+    static var expectedInterpreter: URL {
+        ManagedStorageConfigStore().currentCondaRootURL().standardizedFileURL
+            .appendingPathComponent("envs/\(environment)/bin/python3")
     }
 
-    /// True when the interpreter exists and imports every module the script needs. The probe waits up to 30 seconds.
+    /// The environment's Python, or nil when the environment is not installed under that root.
+    static var interpreter: URL? {
+        let python = expectedInterpreter
+        return FileManager.default.isExecutableFile(atPath: python.path) ? python : nil
+    }
+
+    /// True when the environment is installed and its Python imports every module the script needs.
+    /// The probe waits up to 30 seconds.
     static var canRun: Bool {
         guard let interpreter else { return false }
         return ToolAvailability.pythonCanImport(modules, interpreter: interpreter, timeout: 30)
@@ -29,13 +41,13 @@ struct IVarConverterViralReconParityTests {
         "Swift converter matches viralrecon output on SRR36291587 fixture",
         .enabled(
             if: ToolAvailability.requireTools || IVarParityOracle.canRun,
-            "the python3 on PATH is missing or cannot import numpy, scipy, pandas and Bio, which ivar_variants_to_vcf.py needs. LUNGFISH_REQUIRE_TOOLS=1 turns this skip into a failure"
+            "the ivar-oracle environment is not installed under the managed storage root (LUNGFISH_STORAGE_ROOT) or cannot import numpy, scipy, pandas and Bio, which ivar_variants_to_vcf.py needs. python3 scripts/golden/environment.py provision builds it at /Users/Shared/lungfish-golden/storage. LUNGFISH_REQUIRE_TOOLS=1 turns this skip into a failure"
         )
     )
     func parity() async throws {
         guard let oracleInterpreter = IVarParityOracle.interpreter else {
             // Reached only under LUNGFISH_REQUIRE_TOOLS=1, because without it the trait above skips the test.
-            Issue.record("python3 was not found on PATH, so ivar_variants_to_vcf.py could not run and nothing was compared")
+            Issue.record("the ivar-oracle environment is not installed at \(IVarParityOracle.expectedInterpreter.path), so ivar_variants_to_vcf.py could not run and nothing was compared. python3 scripts/golden/environment.py provision builds it")
             return
         }
 
@@ -75,6 +87,7 @@ struct IVarConverterViralReconParityTests {
         let oracle = try ProcessRunner.run(
             oracleInterpreter,
             [
+                "-I", "-B",
                 ProcessInfo.processInfo.environment["LUNGFISH_IVAR_TO_VCF_PY"] ?? vendoredScript.path,
                 tsv.path,
                 pyOut.path,
@@ -100,6 +113,10 @@ struct IVarConverterViralReconParityTests {
         }
         let cleanedSwift = stripCosmetic(swift)
         let cleanedPython = stripCosmetic(python)
+        // Two empty outputs would be equal, so require that the oracle wrote variant records to compare.
+        let variantRecords = cleanedPython.split(separator: "\n").filter { !$0.hasPrefix("#") }.count
+        #expect(variantRecords > 0, "ivar_variants_to_vcf.py wrote no variant record, so there is nothing to compare")
+        print("IVarConverterViralReconParity oracle wrote \(variantRecords) variant records under \(oracleInterpreter.path)")
         var mismatchNote: Comment?
         if cleanedSwift != cleanedPython {
             // Keep both outputs in a folder from TestTempDirectory, so a failed run is debuggable.

@@ -56,7 +56,9 @@ public enum ToolAvailability {
     /// `.enabled(if:)`, so a machine whose Python lacks the libraries shows a skip with its
     /// reason, not a pass that compared nothing. It never skips or fails a test itself. When
     /// the answer is false it writes one line to stderr with the interpreter and the last line
-    /// of Python's message, so the log says why.
+    /// of Python's message, so the log says why. The interpreter runs isolated (`-I -B`), so
+    /// the answer is about its own packages, ignoring PYTHONPATH and user site-packages, and
+    /// the probe writes no .pyc file into a shared environment.
     public static func pythonCanImport(
         _ modules: [String],
         interpreter: URL,
@@ -65,7 +67,7 @@ public enum ToolAvailability {
         let source = "import importlib, sys; [importlib.import_module(name) for name in sys.argv[1:]]"
         let detail: String
         do {
-            let result = try ProcessRunner.run(interpreter, ["-c", source] + modules, timeout: timeout)
+            let result = try ProcessRunner.run(interpreter, ["-I", "-B", "-c", source] + modules, timeout: timeout)
             if result.status == 0 { return true }
             detail = result.stderr.split(whereSeparator: \.isNewline).last.map(String.init) ?? "exit \(result.status)"
         } catch {

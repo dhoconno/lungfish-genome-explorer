@@ -24,3 +24,9 @@ These files pin the managed tools and databases the golden captures in `Tests/Fi
 ## How the first lock was made
 
 On 2026-10-08 the explicit files were written with `environment.py lock --from-storage` from the `conda-meta` records of the laptop's `~/.lungfish-stable`, the environments the goldens were first captured with. A resolve of the same pins that day gave different dependencies in seven of the eight environments, among them polars 2.0.0 under EsViritu, which stops EsViritu from running. The database files are the fingerprints the goldens recorded on the laptop, and `provision` checks the downloaded archives against them.
+
+## The ivar-oracle environment
+
+`ivar-oracle` is the one environment here that is not a managed tool. It holds the Python that runs `Tests/Fixtures/ivar-converter-parity/ivar_variants_to_vcf.py`, the viralrecon script that `IVarConverterViralReconParityTests` compares the Swift converter against. The test looks for it under the conda root of the managed storage, the way `ToolOutputGoldenTests` finds its tools, so point `LUNGFISH_STORAGE_ROOT` at `/Users/Shared/lungfish-golden/storage` once `provision` has built it. Without it the test skips with its reason, and under `LUNGFISH_REQUIRE_TOOLS=1` it fails.
+
+Its `packageSpec` lists the specs it was solved from, Python 3.12 with numpy, scipy, pandas and biopython from conda-forge, because the managed-tools manifest has no pin for it. On 2026-10-16 the explicit file was written from a micromamba dry-run solve of those specs. `environment.py lock` refuses an environment the manifest lacks, so to relock it run `micromamba create --yes --dry-run --json --no-rc --override-channels -c conda-forge --platform osx-arm64 -p <empty folder> <the specs>`, write each `actions.LINK` entry as `url#md5` under the `@EXPLICIT` header in the order micromamba lists them, then set `packages` and `sha256` in `lock.json`.
