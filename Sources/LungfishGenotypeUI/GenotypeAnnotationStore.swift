@@ -5,7 +5,7 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
-private enum GenotypeAnnotationStorePersistenceError: Error, LocalizedError {
+enum GenotypeAnnotationStorePersistenceError: Error, LocalizedError {
     case staleRevision
 
     var errorDescription: String? {
@@ -19,12 +19,12 @@ private enum GenotypeAnnotationStorePersistenceError: Error, LocalizedError {
 @Observable
 @MainActor
 public final class GenotypeAnnotationStore {
-    private func transactAnnotationPublication(
+    func transactAnnotationPublication(
         _ prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
     ) throws -> GenotypeAnnotationPublicationPayload? {
         return try annotationPublicationCoordinator().transact(prepare: prepare)
     }
-    public private(set) var sidecar: GenotypeAnnotationSidecar
+    public internal(set) var sidecar: GenotypeAnnotationSidecar
     public let bundleURL: URL
     public let author: String
     public private(set) var matrixMutationRevision: UInt64 = 0
@@ -34,17 +34,17 @@ public final class GenotypeAnnotationStore {
     /// What the bundle's file holds, or an empty sidecar when it has none.
     /// `persist` compares the file with it before every write.
     @ObservationIgnored
-    private var lastPersistedSidecar: GenotypeAnnotationSidecar
+    var lastPersistedSidecar: GenotypeAnnotationSidecar
 
     /// The built-in smart cohorts `sidecar` shows and the file does not hold.
     @ObservationIgnored
-    private(set) var unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter] = []
+    var unsavedBuiltInSmartCohorts: [GenotypeCohortSmartFilter] = []
 
     @ObservationIgnored
     private(set) var lastMatrixBulkMutationDiagnostics = GenotypeMatrixBulkMutationDiagnostics()
 
     @ObservationIgnored
-    private let publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?
+    let publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?
 
     @ObservationIgnored
     private let isoFormatter: ISO8601DateFormatter = {
@@ -113,7 +113,7 @@ public final class GenotypeAnnotationStore {
     /// last persisted state and shows it with the built-in smart cohorts that
     /// are still only in memory. Every write that publishes a result other
     /// than the whole sidecar, and every refused write, ends here.
-    private func adoptPersisted(_ persisted: GenotypeAnnotationSidecar) {
+    func adoptPersisted(_ persisted: GenotypeAnnotationSidecar) {
         lastPersistedSidecar = persisted
         var shown = persisted
         let held = Set(shown.smartCohorts.map(\.name))
@@ -2011,7 +2011,7 @@ public final class GenotypeAnnotationStore {
             && (audit.reason == "matrix-comment" || audit.reason == "legacy-matrix-comment")
     }
 
-    private struct ProvenanceEditContext {
+    struct ProvenanceEditContext {
         var explicitOptions: [String: ParameterValue]
         var resolvedDefaults: [String: ParameterValue]
         var resolvedAuthor: String?
@@ -2044,7 +2044,7 @@ public final class GenotypeAnnotationStore {
     /// Publishes the whole sidecar the analyst sees in one write, with the derived id of each smart cohort
     /// that stores none (plan decision G2). The built-in smart cohorts that are only in memory go out with
     /// the edit, because the file is checked against `lastPersistedSidecar` and not against `sidecar`.
-    private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
+    func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
         let runClock = ProvenanceRunClock()
         var desiredSidecar = sidecar.storingSmartCohortIDs()
@@ -2091,14 +2091,14 @@ public final class GenotypeAnnotationStore {
         )
     }
 
-    private func decodedLatestSidecar(from data: Data?) throws -> GenotypeAnnotationSidecar {
+    func decodedLatestSidecar(from data: Data?) throws -> GenotypeAnnotationSidecar {
         guard let data else {
             return GenotypeAnnotationSidecar.empty(generatedAt: lastPersistedSidecar.generatedAt)
         }
         return try GenotypeAnnotationSidecar.decode(data)
     }
 
-    private func annotationPublicationPayload(
+    func annotationPublicationPayload(
         sidecar: GenotypeAnnotationSidecar,
         action: String,
         editContext: ProvenanceEditContext?,
