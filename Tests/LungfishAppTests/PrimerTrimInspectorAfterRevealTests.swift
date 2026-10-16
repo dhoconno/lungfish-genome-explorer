@@ -12,6 +12,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishTestSupport
 
 @MainActor
 final class PrimerTrimInspectorAfterRevealTests: XCTestCase {
@@ -21,8 +22,7 @@ final class PrimerTrimInspectorAfterRevealTests: XCTestCase {
     private var notices: SelectionNoticeRecorder!
 
     override func setUpWithError() throws {
-        tempRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PrimerTrimInspectorReveal-\(UUID().uuidString)", isDirectory: true)
+        tempRoot = try TestTempDirectory.make(prefix: "primer-trim-inspector-reveal")
         projectURL = tempRoot.appendingPathComponent("Amplicons.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         notices = SelectionNoticeRecorder()
@@ -33,7 +33,7 @@ final class PrimerTrimInspectorAfterRevealTests: XCTestCase {
         SidebarViewController.scanBarrierForTesting = nil
         split?.sidebarController.closeProject()
         split = nil
-        if let tempRoot { try? FileManager.default.removeItem(at: tempRoot) }
+        if let tempRoot { TestTempDirectory.cleanup(tempRoot) }
     }
 
     /// A primer trim run from a mapping result writes into the bundle inside it. That bundle has no row, so
