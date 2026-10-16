@@ -186,6 +186,20 @@ enum TaxTriageParityKnownDifferences {
         ),
     ]
 
+    /// Side A's fixed facts that only the real engine shows, outside `all` because the stand-in X1 shares the case `.x1`
+    /// and would read them as declared but gone. The live pass of TaxTriageParityLiveConformanceTests reads
+    /// `all + liveFacts` (Q32 X1 ruling F3). The 17 facts of files that the legacy cleanup deleted are declared by
+    /// rule instead (TaxTriageParityPayloads.isRemovedByTheGUIRouteCleanup), and counted in the notes of the evidence.
+    static let liveFacts: [TaxTriageParityKnownDifference] = [
+        TaxTriageParityKnownDifference(
+            counts: [.x1: 1],
+            scope: .side(.a),
+            id: "fact: record Project.lungfish/Analyses/*/.lungfish-provenance.json names *.dwnld.references.bam with another digest",
+            reason: "The GUI route's root record keeps the pipeline step's run-level names, the BAM as published (6107 bytes) before build-db's markdup replaced it in place (BuildDbCommand+SamtoolsProvenance.swift:162). The executor's root record names the final BAM only",
+            closedBy: guiRoute
+        ),
+    ]
+
     // MARK: Fault cases
 
     /// X4 and X6, a failed pooled run and a cancel, beside the folders of a completed GUI run.
@@ -273,13 +287,14 @@ enum TaxTriageParityKnownDifferences {
 
     /// One line per found difference that no entry declares, and per entry that matches another
     /// number of found differences than its count for `parityCase` in `scope`, listing the
-    /// differences it matches.
+    /// differences it matches. `declaredList` is the list read, `all` unless the real engine adds `liveFacts`.
     static func failures(
         found: [TaxTriageParityDifference],
         parityCase: TaxTriageParityCase,
-        scope: TaxTriageParityScope
+        scope: TaxTriageParityScope,
+        declaredList: [TaxTriageParityKnownDifference] = all
     ) -> [String] {
-        let declared = all.filter { $0.counts[parityCase] != nil && $0.scope == scope }
+        let declared = declaredList.filter { $0.counts[parityCase] != nil && $0.scope == scope }
         var lines: [String] = []
         for difference in found where !declared.contains(where: { $0.matches(difference) }) {
             lines.append("not declared: \(difference)")

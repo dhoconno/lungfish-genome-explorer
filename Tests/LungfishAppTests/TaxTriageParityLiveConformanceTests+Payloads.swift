@@ -104,6 +104,20 @@ enum TaxTriageParityPayloads {
         return cleanedByTheGUIRoute.contains(folder) || (folder == "fastp" && (name.hasSuffix(".fastq") || name.hasSuffix(".gz")))
     }
 
+    /// Whether `fact` is one of side A's record-against-disk facts that the legacy GUI route's cleanup leaves false
+    /// (Q32 X1 ruling F3). The id ends ` that does not exist` and the file it names, below the analysis folder, lies in
+    /// a folder of `cleanedByTheGUIRoute` or is a FASTQ of `fastp/`. A name with another digest is not one, and a top
+    /// report is never one, since the counted `*top/*.top_report.tsv` entry of TaxTriageParityKnownDifferences stays.
+    static func isRemovedByTheGUIRouteCleanup(_ fact: TaxTriageParityDifference) -> Bool {
+        let ending = " that does not exist"
+        guard fact.id.hasSuffix(ending), let names = fact.id.range(of: " names "),
+              let analyses = fact.id.range(of: "/Analyses/", range: names.upperBound..<fact.id.endIndex) else { return false }
+        // Below `<project>/Analyses/` come the analysis folder, the file's folder and the file.
+        let parts = fact.id[analyses.upperBound...].dropLast(ending.count).split(separator: "/").map(String.init)
+        guard parts.count > 2, let name = parts.last?.lowercased(), !name.hasSuffix(".top_report.tsv") else { return false }
+        return cleanedByTheGUIRoute.contains(parts[1]) || (parts[1] == "fastp" && (name.hasSuffix(".fastq") || name.hasSuffix(".gz")))
+    }
+
     /// The sample names of `run`, as the request and the engine wrote them: the case's samples, the result's and the
     /// organism reports'.
     static func sampleNames(of run: TaxTriageParitySideRun, parityCase: TaxTriageParityCase) -> [String] {

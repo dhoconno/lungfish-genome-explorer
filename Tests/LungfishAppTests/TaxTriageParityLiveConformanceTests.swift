@@ -164,6 +164,42 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
         XCTAssertEqual(TaxTriageParityPayloads.failures(found: [top, only("kept reads", "minimap2/\(sample).bam")], parityCase: .x1, scope: .pair(.a, .c)).count, 1)
         XCTAssertEqual(TaxTriageParityPayloads.failures(found: [fastp], parityCase: .x1, scope: .pair(.c, .cPrime)).count, 1)
 
+        // Side A's record-against-disk facts that the legacy cleanup leaves false are declared by rule on the real
+        // engine (Q32 X1 ruling F3). The rule holds for the cleaned folders and a FASTQ of fastp/, and for nothing else.
+        func fact(_ path: String, _ ending: String = "that does not exist") -> TaxTriageParityDifference {
+            TaxTriageParityDifference(
+                id: "fact: record Project.lungfish/Analyses/taxtriage-batch-<TS>/.lungfish-provenance.json names "
+                    + "<project>/Analyses/taxtriage-batch-<TS>/\(path) \(ending)",
+                detail: ""
+            )
+        }
+        for removed in ["filterkraken/class_filtered_mqc.tsv", "fastp/S.fastp.fastq.gz", "top/S.topnames.txt"] {
+            XCTAssertTrue(TaxTriageParityPayloads.isRemovedByTheGUIRouteCleanup(fact(removed)), removed)
+        }
+        let keptFacts = [
+            fact("filterkraken/class_filtered_mqc.tsv", "with another digest"), fact("minimap2/S.bam"), fact("report/S.odr.txt"),
+            fact("top/S.top_report.tsv"), fact("fastp/S.fastp.html"),
+        ]
+        for difference in keptFacts {
+            XCTAssertFalse(TaxTriageParityPayloads.isRemovedByTheGUIRouteCleanup(difference), difference.id)
+        }
+        // The root record's BAM digest fact is declared with the live list only, which the stand-in never reads.
+        let rootDigestFact = fact("minimap2/S.S.dwnld.references.bam", "with another digest")
+        let topFact = fact("top/S.top_report.tsv")
+        let liveList = TaxTriageParityKnownDifferences.all + TaxTriageParityKnownDifferences.liveFacts
+        XCTAssertEqual(
+            TaxTriageParityKnownDifferences.failures(
+                found: [rootDigestFact, topFact, topFact], parityCase: .x1, scope: .side(.a), declaredList: liveList
+            ), []
+        )
+        XCTAssertEqual(
+            TaxTriageParityKnownDifferences.failures(found: [rootDigestFact, topFact, topFact], parityCase: .x1, scope: .side(.a)).count, 1
+        )
+        XCTAssertTrue(
+            TaxTriageParityKnownDifferences.failures(found: [rootDigestFact], parityCase: .x1, scope: .side(.c), declaredList: liveList)
+                .contains { $0.hasPrefix("not declared") }
+        )
+
         // Sample names with dots and spaces. No case of the harness holds one (BIO memo row 5), so this shows only how
         // files are given to samples: the longest name keeps its files, a folder named as the sample drops out of
         // the key, and the combined report, a hidden folder and a file of no sample stay out.
@@ -248,9 +284,23 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
     /// report, the per-read output and the kept reads that the payload declarations do not hold.
     func check(_ pass: TaxTriageParityLivePass, evidence: URL, baseline: URL?, engineNote: String) throws {
         var findings: [String: [String]] = [:]
+        var notes = [engineNote]
+        // Only the real engine shows the facts that side A's legacy cleanup leaves false (Q32 X1 ruling F3), so the
+        // stand-in reads the declared list as it was. The cleaned-folder facts are counted in the notes and never
+        // in `findings`, because a finding fails the test.
+        let live = pass.samtools != nil
+        let declaredList = live
+            ? TaxTriageParityKnownDifferences.all + TaxTriageParityKnownDifferences.liveFacts
+            : TaxTriageParityKnownDifferences.all
         for side in TaxTriageParityLivePass.sides {
+            var facts = pass.found[.side(side)] ?? []
+            if live, side == .a {
+                let cleaned = facts.filter(TaxTriageParityPayloads.isRemovedByTheGUIRouteCleanup)
+                facts = facts.filter { !TaxTriageParityPayloads.isRemovedByTheGUIRouteCleanup($0) }
+                notes.append("side A, cleaned by the GUI route: \(cleaned.count)")
+            }
             findings["side \(side)"] = TaxTriageParityKnownDifferences.failures(
-                found: pass.found[.side(side)] ?? [], parityCase: pass.parityCase, scope: .side(side)
+                found: facts, parityCase: pass.parityCase, scope: .side(side), declaredList: declaredList
             )
         }
         for (reference, candidate) in TaxTriageParityLivePass.pairs {
@@ -272,7 +322,7 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
             )
         }
         let folder = try TaxTriageParityEvidence.write(
-            pass, to: evidence, findings: findings, comparisons: comparisons, notes: [engineNote]
+            pass, to: evidence, findings: findings, comparisons: comparisons, notes: notes
         )
         print("[live-nextflow] \(pass.parityCase.rawValue) evidence in \(folder.path)")
         for line in TaxTriageParityEvidence.summary(pass) { print("[live-nextflow] \(line)") }
