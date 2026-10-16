@@ -92,7 +92,7 @@ public struct SequenceExtractionBundleBuildRequest: Sendable {
     }
 }
 
-public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
+public final class SequenceExtractionBundleBuilder: Sendable {
     let toolRunner: NativeToolRunner
 
     public init(toolRunner: NativeToolRunner = .shared) {
