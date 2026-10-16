@@ -17,7 +17,7 @@ struct VariantsCallGATKOptions: ParsableArguments {
     @Option(name: .customLong("emit-ref-confidence"), help: "GATK: reference confidence mode, NONE or GVCF. NONE writes a plain VCF of the called variants.")
     var emitReferenceConfidence: String = GATKEmitReferenceConfidence.none.rawValue
 
-    @Option(name: .customLong("intervals"), help: "GATK: optional intervals BED/list/contig path")
+    @Option(name: .customLong("intervals"), help: "GATK: optional intervals file, a BED file or an interval list. The value is read as a file path, so a contig name or a region such as chr1:1-100 is not accepted")
     var intervals: String?
 
     @Option(name: .customLong("pcr-indel-model"), help: "GATK: PCR indel model")
