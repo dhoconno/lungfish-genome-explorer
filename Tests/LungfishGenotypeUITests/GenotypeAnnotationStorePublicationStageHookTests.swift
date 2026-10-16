@@ -58,6 +58,68 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
         XCTAssertEqual(recorder.events.filter(\.onMainThread), [])
     }
 
+    /// The test above drives the two edits that go through `persist`. The matrix transaction, the
+    /// candidate display step, the manual haplotype replacement and the call override replay each
+    /// build their own closure for the write away from the main thread, so each one reports its
+    /// own steps here, with a fresh recorder (2.11 S35 review fix 2). The two replayed edits still
+    /// published on the main thread before item 3 of M2a2.
+    func testEveryPublicationPathRunsOffTheMainThread() async throws {
+        let bundle = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        // A replayed edit starts from the file on disk, so the bundle holds the sidecar the analyst saw.
+        try await GenotypeAnnotationStore(bundleURL: bundle, author: "seed").publishUnsavedBuiltInSmartCohorts()
+
+        let matrix = StageRecorder()
+        try await makeStore(bundle, recording: matrix).upsertMatrixComment(
+            body: "Checked",
+            targets: [.column(sample: "Animal-1")],
+            author: "analyst"
+        )
+        assertPublishedOffTheMainThread(matrix, "the matrix transaction")
+
+        let display = StageRecorder()
+        try await makeStore(bundle, recording: display).updateMHCCandidateDisplaySettings(
+            ONTMHCCandidateDisplaySettings(showKnown: false),
+            author: "analyst"
+        )
+        assertPublishedOffTheMainThread(display, "the candidate display step")
+
+        let manual = StageRecorder()
+        _ = try await makeStore(bundle, recording: manual).replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [
+                ManualHaplotypeAssignment(
+                    sample: "Animal-1",
+                    locus: "MHC-A",
+                    slot: .h1,
+                    label: "H-NEW",
+                    colorTokenIndex: 3,
+                    diagnosticAlleles: [],
+                    notes: ""
+                ),
+            ],
+            copySource: nil,
+            author: "analyst"
+        )
+        assertPublishedOffTheMainThread(manual, "the manual haplotype replacement")
+
+        let overrides = StageRecorder()
+        _ = try await makeStore(bundle, recording: overrides).mutateCallOverrides(
+            [
+                CallOverrideMutation(
+                    target: .init(sample: "Animal-1", locus: "MHC-A", slot: .h1),
+                    baseline: "M1A",
+                    after: "M2A",
+                    reason: .analystJudgment,
+                    rationale: "Reviewed"
+                ),
+            ],
+            author: "analyst",
+            analysisIdentity: nil
+        )
+        assertPublishedOffTheMainThread(overrides, "the call override replay")
+    }
+
     func testStaleRefusalReportsNoStep() async throws {
         let bundle = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: bundle) }
@@ -122,6 +184,37 @@ final class GenotypeAnnotationStorePublicationStageHookTests: XCTestCase {
         func record(_ event: GenotypeAnnotationPublicationStageEvent) {
             storage.withLock { $0.append(event) }
         }
+    }
+
+    private func makeStore(_ bundle: URL, recording recorder: StageRecorder) throws -> GenotypeAnnotationStore {
+        try GenotypeAnnotationStore(
+            bundleURL: bundle,
+            author: "analyst",
+            seedBuiltInSmartCohorts: false,
+            publicationFaultInjector: nil,
+            publicationStageObserver: recorder.record
+        )
+    }
+
+    private func assertPublishedOffTheMainThread(
+        _ recorder: StageRecorder,
+        _ path: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            recorder.events.contains { $0.stage == .write },
+            "\(path) published nothing",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            recorder.events.filter(\.onMainThread),
+            [],
+            "\(path) ran a publication step on the main thread",
+            file: file,
+            line: line
+        )
     }
 
     private func makeBundleURL() throws -> URL {
