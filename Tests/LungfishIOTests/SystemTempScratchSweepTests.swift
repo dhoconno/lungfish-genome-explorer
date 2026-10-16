@@ -103,6 +103,17 @@ final class SystemTempScratchSweepTests: XCTestCase {
         assertStays(noUUID, outcome, .otherPrefix)
     }
 
+    /// S32 review fix 3. No site in `Sources` makes `classify-` or `map-` scratch, so the list leaves them.
+    func testPrefixesNoSiteProducesStay() throws {
+        let classify = try makeScratch("classify-", creator: Self.goneCreator())
+        let map = try makeScratch("map-", creator: Self.goneCreator())
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        assertStays(classify, outcome, .otherPrefix)
+        assertStays(map, outcome, .otherPrefix)
+    }
+
     func testAFolderARecordNamesStays() throws {
         let named = try makeScratch("taxtriage-", creator: Self.goneCreator())
         let recordedFile = named.appendingPathComponent("output/report.tsv")

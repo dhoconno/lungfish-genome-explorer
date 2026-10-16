@@ -56,9 +56,9 @@ public enum SystemTempScratchSweep {
     /// whatever marker it holds.
     public static let prefixes: [String] = [
         ".lungfish-temp-", "application-export-import-", "batch-", "bbmerge-", "bbrepair-", "bbtools-",
-        "blast-sources-", "classifier-extract-", "classify-", "discriminating-sites-", "esviritu-",
-        "export-", "extract-", "fastq-", "fetch-genome-", "genbank-", "geneious-import-", "genome-",
-        "kraken2-extract-", "lungfish-", "mafft-", "managed-assembly-", "map-", "mapping-", "nfcore-",
+        "blast-sources-", "classifier-extract-", "discriminating-sites-", "esviritu-", "export-",
+        "extract-", "fastq-", "fetch-genome-", "genbank-", "geneious-import-", "genome-",
+        "kraken2-extract-", "lungfish-", "mafft-", "managed-assembly-", "mapping-", "nfcore-",
         "primer-trim-", "ref-", "reference-merge-", "sequence-", "sidebar-zip-import-", "sra-batch-",
         "taxtriage-", "variants-", "vcf-import-",
     ]
