@@ -173,11 +173,12 @@ struct AnnotationDatabaseGFFExporterTests {
         }
     }
 
-    /// Imports `gff3` by `createFromGFF3`, as a downloaded reference is, then exports the database.
-    private func exportedFeatures(
+    /// Imports `gff3` by `createFromGFF3`, as a downloaded reference is, then exports the database and returns the
+    /// text the exporter wrote.
+    private func exportedGFF3(
         ofGFF3 gff3: String,
         chromosomeSizes: [(String, Int64)]
-    ) async throws -> [ExportedFeature] {
+    ) async throws -> String {
         let directory = FileManager.default.temporaryDirectory
         let gffURL = directory.appendingPathComponent("\(UUID().uuidString).gff3")
         let dbURL = directory.appendingPathComponent("\(UUID().uuidString).db")
@@ -192,7 +193,15 @@ struct AnnotationDatabaseGFFExporterTests {
             chromosomeSizes: chromosomeSizes
         )
         try AnnotationDatabaseGFFExporter.export(database: try AnnotationDatabase(url: dbURL), to: outURL)
-        return featureLines(in: try String(contentsOf: outURL, encoding: .utf8))
+        return try String(contentsOf: outURL, encoding: .utf8)
+    }
+
+    /// The feature lines of `exportedGFF3`, in file order.
+    private func exportedFeatures(
+        ofGFF3 gff3: String,
+        chromosomeSizes: [(String, Int64)]
+    ) async throws -> [ExportedFeature] {
+        return featureLines(in: try await exportedGFF3(ofGFF3: gff3, chromosomeSizes: chromosomeSizes))
     }
 
     /// The `ID`s of `features` in file order. Records a failure for every `Parent` that names an `ID`
@@ -241,6 +250,47 @@ struct AnnotationDatabaseGFFExporterTests {
 
         let features = try await exportedFeatures(ofGFF3: ncbi, chromosomeSizes: [("MN908947.3", 29_903)])
         #expect(identifiers(of: features) == ncbiIDs)
+    }
+
+    @Test("exports the NCBI MN908947.3 annotation with NCBI's columns and attributes")
+    func exportsMN908947WithNCBIsColumnsAndAttributes() async throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // Annotation/
+            .deletingLastPathComponent()  // LungfishWorkflowTests/
+            .deletingLastPathComponent()  // Tests/
+            .appendingPathComponent("Fixtures/sarscov2-srr36291587/MN908947.3.gff3")
+        let ncbi = try String(contentsOf: fixture, encoding: .utf8)
+        let exported = try await exportedGFF3(ofGFF3: ncbi, chromosomeSizes: [("MN908947.3", 29_903)])
+
+        func rows(of gff3: String) -> [[String]] {
+            gff3.split(separator: "\n").filter { !$0.hasPrefix("#") }.map { line in
+                line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            }
+        }
+        let expectedRows = rows(of: ncbi)
+        let actualRows = rows(of: exported)
+        #expect(expectedRows.count == 24)
+        #expect(actualRows.count == 24)
+        try #require((expectedRows + actualRows).allSatisfy { $0.count == 9 }, "every feature line has nine columns")
+
+        for (index, (a, e)) in zip(actualRows, expectedRows).enumerated() {
+            // Columns 1 and 3 to 8 (sequence, type, start, end, score, strand, phase) are NCBI's. Column 2, the
+            // source, is `.` in the export and `Genbank` in the fixture, and neither tool reads it.
+            #expect([a[0]] + Array(a[2...7]) == [e[0]] + Array(e[2...7]), "line \(index + 1)")
+
+            // Column 9 is NCBI's attributes plus the exporter's own `lungfish_gff_phase`, which repeats column 8 on
+            // CDS lines and appears nowhere else.
+            var attributes = AnnotationDatabase.parseAttributes(a[8])
+            let internalPhase = attributes.removeValue(forKey: "lungfish_gff_phase")
+            #expect(internalPhase == (a[2] == "CDS" ? a[7] : nil), "line \(index + 1)")
+            #expect(attributes == AnnotationDatabase.parseAttributes(e[8]), "line \(index + 1)")
+        }
+
+        // The two-block orf1ab CDS is two lines with one ID, joined at base 13468 of the -1 frameshift, both in phase 0.
+        let orf1ab = actualRows
+            .filter { AnnotationDatabase.parseAttributes($0[8])["ID"] == "cds-QHD43415.1" }
+            .map { [$0[3], $0[4], $0[7]] }
+        #expect(orf1ab == [["266", "13468", "0"], ["13468", "21555", "0"]])
     }
 
     @Test("orders by chromosome, start, longer span first, then Parent depth, whatever the names sort to")
