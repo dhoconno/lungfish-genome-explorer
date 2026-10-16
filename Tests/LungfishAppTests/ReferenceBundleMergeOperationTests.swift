@@ -12,6 +12,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+import LungfishWorkflow
 
 @MainActor
 final class ReferenceBundleMergeOperationTests: XCTestCase {

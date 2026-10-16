@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishKit
+import LungfishWorkflow
 
 extension ReferenceBundleMergeService {
     /// Reports the run through `reporter`, and throws `OperationRefusedError`,
