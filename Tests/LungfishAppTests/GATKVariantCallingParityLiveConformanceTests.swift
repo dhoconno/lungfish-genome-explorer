@@ -14,11 +14,12 @@
 //
 // Both routes record the same version and environment here, so A against C declares only the commands. The VCF
 // is the bundle's bgzip `.vcf.gz`, compared under `MaskPolicy.gatk`, so the G5 rule (the `##GATKCommandLine`
-// line stays in the compare and only its `Date=` is masked) runs on real GATK output. Real GATK adds two
-// differences that any two runs show, C against C' included, and no route causes. GATK's log in the execution
-// record holds the clock, and the `##GATKCommandLine` line names the output, whose name holds the track's ID.
-// The contract masks neither, so the class pins them apart (`isRunToRun`) and checks that, with the bundle's
-// path, the track's ID and the date set aside, every side's `##GATKCommandLine` line is the same.
+// line stays in the compare, its `Date=` is masked and the track's ID in its `--output` path is numbered as a
+// file name numbers it) runs on real GATK output. Real GATK adds one difference that any two runs show, C against
+// C' included, and no route causes. GATK's log in the execution record holds the clock, and the contract masks
+// it nowhere, so the class pins it apart (`isRunToRun`). Only the log is run to run. The class also checks that,
+// with the bundle's path, the track's ID and the date set aside, every side's `##GATKCommandLine` line is the
+// same, which shows that all three sides ran one command.
 //
 // The class name holds Conformance, so the unit tier never runs it. Without gatk-core or samtools it skips, and
 // under `LUNGFISH_REQUIRE_TOOLS=1` it fails. Run it with `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_CONDA_ROOT=<root>
@@ -84,13 +85,14 @@ final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
             },
             sideC: { await StandIn.sideC($0, cli: wrapper) }
         )
-        // A against C declares the commands. Each pair also shows the run-to-run differences, which the contract
-        // masks nowhere, so the class checks them apart and pins how many there are.
+        // A against C declares the commands. Each pair also shows the run-to-run difference in GATK's log, which the
+        // contract masks nowhere, so the class checks it apart and pins how many there are. The `##GATKCommandLine`
+        // line of a VCF agrees across the sides under the policy, so it is not among them.
         let result = try harness.evaluate(StandIn.Case.haplotypeCaller, declared: Self.declared, runs: runs)
         XCTAssertEqual(result.failures.filter { !Self.isRunToRun($0) }, [], "only the declared commands and the run-to-run differences")
         XCTAssertEqual(
-            result.failures.filter(Self.isRunToRun).count, 8,
-            "each pair differs in the execution record's two stderr keys and in the two sides' ##GATKCommandLine lines"
+            result.failures.filter(Self.isRunToRun).count, 4,
+            "each pair differs in the execution record's two stderr keys, where GATK's log holds the clock"
         )
 
         var commandLines: [String] = []
@@ -124,15 +126,15 @@ final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
     /// stand-in, since both routes record the same version and environment here.
     nonisolated static let declared: [RouteParityDeclaredDifference<StandIn.Case>] = StandIn.commandDifferences
 
-    /// A difference that any two runs of real GATK show, whatever their routes. GATK's log in the execution
-    /// record's `stderr` and `steps[0].stderr` holds the clock, and the `##GATKCommandLine` line names the
-    /// output, whose name holds the track's ID. The payload masks hide neither (G5 masks only `Date=`), and a
-    /// new mask needs a reviewed change to the "Same result" table of CLI-EQUIVALENCE.md.
+    /// A difference that any two runs of real GATK show, whatever their routes. Only GATK's log is run to run. It
+    /// sits in the execution record's `stderr` and `steps[0].stderr` and holds the clock, and the contract masks it
+    /// nowhere. The `##GATKCommandLine` line is not run to run, since the policy masks its date and numbers its
+    /// track ID (G5 and A50 M3 ruling R2). A new mask needs a reviewed change to the "Same result" table of
+    /// CLI-EQUIVALENCE.md.
     nonisolated static func isRunToRun(_ failure: String) -> Bool {
         let line = failure.split(separator: "\n").first.map(String.init) ?? failure
         return line.hasSuffix("/variants/gatk/.lungfish-provenance.json at stderr")
             || line.hasSuffix("/variants/gatk/.lungfish-provenance.json at steps[0].stderr")
-            || (line.contains("/variants/gatk/vc-<UUID-1>.vcf.gz: only in ") && line.contains(": ##GATKCommandLine=<ID=HaplotypeCaller,"))
     }
 
     /// The `##GATKCommandLine` line with the bundle's path, the track's ID and the date set aside.
