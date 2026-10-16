@@ -101,7 +101,8 @@
       "name": "ivar-oracle",
       "packageSpec": "conda-forge::python=3.12 conda-forge::numpy conda-forge::scipy conda-forge::pandas conda-forge::biopython",
       "packages": 31,
-      "sha256": "234c969dcc28f0144e6f85a7782057d29a700348b23698339ce0f6d5118b0c04"
+      "sha256": "234c969dcc28f0144e6f85a7782057d29a700348b23698339ce0f6d5118b0c04",
+      "testOnly": true
     },
     {
       "explicit": "kraken2-osx-arm64-explicit.txt",
