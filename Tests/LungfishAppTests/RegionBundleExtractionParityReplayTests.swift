@@ -7,15 +7,16 @@
 // tracks and the samples it shows. Each case runs on three sides that start as copies of one project
 // with one source bundle.
 //
-// - Side A is the in-process route at the base, `SequenceExtractionPipeline().buildBundle`, with the
-//   tracks and the sample filter the site collected.
+// - Side A is the in-process route, `SequenceExtractionBundleBuilder().buildBundle(request:)`, which the
+//   pipeline runs, with the tracks and the sample filter the site collected and the command context the
+//   leaf records.
 // - Side C is the CLI route, the begin helper the site calls and `CLIBundleBuildRunner`, which launches
 //   the built `lungfish-cli extract sequence --bundle` on the argv of
 //   `SequenceExtractionPipeline.cliArguments`. Its row records the command.
 // - Side C' is the harness's replay of that command.
 //
-// A against C declares each difference, every one in the run's record, since the CLI's record names
-// its own command (docs/contracts/CLI-EQUIVALENCE.md). C against C' declares nothing.
+// A against C and C against C' declare nothing (C4). Side A names the command side C records, the
+// change of the recorded command that the closed gap intends (review A48-M2 Fix 2, as A42's Fix 4 did).
 //
 // It runs the managed bgzip and samtools faidx and launches the built lungfish-cli, so its name ends in
 // ReplayTests, which sends it to the integration tier, and it skips without the tools unless
@@ -39,40 +40,6 @@ final class RegionBundleExtractionParityReplayTests: XCTestCase {
         /// A reverse-strand feature of two parts, joined and reverse complemented (review N2).
         case reverseFeature
     }
-
-    /// Every difference is the record's statement of the command, in the bundle's root record and in
-    /// each per-file record under `provenance/`. The bundles, their manifests, genomes, tracks and
-    /// sample filters, and every other line of each record are the same.
-    static let declared: [RouteParityDeclaredDifference<Case>] = {
-        let record = "differs: Project.lungfish/Extractions/<ANY>.json at "
-        let closedBy = "Never. The recorded command changes by design (docs/contracts/CLI-EQUIVALENCE.md)"
-        let argv = ["argv[<ANY>]", "steps[<ANY>].argv[<ANY>]"].map { key in
-            RouteParityDeclaredDifference<Case>(
-                // `--next-free-name` (Fix 6 of the A48 M1 review) adds one word to the CLI argv, which
-                // is longer than the pipeline's only in the reverse feature's six records.
-                [.regionWithSamples: 152, .reverseFeature: 126],
-                record + key,
-                reason: "The pipeline records `lungfish-gui sequence extract-bundle` with its own options, and the "
-                    + "CLI route records the `lungfish-cli extract sequence --bundle` argv its row recorded, so each "
-                    + "word of the argv differs in the root record and in each per-file record (review N1 of A48 M1).",
-                closedBy: closedBy
-            )
-        }
-        let identity = [
-            "reproducibleCommand", "steps[<ANY>].reproducibleCommand", "steps[<ANY>].toolName", "steps[<ANY>].toolVersion",
-            "tool.name", "tool.version", "toolName", "toolVersion", "workflowName",
-        ].map { key in
-            RouteParityDeclaredDifference<Case>(
-                [.regionWithSamples: 8, .reverseFeature: 6],
-                record + key,
-                reason: "The pipeline names its run `lungfish gui sequence extraction` at the app's version, and the "
-                    + "leaf names `lungfish extract sequence` at the CLI's version, once in the root record and once "
-                    + "in each per-file record.",
-                closedBy: closedBy
-            )
-        }
-        return argv + identity
-    }()
 
     private static let genome = "ACGTTGCAACGGATCCATGCAAGCTTGACCTAGGTACCGAATTCGGCCATGGCATGCAAT"
     private static let sourcePath = "Project.lungfish/Source Ref.lungfishref"
@@ -108,7 +75,7 @@ final class RegionBundleExtractionParityReplayTests: XCTestCase {
     private func assertCase(_ parityCase: Case) async throws {
         let result = try await harness.assertParity(
             parityCase,
-            declared: Self.declared,
+            declared: [],
             in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
             fixture: { root in try Self.writeFixture(root) },
             sideA: { root in await self.sideA(root, parityCase) },
@@ -170,17 +137,60 @@ final class RegionBundleExtractionParityReplayTests: XCTestCase {
         )
     }
 
-    /// Side A. The pipeline the site ran at the base, with the tracks it collected.
+    /// The bundle the site names for `run`, the same relative folder in each side's root.
+    private static func outputURL(_ run: Extraction) -> URL {
+        SequenceExtractionBundleBuilder.uniqueBundleURL(for: run.result, desiredBundleName: run.bundleName, in: run.extractions)
+    }
+
+    /// The argv after `lungfish-cli` that the site hands the runner for `run`.
+    private static func arguments(_ run: Extraction) -> [String] {
+        SequenceExtractionPipeline.cliArguments(
+            source: run.request.source,
+            flank5Prime: run.request.flank5Prime,
+            flank3Prime: run.request.flank3Prime,
+            reverseComplement: run.request.reverseComplement,
+            concatenateExons: run.request.concatenateExons,
+            sourceBundleURL: run.source.url,
+            bundleName: run.bundleName,
+            sampleFilter: run.sampleFilter,
+            outputBundleURL: outputURL(run)
+        )
+    }
+
+    /// Side A. The builder the pipeline runs in process, with the tracks the site collected and the
+    /// command context the leaf records: its workflow and tool name, its version, the argv side C runs
+    /// and the options of `SequenceExtractionPipeline`. Its record then names the command side C records.
     private func sideA(_ root: URL, _ parityCase: Case) async -> RouteParitySideOutcome {
         do {
             let run = try await extraction(root, parityCase)
             let bundle = run.source
+            let sourceName = bundle.manifest.name
+            let outputURL = Self.outputURL(run)
             try FileManager.default.createDirectory(at: run.extractions, withIntermediateDirectories: true)
-            _ = try await SequenceExtractionPipeline().buildBundle(
-                from: run.result,
+            let context = SequenceExtractionBundleCommandContext(
+                workflowName: "lungfish extract sequence",
+                toolName: "lungfish extract sequence",
+                toolVersion: LungfishAppVersion.short,
+                argv: [harness.cliBinary.path] + Self.arguments(run),
+                explicitOptions: SequenceExtractionPipeline.extractionExplicitOptions(
+                    result: run.result, sourceBundleURL: bundle.url, sourceBundleName: sourceName,
+                    desiredBundleName: run.bundleName, sampleFilter: run.sampleFilter,
+                    isConcatenated: run.request.concatenateExons
+                ),
+                defaultOptions: SequenceExtractionPipeline.extractionDefaultOptions,
+                resolvedOptions: SequenceExtractionPipeline.extractionResolvedOptions(
+                    result: run.result, bundleURL: outputURL, sourceBundleURL: bundle.url, sourceBundleName: sourceName,
+                    desiredBundleName: run.bundleName, sampleFilter: run.sampleFilter,
+                    isConcatenated: run.request.concatenateExons
+                ),
+                inputURLs: []
+            )
+            _ = try await SequenceExtractionBundleBuilder().buildBundle(request: SequenceExtractionBundleBuildRequest(
+                result: run.result,
                 outputDirectory: run.extractions,
+                outputBundleURL: outputURL,
                 sourceBundleURL: bundle.url,
-                sourceBundleName: bundle.manifest.name,
+                sourceBundleName: sourceName,
                 desiredBundleName: run.bundleName,
                 sourceBundleChromosomes: bundle.manifest.genome?.chromosomes ?? [],
                 sourceAnnotationTracks: bundle.annotationTrackIds.compactMap { id -> SequenceExtractionSourceAnnotationTrack? in
@@ -194,8 +204,10 @@ final class RegionBundleExtractionParityReplayTests: XCTestCase {
                     return .init(id: track.id, name: track.name, databaseURL: url, variantType: track.variantType)
                 },
                 sampleFilter: run.sampleFilter,
-                isConcatenated: run.request.concatenateExons
-            )
+                isConcatenated: run.request.concatenateExons,
+                publishesUnderNextFreeName: true,
+                commandContext: context
+            ))
             return RouteParitySideOutcome(end: .completed, detail: "Bundle ready")
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)")
@@ -209,19 +221,7 @@ final class RegionBundleExtractionParityReplayTests: XCTestCase {
         let runner = CLIBundleBuildRunner(cliURLOverride: harness.cliBinary)
         do {
             let run = try await extraction(root, parityCase)
-            let arguments = SequenceExtractionPipeline.cliArguments(
-                source: run.request.source,
-                flank5Prime: run.request.flank5Prime,
-                flank3Prime: run.request.flank3Prime,
-                reverseComplement: run.request.reverseComplement,
-                concatenateExons: run.request.concatenateExons,
-                sourceBundleURL: run.source.url,
-                bundleName: run.bundleName,
-                sampleFilter: run.sampleFilter,
-                outputBundleURL: SequenceExtractionBundleBuilder.uniqueBundleURL(
-                    for: run.result, desiredBundleName: run.bundleName, in: run.extractions
-                )
-            )
+            let arguments = Self.arguments(run)
             var operationID: UUID?
             SequenceViewerView.beginExtractionBundleOperation(
                 sourceName: run.result.sourceName, arguments: arguments, routeContext: nil, reporter: reporter

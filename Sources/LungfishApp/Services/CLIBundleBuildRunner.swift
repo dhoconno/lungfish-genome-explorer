@@ -48,15 +48,22 @@ struct CLIBundleBuildRunner: Sendable {
     ///
     /// - Returns: The transport's result, whose `message` is the command's `complete` message and
     ///   whose `outputs` name the bundle it published.
+    /// - Parameter environmentAdditions: Variables merged over the app's subprocess environment for
+    ///   this run only, such as a test's stand-in conda root. The app passes none.
     /// - Throws: `CancellationError` once the row's cancel is acknowledged, else the transport's
     ///   `RunError`, whose description is the command's `failed` message.
     @concurrent
-    func run(arguments: [String], operationID: UUID) async throws -> CLISubprocessTransport.Result {
+    func run(
+        arguments: [String],
+        operationID: UUID,
+        environmentAdditions: [String: String] = [:]
+    ) async throws -> CLISubprocessTransport.Result {
         do {
             return try await transport.run(
                 arguments: arguments,
                 terminationGracePeriod: Self.terminationGracePeriod,
                 drainGracePeriod: Self.drainGracePeriod,
+                environmentAdditions: environmentAdditions,
                 completionOutlivesCancel: true,
                 isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
                 onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)

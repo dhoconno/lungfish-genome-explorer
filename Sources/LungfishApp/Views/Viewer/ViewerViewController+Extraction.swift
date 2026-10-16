@@ -536,9 +536,12 @@ extension SequenceViewerView {
     /// records that command.
     ///
     /// cli-parity-gap: region-extraction-without-bundle. A viewer with no
-    /// reference bundle reads its sequence from the document it shows, which
-    /// `extract sequence --bundle` cannot read, so it passes no `arguments`,
-    /// builds the bundle in process, and its row records no command.
+    /// reference bundle reads its sequence from the document it shows, so it
+    /// passes no `arguments`, builds the bundle in process, and its row
+    /// records no command. The closest command is `extract sequence <fasta>
+    /// <region> -o <name>.lungfishref`. It builds the same plain bundle from a
+    /// FASTA file, but it names the bundle by its folder, reads FASTA only,
+    /// and is not told which file the viewer shows.
     @discardableResult
     static func beginExtractionBundleOperation(
         sourceName: String,
