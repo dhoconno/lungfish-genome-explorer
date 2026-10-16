@@ -269,7 +269,7 @@ public final class NativeBundleBuilder: ObservableObject {
             return publishedBundleURL
 
         } catch {
-            await ProvenanceRecorder.shared.completeRun(provenanceRunID, status: isCancelled ? .cancelled : .failed)
+            await ProvenanceRecorder.shared.completeRun(provenanceRunID, status: (isCancelled || Task.isCancelled) ? .cancelled : .failed)
             if didCreateStagingBundle, !didPublishBundle, FileManager.default.fileExists(atPath: stagingBundleURL.path) {
                 try? FileManager.default.removeItem(at: stagingBundleURL)
             }

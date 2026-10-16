@@ -189,6 +189,48 @@ final class NativeBundleBuilderOffMainTests: XCTestCase {
         XCTAssertEqual(lhsManifest.variants.count, rhsManifest.variants.count)
     }
 
+    /// A SIGTERM cancels the task that awaits the build, not the builder's own flag, so the recorder
+    /// must hear of the cancel from the task as well (A48 M3 review, Fix 4). Without it the run is
+    /// recorded as failed.
+    func testACancelledTaskIsRecordedAsCancelledAndNotFailed() async throws {
+        let root = try makeFixtureRoot()
+        let source = root.appendingPathComponent("source.fa")
+        try ">chr1\nACGTACGTACGTACGTACGT\n>chr2\nTTGGCCAATTGGCCAATTGG\n".write(to: source, atomically: true, encoding: .utf8)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try writeFakeSamtools(home: home, faidxLine: "chr1\\t20\\t6\\t20\\t21\\nchr2\\t20\\t33\\t20\\t21")
+        let workflowName = "Cancelled build \(UUID().uuidString)"
+        let configuration = BuildConfiguration(
+            name: "Cancelled Bundle",
+            identifier: "org.lungfish.test.cancelled",
+            fastaURL: source,
+            outputDirectory: root,
+            source: SourceInfo(organism: "Test organism", assembly: "Test assembly"),
+            compressFASTA: false,
+            provenanceWorkflowName: workflowName
+        )
+
+        let task = Task { () -> Result<URL, any Error> in
+            let builder = NativeBundleBuilder(
+                toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
+            )
+            do {
+                return .success(try await builder.build(configuration: configuration) { _, _, _ in
+                    // The caller's task is what a SIGTERM cancels, and the builder's own flag stays unset.
+                    withUnsafeCurrentTask { $0?.cancel() }
+                })
+            } catch {
+                return .failure(error)
+            }
+        }
+        guard case .failure(let error) = await task.value else {
+            return XCTFail("the build ignored the cancelled task")
+        }
+        XCTAssertTrue(error is BundleBuildError || error is CancellationError, "\(error)")
+        let runs = await ProvenanceRecorder.shared.allRuns()
+        let run = try XCTUnwrap(runs.first { $0.name == workflowName }, "the build recorded no run")
+        XCTAssertEqual(run.status, .cancelled, "a build stopped by its task is recorded as cancelled")
+    }
+
     /// Confirms checkRequiredTools() also runs cleanly from a background
     /// actor with no MainActor hop required.
     func testCheckRequiredToolsRunsOffMain() async throws {
