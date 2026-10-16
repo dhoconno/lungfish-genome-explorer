@@ -63,9 +63,9 @@ public enum SystemTempScratchSweep {
         "taxtriage-", "variants-", "vcf-import-",
     ]
 
-    /// Record files whose presence in a child means a record names it. The second is
-    /// `ProvenanceRecorder.provenanceFilename`, which lives in LungfishWorkflow.
-    static let recordFileNames = [AnalysisRunRecord.fileName, ".lungfish-provenance.json"]
+    /// Record files whose presence in a child means a record names it. The second is the name in
+    /// `ProvenanceRecorder.provenanceFilename` (LungfishWorkflow), read from the LungfishCore constant that holds it.
+    static let recordFileNames = [AnalysisRunRecord.fileName, BundleAttachmentFilenamePolicy.provenanceSidecarSuffix]
 
     // MARK: - Marking
 
