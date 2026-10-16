@@ -44,8 +44,10 @@ struct ImportFilesOutcome: Equatable, Sendable {
 /// Counts the files of one File > Import Files... request that the user cancelled.
 ///
 /// The request's tracker files every `success: false` as a failed file, and the outcome takes the
-/// cancelled ones back out. Only the main run loop touches it, as it does the tracker.
-final class ImportFilesCancelTally: @unchecked Sendable {
+/// cancelled ones back out. Only the main run loop touches it, so the main actor owns it and the
+/// concurrency-hatches ratchet gains no `@unchecked Sendable`.
+@MainActor
+final class ImportFilesCancelTally {
     private(set) var count = 0
 
     func add(_ wasCancelled: Bool) {
