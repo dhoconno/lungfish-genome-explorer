@@ -72,7 +72,7 @@ extension OutputEquivalence {
         if name.hasSuffix(".vcf") {
             lines = text
                 .components(separatedBy: "\n")
-                .filter { !isVolatileVCFHeaderLine($0) }
+                .filter { !isVolatileVCFHeaderLine($0) || (masks.keepsGATKCommandLine && $0.hasPrefix("##GATKCommandLine=<")) }
                 .joined(separator: "\n")
         }
         let masked = applying(masks.masks(for: role(ofFileNamed: name)), to: lines, context: context)

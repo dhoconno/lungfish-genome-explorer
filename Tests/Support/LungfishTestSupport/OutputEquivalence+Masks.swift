@@ -74,6 +74,21 @@ extension OutputEquivalence {
             )
         }
 
+        /// The GATK compare's masks (Phase 2.10 decision G5, lane A50 M2): the standard masks, and in payload text the
+        /// date of a VCF's `##GATKCommandLine` header line. GATK writes it from the clock, so two runs never agree on it.
+        /// Only a compare of GATK output asks for this policy, and no other key or line is masked.
+        public static var gatk: MaskPolicy {
+            var policy = standard
+            policy.payloads.append(Masks.gatkCommandLineDate)
+            policy.keepsGATKCommandLine = true
+            return policy
+        }
+
+        /// Whether a VCF's `##GATKCommandLine` header line stays in the compare. The normalizer drops every VCF
+        /// header whose key holds `command`, a whole line with its `CommandLine=` value. The GATK compare keeps
+        /// this one line and masks only its date (`Masks.gatkCommandLineDate`), so a changed command still differs.
+        public var keepsGATKCommandLine = false
+
         func masks(for role: TextRole) -> [Mask] {
             switch role {
             case .provenance: return provenance
@@ -103,6 +118,21 @@ extension OutputEquivalence {
 
     public enum Masks {
         public static let rootToken = "<ROOT>"
+
+        /// Replaces the value of `Date=` at the end of a `##GATKCommandLine=<...>` header line with `<DATE>`, as
+        /// GATK 4.6 writes it (`...,Version="4.6.2.0",Date="October 16, 2026, 1:41:26 PM CDT">`). Only that
+        /// trailing key of that line is masked. The line's ID, its `CommandLine=` value and its `Version=`, every
+        /// other header line, whatever `Date=` they hold, and every record are compared as written (BR7).
+        public static let gatkCommandLineDate = Mask(name: "gatkCommandLineDate") { text, _ in
+            guard text.contains("##GATKCommandLine=<") else { return text }
+            let trailingDate = try! NSRegularExpression(pattern: #",Date="[^"]*">$"#)
+            return text.components(separatedBy: "\n").map { line -> String in
+                guard line.hasPrefix("##GATKCommandLine=<") else { return line }
+                return trailingDate.stringByReplacingMatches(
+                    in: line, range: NSRange(location: 0, length: (line as NSString).length), withTemplate: #",Date="<DATE>">"#
+                )
+            }.joined(separator: "\n")
+        }
 
         /// Replaces every spelling of either root with `<ROOT>`, including the
         /// `/private` twin of a temporary path and the JSON-escaped form. The

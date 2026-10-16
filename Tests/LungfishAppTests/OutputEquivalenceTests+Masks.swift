@@ -64,4 +64,57 @@ extension OutputEquivalenceTests {
             XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
         }
     }
+
+    /// G5 (Phase 2.10, lane A50 M2, BR7). GATK writes the run's date into the VCF header line
+    /// `##GATKCommandLine`, so two runs of one command never agree on it. The GATK compare masks the value of that
+    /// line's trailing `Date=` and nothing else. A changed `CommandLine=` value, `Version=` or ID, the same key
+    /// on another header line and a changed record still differ, and the standard compare still reports the date.
+    func testTheGATKCompareMasksOnlyTheDateOfTheGATKCommandLineHeader() throws {
+        let top = try TestTempDirectory.make(prefix: "gatk-header-date")
+        addTeardownBlock { TestTempDirectory.cleanup(top) }
+        let a = top.appendingPathComponent("a", isDirectory: true)
+        let b = top.appendingPathComponent("b", isDirectory: true)
+        let name = "variants/gatk/vc-1.vcf"
+        let dateA = "October 16, 2026, 1:41:26\u{202F}PM CDT"
+        let dateB = "October 16, 2026, 2:02:09\u{202F}PM CDT"
+        let vcf = { (id: String, commandLine: String, version: String, date: String, source: String, record: String) -> Data in
+            let header = "##GATKCommandLine=<ID=\(id),CommandLine=\"\(commandLine)\",Version=\"\(version)\",Date=\"\(date)\">"
+            return Data(
+                ["##fileformat=VCFv4.2", header, source, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO", record, ""]
+                    .joined(separator: "\n").utf8
+            )
+        }
+        let write = { (data: Data, root: URL) throws in
+            let url = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url)
+        }
+        let gatk = { try OutputEquivalence.differences(a, b, kind: .files, masks: .gatk) }
+        let call = "HaplotypeCaller --sample-ploidy 2"
+        let source = "##source=Lungfish,Date=\"Monday\""
+        let record = "chr1\t4\t.\tT\tG\t60\tPASS\tDP=18"
+
+        try write(vcf("HaplotypeCaller", call, "4.6.2.0", dateA, source, record), a)
+        try write(vcf("HaplotypeCaller", call, "4.6.2.0", dateB, source, record), b)
+        XCTAssertEqual(try gatk(), [], "only the run's date differs")
+        XCTAssertEqual(
+            try OutputEquivalence.differences(a, b, kind: .files), [],
+            "the standard VCF compare drops every command header line, so it sees neither the date nor the command (BR7)"
+        )
+
+        // Each change differs in the one file, on top of the two dates.
+        let cases: [(label: String, side: Data)] = [
+            ("CommandLine value", vcf("HaplotypeCaller", "HaplotypeCaller --sample-ploidy 1", "4.6.2.0", dateB, source, record)),
+            ("Version", vcf("HaplotypeCaller", call, "4.6.1.0", dateB, source, record)),
+            ("ID", vcf("SelectVariants", call, "4.6.2.0", dateB, source, record)),
+            ("Date= on another header line", vcf("HaplotypeCaller", call, "4.6.2.0", dateB, "##source=Lungfish,Date=\"Tuesday\"", record)),
+            ("record", vcf("HaplotypeCaller", call, "4.6.2.0", dateB, source, record.replacingOccurrences(of: "\tG\t", with: "\tC\t"))),
+        ]
+        for (label, side) in cases {
+            try write(side, b)
+            let result = try gatk()
+            XCTAssertEqual(result.count, 1, "\(label): \(result)")
+            XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
+        }
+    }
 }
