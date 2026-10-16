@@ -251,7 +251,7 @@ Self.beginPrimerTrimOperation(
 
 A call site that must undo its own state on refusal switches on the returned result. `TaxonomyReadExtractionAction` returns its dialog to idle that way. A `var` that the closure hands to a detached task becomes a `let` before the call, or strict concurrency rejects the capture.
 
-An async service entry point that returns a value takes `reporter` as a parameter and sends every report through it. It ends its `begin` call with `.requireStarted()`, which returns the operation ID or throws `OperationRefusedError` on `.refused`. `ReferenceBundleMergeService.merge` is the model.
+An async service entry point that returns a value takes `reporter` as a parameter and sends every report through it. It ends its `begin` call with `.requireStarted()`, which returns the operation ID or throws `OperationRefusedError` on `.refused`. `ReferenceBundleMergeRoute.merge` is the model.
 
 ### 3. Make the command reproduce the run
 
@@ -283,7 +283,7 @@ Run `python3 scripts/ratchets/unchecked-operation-start.sh`, which stays as a gu
 | Bundle lock, in-process route kept behind a hidden key for one release | `beginGATKVariantCallingOperation` | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` |
 | No lock, and the old command missed a flag the run used | `beginKraken2BlastVerificationOperation` | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift` |
 | No lock and no CLI equivalent | `beginTaxaCollectionExtractionOperation` | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift` |
-| Async service entry point that returns a value | `ReferenceBundleMergeService.merge` with `requireStarted()` | `Sources/LungfishApp/Services/ReferenceBundleMergeService.swift` |
+| Async service entry point that returns a value | `ReferenceBundleMergeRoute.merge` with `requireStarted()` | `Sources/LungfishApp/Services/ReferenceBundleMergeRoute.swift` |
 | Command built by the caller and reused as provenance, with the dialog reset on refusal | `beginExtractionOperation` | `Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction+OperationBegin.swift` |
 
 The protocol is in `Sources/LungfishKit/OperationReporting.swift`, the recording reporter in `Tests/Support/LungfishKitTestSupport/RecordingOperationReporter.swift` and the parse helper in `Tests/LungfishAppTests/RecordedCLICommand.swift`.
