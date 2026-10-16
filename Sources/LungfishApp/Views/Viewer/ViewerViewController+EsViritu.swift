@@ -83,7 +83,7 @@ extension ViewerViewController {
         controller.configureFromDatabase(db, resultURL: resultURL)
 
         // Wire BLAST verification callback for EsViritu.
-        controller.onBlastVerification = { [weak controller] detection, readCount, accessions, bamURL, _ in
+        controller.onBlastVerification = { [weak controller] detection, readCount, accessions, bamURL, bamIndexURL in
             guard let bamURL else {
                 controller?.showBlastFailure("BAM file not available for BLAST verification.")
                 return
@@ -106,13 +106,11 @@ extension ViewerViewController {
                         )
                         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-                        let extractionConfig = BAMRegionExtractionConfig(
+                        let extractionConfig = ViewerViewController.classifierBlastExtractionConfig(
                             bamURL: bamURL,
-                            regions: accessions,
-                            fallbackToAll: false,
-                            outputDirectory: tempDir,
-                            outputBaseName: "blast_extract",
-                            deduplicateReads: true
+                            indexURL: bamIndexURL,
+                            accessions: accessions,
+                            outputDirectory: tempDir
                         )
 
                         DispatchQueue.main.async {

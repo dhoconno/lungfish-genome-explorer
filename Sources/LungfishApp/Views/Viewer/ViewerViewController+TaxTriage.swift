@@ -65,7 +65,7 @@ extension ViewerViewController {
         controller.configureFromDatabase(db, resultURL: resultURL)
 
         // Wire BLAST verification callback for TaxTriage.
-        controller.onBlastVerification = { [weak controller] organism, readCount, accessions, bamURL, _ in
+        controller.onBlastVerification = { [weak controller] organism, readCount, accessions, bamURL, bamIndexURL in
             guard let bamURL else {
                 controller?.showBlastFailure("BAM file not available for BLAST verification.")
                 return
@@ -93,13 +93,11 @@ extension ViewerViewController {
                         )
                         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-                        let extractionConfig = BAMRegionExtractionConfig(
+                        let extractionConfig = ViewerViewController.classifierBlastExtractionConfig(
                             bamURL: bamURL,
-                            regions: orgAccessions,
-                            fallbackToAll: false,
-                            outputDirectory: tempDir,
-                            outputBaseName: "blast_extract",
-                            deduplicateReads: true
+                            indexURL: bamIndexURL,
+                            accessions: orgAccessions,
+                            outputDirectory: tempDir
                         )
 
                         DispatchQueue.main.async {
@@ -225,6 +223,26 @@ extension ViewerViewController {
         geneTabBarView.isHidden = true
 
         taxTriageLogger.info("displayTaxTriageFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
+    }
+
+    /// The region extraction a classifier's BLAST Verify runs on the result's
+    /// BAM. Region extraction refuses a BAM without an explicit index, so the
+    /// index the result view resolved travels with the BAM.
+    nonisolated static func classifierBlastExtractionConfig(
+        bamURL: URL,
+        indexURL: URL?,
+        accessions: [String],
+        outputDirectory: URL
+    ) -> BAMRegionExtractionConfig {
+        BAMRegionExtractionConfig(
+            bamURL: bamURL,
+            indexURL: indexURL,
+            regions: accessions,
+            fallbackToAll: false,
+            outputDirectory: outputDirectory,
+            outputBaseName: "blast_extract",
+            deduplicateReads: true
+        )
     }
 
     /// Registers the BLAST verification row for a TaxTriage organism and, only
