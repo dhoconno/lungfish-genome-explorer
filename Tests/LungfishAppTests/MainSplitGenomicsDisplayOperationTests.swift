@@ -116,23 +116,6 @@ final class MainSplitGenomicsDisplayOperationTests: XCTestCase {
         XCTAssertEqual(parsed.globalOptions.outputFormat, .json)
     }
 
-    /// The hidden key that keeps the in-process reference download for one release (panel C4).
-    /// Since M3's last commit an unset key runs the CLI route.
-    func testTheHiddenKeyPicksTheReferenceRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "naked-reference-route")
-        let settings = NakedBundleReferenceRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(NakedBundleReferenceRouteSettings.defaultRoute, .cli, "the CLI route is the default (C4)")
-        XCTAssertEqual(settings.route, NakedBundleReferenceRouteSettings.defaultRoute, "an unset key")
-        let cases: [(Any, NakedBundleReferenceRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy),
-            ("NO", NakedBundleReferenceRouteSettings.defaultRoute),
-        ]
-        for (value, route) in cases {
-            suite.defaults.set(value, forKey: NakedBundleReferenceRouteSettings.defaultsKey)
-            XCTAssertEqual(settings.route, route, "\(value)")
-        }
-    }
-
     func testRefusedReferenceDownloadsLaunchNothing() {
         let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
         var launched = false
