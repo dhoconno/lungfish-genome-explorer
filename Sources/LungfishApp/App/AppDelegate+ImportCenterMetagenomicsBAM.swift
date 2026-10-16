@@ -14,4 +14,271 @@ import os
 /// BAM import live here, moved out of AppDelegate+ImportCenter.swift, which is at its
 /// size baseline.
 extension AppDelegate {
+
+    /// Import a Kraken2 result file (.kreport) from a known URL (called from Import Center).
+    func importKraken2ResultFromURL(_ url: URL) {
+        importClassifierResultFromURL(
+            url,
+            kind: .kraken2,
+            operationTitle: "Kraken2 Import",
+            missingProjectMessage: "Please open a project before importing classification results."
+        )
+    }
+
+    /// Import an EsViritu result from a known URL (called from Import Center).
+    func importEsVirituResultFromURL(_ url: URL) {
+        importClassifierResultFromURL(
+            url,
+            kind: .esviritu,
+            operationTitle: "EsViritu Import",
+            missingProjectMessage: "Please open a project before importing EsViritu results."
+        )
+    }
+
+    /// Import a TaxTriage result from a known URL (called from Import Center).
+    func importTaxTriageResultFromURL(_ url: URL) {
+        importClassifierResultFromURL(
+            url,
+            kind: .taxtriage,
+            operationTitle: "TaxTriage Import",
+            missingProjectMessage: "Please open a project before importing TaxTriage results."
+        )
+    }
+
+    internal func importNaoMgsResultFromURL(_ url: URL, routeContext: OperationRouteContext? = nil, onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil) {
+        importClassifierResultFromURL(
+            url,
+            kind: .naomgs,
+            operationTitle: "NAO-MGS Import",
+            missingProjectMessage: "Please open a project before importing NAO-MGS results.",
+            routeContext: routeContext,
+            naoMgsOptions: .init(fetchReferences: true),
+            onDispatch: onDispatch
+        )
+    }
+
+    private func importClassifierResultFromURL(
+        _ url: URL,
+        kind: MetagenomicsImportKind,
+        operationTitle: String,
+        missingProjectMessage: String,
+        preferredName: String? = nil,
+        routeContext explicitRouteContext: OperationRouteContext? = nil,
+        naoMgsOptions: MetagenomicsImportHelperClient.NaoMgsOptions? = nil,
+        onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil
+    ) {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        let targetController = targetMainWindowController(routeContext: routeContext)
+        guard let sidebarController = targetController?.mainSplitViewController?.sidebarController,
+              let projectURL = sidebarController.currentProjectURL else {
+            onDispatch?(.rejected(missingProjectMessage))
+            showAlert(title: "No Project Open", message: missingProjectMessage, presentingWindow: targetController?.window)
+            return
+        }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: operationTitle,
+            presentingWindow: targetController?.window
+        ) else {
+            onDispatch?(.rejected("This project is not writable."))
+            return
+        }
+
+        // NAO-MGS results go to Analyses/ (they are analysis results, not raw imports)
+        let outputDir: URL
+        if kind == .naomgs {
+            do {
+                outputDir = try AnalysesFolder.url(for: projectURL)
+            } catch {
+                onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
+                showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
+                return
+            }
+        } else {
+            outputDir = projectURL.appendingPathComponent("Imports", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+            } catch {
+                onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
+                showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
+                return
+            }
+        }
+
+        Self.beginClassifierResultImportOperation(
+            kind: kind,
+            operationTitle: operationTitle,
+            inputURL: url,
+            outputDirectory: outputDir,
+            preferredName: preferredName,
+            naoMgsOptions: naoMgsOptions,
+            routeContext: routeContext
+        ) { opID in
+            onDispatch?(.started)
+            let task = Task.detached { [weak self] in
+                do {
+                    let result = try await MetagenomicsImportHelperClient.importViaCLI(
+                        kind: kind,
+                        inputURL: url,
+                        outputDirectory: outputDir,
+                        preferredName: preferredName,
+                        naoMgsOptions: naoMgsOptions
+                    ) { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                _ = OperationCenter.shared.updateWithLog(
+                                    id: opID,
+                                    progress: progress,
+                                    detail: message
+                                )
+                            }
+                        }
+                    }
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: result.detail,
+                                bundleURLs: [result.resultDirectory]
+                            ) else { return }
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Imported result at \(result.resultDirectory.lastPathComponent)"
+                            )
+                        }
+                    }
+                } catch is CancellationError {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "\(operationTitle) cancelled"
+                            )
+                        }
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let detail = error.localizedDescription
+                            // Cleanup partial result directory left by failed import
+                            if let partialDir = (error as? MetagenomicsImportHelperClientError)?
+                                .partialResultDirectory {
+                                try? FileManager.default.removeItem(at: partialDir)
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .info,
+                                    message: "Cleaned up partial import directory"
+                                )
+                            }
+
+                            guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
+                            self?.showAlert(
+                                title: "\(operationTitle) Failed",
+                                message: detail,
+                                presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Wire cancellation so the Operations Panel cancel button stops downloads.
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
+    }
+
+    // MARK: - BAM/CRAM Import
+
+    /// Starts a BAM import as an `OperationCenter` operation and returns its id, or `nil`
+    /// if it was refused (no bundle open, a write-lock conflict, or the bundle already
+    /// busy). Callers that need to wait for this import before starting another on the
+    /// same bundle -- see `ImportCenterViewModel`'s multi-file BAM/VCF dispatch
+    /// -- await the returned id with `awaitOperationTerminal(id:)`.
+    @discardableResult
+    internal func performBAMImport(bamURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) -> UUID? {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "BAM import",
+            presentingWindow: targetMainWindowController(routeContext: routeContext)?.window
+        ) else { return nil }
+        guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
+            if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
+                showAlert(title: "Operation in Progress",
+                          message: "\"\(holder.title)\" is currently running on this bundle. Please wait for it to finish.")
+            }
+            return nil
+        }
+
+        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        let result = Self.beginBAMImportOperation(
+            bamURL: bamURL,
+            bundleURL: bundleURL,
+            routeContext: routeContext,
+            onCancel: { cancelFlag.withLock { $0 = true } }
+        ) { opID in
+            let importStartedAt = Date()
+
+            Task.detached {
+                let result: Result<BAMImportHelperClient.Result, Error>
+                do {
+                    let importResult = try await BAMImportHelperClient.importViaCLI(
+                        bamURL: bamURL,
+                        bundleURL: bundleURL,
+                        name: bamURL.lastPathComponent,
+                        shouldCancel: { cancelFlag.withLock { $0 } },
+                        progressHandler: { progress, message in
+                            let clampedProgress = max(0.0, min(1.0, progress))
+                            let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
+                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                            scheduleOnMainRunLoop {
+                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                            }
+                        }
+                    )
+                    result = .success(importResult)
+                } catch {
+                    result = .failure(error)
+                }
+
+                scheduleOnMainRunLoop { [weak self] in
+                    switch result {
+                    case .success(let importResult):
+                        let readCount = importResult.mappedReads + importResult.unmappedReads
+                        guard OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported") else { return }
+
+                        guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?.viewerController else {
+                            debugLog("performBAMImport: No viewer controller")
+                            return
+                        }
+                        do {
+                            try viewerController.displayBundle(at: bundleURL)
+                            debugLog("performBAMImport: Bundle reloaded with alignment track (\(readCount) reads)")
+                        } catch {
+                            debugLog("performBAMImport: Bundle reload failed: \(error)")
+                            self?.showAlert(title: "Import Error", message: "Alignments imported but bundle reload failed: \(error.localizedDescription)")
+                        }
+
+                    case .failure(let error):
+                        if cancelFlag.withLock({ $0 }) || error is CancellationError {
+                            debugLog("performBAMImport: Cancelled by user")
+                            OperationCenter.shared.acknowledgeCancellation(id: opID)
+                        } else {
+                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                            debugLog("performBAMImport: Failed: \(error)")
+                            self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
+                        }
+                    }
+                }
+            }
+        }
+        return result.startedID
+    }
 }

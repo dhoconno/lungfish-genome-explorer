@@ -393,10 +393,15 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             marker: "importAsReferenceBundleViaAppHelper(",
             source: importCenterSource
         )
+        let importCenterResultsPath = "Sources/LungfishApp/App/AppDelegate+ImportCenterMetagenomicsBAM.swift"
+        let importCenterResultsSource = try String(
+            contentsOf: root.appendingPathComponent(importCenterResultsPath),
+            encoding: .utf8
+        )
         assertLogged(
-            path: importCenterPath,
+            path: importCenterResultsPath,
             marker: "MetagenomicsImportHelperClient.importViaCLI(",
-            source: importCenterSource
+            source: importCenterResultsSource
         )
 
         XCTAssertTrue(
