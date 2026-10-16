@@ -5,16 +5,21 @@
 // Phase 2.11 lane A48 M3, ruling A48 F2 pin P8, plan decisions C4 and C5 of 2.10, on lane Q30's
 // harness. Each case runs on three sides that start as copies of one project with its inputs.
 //
-// - Side A is the helper route at the base. `ReferenceBundleImportService` is called as
-//   `ReferenceImportHelper` calls it, given the workflow name and the argv side C records, then the
-//   app's steps after the helper exited run in process: the annotation attach and the extraction
-//   record of the annotated site, and the rehydrate of the Import Center's flag.
+// - Side A is the oracle of the helper route, which A48 M4 deleted. `ReferenceBundleImportService`
+//   is called as `ReferenceImportHelper` called it (`ReferenceImportHelperRoutePinTests` pins that
+//   call), given the workflow name and the argv side C records, then the app's steps after the
+//   helper exited run in process: the annotation attach and the extraction record of the annotated
+//   site, and the rehydrate of the Import Center's flag.
 // - Side C is the CLI route, the begin helper the site calls and `CLIBundleBuildRunner`, which
 //   launches the built `lungfish-cli import fasta` on `AppDelegate.referenceImportArguments`.
 // - Side C' is the harness's replay of the command side C recorded.
 //
 // The cases are the argument shapes of the callers: no name, a name with durable inputs, the
-// annotated selection, and the rehydrate. A against C and C against C' declare nothing (C4).
+// annotated selection, and the rehydrate, and the FASTQ operation wrapper, which builds in a folder
+// as given. A against C and C against C' declare nothing (C4). The wrapper case reads the shared
+// FASTA, because the harness copies a fixture to each root and the operation's record names the
+// folder it was written in, so the rehydrate refuses a copy. `FASTQReferenceWrapperRouteReplayTests`
+// runs the FASTA inside the project, and no byte equality is claimed for that shape.
 //
 // Every side imports from one inputs folder outside the three roots, as a user imports a file from
 // outside the project, and each root starts as an empty project. A record names a path under the
