@@ -15,6 +15,10 @@
 // quotes, so a project folder named `Legacy Records.lungfish` reaches this
 // file as two words. The splitter is told that path and keeps it in one word,
 // which the presentation then shows project-relative like any other path.
+//
+// A shell's `-c` script is one word that holds a whole command. It is
+// presented as a command of its own, so the program in it stays and each path
+// in it is shortened, and the script is quoted again as one word.
 
 import Foundation
 import LungfishCore
@@ -34,22 +38,32 @@ public enum ProvenanceCommandPresentation {
     }
 
     /// The command with each path argument presented for a reader inside
-    /// `projectURL`. A command that cannot be split into shell words, or one
-    /// read outside any project, is returned as recorded.
+    /// `projectURL`. The word after a shell and its `-c` (or a cluster such as
+    /// `-lc`) is a script and is presented as a command of its own. A command
+    /// that cannot be split into shell words, or one read outside any project,
+    /// is returned as recorded.
     public static func display(
         _ command: String,
         projectURL: URL?,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> String {
         guard let projectURL, let pieces = split(command, keeping: spacedPaths(of: projectURL)) else { return command }
-        return pieces.map { piece -> String in
+        var shown = ""
+        // The values of the two words before the current one.
+        var recent: [String] = []
+        for piece in pieces {
             switch piece {
             case .separator(let text):
-                return text
+                shown += text
             case .word(let word):
-                return present(word, projectURL: projectURL, fileExists: fileExists)
+                let isScript = recent.count == 2 && isShell(recent[0]) && isCommandFlag(recent[1])
+                shown += isScript
+                    ? presentScript(word, projectURL: projectURL, fileExists: fileExists)
+                    : present(word, projectURL: projectURL, fileExists: fileExists)
+                recent = Array((recent + [word.value]).suffix(2))
             }
-        }.joined()
+        }
+        return shown
     }
 
     /// One path on its own, without shell quoting: project-relative inside
@@ -98,6 +112,28 @@ public enum ProvenanceCommandPresentation {
         let label = displayPath(part.path, projectURL: projectURL, fileExists: fileExists)
         guard label != part.path || word.joinedProjectPath else { return word.raw }
         return part.isRedirect ? part.prefix + shellEscape(label) : shellEscape(part.prefix + label)
+    }
+
+    /// The programs whose `-c` argument is a script.
+    private static let shellNames: Set<String> = ["sh", "bash", "zsh", "dash"]
+
+    /// True when `word` names a shell by the last component of its path, as `/bin/sh` and `bash` do.
+    private static func isShell(_ word: String) -> Bool {
+        word.split(separator: "/").last.map { shellNames.contains(String($0)) } ?? false
+    }
+
+    /// True for `-c` and for a cluster of single-letter options that holds `c`, such as `-lc` or `-ec`.
+    private static func isCommandFlag(_ word: String) -> Bool {
+        guard word.hasPrefix("-"), !word.hasPrefix("--") else { return false }
+        let letters = word.dropFirst()
+        return letters.contains("c") && letters.allSatisfy { $0.isASCII && $0.isLetter }
+    }
+
+    /// A shell's script as one word. `display` runs on its value, so the program stays and each path shortens, and the
+    /// result is quoted again as one word. A script that nothing changed goes back out as recorded.
+    private static func presentScript(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool) -> String {
+        let shown = display(word.value, projectURL: projectURL, fileExists: fileExists)
+        return shown == word.value ? word.raw : shellEscape(shown)
     }
 
     /// The spellings of the project's path that hold white space, longest first.

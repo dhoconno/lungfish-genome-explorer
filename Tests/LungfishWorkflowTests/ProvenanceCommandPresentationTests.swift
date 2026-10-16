@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
+import LungfishTestSupport
 import Testing
 @testable import LungfishWorkflow
 
@@ -186,5 +188,100 @@ struct ProvenanceCommandPresentationTests {
         #expect(display("tool > '\(root)/Logs/run.log'") == "tool > Logs/run.log")
         #expect(display("tool '\(root)/Analyses/run 1/out.vcf'") == "tool 'Analyses/run 1/out.vcf'")
         #expect(display("/bin/sh -c '\(root)/Scripts/run one.sh'") == "/bin/sh -c 'Scripts/run one.sh'")
+    }
+
+    // MARK: - A shell's script (Phase 2.11 lane U60, O3 walk defect 1)
+
+    /// Every shell argv the product records, from `rg -n '"/bin/(ba|z|da)?sh"' Sources`. The product records only
+    /// `/bin/sh`. Its `-c` form is the Kraken2 gzip replay, the classifier copy, the metagenomics import, the NAO-MGS
+    /// markdup replay, the ONT BAM import and the mapping member `cat`. Its `-lc` cluster is the assembly, mapping,
+    /// fastp, grouped FASTQ and CLI provenance commands. The other rows are the shells the rule names and a cluster
+    /// that is not `-lc`.
+    private let shellForms: [(program: String, flag: String)] = [
+        ("/bin/sh", "-c"), ("/bin/sh", "-lc"),
+        ("/bin/bash", "-c"), ("/bin/zsh", "-c"), ("/bin/dash", "-c"), ("sh", "-c"), ("/bin/bash", "-ec"),
+    ]
+
+    @Test("A shell's script keeps its program and shortens its paths under every shell form")
+    func testAShellScriptKeepsItsProgramAndShortensItsPaths() {
+        let root = "/Users/someone/Desktop/HG002 chr20.lungfish"
+        let kraken = "\(root)/Analyses/kraken2-1/classification.kraken"
+        let shown = "/usr/bin/gzip -c Analyses/kraken2-1/classification.kraken > Analyses/kraken2-1/classification.kraken.gz"
+        for form in shellForms {
+            let lead = "\(form.program) \(form.flag)"
+            // Both paths hold a space, so the join of the argv quotes each inside the script and quotes the script again.
+            let quotedPaths = #"\#(lead) '/usr/bin/gzip -c '\''\#(kraken)'\'' > '\''\#(kraken).gz'\'''"#
+            #expect(display(quotedPaths) == "\(lead) '\(shown)'", "\(lead), paths quoted inside the script")
+            // The reader resolves a record's portable `@/Analyses/...` into the project's path, unquoted.
+            let unquotedPaths = "\(lead) '/usr/bin/gzip -c \(kraken) > \(kraken).gz'"
+            #expect(display(unquotedPaths) == "\(lead) '\(shown)'", "\(lead), paths unquoted inside the script")
+            // A script that does not start with a path has its paths shortened as well.
+            let merge = "\(lead) 'cat \(root)/Inputs/a.fq \(root)/Inputs/b.fq > \(root)/Analyses/map-1/merged.fq'"
+            #expect(display(merge) == "\(lead) 'cat Inputs/a.fq Inputs/b.fq > Analyses/map-1/merged.fq'", "\(lead), a cat merge")
+            // A multi-line script keeps its line breaks.
+            let copy = "\(lead) 'set -e\nmkdir -p \(root)/Analyses/x\ncp \(root)/Inputs/a.fq \(root)/Analyses/x/a.fq'"
+            #expect(display(copy) == "\(lead) 'set -e\nmkdir -p Analyses/x\ncp Inputs/a.fq Analyses/x/a.fq'", "\(lead), a multi-line script")
+        }
+    }
+
+    @Test("A shell's script in a project whose path holds no space keeps its program")
+    func testAShellScriptInAProjectWithNoSpaceKeepsItsProgram() {
+        let plain = URL(fileURLWithPath: "/Users/someone/Desktop/HG002.lungfish", isDirectory: true)
+        let kraken = "\(plain.path)/Analyses/kraken2-1/classification.kraken"
+        for form in shellForms {
+            let lead = "\(form.program) \(form.flag)"
+            // No path in the script needs quotes, so the script is the one quoted word the join of the argv leaves.
+            let command = "\(lead) '/usr/bin/gzip -c \(kraken) > \(kraken).gz'"
+            let shown = ProvenanceCommandPresentation.display(command, projectURL: plain, fileExists: { _ in false })
+            #expect(shown == "\(lead) '/usr/bin/gzip -c Analyses/kraken2-1/classification.kraken"
+                + " > Analyses/kraken2-1/classification.kraken.gz'", "\(lead)")
+            #expect(shown.hasPrefix("\(lead) '/usr/bin/gzip -c "), "\(lead) keeps its program")
+        }
+    }
+
+    @Test("A shell's script that holds no project path is returned as recorded, quotes and all")
+    func aShellScriptWithNoProjectPathIsReturnedAsRecorded() {
+        let scripts = [
+            "'echo hello world'", "\"echo hello world\"", "''", "'cat a.fq | sort > b.fq'",
+            "'/usr/bin/gzip -c /Volumes/Data/a.fq > /Volumes/Data/a.fq.gz'",
+        ]
+        for form in shellForms {
+            for script in scripts {
+                let command = "\(form.program) \(form.flag) \(script)"
+                #expect(display(command) == command)
+            }
+        }
+        // Only a shell's script is read as a script, so `-c` after another program keeps its meaning.
+        #expect(display("/usr/bin/gzip -c '/Users/someone/Desktop/HG002 chr20.lungfish/Analyses/x.kraken'")
+            == "/usr/bin/gzip -c Analyses/x.kraken")
+    }
+
+    @Test("The Kraken2 golden record's gzip step shows its program, and showing it writes nothing")
+    func theKraken2GoldenShellStepShowsItsProgramAndTheRecordIsUntouched() throws {
+        let url = ProvenanceCompatCorpus.repositoryRoot
+            .appendingPathComponent("Tests/Fixtures/golden/classifiers/kraken2/lungfish-provenance.json")
+        let before = try Data(contentsOf: url)
+        let document = try #require(try JSONSerialization.jsonObject(with: before) as? [String: Any])
+        let steps = try #require(document["steps"] as? [[String: Any]])
+        let commands = steps.compactMap { $0["reproducibleCommand"] as? String }
+        let recorded = try #require(commands.first { $0.hasPrefix("/bin/sh -c ") })
+
+        // The reader resolves the portable `@/` into the project's path, unquoted.
+        let command = recorded.replacingOccurrences(of: "@/", with: "/Users/someone/Desktop/HG002 chr20.lungfish/")
+        let row = display(command)
+        #expect(row == "/bin/sh -c '/usr/bin/gzip -c Analyses/kraken2-golden/classification.kraken"
+            + " > Analyses/kraken2-golden/classification.kraken.gz'")
+        // Copy Command carries the recorded command whole, and the row of that text is the row.
+        let copied = ProvenanceCommandPresentation.quotingProjectPath(command, projectURL: project)
+        #expect(copied == command)
+        #expect(display(copied) == row)
+        for each in commands { _ = display(each) }
+
+        let after = try Data(contentsOf: url)
+        #expect(sha256Hex(before) == sha256Hex(after), "the record's bytes are the same after the rows are built")
+    }
+
+    private func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
