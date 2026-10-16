@@ -18,6 +18,7 @@ LungfishCore, SystemPackage, AsyncAlgorithms, SQLite3 and system frameworks. Nev
 | `FASTQBundle` and `resolvePrimaryFASTQURL` | Sources/LungfishIO/Formats/FASTQ/FASTQBundle.swift lines 12 and 89 |
 | `FASTQReader` | Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift line 29 |
 | `AnalysesFolder` (analysis folder lifecycle) | Sources/LungfishIO/Bundles/AnalysesFolder.swift line 17 |
+| `ClampedSequenceProvider` (reference bases clamped to the sequence, for CDS translation and extraction) | Sources/LungfishIO/Bundles/ClampedSequenceProvider.swift line 16 |
 | `AnalysisToolRegistry` and `AnalysisToolDescriptor`, the one table of analysis kinds (id, display name, imported-sample naming, sidebar symbol, batch badge and lock link) | Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift, AnalysisToolDescriptor.swift |
 | `AnalysisToolID` and `ManagedToolID`, the two typed tool ids | Sources/LungfishIO/Analysis/ToolIdentity.swift |
 | `BundleKindRegistry`, `BundleKindDescriptor` and `BundleKindID`, the one table of bundle kinds (folder extension, manifest, UTType id, sidebar symbol, package presentation, deletion and copy facts, app state, record names and producing analysis) | Sources/LungfishIO/Bundles/BundleKindRegistry.swift, BundleKind.swift |
