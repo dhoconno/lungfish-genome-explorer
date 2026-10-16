@@ -106,6 +106,11 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
 
     /// A sample status edit that finds the bundle changed by another window is refused. Its Undo
     /// goes, the person reads the stale alert, and the other window's edit and every earlier edit stay.
+    ///
+    /// Red without the takeback (2.11 S35 review fix 3). With
+    /// `GenotypeResultViewController+SampleStatusUndo.swift` as it was before the takeback, where the
+    /// Undo targets the controller and `onFailure` removes nothing, this test fails once, at the
+    /// `canUndo` assertion. The alert, file and view assertions around it pass.
     func testAStaleSampleStatusEditTakesBackItsUndoAndDropsNoEdit() async throws {
         let fixture = try await makeHostedController(priorStatus: .needsReview)
         defer { fixture.tearDown() }
