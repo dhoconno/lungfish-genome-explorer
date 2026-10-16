@@ -184,6 +184,69 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         )
     }
 
+    /// Review A50 M3 A1. The manual sends people to Extra arguments for an interval list, so a -L typed there
+    /// stays in --extra-args and is not read again as the --intervals file the leaf opens by path.
+    func testAnIntervalTypedInExtraArgumentsStaysInExtraArgs() throws {
+        let directory = URL(fileURLWithPath: "/tmp/lane 1a1/gatk", isDirectory: true)
+        let request = GATKPipelineExecutionRequest.haplotypeCaller(
+            configuration: GATKHaplotypeCallerConfiguration(
+                referenceFASTAURL: directory.appendingPathComponent("reference.fa"),
+                inputBAMURL: directory.appendingPathComponent("sample.bam"),
+                outputVCFURL: directory.appendingPathComponent("sample.vcf.gz"),
+                emitReferenceConfidence: .none,
+                extraArguments: ["-L", "chr20:1000000-2000000"]
+            ),
+            toolVersion: "4.6.2.0"
+        )
+        let arguments = CLIVariantCallingRunner.buildGATKCLIArguments(
+            request: request, bundleURL: bundleURL, alignmentTrackID: "aln-1", outputTrackName: "Sample GATK"
+        )
+        XCTAssertFalse(arguments.contains("--intervals"), "\(arguments)")
+        let line = OperationCenter.buildCLICommand(subcommand: "variants", args: Array(arguments.dropFirst()))
+        let command = try RecordedCLICommand.parse(line, as: VariantsCommand.CallSubcommand.self)
+        XCTAssertNil(command.gatkOptions.intervals)
+        XCTAssertEqual(try AdvancedCommandLineOptions.parse(command.advancedOptions ?? ""), ["-L", "chr20:1000000-2000000"])
+    }
+
+    /// Every non-default value of the request becomes the option of its own, the intervals file becomes
+    /// --intervals, and only the free text of Extra arguments rides in --extra-args.
+    func testEveryNonDefaultValueOfTheRequestBecomesAnOptionOfItsOwn() throws {
+        let directory = URL(fileURLWithPath: "/tmp/lane 1a1/gatk", isDirectory: true)
+        let intervals = directory.appendingPathComponent("regions.bed")
+        let request = GATKPipelineExecutionRequest.haplotypeCaller(
+            configuration: GATKHaplotypeCallerConfiguration(
+                referenceFASTAURL: directory.appendingPathComponent("reference.fa"),
+                inputBAMURL: directory.appendingPathComponent("sample.bam"),
+                outputVCFURL: directory.appendingPathComponent("sample.vcf.gz"),
+                emitReferenceConfidence: .gvcf,
+                ploidy: 1,
+                intervalsURL: intervals,
+                pcrIndelModel: "AGGRESSIVE",
+                standardMinConfidenceThresholdForCalling: 17.5,
+                maxAlternateAlleles: 3,
+                nativePairHMMThreads: 8,
+                extraArguments: ["--min-base-quality-score", "20", "--annotation", "Some Value"]
+            ),
+            toolVersion: "4.6.2.0"
+        )
+        let arguments = CLIVariantCallingRunner.buildGATKCLIArguments(
+            request: request, bundleURL: bundleURL, alignmentTrackID: "aln-1", outputTrackName: "Haploid GATK"
+        )
+        let line = OperationCenter.buildCLICommand(subcommand: "variants", args: Array(arguments.dropFirst()))
+        let command = try RecordedCLICommand.parse(line, as: VariantsCommand.CallSubcommand.self)
+        XCTAssertEqual(command.ploidy, 1)
+        XCTAssertEqual(command.gatkOptions.emitReferenceConfidence, GATKEmitReferenceConfidence.gvcf.rawValue)
+        XCTAssertEqual(command.gatkOptions.intervals, intervals.path)
+        XCTAssertEqual(command.gatkOptions.pcrIndelModel, "AGGRESSIVE")
+        XCTAssertEqual(command.gatkOptions.standCallConf, 17.5)
+        XCTAssertEqual(command.gatkOptions.maxAlternateAlleles, 3)
+        XCTAssertEqual(command.gatkOptions.pairHMMThreads, 8)
+        XCTAssertEqual(
+            try AdvancedCommandLineOptions.parse(command.advancedOptions ?? ""),
+            ["--min-base-quality-score", "20", "--annotation", "Some Value"], "only the free text rides in --extra-args"
+        )
+    }
+
     // MARK: - What the launcher does with the events of a run (Phase 2.6 lane C6)
 
     /// Each event kind, fed through the closure the launcher gives its runner, and what the row
