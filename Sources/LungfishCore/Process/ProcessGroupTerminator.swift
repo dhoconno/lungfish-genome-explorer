@@ -11,7 +11,8 @@ import Synchronization
 /// without parking a thread while the grace period runs.
 ///
 /// SIGTERM goes to the group and to every descendant found in the process
-/// table. One serial queue shared by every termination then looks again every
+/// table, or to the leader alone when the spec sets `signalsProcessFirst`.
+/// One serial queue shared by every termination then looks again every
 /// ``checkInterval``. A termination is over as soon as the leader has exited
 /// and no process of its group or tree is running, so a tool that honours
 /// SIGTERM is done in a few tens of milliseconds, not after the grace. At the
