@@ -13,7 +13,9 @@ extension NextflowEngineProcess {
     ///
     /// When the daemon does not answer, the engine asks macOS to start Docker Desktop with
     /// `open -g -a Docker` and polls the daemon until it answers or the wait runs out. It reports
-    /// TaxTriage's words at 0.01 and 0.02. A launch whose configuration does not wait returns at once.
+    /// TaxTriage's words at 0.01 and 0.02, then `Starting the pipeline...` at 0.03, so that a row does not keep
+    /// `Docker daemon ready` as its detail for the rest of the run (2.11 U64, SW28 b). A launch whose
+    /// configuration does not wait returns at once.
     ///
     /// - Throws: `CancellationError` at once when the task is cancelled, with Docker Desktop never
     ///   started after the cancel (E9). ``NextflowEngineError/dockerDesktopNotStarted(detail:)`` at
@@ -40,6 +42,7 @@ extension NextflowEngineProcess {
             if answers {
                 logger.info("Docker daemon answered after \(String(describing: waited), privacy: .public)")
                 progress?(0.02, "Docker daemon ready")
+                progress?(0.03, "Starting the pipeline...")
                 return
             }
         }

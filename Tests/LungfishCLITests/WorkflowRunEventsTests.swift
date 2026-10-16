@@ -44,6 +44,12 @@ final class WorkflowRunEventsTests: XCTestCase {
         XCTAssertEqual(run.events.dropFirst().first, .log(level: .info, message: "Preparing workflow: nf-core/viralrecon"))
         XCTAssertTrue(run.events.contains(.progress(fraction: 0.01, message: "Docker daemon unavailable. Launching Docker Desktop...")))
         XCTAssertTrue(run.events.contains(.progress(fraction: 0.02, message: "Docker daemon ready")))
+        XCTAssertTrue(run.events.contains(.progress(fraction: 0.03, message: "Starting the pipeline...")))
+        let fractions = run.events.compactMap { event -> Double? in
+            if case .progress(let fraction, _) = event { return fraction }
+            return nil
+        }
+        XCTAssertEqual(fractions, [0.01, 0.02, 0.03], "the bar only rises, and the row's detail leaves Docker daemon ready once the pipeline starts")
         XCTAssertTrue(run.events.contains(.log(level: .info, message: "Created run bundle: \(bundle.path)")))
         XCTAssertFalse(run.events.contains { if case .log(.warning, _) = $0 { return true } else { return false } })
         XCTAssertEqual(run.events.last, .complete(outputs: [bundle.path, results.path], message: nil))

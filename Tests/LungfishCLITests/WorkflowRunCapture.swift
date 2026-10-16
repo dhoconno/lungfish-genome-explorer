@@ -8,7 +8,7 @@ import Foundation
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
-/// Stands in for Nextflow on a Viral Recon run. Its Docker wait reports the engine's two lines, and its run writes the
+/// Stands in for Nextflow on a Viral Recon run. Its Docker wait reports the engine's three lines, and its run writes the
 /// iVar table of each `called` sample into the results folder and, when given, a trace into `pipeline_info`.
 final class ViralReconStandInRunner: NFCoreWorkflowProcessRunning, @unchecked Sendable {
     let results: URL
@@ -28,6 +28,7 @@ final class ViralReconStandInRunner: NFCoreWorkflowProcessRunning, @unchecked Se
     func waitForDocker(profile: String, progress: (@Sendable (Double, String) -> Void)?) async throws {
         progress?(0.01, "Docker daemon unavailable. Launching Docker Desktop...")
         progress?(0.02, "Docker daemon ready")
+        progress?(0.03, "Starting the pipeline...")
     }
 
     func runNextflow(_ launch: NFCoreWorkflowLaunch) async throws -> NFCoreWorkflowProcessResult {

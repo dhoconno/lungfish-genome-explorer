@@ -69,7 +69,7 @@ final class WorkflowRunOutcomeLinesTests: XCTestCase {
         TestTempDirectory.cleanup(root)
         root = try TestTempDirectory.make(prefix: "workflow-run-outcome").resolvingSymlinksInPath()
         let loud = try await run(runner: ViralReconStandInRunner(results: results, called: ["S1", "S2"]))
-        XCTAssertTrue(loud.standardOutput.contains("ℹ Docker daemon unavailable. Launching Docker Desktop...\nℹ Docker daemon ready\n"), loud.standardOutput)
+        XCTAssertTrue(loud.standardOutput.contains("ℹ Docker daemon unavailable. Launching Docker Desktop...\nℹ Docker daemon ready\nℹ Starting the pipeline...\n"), loud.standardOutput)
     }
 
     /// A run whose samples all reached the caller and whose trace holds no ignored task prints no outcome line.

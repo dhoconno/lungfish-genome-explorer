@@ -53,7 +53,14 @@ final class NextflowEngineDockerWaitTests: XCTestCase {
 
         try await engine(open: open.executable).waitForDocker(probe: probe, progress: progress.report)
 
-        XCTAssertEqual(progress.all, ["0.01 Docker daemon unavailable. Launching Docker Desktop...", "0.02 Docker daemon ready"])
+        XCTAssertEqual(
+            progress.all,
+            [
+                "0.01 Docker daemon unavailable. Launching Docker Desktop...",
+                "0.02 Docker daemon ready",
+                "0.03 Starting the pipeline...",
+            ]
+        )
         XCTAssertEqual(try String(contentsOf: open.record, encoding: .utf8), "-g\n-a\nDocker\n", "it asks macOS with open -g -a Docker")
         XCTAssertEqual(probe.daemonQueries, 3, "the first ask, then one per poll until the daemon answers")
     }
@@ -71,6 +78,8 @@ final class NextflowEngineDockerWaitTests: XCTestCase {
         let fractions = progress.all.compactMap { $0.split(separator: " ").first.flatMap { Double($0) } }
         XCTAssertEqual(fractions.count, progress.all.count, "every line starts with its fraction")
         XCTAssertEqual(fractions, fractions.sorted(), "the bar never moves back")
+        XCTAssertEqual(progress.all.last, "0.03 Starting the pipeline...", "the last line replaces Docker daemon ready as a row's detail")
+        XCTAssertLessThan(fractions.last ?? 1, 0.05, "below Generating samplesheet..., the next line of a TaxTriage run")
     }
 
     func testACancelBeforeOpenEndsTheWaitAndNeverStartsDockerDesktop() async throws {
