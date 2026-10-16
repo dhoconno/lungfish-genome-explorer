@@ -308,12 +308,12 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         let (model, project) = try await loadedModel(folder: "observed-signal") { before = try Self.digest(of: $0) }
         let host = host(ProvenanceSection(viewModel: model))
         try openFirstStep(in: host)
-        spin { AXTree.element(in: host, identifier: "provenance-step-output") != nil }
+        spin { AccessibilityTreeProbe.element(in: host, identifier: "provenance-step-output") != nil }
 
-        let rows = AXTree.all(in: host).compactMap { AXTree.identifier($0) }.filter(Self.stepRowIdentifiers.contains)
+        let rows = AccessibilityTreeProbe.all(in: host).compactMap { AccessibilityTreeProbe.identifier($0) }.filter(Self.stepRowIdentifiers.contains)
         var ordered: [String] = []
         for identifier in rows where ordered.last != identifier { ordered.append(identifier) }
-        let start = try XCTUnwrap(ordered.firstIndex(of: "provenance-step-command"), AXTree.dump(host))
+        let start = try XCTUnwrap(ordered.firstIndex(of: "provenance-step-command"), AccessibilityTreeProbe.dump(host))
         XCTAssertEqual(
             Array(ordered[start...].prefix(8)),
             ["provenance-step-command", "provenance-step-environment", "provenance-path-list-value",
@@ -325,8 +325,8 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
                       "provenance-step-termination": "Ended by signal 9 (SIGKILL)",
                       "provenance-step-output": "Incomplete"]
         for (identifier, text) in values {
-            let element = try XCTUnwrap(AXTree.element(in: host, identifier: identifier), identifier)
-            XCTAssertEqual(AXTree.value(element), text, identifier)
+            let element = try XCTUnwrap(AccessibilityTreeProbe.element(in: host, identifier: identifier), identifier)
+            XCTAssertEqual(AccessibilityTreeProbe.value(element), text, identifier)
         }
         XCTAssertEqual(try Self.digest(of: project), before, "Opening the rows wrote into the project.")
     }
@@ -337,7 +337,7 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         let host = host(ProvenanceSection(viewModel: model))
         try openFirstStep(in: host)
 
-        let identifiers = Set(AXTree.all(in: host).compactMap { AXTree.identifier($0) })
+        let identifiers = Set(AccessibilityTreeProbe.all(in: host).compactMap { AccessibilityTreeProbe.identifier($0) })
         XCTAssertTrue(identifiers.contains("provenance-step-command"), "The step is open.")
         XCTAssertTrue(identifiers.isDisjoint(with: ["provenance-step-environment", "provenance-step-termination", "provenance-step-output"]))
     }
@@ -420,13 +420,13 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
     }
 
     private func openFirstStep(in host: NSObject) throws {
-        spin { AXTree.element(in: host, identifier: "provenance-run-1") != nil }
-        let run = try XCTUnwrap(AXTree.element(in: host, identifier: "provenance-run-1"), AXTree.dump(host))
-        XCTAssertTrue(AXTree.press(run), "the run row must answer AXPress")
-        spin { AXTree.element(in: host, identifier: "provenance-run-1-step-1") != nil }
-        let step = try XCTUnwrap(AXTree.element(in: host, identifier: "provenance-run-1-step-1"), AXTree.dump(host))
-        XCTAssertTrue(AXTree.press(step), "the step row must answer AXPress")
-        spin { AXTree.element(in: host, identifier: "provenance-step-command") != nil }
+        spin { AccessibilityTreeProbe.element(in: host, identifier: "provenance-run-1") != nil }
+        let run = try XCTUnwrap(AccessibilityTreeProbe.element(in: host, identifier: "provenance-run-1"), AccessibilityTreeProbe.dump(host))
+        XCTAssertTrue(AccessibilityTreeProbe.press(run), "the run row must answer AXPress")
+        spin { AccessibilityTreeProbe.element(in: host, identifier: "provenance-run-1-step-1") != nil }
+        let step = try XCTUnwrap(AccessibilityTreeProbe.element(in: host, identifier: "provenance-run-1-step-1"), AccessibilityTreeProbe.dump(host))
+        XCTAssertTrue(AccessibilityTreeProbe.press(step), "the step row must answer AXPress")
+        spin { AccessibilityTreeProbe.element(in: host, identifier: "provenance-step-command") != nil }
     }
 
     /// Hosts `content` in a window and returns that window, the root of the tree to walk. SwiftUI builds its
@@ -558,44 +558,3 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
     }
 }
 
-// MARK: - Accessibility tree walking
-
-/// Reads the NSAccessibility tree the way `ProvenanceSectionAccessibilityTests` does, so SwiftUI's own nodes are
-/// included. The elements come in tree order, which is the order VoiceOver reads them.
-@MainActor
-private enum AXTree {
-    static func children(of element: NSObject) -> [NSObject] {
-        let modern = ((element as AnyObject).accessibilityChildren?() ?? nil) ?? []
-        if !modern.isEmpty { return modern.compactMap { $0 as? NSObject } }
-        return ((element.accessibilityAttributeValue(.children) as? [Any]) ?? []).compactMap { $0 as? NSObject }
-    }
-
-    static func all(in root: NSObject) -> [NSObject] {
-        [root] + children(of: root).flatMap { all(in: $0) }
-    }
-
-    static func element(in root: NSObject, identifier: String) -> NSObject? {
-        all(in: root).first { self.identifier($0) == identifier }
-    }
-
-    static func identifier(_ element: NSObject) -> String? {
-        (element as AnyObject).accessibilityIdentifier?() ?? nil
-    }
-
-    /// The value through the modern protocol, which is what VoiceOver and the AX API read.
-    static func value(_ element: NSObject) -> String? {
-        element.perform(NSSelectorFromString("accessibilityValue"))?.takeUnretainedValue() as? String
-            ?? element.accessibilityAttributeValue(.value) as? String
-    }
-
-    static func press(_ element: NSObject) -> Bool {
-        (element as AnyObject).accessibilityPerformPress?() ?? false
-    }
-
-    static func dump(_ root: NSObject, depth: Int = 0) -> String {
-        let role = ((root as AnyObject).accessibilityRole?() ?? nil)?.rawValue ?? "?"
-        let label = (root as AnyObject).accessibilityLabel?() ?? nil
-        let line = String(repeating: "  ", count: depth) + "\(role) | \(label ?? "") | \(identifier(root) ?? "")"
-        return ([line] + children(of: root).map { dump($0, depth: depth + 1) }).joined(separator: "\n")
-    }
-}
