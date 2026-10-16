@@ -23,9 +23,10 @@
 // 1. Rows. The CLI route opens one row for the run, and its command names the chosen items. Checked by
 //    the row assertions in each case, since a row is not a file of a root.
 // 2. Cancel. The cancel cases of ManagedToolsCLIGUIParityReplayTests cover sides C and C'.
-// 3. A database that cannot be updated in place ends in a failed row and an alert on the CLI route. The
-//    built CLI has no archive stand-in, so ManagedToolLeavesLiveConformanceTests covers it. Whether the
-//    app should show guidance in the row instead is A52's open UX item (declared difference 4).
+// 3. A database that cannot be updated in place
+//    ends in a failed row and an error line under the database, with no alert, on the CLI route. The built
+//    CLI has no archive stand-in, so ManagedToolLeavesLiveConformanceTests covers it. Whether the app should
+//    show guidance in the row instead is A52's open UX item (declared difference 4).
 
 import Foundation
 import Synchronization

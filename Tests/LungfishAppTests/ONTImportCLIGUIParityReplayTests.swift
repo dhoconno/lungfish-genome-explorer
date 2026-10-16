@@ -111,7 +111,7 @@ final class ONTImportCLIGUIParityReplayTests: XCTestCase {
 
     /// A chunk the import cannot read fails it. The sheet keeps the words of the failure (decision W3), which
     /// the command forwards in its `failed` line.
-    func testAFailedImportFailsTheRowWithTheCommandsWordsAndLeavesNoPartialBundle() async throws {
+    func testAFailedImportFailsTheRowAndLeavesNoPartialBundle() async throws {
         let root = scratch.appendingPathComponent("failure-C", isDirectory: true)
         try Self.writeFixture(root)
         let chunk = Self.source(in: root).appendingPathComponent("barcode01/chunk_1.fastq")
