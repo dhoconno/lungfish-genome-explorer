@@ -5,10 +5,18 @@
 import CryptoKit
 import Foundation
 @testable import LungfishApp
+import LungfishOperations
 
 /// The SHA-256 of every regular file under a folder, by path relative to the folder. Two digests of the
 /// same folder are equal when no file was added, removed or changed between them, which is how a test shows
 /// that a display and a reveal wrote nothing (UX 6).
+///
+/// The files of the project's universal search index are left out, by the test the sidebar's file watcher
+/// uses for them (`FileSystemWatcher.isUniversalSearchInternalPath`). Opening a project and every sidebar
+/// rescan schedule an index rebuild (`scheduleUniversalSearchRebuild`, 0.05 s and 0.75 s later) that writes
+/// `.universal-search.db` with its `-wal` and `-shm` files. Under load those files appear or change between two
+/// digests, and neither the display nor the reveal wrote them (Phase 2.11 tier 1, cause D3, pinned by
+/// `TreeDigestSearchIndexTests`). Every other file still counts.
 enum TreeDigest {
     static func of(_ folder: URL) throws -> [String: String] {
         let root = folder.resolvingSymlinksInPath().standardizedFileURL
@@ -17,6 +25,8 @@ enum TreeDigest {
         ) else { return [:] }
         var digests: [String: String] = [:]
         for case let url as URL in enumerator {
+            // By name first, so that an index file SQLite removes while the walk runs is never opened.
+            if FileSystemWatcher.isUniversalSearchInternalPath(url) { continue }
             guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
             let relative = String(url.standardizedFileURL.path.dropFirst(root.path.count))
             let hash = SHA256.hash(data: try Data(contentsOf: url))
