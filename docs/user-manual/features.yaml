@@ -311,7 +311,7 @@ features:
     outputs: [lungfishref]
     viewport_class: sequence
     sources:
-      - Sources/LungfishApp/App/ReferenceImportHelper.swift
+      - Sources/LungfishCLI/Commands/ImportCommand+FASTA.swift
       - Sources/LungfishApp/App/GenBankSynchronousParser.swift
       - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift

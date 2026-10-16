@@ -1746,7 +1746,7 @@ operations:
     gating: []
     sources:
       - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
-      - Sources/LungfishApp/App/ReferenceImportHelper.swift
+      - Sources/LungfishCLI/Commands/ImportCommand+FASTA.swift
       - docs/user-manual/reviews/fidelity-2026-09/cli-help/import.txt
     settings: []
     cli_only:
