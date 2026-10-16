@@ -8,7 +8,7 @@ import LungfishIO
 
 extension TaxTriageAnalysisRunTool {
     /// The words of the bar while the finalize builds the viewer index, as the app's TaxTriage row has them.
-    static let databaseStageMessage = "Building TaxTriage database\u{2026}"
+    package static let databaseStageMessage = "Building TaxTriage database\u{2026}"
 
     /// The finalize's share of the progress range for a result that gets a viewer index, the descriptor's
     /// (W3). The engine moves the bar to 0.9 and the viewer index takes it from there to the end.

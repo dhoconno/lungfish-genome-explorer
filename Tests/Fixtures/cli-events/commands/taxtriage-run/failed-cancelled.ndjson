@@ -1,0 +1,6 @@
+{"event":"start","message":"Starting TaxTriage.","progress":0,"schemaVersion":2}
+{"event":"output","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-20-00","role":"analysis-directory","schemaVersion":2}
+{"event":"progress","message":"Running S1.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Checking prerequisites...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Docker daemon unavailable. Launching Docker Desktop...","progress":0.009,"schemaVersion":2}
+{"error":"TaxTriage was cancelled.","event":"failed","schemaVersion":2}

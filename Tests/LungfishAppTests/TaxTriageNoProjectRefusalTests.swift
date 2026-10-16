@@ -61,7 +61,7 @@ final class TaxTriageNoProjectRefusalTests: XCTestCase {
             TaxTriageSerialBatchRunner(runPipeline: { _, _ in throw CancellationError() })
         }) {
             AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
-                delegate.runTaxTriage(config: config, viewerController: viewer, routeContext: nil)
+                delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: nil, route: .cli)
             }
         }
         let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
@@ -102,7 +102,7 @@ final class TaxTriageNoProjectRefusalTests: XCTestCase {
             AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
                 TaxTriageSerialBatchRunner(runPipeline: { _, _ in throw CancellationError() })
             }) {
-                delegate.runTaxTriage(config: config, viewerController: viewer, routeContext: context)
+                delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: context, route: .cli)
             }
             let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
             rowIDs.append(contentsOf: started.map(\.id))

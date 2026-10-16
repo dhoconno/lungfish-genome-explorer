@@ -349,7 +349,7 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
 
     /// The sample name of one input, as `taxtriage run` has always named it. `--sample` names the one
     /// input, and prefixes each input's stem when a folder holds several.
-    static func sampleID(for url: URL, explicitSampleID: String?, totalSampleCount: Int) -> String {
+    package static func sampleID(for url: URL, explicitSampleID: String?, totalSampleCount: Int) -> String {
         let base = stem(of: url)
         guard let explicitSampleID, !explicitSampleID.isEmpty else {
             return base

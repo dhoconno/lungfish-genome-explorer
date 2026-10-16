@@ -9,21 +9,43 @@ import LungfishWorkflow
 enum CLIClassifierTool: String, Sendable, Equatable, CaseIterable {
     case kraken2
     case esViritu
+    /// `taxtriage run --project`, behind the hidden key `TaxTriageLaunchRoute` (Phase 2.11 lane U30).
+    case taxTriage
 
     /// The detail today's row shows while the viewer database is built. The command's finalize
-    /// writes the same words as a progress line when it starts the build. Kraken2's come from the
-    /// command, so the command and this reader share one constant.
+    /// writes the same words as a progress line when it starts the build. Kraken2's and TaxTriage's
+    /// come from the command, so the command and this reader share one constant.
     var databaseBuildDetail: String {
         switch self {
         case .kraken2: return Kraken2AnalysisRunTool.batchIndexMessage
         case .esViritu: return "Building EsViritu database\u{2026}"
+        case .taxTriage: return TaxTriageAnalysisRunTool.databaseStageMessage
         }
     }
 
-    /// The info line today's row logs when the viewer database build starts.
+    /// The info line today's row logs when the viewer database build starts. The legacy TaxTriage
+    /// row logs one line for one sample and for several (`AppDelegate+TaxTriageCompletion.swift`).
     func databaseBuildLogLine(completedSamples: Int, isBatch: Bool) -> String {
+        if self == .taxTriage {
+            return "Building taxtriage.sqlite from TaxTriage outputs"
+        }
         let file = self == .kraken2 ? "kraken2.sqlite" : "esviritu.sqlite"
         return isBatch ? "Building \(file) from \(completedSamples) sample(s)" : "Building \(file) from single-sample result"
+    }
+
+    /// Where the bar stands while the viewer database is built, or nil to take the command's
+    /// fraction. The legacy TaxTriage row moves it to the middle of the database stage's share,
+    /// 0.95 (W3), and the bar never moves back (UX F6 and F13).
+    var databaseBuildBar: Double? {
+        guard self == .taxTriage else { return nil }
+        return 1 - NextflowWorkflowDescriptor.taxTriage.finalizeProgressShare / 2
+    }
+
+    /// Whether the command's warnings that today's Kraken2 and EsViritu rows never logged stay
+    /// warnings. The legacy TaxTriage row logs each paragraph of ignored task failures as a
+    /// warning, which makes its label Completed with Warnings (2.8 T8, D4).
+    var keepsCommandWarnings: Bool {
+        self == .taxTriage
     }
 }
 
@@ -82,6 +104,7 @@ struct CLIClassifierRowEvents: Sendable {
     private var bar = 0.0
     private var sawProgress = false
     private var finalizing = false
+    private var sawDatabaseBuild = false
     private var unitIndex: Int?
     private var unitCount: Int
     private var unitLabels: [Int: String] = [:]
@@ -138,6 +161,17 @@ struct CLIClassifierRowEvents: Sendable {
             unitLabels[0] = label
             return Effects()
         }
+        if message == tool.databaseBuildDetail, let stageBar = tool.databaseBuildBar {
+            // The finalize repeats the line at its end, and today's row shows and logs it once.
+            guard !sawDatabaseBuild else { return Effects() }
+            sawDatabaseBuild = true
+            finalizing = true
+            bar = max(bar, stageBar)
+            return Effects(bridged: [
+                .progress(fraction: bar, message: message),
+                .log(level: .info, message: tool.databaseBuildLogLine(completedSamples: 0, isBatch: isBatch)),
+            ], overlay: message)
+        }
         bar = max(bar, min(max(fraction, 0), 1))
         if message == tool.databaseBuildDetail {
             finalizing = true
@@ -176,10 +210,11 @@ struct CLIClassifierRowEvents: Sendable {
                 databaseError = error
                 return Self.logging(.warning, message)
             }
+            let level: CLIEventLogLevel = tool.keepsCommandWarnings ? .warning : .info
             if let degraded = unitLine(message, separator: ": ") {
-                return Self.logging(.info, "\(prefix(degraded.index)): \(degraded.text)")
+                return Self.logging(level, "\(prefix(degraded.index)): \(degraded.text)")
             }
-            return Self.logging(.info, prefixed(message))
+            return Self.logging(level, prefixed(message))
         case .error:
             return Self.logging(.error, prefixed(message))
         case .info, .debug:

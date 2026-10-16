@@ -158,6 +158,9 @@ struct StandInClassifierTool: AnalysisRunTool {
                     EsVirituBatchResultManifest(header: header, summaryTSV: "esviritu-batch-summary.tsv", samples: samples),
                     to: context.rootDirectory
                 )
+            case .taxTriage:
+                // TaxTriage's route tests play the transcripts of `taxtriage-run` (TaxTriageCLIRouteRowTests).
+                break
             }
             context.progress(tool.databaseBuildDetail)
             context.log(.info, "Built database with \(completed.count) rows")
@@ -257,6 +260,9 @@ enum ClassifierRouteFixtures {
                 toolVersion: "1.3.3",
                 provenanceId: nil
             ).save(to: directory)
+        case .taxTriage:
+            // TaxTriage's route tests place a `TaxTriageResult` themselves (TaxTriageCLIRouteRowTests).
+            break
         }
     }
 

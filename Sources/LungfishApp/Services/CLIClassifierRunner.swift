@@ -34,6 +34,10 @@ struct CLIClassifierCompletion: Sendable {
     let taxonomyResult: ClassificationResult?
     /// Why the result could not be read back, for one warning line, or nil.
     let readBackProblem: String?
+    /// Today's warning lines that the result on disk gives and no command line carries, such as the
+    /// legacy TaxTriage row's line for its failed samples. They make the label, so the row completes
+    /// plainly with its detail (2.8 T9, D4).
+    var warnings: [String] = []
 }
 
 /// Why a classifier run through `lungfish-cli` failed, in today's words.
@@ -148,6 +152,16 @@ struct CLIClassifierRunner {
         switch (request.tool, request.isBatch) {
         case (.kraken2, false):
             return CLIClassifierFailure(message: message, errorMessage: nil, errorDetail: nil)
+        case (.taxTriage, false):
+            // The command's detail of a failed launch is Nextflow's standard error, kept for the row.
+            return CLIClassifierFailure(message: message, errorMessage: nil, errorDetail: detail)
+        case (.taxTriage, true) where events.everyUnitFailed:
+            // Today's words of a TaxTriage batch with no sample left (TaxTriageSerialBatchRunner).
+            let first = events.failedUnitReasons.first.map {
+                TaxTriageSampleFailure(sampleID: "", outputDirectory: events.analysisFolder ?? URL(fileURLWithPath: "/"), errorDescription: $0)
+            }
+            let words = TaxTriageSerialBatchError.allSamplesFailed(first.map { [$0] } ?? []).errorDescription ?? message
+            return CLIClassifierFailure(message: words, errorMessage: nil, errorDetail: nil)
         case (.esViritu, false):
             return CLIClassifierFailure(
                 message: message,
@@ -191,6 +205,8 @@ struct CLIClassifierRunner {
                 return try esVirituCompletion(folder: folder)
             case (.esViritu, true):
                 return try esVirituBatchCompletion(folder: folder)
+            case (.taxTriage, _):
+                return try taxTriageCompletion(folder: folder)
             }
         } catch {
             return CLIClassifierCompletion(
@@ -257,6 +273,43 @@ struct CLIClassifierRunner {
             taxonomyResult: nil,
             readBackProblem: nil
         )
+    }
+
+    /// A TaxTriage result, the one sample's that a `--project` run writes into its batch folder or
+    /// the aggregate result of a batch root, read as the legacy row's end reads it
+    /// (`AppDelegate.finishTaxTriageOperation`). A run with ignored task failures or failed samples
+    /// completes with a detail that names them and its report count, a run with neither with the
+    /// result's summary. The failed samples get today's one warning line. The paragraph of ignored
+    /// task failures is a line of the command, which the row keeps as a warning.
+    static func taxTriageCompletion(folder: URL) throws -> CLIClassifierCompletion {
+        let result = try TaxTriageResult.load(from: folder)
+        var summaries: [String] = []
+        var warnings: [String] = []
+        if let headline = result.erroredProcessesHeadline {
+            summaries.append(headline)
+        }
+        if result.hasSampleFailures {
+            summaries.append(counted(result.sampleFailures.count, "failed sample"))
+            let preview = result.sampleFailures.prefix(5).map { "\($0.sampleID): \($0.errorDescription)" }.joined(separator: "; ")
+            let more = result.sampleFailures.count > 5 ? "; +\(result.sampleFailures.count - 5) more" : ""
+            warnings.append("\(counted(result.sampleFailures.count, "TaxTriage sample")) failed (\(preview)\(more))")
+        }
+        let detail = result.completedWithErrors && !summaries.isEmpty
+            ? "\(summaries.joined(separator: "; ")) (\(counted(result.reportFiles.count, "report")))"
+            : result.summary
+        return CLIClassifierCompletion(
+            folder: folder,
+            detail: detail,
+            completesWithWarning: false,
+            taxonomyResult: nil,
+            readBackProblem: nil,
+            warnings: warnings
+        )
+    }
+
+    /// `1 report` or `2 reports`, a count and its noun in the number it takes, as the legacy row words it.
+    private static func counted(_ count: Int, _ noun: String) -> String {
+        "\(count) \(noun)\(count == 1 ? "" : "s")"
     }
 
     private static func esVirituBatchCompletion(folder: URL) throws -> CLIClassifierCompletion {

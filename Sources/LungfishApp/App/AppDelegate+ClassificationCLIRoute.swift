@@ -48,6 +48,8 @@ struct ClassifierCLIRouteLaunch: Sendable, Equatable {
         case (.kraken2, true): return AppDelegate.classificationBatchFailedAlertTitle
         case (.esViritu, false): return AppDelegate.esVirituFailedAlertTitle
         case (.esViritu, true): return AppDelegate.esVirituBatchFailedAlertTitle
+        // The legacy TaxTriage alert reads the same for one sample and for several (UX F5).
+        case (.taxTriage, _): return "TaxTriage Failed"
         }
     }
 
@@ -58,6 +60,7 @@ struct ClassifierCLIRouteLaunch: Sendable, Equatable {
         case (.kraken2, true): return "Classification batch"
         case (.esViritu, false): return "EsViritu detection"
         case (.esViritu, true): return "EsViritu batch"
+        case (.taxTriage, _): return "TaxTriage"
         }
     }
 
@@ -258,7 +261,9 @@ extension AppDelegate {
         return result
     }
 
-    private func runClassifierThroughCLI(
+    /// Runs `launch` through `lungfish-cli` with today's row, progress, labels and end of run, once
+    /// the tool's launch has refused what it must refuse. The TaxTriage launch calls it too.
+    func runClassifierThroughCLI(
         _ launch: ClassifierCLIRouteLaunch,
         viewerController: ViewerViewController,
         routeContext: OperationRouteContext?,
@@ -301,7 +306,14 @@ extension AppDelegate {
                     )
                 }
             }
-            OperationCenter.shared.setCancelCallback(for: operationID) { runner.cancel() }
+            OperationCenter.shared.setCancelCallback(for: operationID) {
+                if launch.tool == .taxTriage {
+                    // The overlay reads the row's `Cancelling...` through the grace of the cancel, as
+                    // the legacy TaxTriage route's does (UX 4).
+                    Self.showTaxTriageCancelling(for: operationID, on: viewerController)
+                }
+                runner.cancel()
+            }
         }
     }
 
@@ -326,6 +338,9 @@ extension AppDelegate {
         }
         if let problem = completion.readBackProblem {
             OperationCenter.shared.log(id: operationID, level: .warning, message: problem)
+        }
+        for warning in completion.warnings {
+            OperationCenter.shared.log(id: operationID, level: .warning, message: warning)
         }
         let completed = completion.completesWithWarning
             ? OperationCenter.shared.completeWithWarning(id: operationID, detail: completion.detail)
@@ -354,8 +369,10 @@ extension AppDelegate {
                 showKraken2OperationDetails(ofResultAt: firstSampleFolder(of: completion.folder), in: split?.inspectorController)
             }
             sidebar?.requestReloadFromFilesystem()
-        case (.esViritu, _):
-            // Nothing opens. The user picks the new result in the sidebar.
+        case (.esViritu, _), (.taxTriage, _):
+            // Nothing opens. The user picks the new result in the sidebar, as after the legacy
+            // TaxTriage route, which wrote its sidecars and run history here and the CLI route
+            // does not (UX F4, R1).
             sidebar?.requestReloadFromFilesystem()
         }
     }

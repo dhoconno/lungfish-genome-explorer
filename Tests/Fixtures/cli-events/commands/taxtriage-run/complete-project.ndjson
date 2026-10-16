@@ -1,0 +1,14 @@
+{"event":"start","message":"Starting TaxTriage.","progress":0,"schemaVersion":2}
+{"event":"output","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-00-00","role":"analysis-directory","schemaVersion":2}
+{"event":"progress","message":"Running S1.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Checking prerequisites...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Generating samplesheet...","progress":0.045,"schemaVersion":2}
+{"event":"progress","message":"Starting TaxTriage pipeline...","progress":0.09,"schemaVersion":2}
+{"event":"progress","message":"Running KRAKEN2_KRAKEN2 (S1)","progress":0.09,"schemaVersion":2}
+{"event":"progress","message":"Running KRAKEN2_KRAKEN2 (S1)","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Collecting output files...","progress":0.81,"schemaVersion":2}
+{"event":"progress","message":"TaxTriage pipeline complete","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Building TaxTriage database…","progress":0.9,"schemaVersion":2}
+{"event":"log","level":"info","message":"Built taxtriage.sqlite with 2 rows.","schemaVersion":2}
+{"event":"progress","message":"Building TaxTriage database…","progress":1,"schemaVersion":2}
+{"artifacts":[{"kind":"provenance","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-00-00\/.lungfish-provenance.json","role":"provenance"}],"event":"complete","message":"TaxTriage finished.","output":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-00-00","outputs":["\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-00-00"],"progress":1,"schemaVersion":2}

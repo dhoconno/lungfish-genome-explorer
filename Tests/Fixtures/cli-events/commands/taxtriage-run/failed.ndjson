@@ -1,0 +1,8 @@
+{"event":"start","message":"Starting TaxTriage.","progress":0,"schemaVersion":2}
+{"event":"output","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-15-00","role":"analysis-directory","schemaVersion":2}
+{"event":"progress","message":"Running S1.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Checking prerequisites...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Generating samplesheet...","progress":0.045,"schemaVersion":2}
+{"event":"progress","message":"Starting TaxTriage pipeline...","progress":0.09,"schemaVersion":2}
+{"event":"progress","message":"Running KRAKEN2_KRAKEN2 (S1)","progress":0.09,"schemaVersion":2}
+{"detail":"ERROR ~ Error executing process > 'KRAKEN2_KRAKEN2 (S1)'","error":"TaxTriage pipeline failed with exit code 1: ERROR ~ Error executing process > 'KRAKEN2_KRAKEN2 (S1)'","event":"failed","schemaVersion":2}
