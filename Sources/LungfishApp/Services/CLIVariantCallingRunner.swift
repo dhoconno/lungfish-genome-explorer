@@ -137,8 +137,12 @@ struct CLIVariantCallingRunner {
         onEvent: @escaping @Sendable (CLIEvent) -> Void = { _ in }
     ) async throws -> CLIVariantCallingResult {
         do {
+            // The command converts SIGTERM into a cancel (Phase 2.11 lane A50), so it gets the grace the
+            // other CLI routes give, and its record is written before the transport ends the tree.
             let result = try await transport.run(
                 arguments: arguments,
+                terminationGracePeriod: CLIProcessLauncher.operationGrace,
+                drainGracePeriod: CLIProcessLauncher.operationDrain,
                 isCancelled: { [cancellationRequested] in cancellationRequested.value },
                 onEvent: onEvent
             )

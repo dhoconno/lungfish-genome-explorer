@@ -33,7 +33,15 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
         let runClock = ProvenanceRunClock(startedAt: dateProvider())
         var executedCommands: [GATKExecutedCommand] = []
         for command in request.commands {
-            let commandResult = try await runner.run(command)
+            let commandResult: GATKCommandExecutionResult
+            do {
+                commandResult = try await runner.run(command)
+            } catch {
+                // A cancel, a timeout or a launch failure leaves GATK's partial output behind. The run
+                // takes only the files it made, so an earlier run's outputs stay.
+                removeNewOutputs(for: request, preexistingOutputPaths: preexistingOutputPaths)
+                throw error
+            }
             executedCommands.append(GATKExecutedCommand(command: command, result: commandResult))
             guard commandResult.isSuccess else {
                 let completedAt = runClock.now

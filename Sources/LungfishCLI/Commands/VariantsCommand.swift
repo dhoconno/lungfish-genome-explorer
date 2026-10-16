@@ -804,7 +804,7 @@ extension VariantsCommand {
         @Option(name: .customLong("alignment-track"), help: "Bundle alignment track identifier, or its display name when only one track has that name")
         var alignmentTrackID: String
 
-        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka, bcftools, clair3")
+        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka, bcftools, clair3, gatk (GATK HaplotypeCaller, attached under variants/gatk)")
         var caller: String
 
         @Option(name: [.customLong("name"), .customLong("output-track-name")], help: "Display name for the created variant track")
@@ -842,7 +842,7 @@ extension VariantsCommand {
 
         @Option(
             name: .customLong("ploidy"),
-            help: "bcftools genotype ploidy: 1 (haploid, for viral and bacterial references) or 2 (diploid, for human and other eukaryotic references). Defaults to a value derived from the bundle's organism metadata, falling back to 1."
+            help: "bcftools genotype ploidy: 1 (haploid, for viral and bacterial references) or 2 (diploid, for human and other eukaryotic references). Defaults to a value derived from the bundle's organism metadata, falling back to 1. For --caller gatk it is the GATK sample ploidy, a positive number that defaults to 2."
         )
         var ploidy: Int?
 
@@ -853,7 +853,7 @@ extension VariantsCommand {
         )
         var advancedOptions: String = ""
 
-        @OptionGroup var globalOptions: GlobalOptions
+        @OptionGroup var callOptions: VariantsCallOptions
 
         static func parse(_ arguments: [String]) throws -> Self {
             let trimmed = arguments.first == configuration.commandName
@@ -877,7 +877,7 @@ extension VariantsCommand {
                 }
             }
 
-            _ = try await execute(runtime: .live(), emitEvent: emitter)
+            try await runCall(emitEvent: emitter)
         }
 
         /// Resolves `--alignment-track` against the bundle manifest.
@@ -936,7 +936,7 @@ extension VariantsCommand {
             return try await execute(runtime: runtime) { events.emit(Self.cliEvent(from: $0), artifacts: Self.artifacts(from: $0)) }
         }
 
-        private func execute(
+        func execute(
             runtime: VariantsCommand.Runtime,
             emitEvent: @escaping (VariantsCommand.VariantCallingEvent) -> Void
         ) async throws -> BundleVariantTrackAttachmentResult {

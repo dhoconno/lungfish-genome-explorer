@@ -2,12 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.11 lane A50 M1. `CLIVariantCallingRunner` passes no `operationGrace`, so the transport gives the
-// CLI no time between SIGTERM and SIGKILL and ends its whole process tree at once. The first test runs
-// the built CLI through the runner against stand-in tools (the stand-in samtools holds the preflight open)
-// and pins what a cancel leaves: nothing running, no record, the bundle as it was. The second runs a
-// stand-in CLI that ignores SIGTERM and pins that the cancel does not wait for it. M2 moves the runner to
-// the 6 second grace and flips the second test to the wait.
+// Phase 2.11 lane A50. M1 pinned the base, where `CLIVariantCallingRunner` passed no `operationGrace`, so the
+// transport gave the CLI no time between SIGTERM and SIGKILL, ended its whole tree at once and left no
+// record (commit e9963271d). M2 (decision S7) moves the runner to `operationGrace` and `operationDrain`. The
+// first test runs the built CLI through the runner against stand-in tools (the stand-in samtools holds the
+// preflight open) and asserts that the CLI records the cancel inside the grace and nothing keeps running.
+// The second runs a stand-in CLI that ignores SIGTERM and asserts that the cancel waits the grace for it.
 
 import Darwin
 import Foundation
@@ -82,18 +82,16 @@ final class CLIVariantCallingRunnerCancelPinTests: XCTestCase {
     }
 
     private func regularFiles(in bundle: URL) throws -> [String: Data] {
-        let resolved = bundle.resolvingSymlinksInPath()
-        let base = resolved.path + "/"
         var files: [String: Data] = [:]
-        let enumerator = FileManager.default.enumerator(at: resolved, includingPropertiesForKeys: [.isRegularFileKey])
-        while let url = enumerator?.nextObject() as? URL {
+        for subpath in try FileManager.default.subpathsOfDirectory(atPath: bundle.path) {
+            let url = bundle.appendingPathComponent(subpath)
             guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
-            files[String(url.path.dropFirst(base.count))] = try Data(contentsOf: url)
+            files[subpath] = try Data(contentsOf: url)
         }
         return files
     }
 
-    func testCancelThroughTheRunnerEndsTheCLIAndItsToolAtOnceAndLeavesNoRecord() async throws {
+    func testCancelThroughTheRunnerLetsTheCLIRecordTheCancelAndStopsItsTool() async throws {
         guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
             throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
         }
@@ -127,16 +125,15 @@ final class CLIVariantCallingRunnerCancelPinTests: XCTestCase {
         }
         let elapsed = ContinuousClock.now - cancelledAt
 
-        XCTAssertLessThan(elapsed, .seconds(4), "with no grace the transport ends the CLI's tree at once")
+        XCTAssertLessThan(elapsed, .seconds(6), "the CLI cancels inside the grace the runner gives it")
         await CLISIGTERMHarness.assertNoProcessLeft([samtoolsPID])
-        XCTAssertFalse(
-            FileManager.default.fileExists(atPath: bundle.appendingPathComponent("provenance/cancelled").path),
-            "the CLI never got to write a cancelled record"
-        )
-        XCTAssertEqual(try regularFiles(in: bundle), before, "the bundle is as it was")
+        let records = (try? FileManager.default.contentsOfDirectory(atPath: bundle.appendingPathComponent("provenance/cancelled").path)) ?? []
+        XCTAssertEqual(records.count, 1, "the CLI wrote its cancelled record before the transport ended it: \(records)")
+        let after = try regularFiles(in: bundle).filter { !$0.key.hasPrefix("provenance/cancelled/") }
+        XCTAssertEqual(after, before, "every other file of the bundle is as it was")
     }
 
-    func testCancelDoesNotWaitForACLIThatIgnoresSIGTERM() async throws {
+    func testCancelWaitsTheGraceForACLIThatIgnoresSIGTERM() async throws {
         let pidFile = root.appendingPathComponent("stand-in-cli.pid")
         let standInCLI = root.appendingPathComponent("lungfish-cli")
         try writeExecutable(
@@ -159,10 +156,9 @@ final class CLIVariantCallingRunnerCancelPinTests: XCTestCase {
             // expected
         }
 
-        XCTAssertLessThan(
-            ContinuousClock.now - cancelledAt, .seconds(4),
-            "the runner passes no operationGrace, so SIGKILL follows the SIGTERM at once"
-        )
+        let waited = ContinuousClock.now - cancelledAt
+        XCTAssertGreaterThanOrEqual(waited, .seconds(5), "the runner passes operationGrace, so SIGKILL waits for the command to answer")
+        XCTAssertLessThan(waited, .seconds(15))
         await CLISIGTERMHarness.assertNoProcessLeft([pid])
     }
 }
