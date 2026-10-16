@@ -255,6 +255,9 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         )
     }
 
+    /// The name of the annotation track the service makes, which is the request's name trimmed, or
+    /// "Mapped Reads" when it is blank. The Inspector names the track it opens by this rule, and
+    /// `bam annotate` refuses a blank name before the service runs.
     package static func normalizedOutputTrackName(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Mapped Reads" : trimmed
