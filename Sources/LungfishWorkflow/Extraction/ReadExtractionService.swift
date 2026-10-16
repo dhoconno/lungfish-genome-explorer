@@ -663,10 +663,7 @@ public actor ReadExtractionService {
 
                 do {
                     // Get accession summaries for this taxon so we can fetch reads per accession
-                    let accSummaries = try database.fetchAccessionSummaries(
-                        sample: sampleId,
-                        taxId: taxId
-                    )
+                    let accSummaries = try database.fetchAccessionSummaries(sample: sampleId, taxId: taxId)
 
                     for summary in accSummaries {
                         if allReads.count >= maxReads { break }
@@ -688,8 +685,11 @@ public actor ReadExtractionService {
                             }
                         }
                     }
-                } catch {
-                    logger.warning("Failed to query tax ID \(taxId): \(error.localizedDescription, privacy: .public)")
+                } catch NaoMgsDatabaseError.queryFailed(let reason) {
+                    // A failed query is an error and never an empty result (BIO 4). The words carry no colon (UX 7).
+                    let message = reason.replacingOccurrences(of: ":", with: "")
+                    logger.error("Failed to query tax ID \(taxId): \(reason, privacy: .public)")
+                    throw ExtractionError.databaseQueryFailed("Tax ID \(taxId) could not be read (\(message))")
                 }
             }
         }

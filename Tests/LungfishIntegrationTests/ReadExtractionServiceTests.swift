@@ -466,6 +466,34 @@ final class ReadExtractionServiceTests: XCTestCase {
         XCTAssertGreaterThan(result.readCount, 0)
     }
 
+    /// A taxon query that fails ends in an error that names the taxon, never in "no reads" (BIO 4).
+    /// The database opens, since the open does not require `coverage_fraction`, and then the query fails.
+    func testATaxonQueryThatFailsIsReportedAndNotEmpty() async throws {
+        let dbURL = try createTestNaoMgsDatabase(dropping: "coverage_fraction")
+        let config = DatabaseExtractionConfig(
+            databaseURL: dbURL,
+            sampleId: "test_sample",
+            taxIds: [11137],
+            outputDirectory: tempDir,
+            outputBaseName: "broken"
+        )
+
+        do {
+            _ = try await service.extractFromDatabase(config: config)
+            XCTFail("A taxon query that fails must not read as a result")
+        } catch let error as ExtractionError {
+            guard case .databaseQueryFailed(let reason) = error else {
+                return XCTFail("Expected databaseQueryFailed, got \(error)")
+            }
+            XCTAssertEqual(reason, "Tax ID 11137 could not be read (no such column coverage_fraction)")
+            XCTAssertFalse(reason.contains(":"), "UX 7 allows no colon inside the sentence")
+            XCTAssertEqual(
+                error.errorDescription,
+                "Database query failed: Tax ID 11137 could not be read (no such column coverage_fraction)"
+            )
+        }
+    }
+
     /// Verifies that BAM extraction also sanitizes filenames.
     func testExtractByBAMRegionSanitizesFilename() async throws {
         let bamURL = TestFixtures.sarscov2.sortedBam
@@ -495,7 +523,8 @@ final class ReadExtractionServiceTests: XCTestCase {
     ///
     /// `accession_summaries` carries `reference_length_source` as `createSchema` writes it today. With `legacy`
     /// it has the shape of a database imported before 2026-09-23, which only `openReadWrite` brings up to date.
-    private func createTestNaoMgsDatabase(legacy: Bool = false) throws -> URL {
+    /// `dropping` removes one column of `accession_summaries` after the rows are in, so a query that needs it fails.
+    private func createTestNaoMgsDatabase(legacy: Bool = false, dropping column: String? = nil) throws -> URL {
         let dbURL = tempDir.appendingPathComponent("test_hits.sqlite")
 
         var db: OpaquePointer?
@@ -684,6 +713,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         INSERT INTO taxon_read_names (sample, tax_id, seq_id)
         SELECT DISTINCT sample, tax_id, seq_id
         FROM virus_hits;
+        \(column.map { "ALTER TABLE accession_summaries DROP COLUMN \($0);" } ?? "")
         """
         guard sqlite3_exec(db, derivedSQL, nil, nil, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db)!)
