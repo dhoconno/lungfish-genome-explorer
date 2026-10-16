@@ -107,7 +107,7 @@ public struct ReferenceSourcePreparer: Sendable {
         let fastaInput: URL
         if ReferenceBundleImportService.compressionExtensions.contains(sourceURL.pathExtension.lowercased()) {
             let decompressed = tempDirectory.appendingPathComponent("input.fa")
-            try decompressInput(sourceURL: sourceURL, outputURL: decompressed)
+            try await decompressInput(sourceURL: sourceURL, outputURL: decompressed)
             fastaInput = decompressed
         } else {
             fastaInput = sourceURL
@@ -134,7 +134,7 @@ public struct ReferenceSourcePreparer: Sendable {
         let genBankInput: URL
         if ReferenceBundleImportService.compressionExtensions.contains(sourceURL.pathExtension.lowercased()) {
             let decompressed = tempDirectory.appendingPathComponent("input.gb")
-            try decompressInput(sourceURL: sourceURL, outputURL: decompressed)
+            try await decompressInput(sourceURL: sourceURL, outputURL: decompressed)
             genBankInput = decompressed
         } else {
             genBankInput = sourceURL
@@ -204,11 +204,10 @@ public struct ReferenceSourcePreparer: Sendable {
         )
     }
 
-    private func decompressInput(sourceURL: URL, outputURL: URL) throws {
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-
+    /// Decompresses `sourceURL` into `outputURL` on `ToolProcess`, which ends the child and waits for it
+    /// when the calling task is cancelled, so a cancel is acted on while a large file decompresses
+    /// (A48 M3 review, Fix 1). The child writes straight into `outputURL`.
+    private func decompressInput(sourceURL: URL, outputURL: URL) async throws {
         let wrapper = sourceURL.pathExtension.lowercased()
         let executable: String
         let arguments: [String]
@@ -229,25 +228,31 @@ public struct ReferenceSourcePreparer: Sendable {
             throw ReferenceBundleImportError.decompressionFailed("Unsupported wrapper '.\(wrapper)'")
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = outputHandle
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
+        // The child gets the caller's environment, as the process it replaces did, so `env` finds
+        // `zstd` on the caller's PATH.
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: executable),
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .file(outputURL),
+            label: "decompress .\(wrapper)"
+        )
+        let result: ToolProcessResult
         do {
-            try process.run()
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
         } catch {
             throw ReferenceBundleImportError.decompressionFailed(error.localizedDescription)
         }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let stderr = String(
-                data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A child the cancel ended is the cancel, and never a failed decompression.
+        try Task.checkCancellation()
+        guard result.isSuccess else {
+            let stderr = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
             throw ReferenceBundleImportError.decompressionFailed(
-                stderr?.isEmpty == false ? stderr! : "decompressor exited with code \(process.terminationStatus)"
+                !stderr.isEmpty
+                    ? stderr
+                    : (result.incompleteOutputReason ?? "decompressor exited with code \(result.status)")
             )
         }
     }
