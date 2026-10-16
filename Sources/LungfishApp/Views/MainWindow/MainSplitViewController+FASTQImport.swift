@@ -133,7 +133,8 @@ extension MainSplitViewController {
                 sourceURL: url,
                 presentingWindow: view.window
             ) else {
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Annotation import cancelled.", cancelled: true)
+                let cancelled = ReferenceBundleAnnotationImportConfigurationPresenter.nilChoiceWasACancel(projectURL: projectURL)
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: cancelled ? "Annotation import cancelled." : "No reference bundle in this project.", cancelled: cancelled)
                 return
             }
             let bundleURL = importConfiguration.bundleURL

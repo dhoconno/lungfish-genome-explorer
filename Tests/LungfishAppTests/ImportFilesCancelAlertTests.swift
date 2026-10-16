@@ -172,6 +172,20 @@ final class ImportFilesCancelAlertTests: XCTestCase {
         ), "the cancel is named nowhere")
     }
 
+    /// A GFF into a project with no reference bundle gets no settings sheet, so the file is refused
+    /// and not cancelled, and the request still ends with the alert (Phase 2.11 review of lane U62, Fix 1).
+    func testAGFFIntoAProjectWithNoReferenceBundleStillEndsWithImportCompletedWithErrors() async throws {
+        let gff = try makeAnnotationFile("genes.gff3")
+        let recorder = await importFiles([gff])
+
+        XCTAssertEqual(recorder.presentations.count, 1)
+        XCTAssertEqual(recorder.presentations.first?.outcome.alert, ImportFilesOutcome.Alert(
+            title: "Import Completed with Errors",
+            message: "0 succeeded, 1 failed."
+        ), "a refusal is not a cancel")
+        XCTAssertNil(controller.window?.attachedSheet, "no settings sheet appears without a reference bundle")
+    }
+
     // MARK: - The outcome and the notice
 
     /// The tracker files a cancelled file as a failed one, and the outcome takes it back out.

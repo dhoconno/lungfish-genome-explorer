@@ -4,6 +4,7 @@
 
 import AppKit
 import Foundation
+import LungfishWorkflow
 
 /// How a File > Import Files... request ended, once every file it tracks has ended (Phase 2.11 lane U62).
 ///
@@ -101,5 +102,16 @@ extension AppDelegate {
             message: "Open or create a project before importing \(thing).",
             on: window
         )
+    }
+}
+
+extension ReferenceBundleAnnotationImportConfigurationPresenter {
+    /// Whether a nil choice from the settings sheet was the user's Cancel.
+    ///
+    /// The presenter shows no sheet and returns nil when the project holds no reference bundle or when
+    /// it cannot list them. Those are refusals, so File > Import Files... must still count the file as
+    /// failed and say so (Phase 2.11 review of lane U62).
+    static func nilChoiceWasACancel(projectURL: URL) -> Bool {
+        (try? ReferenceBundleAnnotationImportService.discoverReferenceBundles(in: projectURL))?.isEmpty == false
     }
 }
