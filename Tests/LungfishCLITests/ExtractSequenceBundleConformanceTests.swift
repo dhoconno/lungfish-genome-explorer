@@ -185,6 +185,38 @@ final class ExtractSequenceBundleConformanceTests: XCTestCase {
         }
     }
 
+    /// Review A48-M3b Fix 2. An output that holds the source bundle would replace the input with its own
+    /// region just as the source itself would, so the leaf refuses the third arm of the guard too.
+    func testAnOutputThatHoldsTheSourceIsRefusedAndTheSourceStaysWhole() async throws {
+        try await requireTools()
+        let holder = root.appendingPathComponent("Holder.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: holder, withIntermediateDirectories: true)
+        let nested = try await Self.makeSourceBundle(in: holder)
+        let manifest = try Data(contentsOf: nested.appendingPathComponent("manifest.json"))
+        let before = try listing()
+        let refusal = try await refusal([nested.path, "chr1:11-40", "--bundle", "--no-samples", "--output", holder.path])
+        XCTAssertEqual(refusal.exitCode, 3)
+        XCTAssertEqual(refusal.event, "failed")
+        XCTAssertTrue(refusal.error.contains("never replaces its input"), refusal.error)
+        XCTAssertEqual(try Data(contentsOf: nested.appendingPathComponent("manifest.json")), manifest)
+        XCTAssertEqual(try listing(), before)
+    }
+
+    /// Review A48-M3b Fix 2. On the default macOS volume `SOURCE REF.lungfishref` is the same folder as
+    /// `Source Ref.lungfishref`, so the guard has to compare the case the folder is stored in. The test
+    /// skips on a volume that tells the two names apart.
+    func testAnOutputThatDiffersFromTheSourceOnlyInCaseIsRefused() async throws {
+        try await requireTools()
+        let source = try await Self.makeSourceBundle(in: root)
+        let variant = source.deletingLastPathComponent().appendingPathComponent("SOURCE REF.lungfishref", isDirectory: true)
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: variant.path), "needs a case-insensitive volume")
+        let before = try listing()
+        let refusal = try await refusal([source.path, "chr1:11-40", "--bundle", "--no-samples", "--output", variant.path])
+        XCTAssertEqual(refusal.exitCode, 3)
+        XCTAssertTrue(refusal.error.contains("never replaces its input"), refusal.error)
+        XCTAssertEqual(try listing(), before)
+    }
+
     /// Runs the leaf on `arguments` with `--format json --quiet` and returns the exit code it threw and
     /// the event and error of its last standard output line.
     private func refusal(_ arguments: [String]) async throws -> (exitCode: Int32?, event: String?, error: String) {
