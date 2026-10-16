@@ -73,24 +73,6 @@ private struct RecommendedDatabaseSelection: Equatable {
     }
 }
 
-private final class PluginPackInstallProgressLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var events: [PluginPackInstallProgress] = []
-
-    func append(_ event: PluginPackInstallProgress) {
-        lock.lock()
-        events.append(event)
-        lock.unlock()
-    }
-
-    func snapshot() -> [PluginPackInstallProgress] {
-        lock.lock()
-        let copy = events
-        lock.unlock()
-        return copy
-    }
-}
-
 /// View model for the Plugin Manager window.
 ///
 /// Bridges between the ``CondaManager`` actor and the SwiftUI view layer.
@@ -550,33 +532,6 @@ final class PluginManagerViewModel {
                 operationCenter.log(id: operationID, level: .info, message: line)
             }
             launch(operationID)
-        }
-    }
-
-    private func updatePluginPackOperationProgress(
-        operationID: UUID,
-        event: PluginPackInstallProgress
-    ) {
-        guard operationCenter.items.first(where: { $0.id == operationID })?.state == .running else {
-            return
-        }
-        _ = operationCenter.update(
-            id: operationID,
-            progress: event.overallFraction,
-            detail: event.message
-        )
-    }
-
-    private func recordPluginPackProgressEvents(
-        _ events: [PluginPackInstallProgress],
-        operationID: UUID
-    ) {
-        for event in events {
-            _ = operationCenter.updateWithLog(
-                id: operationID,
-                progress: event.overallFraction,
-                detail: event.message
-            )
         }
     }
 
