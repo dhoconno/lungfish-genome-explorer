@@ -9,6 +9,7 @@
 // keep the termination of the whole tree. The live form is `TaxTriageParityLiveConformanceTests`'s X6 cancel.
 
 import XCTest
+import LungfishWorkflow
 @testable import LungfishApp
 
 final class TaxTriageCLICancelSignalTests: XCTestCase {
@@ -20,6 +21,7 @@ final class TaxTriageCLICancelSignalTests: XCTestCase {
 
     /// The grace the command gets covers Nextflow's own grace and the container cleanup's bound.
     func testTheGraceCoversTheEngineStopAndTheContainerCleanup() {
-        XCTAssertGreaterThan(CLIClassifierRunner.terminationGracePeriod, .seconds(4) + .milliseconds(1500))
+        let engineStopAndCleanup = NextflowEngineProcess.terminationGracePeriod + NextflowEngineProcess.containerCleanupBound
+        XCTAssertGreaterThan(CLIClassifierRunner.terminationGracePeriod, engineStopAndCleanup, "the command's cancel must end inside the grace the app gives it")
     }
 }
