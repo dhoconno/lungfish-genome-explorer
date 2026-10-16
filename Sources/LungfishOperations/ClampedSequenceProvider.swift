@@ -61,7 +61,7 @@ package struct ClampedSequenceProvider {
 
     /// The bases of `start..<end` that lie inside the sequence, with the coordinate of the first one.
     /// Returns nil when no base of the range exists.
-    func segment(chromosome: String, start: Int, end: Int) -> TranslationEngine.SegmentRead? {
+    package func segment(chromosome: String, start: Int, end: Int) -> TranslationEngine.SegmentRead? {
         guard let extent = extent(chromosome) else {
             // The length is not known, as for a bundle with no genome or a name it does not map. Ask as before.
             return fetch(chromosome, start, end).map { TranslationEngine.SegmentRead(start: start, sequence: $0) }
