@@ -1058,8 +1058,4 @@ extension AppDelegate {
     @objc func showImportCenterClassification(_ sender: Any?) {
         ImportCenterWindowController.show(tab: .classificationResults)
     }
-
-    @objc func classifyReads(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .classification)
-    }
 }
