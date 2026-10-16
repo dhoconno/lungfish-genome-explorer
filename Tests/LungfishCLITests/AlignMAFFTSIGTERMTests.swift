@@ -11,6 +11,7 @@
 import Darwin
 import Foundation
 import LungfishTestSupport
+import LungfishWorkflow
 import XCTest
 
 final class AlignMAFFTSIGTERMTests: XCTestCase {
@@ -84,24 +85,30 @@ final class AlignMAFFTSIGTERMTests: XCTestCase {
         return Started(cli: cli, project: project, output: output, mafftPIDFile: mafftPIDFile)
     }
 
-    /// Pin at the base (lane S61 M1). A SIGTERM ends the command by signal 15 and not by exit 125,
-    /// and it writes no `cancelled` record. The failure path of the stopped tool removes the workspace
-    /// under `<project>/.tmp`, which races the end of the process, so the pin does not read it.
-    func testSIGTERMKillsAlignMAFFTAtOnceAndLeavesNoRecordToday() async throws {
+    /// Lane S61 M2 flipped the M1 pin, which read a death by signal 15 and no record. A SIGTERM now
+    /// cancels the run. The command exits 125 inside the grace, records the run as cancelled beside
+    /// the bundle it did not write, ends the stream with one `failed` line, removes its workspace and
+    /// leaves no process behind.
+    func testSIGTERMCancelsAlignMAFFTAndRecordsItCancelled() async throws {
         let started = try startAlignment()
         defer { started.cli.stop() }
         guard await CLISIGTERMHarness.waitForProcessID(in: started.mafftPIDFile) != nil else {
             let stop = await CLISIGTERMHarness.cancel(started.cli, timeout: .seconds(5))
             return XCTFail("The command never started MAFFT.\(stop.diagnostics)")
         }
+        let record = URL(fileURLWithPath: started.output.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
 
-        let stop = await CLISIGTERMHarness.cancel(started.cli, timeout: .seconds(10))
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(started.cli) {
+            try SIGTERMPinSupport.recordStatus(at: record)
+        }
 
-        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), "the command dies of the signal.\(stop.diagnostics)")
-        XCTAssertNil(stop.exitStatus, "the command does not exit 125")
         XCTAssertEqual(
-            SIGTERMPinSupport.cancelledRecords(under: started.project), [],
-            "the command writes no cancelled record"
+            stop.standardOutput.components(separatedBy: #""event":"failed""#).count - 1, 1,
+            "the stream ends with one failed line: \(stop.standardOutput)"
+        )
+        XCTAssertEqual(
+            SIGTERMPinSupport.paths(under: started.project, startingWith: "mafft-"), [],
+            "the workspace is gone: \(SIGTERMPinSupport.relativePaths(under: started.project))"
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: started.output.path), "no alignment bundle was written")
     }

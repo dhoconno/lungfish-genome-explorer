@@ -115,6 +115,12 @@ extension AlignCommand {
             _ = try parsedSymbolPolicy()
         }
 
+        /// Aligns so that SIGTERM cancels the run instead of ending the command (Phase 2.11 lane S61,
+        /// decisions P2 and C5). The Align with MAFFT row stops this command with SIGTERM and gives it
+        /// `operationGrace`. Cancelling the task stops MAFFT through `CondaManager`, the workspace
+        /// goes, and no bundle is written. The run is recorded as cancelled beside the bundle's
+        /// path, the stream ends with one `failed` line, and the command exits 125. A second SIGTERM
+        /// ends the command at once.
         func run() async throws {
             let quiet = globalOptions.quiet
             let outputFormat = globalOptions.outputFormat
@@ -125,7 +131,36 @@ extension AlignCommand {
                 print(line)
                 fflush(stdout)
             }
-            _ = try await executeForCurrentFormat(runtime: .live(), emit: emit)
+            let startedAt = Date()
+            let ran = await runCancellingOnSIGTERM { [self] in
+                try await executeForCurrentFormat(
+                    runtime: .live(), emit: emit,
+                    cancelling: { Task.isCancelled || SIGTERMCancellation.signalCaught }
+                )
+            }
+            guard case .failure(let error) = ran else { return }
+            if error is CancellationError || SIGTERMCancellation.signalCaught {
+                let output = AlignmentWorkflowLeafOutput(eventsOn: outputFormat == .json, quiet: quiet, emit: emit)
+                throw output.cancelled(
+                    "MAFFT alignment cancelled. No alignment bundle was written.",
+                    record: try cancelledRecord(startedAt: startedAt)
+                )
+            }
+            throw error
+        }
+
+        /// The record of a run that SIGTERM cancelled. It sits beside the bundle the run did not write,
+        /// as `<bundle>.cancelled.lungfish-provenance.json`, names the command and claims no output.
+        private func cancelledRecord(startedAt: Date) throws -> CancelledAlignmentWorkflowRecord {
+            let request = try makeRequest()
+            return CancelledAlignmentWorkflowRecord(
+                workflow: "lungfish align mafft",
+                argv: request.wrapperArgv,
+                explicit: ["name": .string(request.name)],
+                note: "Cancelled before the alignment bundle was written. No bundle remains.",
+                startedAt: startedAt,
+                url: URL(fileURLWithPath: request.resolvedOutputBundleURL.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
+            )
         }
 
         func executeForTesting(
@@ -139,9 +174,12 @@ extension AlignCommand {
             try makeRequest()
         }
 
+        /// - Parameter cancelling: Whether the run is being cancelled. A failure that a cancel causes
+        ///   writes no `failed` line, since `run()` ends the stream with the cancelled one.
         private func executeForCurrentFormat(
             runtime: Runtime,
-            emit: @escaping @Sendable (String) -> Void
+            emit: @escaping @Sendable (String) -> Void,
+            cancelling: @escaping @Sendable () -> Bool = { false }
         ) async throws -> MSAAlignmentRunResult {
             let request = try makeRequest()
             let outputFormat = globalOptions.outputFormat
@@ -187,7 +225,7 @@ extension AlignCommand {
                 }
                 return result
             } catch {
-                if outputFormat == .json {
+                if outputFormat == .json, !cancelling() {
                     emitter.emitFailed(error.localizedDescription)
                 }
                 throw error
