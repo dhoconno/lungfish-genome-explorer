@@ -64,9 +64,10 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
     func testIgnoredTasksReadCompletedWithWarningsAndOneWarningLine() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["S1.fastq"])
         let transcript = try CapturedClassifierTranscript.load(command: "taxtriage-run", run: "complete-with-warning", root: root)
+        // The stand-in's errored task, which its run killed (exit 137), as U30 M3 captured the transcript.
         let ignored = TaxTriageIgnoredFailure(
             processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN", processName: "MINIMAP2_ALIGN", taskLabel: "MINIMAP2_ALIGN (S1)",
-            sampleID: "S1", exitCode: 1
+            sampleID: "S1", exitCode: 137
         )
         let result = try placeResult(in: try XCTUnwrap(transcript.folder), samples: ["S1"], reports: 1, ignored: [ignored])
         let paragraph = try XCTUnwrap(result.erroredProcessesMessage)
@@ -148,7 +149,8 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
     func testAFailedSampleShowsTodaysAlertAndKeepsTheCommandsDetail() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["S1.fastq"])
         let transcript = try CapturedClassifierTranscript.load(command: "taxtriage-run", run: "failed", root: root)
-        let message = "TaxTriage pipeline failed with exit code 1: ERROR ~ Error executing process > 'KRAKEN2_KRAKEN2 (S1)'"
+        let detail = "ERROR ~ Error executing process > 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRAKEN2_KRAKEN2 (S1)'"
+        let message = "TaxTriage pipeline failed with exit code 1: \(detail)"
 
         let run = try await launch(config(made.inputs, ids: ["S1"]), project: made.project, lines: transcript.lines, exitStatus: 64)
         _ = await waitUntil(timeout: .seconds(5)) { run.window.attachedSheet != nil }
@@ -156,7 +158,7 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
         let row = try XCTUnwrap(item(run.row.id))
         XCTAssertEqual(row.displayStateLabel, "Failed")
         XCTAssertEqual(row.detail, message)
-        XCTAssertEqual(row.errorDetail, "ERROR ~ Error executing process > 'KRAKEN2_KRAKEN2 (S1)'", "the failed line's detail reaches the row")
+        XCTAssertEqual(row.errorDetail, detail, "the failed line's detail reaches the row")
         XCTAssertEqual(run.window.attachedSheet.map(Self.texts(in:)), "TaxTriage Failed\n\(message)")
         XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: made.project), run.before)
     }

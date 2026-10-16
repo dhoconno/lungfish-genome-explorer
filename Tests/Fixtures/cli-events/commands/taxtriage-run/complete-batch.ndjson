@@ -1,18 +1,81 @@
 {"event":"start","message":"Starting TaxTriage.","progress":0,"schemaVersion":2}
-{"event":"output","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-05-00","role":"analysis-directory","schemaVersion":2}
+{"event":"output","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T11-11-36","role":"analysis-directory","schemaVersion":2}
 {"event":"progress","message":"Running S.1 (1 of 2).","progress":0,"schemaVersion":2}
 {"event":"progress","message":"Checking prerequisites...","progress":0,"schemaVersion":2}
-{"event":"progress","message":"Generating samplesheet...","progress":0.0225,"schemaVersion":2}
-{"event":"progress","message":"Starting TaxTriage pipeline...","progress":0.045,"schemaVersion":2}
-{"event":"progress","message":"Running KRAKEN2_KRAKEN2 (S.1)","progress":0.045,"schemaVersion":2}
+{"event":"progress","message":"Generating samplesheet...","progress":0.022500000000000003,"schemaVersion":2}
+{"event":"progress","message":"Starting TaxTriage pipeline...","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running DOWNLOAD_TAXDUMP","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMPLESHEET_CHECK (samplesheet.csv)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running GET_ASSEMBLIES","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running PIGZ_COMPRESS (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running COUNT_READS (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running FASTP (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running FASTQC (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running KRAKEN2_KRAKEN2 (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running REMOVETAXIDSCLASSIFICATION (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running KREPORT_TO_KRONATXT (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running TOP_HITS (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running DOWNLOAD_ASSEMBLY (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running COMBINE_MAPFILES (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MAP_TAXID_ASSEMBLY (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MINIMAP2_ALIGN (S.1.S.1.dwnld.references)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMTOOLS_INDEX (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMTOOLS_HIST_COVERAGE (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMTOOLS_COVERAGE (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running ALIGNMENT_PER_SAMPLE (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SINGLE_REPORT (S.1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running KRONA_KTIMPORTTEXT (combined_krona_kreports)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MERGEDSUBSPECIES (MergeTopSpeciesAllSamples)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MERGEDKRAKENREPORT (MergeKrakenReportsAllSamples)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running FILTERKRAKEN","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running CUSTOM_DUMPSOFTWAREVERSIONS (1)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running COMBINE_SAMPLES_JSON (all_samples_combined)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running ORGANISM_MERGE_REPORT (all)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MULTIQC","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running CREATE_COMPARISON_REPORT (comparison_full_report)","progress":0.045000000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running CREATE_COMPARISON_REPORT (comparison_full_report)","progress":0.387,"schemaVersion":2}
+{"event":"progress","message":"Collecting output files...","progress":0.405,"schemaVersion":2}
 {"event":"progress","message":"TaxTriage pipeline complete","progress":0.45,"schemaVersion":2}
 {"event":"progress","message":"Running blank 1 (2 of 2).","progress":0.45,"schemaVersion":2}
 {"event":"progress","message":"Checking prerequisites...","progress":0.45,"schemaVersion":2}
-{"event":"progress","message":"Generating samplesheet...","progress":0.4725,"schemaVersion":2}
-{"event":"progress","message":"Starting TaxTriage pipeline...","progress":0.495,"schemaVersion":2}
-{"event":"progress","message":"Running KRAKEN2_KRAKEN2 (blank 1)","progress":0.495,"schemaVersion":2}
+{"event":"progress","message":"Generating samplesheet...","progress":0.47250000000000003,"schemaVersion":2}
+{"event":"progress","message":"Starting TaxTriage pipeline...","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running DOWNLOAD_TAXDUMP","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMPLESHEET_CHECK (samplesheet.csv)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running GET_ASSEMBLIES","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running PIGZ_COMPRESS (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running COUNT_READS (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running FASTP (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running FASTQC (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running KRAKEN2_KRAKEN2 (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running REMOVETAXIDSCLASSIFICATION (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running KREPORT_TO_KRONATXT (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running TOP_HITS (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running DOWNLOAD_ASSEMBLY (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running COMBINE_MAPFILES (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MAP_TAXID_ASSEMBLY (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MINIMAP2_ALIGN (blank 1.blank 1.dwnld.references)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMTOOLS_INDEX (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMTOOLS_HIST_COVERAGE (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SAMTOOLS_COVERAGE (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running ALIGNMENT_PER_SAMPLE (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running SINGLE_REPORT (blank 1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running KRONA_KTIMPORTTEXT (combined_krona_kreports)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MERGEDSUBSPECIES (MergeTopSpeciesAllSamples)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MERGEDKRAKENREPORT (MergeKrakenReportsAllSamples)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running FILTERKRAKEN","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running CUSTOM_DUMPSOFTWAREVERSIONS (1)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running COMBINE_SAMPLES_JSON (all_samples_combined)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running ORGANISM_MERGE_REPORT (all)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running MULTIQC","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running CREATE_COMPARISON_REPORT (comparison_full_report)","progress":0.49500000000000005,"schemaVersion":2}
+{"event":"progress","message":"Running CREATE_COMPARISON_REPORT (comparison_full_report)","progress":0.837,"schemaVersion":2}
+{"event":"progress","message":"Collecting output files...","progress":0.855,"schemaVersion":2}
+{"event":"progress","message":"Copying results to project directory...","progress":0.855,"schemaVersion":2}
 {"event":"progress","message":"TaxTriage pipeline complete","progress":0.9,"schemaVersion":2}
 {"event":"progress","message":"Building TaxTriage database…","progress":0.9,"schemaVersion":2}
-{"event":"log","level":"info","message":"Built taxtriage.sqlite with 4 rows.","schemaVersion":2}
+{"event":"log","level":"info","message":"Parsed 10 taxonomy rows, 12 accession entries from serial sample result directories","schemaVersion":2}
+{"event":"log","level":"info","message":"Built taxtriage.sqlite with 10 rows.","schemaVersion":2}
+{"event":"log","level":"info","message":"  No rows with BAM paths found, skipping unique reads","schemaVersion":2}
 {"event":"progress","message":"Building TaxTriage database…","progress":1,"schemaVersion":2}
-{"artifacts":[{"kind":"provenance","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-05-00\/.lungfish-provenance.json","role":"provenance"}],"event":"complete","message":"TaxTriage finished.","output":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-05-00","outputs":["\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T10-05-00"],"progress":1,"schemaVersion":2}
+{"artifacts":[{"kind":"provenance","path":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T11-11-36\/.lungfish-provenance.json","role":"provenance"}],"event":"complete","message":"TaxTriage finished.","output":"\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T11-11-36","outputs":["\/work\/Project.lungfish\/Analyses\/taxtriage-batch-2026-10-16T11-11-36"],"progress":1,"schemaVersion":2}
