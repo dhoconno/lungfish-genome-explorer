@@ -119,6 +119,37 @@ final class GenotypeAnnotationStorePublicationPinTests: XCTestCase {
         XCTAssertEqual(store.sidecar, file)
     }
 
+    /// `publishViewedSidecar()` takes its place on the chain like every other publication. Called in
+    /// the event that starts an edit, it waits until that edit is adopted and then publishes beside
+    /// it. Outside the chain it published at once from the file as it stood before the edit, and
+    /// one of the two writes was refused as stale (2.11 S35 review fix 9).
+    func testPublishViewedSidecarWaitsForTheEditAheadOfIt() async throws {
+        let bundle = try makeBundleURL()
+        let publications = PublicationCount()
+        let store = try GenotypeAnnotationStore(
+            bundleURL: bundle,
+            author: "analyst",
+            seedBuiltInSmartCohorts: false,
+            publicationFaultInjector: publications.inject
+        )
+
+        store.beginEdit(
+            { try await store.setSampleStatus(.reviewed, sample: "Animal-1") },
+            onFailure: { XCTFail("the edit was refused: \($0)") }
+        )
+        let viewed = Task.immediate { @MainActor in try await store.publishViewedSidecar() }
+        let viewedResult = await viewed.result
+        await store.waitForEdits()
+
+        XCTAssertNoThrow(try viewedResult.get())
+        XCTAssertEqual(publications.count, 2)
+        let file = try GenotypeAnnotationSidecar.decode(Data(contentsOf: annotationURL(bundle)))
+        XCTAssertEqual(file.sampleStatusFlags.map(\.sample), ["Animal-1"])
+        XCTAssertEqual(store.sidecar, file)
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL(bundle)))
+        XCTAssertEqual(record.options.explicit["action"], .string("publishViewedSidecar"))
+    }
+
     // MARK: - Helpers
 
     /// Counts the publications that reached the write of `annotations.json`. The coordinator calls

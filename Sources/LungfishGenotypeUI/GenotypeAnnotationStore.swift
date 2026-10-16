@@ -134,9 +134,12 @@ public final class GenotypeAnnotationStore {
         }
     }
 
-    /// Publishes the sidecar the analyst sees as it stands, cohorts or none.
+    /// Publishes the sidecar the analyst sees as it stands, cohorts or none. It takes its place on
+    /// the chain, and a call made inside a step runs inline.
     func publishViewedSidecar() async throws {
-        try await persist(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
+        try await publicationChain.run {
+            try await persist(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
+        }
     }
 
     /// Applies `edit` to the sidecar the analyst sees and publishes it whole, naming `options` in its record.
