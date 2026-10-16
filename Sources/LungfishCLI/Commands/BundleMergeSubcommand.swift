@@ -31,7 +31,7 @@ struct BundleMergeSubcommand: AsyncParsableCommand {
 
             Examples:
               lungfish-cli bundle merge A.lungfishref B.lungfishref --name "Merged Genomes"
-              lungfish-cli bundle merge A.lungfishref B.lungfishref --name Merged --output-directory ./out --format json
+              lungfish-cli bundle merge A.lungfishref B.lungfishref --name Merged --output-dir ./out --format json
             """
     )
 
@@ -44,7 +44,7 @@ struct BundleMergeSubcommand: AsyncParsableCommand {
     var name: String
 
     @Option(
-        name: [.customShort("o"), .customLong("output-directory")],
+        name: [.customShort("o"), .customLong("output-dir")],
         help: "Folder to create the merged bundle in. Defaults to the folder of the first bundle"
     )
     var outputDirectory: String?

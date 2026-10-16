@@ -19,9 +19,9 @@ Bundle for reference bundles.
 Examples:
   lungfish-cli bundle merge A.lungfishref B.lungfishref --name "Merged Genomes"
   lungfish-cli bundle merge A.lungfishref B.lungfishref --name Merged
---output-directory ./out --format json
+--output-dir ./out --format json
 
-USAGE: lungfish-cli bundle merge <bundles> ... --name <name> [--output-directory <output-directory>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+USAGE: lungfish-cli bundle merge <bundles> ... --name <name> [--output-dir <output-dir>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
 
 ARGUMENTS:
   <bundles>               Paths of the .lungfishref bundles to merge, at least
@@ -29,7 +29,7 @@ ARGUMENTS:
 
 OPTIONS:
   --name <name>           Name of the merged bundle
-  -o, --output-directory <output-directory>
+  -o, --output-dir <output-dir>
                           Folder to create the merged bundle in. Defaults to
                           the folder of the first bundle
   --format <format>       Output format (values: text, json, tsv; default: text)

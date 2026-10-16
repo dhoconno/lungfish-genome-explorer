@@ -35,7 +35,7 @@ final class BundleMergeSIGTERMTests: XCTestCase {
         let condaRoot = try stubCondaRoot(pidFile: pidFile)
 
         let run = try CLISIGTERMHarness.launchCLI(
-            ["bundle", "merge", first.path, second.path, "--name=Merged", "--output-directory", project.path, "--format", "json"],
+            ["bundle", "merge", first.path, second.path, "--name=Merged", "--output-dir", project.path, "--format", "json"],
             environment: ["LUNGFISH_CONDA_ROOT": condaRoot.path],
             workingDirectory: root,
             testClass: Self.self

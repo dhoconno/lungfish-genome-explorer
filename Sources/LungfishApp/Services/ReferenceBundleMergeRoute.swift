@@ -34,7 +34,7 @@ enum ReferenceBundleMergeRoute {
     /// typed is passed as one `--name=` word, so a name that starts with a hyphen stays a value.
     static func arguments(sourceBundleURLs: [URL], outputDirectory: URL, bundleName: String) -> [String] {
         ["bundle", "merge"] + sourceBundleURLs.map(\.path)
-            + ["--name=\(bundleName)", "--output-directory", outputDirectory.path, "--format", "json"]
+            + ["--name=\(bundleName)", "--output-dir", outputDirectory.path, "--format", "json"]
     }
 
     /// The command on `CLIBundleBuildRunner`, whose Cancel goes through the transport.
