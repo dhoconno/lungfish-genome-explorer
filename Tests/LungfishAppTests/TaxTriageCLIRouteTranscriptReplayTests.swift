@@ -6,11 +6,14 @@
 // that `TaxTriageCLIRouteRowTests` plays. Each case here runs the `taxtriage run --project` the CLI route runs for
 // one of them, in this process with the command's pipeline seam bound to `TaxTriageStandInEngine`, and checks that
 // the committed transcript holds the lines the row reads from the command: the start, the folder, each sample's
-// start line, every warning, the database line, the failure and the end. `LUNGFISH_RECAPTURE_CLI_EVENTS=1` writes
-// the run's lines, its folder rewritten to `/work`, as the transcript. `failed-cancelled.ndjson` stays composed,
-// since the stand-in prints no Docker line (check list row 24). The engine starts processes, so the class name
-// ends in ReplayTests, which sends it to the serial replay tier.
+// start line, every warning, the database line, the Docker line, the failure and the end.
+// `LUNGFISH_RECAPTURE_CLI_EVENTS=1` writes the run's lines, its folder rewritten to `/work`, as the transcript.
+// `failed-cancelled.ndjson` is the run of a cancel while Docker starts (check list row 24). It runs on a pipeline
+// whose Docker daemon never answers and is cancelled on the Docker line, before the pipeline asks macOS to start
+// Docker Desktop. The engine starts processes, so the class name ends in ReplayTests, which sends it to the serial
+// replay tier.
 
+import ArgumentParser
 import Foundation
 import os
 import XCTest
@@ -50,6 +53,64 @@ final class TaxTriageCLIRouteTranscriptReplayTests: XCTestCase {
         try await assertTranscript("failed", inputs: inputs, sample: "S1", behaviour: .failsSamples(["S1"]))
     }
 
+    /// Check list row 24, a cancel while Docker starts. The command runs with the docker profile on a pipeline
+    /// whose daemon never answers, so its wait says `Docker daemon unavailable. Launching Docker Desktop...`
+    /// before it asks macOS to start Docker Desktop. The sink cancels the task that delivers that line, which is
+    /// the task that waits, so the wait ends at once and Docker Desktop never starts, as
+    /// `TaxTriageEngineProcessReplayTests.testACancelDuringTheDockerWaitEndsTheRunAtOnce` shows for the pipeline.
+    /// The executor then ends the run as a cancel, a `failed` line `TaxTriage was cancelled.` and exit 125.
+    func testACancelWhileDockerStartsMatchesFailedCancelled() async throws {
+        let inputs = try makeInputs(["S1.fastq"])
+        let engine = try TaxTriageStandInEngine(
+            root: root.appendingPathComponent("engine", isDirectory: true), behaviour: .completes, maximumWait: .seconds(60)
+        )
+        addTeardownBlock { await engine.stopLeftoverProcesses() }
+        let home = engine.home
+        let pipeline = TaxTriagePipeline(
+            condaManager: engine.condaManager,
+            homeDirectoryProvider: { home },
+            appIdentity: .preview,
+            containerRuntimeProbe: UnreachableDockerProbe()
+        )
+        let command = try TaxTriageCommand.RunSubcommand.parse(
+            try commandArguments(inputs: inputs, sample: "S1", profile: "docker")
+        )
+        let dockerLine = "Docker daemon unavailable. Launching Docker Desktop..."
+        let collected = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let events = AnalysisRunEvents.jsonLines { line in
+            collected.withLock { $0.append(line) }
+            if line.contains(dockerLine) {
+                // The wait says this before it runs `open`, so the cancel lands first and the run never
+                // asks macOS to start Docker Desktop.
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+        }
+        let exitCode = OSAllocatedUnfairLock<Int32?>(initialState: nil)
+        let ended = OSAllocatedUnfairLock(initialState: false)
+        _ = Task {
+            do {
+                try await TaxTriageCommand.RunSubcommand.$makePipeline.withValue({ pipeline }) {
+                    try await command.execute(events: events)
+                }
+            } catch let code as ExitCode {
+                exitCode.withLock { $0 = code.rawValue }
+            } catch {
+                // Another end shows as a missing exit code and in the lines below.
+            }
+            ended.withLock { $0 = true }
+        }
+        let finished = await waitUntil(timeout: .seconds(30)) { ended.withLock { $0 } }
+        XCTAssertTrue(finished, "the cancelled run never ended")
+
+        let lines = collected.withLock { $0 }.map(normalized)
+        XCTAssertEqual(try engine.launches().count, 0, "no engine starts once the run is cancelled")
+        XCTAssertEqual(exitCode.withLock { $0 }, 125, "a cancel exits 125, and the lines are \(lines)")
+        XCTAssertEqual(lines.filter { $0.contains(dockerLine) }.count, 1, "the Docker line, once: \(lines)")
+        let last = lines.last ?? "no line"
+        XCTAssertTrue(last.contains(#""error":"TaxTriage was cancelled.""#) && last.contains(#""event":"failed""#), last)
+        try compare("failed-cancelled", with: lines)
+    }
+
     // MARK: - One transcript
 
     /// Runs the CLI route's command for `inputs` on a stand-in with `behaviour`, writes its lines as the
@@ -64,13 +125,9 @@ final class TaxTriageCLIRouteTranscriptReplayTests: XCTestCase {
             root: root.appendingPathComponent("engine", isDirectory: true), behaviour: behaviour, maximumWait: .seconds(60)
         )
         addTeardownBlock { await engine.stopLeftoverProcesses() }
-        let database = root.appendingPathComponent("kraken2-db", isDirectory: true)
-        try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
-        var arguments = ["run"] + inputs.flatMap { ["--input", $0.path] }
-        if let sample { arguments += ["--sample", sample] }
-        arguments += ["--project", project.path] + (inputs.count > 1 ? ["--batch"] : [])
-        arguments += ["--db", database.path, "--nf-profile", TaxTriageStandInEngine.profile, "--max-cpus", "1", "--format", "json"]
-        let command = try TaxTriageCommand.RunSubcommand.parse(arguments)
+        let command = try TaxTriageCommand.RunSubcommand.parse(
+            try commandArguments(inputs: inputs, sample: sample, profile: TaxTriageStandInEngine.profile)
+        )
         let collected = OSAllocatedUnfairLock<[String]>(initialState: [])
         do {
             try await TaxTriageCommand.RunSubcommand.$makePipeline.withValue({ engine.makePipeline() }) {
@@ -79,13 +136,29 @@ final class TaxTriageCLIRouteTranscriptReplayTests: XCTestCase {
         } catch {
             // A failed run ends with its exit code after the failed line, which the transcript keeps.
         }
-        let lines = collected.withLock { $0 }.map(normalized)
+        try compare(name, with: collected.withLock { $0 }.map(normalized))
+    }
+
+    /// Writes `lines` as the transcript `name` when `LUNGFISH_RECAPTURE_CLI_EVENTS=1` asks, and checks that the
+    /// committed transcript reads as they do.
+    private func compare(_ name: String, with lines: [String]) throws {
         let transcript = Self.transcriptURL(name)
         if ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_CLI_EVENTS"] == "1" {
             try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
         }
         let committed = try String(contentsOf: transcript, encoding: .utf8).split(separator: "\n").map(String.init)
         XCTAssertEqual(Self.rowLines(committed), Self.rowLines(lines), "\(name).ndjson against taxtriage run on the stand-in")
+    }
+
+    /// The arguments of the `taxtriage run --project` the CLI route runs for `inputs`, with JSON events.
+    private func commandArguments(inputs: [URL], sample: String?, profile: String) throws -> [String] {
+        let database = root.appendingPathComponent("kraken2-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
+        var arguments = ["run"] + inputs.flatMap { ["--input", $0.path] }
+        if let sample { arguments += ["--sample", sample] }
+        arguments += ["--project", project.path] + (inputs.count > 1 ? ["--batch"] : [])
+        arguments += ["--db", database.path, "--nf-profile", profile, "--max-cpus", "1", "--format", "json"]
+        return arguments
     }
 
     private var project: URL { root.appendingPathComponent("Project.lungfish", isDirectory: true) }
@@ -130,7 +203,7 @@ final class TaxTriageCLIRouteTranscriptReplayTests: XCTestCase {
 
     /// The lines of a transcript the CLI route's row reads (`CLIClassifierRowEvents`), each as its event and
     /// words, with the result folder's timestamp masked: the start, the folder line, each sample's start
-    /// line, the database line, every warning, the failure and the end.
+    /// line, the database line, the Docker line, every warning, the failure and the end.
     static func rowLines(_ lines: [String]) -> [String] {
         lines.compactMap { line -> String? in
             guard let data = line.data(using: .utf8),
@@ -144,7 +217,7 @@ final class TaxTriageCLIRouteTranscriptReplayTests: XCTestCase {
             case "progress":
                 let message = object["message"] as? String ?? ""
                 let isSampleStart = message.hasPrefix("Running ") && message.hasSuffix(".")
-                guard isSampleStart || message.contains("TaxTriage database") else { return nil }
+                guard isSampleStart || message.contains("TaxTriage database") || message.hasPrefix("Docker daemon") else { return nil }
                 words = message
             case "log":
                 guard object["level"] as? String == "warning" else { return nil }
@@ -155,5 +228,19 @@ final class TaxTriageCLIRouteTranscriptReplayTests: XCTestCase {
                 of: "taxtriage-batch-[0-9T-]+", with: "taxtriage-batch-<timestamp>", options: .regularExpression
             )
         }
+    }
+}
+
+/// A Docker probe whose daemon never answers, as `TaxTriageEngineProcessReplayTests` uses to reach the wait for
+/// Docker, which says its words before it asks macOS to start Docker Desktop.
+private struct UnreachableDockerProbe: ContainerRuntimeProbing {
+    func dockerCLIPath() -> String? { "/usr/local/bin/docker" }
+
+    func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe {
+        DockerDaemonProbe(reachable: false, clientVersion: "28.3.2", serverVersion: nil, detail: "Cannot connect to the Docker daemon")
+    }
+
+    func appleContainerRuntime() async -> AppleContainerProbe {
+        AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: nil)
     }
 }
