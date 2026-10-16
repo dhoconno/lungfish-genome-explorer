@@ -8,23 +8,27 @@ import LungfishTestSupport
 /// compared against. The script imports numpy, Bio, scipy and pandas (`ivar_variants_to_vcf.py:10-13`).
 ///
 /// The interpreter is never the python3 on PATH. It is the `ivar-oracle` conda environment that
-/// `Tests/Fixtures/golden-environment/lock.json` pins, found the way `ToolOutputGoldenTests` finds its
-/// tools, under the conda root of the managed storage (`LUNGFISH_STORAGE_ROOT`).
-/// `python3 scripts/golden/environment.py provision` builds it at `/Users/Shared/lungfish-golden/storage`.
+/// `Tests/Fixtures/golden-environment/lock.json` pins. The lookup tries the conda root of the managed
+/// storage first (`LUNGFISH_STORAGE_ROOT`, as `ToolOutputGoldenTests` finds its tools) and then the golden
+/// storage, because the conformance tier runs with `LUNGFISH_STORAGE_ROOT` at a live root that holds the
+/// managed tools and not this test-only environment. The golden folder is only read.
+/// `python3 scripts/golden/environment.py provision` builds the environment there.
 enum IVarParityOracle {
     static let environment = "ivar-oracle"
     static let modules = ["numpy", "scipy", "pandas", "Bio"]
+    static let goldenCondaRoot = URL(fileURLWithPath: "/Users/Shared/lungfish-golden/storage/conda", isDirectory: true)
 
-    /// Where the environment's Python lives under the current managed storage, installed or not.
-    static var expectedInterpreter: URL {
-        ManagedStorageConfigStore().currentCondaRootURL().standardizedFileURL
-            .appendingPathComponent("envs/\(environment)/bin/python3")
+    /// Where the environment's Python is looked for, in order, installed or not.
+    static var candidates: [URL] {
+        var seen = Set<String>()
+        return [ManagedStorageConfigStore().currentCondaRootURL().standardizedFileURL, goldenCondaRoot]
+            .filter { seen.insert($0.path).inserted }
+            .map { $0.appendingPathComponent("envs/\(environment)/bin/python3") }
     }
 
-    /// The environment's Python, or nil when the environment is not installed under that root.
+    /// The first candidate that is installed, or nil.
     static var interpreter: URL? {
-        let python = expectedInterpreter
-        return FileManager.default.isExecutableFile(atPath: python.path) ? python : nil
+        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
     /// True when the environment is installed and its Python imports every module the script needs.
@@ -47,7 +51,7 @@ struct IVarConverterViralReconParityTests {
     func parity() async throws {
         guard let oracleInterpreter = IVarParityOracle.interpreter else {
             // Reached only under LUNGFISH_REQUIRE_TOOLS=1, because without it the trait above skips the test.
-            Issue.record("the ivar-oracle environment is not installed at \(IVarParityOracle.expectedInterpreter.path), so ivar_variants_to_vcf.py could not run and nothing was compared. python3 scripts/golden/environment.py provision builds it")
+            Issue.record("the ivar-oracle environment is not installed at \(IVarParityOracle.candidates.map(\.path).joined(separator: " or ")), so ivar_variants_to_vcf.py could not run and nothing was compared. python3 scripts/golden/environment.py provision builds it")
             return
         }
 
