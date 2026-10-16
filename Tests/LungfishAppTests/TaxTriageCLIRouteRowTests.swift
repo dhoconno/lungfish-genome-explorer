@@ -191,6 +191,7 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
     /// cancel reads Cancelling... and then Cancelled by user, with no alert, and the command gets SIGTERM.
     func testACancelWhileDockerStartsReadsCancelledByUserWithNoAlert() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["S1.fastq"])
+        let before = try ClassifierRouteFixtures.snapshot(of: made.project)
         let transcript = try CapturedClassifierTranscript.load(command: "taxtriage-run", run: "failed-cancelled", root: root)
         let ready = root.appendingPathComponent("ready")
         let terminated = root.appendingPathComponent("terminated")
@@ -213,6 +214,8 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
 
         OperationCenter.shared.cancel(id: row.id)
         XCTAssertEqual(item(row.id)?.detail, "Cancelling...")
+        let overlayReadsCancelling = await waitUntil(timeout: .seconds(5)) { viewer.overlayLines.last == "Cancelling..." }
+        XCTAssertTrue(overlayReadsCancelling, "the overlay never read the row's Cancelling..., \(viewer.overlayLines)")
         let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
         XCTAssertTrue(finished)
 
@@ -221,6 +224,7 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(ended.detail, "Cancelled by user")
         XCTAssertNil(window.attachedSheet, "a cancel shows no alert")
         XCTAssertTrue(FileManager.default.fileExists(atPath: terminated.path), "the command got SIGTERM and the grace to handle it")
+        XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: made.project), before, "a cancel wrote into the project")
     }
 
     // MARK: - Helpers
@@ -276,8 +280,8 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
         row.logEntries.filter { $0.level == level }.map(\.message)
     }
 
-    private func makeViewerInWindow() -> (ViewerViewController, NSWindow) {
-        let viewer = ViewerViewController()
+    private func makeViewerInWindow() -> (OverlayRecordingViewer, NSWindow) {
+        let viewer = OverlayRecordingViewer()
         let window = NSWindow(contentViewController: viewer)
         window.isReleasedWhenClosed = false
         return (viewer, window)
