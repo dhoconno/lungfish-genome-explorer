@@ -1,5 +1,4 @@
 import Foundation
-import LungfishWorkflow
 
 package struct BundleMergeProvenanceSidecarWriter: Sendable {
     let write: @Sendable (ProvenanceEnvelope, URL) throws -> Void
