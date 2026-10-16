@@ -61,7 +61,18 @@ enum CLIPrimerTrimRunnerError: Error, LocalizedError, Equatable {
 /// forwarded to `transport.cancel()` (already `nonisolated` and thread-safe),
 /// so it never actually reproduced that deadlock, but keeping it as an actor
 /// left the same trap for the next person who adds actor-isolated state here.
+///
+/// A cancel goes through the transport. `bam primer-trim` gets SIGTERM and ``terminationGracePeriod``
+/// to stop ivar, remove its staging folder and record its run as cancelled before SIGKILL, under
+/// the ten seconds `OperationCenter` waits for a cancelling row (Phase 2.11 lane S61).
 struct CLIPrimerTrimRunner {
+    /// The time the command has between SIGTERM and SIGKILL to record its cancelled run, the
+    /// launcher's ``CLIProcessLauncher/operationGrace``.
+    static let terminationGracePeriod = CLIProcessLauncher.operationGrace
+    /// How long the run waits for a descendant that holds the command's output open after the
+    /// command exited, the launcher's ``CLIProcessLauncher/operationDrain``.
+    static let drainGracePeriod = CLIProcessLauncher.operationDrain
+
     private let transport: CLISubprocessTransport
 
     init(cliURLOverride: URL? = nil) {
@@ -118,6 +129,8 @@ struct CLIPrimerTrimRunner {
         do {
             let result = try await transport.run(
                 arguments: arguments,
+                terminationGracePeriod: Self.terminationGracePeriod,
+                drainGracePeriod: Self.drainGracePeriod,
                 isCancelled: { false },
                 onEvent: onEvent
             )
@@ -138,7 +151,8 @@ struct CLIPrimerTrimRunner {
         }
     }
 
-    func cancel() {
+    /// Stops the command, whether it is running or about to start. It returns at once, from any thread.
+    nonisolated func cancel() {
         transport.cancel()
     }
 

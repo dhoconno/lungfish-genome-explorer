@@ -105,30 +105,88 @@ extension BAMCommand {
             }
         }
 
+        /// Runs the trim so that SIGTERM cancels it instead of ending the command (Phase 2.11 lane S61,
+        /// decisions P2 and C5). The Primer Trim row stops this command with SIGTERM and gives it
+        /// `operationGrace`. Cancelling the task stops ivar and samtools through `NativeToolRunner`, the
+        /// staging folder goes, and the bundle is not changed. The run is recorded as cancelled under
+        /// the bundle's `provenance/cancelled` folder, the stream ends with one `failed` line, and the
+        /// command exits 125. A second SIGTERM ends the command at once.
         func run() async throws {
             let resolvedGlobalOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
-            let emit: (String) -> Void = { line in
-                if resolvedGlobalOptions.outputFormat == .text && resolvedGlobalOptions.quiet {
+            let format = resolvedGlobalOptions.outputFormat
+            let quiet = resolvedGlobalOptions.quiet
+            let emit: @Sendable (String) -> Void = { line in
+                if format == .text && quiet {
                     return
                 }
                 printEventLine(line)
             }
-            _ = try await execute(emit: emit, format: resolvedGlobalOptions.outputFormat)
+            let startedAt = Date()
+            let ran = await runCancellingOnSIGTERM { [self] in
+                try await execute(
+                    emit: emit, format: format,
+                    cancelling: { Task.isCancelled || SIGTERMCancellation.signalCaught }
+                )
+            }
+            guard case .failure(let error) = ran else { return }
+            if error is CancellationError || SIGTERMCancellation.signalCaught {
+                let output = AlignmentWorkflowLeafOutput(eventsOn: format == .json, quiet: quiet, emit: emit)
+                throw output.cancelled(
+                    "Primer trim cancelled. The bundle was not changed.",
+                    record: cancelledRecord(startedAt: startedAt)
+                )
+            }
+            throw error
+        }
+
+        /// The record of a run that SIGTERM cancelled, in the bundle's `provenance/cancelled` folder. It
+        /// names the command and claims no output.
+        private func cancelledRecord(startedAt: Date) -> CancelledAlignmentWorkflowRecord {
+            let bundleURL = URL(fileURLWithPath: bundlePath)
+            var argv = [
+                CLICommandIdentity.executableName, "bam", "primer-trim",
+                "--bundle", bundleURL.path,
+                "--alignment-track", alignmentTrackID,
+                "--scheme", URL(fileURLWithPath: schemePath).path,
+                "--name", outputTrackName,
+                "--ivar-min-quality", String(ivarMinQuality),
+                "--ivar-min-length", String(ivarMinLength),
+                "--ivar-sliding-window", String(ivarSlidingWindow),
+                "--ivar-primer-offset", String(ivarPrimerOffset),
+            ]
+            if let targetReferenceName, !targetReferenceName.isEmpty {
+                argv += ["--target-reference", targetReferenceName]
+            }
+            return CancelledAlignmentWorkflowRecord(
+                workflow: "lungfish bam primer-trim",
+                argv: argv,
+                explicit: ["alignmentTrack": .string(alignmentTrackID), "outputTrackName": .string(outputTrackName)],
+                note: "Cancelled before the trimmed alignment was adopted. The bundle was not changed.",
+                startedAt: startedAt,
+                url: CancelledAlignmentWorkflowRecord.newURL(
+                    in: CancelledAlignmentWorkflowRecord.folder(in: bundleURL),
+                    workflow: "lungfish bam primer-trim"
+                )
+            )
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws -> BAMCommand.PrimerTrimAdoptionResult {
             try await execute(emit: emit, format: .text)
         }
 
+        /// - Parameter cancelling: Whether the run is being cancelled. A failure that a cancel causes
+        ///   writes no `failed` line, since `run()` ends the stream with the cancelled one.
         private func execute(
             emit: @escaping (String) -> Void,
-            format: OutputFormat
+            format: OutputFormat,
+            cancelling: @escaping @Sendable () -> Bool = { false }
         ) async throws -> BAMCommand.PrimerTrimAdoptionResult {
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let schemeURL = URL(fileURLWithPath: schemePath)
 
             let events = CLIEventEmitter(enabled: format == .json, emit: emit)
             let emitEvent: (BAMCommand.PrimerTrimEvent) -> Void = { event in
+                if event.event == "runFailed", cancelling() { return }
                 switch format {
                 case .json:
                     events.emit(cliEvent(from: event), artifacts: artifacts(from: event))

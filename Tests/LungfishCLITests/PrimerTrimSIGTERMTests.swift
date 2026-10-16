@@ -80,10 +80,11 @@ final class PrimerTrimSIGTERMTests: XCTestCase {
         return Started(cli: cli, bundle: fixture.bundleURL, ivarPIDFile: ivarPIDFile, scratch: scratch)
     }
 
-    /// Pin at the base (lane S61 M1). A SIGTERM ends the command by signal 15 and not by exit 125,
-    /// and it writes no `cancelled` record. The failure path of the stopped tool removes the staging
-    /// folder, which races the end of the process, so the pin does not read the folder.
-    func testSIGTERMKillsPrimerTrimAtOnceAndLeavesNoRecordToday() async throws {
+    /// Lane S61 M2 flipped the M1 pin, which read a death by signal 15 and no record. A SIGTERM now
+    /// cancels the run. The command exits 125 inside the grace, records the run as cancelled in the
+    /// bundle's `provenance/cancelled` folder, ends the stream with one `failed` line, removes its
+    /// staging folder and leaves no process and no track behind.
+    func testSIGTERMCancelsPrimerTrimAndRecordsItCancelled() async throws {
         let started = try startPrimerTrim()
         defer { started.cli.stop() }
         guard await CLISIGTERMHarness.waitForProcessID(in: started.ivarPIDFile) != nil else {
@@ -91,13 +92,18 @@ final class PrimerTrimSIGTERMTests: XCTestCase {
             return XCTFail("The command never started ivar.\(stop.diagnostics)")
         }
 
-        let stop = await CLISIGTERMHarness.cancel(started.cli, timeout: .seconds(10))
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(started.cli) {
+            try SIGTERMPinSupport.cancelledRecordStatus(inBundle: started.bundle)
+        }
 
-        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), "the command dies of the signal.\(stop.diagnostics)")
-        XCTAssertNil(stop.exitStatus, "the command does not exit 125")
         XCTAssertEqual(
-            SIGTERMPinSupport.cancelledRecords(under: started.bundle), [],
-            "the command writes no cancelled record"
+            stop.standardOutput.components(separatedBy: #""event":"failed""#).count - 1, 1,
+            "the stream ends with one failed line: \(stop.standardOutput)"
+        )
+        XCTAssertTrue(stop.standardOutput.contains("cancelled"), "the failed line says the run was cancelled")
+        XCTAssertEqual(
+            SIGTERMPinSupport.paths(under: started.scratch, startingWith: "primer-trim-"), [],
+            "the staging folder is gone"
         )
         XCTAssertEqual(try BundleManifest.load(from: started.bundle).alignments.count, 2, "the bundle was not changed")
     }
