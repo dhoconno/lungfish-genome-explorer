@@ -5,6 +5,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// Pins the bundle, manifest and root record that `ReferenceBundleImportService` writes when it is
@@ -16,7 +17,7 @@ final class ReferenceImportHelperRoutePinTests: XCTestCase {
 
     override func setUp() async throws {
         if let missing = await NativeBundleBuilder().checkRequiredTools() {
-            throw XCTSkip("Native reference bundle tools are unavailable: \(missing.description)")
+            try ToolAvailability.skipOrFail("Native reference bundle tools are unavailable: \(missing.description)")
         }
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ReferenceImportHelperRoutePinTests-\(UUID().uuidString)", isDirectory: true)

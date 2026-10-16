@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
+import LungfishTestSupport
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
@@ -17,7 +18,7 @@ final class ImportFastaIdentityPinTests: XCTestCase {
 
     override func setUp() async throws {
         if let missing = await NativeBundleBuilder().checkRequiredTools() {
-            throw XCTSkip("Native reference bundle tools are unavailable: \(missing.description)")
+            try ToolAvailability.skipOrFail("Native reference bundle tools are unavailable: \(missing.description)")
         }
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ImportFastaIdentityPinTests-\(UUID().uuidString)", isDirectory: true)
