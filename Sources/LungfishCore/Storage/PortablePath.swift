@@ -436,19 +436,18 @@ public enum PortablePath {
     }
 
     /// The re-rooted form of one absolute path, or nil when no `.lungfish/`
-    /// component of it has a tail that exists under `projectPath`.
-    private static func rerootSinglePath(_ path: String, projectPath: String) -> String? {
+    /// component of it has a tail that exists under `projectPath`. A span of
+    /// free text (`firstOnly`) re-roots only at its first component, and only
+    /// when no other path starts before it, so a command's words stay whole.
+    private static func rerootSinglePath(_ path: String, projectPath: String, firstOnly: Bool = false) -> String? {
         var searchStart = path.startIndex
         while let range = path.range(of: ".lungfish/", range: searchStart ..< path.endIndex) {
-            let tail = String(path[range.upperBound...])
-            if !tail.isEmpty {
-                let candidate = projectPath + "/" + tail
-                if candidate == path { return nil }
-                if FileManager.default.fileExists(atPath: candidate) {
-                    return candidate
-                }
-            }
-            searchStart = range.upperBound
+            let head = path[..<range.lowerBound], tail = String(path[range.upperBound...])
+            if firstOnly, zip(head, head.dropFirst()).contains(where: { pathLeadIns.contains($0) && $1 == "/" }) { return nil }
+            let candidate = projectPath + "/" + tail
+            if !tail.isEmpty, candidate == path { return nil }
+            if !tail.isEmpty, FileManager.default.fileExists(atPath: candidate) { return candidate }
+            searchStart = firstOnly ? path.endIndex : range.upperBound
         }
         return nil
     }
@@ -481,7 +480,7 @@ public enum PortablePath {
             var replaced = false
             while end > index {
                 let span = String(characters[index ..< end])
-                if span.contains(".lungfish/"), let rerooted = rerootSinglePath(span, projectPath: projectPath) {
+                if span.contains(".lungfish/"), let rerooted = rerootSinglePath(span, projectPath: projectPath, firstOnly: true) {
                     output += rerooted
                     index = end
                     replaced = true

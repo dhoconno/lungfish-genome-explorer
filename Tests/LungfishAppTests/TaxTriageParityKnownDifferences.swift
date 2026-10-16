@@ -62,8 +62,6 @@ enum TaxTriageParityKnownDifferences {
     static let folderClaim = "A2 or the 2.10 GUI route, once both routes claim the folder before the pipeline lists its outputs"
     /// A one-sample row records a plain `--output` into the GUI's own batch folder (2.8 T17).
     static let rowSpelling = "2.10, a one-sample row that records --project, so its replay lays the result out as the app does (2.8 T17)"
-    /// The reader re-roots a span of free text that holds several paths (PortablePath.rerootFreeText).
-    static let readerReroot = "2.10, a re-root that leaves a whole command alone (PortablePath.rerootFreeText, Moved out row)"
 
     private static func pair(
         _ counts: [TaxTriageParityCase: Int], _ id: String, _ reason: String, closedBy: String
@@ -264,9 +262,6 @@ enum TaxTriageParityKnownDifferences {
         record([.x1: 1, .x2: 1, .x5: 1, .x6: 1, .x7: 1], "stderr",
                "The pipeline's record keeps the run's stderr, empty, X5's warning lines or the pipeline's cancel words. The executor's keeps the run's warnings, none, X5's errored-task paragraph or its own cancel words. The step keeps the warning lines on both (B12)",
                closedBy: guiRoute),
-        record([.x6: 1], "steps[taxtriage#1].reproducibleCommand",
-               "Review fix 1 changed no recorded field. On reading, PortablePath.rerootFreeText writes the last path of a span that exists in the project in place of the whole span. Side A's cancel removed its scratch, so its command reads from the --outdir folder on, and side B keeps its scratch for the sweep (N7), so its command reads from the -w folder on",
-               closedBy: readerReroot),
     ]
 
     /// One line per found difference that no entry declares, and per entry that matches another
