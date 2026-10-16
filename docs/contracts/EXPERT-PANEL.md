@@ -127,7 +127,7 @@ phase's memos add, and cites each check by its id.
 | BIO 7 | Goldens. Each change is predicted key by key and checked, and no scientific payload moves unless that is the lane's purpose. |
 | UX 1 | Labels. Row titles, details, alert titles and text and the cancel label equal the frozen strings for every outcome (success, empty, warnings, partial batch, failed, cancelled), unless the lane changes them on purpose. |
 | UX 2 | Warnings. Completed with Warnings appears in exactly the cases it did at the base, with one warning line per cause, and no information line becomes a warning. |
-| UX 3 | Progress. Every stage message reaches the progress bar, the log and the viewer overlay, batch lines name the sample, and the bar never moves back. |
+| UX 3 | Progress. Every stage message reaches the row's detail, the log and the viewer overlay, batch lines name the sample, and the held progress never moves back. The panel draws a bar only for progress evidence, so a bridged row shows none (Phase 2.11 U30 W4 ruling). |
 | UX 4 | End of run, failure and cancel. Results open from the tracked folder, a result shows in the sidebar only when complete, a failure alert holds the error with the log tail as detail, a cancel reads Cancelled with no alert, and Copy CLI Command replays into a new folder. |
 | UX 5 | Inspector and Provenance tab. New rows appear in Copy text and VoiceOver order, a derived value reads Not recorded, older records display unchanged, and every display fixture diff is read line by line. |
 | UX 6 | No silent writes. Reading or displaying writes nothing (hash before and after), and nothing is written into a bundle or a read-only project. |
