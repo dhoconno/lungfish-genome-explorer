@@ -97,6 +97,48 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(try Data(contentsOf: annotationURL), bytesBefore)
     }
 
+    // MARK: - A refused edit (2.11 S35 M2b, N3, UX 7, BIO 4)
+
+    /// The words a person reads when another window saved the bundle first. Sentence case, and no
+    /// colon or semicolon inside a sentence (UX 7).
+    static let staleRefusalWords =
+        "The genotype annotations changed in another process. Reload the bundle before saving this edit."
+
+    /// A sample status edit that finds the bundle changed by another window is refused. Its Undo
+    /// goes, the person reads the stale alert, and the other window's edit and every earlier edit stay.
+    func testAStaleSampleStatusEditTakesBackItsUndoAndDropsNoEdit() async throws {
+        let fixture = try await makeHostedController(priorStatus: .needsReview)
+        defer { fixture.tearDown() }
+        var alerts: [String] = []
+        fixture.controller.testingSetSheetAlertHandler { alerts.append($0.localizedDescription) }
+        defer { fixture.controller.testingSetSheetAlertHandler(nil) }
+        let otherWindow = try GenotypeAnnotationStore(
+            bundleURL: fixture.bundleURL,
+            author: "second analyst",
+            seedBuiltInSmartCohorts: false
+        )
+        try await otherWindow.setSampleStatus(.confirmed, sample: "AnimalB")
+        let fileBefore = try persistedSidecar(fixture.bundleURL)
+        XCTAssertFalse(fixture.undoManager.canUndo)
+
+        // As in the app, the event's undo group closes before the edit's publication ends.
+        fixture.undoManager.beginUndoGrouping()
+        fixture.controller.markSelectedSampleReviewed(nil)
+        fixture.undoManager.endUndoGrouping()
+        await waitForAnnotationEdits()
+
+        XCTAssertEqual(alerts, [Self.staleRefusalWords])
+        XCTAssertFalse(fixture.undoManager.canUndo, "A refused edit takes its Undo back (N3)")
+        XCTAssertEqual(try persistedSidecar(fixture.bundleURL), fileBefore)
+        XCTAssertEqual(status(of: sample, in: fileBefore), .needsReview)
+        XCTAssertEqual(status(of: "AnimalB", in: fileBefore), .confirmed)
+        let shown = try XCTUnwrap(fixture.controller.annotationStore)
+        XCTAssertEqual(status(of: "AnimalB", in: shown.sidecar), .confirmed, "The view adopts the other window's edit")
+        let words = Self.staleRefusalWords
+        XCTAssertFalse(words.contains(":") || words.contains(";"))
+        XCTAssertEqual(words.first.map { $0.isUppercase }, true)
+    }
+
     // MARK: - Undo and Redo of the sample status commands
 
     func testMarkSampleReviewedUndoesToNoStatusAndRedoes() async throws {

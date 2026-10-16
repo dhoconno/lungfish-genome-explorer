@@ -49,15 +49,17 @@ extension GenotypeResultViewController {
             return
         }
         // The Undo registers in the command's own event, before the edit awaits, so Undo and Redo
-        // land on the right stack (N3). The edit publishes away from the main actor and the
-        // refresh follows it (2.11 S35 M2a). M2b removes the Undo when the edit is refused.
+        // land on the right stack, and a refused edit takes its Undo back (N3). The edit publishes
+        // away from the main actor and the refresh follows it (2.11 S35).
         let previous = store.sidecar.sampleStatusFlags.first { $0.sample == sample }?.value
-        if previous != value, let undoManager = view.window?.undoManager {
-            undoManager.registerUndo(withTarget: self) { target in
-                target.writeSampleStatus(previous, sample: sample, bundleURL: bundleURL, actionName: name)
+        let undoManager = previous != value ? view.window?.undoManager : nil
+        let undoToken = SampleStatusUndoToken()
+        undoManager?.registerUndo(withTarget: undoToken) { [weak self, undoToken] _ in
+            withExtendedLifetime(undoToken) {
+                self?.writeSampleStatus(previous, sample: sample, bundleURL: bundleURL, actionName: name)
             }
-            undoManager.setActionName(name)
         }
+        undoManager?.setActionName(name)
         store.beginEdit { [self] in
             if let value {
                 try await store.setSampleStatus(value, sample: sample, author: author)
@@ -68,6 +70,7 @@ extension GenotypeResultViewController {
                 refreshAfterSampleStatusChange()
             }
         } onFailure: { [self] error in
+            undoManager?.removeAllActions(withTarget: undoToken)
             presentSheetAlert(error: error)
             if shownStore != nil {
                 refreshAfterSampleStatusChange()
@@ -75,3 +78,6 @@ extension GenotypeResultViewController {
         }
     }
 }
+
+/// The target of one sample status Undo, so a refused edit removes its own Undo and no other.
+private final class SampleStatusUndoToken {}
