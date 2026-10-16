@@ -185,7 +185,6 @@ Some leaves print text before their document. `convert` prints status lines unle
 | `convert` | `convert /work/inputs/small.fasta --to /work/out/small-copy.fasta --format json --quiet` |
 | `translate` | `translate /work/inputs/small.fasta --frame 1 -o /work/out/protein.fasta --format json --quiet` |
 | `search` | `search /work/inputs/small.fasta <twelve bases of the sequence> --format json` |
-| `extract-sequence` | `extract sequence /work/inputs/small.fasta MT192765.1:1-60 -o /work/out/region.fasta --format json --quiet` |
 | `bundle-info`, `bundle-validate`, `bundle-list` | `bundle info`, `bundle validate` and `bundle list` of the reference bundle that `import fasta` made from `Tests/Fixtures/sarscov2/genome.fasta`, with `--format json` |
 | `msa-actions`, `msa-describe` | `msa actions --format json` and `msa describe msa.inspection.discriminating-sites --format json` |
 

@@ -43,6 +43,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `extract reads` runs samtools. Its transcripts are runs of the built CLI on the sarscov2 BAM,
         // `--by-region` to a FASTQ and a refused missing BAM (lane A51 of Phase 2.10).
         "extract reads",
+        // `extract sequence --bundle` runs bgzip and samtools faidx. Its transcripts hold the words of the
+        // leaf and of the extraction bundle builder (lane A48 M2 of Phase 2.11).
+        "extract sequence",
         // `taxtriage run` and `workflow run` run Nextflow. Their transcripts are runs on stand-ins, recaptured with
         // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxTriageRunCommandReplayTests, lane A2, and WorkflowRunEventsTests, A30).
         "taxtriage run", "workflow run",

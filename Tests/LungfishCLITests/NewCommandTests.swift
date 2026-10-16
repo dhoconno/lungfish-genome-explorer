@@ -478,29 +478,6 @@ final class ExtractCommandTests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// Verifies that ExtractResult can be encoded and decoded.
-    func testExtractResultCodable() throws {
-        let result = ExtractResult(
-            inputFile: "genome.fasta",
-            outputFile: "region.fasta",
-            region: "chr1:100-200",
-            chromosome: "chr1",
-            start: 99,
-            end: 200,
-            length: 101,
-            reverseComplement: false
-        )
-
-        let data = try JSONEncoder().encode(result)
-        let decoded = try JSONDecoder().decode(ExtractResult.self, from: data)
-
-        XCTAssertEqual(decoded.inputFile, "genome.fasta")
-        XCTAssertEqual(decoded.region, "chr1:100-200")
-        XCTAssertEqual(decoded.chromosome, "chr1")
-        XCTAssertEqual(decoded.length, 101)
-        XCTAssertFalse(decoded.reverseComplement)
-    }
-
     /// Verifies basic region extraction from a single-sequence file.
     func testExtractCommandBasicRegion() async throws {
         let fastaURL = tempDir.appendingPathComponent("genome.fasta")

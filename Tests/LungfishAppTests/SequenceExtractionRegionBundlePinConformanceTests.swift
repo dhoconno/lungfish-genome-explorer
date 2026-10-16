@@ -126,7 +126,7 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     workflow lungfish gui sequence extraction
     tool lungfish gui sequence extraction
     argv lungfish-gui | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Region 1: HA/1 | --samples | S.1 a,sample 2.b | --output | <root>/extractions/Region_1-_HA-1.lungfishref
-    steps lungfish gui sequence extraction
+    steps lungfish gui sequence extraction, bgzip, samtools faidx
     explicit bundle_name=string("Region 1: HA/1")
     explicit concatenate_exons=boolean(false)
     explicit operation=string("sequence-extraction")
@@ -163,6 +163,12 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
       output index <root>/extractions/Region_1-_HA-1.lungfishref/genome/sequence.fa.gz.gzi digest=true
       output output <root>/extractions/Region_1-_HA-1.lungfishref/manifest.json digest=true
       output output <root>/extractions/Region_1-_HA-1.lungfishref/variants/variants_0_calls_1.db digest=true
+    step bgzip | bgzip | -f | -@ | <threads> | sequence.fa
+      output output <root>/extractions/Region_1-_HA-1.lungfishref/genome/sequence.fa.gz digest=true
+    step samtools faidx | samtools | faidx | sequence.fa.gz
+      input output <root>/extractions/Region_1-_HA-1.lungfishref/genome/sequence.fa.gz digest=true
+      output index <root>/extractions/Region_1-_HA-1.lungfishref/genome/sequence.fa.gz.fai digest=true
+      output index <root>/extractions/Region_1-_HA-1.lungfishref/genome/sequence.fa.gz.gzi digest=true
     file output <root>/extractions/Region_1-_HA-1.lungfishref/annotations/annotations_0_genes.db digest=true
     file output <root>/extractions/Region_1-_HA-1.lungfishref/genome/sequence.fa.gz digest=true
     file index <root>/extractions/Region_1-_HA-1.lungfishref/genome/sequence.fa.gz.fai digest=true
@@ -205,7 +211,7 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     workflow lungfish gui sequence extraction
     tool lungfish gui sequence extraction
     argv lungfish-gui | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Plain region | --output | <root>/extractions/Plain_region.lungfishref
-    steps lungfish gui sequence extraction
+    steps lungfish gui sequence extraction, bgzip, samtools faidx
     explicit bundle_name=string("Plain region")
     explicit concatenate_exons=boolean(false)
     explicit operation=string("sequence-extraction")
@@ -238,6 +244,12 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
       output index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.fai digest=true
       output index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.gzi digest=true
       output output <root>/extractions/Plain_region.lungfishref/manifest.json digest=true
+    step bgzip | bgzip | -f | -@ | <threads> | sequence.fa
+      output output <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz digest=true
+    step samtools faidx | samtools | faidx | sequence.fa.gz
+      input output <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz digest=true
+      output index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.fai digest=true
+      output index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.gzi digest=true
     file output <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz digest=true
     file index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.fai digest=true
     file index <root>/extractions/Plain_region.lungfishref/genome/sequence.fa.gz.gzi digest=true
@@ -368,10 +380,12 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
         XCTAssertEqual(actual, expected, name, file: file, line: line)
     }
 
+    /// The root's path, and the thread count the runner gives bgzip, which follows this Mac's cores.
     private func scrub(_ text: String) -> String {
         text
             .replacingOccurrences(of: root.resolvingSymlinksInPath().path, with: "<root>")
             .replacingOccurrences(of: root.path, with: "<root>")
+            .replacingOccurrences(of: #"\| -@ \| \d+ \|"#, with: "| -@ | <threads> |", options: .regularExpression)
     }
 
     /// Every file of the bundle, its manifest, both tracks read back from their databases and the

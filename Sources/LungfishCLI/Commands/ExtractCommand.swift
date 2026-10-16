@@ -95,18 +95,58 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
     )
     var lineWidth: Int = 70
 
+    @Flag(
+        name: .customLong("bundle"),
+        help: "Build a reference bundle of the region from a .lungfishref input, keeping its annotation and variant tracks in the region. Needs -o <name>.lungfishref"
+    )
+    var bundle: Bool = false
+
+    @Option(name: .customLong("name"), help: "With --bundle, the bundle's display name (default: the region or the feature name)")
+    var name: String?
+
+    @Option(
+        name: .customLong("samples"),
+        help: "With --bundle, keep the variant calls of this sample. Give it once for each sample to keep. A name may hold commas, dots and spaces"
+    )
+    var samples: [String] = []
+
+    @Flag(name: .customLong("no-samples"), help: "With --bundle, keep the variant calls of no sample")
+    var noSamples: Bool = false
+
+    @Option(
+        name: .customLong("feature-name"),
+        help: "With --bundle, extract this feature, whose parts the region lists in order as name:start-end,start-end"
+    )
+    var featureName: String?
+
+    @Option(name: .customLong("feature-type"), help: "With --feature-name, the feature's type, such as gene, CDS or mRNA (default: region)")
+    var featureType: String?
+
+    @Option(name: .customLong("strand"), help: "With --feature-name, the feature's strand, + or -")
+    var strand: String?
+
+    @Flag(name: .customLong("concatenate-exons"), help: "With --feature-name, join the feature's parts into one sequence")
+    var concatenateExons: Bool = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        if bundle {
+            return try await runBundle()
+        }
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
-        // Under --format json the JSON result takes standard output, so the FASTA needs a file (2.6 row 213).
+        // Under --format json the events take standard output, so the FASTA needs a file (2.6 row 213).
         if globalOptions.outputFormat == .json && output == nil {
             throw CLIError.validationFailed(errors: [
-                "--format json prints the JSON result on standard output, so the FASTA needs a file. Add -o <file>, or leave out --format json to print the FASTA."
+                "--format json prints events on standard output, so the FASTA needs a file. Add -o <file>, or leave out --format json to print the FASTA."
             ])
         }
+        // With --format json a run speaks CLIEvent lines, as `--bundle` does (2.11 A48 M2). It
+        // printed one `extract-sequence` result document before.
+        let events = CLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: printEventLine)
+        events.emitStart("Extracting \(region) from \(URL(fileURLWithPath: input).lastPathComponent)")
 
         // Validate input file exists
         guard FileManager.default.fileExists(atPath: input) else {
@@ -332,20 +372,8 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             print(fastaOutput, terminator: "")
         }
 
-        // JSON output
-        if globalOptions.outputFormat == .json {
-            let jsonResult = ExtractResult(
-                inputFile: input,
-                outputFile: output,
-                region: region,
-                chromosome: targetSequence.name,
-                start: result.effectiveStart,
-                end: result.effectiveEnd,
-                length: result.nucleotideSequence.count,
-                reverseComplement: reverseComplement
-            )
-            let handler = JSONOutputHandler()
-            handler.writeData(jsonResult, label: nil)
+        if let output {
+            events.emitComplete(output: output, message: "Extracted \(result.nucleotideSequence.count) bp")
         }
     }
 
@@ -407,16 +435,4 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
         }
         return (start, end)
     }
-}
-
-/// Result data for extract command
-struct ExtractResult: Codable {
-    let inputFile: String
-    let outputFile: String?
-    let region: String
-    let chromosome: String
-    let start: Int
-    let end: Int
-    let length: Int
-    let reverseComplement: Bool
 }

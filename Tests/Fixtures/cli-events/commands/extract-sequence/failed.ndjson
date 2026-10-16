@@ -1,0 +1,3 @@
+{"event":"start","message":"Extracting chr1:11-40","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing...","progress":0,"schemaVersion":2}
+{"event":"failed","message":"Extraction cancelled. Nothing was published.","schemaVersion":2}

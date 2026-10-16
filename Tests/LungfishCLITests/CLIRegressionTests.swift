@@ -3242,18 +3242,6 @@ final class ResultTypeCodableRegressionTests: XCTestCase {
         XCTAssertEqual(decoded.start, 100)
     }
 
-    func testExtractResultCodable() throws {
-        let result = ExtractResult(
-            inputFile: "g.fa", outputFile: nil, region: "chr1:1-100",
-            chromosome: "chr1", start: 0, end: 100, length: 100,
-            reverseComplement: false
-        )
-        let data = try JSONEncoder().encode(result)
-        let decoded = try JSONDecoder().decode(ExtractResult.self, from: data)
-        XCTAssertEqual(decoded.length, 100)
-        XCTAssertNil(decoded.outputFile)
-    }
-
     func testTranslateResultCodable() throws {
         let result = TranslateResult(
             inputFile: "in.fa", outputFile: nil, sequenceCount: 2,

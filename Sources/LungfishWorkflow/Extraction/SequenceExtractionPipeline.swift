@@ -64,11 +64,7 @@ public final class SequenceExtractionPipeline: Sendable {
                 sampleFilter: sampleFilter,
                 isConcatenated: isConcatenated
             ),
-            defaultOptions: [
-                "reverse_complement": .boolean(false),
-                "concatenate_exons": .boolean(false),
-                "sample_filter": .array([]),
-            ],
+            defaultOptions: Self.extractionDefaultOptions,
             resolvedOptions: Self.extractionResolvedOptions(
                 result: result,
                 bundleURL: outputBundleURL,
@@ -140,7 +136,16 @@ public final class SequenceExtractionPipeline: Sendable {
         return argv
     }
 
-    private static func extractionExplicitOptions(
+    /// The defaults the record of a region bundle names, which `extract sequence --bundle` names too.
+    package static let extractionDefaultOptions: [String: ParameterValue] = [
+        "reverse_complement": .boolean(false),
+        "concatenate_exons": .boolean(false),
+        "sample_filter": .array([]),
+    ]
+
+    /// The options the record of a region bundle names as given. `extract sequence --bundle` writes the
+    /// same ones, so the two routes record one run alike (2.11 A48 M2, BIO 4).
+    package static func extractionExplicitOptions(
         result: LungfishCore.ExtractionResult,
         sourceBundleURL: URL?,
         sourceBundleName: String?,
@@ -160,7 +165,7 @@ public final class SequenceExtractionPipeline: Sendable {
         ]
     }
 
-    private static func extractionResolvedOptions(
+    package static func extractionResolvedOptions(
         result: LungfishCore.ExtractionResult,
         bundleURL: URL,
         sourceBundleURL: URL?,
@@ -184,5 +189,50 @@ public final class SequenceExtractionPipeline: Sendable {
             "concatenate_exons": .boolean(isConcatenated),
             "sample_filter": .array((sampleFilter ?? []).sorted().map { .string($0) }),
         ]
+    }
+
+    /// The `lungfish-cli` argv after the executable that builds the region bundle the viewer
+    /// asks for, `extract sequence --bundle` with `--format json` (2.11 A48 M2). The region
+    /// lists a feature's parts in their stored order, 1-based and inclusive, so the command
+    /// extracts what the viewer's request extracts. A name the person typed is passed as one
+    /// `--option=value` word, so a name that starts with a hyphen stays a value, and each
+    /// sample is one `--samples` word, so a name may hold a comma.
+    public static func cliArguments(
+        source: ExtractionRequest.Source,
+        flank5Prime: Int,
+        flank3Prime: Int,
+        reverseComplement: Bool,
+        concatenateExons: Bool,
+        sourceBundleURL: URL,
+        bundleName: String?,
+        sampleFilter: Set<String>?,
+        outputBundleURL: URL
+    ) -> [String] {
+        let chromosome: String
+        let intervals: [(start: Int, end: Int)]
+        var feature: [String] = []
+        switch source {
+        case .region(let name, let start, let end):
+            chromosome = name
+            intervals = [(start, end)]
+        case .annotation(let annotation):
+            chromosome = annotation.chromosome ?? ""
+            intervals = annotation.intervals.map { ($0.start, $0.end) }
+            feature = ["--feature-name=\(annotation.name)", "--feature-type", annotation.type.rawValue]
+            if annotation.strand != .unknown {
+                feature += ["--strand", annotation.strand.rawValue]
+            }
+        }
+        let region = chromosome + ":" + intervals.map { "\($0.start + 1)-\($0.end)" }.joined(separator: ",")
+        var arguments = ["extract", "sequence", sourceBundleURL.path, region, "--bundle"] + feature
+        if reverseComplement { arguments.append("--reverse-complement") }
+        if concatenateExons { arguments.append("--concatenate-exons") }
+        if flank5Prime != 0 { arguments += ["--flank-5", String(flank5Prime)] }
+        if flank3Prime != 0 { arguments += ["--flank-3", String(flank3Prime)] }
+        if let bundleName, !bundleName.isEmpty { arguments.append("--name=\(bundleName)") }
+        if let sampleFilter {
+            arguments += sampleFilter.isEmpty ? ["--no-samples"] : sampleFilter.sorted().map { "--samples=\($0)" }
+        }
+        return arguments + ["--output", outputBundleURL.path, "--format", "json"]
     }
 }

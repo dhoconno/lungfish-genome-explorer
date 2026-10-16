@@ -165,6 +165,8 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
                 progressHandler?(0.20 + (progress * 0.65), message)
             }
         }
+        // A cancel that came while the bundle was built publishes nothing, and the stage goes.
+        try Task.checkCancellation()
         let bundleURL = try moveToRequestedOutputIfNeeded(
             builtBundleURL,
             request: request
@@ -172,11 +174,13 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
 
         do {
             progressHandler?(0.92, "Writing provenance...")
+            let completedAt = runClock.now
             try writeProvenance(
                 request: request,
                 bundleURL: bundleURL,
+                toolSteps: try await genomeToolSteps(bundleURL: bundleURL, startedAt: startedAt, completedAt: completedAt),
                 startedAt: startedAt,
-                completedAt: runClock.now
+                completedAt: completedAt
             )
         } catch {
             try? FileManager.default.removeItem(at: bundleURL)
@@ -221,11 +225,64 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
             at: outputBundleURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        if fileManager.fileExists(atPath: outputBundleURL.path) {
-            try fileManager.removeItem(at: outputBundleURL)
+        // The bundle is staged in the project's `.tmp/` and published under its name with one
+        // rename, so no reader sees a part of it there (2.11 A48 M2, SC5). A folder on another volume
+        // than the stage, which no rename can reach, is copied as before.
+        guard Self.onSameVolume(builtURL, outputBundleURL.deletingLastPathComponent()) else {
+            if fileManager.fileExists(atPath: outputBundleURL.path) {
+                try fileManager.removeItem(at: outputBundleURL)
+            }
+            try fileManager.moveItem(at: builtURL, to: outputBundleURL)
+            return outputBundleURL
         }
-        try fileManager.moveItem(at: builtURL, to: outputBundleURL)
+        if fileManager.fileExists(atPath: outputBundleURL.path) {
+            _ = try PortableRename.swap(builtURL, outputBundleURL)
+            try? fileManager.removeItem(at: builtURL) // the bundle it replaced
+        } else {
+            _ = try PortableRename.exclusive(builtURL, to: outputBundleURL)
+        }
         return outputBundleURL
+    }
+
+    private static func onSameVolume(_ first: URL, _ second: URL) -> Bool {
+        let key = URLResourceKey.volumeIdentifierKey
+        guard let one = try? first.resourceValues(forKeys: [key]).volumeIdentifier as? NSObject,
+              let other = try? second.resourceValues(forKeys: [key]).volumeIdentifier as? NSObject else {
+            return false
+        }
+        return one.isEqual(other)
+    }
+
+    /// The bgzip and samtools faidx steps that made the bundle's genome, each with the version of the
+    /// tool that ran and the argv the runner gave it, so the record names every tool of the run
+    /// (2.11 A48 M2, BIO 4). A bundle with no compressed genome names neither.
+    private func genomeToolSteps(bundleURL: URL, startedAt: Date, completedAt: Date) async throws -> [ProvenanceStep] {
+        let genome = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let compressed = genome.appendingPathComponent("sequence.fa.gz")
+        guard FileManager.default.fileExists(atPath: compressed.path) else { return [] }
+        let indexes = ["sequence.fa.gz.fai", "sequence.fa.gz.gzi"]
+            .map { genome.appendingPathComponent($0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        let threads = max(1, ProcessInfo.processInfo.activeProcessorCount - 1)
+        let bgzipArgv = ["bgzip", "-f"] + (threads > 1 ? ["-@", String(threads)] : []) + ["sequence.fa"]
+        let faidxArgv = ["samtools", "faidx", "sequence.fa.gz"]
+        let compressedDescriptor = try ProvenanceFileDescriptor.file(url: compressed, format: .fasta, role: .output)
+        let indexDescriptors = try indexes.map { try ProvenanceFileDescriptor.file(url: $0, format: .text, role: .index) }
+        let bgzipVersion = await toolRunner.getToolVersion(.bgzip) ?? "unknown"
+        let samtoolsVersion = await toolRunner.getToolVersion(.samtools) ?? "unknown"
+        let wallTime = completedAt.timeIntervalSince(startedAt)
+        return [
+            ProvenanceStep(
+                toolName: "bgzip", toolVersion: bgzipVersion, argv: bgzipArgv,
+                reproducibleCommand: bgzipArgv.joined(separator: " "), inputs: [], outputs: [compressedDescriptor],
+                exitStatus: 0, wallTimeSeconds: wallTime, stderr: nil, startedAt: startedAt, completedAt: completedAt
+            ),
+            ProvenanceStep(
+                toolName: "samtools faidx", toolVersion: samtoolsVersion, argv: faidxArgv,
+                reproducibleCommand: faidxArgv.joined(separator: " "), inputs: [compressedDescriptor], outputs: indexDescriptors,
+                exitStatus: 0, wallTimeSeconds: wallTime, stderr: nil, startedAt: startedAt, completedAt: completedAt
+            ),
+        ]
     }
 
     private func sourceInfo(for request: SequenceExtractionBundleBuildRequest) -> SourceInfo {
@@ -248,6 +305,7 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
     private func writeProvenance(
         request: SequenceExtractionBundleBuildRequest,
         bundleURL: URL,
+        toolSteps: [ProvenanceStep],
         startedAt: Date,
         completedAt: Date
     ) throws {
@@ -268,7 +326,7 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
             completedAt: completedAt
         )
 
-        let envelope = try ProvenanceRunBuilder(
+        let runBuilder = try ProvenanceRunBuilder(
             workflowName: request.commandContext.workflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: request.commandContext.toolName,
@@ -284,7 +342,8 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
         )
         .runtime(ProvenanceRuntimeIdentity())
         .step(step)
-        .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
+        let envelope = try toolSteps.reduce(runBuilder) { $0.step($1) }
+            .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
 
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
     }

@@ -72,7 +72,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (59)
+    // MARK: Leaves that emit events (60)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -94,6 +94,8 @@ package enum CLIEventContractTable {
         "demo fetch": .events(flag: formatJSON, channel: .standardOutput),
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "extract reads": .events(flag: formatJSON, channel: .standardOutput),
+        // Events since 2.11 A48 M2, with and without --bundle. It printed one `extract-sequence` document before.
+        "extract sequence": .events(flag: formatJSON, channel: .standardOutput),
         "fastq import-ont": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ingest": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
@@ -137,7 +139,7 @@ package enum CLIEventContractTable {
         "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]
 
-    // MARK: Leaves that print one JSON result (65)
+    // MARK: Leaves that print one JSON result (64)
 
     private static let results: [String: CLIEventContract] = [
         "analyze composition": .result(schemaID: "analyze-composition"),
@@ -156,7 +158,6 @@ package enum CLIEventContractTable {
         "debug fastq-ingest": .result(schemaID: "debug-fastq-ingest"),
         "demo info": .result(schemaID: "demo-info"),
         "demo list": .result(schemaID: "demo-list"),
-        "extract sequence": .result(schemaID: "extract-sequence"),
         "fastq genotype": .result(schemaID: "r5-genotype-cohort-report"),
         "fastq genotype-cohort": .result(schemaID: "r5-genotype-cohort-report"),
         "fastq ont-genotype": .result(schemaID: "fastq-ont-genotype"),
