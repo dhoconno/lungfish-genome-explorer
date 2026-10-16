@@ -124,8 +124,8 @@ extension TaxTriageParityHarness {
     /// The words of side C's command after `lungfish-cli`. They are the words the row of one
     /// sample records, with the samples' folder as the one `--input` and no `--sample` for
     /// several, as side B's pooled command, and `--project` in place of `--output`, so the run
-    /// lays out its folder as the app does (2.8 T4 and T17). X8 keeps its plain `--output` into
-    /// the folder side B writes (2.8 T2).
+    /// lays out its folder as the app does (2.8 T4 and T17), and the `run` subcommand the CLI
+    /// route spells. X8 keeps its plain `--output` into the folder side B writes (2.8 T2).
     func routedCommand(
         _ parityCase: TaxTriageParityCase,
         root: URL,
@@ -150,6 +150,12 @@ extension TaxTriageParityHarness {
             throw TaxTriageParityPooledCommandError(words: words)
         }
         words.replaceSubrange(index...(index + 1), with: ["--project", project.path])
+        // The route runs `taxtriage run --project` (`ClassifierCLIRouteLaunch.taxTriage`), so the command the
+        // live class runs spells the subcommand as the route does. A fact pins the two to the same words (the
+        // review of U30 M3, fix 5).
+        if words.first == "taxtriage", words.dropFirst().first != "run" {
+            words.insert("run", at: 1)
+        }
         return words
     }
 

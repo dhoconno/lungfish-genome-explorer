@@ -360,6 +360,23 @@ extension TaxTriageParityHarness {
         if words == nil || words != recorded {
             violate("the row's command is the argv the root record names", "row \(words ?? []), record \(recorded ?? [])")
         }
+        // Q32's live class runs `routedCommand` as side C (the legacy row's words with --project in place of
+        // --output, TaxTriageParityLiveConformanceTests.swift:204), so for one sample the route must run the
+        // same words, else the real-engine evidence is for a command that does not ship (review of U30 M3).
+        // The transport adds --format json, which `routedCommand` leaves to the binary runner.
+        if samples.count == 1, let words {
+            let routed = try? routedCommand(parityCase, root: run.project.deletingLastPathComponent(), engine: engine)
+            let ran = Self.withoutFormat(words)
+            if routed.map(Self.withoutFormat) != ran {
+                violate("the route's command is the command Q32's live class runs as side C", "route \(ran), routed \(routed ?? [])")
+            }
+        }
+    }
+
+    /// `words` without its `--format <value>` pair.
+    private nonisolated static func withoutFormat(_ words: [String]) -> [String] {
+        guard let index = words.firstIndex(of: "--format"), index + 1 < words.count else { return words }
+        return Array(words[..<index]) + Array(words[(index + 2)...])
     }
 
     // MARK: - Named files
