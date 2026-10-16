@@ -181,4 +181,12 @@ enum TaxTriageParityPayloads {
         }
         return lines
     }
+
+    /// One line per expected sample that `side` holds no payload of an asserted kind for. Without it a side that kept
+    /// nothing compares equal to another side that kept nothing.
+    static func missing(in payloads: [TaxTriageParityPayload], side: TaxTriageParitySide, expectedSamples: [String]) -> [String] {
+        expectedSamples
+            .filter { sample in !payloads.contains { $0.sample == sample && $0.kind.isAsserted } }
+            .map { "side \(side) holds no report, per-read output or kept reads for \($0)" }
+    }
 }

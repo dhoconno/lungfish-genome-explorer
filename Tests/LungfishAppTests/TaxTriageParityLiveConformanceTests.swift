@@ -111,6 +111,10 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
             XCTAssertEqual(rows.filter { $0.side == side }.map(\.key), [accessionMap, report, topReport], side)
         }
         XCTAssertEqual(Set(rows.map(\.sample)), [sample])
+        for side in TaxTriageParityLivePass.sides {
+            XCTAssertEqual(TaxTriageParityPayloads.missing(in: pass.payloads[side] ?? [], side: side, expectedSamples: [sample]), [], "\(side)")
+        }
+        XCTAssertEqual(TaxTriageParityPayloads.missing(in: [], side: .c, expectedSamples: [sample]).count, 1)
         XCTAssertEqual(rows.first { $0.key == report }?.kind, .report)
         let records = try TaxTriageParityEvidence.savedRecords(in: written)
         for side in TaxTriageParityLivePass.sides {
@@ -219,6 +223,12 @@ final class TaxTriageParityLiveConformanceTests: XCTestCase {
             findings["\(scope), source manifests"] = (pass.found[scope] ?? [])
                 .filter { $0.id.hasPrefix("source manifest:") }
                 .map { "not declared: \($0)" }
+        }
+        let expectedSamples = pass.parityCase.bundlePaths.map { TaxTriageParitySampleFacts.forBundle($0).sampleID }
+        for side in TaxTriageParityLivePass.sides {
+            findings["side \(side), payloads held"] = TaxTriageParityPayloads.missing(
+                in: pass.payloads[side] ?? [], side: side, expectedSamples: expectedSamples
+            )
         }
         let comparisons = try TaxTriageParityEvidence.comparisons(pass, baseline: baseline)
         for comparison in comparisons {
