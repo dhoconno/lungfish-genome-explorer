@@ -179,8 +179,9 @@ public enum ProjectTempDirectory {
     /// - Parameters:
     ///   - prefix: A string prepended to the UUID-based directory name.
     ///   - projectURL: The `.lungfish` project directory, or `nil` for system fallback.
+    ///   - keepIntermediates: Whether the marker says the folder is kept for debugging, which no sweep removes.
     /// - Returns: URL of the newly created directory.
-    public static func create(prefix: String, in projectURL: URL?) throws -> URL {
+    public static func create(prefix: String, in projectURL: URL?, keepIntermediates: Bool = false) throws -> URL {
         guard !prefix.isEmpty,
               DurableAtomicFileStore.isSinglePathComponent(prefix + "x") else {
             throw DurableAtomicFileStore.StoreError.invalidFileName(prefix)
@@ -223,7 +224,7 @@ public enum ProjectTempDirectory {
                 processIdentity: try OwnedProcessIdentity.current(),
                 state: .active,
                 lockRelativePath: nil,
-                keepIntermediates: false,
+                keepIntermediates: keepIntermediates,
                 toolName: "ProjectTempDirectory",
                 toolVersion: currentToolVersion
             )
@@ -232,7 +233,7 @@ public enum ProjectTempDirectory {
             return directory
         }
 
-        return try SystemTempScratchSweep.createMarkedDirectory(prefix: prefix, in: systemTemporaryDirectory(), toolVersion: currentToolVersion)
+        return try SystemTempScratchSweep.createMarkedDirectory(prefix: prefix, in: systemTemporaryDirectory(), toolVersion: currentToolVersion, keepIntermediates: keepIntermediates)
     }
 
     /// The system scratch root for a run with no project context.
@@ -286,6 +287,7 @@ public enum ProjectTempDirectory {
     ///   - prefix: A string prepended to the UUID-based directory name.
     ///   - contextURL: Any URL inside a project (used to resolve project root). Can be nil for `systemOnly`.
     ///   - policy: Controls where the temp directory is created.
+    ///   - keepIntermediates: Whether the marker says the folder is kept for debugging, which no sweep removes.
     ///   - caller: Auto-captured source location for provenance.
     ///   - line: Auto-captured source line for provenance.
     /// - Returns: URL of the newly created directory.
@@ -293,6 +295,7 @@ public enum ProjectTempDirectory {
         prefix: String,
         contextURL: URL?,
         policy: TempScopePolicy,
+        keepIntermediates: Bool = false,
         caller: StaticString = #fileID,
         line: UInt = #line
     ) throws -> URL {
@@ -322,7 +325,7 @@ public enum ProjectTempDirectory {
             projectURL = nil
         }
 
-        let dirURL = try create(prefix: prefix, in: projectURL)
+        let dirURL = try create(prefix: prefix, in: projectURL, keepIntermediates: keepIntermediates)
 
         // Write provenance marker
         let marker = TempOriginMarker(

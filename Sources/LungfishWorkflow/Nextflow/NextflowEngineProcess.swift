@@ -55,7 +55,7 @@ package struct NextflowEngineProcess: Sendable {
     /// since an external project drive is usually far larger than the boot volume. A volume without
     /// `fcntl` locks, or one that adds AppleDouble sidecars, such as ExFAT through FSKit, puts it in
     /// the system temp folder (``NextflowScratchVolumeProbe``). With the configuration's keep-work key
-    /// set to `1` the scratch has no removal root, so ``finish(_:_:)`` keeps it for debugging.
+    /// set to `1` the scratch has no removal root and its marker says so, so ``finish(_:_:)`` and the sweeps keep it.
     ///
     /// - Parameters:
     ///   - volumeQualifiesForScratch: The probe's answer, asked of the volume when nil.
@@ -67,10 +67,12 @@ package struct NextflowEngineProcess: Sendable {
     ) throws -> NextflowEngineScratch {
         let scratchCapable = volumeQualifiesForScratch
             ?? NextflowScratchVolumeProbe.volumeSupportsNextflowScratch(at: contextURL)
+        let keepsWork = configuration.keepWorkEnvironmentKey.map { environment[$0] == "1" } ?? false
         let root = try ProjectTempDirectory.create(
             prefix: configuration.scratchPrefix,
             contextURL: contextURL,
-            policy: scratchCapable ? .preferProjectContext : .systemOnly
+            policy: scratchCapable ? .preferProjectContext : .systemOnly,
+            keepIntermediates: keepsWork
         )
         let workDirectory = root.appendingPathComponent("work", isDirectory: true)
         do {
@@ -79,7 +81,6 @@ package struct NextflowEngineProcess: Sendable {
             try? FileManager.default.removeItem(at: root)
             throw error
         }
-        let keepsWork = configuration.keepWorkEnvironmentKey.map { environment[$0] == "1" } ?? false
         if keepsWork {
             logger.info("Keeping the Nextflow launch scratch at \(root.path, privacy: .public)")
         }

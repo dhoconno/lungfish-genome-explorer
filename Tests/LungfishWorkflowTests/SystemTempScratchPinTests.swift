@@ -98,6 +98,36 @@ final class SystemTempScratchPinTests: XCTestCase {
         XCTAssertTrue(seen.underTmp.isEmpty, "nothing stages under the project .tmp, saw \(seen.underTmp.sorted())")
     }
 
+    /// S32 review fix 1. `LUNGFISH_TAXTRIAGE_KEEP_WORK=1` keeps a run's scratch for debugging, and the
+    /// engine promises that a kept scratch is never removed. In the system temp folder the marker must
+    /// say so, since the launch sweep reads it there. The pin uses TaxTriage's own engine settings,
+    /// because the sweep claims only LGE prefixes (`taxtriage-run-`) and `.forTests()` has none.
+    func testAKeepWorkScratchInTheSystemTempFolderSurvivesTheSweep() throws {
+        let project = try makeProject("Keep.lungfish")
+        let analysis = project.appendingPathComponent("Analyses/taxtriage-1", isDirectory: true)
+        try FileManager.default.createDirectory(at: analysis, withIntermediateDirectories: true)
+        let engine = NextflowEngineProcess(
+            configuration: NextflowWorkflowDescriptor.taxTriage.engineConfiguration(profile: "local")
+        )
+
+        let scratch = try engine.makeScratch(
+            contextURL: analysis,
+            volumeQualifiesForScratch: false,
+            environment: [TaxTriagePipeline.keepWorkEnvironmentKey: "1"]
+        )
+        engine.finish(scratch, .remove)
+
+        let name = scratch.launchDirectory.lastPathComponent
+        let marker = try OwnedWorkDirectoryMarkerStore.load(
+            from: scratch.launchDirectory.resolvingSymlinksInPath(),
+            expectedProjectURL: systemTemp
+        )
+        XCTAssertTrue(marker.keepIntermediates, "the marker of a scratch kept for debugging says so")
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp, processInspector: { _ in nil })
+        XCTAssertEqual(outcome.refused[name], .keptForDebugging)
+        XCTAssertTrue(Self.isDirectory(scratch.launchDirectory), "the sweep leaves a scratch kept for debugging")
+    }
+
     // MARK: - Helpers
 
     private func makeProject(_ name: String) throws -> URL {

@@ -14,7 +14,7 @@ private let logger = Logger(subsystem: LogSubsystem.io, category: "SystemTempScr
 ///
 /// A run with no project, a volume the Nextflow scratch probe rejects and the space-free staging of
 /// TaxTriage and nf-core all put scratch in the system temp folder, and a cancelled executor run
-/// leaves its scratch for a sweep (P3). ``createMarkedDirectory(prefix:in:toolVersion:)`` gives each
+/// leaves its scratch for a sweep (P3). ``createMarkedDirectory(prefix:in:toolVersion:keepIntermediates:)`` gives each
 /// such folder the ``OwnedWorkDirectoryMarker`` that project scratch gets, bound to the temp folder
 /// and naming the creating process by PID, start time and boot session.
 ///
@@ -73,8 +73,9 @@ public enum SystemTempScratchSweep {
     /// names the current process, the user's alone (`0700`), as project scratch is made.
     ///
     /// The marker binds the physical folder, so `/var/...` and `/private/var/...` name one root. The
-    /// returned URL keeps the caller's spelling of `root`.
-    static func createMarkedDirectory(prefix: String, in root: URL, toolVersion: String) throws -> URL {
+    /// returned URL keeps the caller's spelling of `root`. With `keepIntermediates` the marker says
+    /// the folder is kept for debugging, and the sweep never removes it.
+    static func createMarkedDirectory(prefix: String, in root: URL, toolVersion: String, keepIntermediates: Bool = false) throws -> URL {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let physicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
         let created = try OwnedWorkDirectoryMarkerStore.createDirectory(
@@ -86,7 +87,7 @@ public enum SystemTempScratchSweep {
                 processIdentity: try OwnedProcessIdentity.current(),
                 state: .active,
                 lockRelativePath: nil,
-                keepIntermediates: false,
+                keepIntermediates: keepIntermediates,
                 toolName: "ProjectTempDirectory",
                 toolVersion: toolVersion
             )
