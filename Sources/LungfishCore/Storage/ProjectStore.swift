@@ -1516,26 +1516,7 @@ public enum ProjectStoreError: Error, LocalizedError, Sendable {
     }
 }
 
-private final class ProjectStoreWriterLease: @unchecked Sendable {
-    let lockURL: URL
-    let record: ProjectLockRecord
-    private let synchronization: ProjectStoreSynchronization
-    init(lockURL: URL, record: ProjectLockRecord, synchronization: ProjectStoreSynchronization) {
-        self.lockURL = lockURL
-        self.record = record
-        self.synchronization = synchronization
-    }
-    deinit {
-        synchronization.leaseLock.lock()
-        defer { synchronization.leaseLock.unlock() }
-        let manager = ProjectLockManager()
-        if (try? manager.readLock(at: lockURL)) == record {
-            try? manager.removeLockIfPresent(at: lockURL)
-        }
-    }
-}
-
-private final class ProjectStoreSynchronization: @unchecked Sendable {
+final class ProjectStoreSynchronization: @unchecked Sendable {
     let lock = NSRecursiveLock()
     let leaseLock = NSRecursiveLock()
     // Access only while leaseLock is held. Each live store retains this domain.
