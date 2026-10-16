@@ -4,7 +4,7 @@
 //
 // Phase 2.10 lane A30 M3, ARCH's ruling on M3 (commit 4, decision N5). After a run that exits 0 the command reads the
 // run's own trace for ignored tasks and its results for failed samples, and prints one warning line for each kind on
-// standard error with UX's words, even under --quiet. The Docker wait's two lines reach standard output through the
+// standard error with UX's words, even under --quiet. The Docker wait's three lines reach standard output through the
 // runner's progress closure. Each case runs the command in this process on a stand-in runner that writes what a run
 // of nf-core/viralrecon 3.0.0 leaves in its results folder (WorkflowRunCapture.swift).
 

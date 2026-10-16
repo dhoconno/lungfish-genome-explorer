@@ -126,7 +126,7 @@ extension RunSubcommand {
         do {
             try Self.nfCoreWorkflowProcessRunner.preflightEngine()
             // The docker profile waits for the Docker daemon. A cancel ends the wait at once, and a Docker
-            // Desktop that cannot be started fails the run at once (2.9 N9). The wait's two lines keep the
+            // Desktop that cannot be started fails the run at once (2.9 N9). The wait's three lines keep the
             // engine's words (rule 2 of the contract's section 5), and under --format json they are progress events.
             try await Self.nfCoreWorkflowProcessRunner.waitForDocker(
                 profile: request.executor.rawValue,

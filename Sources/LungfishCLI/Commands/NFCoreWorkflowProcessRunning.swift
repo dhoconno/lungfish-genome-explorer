@@ -30,8 +30,9 @@ protocol NFCoreWorkflowProcessRunning: Sendable {
     func preflightEngine() throws
     /// Waits for the Docker daemon when a launch with `profile` runs its tasks in Docker (2.9 N9).
     ///
-    /// `progress` gets the engine's two lines and their fractions, `Docker daemon unavailable. Launching Docker
-    /// Desktop...` at 0.01 and `Docker daemon ready` at 0.02, which the command prints (ARCH's ruling on A30 M3).
+    /// `progress` gets the engine's three lines and their fractions, `Docker daemon unavailable. Launching Docker
+    /// Desktop...` at 0.01, `Docker daemon ready` at 0.02 and `Starting the pipeline...` at 0.03, which the command
+    /// prints (ARCH's ruling on A30 M3, and 2.11 U64).
     ///
     /// - Throws: `CancellationError` at once on a cancel, and a `NextflowEngineError` when Docker Desktop
     ///   cannot be started or the daemon does not answer in time.

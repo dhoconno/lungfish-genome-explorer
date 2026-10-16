@@ -4,10 +4,10 @@
 //
 // Phase 2.10 lane A30 M3, ARCH's ruling on M3 (commit 5). `workflow run` is an events leaf. Under --format json its
 // standard output holds only `CLIEvent` lines: an empty `start`, the lines text mode prints as info events, the Docker
-// wait's two lines as progress at 0.01 and 0.02, the outcome lines as warning log events, and `complete` with the run
-// bundle and the results folder, or `failed`. The empty `start` leaves a row's first detail alone, and the words
-// `Preparing workflow` come as the first info event (A30 M3 review, fix 3). The missing annotation notice is an info
-// event with its words unchanged. Each case runs the command in this process on the stand-in runners of
+// wait's three lines as progress at 0.01, 0.02 and 0.03, the outcome lines as warning log events, and `complete`
+// with the run bundle and the results folder, or `failed`. The empty `start` leaves a row's first detail alone, and
+// the words `Preparing workflow` come as the first info event (A30 M3 review, fix 3). The missing annotation notice
+// is an info event with its words unchanged. Each case runs the command in this process on the stand-in runners of
 // WorkflowRunCapture.swift.
 //
 // The three Viral Recon cases are the transcripts of the leaf, `Tests/Fixtures/cli-events/commands/workflow-run`, with

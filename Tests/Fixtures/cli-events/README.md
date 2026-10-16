@@ -167,7 +167,7 @@ Lane Q4 of Phase 2.7 ran `import-fastq`, the folder of `import fastq` and `impor
 
 ### Captured on a stand-in Nextflow
 
-`workflow-run` holds three runs of `workflow run nf-core/viralrecon --format json` in process, on the stand-in runner of `Tests/LungfishCLITests/WorkflowRunCapture.swift`, which reports the Docker wait's two lines and writes the iVar tables of the samples it calls (lane A30 of Phase 2.10). The samplesheet names two paired samples, S1 and S2. `complete` calls both. `complete-with-warning` calls only S1 and leaves a trace in which Pangolin's task of S1 failed with no retry, so the run logs one warning for the ignored task and one for the failed sample. `failed` has the engine exit 1. The case's folder is rewritten to `/work`, and nothing else is edited. `WorkflowRunEventsTests` fails when a run no longer prints its file, and writes the files again with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`.
+`workflow-run` holds three runs of `workflow run nf-core/viralrecon --format json` in process, on the stand-in runner of `Tests/LungfishCLITests/WorkflowRunCapture.swift`, which reports the Docker wait's three lines and writes the iVar tables of the samples it calls (lane A30 of Phase 2.10). The samplesheet names two paired samples, S1 and S2. `complete` calls both. `complete-with-warning` calls only S1 and leaves a trace in which Pangolin's task of S1 failed with no retry, so the run logs one warning for the ignored task and one for the failed sample. `failed` has the engine exit 1. The case's folder is rewritten to `/work`, and nothing else is edited. `WorkflowRunEventsTests` fails when a run no longer prints its file, and writes the files again with `LUNGFISH_RECAPTURE_CLI_EVENTS=1`.
 
 ## import-fastq-runs
 

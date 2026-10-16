@@ -11,10 +11,10 @@ import LungfishWorkflow
 ///
 /// Text mode prints as the command always has. Under `--format json` standard output holds only `CLIEvent` lines
 /// (`docs/formats/cli-events.md`). The first is `start`, each line text mode prints on standard output becomes an
-/// info `log` event, the Docker wait's two lines become `progress` events at 0.01 and 0.02, the run's outcome lines
-/// become `log` events at `warning`, and the run ends with `complete`, naming the run bundle and the results folder,
-/// or `failed`. Standard error keeps the lines text mode prints there but the outcome lines, so the tail of a failure
-/// reads the same and a reader never takes an outcome twice.
+/// info `log` event, the Docker wait's three lines become `progress` events at 0.01, 0.02 and 0.03, the run's
+/// outcome lines become `log` events at `warning`, and the run ends with `complete`, naming the run bundle and the
+/// results folder, or `failed`. Standard error keeps the lines text mode prints there but the outcome lines, so the
+/// tail of a failure reads the same and a reader never takes an outcome twice.
 struct WorkflowRunOutput: Sendable {
     let formatter: TerminalFormatter
     let quiet: Bool
