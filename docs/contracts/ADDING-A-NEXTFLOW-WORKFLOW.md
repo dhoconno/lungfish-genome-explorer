@@ -21,8 +21,8 @@ A workflow is one `NextflowWorkflowDescriptor` value. The type is declared in `S
 | `argumentLayout` | How a launch orders its options after the target | `inputFirst` | `sortedParameters` |
 | `scratchPrefix` | The name prefix of a run's scratch folder | `taxtriage-run-` | `nfcore-run-` |
 | `keepWorkEnvironmentKey` | The variable that keeps the scratch after a run when it is `1`, or nil | `LUNGFISH_TAXTRIAGE_KEEP_WORK` | nil |
-| `expectedTaskCountPerSample` | The tasks one sample runs, which the progress bar counts against, or nil for the engine's own estimate | nil | nil |
-| `finalizeProgressShare` | The share at the end of the progress bar that the finalize phase takes, at least 0 and less than 1 | 0.1 | 0 |
+| `expectedTaskCountPerSample` | The tasks one sample runs, which the row's progress counts against, or nil for the engine's own estimate | nil | nil |
+| `finalizeProgressShare` | The share at the end of the row's progress that the finalize phase takes, at least 0 and less than 1 | 0.1 | 0 |
 
 ### The pin comes only from the lock
 
