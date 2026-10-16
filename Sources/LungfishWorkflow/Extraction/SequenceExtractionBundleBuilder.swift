@@ -56,6 +56,11 @@ public struct SequenceExtractionBundleBuildRequest: Sendable {
     /// The samples whose calls the variant tracks keep, or nil for every sample.
     public let sampleFilter: Set<String>?
     public let isConcatenated: Bool
+    /// When a bundle already holds `outputBundleURL`'s name at the publish, the new bundle takes the
+    /// next free name (`_1`, `_2`) and replaces nothing, and its identifier, the plain path's manifest
+    /// name and its record follow the name it took (2.11 A48 M1 review Fix 6, SC5). When false the
+    /// bundle replaces the one there, as a typed `-o` asks.
+    public let publishesUnderNextFreeName: Bool
     public let commandContext: SequenceExtractionBundleCommandContext
 
     public init(
@@ -70,6 +75,7 @@ public struct SequenceExtractionBundleBuildRequest: Sendable {
         sourceVariantTracks: [SequenceExtractionSourceVariantTrack] = [],
         sampleFilter: Set<String>? = nil,
         isConcatenated: Bool = false,
+        publishesUnderNextFreeName: Bool = false,
         commandContext: SequenceExtractionBundleCommandContext
     ) {
         self.result = result
@@ -83,6 +89,7 @@ public struct SequenceExtractionBundleBuildRequest: Sendable {
         self.sourceVariantTracks = sourceVariantTracks
         self.sampleFilter = sampleFilter
         self.isConcatenated = isConcatenated
+        self.publishesUnderNextFreeName = publishesUnderNextFreeName
         self.commandContext = commandContext
     }
 
@@ -149,7 +156,7 @@ public final class SequenceExtractionBundleBuilder: Sendable {
         } else {
             let configuration = BuildConfiguration(
                 name: bundleName,
-                identifier: "org.lungfish.extracted.\(bundleName.lowercased().replacingOccurrences(of: " ", with: "-"))",
+                identifier: Self.extractedIdentifier(forBundleNamed: bundleName),
                 fastaURL: fastaURL,
                 outputDirectory: buildOutputDirectory,
                 source: sourceInfo(for: request),
@@ -225,6 +232,9 @@ public final class SequenceExtractionBundleBuilder: Sendable {
             at: outputBundleURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        if request.publishesUnderNextFreeName {
+            return try publishUnderNextFreeName(builtURL, planned: outputBundleURL, keepsManifestName: request.usesTrackPath)
+        }
         // The bundle is staged in the project's `.tmp/` and published under its name with one
         // rename, so no reader sees a part of it there (2.11 A48 M2, SC5). A folder on another volume
         // than the stage, which no rename can reach, is copied as before.
@@ -242,6 +252,65 @@ public final class SequenceExtractionBundleBuilder: Sendable {
             _ = try PortableRename.exclusive(builtURL, to: outputBundleURL)
         }
         return outputBundleURL
+    }
+
+    /// Moves the staged bundle to `planned`, or to the next free name when a bundle holds it, and never
+    /// replaces one. Another run may publish a name between the check and the rename, so a refused
+    /// rename tries the next name, as `fetch genome` publishes. A bundle that takes another name gets
+    /// that name's identifier, and on the plain path its manifest name, before it appears there, as a
+    /// run that started later would have named it (2.11 A48 M1 review Fix 6, SC5).
+    private func publishUnderNextFreeName(_ builtURL: URL, planned: URL, keepsManifestName: Bool) throws -> URL {
+        let directory = planned.deletingLastPathComponent()
+        let baseName = planned.deletingPathExtension().lastPathComponent
+        let sameVolume = Self.onSameVolume(builtURL, directory)
+        for _ in 0..<32 {
+            let destination = BundleBuildHelpers.makeUniqueBundleURL(
+                baseName: baseName,
+                in: directory,
+                emptyNameFallback: BundleBuildHelpers.extractedSequenceBundleName
+            )
+            if destination.path != planned.path {
+                try Self.renameManifest(in: builtURL, to: destination, keepingName: keepsManifestName)
+            }
+            do {
+                if sameVolume {
+                    _ = try PortableRename.exclusive(builtURL, to: destination)
+                } else {
+                    // A folder on another volume than the stage, which no rename reaches. The move
+                    // refuses a name that is taken too.
+                    try FileManager.default.moveItem(at: builtURL, to: destination)
+                }
+                return destination
+            } catch where FileManager.default.fileExists(atPath: destination.path) {
+                continue // Another run published this name after the check.
+            }
+        }
+        throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: planned.path])
+    }
+
+    /// The identifier of an extracted bundle in the folder `<bundleName>.lungfishref`, on both paths.
+    static func extractedIdentifier(forBundleNamed bundleName: String) -> String {
+        "org.lungfish.extracted.\(bundleName.lowercased().replacingOccurrences(of: " ", with: "-"))"
+    }
+
+    /// Gives the staged bundle at `bundleURL` the identifier of `destination`'s name, and that name as
+    /// its manifest name unless `keepingName`, since the track path's manifest keeps the name the
+    /// person typed. The manifest goes through its own coding, so every other field stays as written.
+    private static func renameManifest(in bundleURL: URL, to destination: URL, keepingName: Bool) throws {
+        let name = destination.deletingPathExtension().lastPathComponent
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let encoded = try encoder.encode(BundleManifest.load(from: bundleURL))
+        guard var fields = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: bundleURL.path])
+        }
+        fields["identifier"] = extractedIdentifier(forBundleNamed: name)
+        if !keepingName {
+            fields["name"] = name
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        try decoder.decode(BundleManifest.self, from: JSONSerialization.data(withJSONObject: fields)).save(to: bundleURL)
     }
 
     private static func onSameVolume(_ first: URL, _ second: URL) -> Bool {
@@ -311,6 +380,8 @@ public final class SequenceExtractionBundleBuilder: Sendable {
     ) throws {
         let inputDescriptors = try inputDescriptors(for: request)
         let outputDescriptors = try outputDescriptors(in: bundleURL)
+        // A bundle published under the next free name records the folder it took.
+        let tookAnotherName = request.outputBundleURL.map { $0.standardizedFileURL.path != bundleURL.path } ?? false
         let reproducibleCommand = request.commandContext.argv.map { shellEscape($0) }.joined(separator: " ")
         let step = ProvenanceStep(
             toolName: request.commandContext.toolName,
@@ -338,7 +409,7 @@ public final class SequenceExtractionBundleBuilder: Sendable {
             explicit: request.commandContext.explicitOptions,
             defaults: request.commandContext.defaultOptions,
             resolved: request.commandContext.resolvedOptions
-                .merging(["output_bundle": .file(bundleURL)]) { current, _ in current }
+                .merging(["output_bundle": .file(bundleURL)]) { current, published in tookAnotherName ? published : current }
         )
         .runtime(ProvenanceRuntimeIdentity())
         .step(step)

@@ -89,6 +89,8 @@ public final class SequenceExtractionPipeline: Sendable {
                 sourceVariantTracks: sourceVariantTracks,
                 sampleFilter: sampleFilter,
                 isConcatenated: isConcatenated,
+                // The name was picked at the start, so a run that overlaps this one may publish it first.
+                publishesUnderNextFreeName: true,
                 commandContext: context
             ),
             progressHandler: progressHandler
@@ -196,7 +198,8 @@ public final class SequenceExtractionPipeline: Sendable {
     /// lists a feature's parts in their stored order, 1-based and inclusive, so the command
     /// extracts what the viewer's request extracts. A name the person typed is passed as one
     /// `--option=value` word, so a name that starts with a hyphen stays a value, and each
-    /// sample is one `--samples` word, so a name may hold a comma.
+    /// sample is one `--samples` word, so a name may hold a comma. `--next-free-name` keeps a
+    /// bundle that another run published under the name while this one built (Fix 6, SC5).
     public static func cliArguments(
         source: ExtractionRequest.Source,
         flank5Prime: Int,
@@ -206,7 +209,8 @@ public final class SequenceExtractionPipeline: Sendable {
         sourceBundleURL: URL,
         bundleName: String?,
         sampleFilter: Set<String>?,
-        outputBundleURL: URL
+        outputBundleURL: URL,
+        nextFreeName: Bool = true
     ) -> [String] {
         let chromosome: String
         let intervals: [(start: Int, end: Int)]
@@ -233,6 +237,8 @@ public final class SequenceExtractionPipeline: Sendable {
         if let sampleFilter {
             arguments += sampleFilter.isEmpty ? ["--no-samples"] : sampleFilter.sorted().map { "--samples=\($0)" }
         }
-        return arguments + ["--output", outputBundleURL.path, "--format", "json"]
+        arguments += ["--output", outputBundleURL.path]
+        if nextFreeName { arguments.append("--next-free-name") }
+        return arguments + ["--format", "json"]
     }
 }

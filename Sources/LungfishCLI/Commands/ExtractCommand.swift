@@ -121,6 +121,12 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("no-samples"), help: "With --bundle, keep the variant calls of no sample")
     var noSamples: Bool = false
 
+    @Flag(
+        name: .customLong("next-free-name"),
+        help: "With --bundle, when a bundle holds the name -o gives, publish under the next free name (_1, _2 and so on) and replace nothing"
+    )
+    var nextFreeName: Bool = false
+
     @Option(
         name: .customLong("feature-name"),
         help: "With --bundle, extract this feature, whose parts the region lists in order as name:start-end,start-end"

@@ -111,7 +111,7 @@ extension SequenceExtractionBundleBuilder {
         }
         let manifest = BundleManifest(
             name: request.desiredBundleName ?? result.sourceName,
-            identifier: "org.lungfish.extracted.\(bundleName.lowercased().replacingOccurrences(of: " ", with: "-"))",
+            identifier: Self.extractedIdentifier(forBundleNamed: bundleName),
             description: description,
             source: SourceInfo(
                 organism: request.sourceBundleName ?? "Unknown",

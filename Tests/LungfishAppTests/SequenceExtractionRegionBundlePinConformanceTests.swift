@@ -86,6 +86,131 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
         try assertSnapshot(names.joined(separator: "\n"), Self.emptyNames, "empty names")
     }
 
+    /// Two extractions with one name that overlap keep both bundles, on each path. The run that
+    /// publishes second finds the name taken, takes the next free one and replaces nothing, and each
+    /// bundle holds its own record and identifier (2.11 A48 M1 review Fix 6, SC5). Before, both runs
+    /// published under the name picked at their start, and the later one replaced the earlier. The
+    /// rival form publishes the other bundle while the run builds, so the overlap never depends on
+    /// timing. The pair form runs two extractions at once, which need not overlap. Each path is its
+    /// own call, so a failure names the path's line.
+    func testOverlappingRegionExtractionsWithOneNameKeepBothBundles() async throws {
+        try await requireTools()
+        let source = try makeSourceBundle()
+        try await assertOverlappingRunsKeepBothBundles(source: source.bundle, trackPath: false)
+        try await assertOverlappingRunsKeepBothBundles(source: source.bundle, trackPath: true)
+    }
+
+    private func assertOverlappingRunsKeepBothBundles(
+        source: URL, trackPath: Bool, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let path = trackPath ? "track" : "plain"
+        let filter: Set<String>? = trackPath ? [] : nil
+        let result = regionResult(sourceName: "chr1:11-40")
+
+        let output = try folder("rival-\(path)")
+        let rival = output.appendingPathComponent("Name.lungfishref", isDirectory: true)
+        let published = try await SequenceExtractionPipeline().buildBundle(
+            from: result, outputDirectory: output, sourceBundleURL: source,
+            sourceBundleName: "Source Ref", desiredBundleName: "Name", sampleFilter: filter
+        ) { fraction, _ in
+            // The first progress comes after the run picked its name and before it publishes.
+            guard fraction <= 0.10 else { return }
+            try? FileManager.default.createDirectory(at: rival, withIntermediateDirectories: true)
+            try? "rival".write(to: rival.appendingPathComponent("rival.txt"), atomically: true, encoding: .utf8)
+        }
+        XCTAssertEqual(published.lastPathComponent, "Name_1.lungfishref", "\(path) path", file: file, line: line)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: rival.path), ["rival.txt"],
+            "\(path) path left the rival bundle as it was", file: file, line: line
+        )
+        try assertOwnBundle(published, trackPath: trackPath, file: file, line: line)
+
+        let pair = try folder("pair-\(path)")
+        async let first = SequenceExtractionPipeline().buildBundle(
+            from: result, outputDirectory: pair, sourceBundleURL: source,
+            sourceBundleName: "Source Ref", desiredBundleName: "Name", sampleFilter: filter)
+        async let second = SequenceExtractionPipeline().buildBundle(
+            from: result, outputDirectory: pair, sourceBundleURL: source,
+            sourceBundleName: "Source Ref", desiredBundleName: "Name", sampleFilter: filter)
+        let bundles = try await [first, second]
+        let names = try FileManager.default.contentsOfDirectory(atPath: pair.path)
+            .filter { $0.hasSuffix(".lungfishref") }.sorted()
+        XCTAssertEqual(names, ["Name.lungfishref", "Name_1.lungfishref"], "\(path) pair", file: file, line: line)
+        XCTAssertEqual(bundles.map(\.lastPathComponent).sorted(), names, "\(path) pair", file: file, line: line)
+        for bundleURL in bundles {
+            try assertOwnBundle(bundleURL, trackPath: trackPath, file: file, line: line)
+        }
+    }
+
+    /// The bundle's identifier follows its folder, its manifest name does on the plain path, and its
+    /// record names it as the output and lists only its files.
+    private func assertOwnBundle(
+        _ bundleURL: URL, trackPath: Bool, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let label = "\(trackPath ? "track" : "plain") \(bundleURL.lastPathComponent)"
+        let folderName = bundleURL.deletingPathExtension().lastPathComponent
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(manifest.identifier, "org.lungfish.extracted.\(folderName.lowercased())", label, file: file, line: line)
+        XCTAssertEqual(manifest.name, trackPath ? "Name" : folderName, label, file: file, line: line)
+        let envelope = try record(of: bundleURL)
+        guard case .file(let recorded)? = envelope.options.resolvedDefaults["output_bundle"] else {
+            return XCTFail("\(label) records no output bundle", file: file, line: line)
+        }
+        XCTAssertEqual(recorded.lastPathComponent, bundleURL.lastPathComponent, label, file: file, line: line)
+        let outputs = try XCTUnwrap(envelope.steps.first, file: file, line: line).outputs.map(\.path)
+        XCTAssertFalse(outputs.isEmpty, label, file: file, line: line)
+        XCTAssertTrue(
+            outputs.allSatisfy { $0.contains("/\(bundleURL.lastPathComponent)/") },
+            "\(label) lists only its own files: \(outputs)", file: file, line: line
+        )
+    }
+
+    /// A viewer style source, a bundle in a project whose `genome` folder links to the reference it
+    /// came from, gives a plain record whose inputs name that genome and its index outside the source
+    /// (2.11 A48 M1 review Fixes 3 and 5, BIO 6). Before the fold the plain path's lookup refused the
+    /// link, and the record named neither.
+    func testThePlainRecordNamesGenomeMembersOutsideTheSource() async throws {
+        try await requireTools()
+        let project = try folder("Test.lungfish")
+        let reference = project.appendingPathComponent("Reference Sequences/src.lungfishref", isDirectory: true)
+        let genome = reference.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genome, withIntermediateDirectories: true)
+        try ">chr1\nACGT\n".write(to: genome.appendingPathComponent("sequence.fa"), atomically: true, encoding: .utf8)
+        try "chr1\t4\t6\t4\t5\n".write(
+            to: genome.appendingPathComponent("sequence.fa.fai"), atomically: true, encoding: .utf8)
+        let identifier = "org.lungfish.test.outside-genome"
+        let genomeInfo = GenomeInfo(
+            path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 4,
+            chromosomes: [ChromosomeInfo(name: "chr1", length: 4, offset: 6, lineBases: 4, lineWidth: 5)])
+        try BundleManifest(
+            formatVersion: "1.0", name: "Reference", identifier: identifier,
+            source: SourceInfo(organism: "Test", assembly: "Test"), genome: genomeInfo
+        ).save(to: reference)
+        let viewer = project.appendingPathComponent("Analyses/run/viewer.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: viewer, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: viewer.appendingPathComponent("genome"), withDestinationURL: genome)
+        try BundleManifest(
+            formatVersion: "1.0", name: "Viewer", identifier: identifier,
+            originBundlePath: "@/Reference Sequences/src.lungfishref",
+            source: SourceInfo(organism: "Test", assembly: "Test"), genome: genomeInfo
+        ).save(to: viewer)
+
+        let bundleURL = try await SequenceExtractionPipeline().buildBundle(
+            from: regionResult(sourceName: "chr1:11-40"),
+            outputDirectory: try folder("extractions"),
+            sourceBundleURL: viewer,
+            sourceBundleName: "Viewer",
+            desiredBundleName: "Outside"
+        )
+
+        let inputs = try XCTUnwrap(try record(of: bundleURL).steps.first).inputs.map {
+            "\($0.role) \(URL(fileURLWithPath: $0.path).resolvingSymlinksInPath().path)"
+        }
+        let outside = genome.resolvingSymlinksInPath().path
+        XCTAssertTrue(inputs.contains("input \(outside)/sequence.fa"), "the genome file is an input: \(inputs)")
+        XCTAssertTrue(inputs.contains("index \(outside)/sequence.fa.fai"), "its index is an index: \(inputs)")
+    }
+
     // MARK: - Pinned values
 
     /// Recorded at lane A48's base b35342d54. The region annotation that spans the
@@ -444,6 +569,13 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
             }
         }
         return scrub(lines.joined(separator: "\n"))
+    }
+
+    private func record(of bundleURL: URL) throws -> ProvenanceEnvelope {
+        try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        )
     }
 
     /// The bundle's record, without its times and digests, which only need to be present.

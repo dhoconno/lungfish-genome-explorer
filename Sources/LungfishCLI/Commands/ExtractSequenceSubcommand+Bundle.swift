@@ -93,7 +93,7 @@ extension ExtractSequenceSubcommand {
         let argv = Self.observedArguments() ?? [CLICommandIdentity.executableName] + SequenceExtractionPipeline.cliArguments(
             source: request.source, flank5Prime: request.flank5Prime, flank3Prime: request.flank3Prime,
             reverseComplement: reverseComplement, concatenateExons: concatenateExons, sourceBundleURL: sourceURL,
-            bundleName: name, sampleFilter: sampleFilter, outputBundleURL: outputURL
+            bundleName: name, sampleFilter: sampleFilter, outputBundleURL: outputURL, nextFreeName: nextFreeName
         )
         let context = SequenceExtractionBundleCommandContext(
             workflowName: "lungfish extract sequence",
@@ -125,6 +125,7 @@ extension ExtractSequenceSubcommand {
                 sourceVariantTracks: tracks.variants,
                 sampleFilter: sampleFilter,
                 isConcatenated: concatenateExons,
+                publishesUnderNextFreeName: nextFreeName,
                 commandContext: context
             ),
             progressHandler: { fraction, message in events.emitProgress(fraction, message: message) }

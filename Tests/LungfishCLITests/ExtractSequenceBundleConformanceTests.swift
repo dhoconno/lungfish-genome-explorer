@@ -93,6 +93,38 @@ final class ExtractSequenceBundleConformanceTests: XCTestCase {
         XCTAssertEqual(bases, expected.nucleotideSequence, "the bundle holds the bases the viewer's request extracts")
     }
 
+    /// With `--next-free-name` the bundle that holds the name `-o` gives stays as it was, and the run
+    /// publishes under the next free name, which its manifest identifier and record name
+    /// (2.11 A48 M1 review Fix 6, SC5). Without it a typed `-o` replaces, as before.
+    func testNextFreeNameKeepsTheBundleThatHoldsTheName() async throws {
+        try await requireTools()
+        let source = try await Self.makeSourceBundle(in: root)
+        let output = root.appendingPathComponent("Extractions/Region_1.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try "rival".write(to: output.appendingPathComponent("rival.txt"), atomically: true, encoding: .utf8)
+
+        let command = try ExtractSequenceSubcommand.parse([
+            source.path, "chr1:11-40", "--bundle", "--name=Region 1", "--no-samples",
+            "--output", output.path, "--next-free-name", "--quiet",
+        ])
+        try await command.run()
+
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: output.path), ["rival.txt"])
+        let published = root.appendingPathComponent("Extractions/Region_1_1.lungfishref", isDirectory: true)
+        let manifest = try BundleManifest.load(from: published)
+        XCTAssertEqual(manifest.name, "Region 1", "the track path keeps the name given")
+        XCTAssertEqual(manifest.identifier, "org.lungfish.extracted.region_1_1")
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: published.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        )
+        XCTAssertTrue(envelope.argv.contains("--next-free-name"), "the record names the command that ran")
+        guard case .file(let recorded)? = envelope.options.resolvedDefaults["output_bundle"] else {
+            return XCTFail("the record names no output bundle")
+        }
+        XCTAssertEqual(recorded.standardizedFileURL.path, published.standardizedFileURL.path)
+    }
+
     func testARefusalNamesTheFixAndWritesNothing() async throws {
         let command = try ExtractSequenceSubcommand.parse([
             root.path, "chr1:1-10", "--bundle", "--no-samples", "--samples=S3", "--output", root.appendingPathComponent("x.lungfishref").path,

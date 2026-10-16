@@ -89,6 +89,7 @@ final class ViewerExtractionOperationTests: XCTestCase {
         XCTAssertEqual(command.samples, ["S.1 a", "b,2"], "each sample is one word, so a name may hold a comma")
         XCTAssertFalse(command.noSamples)
         XCTAssertEqual(command.output, outputBundle.path)
+        XCTAssertTrue(command.nextFreeName, "a run that overlaps another of the same name replaces nothing (Fix 6)")
         XCTAssertEqual(command.globalOptions.outputFormat, .json, "the runner reads the command's events")
     }
 

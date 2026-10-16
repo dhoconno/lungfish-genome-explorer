@@ -51,6 +51,9 @@ OPTIONS:
                           Give it once for each sample to keep. A name may hold
                           commas, dots and spaces
   --no-samples            With --bundle, keep the variant calls of no sample
+  --next-free-name        With --bundle, when a bundle holds the name -o gives,
+                          publish under the next free name (_1, _2 and so on)
+                          and replace nothing
   --feature-name <feature-name>
                           With --bundle, extract this feature, whose parts the
                           region lists in order as name:start-end,start-end

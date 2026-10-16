@@ -48,7 +48,9 @@ final class RegionBundleExtractionParityReplayTests: XCTestCase {
         let closedBy = "Never. The recorded command changes by design (docs/contracts/CLI-EQUIVALENCE.md)"
         let argv = ["argv[<ANY>]", "steps[<ANY>].argv[<ANY>]"].map { key in
             RouteParityDeclaredDifference<Case>(
-                [.regionWithSamples: 152, .reverseFeature: 120],
+                // `--next-free-name` (Fix 6 of the A48 M1 review) adds one word to the CLI argv, which
+                // is longer than the pipeline's only in the reverse feature's six records.
+                [.regionWithSamples: 152, .reverseFeature: 126],
                 record + key,
                 reason: "The pipeline records `lungfish-gui sequence extract-bundle` with its own options, and the "
                     + "CLI route records the `lungfish-cli extract sequence --bundle` argv its row recorded, so each "
