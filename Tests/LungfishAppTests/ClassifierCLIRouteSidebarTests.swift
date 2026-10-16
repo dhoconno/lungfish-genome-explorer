@@ -203,6 +203,18 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
         try await expectAReloadWithTheResultShown(run)
     }
 
+    /// A TaxTriage run through the `cli` value reloads the sidebar, has the selected row refreshed and selects
+    /// nothing, as an EsViritu run does, because the end of the route shares one arm for both
+    /// (`finishClassifierThroughCLI`). The completed run opens no sheet (UX 4, pin F4 of the U30 brief, asked
+    /// for by the review of U30 M2, fix 6).
+    func testATaxTriageRunReloadsTheSidebarAndSelectsNothing() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let run = try await runTaxTriageThroughRoute(taxTriageConfig(inputs: made.inputs), made: made)
+
+        try await expectAReloadWithTheResultShown(run)
+        XCTAssertNil(run.rig.window.attachedSheet, "a completed TaxTriage run opens no sheet")
+    }
+
     // MARK: - Failed
 
     /// A failed Kraken2 batch reloads the sidebar, since samples may have left results, and has the
@@ -364,6 +376,58 @@ private extension ClassifierCLIRouteSidebarTests {
         }
         let item = try XCTUnwrap(self.item(started.id))
         return Run(rig: rig, folder: folder, imports: imports, item: item)
+    }
+
+    /// Runs a TaxTriage `config` through the `cli` value in the rig of `runThroughRoute`. The stand-in command
+    /// plays the captured `complete-project` transcript and holds its last line until the test lets go. The
+    /// result the real command leaves is saved in the folder the transcript names, so the sidebar has a result
+    /// to show when the row ends. The folder holds the running run record the executor claims it with
+    /// (`AnalysesFolder.beginRunInOutputDirectory`), which the row tracks and the stand-in settles at its end,
+    /// as the Kraken2 and EsViritu runs of `runThroughRoute` do. It also holds the folder of the sample the
+    /// transcript runs, since the sidebar shows a TaxTriage batch only once it counts a sample folder
+    /// (`SidebarProjectScanner.classifierBatchSubtitle`).
+    func runTaxTriageThroughRoute(_ config: TaxTriageConfig, made: (project: URL, inputs: [URL])) async throws -> Run {
+        let imports = made.project.appendingPathComponent("Imports", isDirectory: true)
+        let rig = makeRig(project: made.project, selecting: imports)
+        let transcript = try CapturedClassifierTranscript.load(command: "taxtriage-run", run: "complete-project", root: root)
+        let folder = try XCTUnwrap(transcript.folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try TaxTriageResult(config: config, runtime: 3, exitCode: 0, outputDirectory: folder).save()
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("S1", isDirectory: true), withIntermediateDirectories: true)
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "TaxTriage", command: "lungfish-cli taxtriage run"), in: folder)
+        let go = root.appendingPathComponent("go-\(UUID().uuidString)")
+        let cli = try ClassifierRouteFixtures.standInCLI(
+            in: root, lines: transcript.lines, holdingTheLastLineUntil: go, settling: AnalysisRunRecord.url(in: folder)
+        )
+        let routeContext = rig.delegate.currentOperationRouteContext(for: rig.controller)
+
+        let existing = Set(OperationCenter.shared.items.map(\.id))
+        rig.delegate.launchTaxTriage(config: config, viewerController: rig.viewer, routeContext: routeContext, route: .cli, cliURLOverride: cli)
+        let started = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }, "the route started no row")
+        let tracking = await waitUntil(timeout: .seconds(30)) { OperationCenter.shared.isTrackingAnalysisOutput(folder) }
+        XCTAssertTrue(tracking, "the row never tracked the folder the output line named")
+
+        // The command still runs, so the folder is hidden and a scan shows no row for it (UX 4).
+        rig.sidebar.reloadFromFilesystem()
+        XCTAssertFalse(sidebarRowPaths(of: rig.sidebar).contains(folder.standardizedFileURL.path), "a running result must not be a row")
+        rig.recorder.reset()
+        scans.reset()
+        FileManager.default.createFile(atPath: go.path, contents: nil)
+
+        let finished = await waitUntil(timeout: .seconds(30)) { self.item(started.id).map { !$0.state.isActive } ?? true }
+        XCTAssertTrue(finished, "the row did not finish")
+        let item = try XCTUnwrap(self.item(started.id))
+        return Run(rig: rig, folder: folder, imports: imports, item: item)
+    }
+
+    func taxTriageConfig(inputs: [URL]) -> TaxTriageConfig {
+        TaxTriageConfig(
+            samples: inputs.map { TaxTriageSample(sampleId: $0.deletingPathExtension().lastPathComponent, fastq1: $0) },
+            outputDirectory: root.appendingPathComponent("Unused/taxtriage-output", isDirectory: true),
+            kraken2DatabasePath: root.appendingPathComponent("Databases/kraken2", isDirectory: true),
+            maxCpus: 2,
+            profile: "local"
+        )
     }
 
     /// A real main window that owns `project` in the app delegate, with a viewer in a window that
