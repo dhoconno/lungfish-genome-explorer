@@ -13,6 +13,9 @@ ARGUMENTS:
 OPTIONS:
   -o, --output-dir <output-dir>
                           Output project directory (default: current directory)
+  --bundle-dir <folder>   The folder to build the bundle in, as given, in place
+                          of the Reference Sequences folder of the project. Not
+                          with --output-dir
   --name <name>           Display name for the reference (default: filename)
   --provenance-input <file>
                           A file the record names as the import's input in

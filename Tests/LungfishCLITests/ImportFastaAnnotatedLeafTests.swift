@@ -189,6 +189,56 @@ final class ImportFastaAnnotatedLeafTests: XCTestCase {
         return (fasta, bed, selectionJSON, selection)
     }
 
+    // MARK: - The folder as given (2.11 A48 M4, the FASTQ operation wrapper)
+
+    func testBundleDirBuildsInTheFolderAsGivenAndRecordsTheOption() async throws {
+        let source = root.appendingPathComponent("plain.fa")
+        try ">chr1\nACGTACGT\n".write(to: source, atomically: true, encoding: .utf8)
+        let folder = project.appendingPathComponent("Analyses", isDirectory: true)
+
+        let output = try await captureStandardOutput {
+            try await ImportCommand.FASTASubcommand.parse([
+                source.path, "--bundle-dir", folder.path, "--name", "Wrapped", "--format", "json",
+            ]).run()
+        }
+
+        let bundle = folder.appendingPathComponent("Wrapped.lungfishref", isDirectory: true)
+        let last = try XCTUnwrap(output.split(separator: "\n").last)
+        let complete = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any])
+        XCTAssertEqual(complete["outputs"] as? [String], [bundle.path])
+        for parent in [project!, folder] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: parent.appendingPathComponent("Reference Sequences").path),
+                "--bundle-dir makes no Reference Sequences folder"
+            )
+        }
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundle))
+        XCTAssertEqual(
+            Array(try XCTUnwrap(record.steps.first?.argv).dropFirst()),
+            ["import", "fasta", source.path, "--bundle-dir", folder.path, "--name=Wrapped"],
+            "the record names the folder the way the run was given it, with no --output-dir"
+        )
+    }
+
+    func testBundleDirWithOutputDirIsRefusedAtParse() {
+        XCTAssertThrowsError(try ImportCommand.FASTASubcommand.parse([
+            "plain.fa", "--output-dir", project.path, "--bundle-dir", project.path,
+        ])) { error in
+            XCTAssertEqual(
+                ImportCommand.FASTASubcommand.message(for: error),
+                "Give --output-dir or --bundle-dir, not both."
+            )
+        }
+        XCTAssertEqual(
+            ReferenceBundleImportService.importFASTAArguments(
+                sourceURL: URL(fileURLWithPath: "/in/a.fa"), projectURL: nil,
+                bundleFolderURL: URL(fileURLWithPath: "/out/Analyses", isDirectory: true), preferredBundleName: nil,
+                rehydrateSourceProvenance: true
+            ),
+            ["import", "fasta", "/in/a.fa", "--bundle-dir", "/out/Analyses", "--rehydrate-source-provenance"]
+        )
+    }
+
     private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
         let captured = await captureStandardOutputAndError(operation)
         if let error = captured.error { throw error }

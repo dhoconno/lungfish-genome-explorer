@@ -198,10 +198,13 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
     /// `projectURL` as ``importAsReferenceBundle(sourceURL:outputDirectory:preferredBundleName:provenanceWorkflowName:provenanceCommand:provenanceInputFiles:progressHandler:)``
     /// does, then run the steps the app's imports run after it. The app runs and records them, and the
     /// leaf records them when it was not started as `import fasta` (ruling A48 F2, L2). A name is joined
-    /// to its option, so a hyphen-leading name replays.
+    /// to its option, so a hyphen-leading name replays. `bundleFolderURL` names the folder the bundle is
+    /// built in as given, with `--bundle-dir` in place of `--output-dir`, for a caller whose folder is not
+    /// a project's Reference Sequences folder (2.11 A48 M4, the FASTQ operation wrapper).
     package static func importFASTAArguments(
         sourceURL: URL,
-        projectURL: URL,
+        projectURL: URL?,
+        bundleFolderURL: URL? = nil,
         preferredBundleName: String?,
         provenanceInputFiles: [URL] = [],
         annotationsURL: URL? = nil,
@@ -209,7 +212,9 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
         sourceAlignmentBundleURL: URL? = nil,
         rehydrateSourceProvenance: Bool = false
     ) -> [String] {
-        var arguments = ["import", "fasta", sourceURL.path, "--output-dir", projectURL.path]
+        var arguments = ["import", "fasta", sourceURL.path]
+        if let projectURL { arguments += ["--output-dir", projectURL.path] }
+        if let bundleFolderURL { arguments += ["--bundle-dir", bundleFolderURL.path] }
         if let preferredBundleName { arguments.append("--name=\(preferredBundleName)") }
         arguments += provenanceInputFiles.flatMap { ["--provenance-input", $0.path] }
         if let annotationsURL { arguments += ["--annotations", annotationsURL.path] }

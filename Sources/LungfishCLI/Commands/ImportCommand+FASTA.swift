@@ -23,7 +23,8 @@ extension ImportCommand {
     /// Import a standalone reference sequence file into a Lungfish project.
     ///
     /// Accepts FASTA/GenBank/EMBL (plain or compressed), then builds a canonical `.lungfishref` bundle in
-    /// the project's "Reference Sequences" folder through `ReferenceBundleImportService`, the one path the
+    /// the project's "Reference Sequences" folder, or in the folder `--bundle-dir` names as given, through
+    /// `ReferenceBundleImportService`, the one path the
     /// app's reference imports take too (ruling A48 F2). With `--annotations` it then attaches the BED as a
     /// track and writes the extraction record, and with `--rehydrate-source-provenance` it merges the
     /// source's own record, so the app writes nothing after the command exits (plan decision C5).
@@ -48,6 +49,15 @@ extension ImportCommand {
             help: "Output project directory (default: current directory)"
         )
         var outputDir: String?
+
+        @Option(
+            name: .customLong("bundle-dir"),
+            help: ArgumentHelp(
+                "The folder to build the bundle in, as given, in place of the Reference Sequences folder of the project. Not with --output-dir",
+                valueName: "folder"
+            )
+        )
+        var bundleDir: String?
 
         @Option(
             name: .customLong("name"),
@@ -95,6 +105,12 @@ extension ImportCommand {
         var rehydrateSourceProvenance = false
 
         @OptionGroup var globalOptions: GlobalOptions
+
+        func validate() throws {
+            if outputDir != nil, bundleDir != nil {
+                throw ValidationError("Give --output-dir or --bundle-dir, not both.")
+            }
+        }
 
         func run() async throws {
             let eventsOn = globalOptions.outputFormat == .json
@@ -167,7 +183,8 @@ extension ImportCommand {
             let selection = try annotationSelectionValue()
 
             let outputDirectory = resolveOutputDirectory(outputDir)
-            let refsDirectory = try ReferenceSequenceFolder.ensureFolder(in: outputDirectory)
+            // `--bundle-dir` names the folder as given, so no Reference Sequences folder is made (A48 M4).
+            let refsDirectory = try bundleFolderURL ?? ReferenceSequenceFolder.ensureFolder(in: outputDirectory)
             try FileManager.default.createDirectory(at: refsDirectory, withIntermediateDirectories: true)
 
             printHumanLine(formatter.header("Reference Import"), eventsOn: eventsOn)
@@ -280,6 +297,11 @@ extension ImportCommand {
             ), eventsOn: eventsOn)
         }
 
+        /// The folder `--bundle-dir` names, or nil for the Reference Sequences folder of the project.
+        private var bundleFolderURL: URL? {
+            bundleDir.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        }
+
         /// The files `--provenance-input` names, in their order. The builder keeps only those that exist.
         private var provenanceInputURLs: [URL] {
             provenanceInputs.map { URL(fileURLWithPath: $0) }
@@ -304,7 +326,8 @@ extension ImportCommand {
             if let observed = Self.observedArguments() { return observed }
             var command = [CLICommandIdentity.executableName] + ReferenceBundleImportService.importFASTAArguments(
                 sourceURL: URL(fileURLWithPath: inputFile),
-                projectURL: outputDirectory,
+                projectURL: bundleFolderURL == nil ? outputDirectory : nil,
+                bundleFolderURL: bundleFolderURL,
                 preferredBundleName: name,
                 provenanceInputFiles: provenanceInputURLs,
                 annotationsURL: annotations.map { URL(fileURLWithPath: $0) },
