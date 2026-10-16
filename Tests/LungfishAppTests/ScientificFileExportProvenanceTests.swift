@@ -513,7 +513,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
     func testReferenceBundleSequenceExportDeclaresRequiredProvenancePolicy() throws {
         let source = try String(
-            contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ImportCenter.swift"),
+            contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ImportCenterSequenceExport.swift"),
             encoding: .utf8
         )
         // Dynamic document publication is covered by CapturedSequenceExportTests,
