@@ -2002,7 +2002,7 @@ public class ViewerViewController: NSViewController {
         }
     }
 
-    private func fastaExportSourceURLs() -> [URL] {
+    func fastaExportSourceURLs() -> [URL] {
         if fastaCollectionController != nil, !fastaCollectionSourceURLs.isEmpty {
             return fastaCollectionSourceURLs
         }
