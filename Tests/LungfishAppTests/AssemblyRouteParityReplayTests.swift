@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A46 M3 (panel G1, C4 and C13, ARCH 2 and 3, BIO 1 to 3, UX 1, 3 and 4, QA 1, 4
-// and 5). Phase 2.11 (K3) deleted the in-process route and its key `ReadsLaunchRoute.assembly`, so
+// and 5). Phase 2.11 (K3) deleted the in-process route and its hidden key, so
 // Reassemble runs on the CLI route only. The parity case runs one Reassemble on the two sides of
 // RouteParityHarness that are left.
 //

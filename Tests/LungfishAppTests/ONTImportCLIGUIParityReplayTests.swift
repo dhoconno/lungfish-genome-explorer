@@ -4,7 +4,7 @@
 //
 // Phase 2.10 lane A53 M3 (panel decisions G1, C4, C5 and C11, ARCH 2, 3 and 7, BIO 1 and 2, UX 1, 3 and 4,
 // ruling A53-M3). The window's ONT import runs `lungfish-cli fastq import-ont --format json` on the L6
-// runner. Phase 2.11 (K3) deleted the in-process route and its hidden key `ReadsLaunchRoute.ontImport`, so
+// runner. Phase 2.11 (K3) deleted the in-process route and its hidden key, so
 // the parity class runs one import of the shared three-barcode run folder (ONTImportFreezeFixture) on the
 // two sides of RouteParityHarness that are left.
 //
