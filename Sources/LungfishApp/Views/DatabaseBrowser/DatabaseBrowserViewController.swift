@@ -144,12 +144,12 @@ public class DatabaseBrowserViewController: NSViewController {
             onCancel: { [weak self] in
                 guard let self = self else { return }
                 self.dialogState.cancelAllSearches()
+                // The SRA lookup runs behind this Cancel, so Cancel ends the SRA rows that still prepare.
+                self.dialogState.sraRunsViewModel.cancelPreparingSRADownloads()
                 if let window = self.view.window {
                     if let parent = window.sheetParent {
                         parent.endSheet(window)
-                    } else {
-                        window.close()
-                    }
+                    } else { window.close() }
                 }
                 self.onCancel?()
             },

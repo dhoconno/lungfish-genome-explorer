@@ -21,6 +21,20 @@ extension DatabaseBrowserViewModel {
         SRADownloadPreparation(model: self, records: records, operationID: operationID, window: window).start()
     }
 
+    /// The rows this model began that still prepare, which is every SRA row from its start until it
+    /// ends, is cancelled or is handed to `startSRADownloadTask`. A handed-over row is not in it.
+    var preparingSRADownloadIDs: [UUID] {
+        SRADownloadPreparation.preparing.values.filter { $0.model === self }.map(\.operationID)
+    }
+
+    /// The browser's Cancel for the SRA lookup. It cancels each row this model began that still
+    /// prepares, through the callback its preparation set in `start()`. That stops the lookup, closes
+    /// the settings sheet if it is open and ends the row Cancelled with the log it has. A row already
+    /// handed to `startSRADownloadTask` belongs to the download and is left alone.
+    func cancelPreparingSRADownloads() {
+        for id in preparingSRADownloadIDs { OperationCenter.shared.cancel(id: id) }
+    }
+
     /// What the preparation runs in place of the real thing. Only tests replace these, and put them
     /// back. The first looks up the metadata of one run, which a test holds open or answers without
     /// a network. The second hands a confirmed import sheet to the download, which a test replaces to
@@ -50,6 +64,10 @@ extension DatabaseBrowserViewModel {
 
 @MainActor
 private final class SRADownloadPreparation {
+    /// The preparations that have not finished, by row. A preparation leaves it in `finish()`, so a
+    /// row that was cancelled, failed or handed to `startSRADownloadTask` is not in it.
+    static var preparing: [UUID: SRADownloadPreparation] = [:]
+
     let model: DatabaseBrowserViewModel
     let records: [SearchResultRecord]
     let operationID: UUID
@@ -74,6 +92,7 @@ private final class SRADownloadPreparation {
             task.cancel()
             performOnMainRunLoop { self.cancel() }
         }
+        Self.preparing[operationID] = self
         if let window {
             closeObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
@@ -170,6 +189,7 @@ private final class SRADownloadPreparation {
 
     private func finish() {
         finished = true
+        Self.preparing[operationID] = nil
         model.isDownloading = false
         if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
         closeObserver = nil

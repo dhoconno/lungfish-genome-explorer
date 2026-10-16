@@ -9,6 +9,7 @@
 
 import AppKit
 import XCTest
+import os
 import LungfishCore
 import LungfishKit
 import LungfishTestSupport
@@ -63,12 +64,14 @@ final class SRADownloadPreparationBrowserCancelTests: XCTestCase {
             .lookUpRuns([accession])
     }
 
-    func testTodaysCancelClosesTheDialogAndLeavesThePreparingRowRunningWithItsLookupAlive() async throws {
+    func testTheDialogsCancelEndsThePreparingRowItsLookupAndTheSettingsStep() async throws {
         let client = SRAPreparationSuspendedClient()
         let restore = replaceSeams(lookUp: { _, accession in try await Self.heldOpen(client, accession) })
         defer { restore() }
         let browser = openBrowser()
         defer { browser.parent.close() }
+        var settingsStepReached = false
+        browser.controller.onDownloadStarted = { settingsStepReached = true }
         let id = try SRAPreparationFixtures.startPreparation(browser.model)
         defer { SRAPreparationFixtures.end(id) }
         await waitUntil(timeout: .seconds(10)) { await client.started }
@@ -78,11 +81,65 @@ final class SRADownloadPreparationBrowserCancelTests: XCTestCase {
 
         browser.state.cancel()
 
-        await waitUntil(timeout: .seconds(10)) { browser.parent.attachedSheet == nil }
-        XCTAssertNil(browser.parent.attachedSheet, "Cancel closes the dialog")
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertEqual(SRAPreparationFixtures.row(id)?.state, .running, "today's Cancel cancels no row")
+        await waitUntil(timeout: .seconds(10)) { SRAPreparationFixtures.row(id)?.state == .cancelled }
+        await waitUntil(timeout: .seconds(10)) { await client.cancelled }
+        let row = try XCTUnwrap(SRAPreparationFixtures.row(id))
+        XCTAssertEqual(row.state, .cancelled, "Cancel ends the preparing row")
+        XCTAssertEqual(row.detail, "Cancelled by user")
+        XCTAssertTrue(row.logEntries.contains { $0.message == "Looking up SRA run metadata..." }, "the row keeps its log")
         let cancelled = await client.cancelled
-        XCTAssertFalse(cancelled, "today's Cancel leaves the lookup running")
+        XCTAssertTrue(cancelled, "the lookup's request ends with the row")
+        XCTAssertFalse(browser.model.isDownloading)
+        XCTAssertNil(browser.parent.attachedSheet, "the dialog closes")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(browser.parent.attachedSheet, "no settings sheet follows")
+        XCTAssertFalse(settingsStepReached, "the settings step never ran")
+    }
+
+    func testARowAlreadyHandedToTheDownloadKeepsRunningWhenTheBrowserCancels() async throws {
+        let client = SRAPreparationSuspendedClient()
+        let handedOver = OSAllocatedUnfairLock(initialState: [UUID]())
+        let downloadCancelled = OSAllocatedUnfairLock(initialState: false)
+        let restore = replaceSeams(
+            lookUp: { model, accession in
+                if accession == "SRR9000001" {
+                    return try await SRARunMetadataLookup(ena: model.enaService, ncbi: model.ncbiService).lookUpRuns([])
+                }
+                return try await Self.heldOpen(client, accession)
+            },
+            handOff: { _, _, _, id, _ in
+                // What the download does with its row: keep it running behind a callback of its own.
+                handedOver.withLock { $0.append(id) }
+                OperationCenter.shared.setCancelCallback(for: id) { downloadCancelled.withLock { $0 = true } }
+            })
+        defer { restore() }
+        let browser = openBrowser()
+        defer { browser.parent.close() }
+        browser.controller.onDownloadStarted = { [parent = browser.parent, sheet = browser.sheet] in parent.endSheet(sheet) }
+
+        // First run. The lookup answers, the settings open and the person confirms them.
+        let first = try SRAPreparationFixtures.startPreparation(browser.model, accession: "SRR9000001")
+        defer { SRAPreparationFixtures.end(first) }
+        await waitUntil(timeout: .seconds(10)) { browser.parent.attachedSheet?.contentViewController is FASTQImportConfigSheet }
+        let settings = try XCTUnwrap(browser.parent.attachedSheet)
+        XCTAssertTrue(settings.contentViewController is FASTQImportConfigSheet)
+        let importButton = try XCTUnwrap(SRAPreparationFixtures.button("Import", in: try XCTUnwrap(settings.contentView)))
+        importButton.performClick(nil)
+        await waitUntil(timeout: .seconds(10)) { handedOver.withLock { $0 } == [first] }
+        XCTAssertEqual(handedOver.withLock { $0 }, [first], "the confirmed settings hand the first row to the download")
+        XCTAssertFalse(browser.model.preparingSRADownloadIDs.contains(first), "a handed-over row no longer prepares")
+
+        // Second run. Its lookup is still open when the browser's Cancel is pressed.
+        let second = try SRAPreparationFixtures.startPreparation(browser.model, accession: "SRR9000002")
+        defer { SRAPreparationFixtures.end(second) }
+        await waitUntil(timeout: .seconds(10)) { await client.started }
+        XCTAssertEqual(browser.model.preparingSRADownloadIDs, [second])
+
+        browser.state.cancel()
+
+        await waitUntil(timeout: .seconds(10)) { SRAPreparationFixtures.row(second)?.state == .cancelled }
+        XCTAssertEqual(SRAPreparationFixtures.row(second)?.state, .cancelled, "the preparing row is cancelled")
+        XCTAssertEqual(SRAPreparationFixtures.row(first)?.state, .running, "the handed-over row keeps running")
+        XCTAssertFalse(downloadCancelled.withLock { $0 }, "its download is not cancelled")
     }
 }
