@@ -1,7 +1,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
 package enum MSAExtractionAnnotationProvenance {
     static let sidecarFilename = "msa-extraction-annotations-provenance.json"
