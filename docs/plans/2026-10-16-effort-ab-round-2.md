@@ -59,3 +59,49 @@ spawn it at its current setting until its result is in.
 The Model choice row and the Roles table of `docs/contracts/RUNNING-A-PHASE-SESSION.md`, `docs/contracts/EXPERT-PANEL.md`
 and the evidence tables carry each tested type's setting with its numbers, and this plan's Result section records the
 decisions, the limits and the tasks a later round could add.
+
+## Result
+
+Round 2 ran on 2026-10-15 in session `c397af17-1a00-415f-87b1-34a58de72069` from 15:47 to about 23:50 CDT, from a
+weekly reading of 64% to 79%, with the Preview 2026.10.19 release in the same window until about 19:00. The session
+ledger reads $328.43, of which the 48 runs took $190.09. The owner chose to test every type, with no new run at a weekly
+reading of 83% and every agent stopped at 85%. At 17:48 the projection crossed the launch line, so the memo tally, haiku
+and the third run of each arm of the opus lane were cut in the pre-registered order. The records are in
+`/Users/dho/lungfish-effort-ab/round-2` (`prereg.md`, `effort-ab-result.md`, `runs.csv`, `grades/`, `tools/`), and the
+keys, the run map and the run log are in `/Users/dho/lungfish-effort-ab-private/round-2`.
+
+| Task type | Setting | Measured on |
+|---|---|---|
+| Code-diff lane review | sonnet at effort max, kept | The review of lane A30 M3. Sonnet at max summed 7.5 of 14 recall points with no false finding against opus at max's 7.0 with 1, for a median $2.81 against $3.23 a run. Sonnet at high summed 6.0 with 6 false findings |
+| Single-field ruling | opus at effort xhigh | The SWIFT ruling on the FXT2 double close. Xhigh summed 24.0 of 30 with 1 false finding against max's 25.5 with none, for $2.00 against $3.11. Sonnet at max made 3 false findings |
+| Inventory or memo | opus at effort xhigh | QA's memo of Phase 2.10. Xhigh summed 93.0 of 122 with no false finding against max's 95.0 with 2, for $3.17 against $6.66. Sonnet at max summed 82.5 |
+| Monitor checkpoint | opus at effort xhigh | Checkpoint 4 of 2.10. Xhigh summed 43.5 of 48 against max's 42.0, each with 4 false findings, for $6.38 against $9.29. Sonnet at max matched for $12.99 |
+| Lane on the longest chain | opus at effort xhigh | Lane A18 through M2. Xhigh summed 25.5 of 26 with 2 false findings against max's 26.0 with 1, for $3.54 against $5.97, and both runs passed the hidden tests. Sonnet at max matched for $4.73 |
+| Mechanical lane | sonnet at effort max, kept | Lane S34 M1 and M2. High summed 30.5 of 39 with 4 false findings against max's 34.0 with 1, under the floor of 32.0 |
+| Code fix agent | sonnet at effort max, kept | FX30, the five fixes of the A30 M3 review. High summed 20.5 of 21 with 4 false findings against max's 21.0 with 1, over the limit of 3. Its false findings are miscounts in its reports of the suite list and the bundle totals |
+| Landing agent | sonnet at effort max, kept and not measured | Landing 12. All four runs at high were void, since each ran the chapter lint, whose `npm install` reached the network against the brief. Graded blind as a check, they scored 17.25 a run against 18.5 at max |
+| Memo tally | sonnet at effort max, kept and not measured | Cut |
+
+Each arm ran 2 runs, or 3 for the fix and the mechanical lane, and the landing ran 2 at max with 4 void runs at high.
+Every graded building run ended with a clean build and its named tests passing. Thinking was 56% to 89% of output at
+max, 46% to 70% at xhigh and 12% to 52% at high, and xhigh took 50% to 71% of max's time.
+
+Limits.
+- Two or three runs an arm and one task a type, so a match means only that no large loss showed on that task. Votes and
+  inventories did not run as tasks, and the type "inventory or memo" was measured on a memo.
+- One blind grader per task, opus at max. A second grader rescored one report each of the memo, the ruling and the
+  monitor and agreed within one item. No building task had a second grader.
+- The landing's frozen inputs lacked the lint packages that the fix's carried, so a landing that linted needed the
+  network, and that gap left landings unmeasured. Two of the void runs also ran `pkill -f swift-build` across the
+  machine and stopped another run's build each time.
+- Before any building grade the check script was found to differ from two keys. The ratchets first ran under bash, and
+  the lanes' hidden tests were first copied over the runs' own tests instead of the base's. Both were run again by each
+  key's own procedure, and the fix's mutated readers and lints were added (rulings R10 and R11 in the run log).
+- The review's sonnet at max cost 87% of opus at max, over the 85% the rule calls cheaper. The rule takes the lowest
+  median of the settings that pass, so reviews stay on sonnet.
+
+Tasks a later round could add.
+- The landing again, with the lint packages frozen in its inputs.
+- The memo tally, a vote and an inventory.
+- Opus at high or medium for the four types where xhigh matched, measured against xhigh.
+- A second grader on the building tasks, and three runs for every arm.

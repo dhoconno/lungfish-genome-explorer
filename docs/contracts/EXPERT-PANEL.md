@@ -49,13 +49,13 @@ A phase session runs these stages in order. The efficiency contract sets how eac
 | Stage | Who works, on which model | What it leaves |
 |---|---|---|
 | Owner direction | The owner, written down by the manager with its date | The first section of the phase plan. While the owner is away, a question only the owner can answer goes on the owner check list |
-| Inventory | One fresh read-only agent per field, Opus at effort max, starting from the last plan's decisions and Moved out list | `SCR/inv/<FIELD>.md` with facts at a named commit, candidate lanes with their files and models, risks, open questions `Q-<letter><n>` and what should move out |
-| Memos and decisions | One fresh agent per field, Opus at effort max, reading every inventory and the manager's merged question list | `SCR/memos/<FIELD>.md` with votes, objections, scope, order and the field's checks for the phase, which the manager tallies into the decision table |
+| Inventory | One fresh read-only agent per field, Opus at effort xhigh, starting from the last plan's decisions and Moved out list | `SCR/inv/<FIELD>.md` with facts at a named commit, candidate lanes with their files and models, risks, open questions `Q-<letter><n>` and what should move out |
+| Memos and decisions | One fresh agent per field, Opus at effort xhigh, reading every inventory and the manager's merged question list | `SCR/memos/<FIELD>.md` with votes, objections, scope, order and the field's checks for the phase, which the manager tallies into the decision table |
 | Plan | The manager, from the decisions | The phase plan with the decisions, lanes, models, dependencies and the panel's cut order, first to cut first |
-| Lanes | One agent per lane, Sonnet for mechanical or well-pinned work, Opus for design-sensitive work and the longest chain | Commits and a lane report |
-| Review | One fresh agent in the role of the lane's field expert, Sonnet at effort max since the test of 2026-10-15, plus the fact-check for user-facing text, also Sonnet at effort max | `SCR/reviews/<LANE>.md` with a verdict (Merge, Merge after fixes or Block) and numbered fixes |
-| Fixes | A fresh fix agent, Sonnet unless a fix needs judgment | Commits that answer each numbered fix |
-| Landing | Landing agents in batches, Sonnet | The program branch, holding reviewed lanes only |
+| Lanes | One agent per lane, Sonnet at effort max for mechanical or well-pinned work, Opus at effort xhigh for design-sensitive work and the longest chain | Commits and a lane report |
+| Review | One fresh agent in the role of the lane's field expert, Sonnet at effort max since the tests of 2026-10-15, which measured a candidate review and a code-diff review, plus the fact-check for user-facing text, also Sonnet at effort max | `SCR/reviews/<LANE>.md` with a verdict (Merge, Merge after fixes or Block) and numbered fixes |
+| Fixes | A fresh fix agent, Sonnet at effort max for code fixes and at effort high for given words pasted into documentation, Opus at effort max when a fix needs judgment | Commits that answer each numbered fix |
+| Landing | Landing agents in batches, Sonnet at effort max | The program branch, holding reviewed lanes only |
 | Final candidate | The manager runs the gates of `docs/contracts/VERIFICATION-ORDER.md` once, and the QA and QC expert reviews their evidence | The candidate commit and the owner check list |
 | Record | The manager | What ran, Expert reviews, Final candidate, Owner check list and Moved out in the phase plan |
 
@@ -142,9 +142,10 @@ phase's memos add, and cites each check by its id.
 
 ## Spawning an expert
 
-Each expert task runs in a fresh agent at effort max (`effort: "max"`), on Opus for inventories, memos, votes and
-rulings (`model: "opus"`) and on Sonnet for reviews (`model: "sonnet"`), as the efficiency contract's Model choice
-row sets from the test of 2026-10-15. It is briefed with files and
+Each expert task runs in a fresh agent, on Opus at effort xhigh for inventories, memos and rulings (`model: "opus"`,
+`effort: "xhigh"`), on Opus at effort max for votes, and on Sonnet at effort max for reviews (`model: "sonnet"`,
+`effort: "max"`), as the efficiency contract's Model choice row sets from the two tests of 2026-10-15. It is briefed
+with files and
 never resumed, as the efficiency contract's rule on fresh agents sets. Its memory is its field's inventory, memo and
 reviews in `SCR` within a session, and the plan's decisions across sessions. A shared brief per stage holds what every
 expert needs, and the prompt adds the role. The spawn sets the model and the effort, and the prompt's first line states
