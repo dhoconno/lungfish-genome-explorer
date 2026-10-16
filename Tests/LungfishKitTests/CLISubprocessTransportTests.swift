@@ -16,7 +16,7 @@ import LungfishWorkflow
 /// now runs on ToolProcess. Each test runs a shell script in place of
 /// `lungfish-cli`.
 final class CLISubprocessTransportTests: XCTestCase {
-    private var folder: URL!
+    var folder: URL!
 
     override func setUpWithError() throws {
         folder = try TestTempDirectory.make(prefix: "cli-transport")
@@ -26,7 +26,7 @@ final class CLISubprocessTransportTests: XCTestCase {
         TestTempDirectory.cleanup(folder)
     }
 
-    private func fakeCLI(_ script: String) throws -> URL {
+    func fakeCLI(_ script: String) throws -> URL {
         let url = folder.appendingPathComponent("lungfish-cli")
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -38,7 +38,7 @@ final class CLISubprocessTransportTests: XCTestCase {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private func wait(
+    func wait(
         for task: Task<CLISubprocessTransport.Result, Error>,
         timeout: Duration = .seconds(30)
     ) async throws -> Swift.Result<CLISubprocessTransport.Result, Error> {
@@ -491,7 +491,7 @@ final class CLISubprocessTransportTests: XCTestCase {
         FileManager.default.fileExists(atPath: url.path)
     }
 
-    private func readPID(_ url: URL) -> Int32? {
+    func readPID(_ url: URL) -> Int32? {
         (try? String(contentsOf: url, encoding: .utf8))
             .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
@@ -747,7 +747,7 @@ final class CLISubprocessTransportTests: XCTestCase {
     }
 
     /// Writes an executable script named `name` beside the stand-in CLI.
-    private func script(named name: String, _ body: String) throws -> URL {
+    func script(named name: String, _ body: String) throws -> URL {
         let url = folder.appendingPathComponent(name)
         try body.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
