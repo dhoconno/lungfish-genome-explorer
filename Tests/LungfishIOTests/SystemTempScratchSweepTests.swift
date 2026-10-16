@@ -40,6 +40,27 @@ final class SystemTempScratchSweepTests: XCTestCase {
         XCTAssertTrue(outcome.refused.isEmpty, "\(outcome.refused)")
     }
 
+    /// S32 review fix 4. The common production path, a creator whose PID no longer exists, which the
+    /// default inspector answers with nil.
+    func testScratchWhoseCreatorHasNoProcessIsRemoved() throws {
+        let scratch = try makeScratch("variants-", creator: Self.goneCreator())
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp, processInspector: { _ in nil })
+
+        XCTAssertEqual(outcome.removed.map(\.lastPathComponent), [scratch.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scratch.path))
+    }
+
+    /// S32 review fix 4. A regular file with an LGE name and a UUID is no scratch folder.
+    func testAFileWithAScratchNameStays() throws {
+        let file = systemTemp.appendingPathComponent("taxtriage-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: file)
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+
+        assertStays(file, outcome, .notADirectory)
+    }
+
     func testAFolderSomeoneElseOwnsStays() throws {
         let scratch = try makeScratch("taxtriage-", creator: Self.goneCreator())
 
