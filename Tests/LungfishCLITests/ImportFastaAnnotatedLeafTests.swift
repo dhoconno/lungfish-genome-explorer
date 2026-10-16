@@ -121,6 +121,33 @@ final class ImportFastaAnnotatedLeafTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: project.path), [])
     }
 
+    /// A step after the build that throws takes the published bundle away and ends the run with a failed
+    /// event (A48 M3 review, Fix 6, L5). The BED holds a comment and no feature line, so the attach has
+    /// nothing to import and throws after the service published the bundle.
+    func testAFailingAnnotationStepRemovesThePublishedBundleAndEndsWithAFailedEvent() async throws {
+        let staged = try stageSelection()
+        let empty = staged.bed.deletingLastPathComponent().appendingPathComponent("no-features.bed")
+        try "# a header and no feature line\n".write(to: empty, atomically: true, encoding: .utf8)
+
+        let captured = await captureStandardOutputAndError {
+            try await ImportCommand.FASTASubcommand.parse([
+                staged.fasta.path, "--output-dir", self.project.path, "--annotations", empty.path, "--format", "json",
+            ]).run()
+        }
+
+        guard let failure = captured.error as? ReferenceBundleAnnotationImportError,
+              case .noImportableAnnotations = failure
+        else {
+            return XCTFail("the attach step refuses a BED with no feature line, got \(String(describing: captured.error))")
+        }
+        XCTAssertEqual(try ImportFastaSIGTERMTests.leftovers(in: project), [], "the failed run removed the published bundle")
+        let lines = captured.output.split(separator: "\n").map(String.init)
+        let last = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data((lines.last ?? "").utf8)) as? [String: Any], "\(lines)"
+        )
+        XCTAssertEqual(last["event"] as? String, "failed", "the last line is the failed event. \(lines)")
+    }
+
     // MARK: - Fixtures
 
     private func gzip(_ source: URL, to destination: URL) throws {
@@ -162,23 +189,31 @@ final class ImportFastaAnnotatedLeafTests: XCTestCase {
     }
 
     private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
+        let captured = await captureStandardOutputAndError(operation)
+        if let error = captured.error { throw error }
+        return captured.output
+    }
+
+    /// What the operation printed to standard output together with the error it ended with, since a
+    /// run that fails still ends its events with a failed line that a test has to read.
+    private func captureStandardOutputAndError(
+        _ operation: () async throws -> Void
+    ) async -> (output: String, error: (any Error)?) {
         let pipe = Pipe()
         let originalStdout = dup(STDOUT_FILENO)
         fflush(stdout)
         dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+        var thrown: (any Error)?
         do {
             try await operation()
-            fflush(stdout)
         } catch {
-            fflush(stdout)
-            dup2(originalStdout, STDOUT_FILENO)
-            close(originalStdout)
-            pipe.fileHandleForWriting.closeFile()
-            throw error
+            thrown = error
         }
+        fflush(stdout)
         dup2(originalStdout, STDOUT_FILENO)
         close(originalStdout)
         pipe.fileHandleForWriting.closeFile()
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (output, thrown)
     }
 }
