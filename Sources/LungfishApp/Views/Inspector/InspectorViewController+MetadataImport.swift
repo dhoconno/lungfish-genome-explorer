@@ -776,17 +776,20 @@ extension InspectorViewController {
             Self.runRemoveDerivedAlignmentThroughCLI(
                 bundleURL: bundleURL, trackID: trackID, operationID: operationID
             ) { [weak self] outcome in
-                let completion: CLIAlignmentActionRunner.Completion
+                let detail: String
                 switch outcome {
                 case .success(let completed):
-                    completion = completed
+                    detail = completed.message ?? "Removed derived alignment track \"\(trackName)\"."
                 case .failure(let error):
                     let message = error.localizedDescription
                     OperationCenterCLIBridge.failOperation(operationID, detail: message, fallbackMessage: message)
                     self?.presentSimpleAlert(title: "Remove Derived Alignment Failed", message: message)
                     return
                 }
-                guard let self, let split = self.parent as? MainSplitViewController else { return }
+                guard let self, let split = self.parent as? MainSplitViewController else {
+                    _ = OperationCenter.shared.complete(id: operationID, detail: detail) // The command removed the track and no Inspector is left to reload.
+                    return
+                }
                 split.sidebarController.requestReloadFromFilesystem()
                 do {
                     if self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID == trackID {
@@ -797,10 +800,7 @@ extension InspectorViewController {
                     } else {
                         try split.viewerController.displayBundle(at: bundleURL)
                     }
-                    _ = OperationCenter.shared.complete(
-                        id: operationID,
-                        detail: completion.message ?? "Removed derived alignment track \"\(trackName)\"."
-                    )
+                    _ = OperationCenter.shared.complete(id: operationID, detail: detail)
                 } catch {
                     _ = OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
                     self.presentSimpleAlert(
