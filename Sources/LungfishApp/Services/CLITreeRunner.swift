@@ -41,6 +41,14 @@ struct CLITreeRunner {
     let label: String
     private let transport: CLISubprocessTransport
 
+    /// The time the command has between SIGTERM and SIGKILL to stop IQ-TREE, remove its staging folder
+    /// and record its run as cancelled, the launcher's ``CLIProcessLauncher/operationGrace`` (Phase 2.11
+    /// lane S61). Tree inference and the three tree transforms all convert SIGTERM into a cancel.
+    static let terminationGracePeriod = CLIProcessLauncher.operationGrace
+    /// How long the run waits for a descendant that holds the command's output open after the
+    /// command exited, the launcher's ``CLIProcessLauncher/operationDrain``.
+    static let drainGracePeriod = CLIProcessLauncher.operationDrain
+
     init(label: String, cliURLOverride: URL? = nil) {
         self.label = label
         self.transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
@@ -50,6 +58,8 @@ struct CLITreeRunner {
         do {
             let result = try await transport.run(
                 arguments: arguments,
+                terminationGracePeriod: Self.terminationGracePeriod,
+                drainGracePeriod: Self.drainGracePeriod,
                 isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
                 onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
             )
@@ -76,7 +86,8 @@ struct CLITreeRunner {
         }
     }
 
-    func cancel() {
+    /// Stops the command, whether it is running or about to start. It returns at once, from any thread.
+    nonisolated func cancel() {
         transport.cancel()
     }
 }

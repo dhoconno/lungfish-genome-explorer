@@ -17,6 +17,9 @@ func validateOutputNameLength(_ outputURL: URL) throws {
     }
 }
 
+/// Loads the input bundle, runs `transform` and writes the new bundle. A cancel of the calling task ends
+/// the run at the next step with a `CancellationError`, writes no `failed` line (the command's cancel
+/// path ends the stream with one) and removes the bundle this run created.
 func executeTreeTransform(
     bundlePath: String,
     outputPath: String,
@@ -47,6 +50,7 @@ func executeTreeTransform(
         createdOutput = true
         emitter.emitProgress(0.25, message: "Loading tree bundle.")
         let bundle = try PhylogeneticTreeBundle.load(from: bundleURL)
+        try Task.checkCancellation()
         emitter.emitProgress(0.65, message: "Writing transformed tree bundle.")
         _ = try transform(
             bundle,
@@ -57,14 +61,69 @@ func executeTreeTransform(
                 command: treeCLIShellCommand(argv)
             )
         )
+        // A cancel that landed while the bundle was written ends the run here, and the catch removes it.
+        try Task.checkCancellation()
         emitter.emitComplete(output: outputURL.path)
         if globalOptions.outputFormat != .json && !globalOptions.quiet {
             emit("Wrote tree bundle: \(outputURL.path)")
             emit("Provenance: \(outputURL.appendingPathComponent(".lungfish-provenance.json").path)")
         }
     } catch {
-        emitter.emitFailed(treeCommandErrorDescription(error))
+        if !Task.isCancelled, !(error is CancellationError) {
+            emitter.emitFailed(treeCommandErrorDescription(error))
+        }
         if createdOutput { try? FileManager.default.removeItem(at: outputURL) }
         throw error
+    }
+}
+
+/// The three tree transforms, `reroot`, `extract-subtree` and `relabel`. They run no external tool, so
+/// the cancel path is one shared function (Phase 2.11 lane S61, decisions P2 and C5).
+protocol TreeTransformCommand: AsyncParsableCommand, Sendable {
+    var outputPath: String { get }
+    var globalOptions: GlobalOptions { get }
+    func executeForTesting(emit: @escaping (String) -> Void) throws
+}
+
+extension TreeTransformCommand {
+    /// Runs the transform so that SIGTERM cancels it instead of ending the command. The Tree row
+    /// stops these commands with SIGTERM and gives them `operationGrace`. The writer ends at its next
+    /// step, removes the bundle it started, and the run is recorded as cancelled beside the output
+    /// path, the stream ends with one `failed` line, and the command exits 125.
+    func run() async throws {
+        try await runTransformCancellingOnSIGTERM(emit: { printEventLine($0) }) { [self] in
+            try executeForTesting { printEventLine($0) }
+        }
+    }
+
+    /// The cancel path of the three transforms. `body` runs the writer. A cancel it ends with, or a
+    /// SIGTERM the command caught, writes `<output>.cancelled.lungfish-provenance.json`, ends the
+    /// stream with one `failed` line through `emit`, and throws exit status 125.
+    func runTransformCancellingOnSIGTERM(
+        emit: @escaping @Sendable (String) -> Void,
+        body: @escaping @Sendable () throws -> Void
+    ) async throws {
+        let startedAt = Date()
+        let ran = await runCancellingOnSIGTERM { try body() }
+        guard case .failure(let error) = ran else { return }
+        guard error is CancellationError || SIGTERMCancellation.signalCaught else { throw error }
+        let name = Self.configuration.commandName ?? "transform"
+        let output = AlignmentWorkflowLeafOutput(
+            eventsOn: globalOptions.outputFormat == .json,
+            quiet: globalOptions.quiet,
+            emit: emit
+        )
+        let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+        throw output.cancelled(
+            "Tree \(name) cancelled. No tree bundle was written.",
+            record: CancelledAlignmentWorkflowRecord(
+                workflow: "lungfish tree \(name)",
+                argv: [CLICommandIdentity.executableName] + CommandLine.arguments.dropFirst(),
+                explicit: [:],
+                note: "Cancelled before the tree bundle was written. No bundle remains at the output path.",
+                startedAt: startedAt,
+                url: URL(fileURLWithPath: outputURL.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
+            )
+        )
     }
 }

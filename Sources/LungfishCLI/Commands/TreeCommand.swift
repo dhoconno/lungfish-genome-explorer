@@ -1,4 +1,5 @@
 import ArgumentParser
+import LungfishCore
 import CryptoKit
 import Foundation
 import LungfishCore
@@ -358,6 +359,12 @@ struct TreeCommand: AsyncParsableCommand {
     }
 }
 
+// The conformances sit beside the structs, since `TreeTransformCommand` carries `Sendable` and a type
+// declares that conformance in its own file.
+extension TreeCommand.RerootSubcommand: TreeTransformCommand {}
+extension TreeCommand.ExtractSubtreeSubcommand: TreeTransformCommand {}
+extension TreeCommand.RelabelSubcommand: TreeTransformCommand {}
+
 struct TreeProcessResult {
     let exitStatus: Int32
     let stdout: String
@@ -370,76 +377,37 @@ struct TreeAlignedFASTARecord {
     let sequence: String
 }
 
+/// Runs one IQ-TREE process through `ToolProcess` and returns its status and output. ToolProcess reads
+/// both pipes from launch, so a tool that writes more than the pipe buffer never blocks. Cancelling the
+/// calling task stops the process tree with SIGTERM, and with SIGKILL after three seconds, so a cancelled
+/// `tree infer iqtree` leaves no IQ-TREE behind (Phase 2.11 lane S61). The three seconds sit inside the
+/// six the app gives the command to record its cancelled run.
 func runProcess(
     executableURL: URL,
     arguments: [String],
     workingDirectory: URL?
-) throws -> TreeProcessResult {
+) async throws -> TreeProcessResult {
     let processClock = ProvenanceRunClock()
-    let process = Process()
-    process.executableURL = executableURL
-    process.arguments = arguments
-    process.currentDirectoryURL = workingDirectory
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-
-    // Drain both pipes concurrently on background threads *before* waiting
-    // for exit. IQ-TREE (e.g. with `-m MFP`) can write more to stdout/stderr
-    // than the pipe buffer holds; reading only after `waitUntilExit()` can
-    // deadlock forever once the child blocks on a full pipe.
-    final class PipeCollector: @unchecked Sendable {
-        private let lock = NSLock()
-        private var data = Data()
-        func append(_ chunk: Data) {
-            lock.lock()
-            data.append(chunk)
-            lock.unlock()
-        }
-        func collected() -> Data {
-            lock.lock()
-            defer { lock.unlock() }
-            return data
-        }
-    }
-    let stdoutCollector = PipeCollector()
-    let stderrCollector = PipeCollector()
-    let drainGroup = DispatchGroup()
-
-    drainGroup.enter()
-    DispatchQueue.global(qos: .utility).async {
-        let handle = stdoutPipe.fileHandleForReading
-        while true {
-            let chunk = handle.availableData
-            if chunk.isEmpty { break }
-            stdoutCollector.append(chunk)
-        }
-        drainGroup.leave()
-    }
-    drainGroup.enter()
-    DispatchQueue.global(qos: .utility).async {
-        let handle = stderrPipe.fileHandleForReading
-        while true {
-            let chunk = handle.availableData
-            if chunk.isEmpty { break }
-            stderrCollector.append(chunk)
-        }
-        drainGroup.leave()
-    }
-
-    try process.run()
-    process.waitUntilExit()
-    drainGroup.wait()
-
-    let stdout = String(data: stdoutCollector.collected(), encoding: .utf8) ?? ""
-    let stderr = String(data: stderrCollector.collected(), encoding: .utf8) ?? ""
-    return TreeProcessResult(
-        exitStatus: process.terminationStatus,
-        stdout: stdout,
-        stderr: stderr,
-        wallTimeSeconds: processClock.elapsed
+    let spec = ToolProcessSpec(
+        executableURL: executableURL,
+        arguments: arguments,
+        environment: ProcessInfo.processInfo.environment,
+        workingDirectory: workingDirectory,
+        terminationGracePeriod: .seconds(3),
+        label: executableURL.lastPathComponent
     )
+    do throws(ToolProcessError) {
+        let result = try await ToolProcess.run(spec)
+        return TreeProcessResult(
+            exitStatus: result.status,
+            stdout: result.stdoutText,
+            stderr: result.stderrText,
+            wallTimeSeconds: processClock.elapsed
+        )
+    } catch {
+        if case .cancelled = error { throw CancellationError() }
+        throw error
+    }
 }
 
 func parseTreeAlignedFASTA(at url: URL) throws -> [TreeAlignedFASTARecord] {

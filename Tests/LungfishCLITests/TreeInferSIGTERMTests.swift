@@ -11,6 +11,7 @@
 import Darwin
 import Foundation
 import LungfishTestSupport
+import LungfishWorkflow
 import XCTest
 
 final class TreeInferSIGTERMTests: XCTestCase {
@@ -70,31 +71,32 @@ final class TreeInferSIGTERMTests: XCTestCase {
         )
     }
 
-    /// Pin at the base (lane S61 M1). A SIGTERM ends the command by signal 15 with no `cancelled`
-    /// record. IQ-TREE keeps running, since the CLI-wide handler stops only the tools it registered,
-    /// and the staging folder stays under `<project>/.tmp`.
-    func testSIGTERMKillsTreeInferenceAtOnceAndLeavesNoRecordToday() async throws {
+    /// Lane S61 M2 flipped the M1 pin, which read a death by signal 15, IQ-TREE left running and a
+    /// staging folder left behind. A SIGTERM now cancels the run. IQ-TREE stops with the command,
+    /// which exits 125 inside the grace, records the run as cancelled beside the output it did not
+    /// write, ends the stream with one `failed` line and removes its staging folder.
+    func testSIGTERMCancelsTreeInferenceStopsIQTreeAndRecordsItCancelled() async throws {
         let started = try startInference()
         defer { started.cli.stop() }
         guard let iqtreePID = await CLISIGTERMHarness.waitForProcessID(in: started.iqtreePIDFile) else {
             let stop = await CLISIGTERMHarness.cancel(started.cli, timeout: .seconds(5))
             return XCTFail("The command never started IQ-TREE.\(stop.diagnostics)")
         }
+        let record = URL(fileURLWithPath: started.output.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
 
-        let stop = await CLISIGTERMHarness.cancel(started.cli, timeout: .seconds(5))
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(started.cli) {
+            try SIGTERMPinSupport.recordStatus(at: record)
+        }
 
-        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), "the command dies of the signal.\(stop.diagnostics)")
-        XCTAssertNil(stop.exitStatus, "the command does not exit 125")
+        XCTAssertTrue(stop.tree.contains(iqtreePID), "IQ-TREE belongs to the CLI's tree \(stop.tree)")
         XCTAssertEqual(
-            SIGTERMPinSupport.cancelledRecords(under: project.directory), [],
-            "the command writes no cancelled record"
+            stop.standardOutput.components(separatedBy: #""event":"failed""#).count - 1, 1,
+            "the stream ends with one failed line: \(stop.standardOutput)"
         )
         XCTAssertEqual(
-            SIGTERMPinSupport.paths(under: started.scratch, startingWith: "lungfish-tree-iqtree-").count, 1,
-            "the staging folder stays: \(SIGTERMPinSupport.relativePaths(under: started.scratch))"
+            SIGTERMPinSupport.paths(under: started.scratch, startingWith: "lungfish-tree-iqtree-"), [],
+            "the staging folder is gone: \(SIGTERMPinSupport.relativePaths(under: started.scratch))"
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: started.output.path), "no tree bundle was written")
-        XCTAssertTrue(stop.tree.contains(iqtreePID), "IQ-TREE belongs to the CLI's tree \(stop.tree)")
-        XCTAssertTrue(stop.left.contains(iqtreePID), "IQ-TREE is left running after the CLI died: \(stop.left)")
     }
 }

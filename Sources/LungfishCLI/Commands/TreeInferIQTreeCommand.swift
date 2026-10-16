@@ -87,15 +87,62 @@ extension TreeCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
+        /// Infers so that SIGTERM cancels the run instead of ending the command (Phase 2.11 lane S61,
+        /// decisions P2 and C5). The Tree Inference row stops this command with SIGTERM and gives it
+        /// `operationGrace`. Cancelling the task stops IQ-TREE through `ToolProcess`, the staging folder
+        /// goes, and no bundle is written. The run is recorded as cancelled beside the output path, the
+        /// stream ends with one `failed` line, and the command exits 125. A second SIGTERM ends the
+        /// command at once.
         func run() async throws {
-            try await execute(emit: { printEventLine($0) })
+            let startedAt = Date()
+            let ran = await runCancellingOnSIGTERM { [self] in
+                try await execute(
+                    emit: { printEventLine($0) },
+                    cancelling: { Task.isCancelled || SIGTERMCancellation.signalCaught }
+                )
+            }
+            guard case .failure(let error) = ran else { return }
+            guard error is CancellationError || SIGTERMCancellation.signalCaught else { throw error }
+            let output = AlignmentWorkflowLeafOutput(
+                eventsOn: globalOptions.outputFormat == .json,
+                quiet: globalOptions.quiet,
+                emit: { printEventLine($0) }
+            )
+            throw output.cancelled(
+                "Tree inference cancelled. No tree bundle was written.",
+                record: cancelledRecord(startedAt: startedAt)
+            )
+        }
+
+        /// The record of a run that SIGTERM cancelled. It sits beside the output path as
+        /// `<output>.cancelled.lungfish-provenance.json`, names the command and claims no output.
+        private func cancelledRecord(startedAt: Date) -> CancelledAlignmentWorkflowRecord {
+            let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+            return CancelledAlignmentWorkflowRecord(
+                workflow: "lungfish tree infer iqtree",
+                argv: canonicalArgv(
+                    msaBundleURL: URL(fileURLWithPath: msaBundlePath).standardizedFileURL,
+                    projectURL: URL(fileURLWithPath: projectPath).standardizedFileURL,
+                    outputURL: outputURL,
+                    sequenceType: try? Self.normalizedSequenceType(sequenceType)
+                ),
+                explicit: ["model": .string(model)],
+                note: "Cancelled before the tree bundle was written. An existing output was left as it was.",
+                startedAt: startedAt,
+                url: URL(fileURLWithPath: outputURL.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
+            )
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
             try await execute(emit: emit)
         }
 
-        private func execute(emit: @escaping (String) -> Void) async throws {
+        /// - Parameter cancelling: Whether the run is being cancelled. A failure that a cancel causes
+        ///   writes no `failed` line, since `run()` ends the stream with the cancelled one.
+        private func execute(
+            emit: @escaping (String) -> Void,
+            cancelling: @escaping @Sendable () -> Bool = { false }
+        ) async throws {
             let runClock = ProvenanceRunClock()
             let emitter = CLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
             let workflowName = "phylogenetic-tree-infer-iqtree"
@@ -177,7 +224,7 @@ extension TreeCommand {
 
                 emitter.emitProgress(0.20, message: "Resolving IQ-TREE executable.")
                 let executableURL = try resolveIQTreeExecutable()
-                let versionResult = try runProcess(executableURL: executableURL, arguments: ["--version"], workingDirectory: nil)
+                let versionResult = try await runProcess(executableURL: executableURL, arguments: ["--version"], workingDirectory: nil)
                 let toolVersion = parseIQTreeVersion(stdout: versionResult.stdout, stderr: versionResult.stderr)
                 // Ruling C2: AUTO only when --threads is omitted. It is not reproducible.
                 let iqtreeThreads = globalOptions.threads.map(String.init) ?? "AUTO"
@@ -213,7 +260,7 @@ extension TreeCommand {
                 iqtreeArguments += advancedArguments
 
                 emitter.emitProgress(0.34, message: "Running IQ-TREE.")
-                let runResult = try runProcess(
+                let runResult = try await runProcess(
                     executableURL: executableURL,
                     arguments: iqtreeArguments,
                     workingDirectory: stagingURL
@@ -374,7 +421,9 @@ extension TreeCommand {
                     print("Inferred tree: \(outputURL.path)")
                 }
             } catch {
-                emitter.emitFailed(treeCommandErrorDescription(error))
+                if !cancelling() {
+                    emitter.emitFailed(treeCommandErrorDescription(error))
+                }
                 // Only remove the output if THIS invocation created it fresh
                 // (no pre-existing bundle). A plain refusal (exists, no
                 // --force) or a failed --force run must leave the existing
