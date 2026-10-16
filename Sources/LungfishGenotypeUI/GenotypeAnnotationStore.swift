@@ -41,6 +41,10 @@ public final class GenotypeAnnotationStore {
     @ObservationIgnored
     let publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?
 
+    /// Where each encode, digest and write of a publication reports its thread (2.11 S35).
+    @ObservationIgnored
+    let publicationStageObserver: GenotypeAnnotationPublicationStageObserver?
+
     @ObservationIgnored
     private let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -76,7 +80,8 @@ public final class GenotypeAnnotationStore {
         bundleURL: URL,
         author: String,
         seedBuiltInSmartCohorts: Bool = true,
-        publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?
+        publicationFaultInjector: GenotypeAnnotationPublicationFaultInjector?,
+        publicationStageObserver: GenotypeAnnotationPublicationStageObserver? = nil
     ) throws {
         let loadedSidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         self.bundleURL = bundleURL
@@ -84,6 +89,7 @@ public final class GenotypeAnnotationStore {
         self.sidecar = loadedSidecar
         self.lastPersistedSidecar = loadedSidecar
         self.publicationFaultInjector = publicationFaultInjector
+        self.publicationStageObserver = publicationStageObserver ?? GenotypeAnnotationPublicationStageLog.defaultObserver
         // Detect read-only volumes (e.g. a mounted share) by probing the
         // bundle directory. We don't refuse to load; we just suppress
         // attempts to persist so the analyst can still browse the bundle
@@ -2052,6 +2058,7 @@ public final class GenotypeAnnotationStore {
         endedAt: Date
     ) throws -> GenotypeAnnotationPublicationPayload {
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+        reportPublicationStage(.encode)
         let annotationData = try sidecar.encoded()
         let output = provenanceDescriptor(data: annotationData, url: annotationURL, role: .output)
         let envelope = try makeAnnotationProvenance(
@@ -2084,7 +2091,8 @@ public final class GenotypeAnnotationStore {
         url: URL,
         role: FileRole
     ) -> ProvenanceFileDescriptor {
-        ProvenanceFileDescriptor(
+        reportPublicationStage(.digest)
+        return ProvenanceFileDescriptor(
             path: url.path,
             checksumSHA256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
             fileSize: UInt64(data.count),
@@ -2536,7 +2544,8 @@ public final class GenotypeAnnotationStore {
     }
 
     private func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        reportPublicationStage(.digest)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func mhcCandidateDisplayEditContext(

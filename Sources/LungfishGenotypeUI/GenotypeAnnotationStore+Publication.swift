@@ -2,12 +2,18 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import os
 
 extension GenotypeAnnotationStore {
     func transactAnnotationPublication(
         _ prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
     ) throws -> GenotypeAnnotationPublicationPayload? {
-        return try annotationPublicationCoordinator().transact(prepare: prepare)
+        return try annotationPublicationCoordinator().transact { snapshot in
+            guard let payload = try prepare(snapshot) else { return nil }
+            // The coordinator writes the pair next, on this thread and inside this transaction.
+            reportPublicationStage(.write)
+            return payload
+        }
     }
 
     /// Publishes the whole sidecar the analyst sees in one write, with the derived id of each smart cohort
@@ -59,4 +65,50 @@ extension GenotypeAnnotationStore {
             faultInjector: publicationFaultInjector
         )
     }
+
+    /// Reports one step of a publication to the stage hook with whether it runs on the main thread.
+    /// It is nonisolated, so a step that runs away from the main actor reports its own thread.
+    nonisolated func reportPublicationStage(_ stage: GenotypeAnnotationPublicationStage) {
+        publicationStageObserver?(GenotypeAnnotationPublicationStageEvent(
+            stage: stage,
+            onMainThread: Thread.isMainThread
+        ))
+    }
+}
+
+/// A step of a genotype annotation publication that the stage hook reports (2.11 S35, SWIFT SC3).
+enum GenotypeAnnotationPublicationStage: String, Sendable {
+    /// Encoding `annotations.json` for the payload.
+    case encode
+    /// Hashing bytes that the record names.
+    case digest
+    /// Writing the pair, reported on the thread that writes, just before the coordinator writes it.
+    case write
+}
+
+/// One report of the stage hook.
+struct GenotypeAnnotationPublicationStageEvent: Equatable, Sendable {
+    let stage: GenotypeAnnotationPublicationStage
+    let onMainThread: Bool
+}
+
+typealias GenotypeAnnotationPublicationStageObserver =
+    @Sendable (GenotypeAnnotationPublicationStageEvent) -> Void
+
+/// The hook a store reports to when its creator passes none. A Debug build logs each step with its
+/// thread to the unified log, subsystem `com.lungfish.app` and category
+/// `GenotypeAnnotationPublication`, which a GUI walk reads. A Release build reports nowhere.
+enum GenotypeAnnotationPublicationStageLog {
+    #if DEBUG
+    private static let logger = Logger(subsystem: LogSubsystem.app, category: "GenotypeAnnotationPublication")
+
+    static let defaultObserver: GenotypeAnnotationPublicationStageObserver? = { event in
+        let thread = event.onMainThread ? "main" : "background"
+        GenotypeAnnotationPublicationStageLog.logger.notice(
+            "genotype annotation publication stage=\(event.stage.rawValue, privacy: .public) thread=\(thread, privacy: .public)"
+        )
+    }
+    #else
+    static let defaultObserver: GenotypeAnnotationPublicationStageObserver? = nil
+    #endif
 }
