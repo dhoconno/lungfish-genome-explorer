@@ -205,12 +205,15 @@ package enum ReferenceBundleMergeService {
         }
     }
 
+    /// - Parameter beforePublish: A test seam. It is called with the staged bundle just before the rename that
+    ///   publishes it, so a test can look at what a reader would see the moment the bundle appears.
     static func mergeOffMain(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String,
         provenanceWriter: BundleMergeProvenanceSidecarWriter,
-        reporter: ProgressReporter
+        reporter: ProgressReporter,
+        beforePublish: (@Sendable (URL) -> Void)? = nil
     ) async throws -> URL {
         #if DEBUG
         threadingProbe?()
@@ -326,17 +329,16 @@ package enum ReferenceBundleMergeService {
             }
             // A cancel that came while the bundle was built publishes nothing, and the stage goes.
             try Task.checkCancellation()
-            // The builder's own record names the stage, so it is read there before the bundle moves.
+            // The builder's own record names the stage, so it is read there before it is rewritten.
             let builderProvenance = try ProvenanceEnvelopeReader.load(from: builtBundleURL)
-            let publishedBundleURL = try publish(stagedBundleURL: builtBundleURL, into: outputDirectory)
-            try rewriteStagePaths(inRecordsOf: publishedBundleURL, stage: stageDirectory, output: outputDirectory)
-            createdBundleURL = publishedBundleURL
 
+            // The bundle is complete in the stage, with its merge record written and no record naming the stage,
+            // before the rename that publishes it. Nothing that can throw follows the rename (2.11 A49 review Fix 1).
             await reporter.report(0.96, "Writing provenance\u{2026}", nil)
             try writeMergeProvenance(
                 sourceBundleURLs: sourceBundleURLs,
                 inputPayloadURLs: sourceFASTAURLs,
-                bundleURL: publishedBundleURL,
+                bundleURL: builtBundleURL,
                 requestedBundleName: bundleName,
                 resolvedBundleName: resolvedBundleName,
                 nestedProvenance: builderProvenance,
@@ -346,6 +348,11 @@ package enum ReferenceBundleMergeService {
                 provenanceWriter: provenanceWriter,
                 stageRewrites: stagePathRewrites(stage: stageDirectory, output: outputDirectory)
             )
+            try rewriteStagePaths(inRecordsOf: builtBundleURL, stage: stageDirectory, output: outputDirectory)
+            try Task.checkCancellation()
+            beforePublish?(builtBundleURL)
+            let publishedBundleURL = try publish(stagedBundleURL: builtBundleURL, into: outputDirectory)
+            createdBundleURL = publishedBundleURL
             await reporter.report(1.0, "Merge complete", nil)
             return publishedBundleURL
         } catch {

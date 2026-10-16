@@ -1,3 +1,4 @@
+import Synchronization
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
@@ -152,6 +153,82 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         let durableProvenanceText = durableProvenanceLines.joined(separator: "\n")
         XCTAssertFalse(durableProvenanceText.contains("reference-merge-"))
         XCTAssertFalse(durableProvenanceText.contains("ref-import-"))
+    }
+
+    /// What the staged bundle held when the merge was about to publish it.
+    private final class StagedBundleObservation: Sendable {
+        struct Snapshot: Sendable {
+            let rootRecordFileExists: Bool
+            let rootRecordWorkflow: String?
+            let recordsNamingTheStage: [String]
+        }
+
+        private let state = Mutex<Snapshot?>(nil)
+
+        var snapshot: Snapshot? { state.withLock { $0 } }
+
+        func record(_ staged: URL) {
+            var naming: [String] = []
+            let base = staged.resolvingSymlinksInPath().path
+            if let walker = FileManager.default.enumerator(at: staged, includingPropertiesForKeys: nil) {
+                for case let file as URL in walker where file.lastPathComponent.hasSuffix(ProvenanceWriter.provenanceFilename) {
+                    // The stage is `reference-merge-<id>/stage`, in any spelling of the path. The raw argv of the
+                    // builder step still names the temporary inputs beside it (a pinned base quirk), which are not the stage.
+                    guard let text = try? String(contentsOf: file, encoding: .utf8),
+                          let match = text.range(of: #"reference-merge-[A-Za-z0-9]+\\?/stage"#, options: .regularExpression)
+                    else { continue }
+                    naming.append("\(file.resolvingSymlinksInPath().path.dropFirst(base.count)): \(text[match])")
+                }
+            }
+            let snapshot = Snapshot(
+                rootRecordFileExists: FileManager.default.fileExists(
+                    atPath: staged.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
+                ),
+                rootRecordWorkflow: (try? ProvenanceEnvelopeReader.load(from: staged))?.workflowName,
+                recordsNamingTheStage: naming.sorted()
+            )
+            state.withLock { $0 = snapshot }
+        }
+    }
+
+    /// 2.11 A49 review Fix 1. The merge publishes last. At the rename the staged bundle already holds the merge
+    /// record at its root, and no record of it names the stage, so no reader sees a bundle under its final name
+    /// whose records name a folder that is about to go.
+    func testTheStagedBundleHoldsItsRootRecordAndNamesNoStageWhenItIsPublished() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fastaA = root.appendingPathComponent("A.fa")
+        let fastaB = root.appendingPathComponent("B.fa")
+        try ">chrA\nAAAA\n".write(to: fastaA, atomically: true, encoding: .utf8)
+        try ">chrB\nCCCC\n".write(to: fastaB, atomically: true, encoding: .utf8)
+        let bundleA = try ReferenceSequenceFolder.importReference(from: fastaA, into: projectURL, displayName: "A")
+        let bundleB = try ReferenceSequenceFolder.importReference(from: fastaB, into: projectURL, displayName: "B")
+
+        let seen = StagedBundleObservation()
+        let mergedURL = try await ReferenceBundleMergeService.mergeOffMain(
+            sourceBundleURLs: [bundleA, bundleB],
+            outputDirectory: projectURL,
+            bundleName: "Merged Reference",
+            provenanceWriter: .live,
+            reporter: .none,
+            beforePublish: { staged in seen.record(staged) }
+        )
+
+        let observed = try XCTUnwrap(seen.snapshot, "the merge published without calling the seam")
+        XCTAssertTrue(observed.rootRecordFileExists, "the staged bundle holds a record at its root when it is published")
+        XCTAssertEqual(
+            observed.rootRecordWorkflow, "lungfish reference merge",
+            "the root record of the staged bundle is the merge record, not the builder's"
+        )
+        XCTAssertEqual(
+            observed.recordsNamingTheStage, [],
+            "no record of the staged bundle names the stage when it is published"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mergedURL.path), "the bundle is published")
+        XCTAssertEqual(try ProvenanceEnvelopeReader.load(from: mergedURL)?.workflowName, "lungfish reference merge")
     }
 
     func testMergeProvenanceUsesResolvedReferenceNameWhenOutputNameIsUniquified() async throws {
