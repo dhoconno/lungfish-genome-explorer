@@ -140,6 +140,8 @@ extension TaxTriageParityLiveConformanceTests {
             standardOutput: .captured,
             terminationGracePeriod: CLIProcessLauncher.operationGrace
         )
+        // The runner signals the TaxTriage command first (U30 W2), so the live cancel runs the termination the app runs.
+        spec.signalsProcessFirst = CLIClassifierRunner.signalsCommandFirst(.taxTriage)
         spec.environment.merge(engine.cliEnvironment) { _, engineValue in engineValue }
         let launcherSpec = spec
         let cancellation = CLIRunCancellation()

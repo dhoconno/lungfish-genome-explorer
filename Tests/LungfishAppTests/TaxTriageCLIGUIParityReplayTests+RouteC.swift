@@ -197,8 +197,10 @@ extension TaxTriageParityHarness {
 
     /// How the built `lungfish-cli` ends with `words` on the engine, raced against the engine's
     /// wait. A case that cancels sends the transport's cancel once the engine has started, with
-    /// the grace the app gives `taxtriage run` (8 s), and the CLI's own exit stands, 125 after a
-    /// cancel (2.9 S2). A run that outlives the wait is cancelled and ends as an error.
+    /// the grace and the first signal the app gives `taxtriage run`
+    /// (`CLIClassifierRunner.terminationGracePeriod`, SIGTERM to the command alone), and the CLI's
+    /// own exit stands, 125 after a cancel (2.9 S2). A run that outlives the wait is cancelled and
+    /// ends as an error.
     private func binaryTerminal(
         of words: [String],
         _ parityCase: TaxTriageParityCase,
@@ -209,8 +211,10 @@ extension TaxTriageParityHarness {
             executableURL: cliBinary,
             arguments: words,
             standardOutput: .captured,
-            terminationGracePeriod: .seconds(8)
+            terminationGracePeriod: CLIClassifierRunner.terminationGracePeriod
         )
+        // The runner signals the TaxTriage command first (U30 W2), so a cancel here runs the termination the app runs.
+        spec.signalsProcessFirst = CLIClassifierRunner.signalsCommandFirst(.taxTriage)
         spec.environment.merge(engine.cliEnvironment) { _, engineValue in engineValue }
         if let storage = engine.cliEnvironment["LUNGFISH_STORAGE_ROOT"] {
             try? FileManager.default.createDirectory(atPath: storage, withIntermediateDirectories: true)
