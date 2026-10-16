@@ -8,7 +8,8 @@
     python3 scripts/golden/environment.py lock --from-storage DIR --database NAME
 
 The golden captures run lungfish-cli against a managed storage root that holds
-eight conda environments and two classifier databases. That root lives at a
+eight conda environments, one test-only conda environment and two classifier
+databases. That root lives at a
 fixed path, /Users/Shared/lungfish-golden/storage, so the goldens record the
 same paths on every Mac and for every user. Its content is pinned by
 Tests/Fixtures/golden-environment/lock.json and one explicit conda file per
@@ -19,7 +20,9 @@ match. `verify` checks it without changing anything, and golden.py runs the
 same check before every capture. `lock` rewrites the explicit files, either
 from environments already installed in another root or by asking micromamba to
 resolve the manifest's package spec. Tests/Fixtures/golden-environment/README.md
-says when to use each.
+says when to use each. A test-only environment ("testOnly" in lock.json) has no
+manifest pin. `lock` rewrites it only when it is named with --env and --solve, from
+the specs in its own packageSpec.
 """
 
 from __future__ import annotations
@@ -146,6 +149,17 @@ def manifest_package_specs(manifest_path: Path = MANIFEST_PATH) -> dict[str, str
             for tool in manifest.get("tools", []) + manifest.get("packTools", []) if tool.get("packageSpec")}
 
 
+def is_test_only(entry: dict) -> bool:
+    """True for an environment a test needs and the managed-tools manifest does not pin.
+    Its packageSpec lists the specs it was solved from, separated by spaces."""
+    return entry.get("testOnly") is True
+
+
+def default_lock_names(lock: dict) -> list[str]:
+    """The environments `lock` rewrites without --env. A test-only one is locked only by name."""
+    return [entry["name"] for entry in lock["environments"] if not is_test_only(entry)]
+
+
 def installed_packages(prefix: Path) -> list[Package]:
     """The packages conda-meta records for an environment, dependencies first.
 
@@ -196,7 +210,7 @@ def solved_packages(spec: str, micromamba: Path = MICROMAMBA_RESOURCE) -> list[P
     with tempfile.TemporaryDirectory(prefix="lge-golden-solve-") as scratch:
         command = [str(micromamba), "create", "--yes", "--dry-run", "--json", "--no-rc",
                    "--override-channels", *[arg for channel in CHANNELS for arg in ("-c", channel)],
-                   "--platform", PLATFORM, "-p", str(Path(scratch) / "env"), spec]
+                   "--platform", PLATFORM, "-p", str(Path(scratch) / "env"), *spec.split()]
         completed = subprocess.run(command, env=micromamba_environment(Path(scratch) / "root"),
                                    capture_output=True, text=True)
     if completed.returncode != 0:
@@ -215,22 +229,28 @@ def lock_environments(lock: dict, names: list[str], *, source: Path | None, lock
     changed = []
     for name in names:
         entry = environment_entry(lock, name)
-        if name not in specs:
+        if is_test_only(entry):
+            if source is not None:
+                raise LockError(f"{name} is test-only and has no manifest pin, so lock it with --solve")
+            spec = entry["packageSpec"]
+        elif name in specs:
+            spec = specs[name]
+        else:
             raise LockError(f"the managed-tools manifest has no environment named {name}")
         if source is not None:
             prefix = source / "conda" / "envs" / name
             packages = installed_packages(prefix)
-            top = next((p for p in packages if _package_matches_spec(p, specs[name])), None)
+            top = next((p for p in packages if _package_matches_spec(p, spec)), None)
             if top is None:
-                raise LockError(f"{prefix} does not hold {specs[name]}, the manifest's pin")
+                raise LockError(f"{prefix} does not hold {spec}, the manifest's pin")
         else:
-            packages = solved_packages(specs[name])
+            packages = solved_packages(spec)
         text = render_explicit(packages)
         path = lock_dir / entry["explicit"]
         if not path.exists() or path.read_text() != text:
             changed.append(name)
         path.write_text(text)
-        entry["packageSpec"] = specs[name]
+        entry["packageSpec"] = spec
         entry["sha256"] = sha256_file(path)
         entry["packages"] = len(packages)
     return changed
@@ -568,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             write_lock(lock)
             print(f"lock: {len(args.database)} databases locked, changed: {', '.join(changed) or 'none'}")
             return 0
-        names = args.env or [entry["name"] for entry in lock["environments"]]
+        names = args.env or default_lock_names(lock)
         changed = lock_environments(lock, names, source=source_root)
         write_lock(lock)
         print(f"lock: {len(names)} environments locked, changed: {', '.join(changed) or 'none'}")
