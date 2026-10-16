@@ -1,6 +1,5 @@
 import Foundation
 import LungfishIO
-import LungfishWorkflow
 
 package struct FASTQOperationProvenanceRehydrator: Sendable {
     package init() {}
