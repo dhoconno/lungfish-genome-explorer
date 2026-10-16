@@ -123,6 +123,32 @@ final class GenotypeEffectiveHaplotypeEditorTests: XCTestCase {
         XCTAssertFalse(model.canSave)
     }
 
+    /// Save holds while the draft publishes, and only the save in flight holds it, since the draft
+    /// is still dirty and valid (2.11 S35 review fix 7, plan S2).
+    func testSaveIsHeldWhileADraftPublishes() async {
+        let hold = AnnotationEditHold()
+        let model = GenotypeEffectiveHaplotypeEditorModel(
+            snapshot: snapshot(),
+            onSave: { _ in
+                await hold.wait()
+                return self.snapshot(h1: "M3A")
+            },
+            onReload: { self.snapshot() }
+        )
+        model.updateLabel("M3A", locus: "MHC-A", slot: .h1)
+        XCTAssertTrue(model.canSave)
+
+        model.save()
+
+        XCTAssertTrue(model.isSaving)
+        XCTAssertTrue(model.isDirty)
+        XCTAssertFalse(model.canSave)
+        hold.release()
+        await waitForAnnotationEdits()
+        XCTAssertFalse(model.isSaving)
+        XCTAssertFalse(model.isDirty)
+    }
+
     func testEffectiveEditorUsesSharedAssignmentCard() {
         let view = GenotypeEffectiveHaplotypeEditor(model: makeModel())
 

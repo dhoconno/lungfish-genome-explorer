@@ -139,6 +139,28 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(words.first.map { $0.isUppercase }, true)
     }
 
+    /// The review commands hold while an edit publishes, so a second command cannot start from a
+    /// status that is not saved yet (2.11 S35 review fix 7, plan S2).
+    func testReviewCommandsAreDisabledWhileAnEditPublishes() async throws {
+        let fixture = try await makeHostedController(priorStatus: .needsReview)
+        defer { fixture.tearDown() }
+        let item = NSMenuItem(
+            title: "Mark Sample Reviewed",
+            action: #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:)),
+            keyEquivalent: ""
+        )
+        XCTAssertTrue(fixture.controller.validateMenuItem(item), "The command is available while no edit publishes")
+
+        fixture.undoManager.beginUndoGrouping()
+        fixture.controller.markSelectedSampleReviewed(nil)
+        fixture.undoManager.endUndoGrouping()
+
+        XCTAssertFalse(fixture.controller.validateMenuItem(item), "The command holds while its edit publishes")
+        await waitForAnnotationEdits()
+        XCTAssertTrue(fixture.controller.validateMenuItem(item), "The command is available again once the edit ends")
+        XCTAssertEqual(status(of: sample, in: try persistedSidecar(fixture.bundleURL)), .reviewed)
+    }
+
     // MARK: - Undo and Redo of the sample status commands
 
     func testMarkSampleReviewedUndoesToNoStatusAndRedoes() async throws {

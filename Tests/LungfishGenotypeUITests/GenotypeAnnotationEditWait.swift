@@ -21,6 +21,25 @@ func waitForAnnotationEdits(file: StaticString = #filePath, line: UInt = #line) 
     )
 }
 
+/// Holds an edit open until a test releases it, so the test can look at what holds while the edit
+/// publishes. The edit awaits `wait()` and the test calls `release()` (2.11 S35 review fix 7).
+@MainActor
+final class AnnotationEditHold {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 /// Waits up to `timeout` seconds until `condition` holds, sleeping between checks. An async test
 /// runs as a job on the main queue, so a run loop spun inside it never runs the SwiftUI updates
 /// queued behind that job. Sleeping ends the job and lets them run.
