@@ -44,6 +44,28 @@ final class BundleMergeFailureTests: XCTestCase {
         XCTAssertEqual(stages, [], "the stage is removed")
     }
 
+    /// A refusal is a request the input makes impossible, so it ends before any folder exists. Two bundles that
+    /// share `chrA` are refused with exit 3 and a last `failed` event, and the folder `--output-directory` names
+    /// is not created.
+    func testARefusedMergeCreatesNoOutputFolder() throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let first = try makeSource("Alpha", sequence: "chrA", in: project)
+        let second = try makeSource("Beta", sequence: "chrA", in: project)
+        let condaRoot = try stubCondaRoot()
+        let output = root.appendingPathComponent("new", isDirectory: true)
+
+        let result = try runCLI(
+            [
+                "bundle", "merge", first.path, second.path, "--name=Merged",
+                "--output-directory", output.path, "--format", "json",
+            ],
+            condaRoot: condaRoot
+        )
+        XCTAssertEqual(result.status, 3, "a refusal exits 3. \(result.diagnostics)")
+        try assertLastEventIsFailed(result)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a refusal creates no output folder")
+    }
+
     // MARK: - Running the CLI
 
     private struct Result {

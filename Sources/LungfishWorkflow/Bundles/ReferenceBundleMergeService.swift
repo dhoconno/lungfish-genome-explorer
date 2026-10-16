@@ -226,6 +226,9 @@ package enum ReferenceBundleMergeService {
         let sources = try await inspectSourceBundles(sourceBundleURLs)
         try validateNoUnsupportedPayloads(in: sources)
         try validateNoSequenceNameCollisions(in: sources)
+        // A refusal above leaves no folder behind (docs/contracts/ADDING-AN-OPERATION.md), so the output folder is
+        // created only now (2.11 A49 review Fix 5).
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
         let runClock = ProvenanceRunClock()
         let tempDirectory = try ProjectTempDirectory.createFromContext(

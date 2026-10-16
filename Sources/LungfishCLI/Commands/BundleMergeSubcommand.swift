@@ -106,8 +106,8 @@ struct BundleMergeSubcommand: AsyncParsableCommand {
         }
         let bundleName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !bundleName.isEmpty else { throw BundleMergeRefusal("--name is empty. Give the merged bundle a name.") }
+        // The service creates the folder once it has accepted the sources, so a refusal leaves none.
         let directory = destination(sources: sources)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         events.emitStart("Merging \(sources.count) reference bundles")
         events.emitProgress(0, message: "Preparing to merge \(sources.count) reference bundles\u{2026}")
