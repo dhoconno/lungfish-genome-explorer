@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -127,6 +128,68 @@ final class ReferenceBundleImportServiceTests: XCTestCase {
             residualEntries.contains { $0.contains(".building-") },
             "Failed native bundle builds should remove hidden staging directories."
         )
+    }
+
+    /// A SIGTERM cancels the task that awaits the import and not the builder's own flag, so the builder
+    /// has to stop between its steps on the task's cancel and leave nothing behind (A48 M3 review,
+    /// Fix 5, L4). The cancel comes when the manifest step starts, after the managed tools have run,
+    /// so a stopped child process cannot end the build and only the builder's own check can.
+    @MainActor
+    func testACancelledTaskStopsTheBuildBetweenStepsAndLeavesNothing() async throws {
+        if let missingInfo = await NativeBundleBuilder().checkRequiredTools() {
+            try ToolAvailability.skipOrFail("Native reference bundle tools are unavailable: \(missingInfo.description)")
+        }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReferenceBundleImportServiceTests-cancel-\(UUID().uuidString)", isDirectory: true)
+            .resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let references = project.appendingPathComponent("Reference Sequences", isDirectory: true)
+        let scratch = project.appendingPathComponent(".tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: references, withIntermediateDirectories: true)
+
+        let sourceURL = root.appendingPathComponent("source.fa")
+        try ">chr1\nACGTACGTAC\n>chr2\nTTGGCCAATT\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let task = Task { () -> Result<ReferenceBundleImportResult, any Error> in
+            do {
+                return .success(try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+                    sourceURL: sourceURL,
+                    outputDirectory: references,
+                    progressHandler: { _, message in
+                        guard message == "Generating manifest" else { return }
+                        // The service's scratch folder is in place when the cancel comes, so the
+                        // check that it is gone afterwards is not vacuous.
+                        let scratchEntries = (try? FileManager.default.contentsOfDirectory(atPath: scratch.path)) ?? []
+                        XCTAssertTrue(scratchEntries.contains { $0.hasPrefix("ref-import-") }, "\(scratchEntries)")
+                        // The caller's task is what a SIGTERM cancels, and the builder's own flag stays unset.
+                        withUnsafeCurrentTask { $0?.cancel() }
+                    }
+                ))
+            } catch {
+                return .failure(error)
+            }
+        }
+        guard case .failure(let error) = await task.value else {
+            return XCTFail("the build ignored the cancelled task")
+        }
+        switch error {
+        case let build as BundleBuildError:
+            if case .cancelled = build {} else { XCTFail("the build failed with \(build) and not as a cancel") }
+        case is CancellationError:
+            break
+        default:
+            XCTFail("the import ended with \(error) and not as a cancel")
+        }
+
+        let kept = try FileManager.default.contentsOfDirectory(atPath: references.path).filter {
+            $0.hasSuffix(".lungfishref") || $0.contains(".building-") || $0.contains(".processing")
+        }
+        XCTAssertEqual(kept, [], "a cancelled import leaves no bundle, staging folder or marker")
+        let scratchLeft = ((try? FileManager.default.contentsOfDirectory(atPath: scratch.path)) ?? [])
+            .filter { $0.hasPrefix("ref-import-") }
+        XCTAssertEqual(scratchLeft, [], "a cancelled import removes its scratch folder")
     }
 
     func testClassifiesStandaloneReferenceExtensions() {
