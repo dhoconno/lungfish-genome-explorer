@@ -452,6 +452,42 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         window.close()
     }
 
+    /// Runs one await of a case under a 30-second bound, so a continuation that
+    /// never resumes fails the case with the await's own name instead of
+    /// hanging the class (2.11 S60, carry-in R5).
+    private func awaitBounded<T: Sendable>(
+        _ name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ operation: @escaping @MainActor () async -> T
+    ) async throws -> T {
+        let resumed = XCTestExpectation(description: name)
+        let task = Task { @MainActor () -> T in
+            let value = await operation()
+            resumed.fulfill()
+            return value
+        }
+        guard await XCTWaiter().fulfillment(of: [resumed], timeout: 30) == .completed else {
+            // A sheet nobody answers is the usual reason a continuation never resumes.
+            // Name it, then end it so the stuck work and its sheet leave with this case.
+            let sheets = NSApp.windows.compactMap(\.attachedSheet).map { sheetText(in: $0.contentView) }
+            XCTFail("The await \"\(name)\" did not resume within 30 seconds. Open sheets: \(sheets)",
+                file: file, line: line)
+            for window in NSApp.windows {
+                if let sheet = window.attachedSheet { window.endSheet(sheet, returnCode: .abort) }
+            }
+            task.cancel()
+            throw BoundedAwaitTimeout(name: name)
+        }
+        return await task.value
+    }
+
+    private func sheetText(in view: NSView?) -> [String] {
+        guard let view else { return [] }
+        let own = (view as? NSTextField).map { [$0.stringValue] } ?? []
+        return own + view.subviews.flatMap { sheetText(in: $0) }.filter { !$0.isEmpty }
+    }
+
     private func fixture(in root: URL, name: String) throws -> URL {
         let url = root.appendingPathComponent(name + ".lungfish")
         let project = try ProjectFile.create(at: url, name: name)
@@ -650,24 +686,33 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
             window.close()
         }
         app.openProject(url, in: window)
-        await app.testingWaitForProjectOpen(in: window)
+        try await awaitBounded("first project open") { await app.testingWaitForProjectOpen(in: window) }
         let split = try XCTUnwrap(window.mainSplitViewController)
-        await split.externalDocumentLoadTask?.value
+        try await awaitBounded("first document load") { await split.externalDocumentLoadTask?.value }
         split.loadExternalDocument(at: source)
-        await split.externalDocumentLoadTask?.value
-        await ProjectFilesystemRefreshCoordinator.shared.testingWaitForIdentity(projectURL: url)
+        try await awaitBounded("external document load") { await split.externalDocumentLoadTask?.value }
+        try await awaitBounded("root identity read") {
+            await ProjectFilesystemRefreshCoordinator.shared.testingWaitForIdentity(projectURL: url)
+        }
         let moved = root.appendingPathComponent(ordinaryFolder ? "moved" : "moved.lungfish")
         try FileManager.default.moveItem(at: url, to: moved)
         ProjectFilesystemRefreshCoordinator.shared.testingSimulateRootChanged(projectURL: url)
-        let rebound = await split.sidebarController.retryProjectFilesystem(at: moved)
+        let rebound = try await awaitBounded("located-root rebind") {
+            await split.sidebarController.retryProjectFilesystem(at: moved)
+        }
         XCTAssertTrue(rebound)
-        await app.testingWaitForProjectOpen(in: window)
-        await split.externalDocumentLoadTask?.value
+        try await awaitBounded("recovery project open") { await app.testingWaitForProjectOpen(in: window) }
+        try await awaitBounded("recovered document load") { await split.externalDocumentLoadTask?.value }
         XCTAssertNil(split.viewerController.currentDocument?.projectSequenceID)
         XCTAssertEqual(split.viewerController.currentDocument?.url.path,
             (insideProject ? moved.appendingPathComponent("external.fa") : source).path)
         XCTAssertEqual(split.viewerController.currentDocument?.sequences.first?.asString(), "GGGG")
     }
+}
+
+private struct BoundedAwaitTimeout: Error, CustomStringConvertible {
+    let name: String
+    var description: String { "The await \"\(name)\" did not resume within 30 seconds" }
 }
 
 private actor FilesystemProjectPreparationGate {
