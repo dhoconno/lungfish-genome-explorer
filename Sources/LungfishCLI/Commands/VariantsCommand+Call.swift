@@ -28,13 +28,12 @@ extension VariantsCommand.CallSubcommand {
     /// its task, which stops the tools of the run and removes the stage, records the run as cancelled,
     /// says so on standard error and exits 125. A cancelled run reports no `runFailed` event, since the
     /// app's transport reads a cancel from the exit status. A second SIGTERM ends the command at once.
-    func runCall(emitEvent: @escaping (VariantsCommand.VariantCallingEvent) -> Void) async throws {
+    func runCall(emitEvent: @escaping @Sendable (VariantsCommand.VariantCallingEvent) -> Void) async throws {
         let startedAt = Date()
-        let sink = VariantsCallEventSink(emitEvent)
         let outcome = await runCancellingOnSIGTERM { [self] in
             try await dispatchCall { event in
                 if event.event == "runFailed", Task.isCancelled { return }
-                sink.emit(event)
+                emitEvent(event)
             }
         }
         guard case .failure(let error) = outcome else { return }
@@ -90,19 +89,5 @@ extension VariantsCommand.CallSubcommand {
         } catch {
             FileHandle.standardError.write(Data("Warning: could not write the cancelled record: \(error.localizedDescription)\n".utf8))
         }
-    }
-}
-
-/// Hands the events of one call to the command's emitter from whichever task raises them. The emitter
-/// writes one line at a time, as `VariantCallingEventEmitter` does for the other callers.
-private final class VariantsCallEventSink: @unchecked Sendable {
-    private let handler: (VariantsCommand.VariantCallingEvent) -> Void
-
-    init(_ handler: @escaping (VariantsCommand.VariantCallingEvent) -> Void) {
-        self.handler = handler
-    }
-
-    func emit(_ event: VariantsCommand.VariantCallingEvent) {
-        handler(event)
     }
 }

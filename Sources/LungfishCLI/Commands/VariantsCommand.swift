@@ -866,7 +866,7 @@ extension VariantsCommand {
         }
 
         func run() async throws {
-            let emitter: (VariantsCommand.VariantCallingEvent) -> Void
+            let emitter: @Sendable (VariantsCommand.VariantCallingEvent) -> Void
             if globalOptions.outputFormat == .json {
                 let events = CLIEventEmitter(enabled: true) { printEventLine($0) }
                 emitter = { events.emit(Self.cliEvent(from: $0), artifacts: Self.artifacts(from: $0)) }
