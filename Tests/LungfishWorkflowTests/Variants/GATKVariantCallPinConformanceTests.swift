@@ -108,6 +108,7 @@ final class GATKVariantCallPinConformanceTests: XCTestCase {
         }
         XCTAssertTrue(header.contains("ID=HaplotypeCaller"), "GATK names its command line in the VCF header: \(header)")
         XCTAssertTrue(header.contains("Date=\""), "the header line holds the run's date: \(header)")
+        XCTAssertTrue(header.contains("Version=\"\(request.toolVersion)\""), "the version the record names is the one GATK wrote in its header: \(header) against \(request.toolVersion)")
 
         let dataLines = lines.filter { !$0.hasPrefix("#") }
         XCTAssertEqual(attachment.variantCount, dataLines.count, "the track holds every call GATK made")
