@@ -157,6 +157,19 @@ final class VariantsCallGATKTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("variants").path), "a refusal writes nothing")
     }
+
+    /// Review A50 F5 (CLI-EQUIVALENCE). The record names the command as it was typed, and that command parses
+    /// back and records itself again.
+    func testTheRecordedCommandIsTheCommandAsTypedAndItParsesBack() throws {
+        let bundle = try makeBundle()
+        let typed = ["/opt/lungfish/lungfish-cli", "variants", "call", "--bundle", bundle.path, "--alignment-track", "aln-1",
+                     "--caller", "gatk", "--name", "Sample GATK", "--ploidy", "1", "--format", "json", "--no-progress"]
+        let command = try VariantsCommand.CallSubcommand.parse(Array(typed.dropFirst(3)))
+        let recorded = command.recordedCommandLine(arguments: typed)
+        XCTAssertEqual(recorded, [CLICommandIdentity.executableName] + Array(typed.dropFirst()), "the record names the command as it was typed")
+        let replayed = try VariantsCommand.CallSubcommand.parse(Array(recorded.dropFirst(3)))
+        XCTAssertEqual(replayed.recordedCommandLine(arguments: recorded), recorded, "the recorded command parses and records itself again")
+    }
 }
 
 private final class EventSink: @unchecked Sendable {
