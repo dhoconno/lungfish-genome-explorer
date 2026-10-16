@@ -4,13 +4,13 @@
 //
 // Phase 2.10 lane Q-SIGN, family L6 (the ruling of the A52 whole-lane review, Q6). The case of
 // FastqIngestRouteParityReplayTests runs with no signing key. This one ingests the same file again with
-// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side A (the in-process
-// route), side C (`startInPlaceIngestionThroughCLI` on the built CLI) and side C' (the recorded command), and
-// fails when the CLI route leaves unsigned a record the in-process route signs, or the folder's record that the
-// result opens first.
+// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side C
+// (`startInPlaceIngestionThroughCLI` on the built CLI) and side C' (the recorded command), and fails when
+// side C' leaves unsigned a record side C signs, or when the folder's record that the result opens first is
+// unsigned on either side. Phase 2.11 (K3) deleted the in-process route that was side A.
 //
-// The stand-in clumpify of that class answers every side. Side A reads its conda root from LUNGFISH_CONDA_ROOT,
-// which this test sets for its run, and sides C and C' get it through the app's subprocess environment and the
+// The stand-in clumpify of that class answers both sides. Side C gets its conda root from LUNGFISH_CONDA_ROOT,
+// which this test sets for its run, through the app's subprocess environment, and side C' gets it through the
 // harness. It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier.
 
@@ -68,16 +68,10 @@ final class FastqIngestRouteSigningReplayTests: XCTestCase {
         let harness = RouteParityHarness(
             cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120), environment: { _ in environment }
         )
-        let runs = try await harness.runSigned(
+        let runs = try await ReadsRouteParity.runSignedCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("signed", isDirectory: true),
             fixture: Family.writeFixture,
-            sideA: { root in
-                let input = Family.input(in: root)
-                let (_, item) = try await ReadsRouteParity.record(title: Family.title) {
-                    FASTQIngestionService.startInPlaceIngestionInProcess(url: input, routeContext: nil)
-                }
-                return ReadsRouteParity.outcome(of: item)
-            },
             sideC: { root in
                 let input = Family.input(in: root)
                 let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
@@ -88,7 +82,8 @@ final class FastqIngestRouteSigningReplayTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        let sides = [runs.c, runs.cPrime]
+        XCTAssertEqual(sides.map(\.outcome.end), [.completed, .completed], sides.map(\.outcome.detail).joined(separator: "\n"))
         RouteParityHarness.assertNoSignatureLost(runs, opening: Family.record)
         await harness.assertSignaturesVerify(runs, opening: Family.record)
     }

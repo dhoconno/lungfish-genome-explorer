@@ -684,7 +684,7 @@ final class OperationRoutingTests: XCTestCase {
         let source = try readRepositorySource(serviceURL)
         let body = try sourceFunctionBody(
             named: "nonisolated static func withImportSlot",
-            endingBefore: "    /// Runs the ingestion pipeline off the main actor.",
+            endingBefore: "    /// Ingests paired FASTQ files using user-configured settings.",
             in: source
         )
 

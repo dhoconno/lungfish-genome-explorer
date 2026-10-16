@@ -139,43 +139,4 @@ extension FASTQIngestionService {
             }
         }
     }
-
-    // MARK: - The in-process route
-
-    /// The in-process route that ran before Phase 2.10 lane A47 M3, side A of
-    /// `FastqIngestRouteParityReplayTests`. No UI path calls it since the row moved onto
-    /// `fastq ingest`. Phase 2.11 (E14 deletion) removes it with `runIngestion` and its class.
-    static func startInPlaceIngestionInProcess(
-        url: URL,
-        pairingMode: FASTQIngestionConfig.PairingMode = .singleEnd,
-        pairedFile: URL? = nil,
-        existingMetadata: PersistedFASTQMetadata? = nil,
-        routeContext: OperationRouteContext?
-    ) {
-        let inputFiles: [URL]
-        if let pairedFile, pairingMode == .pairedEnd {
-            inputFiles = [url, pairedFile]
-        } else {
-            inputFiles = [url]
-        }
-
-        let config = FASTQIngestionConfig(
-            inputFiles: inputFiles,
-            pairingMode: pairingMode,
-            outputDirectory: url.deletingLastPathComponent(),
-            threads: ProcessInfo.processInfo.activeProcessorCount,
-            deleteOriginals: true
-        )
-
-        // Register the operation FIRST so we have a stable ID to pass to the detached task.
-        // The launch declares no bundle lock, so `begin` cannot refuse it today. A refusal
-        // launches nothing, and the panel already shows the refused row.
-        beginInPlaceIngestionOperation(url: url, routeContext: routeContext) { opID in
-            let task = Task.detached {
-                await runIngestion(config: config, operationID: opID, existingMetadata: existingMetadata)
-            }
-            // Store cancellation callback now that we have the task handle.
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-        }
-    }
 }
