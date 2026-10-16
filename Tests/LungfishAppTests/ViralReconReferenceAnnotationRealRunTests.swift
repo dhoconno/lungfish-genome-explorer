@@ -86,6 +86,9 @@ final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
             advancedParams: ["max_cpus": "4", "max_memory": "8.GB"]
         )
 
+        // The folders `Analyses` holds before the run, so the viewer pick below never binds an earlier run's bundle.
+        let foldersBeforeRun = Set((try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? [])
+
         let operationCenter = OperationCenter()
         let service = ViralReconWorkflowExecutionService(
             operationCenter: operationCenter,
@@ -148,9 +151,13 @@ final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
         let stagedCopy = try XCTUnwrap(staging["staged"]?.fileValue)
         XCTAssertEqual(try Data(contentsOf: stagedCopy), try Data(contentsOf: bundleGFF3))
 
-        // The viewer binds a .lungfishref whose manifest registers the BAM.
+        // The viewer binds a .lungfishref whose manifest registers the BAM. Only a folder this run made counts, so a
+        // project that holds an earlier run's viewer bundle never binds that one. When more than one is new, the
+        // latest name comes first, since the ingest names its folder by timestamp.
         let viewerBundles = try FileManager.default.contentsOfDirectory(at: analyses, includingPropertiesForKeys: nil)
+            .filter { !foldersBeforeRun.contains($0.lastPathComponent) }
             .filter { $0.lastPathComponent.hasPrefix("viralrecon-") && !$0.lastPathComponent.hasPrefix("viralrecon-results-") }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
             .map { $0.appendingPathComponent(ViralReconReferenceCatalog.bundleFilename, isDirectory: true) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         let viewerBundle = try XCTUnwrap(viewerBundles.first, "no viewer bundle was ingested")
