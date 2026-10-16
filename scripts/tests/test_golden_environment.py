@@ -112,6 +112,64 @@ def test_lock_from_storage_requires_the_manifest_pin(tmp_path):
         raise AssertionError("locked an environment that does not hold the manifest's pin")
 
 
+def test_a_test_only_environment_is_locked_only_by_name_and_only_by_solving(tmp_path):
+    lock, lock_dir = small_lock(tmp_path, [])
+    specs = "conda-forge::python=3.12 conda-forge::numpy"
+    lock["environments"].append({"name": "oracle", "packageSpec": specs, "explicit": "oracle-osx-arm64-explicit.txt",
+                                 "sha256": "", "packages": 0, "testOnly": True})
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"tools": [{"environment": "tool", "packageSpec": "bioconda::tool=1.0=h0_0"}]}))
+    assert environment.default_lock_names(lock) == ["tool"]
+    try:
+        environment.lock_environments(lock, ["oracle"], source=tmp_path / "source", lock_dir=lock_dir,
+                                      manifest_path=manifest)
+    except environment.LockError as error:
+        assert "test-only" in str(error)
+    else:
+        raise AssertionError("locked a test-only environment from a storage root")
+    fake = [environment.Package(f"{CHANNEL}/{name}-1.0-h0_0.conda", hashlib.md5(name.encode()).hexdigest())
+            for name in ("python", "numpy")]
+    asked = []
+
+    def fake_solve(spec):
+        asked.append(spec)
+        return fake
+
+    real = environment.solved_packages
+    environment.solved_packages = fake_solve
+    try:
+        changed = environment.lock_environments(lock, ["oracle"], source=None, lock_dir=lock_dir,
+                                                manifest_path=manifest)
+    finally:
+        environment.solved_packages = real
+    entry = lock["environments"][1]
+    assert changed == ["oracle"] and asked == [specs]
+    assert entry["packageSpec"] == specs and entry["packages"] == 2 and entry["testOnly"] is True
+    assert environment.explicit_packages(lock, "oracle", lock_dir) == fake
+
+
+def test_an_environment_the_manifest_lacks_needs_testonly(tmp_path):
+    lock, lock_dir = small_lock(tmp_path, [])
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"tools": []}))
+    try:
+        environment.lock_environments(lock, ["tool"], source=None, lock_dir=lock_dir, manifest_path=manifest)
+    except environment.LockError as error:
+        assert "manifest has no environment named tool" in str(error)
+    else:
+        raise AssertionError("locked an environment that the manifest does not pin")
+
+
+def test_solve_hands_micromamba_each_spec_as_its_own_argument(tmp_path):
+    fake = tmp_path / "micromamba"
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$(dirname "$0")/argv.txt"\n'
+                    'echo \'{"actions": {"LINK": [{"url": "https://example.invalid/a-1.0-h0_0.conda", "md5": "00"}]}}\'\n')
+    fake.chmod(0o755)
+    packages = environment.solved_packages("conda-forge::python=3.12 conda-forge::numpy", micromamba=fake)
+    assert [p.url for p in packages] == ["https://example.invalid/a-1.0-h0_0.conda"]
+    assert (tmp_path / "argv.txt").read_text().splitlines()[-2:] == ["conda-forge::python=3.12", "conda-forge::numpy"]
+
+
 # Verify --------------------------------------------------------------------------
 
 
@@ -189,9 +247,15 @@ def test_committed_lock_files_match_their_sha256_and_the_manifest_pins():
         "sha256": manifest["bootstrap"]["micromamba"]["sha256"]["osx-arm64"]}
     assert environment.sha256_file(environment.MICROMAMBA_RESOURCE) == lock["micromamba"]["sha256"]
     for entry in lock["environments"]:
-        assert entry["packageSpec"] == specs[entry["name"]], f"{entry['name']} needs `environment.py lock`"
         packages = environment.explicit_packages(lock, entry["name"])
         assert len(packages) == entry["packages"]
+        if environment.is_test_only(entry):
+            assert entry["name"] not in specs, f"{entry['name']} is in the manifest, so drop testOnly"
+            locked = {p.url.rsplit("/", 1)[-1].rsplit("-", 2)[0] for p in packages}
+            for spec in entry["packageSpec"].split():
+                assert spec.partition("::")[2].split("=")[0] in locked, f"{entry['name']} lacks {spec}"
+            continue
+        assert entry["packageSpec"] == specs[entry["name"]], f"{entry['name']} needs `environment.py lock`"
         assert any(environment._package_matches_spec(p, entry["packageSpec"]) for p in packages)
 
 
