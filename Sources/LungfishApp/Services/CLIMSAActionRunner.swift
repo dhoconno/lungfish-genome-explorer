@@ -30,6 +30,13 @@ struct CLIMSAActionRunner {
         let outputURL: URL
     }
 
+    /// The time the command has between SIGTERM and SIGKILL to end the action and record its cancelled
+    /// run, the launcher's ``CLIProcessLauncher/operationGrace`` (Phase 2.11 lane S61).
+    static let terminationGracePeriod = CLIProcessLauncher.operationGrace
+    /// How long the run waits for a descendant that holds the command's output open after the
+    /// command exited, the launcher's ``CLIProcessLauncher/operationDrain``.
+    static let drainGracePeriod = CLIProcessLauncher.operationDrain
+
     private let transport: CLISubprocessTransport
 
     init(cliURLOverride: URL? = nil) {
@@ -46,6 +53,8 @@ struct CLIMSAActionRunner {
         do {
             let result = try await transport.run(
                 arguments: arguments,
+                terminationGracePeriod: Self.terminationGracePeriod,
+                drainGracePeriod: Self.drainGracePeriod,
                 isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
                 onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
             )

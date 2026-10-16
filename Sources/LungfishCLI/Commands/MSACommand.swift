@@ -2158,7 +2158,7 @@ private struct MSATrimMetadata: Codable, Equatable {
 /// the same files. `msa distance` passes false to match the GUI.
 func parseAlignedFASTA(at url: URL, keepingInteriorWhitespace: Bool) throws -> [AlignedFASTARecord] {
     let text = try String(contentsOf: url, encoding: .utf8)
-    let records = MSAAlignedRecord.parseAlignedFASTA(text, keepingInteriorWhitespace: keepingInteriorWhitespace)
+    let records = try msaActionCheckpoint(MSAAlignedRecord.parseAlignedFASTA(text, keepingInteriorWhitespace: keepingInteriorWhitespace))
     guard records.isEmpty == false else {
         throw ValidationError("MSA bundle does not contain aligned FASTA records.")
     }
