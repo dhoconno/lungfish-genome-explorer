@@ -75,10 +75,46 @@ public final class TestDefaultsSuite: @unchecked Sendable {
 
 extension XCTestCase {
     /// Makes a `TestDefaultsSuite` named `<prefix>-<UUID>` and tears it down when the current
-    /// test ends, after `tearDown()` has run.
+    /// test ends.
+    ///
+    /// XCTest runs a test's teardown blocks, last in and first out, before the instance
+    /// `tearDown()` (`TeardownBlockOrderTests` pins the order). A `tearDown()` that still writes to
+    /// the suite would therefore create the plist again after the block removed it, so the suite is
+    /// torn down a second time when the test case finishes, which is after `tearDown()` has run.
     public func makeTestDefaultsSuite(prefix: String) -> TestDefaultsSuite {
         let suite = TestDefaultsSuite(prefix: prefix)
         addTeardownBlock { suite.tearDown() }
+        TestDefaultsSuiteSweeper.shared.register(suite, for: self)
         return suite
+    }
+}
+
+/// Tears down the suites that `makeTestDefaultsSuite(prefix:)` made for a test case once that case
+/// has finished, after its `tearDown()`. XCTest calls `testCaseDidFinish(_:)` exactly once per case.
+///
+/// The class is `@unchecked Sendable` because the lock guards its only property.
+public final class TestDefaultsSuiteSweeper: NSObject, XCTestObservation, @unchecked Sendable {
+    /// The sweeper, registered with XCTest the first time a suite is made.
+    public static let shared: TestDefaultsSuiteSweeper = {
+        let sweeper = TestDefaultsSuiteSweeper()
+        XCTestObservationCenter.shared.addTestObserver(sweeper)
+        return sweeper
+    }()
+
+    private let lock = NSLock()
+    private var suites: [ObjectIdentifier: [TestDefaultsSuite]] = [:]
+
+    /// Remembers `suite` until `testCase` finishes.
+    public func register(_ suite: TestDefaultsSuite, for testCase: XCTestCase) {
+        lock.lock()
+        suites[ObjectIdentifier(testCase), default: []].append(suite)
+        lock.unlock()
+    }
+
+    public func testCaseDidFinish(_ testCase: XCTestCase) {
+        lock.lock()
+        let finished = suites.removeValue(forKey: ObjectIdentifier(testCase)) ?? []
+        lock.unlock()
+        for suite in finished { suite.tearDown() }
     }
 }
