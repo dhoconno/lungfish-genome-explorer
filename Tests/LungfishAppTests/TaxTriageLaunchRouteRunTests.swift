@@ -251,6 +251,38 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: root), before, "a refused launch writes nothing")
     }
 
+    /// The M1 review's item 5. Several samples the command would name otherwise than the dialog shows
+    /// them are refused through the same presenter as the pair, before any row or byte (U-211-1).
+    func testTheCLIValueRefusesSamplesTheCommandWouldRenameInWords() throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let cases: [(names: [String], refusal: TaxTriageCLIRouteRefusal)] = [
+            (["air.B", "blank"], .renamed(sampleID: "air.B", commandName: "air")),
+            (["Plate.1", "Plate.2"], .sharedName(first: "Plate.1", second: "Plate.2", name: "Plate")),
+        ]
+        for (names, refusal) in cases {
+            let bundles = try names.map { name -> URL in
+                let bundle = root.appendingPathComponent("Reads/\(name).lungfishfastq", isDirectory: true)
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                try "@r1\nACGT\n+\nIIII\n".write(to: bundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+                return bundle
+            }
+            let before = try ClassifierRouteFixtures.snapshot(of: root)
+            let recorder = RecordingNoProjectPresenter()
+            let row = AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+                launch(
+                    config(inputs: bundles),
+                    route: .cli,
+                    viewer: ViewerViewController(),
+                    routeContext: OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
+                )
+            }
+            XCTAssertEqual(recorder.presentations.map(\.title), ["TaxTriage Cannot Run These Samples"], "\(names)")
+            XCTAssertEqual(recorder.presentations.map(\.message), [refusal.message], "\(names)")
+            XCTAssertNil(row, "\(names): a refused launch registers no row")
+            XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: root), before, "\(names): a refused launch writes nothing")
+        }
+    }
+
     /// The text fields of a sheet, top to bottom, one per line.
     private static func texts(in window: NSWindow) -> String {
         var texts: [String] = []
