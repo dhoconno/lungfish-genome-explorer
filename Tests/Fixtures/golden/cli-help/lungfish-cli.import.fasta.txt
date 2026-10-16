@@ -1,6 +1,10 @@
 OVERVIEW: Import a standalone reference sequence file as a .lungfishref bundle
 
-USAGE: lungfish-cli import fasta <input-file> [--output-dir <output-dir>] [--name <name>]
+With --format json, standard output holds event lines: one start line, a
+progress line for each step and one complete or failed line. The text goes to
+standard error. SIGTERM stops the import, removes what it built and exits 125.
+
+USAGE: lungfish-cli import fasta [<options>] <input-file>
 
 ARGUMENTS:
   <input-file>            Path to the input reference (.fa/.fasta/.gb/.embl,
@@ -10,6 +14,30 @@ OPTIONS:
   -o, --output-dir <output-dir>
                           Output project directory (default: current directory)
   --name <name>           Display name for the reference (default: filename)
+  --provenance-input <file>
+                          A file the record names as the import's input in
+                          place of the input file. Give it once for each file,
+                          in order
+  --annotations <bed>     A BED file of annotations to attach to the new bundle
+                          as a track
+  --annotation-selection <json>
+                          With --annotations, the JSON selection the BED came
+                          from, which the extraction record keeps
+  --source-alignment-bundle <path>
+                          With --annotations, the alignment bundle the
+                          selection came from, which the extraction record names
+  --rehydrate-source-provenance
+                          Merge the input file's own record into the new
+                          bundle's record
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --version               Show the version.
   -h, --help              Show help information.
-

@@ -46,11 +46,40 @@ package enum MSAExtractionAnnotationProvenance {
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
+        try write(
+            bundleURL: bundleURL,
+            sourceAlignmentBundleURL: sourceAlignmentBundleURL,
+            sourceFASTAURL: sourceFASTAURL,
+            sourceAnnotationURL: sourceAnnotationURL,
+            durableSourceURLs: durableSourceURLs,
+            selectedSequenceIDs: selectedSequenceIDs,
+            annotationSelection: annotationSelectionValue(selectedAnnotationsByRecord),
+            annotationResult: annotationResult,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
+    /// Writes the sidecar with the selection already encoded, as `annotationSelectionValue` encodes
+    /// it. The `import fasta` leaf reads it from the file the app staged beside the BED, since a BED
+    /// cannot carry each annotation's id, chromosome and note (ruling A48 F2, BIO 4).
+    @discardableResult
+    package static func write(
+        bundleURL: URL,
+        sourceAlignmentBundleURL: URL?,
+        sourceFASTAURL: URL,
+        sourceAnnotationURL: URL,
+        durableSourceURLs: [URL] = [],
+        selectedSequenceIDs: [String] = [],
+        annotationSelection: ParameterValue,
+        annotationResult: ReferenceBundleAnnotationImportResult,
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> URL {
         let sidecarURL = bundleURL
             .appendingPathComponent("annotations", isDirectory: true)
             .appendingPathComponent(sidecarFilename)
         let durableSources = uniqueExistingURLs(durableSourceURLs)
-        let annotationSelection = annotationSelectionValue(selectedAnnotationsByRecord)
         let annotationBEDChecksum = ProvenanceRecorder.sha256(of: sourceAnnotationURL)
         let annotationBEDSize = (try? sourceAnnotationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let argv = [

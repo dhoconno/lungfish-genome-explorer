@@ -46,6 +46,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `extract sequence --bundle` runs bgzip and samtools faidx. Its transcripts hold the words of the
         // leaf and of the extraction bundle builder (lane A48 M2 of Phase 2.11).
         "extract sequence",
+        // `import fasta` runs bgzip and samtools faidx through ReferenceBundleImportService. Its transcripts
+        // hold the words of the service and its builder (lane A48 M3 of Phase 2.11).
+        "import fasta",
         // `taxtriage run` and `workflow run` run Nextflow. Their transcripts are runs on stand-ins, recaptured with
         // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxTriageRunCommandReplayTests, lane A2, and WorkflowRunEventsTests, A30).
         "taxtriage run", "workflow run",

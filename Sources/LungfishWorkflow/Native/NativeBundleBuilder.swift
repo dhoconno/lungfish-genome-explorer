@@ -288,7 +288,7 @@ public final class NativeBundleBuilder: ObservableObject {
     // MARK: - Private Methods
 
     private func checkCancellation() throws {
-        if isCancelled {
+        if isCancelled || Task.isCancelled { // A SIGTERM cancels the task, not a builder the caller owns.
             throw BundleBuildError.cancelled
         }
     }

@@ -38,12 +38,15 @@ final class ImportFastaIdentityPinTests: XCTestCase {
         let references = project.appendingPathComponent(ReferenceSequenceFolder.folderName, isDirectory: true)
         let first = try BundleManifest.load(from: references.appendingPathComponent("X.lungfishref"))
         let second = try BundleManifest.load(from: references.appendingPathComponent("X_2.lungfishref"))
+        // Since the leaf builds through ReferenceBundleImportService (ruling A48 F2, P4) the prefix is
+        // the service's and the organism of a FASTA is the uniqued name. It was
+        // `org.lungfish.cli.import.` and `X` before.
         for manifest in [first, second] {
-            XCTAssertTrue(manifest.identifier.hasPrefix("org.lungfish.cli.import."), manifest.identifier)
+            XCTAssertTrue(manifest.identifier.hasPrefix("org.lungfish.import."), manifest.identifier)
         }
         XCTAssertEqual(second.name, "X 2")
         XCTAssertEqual(second.source.assembly, "X 2")
-        XCTAssertEqual(second.source.organism, "X")
+        XCTAssertEqual(second.source.organism, "X 2")
     }
 
     func testFASTATextSummary() async throws {

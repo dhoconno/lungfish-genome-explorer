@@ -98,6 +98,8 @@ package enum CLIEventContractTable {
         "extract sequence": .events(flag: formatJSON, channel: .standardOutput),
         "fastq import-ont": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ingest": .events(flag: formatJSON, channel: .standardOutput),
+        // Events since 2.11 A48 M3, which builds through ReferenceBundleImportService. It printed text only before.
+        "import fasta": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
         "fastq platform": .events(flag: formatJSON, channel: .standardOutput),
@@ -304,7 +306,6 @@ package enum CLIEventContractTable {
         "import bam": .text(reason: humanTextOnly),
         "import cz-id": .text(reason: humanTextOnly),
         "import esviritu": .text(reason: humanTextOnly),
-        "import fasta": .text(reason: humanTextOnly),
         "import kraken2": .text(reason: humanTextOnly),
         "import metadata": .text(reason: humanTextOnly),
         "import nao-mgs": .text(reason: humanTextOnly),

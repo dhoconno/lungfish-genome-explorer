@@ -194,6 +194,31 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
         return ReferenceBundleImportResult(bundleURL: bundleURL, bundleName: bundleName)
     }
 
+    /// The `lungfish-cli` words, from `import` on, that import `sourceURL` into the project at
+    /// `projectURL` as ``importAsReferenceBundle(sourceURL:outputDirectory:preferredBundleName:provenanceWorkflowName:provenanceCommand:provenanceInputFiles:progressHandler:)``
+    /// does, then run the steps the app's imports run after it. The app runs and records them, and the
+    /// leaf records them when it was not started as `import fasta` (ruling A48 F2, L2). A name is joined
+    /// to its option, so a hyphen-leading name replays.
+    package static func importFASTAArguments(
+        sourceURL: URL,
+        projectURL: URL,
+        preferredBundleName: String?,
+        provenanceInputFiles: [URL] = [],
+        annotationsURL: URL? = nil,
+        annotationSelectionURL: URL? = nil,
+        sourceAlignmentBundleURL: URL? = nil,
+        rehydrateSourceProvenance: Bool = false
+    ) -> [String] {
+        var arguments = ["import", "fasta", sourceURL.path, "--output-dir", projectURL.path]
+        if let preferredBundleName { arguments.append("--name=\(preferredBundleName)") }
+        arguments += provenanceInputFiles.flatMap { ["--provenance-input", $0.path] }
+        if let annotationsURL { arguments += ["--annotations", annotationsURL.path] }
+        if let annotationSelectionURL { arguments += ["--annotation-selection", annotationSelectionURL.path] }
+        if let sourceAlignmentBundleURL { arguments += ["--source-alignment-bundle", sourceAlignmentBundleURL.path] }
+        if rehydrateSourceProvenance { arguments.append("--rehydrate-source-provenance") }
+        return arguments
+    }
+
     // MARK: - Internal Helpers
 
     private func makeUniqueBundleName(base: String, in directory: URL) -> String {

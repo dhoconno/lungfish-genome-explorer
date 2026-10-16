@@ -1,4 +1,4 @@
-// ImportCommand+FASTA.swift - The import fasta leaf, moved out of ImportCommand.swift
+// ImportCommand+FASTA.swift - The import fasta leaf, over ReferenceBundleImportService
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -7,20 +7,38 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import os
 
 // MARK: - FASTA Import
+
+/// A refusal of `import fasta` before it writes anything, with the exit code it ends with.
+struct ImportFASTARefusal: Error, LocalizedError {
+    let message: String
+    let exitCode: CLIExitCode
+    var errorDescription: String? { message }
+}
 
 extension ImportCommand {
 
     /// Import a standalone reference sequence file into a Lungfish project.
     ///
-    /// Accepts FASTA/GenBank/EMBL (plain or compressed), then builds a canonical
-    /// `.lungfishref` bundle in the project's "Reference Sequences" folder.
+    /// Accepts FASTA/GenBank/EMBL (plain or compressed), then builds a canonical `.lungfishref` bundle in
+    /// the project's "Reference Sequences" folder through `ReferenceBundleImportService`, the one path the
+    /// app's reference imports take too (ruling A48 F2). With `--annotations` it then attaches the BED as a
+    /// track and writes the extraction record, and with `--rehydrate-source-provenance` it merges the
+    /// source's own record, so the app writes nothing after the command exits (plan decision C5).
     struct FASTASubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "fasta",
-            abstract: "Import a standalone reference sequence file as a .lungfishref bundle"
+            abstract: "Import a standalone reference sequence file as a .lungfishref bundle",
+            discussion: """
+            With --format json, standard output holds event lines: one start line, a progress line \
+            for each step and one complete or failed line. The text goes to standard error. SIGTERM \
+            stops the import, removes what it built and exits 125.
+            """
         )
+        static let cancelledMessage = "Import cancelled. Nothing was published."
+        private static let preparingMessage = "Preparing reference input..."
 
         @Argument(help: "Path to the input reference (.fa/.fasta/.gb/.embl, optionally .gz/.bgz/.bz2/.xz/.zst)")
         var inputFile: String
@@ -37,220 +55,258 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @Option(
+            name: .customLong("provenance-input"),
+            help: ArgumentHelp(
+                "A file the record names as the import's input in place of the input file. Give it once for each file, in order",
+                valueName: "file"
+            )
+        )
+        var provenanceInputs: [String] = []
 
-        private static let compressionExtensions: Set<String> = ["gz", "gzip", "bgz", "bz2", "xz", "zst", "zstd"]
-        private static let fastaExtensions: Set<String> = ["fa", "fasta", "fna", "fsa", "fas", "faa", "ffn", "frn"]
-        private static let genbankExtensions: Set<String> = ["gb", "gbk", "genbank", "gbff", "embl"]
+        @Option(
+            name: .customLong("annotations"),
+            help: ArgumentHelp("A BED file of annotations to attach to the new bundle as a track", valueName: "bed")
+        )
+        var annotations: String?
 
-        private struct BuildInputs {
-            let fastaURL: URL
-            let annotationInputs: [AnnotationInput]
-            let recordStoreURL: URL?
-            let warnings: [ReferenceImportWarning]
-            let organism: String
-            let sequenceNames: [String]
-            let sequenceCount: Int
-            let totalLength: Int64
-        }
+        @Option(
+            name: .customLong("annotation-selection"),
+            help: ArgumentHelp(
+                "With --annotations, the JSON selection the BED came from, which the extraction record keeps",
+                valueName: "json"
+            )
+        )
+        var annotationSelection: String?
+
+        @Option(
+            name: .customLong("source-alignment-bundle"),
+            help: ArgumentHelp(
+                "With --annotations, the alignment bundle the selection came from, which the extraction record names",
+                valueName: "path"
+            )
+        )
+        var sourceAlignmentBundle: String?
+
+        @Flag(
+            name: .customLong("rehydrate-source-provenance"),
+            help: "Merge the input file's own record into the new bundle's record"
+        )
+        var rehydrateSourceProvenance = false
+
+        @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            let eventsOn = globalOptions.outputFormat == .json
+            let events = CLIEventEmitter(enabled: eventsOn, emit: printEventLine)
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let pendingCancel = PendingTaskCancel<Result<ReferenceBundleImportResult, any Error>>()
+            let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+            let command = self
+            let task = Task { () -> Result<ReferenceBundleImportResult, any Error> in
+                do {
+                    return .success(try await command.importReference(events: events, formatter: formatter))
+                } catch {
+                    // A builder stopped by the cancel fails with its own error, which is the cancel.
+                    return .failure(Task.isCancelled ? CancellationError() : error)
+                }
+            }
+            pendingCancel.attach(task)
+            let outcome = await task.value
+            termination.end()
+            switch outcome {
+            case .success(let result):
+                events.emitComplete(output: result.bundleURL.path, message: "Reference import complete")
+                try printSummary(result, formatter: formatter, eventsOn: eventsOn)
+            case .failure(let error) where error is CancellationError:
+                events.emitFailed(Self.cancelledMessage)
+                printHumanLine(Self.cancelledMessage, eventsOn: eventsOn)
+                throw CLIExitCode.cancelled.exitCode
+            case .failure(let refusal as ImportFASTARefusal):
+                events.emitFailed(refusal.message)
+                printHumanLine(formatter.error(refusal.message), eventsOn: eventsOn)
+                throw refusal.exitCode.exitCode
+            case .failure(let error):
+                events.emitFailed(error.localizedDescription)
+                throw error
+            }
+        }
+
+        /// The import, which returns the published bundle once every step after the build has written.
+        private func importReference(events: CLIEventEmitter, formatter: TerminalFormatter) async throws -> ReferenceBundleImportResult {
+            let runClock = ProvenanceRunClock()
+            let eventsOn = globalOptions.outputFormat == .json
             let inputURL = URL(fileURLWithPath: inputFile)
-
+            events.emitStart("Importing \(inputURL.lastPathComponent)")
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
-                print(formatter.error("Input file not found: \(inputFile)"))
-                throw CLIExitCode.inputError.exitCode
+                throw ImportFASTARefusal(message: "Input file not found: \(inputFile)", exitCode: .inputError)
             }
-
-            let ext = normalizedExtension(for: inputURL)
-            guard Self.fastaExtensions.contains(ext) || Self.genbankExtensions.contains(ext) else {
-                print(formatter.error("Unsupported reference format: .\(ext)"))
-                throw CLIExitCode.formatError.exitCode
+            guard ReferenceBundleImportService.isStandaloneReferenceSource(inputURL) else {
+                let ext = ReferenceBundleImportService.normalizedExtension(for: inputURL)
+                throw ImportFASTARefusal(message: "Unsupported reference format: .\(ext)", exitCode: .formatError)
             }
+            let annotationsURL = annotations.map { URL(fileURLWithPath: $0) }
+            if annotationsURL == nil, annotationSelection != nil || sourceAlignmentBundle != nil {
+                throw ImportFASTARefusal(
+                    message: "--annotation-selection and --source-alignment-bundle describe --annotations. Add --annotations <bed>.",
+                    exitCode: .inputError
+                )
+            }
+            if let annotationsURL, !FileManager.default.fileExists(atPath: annotationsURL.path) {
+                throw ImportFASTARefusal(message: "Annotation file not found: \(annotationsURL.path)", exitCode: .inputError)
+            }
+            let selection = try annotationSelectionValue()
 
             let outputDirectory = resolveOutputDirectory(outputDir)
             let refsDirectory = try ReferenceSequenceFolder.ensureFolder(in: outputDirectory)
             try FileManager.default.createDirectory(at: refsDirectory, withIntermediateDirectories: true)
 
-            print(formatter.header("Reference Import"))
-            print("")
-
+            printHumanLine(formatter.header("Reference Import"), eventsOn: eventsOn)
+            printHumanLine("", eventsOn: eventsOn)
             if !globalOptions.quiet {
-                print(formatter.info("Preparing reference input..."))
+                printHumanLine(formatter.info(Self.preparingMessage), eventsOn: eventsOn)
             }
 
-            let tempDirectory = try ProjectTempDirectory.createFromContext(
-                prefix: "lungfish-cli-ref-import-",
-                contextURL: outputDirectory
-            )
-            defer { try? FileManager.default.removeItem(at: tempDirectory) }
-
-            let displayName = resolvedBundleName(explicitName: name, sourceURL: inputURL)
-            let buildInputs = try await prepareBuildInputs(
+            // The service reports its preparation first and then the builder's steps, so the first
+            // other message is where the text says the build began.
+            let buildingLine = globalOptions.quiet ? nil : formatter.info("Building .lungfishref bundle...")
+            let buildingAnnounced = OSAllocatedUnfairLock(initialState: false)
+            let scale = annotationsURL == nil ? 1.0 : 0.82
+            let inputs = provenanceInputURLs
+            let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
                 sourceURL: inputURL,
-                bundleName: displayName,
-                tempDirectory: tempDirectory
-            )
-
-            let bundleName = makeUniqueBundleName(base: displayName, in: refsDirectory)
-            for warning in buildInputs.warnings {
-                print(formatter.warning(warning.message))
-            }
-
-            if !globalOptions.quiet {
-                print(formatter.info("Building .lungfishref bundle..."))
-            }
-
-            let sourceInfo = SourceInfo(
-                organism: buildInputs.organism.isEmpty ? bundleName : buildInputs.organism,
-                assembly: bundleName,
-                database: "Imported File",
-                sourceURL: inputURL,
-                downloadDate: Date(),
-                notes: "Imported from \(inputURL.lastPathComponent)"
-            )
-
-            let configuration = BuildConfiguration(
-                name: bundleName,
-                identifier: "org.lungfish.cli.import.\(UUID().uuidString.lowercased())",
-                fastaURL: buildInputs.fastaURL,
-                annotationFiles: buildInputs.annotationInputs,
                 outputDirectory: refsDirectory,
-                source: sourceInfo,
-                compressFASTA: true,
+                preferredBundleName: name,
                 provenanceWorkflowName: "lungfish import fasta",
-                provenanceCommand: provenanceCommand(
-                    sourceURL: inputURL,
-                    outputDirectory: outputDirectory,
-                    bundleName: bundleName
-                ),
-                provenanceInputFiles: [inputURL],
-                warnings: buildInputs.warnings.map(\.bundleWarning),
-                referenceRecordStoreURL: buildInputs.recordStoreURL
+                provenanceCommand: recordedCommand(outputDirectory: outputDirectory),
+                provenanceInputFiles: inputs.isEmpty ? nil : inputs,
+                progressHandler: { fraction, message in
+                    events.emitProgress(min(scale, fraction * scale), message: message)
+                    guard let buildingLine, message != Self.preparingMessage,
+                          buildingAnnounced.withLock({ announced in defer { announced = true }; return !announced })
+                    else { return }
+                    printHumanLine(buildingLine, eventsOn: eventsOn)
+                }
             )
 
-            let bundleURL = try await NativeBundleBuilder().build(configuration: configuration)
-
-            print("")
-            print(formatter.header("Summary"))
-            print("")
-            print(formatter.keyValueTable([
-                ("Name", bundleName),
-                ("Sequences", String(buildInputs.sequenceCount)),
-                ("Total length", formatBases(buildInputs.totalLength)),
-                ("Bundle", bundleURL.lastPathComponent),
-            ]))
-
-            if !buildInputs.sequenceNames.isEmpty {
-                let displayNames = buildInputs.sequenceNames.prefix(10)
-                    .joined(separator: ", ")
-                let suffix = buildInputs.sequenceNames.count > 10
-                    ? " (+\(buildInputs.sequenceNames.count - 10) more)" : ""
-                print("")
-                print("  Sequences: \(displayNames)\(suffix)")
+            // Every write after the build happens here, and a failure or a cancel before the last one
+            // returns removes the bundle, as the app's imports did (ruling A48 F2, L5).
+            do {
+                if let annotationsURL {
+                    try Task.checkCancellation()
+                    events.emitProgress(0.88, message: "Attaching projected annotations...")
+                    let annotationResult = try await ReferenceBundleAnnotationImportService()
+                        .attachAnnotationTrack(sourceURL: annotationsURL, bundleURL: result.bundleURL)
+                    try Task.checkCancellation()
+                    try MSAExtractionAnnotationProvenance.write(
+                        bundleURL: result.bundleURL,
+                        sourceAlignmentBundleURL: sourceAlignmentBundle.map { URL(fileURLWithPath: $0) },
+                        sourceFASTAURL: inputURL,
+                        sourceAnnotationURL: annotationsURL,
+                        durableSourceURLs: inputs,
+                        selectedSequenceIDs: MSAExtractionAnnotationProvenance.selectedSequenceIDs(
+                            inFASTA: try String(contentsOf: inputURL, encoding: .utf8)
+                        ),
+                        annotationSelection: selection,
+                        annotationResult: annotationResult,
+                        startedAt: runClock.startedAt,
+                        completedAt: runClock.now
+                    )
+                }
+                if rehydrateSourceProvenance {
+                    try Task.checkCancellation()
+                    try FASTQOperationProvenanceRehydrator().rehydrateReferenceBundleProvenance(
+                        sourceURL: inputURL,
+                        referenceBundleURL: result.bundleURL
+                    )
+                }
+                if annotationsURL != nil || rehydrateSourceProvenance {
+                    try Task.checkCancellation()
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: result.bundleURL)
+                throw error
             }
-
-            print("")
-            print(formatter.success(
-                "Reference import complete: \(bundleName) (\(buildInputs.sequenceCount) sequences, \(formatBases(buildInputs.totalLength)))"
-            ))
+            return result
         }
 
-        private func normalizedExtension(for url: URL) -> String {
-            var ext = url.pathExtension.lowercased()
-            if Self.compressionExtensions.contains(ext) {
-                ext = url.deletingPathExtension().pathExtension.lowercased()
+        /// The name, counts and first ten sequence names, read from the published manifest.
+        private func printSummary(
+            _ result: ReferenceBundleImportResult,
+            formatter: TerminalFormatter,
+            eventsOn: Bool
+        ) throws {
+            let manifest = try BundleManifest.load(from: result.bundleURL)
+            for warning in manifest.warnings {
+                printHumanLine(formatter.warning(warning.message), eventsOn: eventsOn)
             }
-            return ext
-        }
-
-        private func resolvedBundleName(explicitName: String?, sourceURL: URL) -> String {
-            let rawName: String
-            if let explicitName {
-                rawName = explicitName
-            } else {
-                rawName = ReferenceBundleImportService.defaultBundleName(for: sourceURL)
+            let names = manifest.genome?.chromosomes.map(\.name) ?? []
+            let totalLength = Int64(manifest.genome?.totalLength ?? 0)
+            printHumanLine("", eventsOn: eventsOn)
+            printHumanLine(formatter.header("Summary"), eventsOn: eventsOn)
+            printHumanLine("", eventsOn: eventsOn)
+            printHumanLine(formatter.keyValueTable([
+                ("Name", result.bundleName),
+                ("Sequences", String(names.count)),
+                ("Total length", formatBases(totalLength)),
+                ("Bundle", result.bundleURL.lastPathComponent),
+            ]), eventsOn: eventsOn)
+            if !names.isEmpty {
+                let suffix = names.count > 10 ? " (+\(names.count - 10) more)" : ""
+                printHumanLine("", eventsOn: eventsOn)
+                printHumanLine("  Sequences: \(names.prefix(10).joined(separator: ", "))\(suffix)", eventsOn: eventsOn)
             }
-
-            let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let fallback = trimmed.isEmpty ? "Imported Reference" : trimmed
-            return fallback
-                .replacingOccurrences(of: "/", with: "-")
-                .replacingOccurrences(of: ":", with: "-")
+            printHumanLine("", eventsOn: eventsOn)
+            printHumanLine(formatter.success(
+                "Reference import complete: \(result.bundleName) (\(names.count) sequences, \(formatBases(totalLength)))"
+            ), eventsOn: eventsOn)
         }
 
-        private func makeUniqueBundleName(base: String, in directory: URL) -> String {
-            let fm = FileManager.default
-            var candidate = base
-            var counter = 2
+        /// The files `--provenance-input` names, in their order. The builder keeps only those that exist.
+        private var provenanceInputURLs: [URL] {
+            provenanceInputs.map { URL(fileURLWithPath: $0) }
+        }
 
-            while fm.fileExists(atPath: bundleURL(for: candidate, in: directory).path) {
-                candidate = "\(base) \(counter)"
-                counter += 1
+        /// The selection `--annotation-selection` holds, or an empty one.
+        private func annotationSelectionValue() throws -> ParameterValue {
+            guard let annotationSelection else { return .dictionary([:]) }
+            do {
+                return try JSONDecoder().decode(ParameterValue.self, from: Data(contentsOf: URL(fileURLWithPath: annotationSelection)))
+            } catch {
+                throw ImportFASTARefusal(
+                    message: "--annotation-selection \(annotationSelection) holds no selection: \(error.localizedDescription)",
+                    exitCode: .inputError
+                )
             }
-
-            return candidate
         }
 
-        private func bundleURL(for bundleName: String, in directory: URL) -> URL {
-            let safe = bundleName
-                .replacingOccurrences(of: " ", with: "_")
-                .replacingOccurrences(of: "/", with: "-")
-            return directory.appendingPathComponent("\(safe).lungfishref", isDirectory: true)
-        }
-
-        private func provenanceCommand(
-            sourceURL: URL,
-            outputDirectory: URL,
-            bundleName: String
-        ) -> [String] {
-            var command = [
-                CLICommandIdentity.executableName,
-                "import",
-                "fasta",
-                sourceURL.path,
-                "--output-dir",
-                outputDirectory.path,
-                "--name",
-                bundleName,
-            ]
+        /// The argv the record names. That is the words the process was started with when it runs
+        /// `import fasta`, else the words the app would run, with `--name` as typed (ruling A48 F2, L2).
+        private func recordedCommand(outputDirectory: URL) -> [String] {
+            if let observed = Self.observedArguments() { return observed }
+            var command = [CLICommandIdentity.executableName] + ReferenceBundleImportService.importFASTAArguments(
+                sourceURL: URL(fileURLWithPath: inputFile),
+                projectURL: outputDirectory,
+                preferredBundleName: name,
+                provenanceInputFiles: provenanceInputURLs,
+                annotationsURL: annotations.map { URL(fileURLWithPath: $0) },
+                annotationSelectionURL: annotationSelection.map { URL(fileURLWithPath: $0) },
+                sourceAlignmentBundleURL: sourceAlignmentBundle.map { URL(fileURLWithPath: $0) },
+                rehydrateSourceProvenance: rehydrateSourceProvenance
+            )
             if globalOptions.quiet {
                 command.append("--quiet")
             }
             return command
         }
 
-        private func prepareBuildInputs(
-            sourceURL: URL,
-            bundleName: String,
-            tempDirectory: URL
-        ) async throws -> BuildInputs {
-            let prepared = try await ReferenceSourcePreparer().prepare(
-                sourceURL: sourceURL,
-                bundleName: bundleName,
-                tempDirectory: tempDirectory
-            )
-            let sequences = try await FASTAReader(url: prepared.fastaURL).readAll()
-            guard !sequences.isEmpty else {
-                throw CLIError.validationFailed(errors: ["No sequences found in \(sourceURL.lastPathComponent)"])
-            }
-
-            let sequenceNames = sequences.map(\.name)
-            let totalLength = sequences.reduce(Int64(0)) { partial, sequence in
-                partial + Int64(sequence.length)
-            }
-
-            return BuildInputs(
-                fastaURL: prepared.fastaURL,
-                annotationInputs: prepared.annotationInputs,
-                recordStoreURL: prepared.recordStoreURL,
-                warnings: prepared.warnings,
-                organism: prepared.sourceInfo.organism,
-                sequenceNames: sequenceNames,
-                sequenceCount: sequences.count,
-                totalLength: totalLength
-            )
+        /// The words the process was started with when it runs `import fasta`.
+        private static func observedArguments() -> [String]? {
+            let raw = CommandLine.arguments
+            guard let executable = raw.first else { return nil }
+            let arguments = Array(raw.dropFirst())
+            guard LungfishCLI.normalizedArgumentsForParsing(arguments).starts(with: ["import", "fasta"]) else { return nil }
+            return [executable] + arguments
         }
     }
 }

@@ -1,0 +1,2 @@
+{"event":"start","message":"Importing missing.fasta","progress":0,"schemaVersion":2}
+{"error":"Input file not found: \/work\/inputs\/missing.fasta","event":"failed","schemaVersion":2}

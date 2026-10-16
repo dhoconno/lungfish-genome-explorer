@@ -122,6 +122,8 @@ Four of the five print their events on standard output. `assemble` printed them 
 
 These five files are not captured again by a test. A lane that changes one of these emitters runs the command again and replaces the file.
 
+`import-fasta` holds two runs of the `lungfish-cli` built from lane A48 M3 of Phase 2.11, which builds the bundle through `ReferenceBundleImportService` with the bundled bgzip and samtools faidx. `complete` is `import fasta /work/inputs/genome.fasta --output-dir /work/Project.lungfish --format json` on a copy of `Tests/Fixtures/sarscov2/genome.fasta`. `failed` is `import fasta /work/inputs/missing.fasta --output-dir /work/Project.lungfish --format json`, which the leaf refuses with exit 3 before any folder exists. The scratch folder is rewritten to `/work`, and nothing else is edited. The script was `capture_import_fasta.py` of the lane.
+
 Lane A9 of Phase 2.7 ran `esviritu-detect` the same way with the CLI built from its branch, in the locked golden storage, with `LUNGFISH_STORAGE_ROOT` at `/Users/Shared/lungfish-golden/storage` and the EsViritu database of that storage read in place. A listing of the database folder taken before and after the runs was the same. The command lines and the paths the lines name are rewritten to `/work`, and the database path stands as `<database>` below.
 
 | File | Command |
