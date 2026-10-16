@@ -178,14 +178,22 @@ public extension ProvenanceEnvelope {
     /// The record with a run level that names each file as the run left it (2.8 B3, 2.10 A39). A step keeps
     /// the files as they were when it ran, and a removal step names what went (`RecordedRemovalStep`), but
     /// the run level, which the record writes after every step, names neither a file that is gone, as
-    /// ``droppingMissingRunLevelFiles()`` drops, nor the bytes a removal step of the record names, such as
-    /// a BAM that a markdup rewrote in place and the index it replaced. The `output` pointer moves to the
-    /// last kept output when it named such a file. A path compares with its deepest existing folder
-    /// resolved, so a file named under `/var` and under `/private/var` is one file, and nothing is hashed.
-    /// A record that nests a legacy run is left as ``droppingMissingRunLevelFiles()`` leaves it, since only
-    /// the Provenance core rebuilds that shape.
+    /// ``droppingMissingRunLevelFiles()`` drops, nor the bytes a removal step of the record names, as
+    /// ``droppingReplacedRunLevelFiles()`` drops. A record that nests a legacy run is left as
+    /// ``droppingMissingRunLevelFiles()`` leaves it, since only the Provenance core rebuilds that shape.
     func droppingRemovedRunLevelFiles() -> ProvenanceEnvelope {
-        let kept = droppingMissingRunLevelFiles()
+        droppingMissingRunLevelFiles().droppingReplacedRunLevelFiles()
+    }
+
+    /// The record without the bytes a removal step of the record names in its run level, such as a BAM that a
+    /// markdup rewrote in place and the index it replaced, while a file that is gone and that no removal step
+    /// names stays named, as the taxtriage run level of `build-db` keeps the names that the legacy cleanup
+    /// removed without a removal step (Q32 X1). The `output` pointer moves to the last kept output when it
+    /// named such a file. A path compares with its deepest existing folder resolved, so a file named under
+    /// `/var` and under `/private/var` is one file, and nothing is hashed. A record that nests a legacy run
+    /// is left as it is.
+    func droppingReplacedRunLevelFiles() -> ProvenanceEnvelope {
+        let kept = self
         guard kept.legacyRun == nil else { return kept }
         let removed = Set(kept.steps
             .filter { $0.resolvedOptions["operation"] == .string(RecordedRemovalStep.operation) }
