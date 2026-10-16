@@ -13,7 +13,7 @@ variables, ``LUNGFISH_SPARKLE_RECOVERY_VERSION`` and
 ``LUNGFISH_SPARKLE_RECOVERY_ENCLOSURE_URL``. The builder's own floors read the
 same variables, since release.py cannot give them arguments. With both set, a
 live build equal to the planned one passes only when every live item at that
-build is this candidate's: its ``sparkle:shortVersionString`` and its enclosure
+build is this candidate's, meaning its ``sparkle:shortVersionString`` and its enclosure
 URL equal the named ones and no yank marker holds the build. A lower planned
 build, a higher live build and any other item at the planned build still fail.
 With neither variable set the floor is the strict one, and with only one set
