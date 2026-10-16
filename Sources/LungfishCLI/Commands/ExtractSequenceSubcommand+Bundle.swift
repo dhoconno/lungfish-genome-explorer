@@ -74,6 +74,16 @@ extension ExtractSequenceSubcommand {
               sourceURL.pathExtension == "lungfishref" else {
             throw ExtractSequenceBundleRefusal("No reference bundle at \(sourceURL.path). --bundle reads a .lungfishref folder.")
         }
+        // The publish swaps the stage over a bundle at the output, so an output that is the source,
+        // lies inside it or holds it would replace the input (review A48-M2 Fix 4).
+        let sourcePath = Self.resolvedPath(sourceURL)
+        let outputPath = Self.resolvedPath(outputURL)
+        if outputPath == sourcePath || outputPath.hasPrefix(sourcePath + "/") || sourcePath.hasPrefix(outputPath + "/") {
+            throw ExtractSequenceBundleRefusal(
+                "-o \(output) is the source bundle, lies inside it or holds it, and --bundle never replaces its input. "
+                    + "Give another -o <name>.lungfishref."
+            )
+        }
         if noSamples && !samples.isEmpty {
             throw ExtractSequenceBundleRefusal("--no-samples keeps no sample, so it cannot go with --samples. Give one of them.")
         }
@@ -187,19 +197,24 @@ extension ExtractSequenceSubcommand {
             let available = source.chromosomeNames.joined(separator: ", ")
             throw ExtractSequenceBundleRefusal("Sequence '\(chromosome)' is not in the bundle. Available: \(available)")
         }
-        let length = Int(info.length)
+        // The one reader of reference bases for extraction (review A48-M2 Fix 8).
         return try SequenceExtractor.extract(
             request: request,
-            sequenceProvider: { name, start, end in
-                let clampedStart = max(0, start)
-                let clampedEnd = min(length, end)
-                guard clampedStart < clampedEnd else { return nil }
-                return try? source.fetchSequenceSync(
-                    region: GenomicRegion(chromosome: name, start: clampedStart, end: clampedEnd)
-                )
-            },
-            chromosomeLength: length
+            sequenceProvider: ClampedSequenceProvider(bundle: source).extractionProvider,
+            chromosomeLength: Int(info.length)
         )
+    }
+
+    /// The path of `url` with the symbolic links of the part that exists resolved, so two names of one
+    /// folder compare equal whether or not the folder exists yet.
+    private static func resolvedPath(_ url: URL) -> String {
+        var existing = url.standardizedFileURL
+        var missing: [String] = []
+        while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
+            missing.insert(existing.lastPathComponent, at: 0)
+            existing.deleteLastPathComponent()
+        }
+        return missing.reduce(existing.resolvingSymlinksInPath()) { $0.appendingPathComponent($1) }.path
     }
 
     /// Every annotation and variant track of the bundle that has a database, as the viewer collects them.

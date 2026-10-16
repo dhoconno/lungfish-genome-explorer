@@ -148,6 +148,14 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
         if bundle {
             return try await runBundle()
         }
+        // The FASTA run would drop these, so a run that names one is refused (review A48-M2 Fix 6).
+        if name != nil || !samples.isEmpty || noSamples || featureName != nil || featureType != nil || strand != nil
+            || concatenateExons || nextFreeName {
+            throw CLIError.validationFailed(errors: [
+                "--name, --samples, --no-samples, --feature-name, --feature-type, --strand, --concatenate-exons and "
+                    + "--next-free-name describe a bundle. Add --bundle, or leave them out."
+            ])
+        }
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 

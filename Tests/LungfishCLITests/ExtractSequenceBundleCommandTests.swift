@@ -65,4 +65,20 @@ final class ExtractSequenceBundleCommandTests: XCTestCase {
         XCTAssertNotNil(finalGenomeRecord?.fileSize)
         XCTAssertFalse(envelope.files.contains { $0.path.contains("/sequence.fa") && !$0.path.hasPrefix(outputURL.path) })
     }
+
+    /// Review A48-M2 Fix 6. An option that describes a bundle, given without `--bundle`, is refused
+    /// before the FASTA is written, so `--samples S1` never looks honoured.
+    func testBundleOptionsWithoutBundleAreRefused() async throws {
+        let input = tempDir.appendingPathComponent("input.fasta")
+        try FASTAWriter(url: input).write([try Sequence(name: "seqA", alphabet: .dna, bases: String(repeating: "ACGT", count: 30))])
+        let output = tempDir.appendingPathComponent("region.fa")
+        let command = try ExtractSequenceSubcommand.parse([input.path, "seqA:1-90", "--samples", "S1", "-o", output.path])
+        do {
+            try await command.run()
+            XCTFail("--samples without --bundle must be refused")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Add --bundle, or leave them out."), "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a refused run writes no FASTA")
+    }
 }

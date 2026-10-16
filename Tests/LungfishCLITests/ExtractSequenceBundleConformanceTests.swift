@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishCLI
@@ -125,16 +126,81 @@ final class ExtractSequenceBundleConformanceTests: XCTestCase {
         XCTAssertEqual(recorded.standardizedFileURL.path, published.standardizedFileURL.path)
     }
 
-    func testARefusalNamesTheFixAndWritesNothing() async throws {
-        let command = try ExtractSequenceSubcommand.parse([
-            root.path, "chr1:1-10", "--bundle", "--no-samples", "--samples=S3", "--output", root.appendingPathComponent("x.lungfishref").path,
-        ])
-        do {
-            try await command.run()
-            XCTFail("a refusal must throw")
-        } catch {
-            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
+    /// Review A48-M2 Fix 7. Each refusal exits 3, ends standard output with one `failed` line whose
+    /// error names the fix (docs/formats/cli-events.md), and writes nothing.
+    func testEachRefusalExitsThreeNamesItsFixAndWritesNothing() async throws {
+        try await requireTools()
+        let source = try await Self.makeSourceBundle(in: root)
+        let plain = root.appendingPathComponent("plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+        let output = root.appendingPathComponent("Extractions/x.lungfishref").path
+        let addOutput = "--bundle writes a reference bundle. Add -o <name>.lungfishref."
+        let rows: [(arguments: [String], words: String)] = [
+            ([source.path, "chr1:1-10", "--bundle"], addOutput),
+            ([source.path, "chr1:1-10", "--bundle", "-o", root.appendingPathComponent("x.fa").path], addOutput),
+            (
+                [plain.path, "chr1:1-10", "--bundle", "-o", output],
+                "No reference bundle at \(plain.standardizedFileURL.path). --bundle reads a .lungfishref folder."
+            ),
+            (
+                [source.path, "chr1:1-10", "--bundle", "--no-samples", "--samples=S3", "-o", output],
+                "--no-samples keeps no sample, so it cannot go with --samples. Give one of them."
+            ),
+            (
+                [source.path, "chr1:1-10", "--bundle", "--strand=+", "-o", output],
+                "--feature-type, --strand and --concatenate-exons describe a feature. Add --feature-name."
+            ),
+            ([source.path, "chr1", "--bundle", "-o", output], "--bundle needs a region with its sequence name, such as chr1:1000-2000."),
+            ([source.path, "chr1:1-5,10-20", "--bundle", "-o", output], "A region of several parts is a feature's. Add --feature-name."),
+            ([source.path, "chrZ:1-5", "--bundle", "-o", output], "Sequence 'chrZ' is not in the bundle. Available: chr1"),
+        ]
+        let before = try listing()
+        for (index, row) in rows.enumerated() {
+            let refusal = try await refusal(row.arguments)
+            XCTAssertEqual(refusal.exitCode, 3, "row \(index + 1)")
+            XCTAssertEqual(refusal.event, "failed", "row \(index + 1)")
+            XCTAssertEqual(refusal.error, row.words, "row \(index + 1)")
+            XCTAssertEqual(try listing(), before, "row \(index + 1) writes nothing")
         }
+    }
+
+    /// Review A48-M2 Fix 4. An output that is the source bundle, or a folder inside it, would replace
+    /// the input with its own region, so the leaf refuses it before it reads anything.
+    func testAnOutputThatIsTheSourceIsRefusedAndTheSourceStaysWhole() async throws {
+        try await requireTools()
+        let source = try await Self.makeSourceBundle(in: root)
+        let manifest = try Data(contentsOf: source.appendingPathComponent("manifest.json"))
+        let before = try listing()
+        for output in [source.path, source.appendingPathComponent("inner.lungfishref").path] {
+            let refusal = try await refusal([source.path, "chr1:11-40", "--bundle", "--no-samples", "--output", output])
+            XCTAssertEqual(refusal.exitCode, 3, output)
+            XCTAssertEqual(refusal.event, "failed", output)
+            XCTAssertTrue(refusal.error.contains("never replaces its input"), "\(output): \(refusal.error)")
+            XCTAssertEqual(try Data(contentsOf: source.appendingPathComponent("manifest.json")), manifest, output)
+            XCTAssertEqual(try listing(), before, "\(output) leaves every file as it was")
+        }
+    }
+
+    /// Runs the leaf on `arguments` with `--format json --quiet` and returns the exit code it threw and
+    /// the event and error of its last standard output line.
+    private func refusal(_ arguments: [String]) async throws -> (exitCode: Int32?, event: String?, error: String) {
+        let capture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("extract-refusal-capture-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: capture, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: capture) }
+        let command = try ExtractSequenceSubcommand.parse(arguments + ["--format", "json", "--quiet"])
+        var thrown: Error?
+        let streams = try await StandardStreamCapture.capture(in: capture) {
+            do { try await command.run() } catch { thrown = error }
+        }
+        let last = String(decoding: streams.standardOutput, as: UTF8.self).split(separator: "\n").last.map(String.init) ?? ""
+        let event = (try? JSONSerialization.jsonObject(with: Data(last.utf8))) as? [String: Any]
+        return ((thrown as? ExitCode)?.rawValue, event?["event"] as? String, event?["error"] as? String ?? "")
+    }
+
+    /// Every file and folder under the test's root, by relative path.
+    private func listing() throws -> [String] {
+        (FileManager.default.enumerator(atPath: root.path)?.allObjects as? [String] ?? []).sorted()
     }
 
     // MARK: - Fixture
