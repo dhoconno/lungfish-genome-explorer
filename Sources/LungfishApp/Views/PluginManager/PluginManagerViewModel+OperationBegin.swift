@@ -85,8 +85,7 @@ extension PluginManagerViewModel {
         reinstall: Bool,
         operationID: UUID,
         provider: any PluginPackStatusProviding,
-        cliURLOverride: URL? = nil,
-        progress: @escaping @Sendable (PluginPackInstallProgress) -> Void
+        cliURLOverride: URL? = nil
     ) async throws {
         let packID = pack.id
         // The command changed the environments in another process, whatever way it ended, so

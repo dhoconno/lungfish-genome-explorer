@@ -265,7 +265,7 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
 
         try await viewModel.installPackThroughRoute(
             pack: pack, reinstall: true, operationID: id, provider: provider, cliURLOverride: cli
-        ) { _ in }
+        )
 
         XCTAssertEqual(try argvLine(argv), "conda install --pack multiple-sequence-alignment --reinstall --format json")
         let invalidations = await provider.invalidations
@@ -285,7 +285,7 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
         do {
             try await viewModel.installPackThroughRoute(
                 pack: pack, reinstall: false, operationID: id, provider: provider, cliURLOverride: cli
-            ) { _ in }
+            )
             XCTFail("a failed command throws")
         } catch is CancellationError {
             XCTFail("a failure is not a cancel")

@@ -500,8 +500,6 @@ final class PluginManagerViewModel {
         startPluginPackOperation(pack: pack, reinstall: reinstall) { operationID in
             installingPacks.insert(pack.id)
             packProgressMessage[pack.id] = reinstall ? "Reinstalling..." : "Installing..."
-            let progressLog = PluginPackInstallProgressLog()
-            let packID = pack.id
 
             Task {
                 var didSucceed = false
@@ -511,23 +509,12 @@ final class PluginManagerViewModel {
                 }
 
                 do {
-                    try await installPackThroughRoute(pack: pack, reinstall: reinstall, operationID: operationID, provider: packStatusProvider) { [weak self, progressLog] event in
-                        progressLog.append(event)
-                        DispatchQueue.main.async { [weak self] in
-                            MainActor.assumeIsolated {
-                                guard let self else { return }
-                                self.packProgressMessage[packID] = event.message
-                                self.updatePluginPackOperationProgress(operationID: operationID, event: event)
-                            }
-                        }
-                    }
-                    recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
+                    try await installPackThroughRoute(pack: pack, reinstall: reinstall, operationID: operationID, provider: packStatusProvider)
                     let finalStatus = await packStatusProvider.status(for: pack)
                     recordPluginPackStatus(finalStatus, operationID: operationID)
                     completePluginPackOperation(pack: pack, status: finalStatus, operationID: operationID)
                     didSucceed = true
                 } catch {
-                    recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
                     operationCenter.log(
                         id: operationID,
                         level: .error,
