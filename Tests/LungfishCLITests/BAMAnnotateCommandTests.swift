@@ -4,6 +4,39 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class BAMAnnotateCommandTests: XCTestCase {
+    /// Pins the name `bam annotate` hands the service (Phase 2.11 M2.3, the A54 review's UX 1). The leaf trims
+    /// the name and refuses an empty one before any service runs. The Inspector names the track it opens by
+    /// the rule the service applies to that name.
+    func testAnnotateHandsTheServiceTheTrimmedTrackNameAndRefusesAnEmptyOne() async throws {
+        let cases: [(given: String, handed: String)] = [("  Padded Name \t", "Padded Name"), ("Plain Name", "Plain Name")]
+        for (given, handed) in cases {
+            let command = try BAMCommand.AnnotateSubcommand.parse([
+                "annotate", "--bundle", "/tmp/Test.lungfishref", "--alignment-track", "aln-1",
+                "--output-track-name", given, "--format", "json",
+            ])
+            let handedToTheService = expectation(description: "the leaf hands its request to the service for \(given.debugDescription)")
+            let runtime = BAMCommand.AnnotateSubcommand.Runtime(
+                runAnnotate: { request, _ in
+                    XCTAssertEqual(request.outputTrackName, handed, "the leaf hands the service \(handed.debugDescription)")
+                    handedToTheService.fulfill()
+                    throw CancellationError()
+                }
+            )
+            _ = try? await command.executeForTesting(runtime: runtime) { _ in }
+            await fulfillment(of: [handedToTheService], timeout: 5)
+        }
+
+        for empty in ["", "   "] {
+            XCTAssertThrowsError(
+                try BAMCommand.AnnotateSubcommand.parse([
+                    "annotate", "--bundle", "/tmp/Test.lungfishref", "--alignment-track", "aln-1",
+                    "--output-track-name", empty, "--format", "json",
+                ]),
+                "an empty name is refused, so the service never makes its default name for the leaf"
+            )
+        }
+    }
+
     func testAnnotateCommandPassesRequestToRuntimeAndEmitsRunCompleteJSON() async throws {
         let command = try BAMCommand.AnnotateSubcommand.parse([
             "annotate",

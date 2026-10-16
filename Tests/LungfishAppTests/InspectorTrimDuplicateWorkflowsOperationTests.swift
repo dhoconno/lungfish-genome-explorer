@@ -317,6 +317,22 @@ final class InspectorTrimDuplicateWorkflowsOperationTests: XCTestCase {
         XCTAssertEqual(InspectorViewController.annotationTrackName(for: empty), "Mapped Reads")
     }
 
+    /// Pins the name the Inspector gives the annotation track it opens (Phase 2.11 M2.3, the A54 review's
+    /// UX 1). An empty name becomes "Mapped Reads", a padded one is trimmed, and a plain one stays. The
+    /// service applies the same rule to the name `bam annotate` hands it (BAMAnnotateCommandTests).
+    func testTheInspectorNamesTheAnnotationTrackAsTheServiceDoes() {
+        let cases: [(given: String, expected: String)] = [
+            ("", "Mapped Reads"), ("   \n", "Mapped Reads"), ("  Padded Name \t", "Padded Name"), ("Plain Name", "Plain Name"),
+        ]
+        for (given, expected) in cases {
+            let request = MappedReadsAnnotationRequest(bundleURL: bundleURL, sourceTrackID: "aln-1", outputTrackName: given)
+            XCTAssertEqual(
+                InspectorViewController.annotationTrackName(for: request), expected,
+                "the Inspector names \(given.debugDescription)"
+            )
+        }
+    }
+
     func testFilterAndAnnotateRowsRecordTheArgvTheWorkflowBuildersBuildForTheProvenance() throws {
         let target = AlignmentFilterTarget.bundle(bundleURL)
         let request = filterRequest()
