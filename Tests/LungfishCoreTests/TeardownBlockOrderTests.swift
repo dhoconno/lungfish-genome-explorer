@@ -51,11 +51,10 @@ final class TeardownBlockOrderTests: XCTestCase {
     }
 
     /// A `tearDown()` that still writes to the suite creates the plist again after the block removed it. The
-    /// sweeper removes it when the test case finishes, which is after `tearDown()`.
+    /// sweeper removes it when the test case finishes, which is after `tearDown()`. The suite comes from
+    /// `makeTestDefaultsSuite(prefix:)`, so the test also fails when the helper stops registering its suites.
     func testASuiteThatTearDownWritesToIsRemovedWhenTheTestCaseFinishes() {
-        let suite = TestDefaultsSuite(prefix: "TeardownBlockOrderTests")
-        defer { suite.tearDown() }
-        TestDefaultsSuiteSweeper.shared.register(suite, for: self)
+        let suite = makeTestDefaultsSuite(prefix: "TeardownBlockOrderTests")
 
         suite.defaults.set("value", forKey: "key")
         suite.tearDown()
