@@ -182,21 +182,30 @@ extension ImportCommand {
             let buildingAnnounced = OSAllocatedUnfairLock(initialState: false)
             let scale = annotationsURL == nil ? 1.0 : 0.82
             let inputs = provenanceInputURLs
-            let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
-                sourceURL: inputURL,
-                outputDirectory: refsDirectory,
-                preferredBundleName: name,
-                provenanceWorkflowName: "lungfish import fasta",
-                provenanceCommand: recordedCommand(outputDirectory: outputDirectory),
-                provenanceInputFiles: inputs.isEmpty ? nil : inputs,
-                progressHandler: { fraction, message in
-                    events.emitProgress(min(scale, fraction * scale), message: message)
-                    guard let buildingLine, message != Self.preparingMessage,
-                          buildingAnnounced.withLock({ announced in defer { announced = true }; return !announced })
-                    else { return }
-                    printHumanLine(buildingLine, eventsOn: eventsOn)
-                }
-            )
+            let result: ReferenceBundleImportResult
+            do {
+                result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+                    sourceURL: inputURL,
+                    outputDirectory: refsDirectory,
+                    preferredBundleName: name,
+                    provenanceWorkflowName: "lungfish import fasta",
+                    provenanceCommand: recordedCommand(outputDirectory: outputDirectory),
+                    provenanceInputFiles: inputs.isEmpty ? nil : inputs,
+                    progressHandler: { fraction, message in
+                        events.emitProgress(min(scale, fraction * scale), message: message)
+                        guard let buildingLine, message != Self.preparingMessage,
+                              buildingAnnounced.withLock({ announced in defer { announced = true }; return !announced })
+                        else { return }
+                        printHumanLine(buildingLine, eventsOn: eventsOn)
+                    }
+                )
+            } catch ReferenceBundleImportError.noSequencesFound(let url) {
+                // An empty FASTA ended with the input error code before the service took over (A48 M3 review, Fix 3).
+                throw ImportFASTARefusal(
+                    message: ReferenceBundleImportError.noSequencesFound(url).localizedDescription,
+                    exitCode: .inputError
+                )
+            }
 
             // Every write after the build happens here, and a failure or a cancel before the last one
             // returns removes the bundle, as the app's imports did (ruling A48 F2, L5).

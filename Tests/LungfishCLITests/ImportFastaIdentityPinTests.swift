@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
@@ -89,6 +90,21 @@ final class ImportFastaIdentityPinTests: XCTestCase {
         XCTAssertEqual(text, Self.summary(
             name: "MN908947.3", count: 1, length: "120 bp", bundle: "MN908947.3.lungfishref", names: "MN908947"
         ))
+    }
+
+    /// An empty FASTA ended with the input error code before ruling A48 F2 moved the leaf onto the
+    /// service, and it still does (A48 M3 review, Fix 3). The service throws `noSequencesFound` after
+    /// it read the file, and the leaf maps that to the refusal and keeps nothing behind.
+    func testAnEmptyFASTAEndsWithTheInputErrorCodeAndWritesNoBundle() async throws {
+        let source = root.appendingPathComponent("empty.fa")
+        try Data().write(to: source)
+        do {
+            try await ImportCommand.FASTASubcommand.parse([source.path, "--output-dir", project.path, "--quiet"]).run()
+            XCTFail("Expected a refusal")
+        } catch let exit as ExitCode {
+            XCTAssertEqual(exit.rawValue, 3)
+        }
+        XCTAssertEqual(try ImportFastaSIGTERMTests.leftovers(in: project), [])
     }
 
     private static func summary(name: String, count: Int, length: String, bundle: String, names: String) -> String {
