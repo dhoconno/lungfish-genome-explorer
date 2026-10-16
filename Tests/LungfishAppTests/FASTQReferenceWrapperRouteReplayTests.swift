@@ -14,6 +14,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
+import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -44,7 +45,7 @@ final class FASTQReferenceWrapperRouteReplayTests: XCTestCase {
             inputURLs: [source],
             outputMode: .perInput
         )
-        let importer = BundleFASTQOperationImporter(destinationDirectory: analyses, referenceBundleWrapper: makeWrapper())
+        let importer = BundleFASTQOperationImporter(destinationDirectory: analyses, referenceBundleWrapper: try makeWrapper())
 
         let imported = try await importer.importOutputs(
             at: [output], forResolvedRequest: request, originalRequest: request, outputDirectory: output.deletingLastPathComponent()
@@ -60,20 +61,23 @@ final class FASTQReferenceWrapperRouteReplayTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))
         XCTAssertEqual(envelope.steps.first?.toolName, "fixture-tool", "the record leads with the operation's step")
         XCTAssertGreaterThan(envelope.steps.count, 1, "the import's own step follows the operation's")
+        XCTAssertTrue(
+            envelope.steps.contains { step in
+                step.argv.contains("--bundle-dir") && step.argv.contains("--rehydrate-source-provenance")
+            },
+            "the import's step names the command that built and merged the record: \(envelope.steps.map(\.argv))"
+        )
     }
 
-    /// The wrapper the importer runs.
-    private func makeWrapper() -> any ReferenceBundleWrapping {
-        HelperRouteWrapper()
-    }
-
-    /// The service called as `ReferenceImportHelper` calls it, the helper's in-process body.
-    private struct HelperRouteWrapper: ReferenceBundleWrapping {
-        func importReferenceBundle(sourceURL: URL, outputDirectory: URL, preferredBundleName: String?) async throws -> URL {
-            try await ReferenceBundleImportService.shared.importAsReferenceBundle(
-                sourceURL: sourceURL, outputDirectory: outputDirectory, preferredBundleName: preferredBundleName
-            ).bundleURL
-        }
+    /// The wrapper the importer runs by default, on the `lungfish-cli` beside the test bundle. Until
+    /// A48 M4 this was the helper's in-process body, the service called with the folder as given.
+    private func makeWrapper() throws -> any ReferenceBundleWrapping {
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH"
+        )
+        return CLIReferenceBundleWrapper(cliURLOverride: cli)
     }
 
     // MARK: - Fixture

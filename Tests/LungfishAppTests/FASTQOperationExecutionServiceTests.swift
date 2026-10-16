@@ -3340,7 +3340,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(referenceWrapper.calls.map(\.preferredBundleName), ["source-deacon-ribo-rrna"])
     }
 
-    func testBundleImporterRehydratesFileSpecificFASTAProvenanceIntoReferenceBundle() async throws {
+    func testBundleImporterLeavesTheWrappedBundleRecordToTheWrapper() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportFASTAProvenance")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -3400,6 +3400,8 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             format: .fasta
         )
         referenceWrapper.resultURLs = [importedReferenceBundle]
+        let recordURL = importedReferenceBundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let recordBeforeImport = try Data(contentsOf: recordURL)
         let importer = BundleFASTQOperationImporter(
             destinationDirectory: destinationDir,
             referenceBundleWrapper: referenceWrapper
@@ -3417,23 +3419,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             outputDirectory: stagingDir
         )
 
-        let bundleURL = try XCTUnwrap(imported.first)
-        let finalPayloadURL = try XCTUnwrap(SequenceInputResolver.resolvePrimarySequenceURL(for: bundleURL))
-        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
-        let descriptor = try XCTUnwrap(envelope.output)
-        XCTAssertEqual(envelope.workflowName, "Deacon rRNA FASTA filter")
-        XCTAssertEqual(envelope.toolName, "deacon")
-        XCTAssertEqual(envelope.toolVersion, "0.15.0")
-        XCTAssertEqual(envelope.durableReplayArgv, [
-            "deacon", "filter", sourcePayloadURL.path, "-o", finalPayloadURL.path
-        ])
-        XCTAssertFalse(envelope.durableReplayArgv?.contains(stagedFASTA.path) ?? true)
-        XCTAssertEqual(descriptor.path, finalPayloadURL.path)
-        XCTAssertEqual(descriptor.originPath, stagedFASTA.path)
-        XCTAssertEqual(descriptor.sourceProvenancePath, stagedSidecarURL.path)
-        XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: finalPayloadURL))
-        XCTAssertEqual(envelope.steps.first?.outputs.map(\.path), [finalPayloadURL.path])
-        XCTAssertEqual(envelope.steps.map(\.toolName), ["deacon", "native-bundle-builder"])
+        // The wrapper merges the FASTA's own record (`import fasta --rehydrate-source-provenance`)
+        // before it publishes, so the importer writes nothing after it returns (2.11 A48 M4, C5).
+        // `FASTQReferenceWrapperRouteReplayTests` and `ReferenceImportRehydratePinTests` check the merge.
+        XCTAssertEqual(imported, [importedReferenceBundle])
+        XCTAssertEqual(referenceWrapper.calls.map(\.sourceURL), [stagedFASTA])
+        XCTAssertEqual(try Data(contentsOf: recordURL), recordBeforeImport, "the importer leaves the record as the wrapper wrote it")
+        XCTAssertEqual(try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: importedReferenceBundle)).toolName, "native-bundle-builder")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedSidecarURL.path))
     }
 
     func testBundleImporterRefreshesDerivedManifestStatisticsFromQCSummary() async throws {

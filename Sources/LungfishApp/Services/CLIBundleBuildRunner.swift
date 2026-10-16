@@ -74,6 +74,33 @@ struct CLIBundleBuildRunner: Sendable {
         }
     }
 
+    /// Runs `arguments` inside an operation whose row belongs to another run, such as a FASTQ
+    /// operation that wraps a FASTA it wrote (2.11 A48 M4). The command's events reach no row, and a
+    /// cancel of the calling task stops the command as a row's Cancel does.
+    ///
+    /// - Throws: `CancellationError` when the calling task was cancelled before the command
+    ///   published, else the transport's `RunError`.
+    @concurrent
+    func run(
+        arguments: [String],
+        environmentAdditions: [String: String] = [:]
+    ) async throws -> CLISubprocessTransport.Result {
+        let transport = transport
+        return try await withTaskCancellationHandler {
+            try await transport.run(
+                arguments: arguments,
+                terminationGracePeriod: Self.terminationGracePeriod,
+                drainGracePeriod: Self.drainGracePeriod,
+                environmentAdditions: environmentAdditions,
+                completionOutlivesCancel: true,
+                isCancelled: { Task.isCancelled },
+                onEvent: { _ in }
+            )
+        } onCancel: {
+            transport.cancel()
+        }
+    }
+
     /// Runs `arguments` for the row `operationID` with the row's Cancel wired to the run.
     @MainActor
     static func launch(

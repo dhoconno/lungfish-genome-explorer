@@ -42,6 +42,9 @@ import LungfishTestSupport
 final class ReferenceImportParityReplayTests: XCTestCase {
     enum Case: String, Sendable, CaseIterable {
         case noName, nameAndInputs, annotations, rehydrate
+        /// The FASTQ operation wrapper (A48 M4), with the bundle built in the project's Analyses
+        /// folder as given.
+        case fastqWrapper
     }
 
     private static let project = "Project.lungfish"
@@ -98,11 +101,12 @@ final class ReferenceImportParityReplayTests: XCTestCase {
             for run in result.runs.all {
                 XCTAssertEqual(run.outcome.end, .completed, "\(parityCase) \(run.side): \(run.outcome.detail)")
             }
-            if parityCase == .rehydrate {
+            if parityCase == .rehydrate || parityCase == .fastqWrapper {
                 // Parity alone would hold if neither side rehydrated, so C's record must lead with the
                 // operation's step.
+                let folder = parityCase == .fastqWrapper ? "Analyses" : "Reference Sequences"
                 let bundles = try FileManager.default.contentsOfDirectory(
-                    at: result.runs.c.root.appendingPathComponent("\(Self.project)/Reference Sequences", isDirectory: true),
+                    at: result.runs.c.root.appendingPathComponent("\(Self.project)/\(folder)", isDirectory: true),
                     includingPropertiesForKeys: nil
                 ).filter { $0.pathExtension == "lungfishref" }
                 let bundle = try XCTUnwrap(bundles.first, "side C published no bundle")
@@ -122,9 +126,14 @@ final class ReferenceImportParityReplayTests: XCTestCase {
         let inputs: [URL]
         let annotations: (bed: URL, selection: URL, alignment: URL)?
         let rehydrate: Bool
+        /// The folder the FASTQ operation wrapper builds in, as given.
+        var bundleDir: URL?
 
         var arguments: [String] {
-            AppDelegate.referenceImportArguments(
+            if let bundleDir {
+                return CLIReferenceBundleWrapper.arguments(sourceURL: source, outputDirectory: bundleDir, preferredBundleName: name)
+            }
+            return AppDelegate.referenceImportArguments(
                 sourceURL: source, projectURL: project, preferredBundleName: name, provenanceInputFiles: inputs,
                 annotationsURL: annotations?.bed, annotationSelectionURL: annotations?.selection,
                 sourceAlignmentBundleURL: annotations?.alignment, rehydrateSourceProvenance: rehydrate
@@ -157,6 +166,14 @@ final class ReferenceImportParityReplayTests: XCTestCase {
                 source: operationOutput(in: inputs), project: project, name: "Plain", inputs: [export],
                 annotations: nil, rehydrate: true
             )
+        case .fastqWrapper:
+            // The FASTA stays in the shared inputs, since the rehydrate refuses a record copied to
+            // another folder. `FASTQReferenceWrapperRouteReplayTests` runs the FASTA inside the project.
+            return Shape(
+                source: operationOutput(in: inputs), project: project,
+                name: "source-deacon-ribo-rrna", inputs: [], annotations: nil, rehydrate: true,
+                bundleDir: project.appendingPathComponent("Analyses", isDirectory: true)
+            )
         }
     }
 
@@ -173,9 +190,11 @@ final class ReferenceImportParityReplayTests: XCTestCase {
     private func sideA(_ root: URL, _ parityCase: Case) async -> RouteParitySideOutcome {
         let shape = Self.shape(root, parityCase, inputs: sharedInputs)
         do {
+            let outputDirectory = try shape.bundleDir ?? ReferenceSequenceFolder.ensureFolder(in: shape.project)
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
             let result = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
                 sourceURL: shape.source,
-                outputDirectory: try ReferenceSequenceFolder.ensureFolder(in: shape.project),
+                outputDirectory: outputDirectory,
                 preferredBundleName: shape.name,
                 provenanceWorkflowName: "lungfish import fasta",
                 provenanceCommand: [harness.cliBinary.path] + shape.arguments,
@@ -213,6 +232,17 @@ final class ReferenceImportParityReplayTests: XCTestCase {
     /// Side C. The begin helper the site calls and the runner on the argv the site hands it.
     private func sideC(_ root: URL, _ parityCase: Case) async -> RouteParitySideOutcome {
         let shape = Self.shape(root, parityCase, inputs: sharedInputs)
+        if let bundleDir = shape.bundleDir {
+            // The wrapper runs inside the FASTQ operation's row, so the command it runs is what C' replays.
+            let command = OperationCenter.buildCLICommand(subcommand: "import fasta", args: Array(shape.arguments.dropFirst(2)))
+            do {
+                let bundle = try await CLIReferenceBundleWrapper(cliURLOverride: harness.cliBinary)
+                    .importReferenceBundle(sourceURL: shape.source, outputDirectory: bundleDir, preferredBundleName: shape.name)
+                return RouteParitySideOutcome(end: .completed, detail: "Imported \(bundle.lastPathComponent)", recordedCommand: command)
+            } catch {
+                return RouteParitySideOutcome(end: .failed, detail: "\(error)", recordedCommand: command)
+            }
+        }
         let reporter = RecordingOperationReporter()
         var operationID: UUID?
         if shape.annotations != nil {

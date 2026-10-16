@@ -76,45 +76,17 @@ extension MainSplitViewController {
                 return
             }
 
-            do {
-                let refsDir = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
-                let outcome = await ReferenceImportOperationLifecycle.run(
-                    center: .shared,
-                    sourceURL: url,
-                    outputDirectory: refsDir,
-                    routeContext: operationRouteContext
-                ) { opID in
-                    let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
-                        sourceURL: url,
-                        outputDirectory: refsDir
-                    ) { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.updateWithLog(id: opID, progress: progress, detail: message)
-                            }
-                        }
-                    }
-                    return result.bundleURL
-                }
-                _ = try outcome.get()
+            switch await Self.importDroppedReference(sourceURL: url, projectURL: projectURL, routeContext: operationRouteContext) {
+            case .imported:
                 // OperationCenter delivers and routes the final bundle once.
-                postSidebarFileDropCompleted(
-                    requestID: requestID,
-                    sourceURL: url,
-                    success: true,
-                    error: nil
-                )
-            } catch {
-                let errorMessage = error.localizedDescription
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
+            case .cancelled:
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Import cancelled", cancelled: true)
+            case .failed(let errorMessage):
                 mainSplitLogger.error(
-                    "handleSidebarFileDropped: Reference helper import failed for \(url.lastPathComponent, privacy: .public): \(errorMessage, privacy: .public)"
+                    "handleSidebarFileDropped: Reference import failed for \(url.lastPathComponent, privacy: .public): \(errorMessage, privacy: .public)"
                 )
-                postSidebarFileDropCompleted(
-                    requestID: requestID,
-                    sourceURL: url,
-                    success: false,
-                    error: errorMessage
-                )
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: errorMessage)
             }
             return
         }

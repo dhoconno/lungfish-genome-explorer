@@ -23,21 +23,6 @@ struct IdentityFASTQOperationImporter: FASTQOperationDirectImporting {
     }
 }
 
-private struct AppReferenceBundleWrapper: ReferenceBundleWrapping {
-    func importReferenceBundle(
-        sourceURL: URL,
-        outputDirectory: URL,
-        preferredBundleName: String?
-    ) async throws -> URL {
-        let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
-            sourceURL: sourceURL,
-            outputDirectory: outputDirectory,
-            preferredBundleName: preferredBundleName
-        )
-        return result.bundleURL
-    }
-}
-
 struct AppFASTQOutputIngestor: FASTQOutputIngesting {
     func ingest(
         config: FASTQIngestionConfig,
@@ -440,7 +425,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
 
     init(
         destinationDirectory: URL,
-        referenceBundleWrapper: any ReferenceBundleWrapping = AppReferenceBundleWrapper(),
+        referenceBundleWrapper: any ReferenceBundleWrapping = CLIReferenceBundleWrapper(),
         fastqBundleWriter: any FASTQOutputBundleWriting = AppFASTQOutputBundleWriter()
     ) {
         self.destinationDirectory = destinationDirectory
@@ -1024,14 +1009,12 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
             )
 
             if SequenceFormat.from(url: outputURL) == .fasta {
+                // The wrapper merges the FASTA's own record into the bundle's before it publishes, so
+                // nothing here writes after it returns (2.11 A48 M4, plan decision C5).
                 let referenceBundleURL = try await referenceBundleWrapper.importReferenceBundle(
                     sourceURL: outputURL,
                     outputDirectory: destinationDirectory,
                     preferredBundleName: bundleBaseName
-                )
-                try FASTQOperationProvenanceRehydrator().rehydrateReferenceBundleProvenance(
-                    sourceURL: outputURL,
-                    referenceBundleURL: referenceBundleURL
                 )
                 importedBundleURLs.append(referenceBundleURL)
                 continue
