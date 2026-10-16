@@ -89,7 +89,8 @@ struct BundleMergeSubcommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         case .failure(let error):
             events.emitFailed(error.localizedDescription)
-            throw error
+            printHumanLine(error.localizedDescription, eventsOn: eventsOn)
+            throw CLIExitCode.workflowError.exitCode
         }
     }
 
