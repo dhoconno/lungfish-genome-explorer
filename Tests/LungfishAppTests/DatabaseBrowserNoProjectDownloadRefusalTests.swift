@@ -132,4 +132,42 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
         XCTAssertEqual(requested, [], "no service is asked")
         XCTAssertEqual(made, [], "no folder is made")
     }
+
+    /// The SRA row is the only one with work before its row, the metadata lookup and the import
+    /// sheet, and it starts that work inside the launch, after the begin helper's guard. Driven
+    /// through the browser's own entry, a move of the preparation ahead of the begin fails here.
+    func testAnSRARowWithNoProjectAsksENANothingAndStartsNoPreparation() async throws {
+        let suite = makeTestDefaultsSuite(prefix: "a60-no-project-refusal-sra")
+        let client = RefusingNCBIClient()
+        let model = DatabaseBrowserViewModel(
+            source: .ena, ncbiService: NCBIService(httpClient: client),
+            enaService: ENAService(httpClient: client), sraDownloadSuiteName: suite.name)
+        let accession = "SRR9000002"
+        model.selectedRecord = SearchResultRecord(id: accession, accession: accession, title: "A60 refusal", source: .ena)
+        var dismissed = false
+        model.onDownloadStarted = { dismissed = true }
+        let recorder = RecordingNoProjectPresenter()
+
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) { model.performBatchDownload() }
+
+        let row = OperationCenter.shared.items.first { $0.title == accession }
+        if let row {
+            // Only a route that still begins the row gets here. Cancel it and let it end.
+            OperationCenter.shared.cancel(id: row.id)
+            await waitUntil(timeout: .seconds(30)) {
+                OperationCenter.shared.items.first { $0.id == row.id }?.state.isActive != true
+            }
+            OperationCenter.shared.clearItem(id: row.id)
+        }
+
+        XCTAssertNil(row, "no row starts, so no preparation starts")
+        XCTAssertFalse(dismissed, "the browser stays open")
+        XCTAssertFalse(model.isDownloading)
+        XCTAssertTrue(model.preparingSRADownloadIDs.isEmpty, "no preparation is registered")
+        XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open"])
+        XCTAssertEqual(
+            recorder.presentations.map(\.message), ["Open or create a project before downloading SRA runs."])
+        let requested = await client.requestedURLs
+        XCTAssertEqual(requested, [], "no lookup is made before the refusal")
+    }
 }
