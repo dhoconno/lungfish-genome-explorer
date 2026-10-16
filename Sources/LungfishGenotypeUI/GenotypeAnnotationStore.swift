@@ -7,14 +7,11 @@ import LungfishWorkflow
 
 enum GenotypeAnnotationStorePersistenceError: Error, LocalizedError {
     case staleRevision
-    case publicationInFlight
 
     var errorDescription: String? {
         switch self {
         case .staleRevision:
             return "The genotype annotations changed in another process. Reload the bundle before saving this edit."
-        case .publicationInFlight:
-            return "Another annotation edit is still being saved. Try again when it finishes."
         }
     }
 }
@@ -138,8 +135,8 @@ public final class GenotypeAnnotationStore {
     }
 
     /// Publishes the sidecar the analyst sees as it stands, cohorts or none.
-    func publishViewedSidecar() throws {
-        try persistOnMainActor(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
+    func publishViewedSidecar() async throws {
+        try await persist(action: unsavedBuiltInSmartCohorts.isEmpty ? "publishViewedSidecar" : "seedBuiltInSmartCohorts")
     }
 
     /// Applies `edit` to the sidecar the analyst sees and publishes it whole, naming `options` in its record.
@@ -158,7 +155,7 @@ public final class GenotypeAnnotationStore {
                        rationale: String,
                        author editAuthor: String? = nil) async throws {
         try await publicationChain.run {
-            _ = try mutateCallOverrides(
+            _ = try await mutateCallOverrides(
                 [
                     CallOverrideMutation(
                         target: .init(
@@ -1085,7 +1082,20 @@ public final class GenotypeAnnotationStore {
         with draft: [ManualHaplotypeAssignment],
         copySource: String?,
         author editAuthor: String?
-    ) throws -> ManualHaplotypeReplacementResult {
+    ) async throws -> ManualHaplotypeReplacementResult {
+        try await publicationChain.run {
+            try await replaceManualHaplotypeAssignmentsInStep(sample, draft, copySource, editAuthor)
+        }
+    }
+
+    /// `replaceManualHaplotypeAssignments` inside its step of the chain. The pair is prepared,
+    /// checked against its replay and written away from the main actor (2.11 S35).
+    private func replaceManualHaplotypeAssignmentsInStep(
+        _ sample: String,
+        _ draft: [ManualHaplotypeAssignment],
+        _ copySource: String?,
+        _ editAuthor: String?
+    ) async throws -> ManualHaplotypeReplacementResult {
         guard !isReadOnly else {
             throw ManualHaplotypeReplacementError.readOnly
         }
@@ -1120,167 +1130,142 @@ public final class GenotypeAnnotationStore {
             removed: []
         )
         // The replay starts from the file, so a bundle without one publishes the viewed sidecar first.
-        guard try preparePriorSidecarForReplay(changesSomething: !draftByKey.isEmpty) else { return unchangedResult }
+        guard try await preparePriorSidecarForReplay(changesSomething: !draftByKey.isEmpty) else { return unchangedResult }
         let runClock = ProvenanceRunClock()
-        var publishedSidecar: GenotypeAnnotationSidecar?
-        var replacementResult = unchangedResult
-        do {
-            _ = try transactAnnotationPublication { snapshot in
-                guard let priorData = snapshot.annotationData else {
-                    throw ManualHaplotypeReplacementError.missingPriorSidecar
-                }
-                var latest = try decodedLatestSidecar(from: priorData)
-                guard latest == lastPersistedSidecar else {
-                    throw GenotypeAnnotationStorePersistenceError.staleRevision
-                }
-                try latest.promoteToCurrentSchema()
+        let expected = lastPersistedSidecar
+        let unsaved = unsavedBuiltInSmartCohorts
+        let timestamp = now()
+        let outcome = await publishAwayFromMainActor(expected: expected) { [self] snapshot, decoded in
+            guard let priorData = snapshot.annotationData else {
+                throw ManualHaplotypeReplacementError.missingPriorSidecar
+            }
+            var latest = decoded
+            guard latest == expected else {
+                throw GenotypeAnnotationStorePersistenceError.staleRevision
+            }
+            try latest.promoteToCurrentSchema()
 
-                let beforeAssignments = latest.manualHaplotypeAssignments
-                let recognizedBefore = beforeAssignments.filter {
-                    normalizedManualHaplotypeIdentity($0.sample)
-                        == normalizedSample
-                        && GenotypeManualHaplotypeLocus(
-                            normalizing: $0.locus
-                        ) != nil
-                }
-                let selectedOrphans = beforeAssignments.filter {
-                    normalizedManualHaplotypeIdentity($0.sample)
-                        == normalizedSample
-                        && GenotypeManualHaplotypeLocus(
-                            normalizing: $0.locus
-                        ) == nil
-                }
-                let beforeIndex = GenotypeManualHaplotypeAssignmentIndex(
-                    assignments: recognizedBefore
+            let beforeAssignments = latest.manualHaplotypeAssignments
+            let recognizedBefore = beforeAssignments.filter {
+                normalizedManualHaplotypeIdentity($0.sample)
+                    == normalizedSample
+                    && GenotypeManualHaplotypeLocus(
+                        normalizing: $0.locus
+                    ) != nil
+            }
+            let selectedOrphans = beforeAssignments.filter {
+                normalizedManualHaplotypeIdentity($0.sample)
+                    == normalizedSample
+                    && GenotypeManualHaplotypeLocus(
+                        normalizing: $0.locus
+                    ) == nil
+            }
+            let beforeIndex = GenotypeManualHaplotypeAssignmentIndex(
+                assignments: recognizedBefore
+            )
+            let beforeByKey = beforeIndex.assignmentsByKey.filter {
+                $0.key.sample == normalizedSample
+            }
+            let rawBeforeByKey = Dictionary(grouping: recognizedBefore) {
+                GenotypeManualHaplotypeAssignmentKey(
+                    sample: normalizedSample,
+                    locus: GenotypeManualHaplotypeLocus(
+                        normalizing: $0.locus
+                    )!,
+                    slot: $0.slot
                 )
-                let beforeByKey = beforeIndex.assignmentsByKey.filter {
-                    $0.key.sample == normalizedSample
-                }
-                let rawBeforeByKey = Dictionary(grouping: recognizedBefore) {
-                    GenotypeManualHaplotypeAssignmentKey(
-                        sample: normalizedSample,
-                        locus: GenotypeManualHaplotypeLocus(
-                            normalizing: $0.locus
-                        )!,
-                        slot: $0.slot
-                    )
-                }
+            }
 
-                let allKeys = Set(beforeByKey.keys).union(draftByKey.keys)
-                var afterByKey: [
-                    GenotypeManualHaplotypeAssignmentKey:
-                        ManualHaplotypeAssignment
-                ] = [:]
-                var changedKeys: Set<
-                    GenotypeManualHaplotypeAssignmentKey
-                > = []
-                let timestamp = now()
-                for key in allKeys {
-                    let before = beforeByKey[key]
-                    guard let draftValue = draftByKey[key] else {
-                        changedKeys.insert(key)
-                        continue
-                    }
-                    let needsCanonicalization: Bool = {
-                        guard let before else { return false }
-                        let raw = rawBeforeByKey[key] ?? []
-                        return raw.count != 1
-                            || before.sample != normalizedSample
-                            || before.locus != key.locus.rawValue
-                            || !hasStableManualHaplotypeAssignmentID(before)
-                    }()
-                    let editableChanged =
-                        before?.label != draftValue.label
-                        || before?.colorTokenIndex != draftValue.colorTokenIndex
-                    if let before, !needsCanonicalization, !editableChanged {
-                        afterByKey[key] = before
-                        continue
-                    }
+            let allKeys = Set(beforeByKey.keys).union(draftByKey.keys)
+            var afterByKey: [
+                GenotypeManualHaplotypeAssignmentKey:
+                    ManualHaplotypeAssignment
+            ] = [:]
+            var changedKeys: Set<
+                GenotypeManualHaplotypeAssignmentKey
+            > = []
+            for key in allKeys {
+                let before = beforeByKey[key]
+                guard let draftValue = draftByKey[key] else {
                     changedKeys.insert(key)
-                    afterByKey[key] = ManualHaplotypeAssignment(
-                        sample: normalizedSample,
-                        locus: key.locus.rawValue,
-                        slot: key.slot,
-                        label: draftValue.label,
-                        colorTokenIndex: draftValue.colorTokenIndex,
-                        diagnosticAlleles: before?.diagnosticAlleles ?? [],
-                        notes: before?.notes ?? "",
-                        assignmentID:
-                            stableManualHaplotypeAssignmentID(before)
-                            ?? UUID().uuidString,
-                        updatedAt: timestamp,
-                        author: normalizedAuthor
-                    )
+                    continue
                 }
-
-                guard !changedKeys.isEmpty else {
-                    replacementResult = unchangedResult
-                    return nil
+                let needsCanonicalization: Bool = {
+                    guard let before else { return false }
+                    let raw = rawBeforeByKey[key] ?? []
+                    return raw.count != 1
+                        || before.sample != normalizedSample
+                        || before.locus != key.locus.rawValue
+                        || !hasStableManualHaplotypeAssignmentID(before)
+                }()
+                let editableChanged =
+                    before?.label != draftValue.label
+                    || before?.colorTokenIndex != draftValue.colorTokenIndex
+                if let before, !needsCanonicalization, !editableChanged {
+                    afterByKey[key] = before
+                    continue
                 }
-
-                let operationID = UUID().uuidString
-                let priorSHA256 = sha256Hex(priorData)
-                let orderedChangedKeys = changedKeys.sorted(
-                    by: manualHaplotypeAssignmentKeyPrecedes
+                changedKeys.insert(key)
+                afterByKey[key] = ManualHaplotypeAssignment(
+                    sample: normalizedSample,
+                    locus: key.locus.rawValue,
+                    slot: key.slot,
+                    label: draftValue.label,
+                    colorTokenIndex: draftValue.colorTokenIndex,
+                    diagnosticAlleles: before?.diagnosticAlleles ?? [],
+                    notes: before?.notes ?? "",
+                    assignmentID:
+                        stableManualHaplotypeAssignmentID(before)
+                        ?? UUID().uuidString,
+                    updatedAt: timestamp,
+                    author: normalizedAuthor
                 )
-                var audits: [GenotypeAnnotationSidecar.AuditEntry] = []
-                var added: [ManualHaplotypeAssignment] = []
-                var updated: [ManualHaplotypeAssignment] = []
-                var removed: [ManualHaplotypeAssignment] = []
-                audits.reserveCapacity(orderedChangedKeys.count + 1)
-                for key in orderedChangedKeys {
-                    let before = beforeByKey[key]
-                    let after = afterByKey[key]
-                    let action: String
-                    switch (before, after) {
-                    case (.none, .some(let after)):
-                        action = "addManualHaplotypeAssignment"
-                        added.append(after)
-                    case (.some, .some(let after)):
-                        action = "updateManualHaplotypeAssignment"
-                        updated.append(after)
-                    case (.some(let before), .none):
-                        action = "removeManualHaplotypeAssignment"
-                        removed.append(before)
-                    case (.none, .none):
-                        preconditionFailure(
-                            "A derived changed manual assignment key must have a before or after record."
-                        )
-                    }
-                    audits.append(GenotypeAnnotationSidecar.AuditEntry(
-                        action: action,
-                        sample: normalizedSample,
-                        locus: key.locus.rawValue,
-                        slot: key.slot,
-                        before: before?.label,
-                        after: after?.label,
-                        color: after.map {
-                            String($0.colorTokenIndex)
-                        },
-                        reason: "manual-haplotype-assignment",
-                        rationale: normalizedCopySource.map {
-                            "Copied labels and colors from \($0)."
-                        },
-                        author: normalizedAuthor,
-                        timestamp: timestamp,
-                        manualHaplotypeAssignment: .init(
-                            operationID: operationID,
-                            priorSidecarSHA256: priorSHA256,
-                            before: before,
-                            after: after,
-                            copySourceSample: normalizedCopySource
-                        )
-                    ))
+            }
+
+            guard !changedKeys.isEmpty else {
+                return GenotypeAnnotationPublicationStep(payload: nil, published: nil, value: unchangedResult)
+            }
+
+            let operationID = UUID().uuidString
+            let priorSHA256 = sha256Hex(priorData)
+            let orderedChangedKeys = changedKeys.sorted(
+                by: manualHaplotypeAssignmentKeyPrecedes
+            )
+            var audits: [GenotypeAnnotationSidecar.AuditEntry] = []
+            var added: [ManualHaplotypeAssignment] = []
+            var updated: [ManualHaplotypeAssignment] = []
+            var removed: [ManualHaplotypeAssignment] = []
+            audits.reserveCapacity(orderedChangedKeys.count + 1)
+            for key in orderedChangedKeys {
+                let before = beforeByKey[key]
+                let after = afterByKey[key]
+                let action: String
+                switch (before, after) {
+                case (.none, .some(let after)):
+                    action = "addManualHaplotypeAssignment"
+                    added.append(after)
+                case (.some, .some(let after)):
+                    action = "updateManualHaplotypeAssignment"
+                    updated.append(after)
+                case (.some(let before), .none):
+                    action = "removeManualHaplotypeAssignment"
+                    removed.append(before)
+                case (.none, .none):
+                    preconditionFailure(
+                        "A derived changed manual assignment key must have a before or after record."
+                    )
                 }
                 audits.append(GenotypeAnnotationSidecar.AuditEntry(
-                    action: "replaceManualHaplotypeAssignments",
+                    action: action,
                     sample: normalizedSample,
-                    locus: nil,
-                    slot: nil,
-                    before: nil,
-                    after: nil,
-                    color: nil,
-                    reason: "manual-haplotype-assignment-batch",
+                    locus: key.locus.rawValue,
+                    slot: key.slot,
+                    before: before?.label,
+                    after: after?.label,
+                    color: after.map {
+                        String($0.colorTokenIndex)
+                    },
+                    reason: "manual-haplotype-assignment",
                     rationale: normalizedCopySource.map {
                         "Copied labels and colors from \($0)."
                     },
@@ -1289,95 +1274,120 @@ public final class GenotypeAnnotationStore {
                     manualHaplotypeAssignment: .init(
                         operationID: operationID,
                         priorSidecarSHA256: priorSHA256,
-                        before: nil,
-                        after: nil,
+                        before: before,
+                        after: after,
                         copySourceSample: normalizedCopySource
                     )
                 ))
+            }
+            audits.append(GenotypeAnnotationSidecar.AuditEntry(
+                action: "replaceManualHaplotypeAssignments",
+                sample: normalizedSample,
+                locus: nil,
+                slot: nil,
+                before: nil,
+                after: nil,
+                color: nil,
+                reason: "manual-haplotype-assignment-batch",
+                rationale: normalizedCopySource.map {
+                    "Copied labels and colors from \($0)."
+                },
+                author: normalizedAuthor,
+                timestamp: timestamp,
+                manualHaplotypeAssignment: .init(
+                    operationID: operationID,
+                    priorSidecarSHA256: priorSHA256,
+                    before: nil,
+                    after: nil,
+                    copySourceSample: normalizedCopySource
+                )
+            ))
 
-                let unrelatedAssignments = beforeAssignments.filter {
-                    normalizedManualHaplotypeIdentity($0.sample)
-                        != normalizedSample
-                }
-                let orderedAfter = afterByKey
-                    .sorted { manualHaplotypeAssignmentKeyPrecedes($0.key, $1.key) }
-                    .map(\.value)
-                latest.manualHaplotypeAssignments =
-                    unrelatedAssignments + selectedOrphans + orderedAfter
-                for audit in audits {
-                    latest.append(audit: audit)
-                }
+            let unrelatedAssignments = beforeAssignments.filter {
+                normalizedManualHaplotypeIdentity($0.sample)
+                    != normalizedSample
+            }
+            let orderedAfter = afterByKey
+                .sorted { manualHaplotypeAssignmentKeyPrecedes($0.key, $1.key) }
+                .map(\.value)
+            latest.manualHaplotypeAssignments =
+                unrelatedAssignments + selectedOrphans + orderedAfter
+            for audit in audits {
+                latest.append(audit: audit)
+            }
 
-                let manifestData = try ONTGenotypeResultBundle
-                    .readManifestDataNoFollow(from: bundleURL)
-                let manifestDescriptor =
-                    GenotypeManualHaplotypeAssignmentReplayPayload
-                        .ArtifactDescriptor(
-                            path:
-                                ONTGenotypeResultBundleManifest.filename,
-                            checksumSHA256: sha256Hex(manifestData),
-                            fileSize: UInt64(manifestData.count)
-                        )
-                let priorDescriptor =
-                    GenotypeManualHaplotypeAssignmentReplayPayload
-                        .ArtifactDescriptor(
-                            path: GenotypeAnnotationSidecar.filename,
-                            checksumSHA256: priorSHA256,
-                            fileSize: UInt64(priorData.count)
-                        )
-                let replayPayload =
-                    GenotypeManualHaplotypeAssignmentReplayPayload(
-                        operation: .init(
-                            operationID: operationID,
-                            sample: normalizedSample,
-                            author: normalizedAuthor,
-                            timestamp: timestamp,
-                            copySourceSample: normalizedCopySource
-                        ),
-                        targetBundle: .init(
-                            bundlePath:
-                                bundleURL.standardizedFileURL.path,
-                            manifest: manifestDescriptor
-                        ),
-                        priorSidecar: .init(
-                            descriptor: priorDescriptor,
-                            revisionSHA256: priorSHA256
-                        ),
-                        beforeAssignments: beforeAssignments,
-                        afterAssignments:
-                            latest.manualHaplotypeAssignments,
-                        auditEntries: audits
+            let manifestData = try ONTGenotypeResultBundle
+                .readManifestDataNoFollow(from: bundleURL)
+            let manifestDescriptor =
+                GenotypeManualHaplotypeAssignmentReplayPayload
+                    .ArtifactDescriptor(
+                        path:
+                            ONTGenotypeResultBundleManifest.filename,
+                        checksumSHA256: sha256Hex(manifestData),
+                        fileSize: UInt64(manifestData.count)
                     )
-                // Validate the exact replay contract before publishing either
-                // the annotation sidecar or its provenance.
-                let replayed = try replayPayload.applying(
-                    to: priorData,
-                    targetBundleURL: bundleURL,
-                    targetManifestData: manifestData
+            let priorDescriptor =
+                GenotypeManualHaplotypeAssignmentReplayPayload
+                    .ArtifactDescriptor(
+                        path: GenotypeAnnotationSidecar.filename,
+                        checksumSHA256: priorSHA256,
+                        fileSize: UInt64(priorData.count)
+                    )
+            let replayPayload =
+                GenotypeManualHaplotypeAssignmentReplayPayload(
+                    operation: .init(
+                        operationID: operationID,
+                        sample: normalizedSample,
+                        author: normalizedAuthor,
+                        timestamp: timestamp,
+                        copySourceSample: normalizedCopySource
+                    ),
+                    targetBundle: .init(
+                        bundlePath:
+                            bundleURL.standardizedFileURL.path,
+                        manifest: manifestDescriptor
+                    ),
+                    priorSidecar: .init(
+                        descriptor: priorDescriptor,
+                        revisionSHA256: priorSHA256
+                    ),
+                    beforeAssignments: beforeAssignments,
+                    afterAssignments:
+                        latest.manualHaplotypeAssignments,
+                    auditEntries: audits
                 )
-                guard replayed == latest else {
-                    throw GenotypeManualHaplotypeAssignmentReplayPayload
-                        .ReplayError.invalidOperation(
-                            "prepared GUI result does not equal its replay payload."
-                        )
-                }
-                let editContext = manualHaplotypeReplacementEditContext(
-                    replayPayload: replayPayload,
-                    addedCount: added.count,
-                    updatedCount: updated.count,
-                    removedCount: removed.count
-                )
-                let publication = try annotationPublicationPayload(
-                    sidecar: latest,
-                    action: "replaceManualHaplotypeAssignments",
-                    editContext: editContext,
-                    snapshot: snapshot,
-                    unsavedBuiltInSmartCohorts: unsavedBuiltInSmartCohorts,
-                    startedAt: runClock.startedAt,
-                    endedAt: runClock.now
-                )
-                publishedSidecar = latest
-                replacementResult = ManualHaplotypeReplacementResult(
+            // Validate the exact replay contract before publishing either
+            // the annotation sidecar or its provenance.
+            let replayed = try replayPayload.applying(
+                to: priorData,
+                targetBundleURL: bundleURL,
+                targetManifestData: manifestData
+            )
+            guard replayed == latest else {
+                throw GenotypeManualHaplotypeAssignmentReplayPayload
+                    .ReplayError.invalidOperation(
+                        "prepared GUI result does not equal its replay payload."
+                    )
+            }
+            let editContext = manualHaplotypeReplacementEditContext(
+                replayPayload: replayPayload,
+                addedCount: added.count,
+                updatedCount: updated.count,
+                removedCount: removed.count
+            )
+            let publication = try annotationPublicationPayload(
+                sidecar: latest,
+                action: "replaceManualHaplotypeAssignments",
+                editContext: editContext,
+                snapshot: snapshot,
+                unsavedBuiltInSmartCohorts: unsaved,
+                startedAt: runClock.startedAt,
+                endedAt: runClock.now
+            )
+            return GenotypeAnnotationPublicationStep(
+                payload: publication,
+                published: latest,
+                value: ManualHaplotypeReplacementResult(
                     didChange: true,
                     sample: normalizedSample,
                     operationID: operationID,
@@ -1386,20 +1396,16 @@ public final class GenotypeAnnotationStore {
                     updated: updated,
                     removed: removed
                 )
-                return publication
-            }
-        } catch {
-            // Observable state has not been touched. A stale, validation, or
-            // publication failure must not masquerade as a successful
-            // sidecar-change notification.
-            throw error
+            )
         }
-
-        if let publishedSidecar {
-            adoptPersisted(publishedSidecar)
+        // Observable state has not been touched on a refusal. A stale, validation, or
+        // publication failure must not masquerade as a successful sidecar-change notification.
+        let step = try outcome.result.get()
+        if let published = step.published {
+            adoptPersisted(published)
             manualHaplotypeAssignmentMutationRevision &+= 1
         }
-        return replacementResult
+        return step.value
     }
 
     /// Applies every call override from one user Save as one annotation and
@@ -1410,7 +1416,19 @@ public final class GenotypeAnnotationStore {
         _ mutations: [CallOverrideMutation],
         author editAuthor: String,
         analysisIdentity: GenotypeEffectiveHaplotypeIdentity?
-    ) throws -> CallOverrideMutationResult {
+    ) async throws -> CallOverrideMutationResult {
+        try await publicationChain.run {
+            try await mutateCallOverridesInStep(mutations, author: editAuthor, analysisIdentity: analysisIdentity)
+        }
+    }
+
+    /// `mutateCallOverrides` inside its step of the chain. The pair is prepared, checked against
+    /// its replay and written away from the main actor (2.11 S35).
+    private func mutateCallOverridesInStep(
+        _ mutations: [CallOverrideMutation],
+        author editAuthor: String,
+        analysisIdentity: GenotypeEffectiveHaplotypeIdentity?
+    ) async throws -> CallOverrideMutationResult {
         guard !isReadOnly else {
             throw CallOverrideMutationError.readOnly
         }
@@ -1452,18 +1470,19 @@ public final class GenotypeAnnotationStore {
             changedKeys: []
         )
         // The replay starts from the file, so a bundle without one publishes the viewed sidecar first.
-        guard try preparePriorSidecarForReplay(changesSomething: mutations.contains { $0.after != $0.baseline }) else {
+        guard try await preparePriorSidecarForReplay(changesSomething: mutations.contains { $0.after != $0.baseline }) else {
             return unchanged
         }
         let runClock = ProvenanceRunClock()
-        var publishedSidecar: GenotypeAnnotationSidecar?
-        var mutationResult = unchanged
-        _ = try transactAnnotationPublication { snapshot in
+        let expected = lastPersistedSidecar
+        let unsaved = unsavedBuiltInSmartCohorts
+        let timestamp = now()
+        let outcome = await publishAwayFromMainActor(expected: expected) { [self] snapshot, decoded in
             guard let priorData = snapshot.annotationData else {
                 throw CallOverrideMutationError.missingPriorSidecar
             }
-            var latest = try decodedLatestSidecar(from: priorData)
-            guard latest == lastPersistedSidecar else {
+            var latest = decoded
+            guard latest == expected else {
                 throw GenotypeAnnotationStorePersistenceError.staleRevision
             }
             try latest.promoteToCurrentSchema()
@@ -1517,12 +1536,10 @@ public final class GenotypeAnnotationStore {
                         != analysisIdentity?.sidecarIdentity
             }
             guard !changedMutations.isEmpty else {
-                mutationResult = unchanged
-                return nil
+                return GenotypeAnnotationPublicationStep(payload: nil, published: nil, value: unchanged)
             }
 
             let operationID = UUID().uuidString
-            let timestamp = now()
             let priorSHA256 = sha256Hex(priorData)
             let changedKeys = Set(changedMutations.map(\.target))
             let unchangedOverrides = priorOverrides.filter { entry in
@@ -1643,26 +1660,26 @@ public final class GenotypeAnnotationStore {
                 action: "mutateCallOverrides",
                 editContext: editContext,
                 snapshot: snapshot,
-                unsavedBuiltInSmartCohorts: unsavedBuiltInSmartCohorts,
+                unsavedBuiltInSmartCohorts: unsaved,
                 startedAt: runClock.startedAt,
                 endedAt: runClock.now
             )
-            publishedSidecar = latest
-            mutationResult = CallOverrideMutationResult(
-                didChange: true,
-                changedKeys: changedKeys
+            return GenotypeAnnotationPublicationStep(
+                payload: publication,
+                published: latest,
+                value: CallOverrideMutationResult(didChange: true, changedKeys: changedKeys)
             )
-            return publication
         }
-
-        if let publishedSidecar {
-            adoptPersisted(publishedSidecar)
+        // A refusal leaves observable state as it was.
+        let step = try outcome.result.get()
+        if let published = step.published {
+            adoptPersisted(published)
             callOverrideMutationRevision &+= 1
         }
-        return mutationResult
+        return step.value
     }
 
-    private func authoritativeCallOverride(
+    private nonisolated func authoritativeCallOverride(
         _ matches: [(offset: Int, element: GenotypeAnnotationSidecar.CallOverride)],
         analysisIdentity:
             GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity? = nil
@@ -1747,7 +1764,7 @@ public final class GenotypeAnnotationStore {
             guard let existing = authoritativeCallOverride(matches) else {
                 return
             }
-            _ = try mutateCallOverrides(
+            _ = try await mutateCallOverrides(
                 [
                     CallOverrideMutation(
                         target: target,
@@ -1832,7 +1849,7 @@ public final class GenotypeAnnotationStore {
         let colorTokenIndex: Int
     }
 
-    private func normalizedManualHaplotypeIdentity(_ raw: String) -> String {
+    private nonisolated func normalizedManualHaplotypeIdentity(_ raw: String) -> String {
         GenotypeManualHaplotypeAssignmentInputValidator
             .normalizedSampleIdentity(raw)
     }
@@ -1903,13 +1920,13 @@ public final class GenotypeAnnotationStore {
         return validated
     }
 
-    private func hasStableManualHaplotypeAssignmentID(
+    private nonisolated func hasStableManualHaplotypeAssignmentID(
         _ assignment: ManualHaplotypeAssignment
     ) -> Bool {
         stableManualHaplotypeAssignmentID(assignment) != nil
     }
 
-    private func stableManualHaplotypeAssignmentID(
+    private nonisolated func stableManualHaplotypeAssignmentID(
         _ assignment: ManualHaplotypeAssignment?
     ) -> String? {
         guard let assignmentID = assignment?.assignmentID,
@@ -1921,7 +1938,7 @@ public final class GenotypeAnnotationStore {
         return assignmentID
     }
 
-    private func manualHaplotypeAssignmentKeyPrecedes(
+    private nonisolated func manualHaplotypeAssignmentKeyPrecedes(
         _ lhs: GenotypeManualHaplotypeAssignmentKey,
         _ rhs: GenotypeManualHaplotypeAssignmentKey
     ) -> Bool {
@@ -2140,7 +2157,7 @@ public final class GenotypeAnnotationStore {
         )
     }
 
-    private func manualHaplotypeReplacementEditContext(
+    private nonisolated func manualHaplotypeReplacementEditContext(
         replayPayload: GenotypeManualHaplotypeAssignmentReplayPayload,
         addedCount: Int,
         updatedCount: Int,
@@ -2180,7 +2197,7 @@ public final class GenotypeAnnotationStore {
         )
     }
 
-    private func callOverrideMutationEditContext(
+    private nonisolated func callOverrideMutationEditContext(
         replayPayload: GenotypeCallOverrideReplayPayload
     ) -> ProvenanceEditContext {
         let identity: ParameterValue = replayPayload.operation

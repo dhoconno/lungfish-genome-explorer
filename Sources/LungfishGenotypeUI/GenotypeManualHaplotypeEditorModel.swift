@@ -182,9 +182,11 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         GenotypeHaplotypeAssignmentPersistenceFailure = .save
     @Published private(set) var copySearchText = ""
     @Published private(set) var draftRevisionToken = UUID()
+    /// Whether a Save is publishing, which holds the Save control (2.11 S35).
+    @Published private(set) var isSaving = false
 
     private let onSave:
-        (GenotypeManualHaplotypeDraft) throws
+        (GenotypeManualHaplotypeDraft) async throws
             -> GenotypeManualHaplotypeDraft
     private let onReload: () throws -> Snapshot
     private let onDidSave: () -> Void
@@ -200,7 +202,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         snapshot: Snapshot,
         onSave: @escaping (
             GenotypeManualHaplotypeDraft
-        ) throws -> GenotypeManualHaplotypeDraft,
+        ) async throws -> GenotypeManualHaplotypeDraft,
         onReload: @escaping () throws -> Snapshot,
         onDidSave: @escaping () -> Void = {},
         announcementPoster: any AccessibilityAnnouncementPosting =
@@ -258,7 +260,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     }
 
     var canSave: Bool {
-        !isReadOnly && draft.isDirty && draft.isValid
+        !isReadOnly && !isSaving && draft.isDirty && draft.isValid
     }
 
     var emptyStateMessage: String? {
@@ -384,9 +386,17 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         return result
     }
 
+    /// Starts a Save from a control. It publishes after this returns, so a test awaits
+    /// `waitForAnnotationEdits()` after it.
     func save() {
         guard prepareSave() else { return }
-        _ = finalizePreparedSave()
+        GenotypeAnnotationPublicationChain.startEdit { [self] in _ = await finalizePreparedSave() }
+    }
+
+    /// Saves the draft and returns once its publication ends.
+    func saveAndWait() async {
+        guard prepareSave() else { return }
+        _ = await finalizePreparedSave()
     }
 
     @discardableResult
@@ -414,10 +424,12 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     }
 
     @discardableResult
-    func finalizePreparedSave() -> Bool {
+    func finalizePreparedSave() async -> Bool {
         guard let preparedDraft else { return false }
+        isSaving = true
+        defer { isSaving = false }
         do {
-            let savedDraft = try onSave(preparedDraft)
+            let savedDraft = try await onSave(preparedDraft)
             self.preparedDraft = nil
             replaceDraft(savedDraft)
             persistenceErrorMessage = nil

@@ -5,23 +5,6 @@ import LungfishWorkflow
 import os
 
 extension GenotypeAnnotationStore {
-    /// Publishes the pair on the main actor. Only the two replayed edits use it, because their
-    /// editors still call them synchronously (2.11 S35 M2a). Outside a step of the chain it refuses
-    /// while a step publishes, since this store has not adopted that step's result yet.
-    func transactAnnotationPublication(
-        _ prepare: (GenotypeAnnotationPublicationSnapshot) throws -> GenotypeAnnotationPublicationPayload?
-    ) throws -> GenotypeAnnotationPublicationPayload? {
-        guard publicationChain.isIdle || GenotypeAnnotationPublicationStepScope.isInside else {
-            throw GenotypeAnnotationStorePersistenceError.publicationInFlight
-        }
-        return try annotationPublicationCoordinator().transact { snapshot in
-            guard let payload = try prepare(snapshot) else { return nil }
-            // The coordinator writes the pair next, on this thread and inside this transaction.
-            reportPublicationStage(.write)
-            return payload
-        }
-    }
-
     /// Publishes the whole sidecar the analyst sees in one write, with the derived id of each smart cohort
     /// that stores none (plan decision G2). The built-in smart cohorts that are only in memory go out with
     /// the edit, because the file is checked against `lastPersistedSidecar` and not against `sidecar`.
@@ -64,46 +47,6 @@ extension GenotypeAnnotationStore {
             unsavedBuiltInSmartCohorts = []
         case .failure(let error):
             adoptPersisted(outcome.latest ?? expected)
-            throw error
-        }
-    }
-
-    /// `persist` on the main actor, for `publishViewedSidecar`, which the two replayed edits call
-    /// synchronously before their own publication.
-    func persistOnMainActor(action: String, editContext: ProvenanceEditContext? = nil) throws {
-        guard !isReadOnly else { return }
-        let runClock = ProvenanceRunClock()
-        var desiredSidecar = sidecar.storingSmartCohortIDs()
-        do {
-            try desiredSidecar.promoteToCurrentSchema()
-        } catch {
-            adoptPersisted(lastPersistedSidecar)
-            throw error
-        }
-        var latestForRollback = lastPersistedSidecar
-        do {
-            _ = try transactAnnotationPublication { snapshot in
-                var latest = try decodedLatestSidecar(from: snapshot.annotationData)
-                latestForRollback = latest
-                guard latest == lastPersistedSidecar else {
-                    throw GenotypeAnnotationStorePersistenceError.staleRevision
-                }
-                try latest.promoteToCurrentSchema()
-                return try annotationPublicationPayload(
-                    sidecar: desiredSidecar,
-                    action: action,
-                    editContext: editContext,
-                    snapshot: snapshot,
-                    unsavedBuiltInSmartCohorts: unsavedBuiltInSmartCohorts,
-                    startedAt: runClock.startedAt,
-                    endedAt: runClock.now
-                )
-            }
-            sidecar = desiredSidecar
-            lastPersistedSidecar = desiredSidecar
-            unsavedBuiltInSmartCohorts = []
-        } catch {
-            adoptPersisted(latestForRollback)
             throw error
         }
     }
@@ -159,6 +102,11 @@ extension GenotypeAnnotationStore {
         onFailure: @escaping @MainActor (any Error) -> Void
     ) {
         publicationChain.beginEdit(edit, onFailure: onFailure)
+    }
+
+    /// Runs an edit a UI edge awaits, holding the edit controls until it ends (2.11 S35).
+    func performEdit<T>(_ edit: () async throws -> T) async rethrows -> T {
+        try await publicationChain.performEdit(edit)
     }
 
     /// Whether an edit the UI started is still publishing, which holds the edit controls.

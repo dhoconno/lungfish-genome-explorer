@@ -6,7 +6,7 @@ import LungfishKit
 
 @MainActor
 final class GenotypeManualHaplotypeEditorTests: XCTestCase {
-    func testSuccessfulSaveNotifiesComparisonStatusCompletion() {
+    func testSuccessfulSaveNotifiesComparisonStatusCompletion() async {
         var didSaveCount = 0
         let model = GenotypeManualHaplotypeEditorModel(
             snapshot: GenotypeManualHaplotypeEditorModel.Snapshot(
@@ -33,7 +33,9 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
 
         model.updateLabel("M1", locus: .a, slot: .h1)
         model.save()
+        await waitForAnnotationEdits()
         model.save()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(didSaveCount, 1)
     }
@@ -295,7 +297,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                 isReadOnly: false
             ),
             onSave: { draft in
-                _ = try store.replaceManualHaplotypeAssignments(
+                _ = try await store.replaceManualHaplotypeAssignments(
                     for: draft.sample,
                     with: try draft.validatedAssignments(),
                     copySource: draft.copySource,
@@ -382,7 +384,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         XCTAssertTrue(model.canSave)
     }
 
-    func testReloadAtomicallyRefreshesDraftCatalogCandidatesOrphansAndWritability() {
+    func testReloadAtomicallyRefreshesDraftCatalogCandidatesOrphansAndWritability() async {
         let oldOrphan = ManualHaplotypeAssignment(
             sample: "Animal-1",
             locus: "MHC-OLD-OPAQUE",
@@ -484,6 +486,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         model.reload()
         model.copyAssignments(from: "Animal-2")
         model.save()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(savedDraft?[.a, .h1]?.label, "New source")
         XCTAssertEqual(savedDraft?.copySource, "Animal-2")
@@ -605,7 +608,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         )
     }
 
-    func testSaveFailureKeepsDraftAndOffersRetryAndReload() {
+    func testSaveFailureKeepsDraftAndOffersRetryAndReload() async {
         struct SaveFailure: Error, LocalizedError {
             var errorDescription: String? { "Sidecar changed elsewhere." }
         }
@@ -637,6 +640,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         model.updateLabel("M2", locus: .a, slot: .h1)
 
         model.save()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(saveAttempts, 1)
         XCTAssertTrue(model.draft.isDirty)
@@ -648,6 +652,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         )
 
         model.retry()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(saveAttempts, 2)
         XCTAssertFalse(model.draft.isDirty)
@@ -659,6 +664,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
 
         model.updateLabel("M3", locus: .a, slot: .h1)
         model.save()
+        await waitForAnnotationEdits()
         model.reload()
 
         XCTAssertFalse(model.draft.isDirty)
@@ -674,7 +680,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         XCTAssertEqual(model.copyEmptyStateMessage, "No other samples are available to copy.")
     }
 
-    func testOrphanOnlyLegacyAssignmentsAreReadOnlyAndNotReportedAsEmpty() {
+    func testOrphanOnlyLegacyAssignmentsAreReadOnlyAndNotReportedAsEmpty() async {
         let orphan = ManualHaplotypeAssignment(
             sample: "Animal-1",
             locus: "MHC-OPAQUE",
@@ -716,6 +722,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
 
         model.updateLabel("M2", locus: .a, slot: .h1)
         model.save()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(model.orphanLegacyAssignments, [orphan])
         XCTAssertNil(model.persistenceErrorMessage)

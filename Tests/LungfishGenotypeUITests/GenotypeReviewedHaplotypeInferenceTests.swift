@@ -59,6 +59,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "Reviewed contaminant natively")))
             await waitForAnnotationEdits()
             controller.testingApplyOverrideFromInspector(haplotype: "M3A", slot: .h2)
+            await waitForAnnotationEdits()
         }
         let accepted = try XCTUnwrap(controller.testingCapturedScientificCalls().first)
         XCTAssertEqual(accepted.baselineHaplotype2, "-", "Native FP review must recompute the raw evidence baseline before refresh")
@@ -233,6 +234,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             haplotype: "M2A",
             slot: .h2
         )
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingCurrentCallEvidence?.h2Name, "M2A")
         XCTAssertEqual(
             controller.testingCapturedScientificCalls().first?.haplotype2,

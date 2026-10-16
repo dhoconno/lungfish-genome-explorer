@@ -78,7 +78,10 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         GenotypeHaplotypeAssignmentPersistenceFailure = .save
     @Published private(set) var draftRevisionToken = UUID()
 
-    private let onSave: ([Address: String]) throws -> Snapshot
+    /// Whether a Save is publishing, which holds the Save control (2.11 S35).
+    @Published private(set) var isSaving = false
+
+    private let onSave: ([Address: String]) async throws -> Snapshot
     private let onReload: () throws -> Snapshot
     private let onDidSave: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
@@ -86,7 +89,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
 
     init(
         snapshot: Snapshot,
-        onSave: @escaping ([Address: String]) throws -> Snapshot,
+        onSave: @escaping ([Address: String]) async throws -> Snapshot,
         onReload: @escaping () throws -> Snapshot,
         onDidSave: @escaping () -> Void = {},
         announcementPoster: any AccessibilityAnnouncementPosting =
@@ -122,7 +125,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         "\(assignedSlotCount) of \(totalSlotCount) assigned"
     }
     var isDirty: Bool { !changedValues.isEmpty }
-    var canSave: Bool { !isReadOnly && isDirty && validationIssues.isEmpty }
+    var canSave: Bool { !isReadOnly && !isSaving && isDirty && validationIssues.isEmpty }
     var changedValues: [Address: String] {
         Dictionary(uniqueKeysWithValues: snapshot.orderedLoci.flatMap { locus in
             HaplotypeSlot.allCases.compactMap { slot in
@@ -181,15 +184,19 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         }
     }
 
+    /// Starts a Save from a control. It publishes after this returns, so a test awaits
+    /// `waitForAnnotationEdits()` after it.
     func save() {
-        _ = saveAndReturnSuccess()
+        GenotypeAnnotationPublicationChain.startEdit { [self] in _ = await saveAndReturnSuccess() }
     }
 
     @discardableResult
-    func saveAndReturnSuccess() -> Bool {
+    func saveAndReturnSuccess() async -> Bool {
         guard canSave else { return false }
+        isSaving = true
+        defer { isSaving = false }
         do {
-            apply(try onSave(changedValues))
+            apply(try await onSave(changedValues))
             persistenceErrorMessage = nil
             onDidSave()
             return true
@@ -209,8 +216,8 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         canSave
     }
 
-    func finalizePreparedSave() -> Bool {
-        saveAndReturnSuccess()
+    func finalizePreparedSave() async -> Bool {
+        await saveAndReturnSuccess()
     }
 
     func cancelPreparedSave() {}

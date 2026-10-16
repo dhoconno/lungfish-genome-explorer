@@ -83,7 +83,7 @@ final class GenotypeEffectiveHaplotypeEditorTests: XCTestCase {
         XCTAssertNotNil(readOnly.readOnlyMessage)
     }
 
-    func testSaveReloadsSnapshotAndFailureRetainsDraft() {
+    func testSaveReloadsSnapshotAndFailureRetainsDraft() async {
         enum Failure: Error { case expected }
         var shouldFail = true
         var saves: [[GenotypeEffectiveHaplotypeEditorModel.Address: String]] = []
@@ -95,19 +95,21 @@ final class GenotypeEffectiveHaplotypeEditorTests: XCTestCase {
         model.updateLabel("M3A", locus: "MHC-A", slot: .h1)
 
         model.save()
+        await waitForAnnotationEdits()
         XCTAssertEqual(model.rows[0].h1.label, "M3A")
         XCTAssertTrue(model.isDirty)
         XCTAssertNotNil(model.persistenceErrorMessage)
 
         shouldFail = false
         model.retry()
+        await waitForAnnotationEdits()
         XCTAssertEqual(saves.count, 2)
         XCTAssertFalse(model.isDirty)
         XCTAssertNil(model.persistenceErrorMessage)
         XCTAssertEqual(model.rows[0].h1.label, "M3A")
     }
 
-    func testNoOpSaveDoesNotInvokePersistence() {
+    func testNoOpSaveDoesNotInvokePersistence() async {
         var saveCount = 0
         let model = makeModel(onSave: { _ in
             saveCount += 1
@@ -115,6 +117,7 @@ final class GenotypeEffectiveHaplotypeEditorTests: XCTestCase {
         })
 
         model.save()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(saveCount, 0)
         XCTAssertFalse(model.canSave)

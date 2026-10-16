@@ -355,10 +355,10 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             },
             save: { [weak self] in
                 if let model = self?.manualHaplotypeEditorModel {
-                    model.save()
+                    await model.saveAndWait()
                     return !model.draft.isDirty
                 }
-                return self?.effectiveHaplotypeEditorModel?
+                return await self?.effectiveHaplotypeEditorModel?
                     .saveAndReturnSuccess() ?? true
             },
             prepareSave: { [weak self] in
@@ -370,9 +370,9 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             },
             finalizePreparedSave: { [weak self] in
                 if let model = self?.manualHaplotypeEditorModel {
-                    return model.finalizePreparedSave()
+                    return await model.finalizePreparedSave()
                 }
-                return self?.effectiveHaplotypeEditorModel?
+                return await self?.effectiveHaplotypeEditorModel?
                     .finalizePreparedSave() ?? true
             },
             cancelPreparedSave: { [weak self] in
@@ -3093,13 +3093,13 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             initialPendingOverrides: initialPendingOverrides
         )
         view.onOverrideRequested = { [weak self] haplotypeName, slot in
-            self?.applyOverrideFromInspector(
+            await self?.applyOverrideFromInspector(
                 haplotype: haplotypeName,
                 slot: slot
             ).viewOutcome ?? .failure
         }
         view.onOverridesRequested = { [weak self] requests in
-            self?.applyOverridesFromInspector(requests).viewOutcome
+            await self?.applyOverridesFromInspector(requests).viewOutcome
                 ?? .failure
         }
         view.onConfirmRequested = { [weak self] in
@@ -6092,13 +6092,13 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                     throw ManualHaplotypeEditorError.unavailable
                 }
                 let assignments = try draft.validatedAssignments()
-                let replacement =
-                    try currentStore.replaceManualHaplotypeAssignments(
+                let replacement = try await currentStore.performEdit {
+                    try await currentStore.replaceManualHaplotypeAssignments(
                         for: draft.sample,
                         with: assignments,
                         copySource: draft.copySource,
                         author: self.annotationAuthorProvider()
-                    )
+                    ) }
                 if replacement.didChange {
                     self.comparisonMatrix.applyManualHaplotypeAssignments(
                         currentStore.sidecar.manualHaplotypeAssignments
@@ -6298,7 +6298,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                     )
                 }
                 if !mutations.isEmpty {
-                    switch self.commitEffectiveHaplotypeMutation(
+                    switch await self.commitEffectiveHaplotypeMutation(
                         mutations,
                         analysisIdentity: projection.identity,
                         presentErrors: false
@@ -7997,8 +7997,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private func applyOverrideFromInspector(
         haplotype: String,
         slot: HaplotypeSlot
-    ) -> EffectiveHaplotypeMutationOutcome {
-        applyOverridesFromInspector([
+    ) async -> EffectiveHaplotypeMutationOutcome {
+        await applyOverridesFromInspector([
             .init(slot: slot, haplotypeName: haplotype),
         ])
     }
@@ -8007,7 +8007,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private func applyOverridesFromInspector(
         _ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest],
         presentErrors: Bool = true
-    ) -> EffectiveHaplotypeMutationOutcome {
+    ) async -> EffectiveHaplotypeMutationOutcome {
         guard let evidence = callEvidence else { return .unchanged }
         let requests = requests.compactMap { request -> GenotypeCallEvidenceView.HaplotypeOverrideRequest? in
             let name = request.haplotypeName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -8035,7 +8035,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
                     + (request.rationale.map { " Analyst rationale: \($0)" } ?? "")
             )
         }
-        return commitEffectiveHaplotypeMutation(
+        return await commitEffectiveHaplotypeMutation(
             mutations,
             analysisIdentity: analysisIdentity,
             presentErrors: presentErrors
@@ -8226,14 +8226,14 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             overrides: presentation.overrides,
             allowedTargetsForLocus: allowedTargets,
             onSaveOverride: { [weak self] row, draft in
-                self?.saveOverride(
+                await self?.saveOverride(
                     forAnimal: animalId,
                     row: row,
                     draft: draft
                 ) ?? .failure
             },
             onClearOverride: { [weak self] row in
-                self?.clearOverride(forAnimal: animalId, row: row)
+                await self?.clearOverride(forAnimal: animalId, row: row)
                     ?? .failure
             },
             onDismiss: { [weak self] in
@@ -8298,7 +8298,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     private func saveOverride(forAnimal animalId: String,
                               row: GenotypeSampleDetailSheet.CallRow,
                               draft: GenotypeOverrideSection.OverrideDraft)
-        -> GenotypeHaplotypeMutationOutcome {
+        async -> GenotypeHaplotypeMutationOutcome {
         let mutation = sampleDetailOverrideMutation(
             animalId: animalId,
             row: row,
@@ -8306,7 +8306,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             reason: draft.reason,
             rationale: draft.rationale
         )
-        switch commitEffectiveHaplotypeMutation([mutation]) {
+        switch await commitEffectiveHaplotypeMutation([mutation]) {
         case .changed:
             // Re-present the sheet with fresh state so the analyst can keep
             // working after a persisted change.
@@ -8322,7 +8322,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
 
     private func clearOverride(forAnimal animalId: String,
                                row: GenotypeSampleDetailSheet.CallRow)
-        -> GenotypeHaplotypeMutationOutcome {
+        async -> GenotypeHaplotypeMutationOutcome {
         let existing = effectiveHaplotypeProjection?.authoritativeOverride(
             sample: animalId,
             locus: row.locus,
@@ -8335,7 +8335,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             reason: existing?.reasonTag ?? .analystJudgment,
             rationale: "Restore pipeline call"
         )
-        switch commitEffectiveHaplotypeMutation([mutation]) {
+        switch await commitEffectiveHaplotypeMutation([mutation]) {
         case .changed:
             dismissSampleDetailSheet()
             presentSampleDetailSheet(forAnimal: animalId)
@@ -8380,7 +8380,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         _ mutations: [CallOverrideMutation],
         analysisIdentity: GenotypeEffectiveHaplotypeIdentity? = nil,
         presentErrors: Bool = true
-    ) -> EffectiveHaplotypeMutationOutcome {
+    ) async -> EffectiveHaplotypeMutationOutcome {
 #if DEBUG
         lastEffectiveHaplotypeMutationChangedKeys = []
         lastEffectiveHaplotypeRefreshedKeys = []
@@ -8393,12 +8393,12 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             return .failure(error)
         }
         do {
-            let result = try store.mutateCallOverrides(
+            let result = try await store.performEdit { try await store.mutateCallOverrides(
                 mutations,
                 author: annotationAuthorProvider(),
                 analysisIdentity:
                     analysisIdentity ?? activeCallOverrideAnalysisIdentity()
-            )
+            ) }
             guard result.didChange else { return .unchanged }
 #if DEBUG
             lastEffectiveHaplotypeMutationChangedKeys = result.changedKeys
@@ -9746,17 +9746,17 @@ extension GenotypeResultViewController {
     }
 
     func testingApplyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
-        _ = applyOverrideFromInspector(haplotype: haplotype, slot: slot)
+        GenotypeAnnotationPublicationChain.startEdit { _ = await self.applyOverrideFromInspector(haplotype: haplotype, slot: slot) }
     }
 
     func testingApplyOverridesFromInspector(_ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]) {
-        _ = applyOverridesFromInspector(requests)
+        GenotypeAnnotationPublicationChain.startEdit { _ = await self.applyOverridesFromInspector(requests) }
     }
 
     func testingApplyOverridesFromInspectorWithoutPresentingError(
         _ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]
-    ) -> Error? {
-        applyOverridesFromInspector(
+    ) async -> Error? {
+        await applyOverridesFromInspector(
             requests,
             presentErrors: false
         ).error
@@ -10967,8 +10967,8 @@ extension GenotypeResultViewController {
         row: GenotypeSampleDetailSheet.CallRow,
         target: String,
         rationale: String = "Testing sample-detail Save"
-    ) -> Error? {
-        commitEffectiveHaplotypeMutation(
+    ) async -> Error? {
+        await commitEffectiveHaplotypeMutation(
             [sampleDetailOverrideMutation(
                 animalId: sample,
                 row: row,
@@ -10983,13 +10983,13 @@ extension GenotypeResultViewController {
     func testingClearSampleDetailOverrideWithoutPresentingSheet(
         sample: String,
         row: GenotypeSampleDetailSheet.CallRow
-    ) -> Error? {
+    ) async -> Error? {
         let existing = effectiveHaplotypeProjection?.authoritativeOverride(
             sample: sample,
             locus: row.locus,
             slot: row.slot
         )
-        return commitEffectiveHaplotypeMutation(
+        return await commitEffectiveHaplotypeMutation(
             [sampleDetailOverrideMutation(
                 animalId: sample,
                 row: row,
@@ -11009,7 +11009,7 @@ extension GenotypeResultViewController {
         sample: String,
         row: GenotypeSampleDetailSheet.CallRow
     ) {
-        _ = clearOverride(forAnimal: sample, row: row)
+        GenotypeAnnotationPublicationChain.startEdit { _ = await self.clearOverride(forAnimal: sample, row: row) }
     }
 
     func testingSetSheetAlertHandler(

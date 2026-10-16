@@ -676,7 +676,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     }
 
 
-    func testManualHaplotypeSampleRendererIsSharedByONTAndMiSeqAndKeepsRowsAndCellsUnchanged() throws {
+    func testManualHaplotypeSampleRendererIsSharedByONTAndMiSeqAndKeepsRowsAndCellsUnchanged() async throws {
         let root = try TestTempDirectory.make(prefix: "SharedManualHaplotypeRenderer")
         defer { TestTempDirectory.cleanup(root) }
         let kinds: [GenotypeResultWorkflowKind] = [
@@ -777,6 +777,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
                 kind.rawValue
             )
             controller.testingSaveManualHaplotypeDraft()
+            await waitForAnnotationEdits()
             XCTAssertFalse(
                 controller.testingManualHaplotypeEditorIsDirty,
                 kind.rawValue
@@ -844,7 +845,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeSaveHeaderParityForExplicitONTAndMiSeqGenotypeOnlyResults()
-        throws
+        async throws
     {
         let root = try TestTempDirectory.make(prefix: "ManualHaplotypeAssaySaveParity")
         defer { TestTempDirectory.cleanup(root) }
@@ -912,6 +913,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
             ])
             controller.testingUpdateManualHaplotypeLabel("Shared-H1")
             controller.testingSaveManualHaplotypeDraft()
+            await waitForAnnotationEdits()
 
             XCTAssertEqual(
                 controller.testingComparisonMatrix
@@ -3081,7 +3083,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     }
 
 
-    func testManualHaplotypeSavePreservesNativeBandsWithoutWorkbookRegenerationOrProjectionRebuild() throws {
+    func testManualHaplotypeSavePreservesNativeBandsWithoutWorkbookRegenerationOrProjectionRebuild() async throws {
         let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeSaveProjection")
         defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
@@ -3152,6 +3154,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
         controller.testingResetMatrixReloadCounters()
 
         controller.testingSaveManualHaplotypeDraft()
+        await waitForAnnotationEdits()
 
         XCTAssertNil(controller.testingManualHaplotypeEditorPersistenceError)
         XCTAssertFalse(controller.testingManualHaplotypeEditorIsDirty)
@@ -3188,7 +3191,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
 
 
     func testManualHaplotypeClearImmediatelyRestoresHeaderDashWithoutMatrixReload()
-        throws
+        async throws
     {
         let bundleURL = try TestTempDirectory.make(prefix: "ManualHaplotypeClear")
         defer { TestTempDirectory.cleanup(bundleURL) }
@@ -3263,6 +3266,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
         matrix.testingResetManualHaplotypeBandInvalidations()
 
         controller.testingSaveManualHaplotypeDraft()
+        await waitForAnnotationEdits()
 
         XCTAssertNil(controller.testingManualHaplotypeEditorPersistenceError)
         XCTAssertEqual(

@@ -1,6 +1,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 @testable import LungfishGenotypeUI
 
@@ -9,13 +10,13 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
     func testNativeNormalizedHomozygousH2OverrideRetainsRawBaselineAndClearsBackToEffectiveCall() async throws {
         let fixture = try await makeStore()
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
-        _ = try fixture.store.mutateCallOverrides([.init(target: .init(sample: "Animal-1", locus: "MHC-A", slot: .h2),
+        _ = try await fixture.store.mutateCallOverrides([.init(target: .init(sample: "Animal-1", locus: "MHC-A", slot: .h2),
             baseline: "-", after: "M2B", reason: .misCall, rationale: "Native review")], author: "Analyst", analysisIdentity: identity())
         XCTAssertEqual(fixture.store.sidecar.callOverrides.first?.originalCall, "-")
         let analysis = GenotypeHaplotypeAnalysis(assayID: "MHC-exon2-miSeq", definitionSetID: "definition-2", definitionSetName: "Definition", speciesName: "Macaque", analysisRevisionID: "revision-7", samples: [.init(sample: "Animal-1", calls: [.init(locus: "MHC-A", sourceLocus: "MHC-A", haplotype1: "M1A", haplotype2: "-", status: .called, matchedHaplotypes: [], observedGenotypeCount: 1, observedGenotypes: [], aiMetadata: nil)])])
         let reloaded = try GenotypeAnnotationSidecar.decode(Data(contentsOf: fixture.annotationURL))
         XCTAssertEqual(GenotypeEffectiveCallAuthority.resolve(analysis: analysis, sidecar: reloaded).value(sample: "Animal-1", locus: "MHC-A", slot: .h2)?.effective, "M2B")
-        _ = try fixture.store.mutateCallOverrides([.init(target: .init(sample: "Animal-1", locus: "MHC-A", slot: .h2),
+        _ = try await fixture.store.mutateCallOverrides([.init(target: .init(sample: "Animal-1", locus: "MHC-A", slot: .h2),
             baseline: "-", after: "-", reason: .misCall, rationale: "")], author: "Analyst", analysisIdentity: identity())
         XCTAssertTrue(fixture.store.sidecar.callOverrides.isEmpty)
         XCTAssertEqual(GenotypeEffectiveCallAuthority.resolve(analysis: analysis, sidecar: fixture.store.sidecar).value(sample: "Animal-1", locus: "MHC-A", slot: .h2)?.effective, "M1A")
@@ -34,7 +35,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
     func testNativeCallsAndCommentPublishWithAudits() async throws {
         let fixture = try await makeStore()
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
-        _ = try fixture.store.mutateCallOverrides(mutations(), author: "Analyst", analysisIdentity: identity())
+        _ = try await fixture.store.mutateCallOverrides(mutations(), author: "Analyst", analysisIdentity: identity())
         try await fixture.store.upsertMatrixCommentSynchronously(body: "Checked natively", targets: [.column(sample: "Animal-1")], author: "Analyst")
         XCTAssertEqual(fixture.store.sidecar.callOverrides.count, 2)
         XCTAssertEqual(fixture.store.sidecar.matrixComments.first?.body, "Checked natively")
@@ -48,7 +49,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
         let before = try Data(contentsOf: fixture.annotationURL)
         let provenance = try Data(contentsOf: fixture.provenanceURL)
-        XCTAssertThrowsError(try fixture.store.mutateCallOverrides(mutations(), author: "Analyst", analysisIdentity: identity())) { error in
+        await XCTAssertThrowsErrorInIsolation(try await fixture.store.mutateCallOverrides(mutations(), author: "Analyst", analysisIdentity: identity())) { error in
             let transaction = error as? GenotypeAnnotationPublicationTransactionError
             XCTAssertTrue(transaction?.primaryError is InjectedCallOverrideFailure)
         }
@@ -62,7 +63,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
         let auditCountBefore = fixture.store.sidecar.auditLog.count
 
-        let result = try fixture.store.mutateCallOverrides(
+        let result = try await fixture.store.mutateCallOverrides(
             mutations(),
             author: "Analyst",
             analysisIdentity: identity()
@@ -163,7 +164,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         let provenanceBefore = try Data(contentsOf: fixture.provenanceURL)
         let memoryBefore = fixture.store.sidecar
 
-        let result = try fixture.store.mutateCallOverrides(
+        let result = try await fixture.store.mutateCallOverrides(
             [
                 .init(
                     target: .init(
@@ -199,7 +200,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
         let auditCountBefore = fixture.store.sidecar.auditLog.count
 
-        let result = try fixture.store.mutateCallOverrides(
+        let result = try await fixture.store.mutateCallOverrides(
             [
                 .init(
                     target: .init(
@@ -242,7 +243,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
         let auditCountBefore = fixture.store.sidecar.auditLog.count
 
-        let result = try fixture.store.mutateCallOverrides(
+        let result = try await fixture.store.mutateCallOverrides(
             [
                 .init(
                     target: .init(
@@ -305,7 +306,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
         let auditCountBefore = fixture.store.sidecar.auditLog.count
 
-        _ = try fixture.store.mutateCallOverrides(
+        _ = try await fixture.store.mutateCallOverrides(
             [
                 .init(
                     target: .init(
@@ -342,7 +343,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         let annotationBefore = try Data(contentsOf: fixture.annotationURL)
         let provenanceBefore = try Data(contentsOf: fixture.provenanceURL)
 
-        XCTAssertThrowsError(try fixture.store.mutateCallOverrides(
+        await XCTAssertThrowsErrorInIsolation(try await fixture.store.mutateCallOverrides(
             mutations(),
             author: "Analyst",
             analysisIdentity: identity()
@@ -365,7 +366,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
             let provenanceBefore = try Data(contentsOf: fixture.provenanceURL)
             let memoryBefore = fixture.store.sidecar
 
-            XCTAssertThrowsError(try fixture.store.mutateCallOverrides(
+            await XCTAssertThrowsErrorInIsolation(try await fixture.store.mutateCallOverrides(
                 mutations(),
                 author: "Analyst",
                 analysisIdentity: identity()
@@ -386,7 +387,7 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         let memoryBefore = fixture.store.sidecar
         let first = mutations()[0]
 
-        XCTAssertThrowsError(try fixture.store.mutateCallOverrides(
+        await XCTAssertThrowsErrorInIsolation(try await fixture.store.mutateCallOverrides(
             [first, first],
             author: "Analyst",
             analysisIdentity: identity()

@@ -334,12 +334,12 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: layout.annotationURL.path))
     }
 
-    func testACallOverrideOnAFreshBundleStartsFromTheSidecarTheAnalystSees() throws {
+    func testACallOverrideOnAFreshBundleStartsFromTheSidecarTheAnalystSees() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try openLikeTheController(layout)
 
-        let result = try store.mutateCallOverrides(
+        let result = try await store.mutateCallOverrides(
             [overrideMutation(baseline: "M1A", after: "M2A")],
             author: "Analyst",
             analysisIdentity: nil
@@ -353,13 +353,13 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         try assertFreshRecord(layout, action: "mutateCallOverrides")
     }
 
-    func testACallOverrideThatChangesNothingWritesNothingOnAFreshBundle() throws {
+    func testACallOverrideThatChangesNothingWritesNothingOnAFreshBundle() async throws {
         let layout = try makeFreshBundle()
         defer { TestTempDirectory.cleanup(layout.root) }
         let store = try openLikeTheController(layout)
         let before = try GenotypeBundleTreeSnapshot.entries(of: layout.root)
 
-        let result = try store.mutateCallOverrides(
+        let result = try await store.mutateCallOverrides(
             [overrideMutation(baseline: "M1A", after: "M1A")],
             author: "Analyst",
             analysisIdentity: nil
@@ -402,7 +402,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
 
     // MARK: - Read-only volumes
 
-    func testAReadOnlyBundleStillBrowsesWithTheBuiltInsInMemory() throws {
+    func testAReadOnlyBundleStillBrowsesWithTheBuiltInsInMemory() async throws {
         try XCTSkipIf(getuid() == 0, "a read-only folder is writable to root")
         let layout = try makeFreshBundle()
         defer {
@@ -423,7 +423,7 @@ final class GenotypeAnnotationStoreSeedInMemoryTests: XCTestCase {
         XCTAssertTrue(store.isReadOnly)
         XCTAssertEqual(store.sidecar.smartCohorts.map(\.name), Self.builtInNames)
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: layout.root), before)
-        XCTAssertThrowsError(try store.mutateCallOverrides(
+        await XCTAssertThrowsErrorInIsolation(try await store.mutateCallOverrides(
             [overrideMutation(baseline: "M1A", after: "M2A")],
             author: "Analyst",
             analysisIdentity: nil

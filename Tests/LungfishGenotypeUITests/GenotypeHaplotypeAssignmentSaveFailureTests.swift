@@ -161,6 +161,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         try await writeSidecarFromAnotherProcess(fixture)
 
         controller.testingSaveManualHaplotypeDraft()
+        await waitForAnnotationEdits()
         var frame = NSRect.zero
         let visible = { scrollView.contentView.documentVisibleRect.insetBy(dx: -0.5, dy: -0.5) }
         await waitUntilMainQueueRuns {
@@ -183,7 +184,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
 
     /// The haplotyped MiSeq editor shares the card, so its failed save is
     /// announced the way the manual editor's is.
-    func testTheEffectiveEditorAnnouncesAFailedSave() {
+    func testTheEffectiveEditorAnnouncesAFailedSave() async {
         struct Refusal: LocalizedError {
             var errorDescription: String? { "Sidecar changed elsewhere." }
         }
@@ -208,6 +209,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         model.updateLabel("M3A", locus: "MHC-A", slot: .h1)
 
         model.save()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(model.persistenceErrorMessage, "Sidecar changed elsewhere.")
         XCTAssertEqual(
@@ -258,6 +260,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         controller.testingUpdateManualHaplotypeLabel("WALK3")
         try await writeSidecarFromAnotherProcess(fixture)
         controller.testingSaveManualHaplotypeDraft()
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingManualHaplotypeEditorPersistenceError, staleMessage)
         controller.testingSetManualHaplotypeDraftDecisionProvider { _ in .cancel }
         var panels = 0

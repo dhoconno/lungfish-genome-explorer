@@ -31,7 +31,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
     private let currentDraftRevisionToken: @MainActor () -> UUID?
     private let save: @MainActor () async -> Bool
     private let prepareSave: @MainActor () async -> Bool
-    private let finalizePreparedSave: @MainActor () -> Bool
+    private let finalizePreparedSave: @MainActor () async -> Bool
     private let cancelPreparedSave: @MainActor () -> Void
     private let discard: @MainActor () async -> Bool
     private var pendingDecision:
@@ -84,7 +84,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         revisionToken: @escaping @MainActor () -> UUID? = { nil },
         save: @escaping @MainActor () async -> Bool,
         prepareSave: @escaping @MainActor () async -> Bool,
-        finalizePreparedSave: @escaping @MainActor () -> Bool,
+        finalizePreparedSave: @escaping @MainActor () async -> Bool,
         cancelPreparedSave: @escaping @MainActor () -> Void,
         discard: @escaping @MainActor () async -> Bool
     ) {
@@ -289,7 +289,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
             guard preparedSaveGeneration == resolution.generation else {
                 return false
             }
-            allowed = finalizePreparedSave()
+            allowed = await finalizePreparedSave()
             preparedSaveGeneration = nil
             lastSaveFailed = !allowed
         case .discard:

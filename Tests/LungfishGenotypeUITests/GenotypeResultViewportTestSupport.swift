@@ -701,7 +701,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
         _ view: GenotypeCallEvidenceView,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
+    ) async throws {
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 1_600)
         let window = NSWindow(
@@ -727,6 +727,8 @@ class GenotypeResultViewportTestCase: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(apply), file: file, line: line)
 
         apply.performClick(nil)
+
+        await waitForAnnotationEdits()
         flushRenderedMutationHost(host)
 
         let retained = try XCTUnwrap(
@@ -741,6 +743,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
         XCTAssertTrue(retained === apply, file: file, line: line)
         XCTAssertTrue(window.firstResponder === apply, file: file, line: line)
         retained.performClick(nil)
+        await waitForAnnotationEdits()
         flushRenderedMutationHost(host)
         XCTAssertTrue(
             renderedMutationButton(
@@ -758,7 +761,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
         row: GenotypeSampleDetailSheet.CallRow,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
+    ) async throws {
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 1_200)
         let window = NSWindow(
@@ -791,6 +794,8 @@ class GenotypeResultViewportTestCase: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(save), file: file, line: line)
 
         save.performClick(nil)
+
+        await waitForAnnotationEdits()
         flushRenderedMutationHost(host)
 
         let retained = try XCTUnwrap(
@@ -802,6 +807,7 @@ class GenotypeResultViewportTestCase: XCTestCase {
         XCTAssertTrue(retained === save, file: file, line: line)
         XCTAssertTrue(window.firstResponder === save, file: file, line: line)
         retained.performClick(nil)
+        await waitForAnnotationEdits()
         flushRenderedMutationHost(host)
         XCTAssertTrue(
             renderedMutationButton("genotypeOverrideSaveButton", in: host)

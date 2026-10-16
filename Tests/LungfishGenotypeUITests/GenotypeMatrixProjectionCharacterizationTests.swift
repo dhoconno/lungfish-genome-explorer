@@ -74,8 +74,8 @@ private struct MatrixProjectionCell {
 
 @MainActor
 final class GenotypeMatrixProjectionCharacterizationTests: GenotypeResultViewportTestCase {
-    func testMatrixProjectionAcrossDisplayStates() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "matrix-projection") {
+    func testMatrixProjectionAcrossDisplayStates() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "matrix-projection") {
             let fixture = try makeMatrixProjectionFixture()
             defer { fixture.cleanup() }
             let steps = try walkDisplayStates(fixture)

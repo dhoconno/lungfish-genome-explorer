@@ -2854,7 +2854,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testInspectorCustomOverridePersistsNameRationaleAndOriginalCall() throws {
+    func testInspectorCustomOverridePersistsNameRationaleAndOriginalCall() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeResultExplicitOverride")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -2889,7 +2889,9 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
 
         controller.testingApplyOverridesFromInspector([.init(slot: .h1, haplotypeName: "  Family North  ", rationale: "Independent pedigree review", reasonTag: .pedigreeConflict)])
+        await waitForAnnotationEdits()
         controller.testingApplyOverrideFromInspector(haplotype: "M5DP", slot: .h2)
+        await waitForAnnotationEdits()
 
         let sidecar = try GenotypeAnnotationSidecar.decode(Data(
             contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -2910,7 +2912,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testInspectorOverrideAppliesExplicitSelectedHaplotypeSlot() throws {
+    func testInspectorOverrideAppliesExplicitSelectedHaplotypeSlot() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeResultExplicitOverride")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -2945,7 +2947,9 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
 
         controller.testingApplyOverrideFromInspector(haplotype: "M3DP", slot: .h1)
+        await waitForAnnotationEdits()
         controller.testingApplyOverrideFromInspector(haplotype: "M5DP", slot: .h2)
+        await waitForAnnotationEdits()
 
         let sidecar = try GenotypeAnnotationSidecar.decode(Data(
             contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -2962,7 +2966,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testInspectorOverrideCanApplyBothHaplotypeSlotsInOneBatch() throws {
+    func testInspectorOverrideCanApplyBothHaplotypeSlotsInOneBatch() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeResultBatchOverride")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -3004,6 +3008,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             .init(slot: .h1, haplotypeName: "M3DP"),
             .init(slot: .h2, haplotypeName: "M5DP"),
         ])
+        await waitForAnnotationEdits()
 
         let sidecar = try GenotypeAnnotationSidecar.decode(Data(
             contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
@@ -3128,7 +3133,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             annotationNotifications += 1
         }
 
-        let error = controller
+        let error = await controller
             .testingApplyOverridesFromInspectorWithoutPresentingError([
                 .init(slot: .h1, haplotypeName: "M3DP"),
                 .init(slot: .h1, haplotypeName: "M5DP"),
@@ -3146,7 +3151,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testSampleDetailSaveAfterAnalysisRevisionUsesActiveBaselineAndIdentity() throws {
+    func testSampleDetailSaveAfterAnalysisRevisionUsesActiveBaselineAndIdentity() async throws {
         let fixture = try makeStaleSampleDetailOverrideFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let row = try XCTUnwrap(
@@ -3156,7 +3161,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(row.callName, "M4DP")
         XCTAssertEqual(row.source, .staleOverride)
 
-        let error = fixture.controller
+        let error = await fixture.controller
             .testingSaveSampleDetailOverrideWithoutPresentingSheet(
                 sample: "DW472",
                 row: row,
@@ -3186,7 +3191,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testSampleDetailClearAfterAnalysisRevisionAuditsActiveBaseline() throws {
+    func testSampleDetailClearAfterAnalysisRevisionAuditsActiveBaseline() async throws {
         let fixture = try makeStaleSampleDetailOverrideFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let row = try XCTUnwrap(
@@ -3194,7 +3199,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 .first { $0.locus == "MHC-DP" && $0.slot == .h1 }
         )
 
-        let error = fixture.controller
+        let error = await fixture.controller
             .testingClearSampleDetailOverrideWithoutPresentingSheet(
                 sample: "DW472",
                 row: row
@@ -3221,7 +3226,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testQuestionMarkOverrideRemainsUnresolvedInEvidenceAndOutline() throws {
+    func testQuestionMarkOverrideRemainsUnresolvedInEvidenceAndOutline() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeResultUnknownOverride")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -3256,6 +3261,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
 
         controller.testingApplyOverrideFromInspector(haplotype: "?", slot: .h1)
+        await waitForAnnotationEdits()
 
         let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-DP"))
         XCTAssertEqual(evidence.h1Name, "?")
@@ -3267,7 +3273,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testRefinedManualCurationParityForONTAndMiSeqGenotypeOnlyResults()
-        throws
+        async throws
     {
         let root = try TestTempDirectory.make(prefix: "RefinedManualCurationParity")
         defer { TestTempDirectory.cleanup(root) }
@@ -3408,6 +3414,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 kind.rawValue
             )
             controller.testingSaveManualHaplotypeDraft()
+            await waitForAnnotationEdits()
 
             XCTAssertFalse(
                 controller.testingManualHaplotypeEditorIsDirty,
@@ -3434,7 +3441,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testMiSeqProvisionalExonTwoEvidenceAndComparisonSurviveSaveAndRefresh()
-        throws
+        async throws
     {
         let bundleURL = try TestTempDirectory.make(prefix: "MiSeqProvisionalManualParity")
         defer { TestTempDirectory.cleanup(bundleURL) }
@@ -3523,6 +3530,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         controller.testingRequestStageSelectedSampleAssignments()
         controller.testingConfirmStageSelectedSampleAssignments()
         controller.testingSaveManualHaplotypeDraft()
+        await waitForAnnotationEdits()
         controller.testingSelectMatrixCell(
             genotype: genotype,
             sample: "Target"
@@ -4083,7 +4091,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqColumnSelectionUsesSharedAssignmentEditorAndAuditedOverrides()
-        throws
+        async throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
@@ -4132,6 +4140,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         )
         XCTAssertTrue(controller.testingEffectiveHaplotypeEditorIsDirty)
         controller.testingSaveEffectiveHaplotypeDraft()
+        await waitForAnnotationEdits()
 
         XCTAssertFalse(controller.testingEffectiveHaplotypeEditorIsDirty)
         XCTAssertNil(controller.testingEffectiveHaplotypeEditorPersistenceError)
@@ -4172,7 +4181,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqExplicitNotCalledAndRestoreAffectOnlyOneSlot()
-        throws
+        async throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
@@ -4213,6 +4222,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             )
         )
         controller.testingSaveEffectiveHaplotypeDraft()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(inspectorNotifications, 1)
         XCTAssertEqual(
@@ -4240,6 +4250,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             slot: .h1
         )
         controller.testingSaveEffectiveHaplotypeDraft()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(
             controller.testingEffectiveHaplotypeEditorValue(
@@ -4314,7 +4325,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testHaplotypedMiSeqEditsStaySynchronized() throws {
+    func testHaplotypedMiSeqEditsStaySynchronized() async throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let bundleURL = fixture.bundleURL
@@ -4344,6 +4355,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             .init(slot: .h1, haplotypeName: "A1-review"),
             .init(slot: .h2, haplotypeName: "A2-review"),
         ])
+        await waitForAnnotationEdits()
         XCTAssertEqual(inspectorNotifications, 1)
         XCTAssertEqual(
             controller.testingLastEffectiveHaplotypeMutationChangedKeys,
@@ -4443,8 +4455,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             }
         )
         let inspectorBeforeMatrixSave = inspectorNotifications
-        XCTAssertNil(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-B",
                 row: sampleBRow,
                 target: "D1-review"
@@ -4505,8 +4517,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             }
         )
         let inspectorBeforeCallsRestore = inspectorNotifications
-        XCTAssertNil(
-            controller.testingClearSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingClearSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-A",
                 row: sampleAH1
             )
@@ -4528,8 +4540,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             }
         )
         let inspectorBeforeMatrixRestore = inspectorNotifications
-        XCTAssertNil(
-            controller.testingClearSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingClearSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-B",
                 row: sampleBH1
             )
@@ -4617,7 +4629,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqOverrideReappliesSmartCohortAndQuickSearchToMatrix()
-        throws {
+        async throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -4647,8 +4659,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             }
         )
         controller.testingResetSynchronizedMiSeqPerformanceCounters()
-        XCTAssertNil(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-B",
                 row: row,
                 target: "D1-review",
@@ -4666,8 +4678,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         )
 
         controller.testingResetSynchronizedMiSeqPerformanceCounters()
-        XCTAssertNil(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-B",
                 row: row,
                 target: "D1-review",
@@ -4738,8 +4750,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let annotationBefore = try Data(contentsOf: annotationURL)
         let provenanceBefore = try Data(contentsOf: provenanceURL)
 
-        XCTAssertNil(
-            controller.testingClearSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingClearSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-B",
                 row: row
             )
@@ -4751,6 +4763,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             sample: "Sample-B",
             row: row
         )
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(inspectorNotifications, 0)
         XCTAssertEqual(
@@ -4770,7 +4783,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqMetadataOnlyMutationInvalidatesReturnedKey()
-        throws {
+        async throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -4786,8 +4799,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 $0.locus == "MHC-B" && $0.slot == .h1
             }
         )
-        XCTAssertNil(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-B",
                 row: row,
                 target: "D1-review",
@@ -4796,8 +4809,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         )
         matrix.testingResetManualHaplotypeBandInvalidations()
 
-        XCTAssertNil(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                 sample: "Sample-B",
                 row: row,
                 target: "D1-review",
@@ -4823,7 +4836,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testHaplotypedMiSeqMissingStorePresentsOneError() throws {
+    func testHaplotypedMiSeqMissingStorePresentsOneError() async throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -4843,6 +4856,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             haplotype: "A1-review",
             slot: .h1
         )
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(presentedErrors.count, 1)
         XCTAssertTrue(
@@ -4853,7 +4867,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqRenderedEvidenceRetainsPendingDraftAcrossNoOpAndFailures()
-        throws {
+        async throws {
         do {
             let fixture = try makeSynchronizedMiSeqFixture()
             defer { TestTempDirectory.cleanup(fixture.root) }
@@ -4872,8 +4886,9 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 haplotype: "A3",
                 slot: .h1
             )
+            await waitForAnnotationEdits()
 
-            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+            try await assertRenderedEvidenceSubmissionRetainsPendingDraft(
                 staleRenderedView
             )
 
@@ -4913,7 +4928,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             var errors: [Error] = []
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
-            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+            try await assertRenderedEvidenceSubmissionRetainsPendingDraft(
                 controller.testingCallEvidenceRootView(pendingRequests: [
                     .init(slot: .h1, haplotypeName: "A3"),
                 ])
@@ -4936,7 +4951,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             var errors: [Error] = []
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
-            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+            try await assertRenderedEvidenceSubmissionRetainsPendingDraft(
                 controller.testingCallEvidenceRootView(pendingRequests: [
                     .init(slot: .h1, haplotypeName: "A3"),
                 ])
@@ -4976,7 +4991,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             var errors: [Error] = []
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
-            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+            try await assertRenderedEvidenceSubmissionRetainsPendingDraft(
                 controller.testingCallEvidenceRootView(pendingRequests: [
                     .init(slot: .h1, haplotypeName: "A3"),
                 ])
@@ -4988,7 +5003,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqRenderedSampleDetailRetainsDraftForNoOpAndFailure()
-        throws {
+        async throws {
         func installKnownAssignments(in bundleURL: URL) throws {
             let definition = GenotypeHaplotypeDefinitionSet(
                 id: "test.haplotype-definitions",
@@ -5020,8 +5035,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                     $0.locus == "MHC-A" && $0.slot == .h1
                 }
             )
-            XCTAssertNil(
-                controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+            await XCTAssertNilInIsolation(
+                await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                     sample: "Sample-A",
                     row: row,
                     target: "A3"
@@ -5032,7 +5047,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             )
 
             XCTAssertTrue(renderedView.allowedTargetsForLocus("MHC-A").contains("A3"))
-            try assertRenderedSampleDetailSaveRetainsDraft(
+            try await assertRenderedSampleDetailSaveRetainsDraft(
                 renderedView,
                 row: row
             )
@@ -5058,8 +5073,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                     $0.locus == "MHC-A" && $0.slot == .h1
                 }
             )
-            XCTAssertNil(
-                controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+            await XCTAssertNilInIsolation(
+                await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                     sample: "Sample-A",
                     row: row,
                     target: "A3"
@@ -5068,8 +5083,8 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             let staleRenderedView = try XCTUnwrap(
                 controller.testingSampleDetailRootView(sample: "Sample-A")
             )
-            XCTAssertNil(
-                controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+            await XCTAssertNilInIsolation(
+                await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                     sample: "Sample-A",
                     row: row,
                     target: "A4"
@@ -5092,7 +5107,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
             XCTAssertTrue(staleRenderedView.allowedTargetsForLocus("MHC-A").contains("A3"))
-            try assertRenderedSampleDetailSaveRetainsDraft(
+            try await assertRenderedSampleDetailSaveRetainsDraft(
                 staleRenderedView,
                 row: row
             )
@@ -5173,13 +5188,12 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let annotationBefore = try Data(contentsOf: annotationURL)
         let provenanceBefore = try Data(contentsOf: provenanceURL)
 
-        XCTAssertNotNil(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
-                sample: "Sample-A",
-                row: row,
-                target: "B1-fault"
-            )
+        let faultError = await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+            sample: "Sample-A",
+            row: row,
+            target: "B1-fault"
         )
+        XCTAssertNotNil(faultError)
 
         XCTAssertEqual(
             controller.testingSampleDetailRows(sample: "Sample-A"),
@@ -5265,12 +5279,13 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         let annotationBefore = try Data(contentsOf: annotationURL)
         let provenanceBefore = try Data(contentsOf: provenanceURL)
 
+        let readOnlyError = await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+            sample: "Sample-A",
+            row: row,
+            target: "B1-read-only"
+        )
         XCTAssertEqual(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
-                sample: "Sample-A",
-                row: row,
-                target: "B1-read-only"
-            ) as? CallOverrideMutationError,
+            readOnlyError as? CallOverrideMutationError,
             .readOnly
         )
 

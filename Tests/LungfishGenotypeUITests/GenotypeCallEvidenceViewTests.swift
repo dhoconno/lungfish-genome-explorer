@@ -670,7 +670,7 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(source.contains("Button(\"Set haplotype"))
         XCTAssertTrue(source.contains("overrideActions(for: candidate, evidence: evidence)"))
         XCTAssertTrue(source.contains("@State private var pendingOverrides"))
-        XCTAssertTrue(source.contains("outcome = onOverridesRequested(requests)"))
+        XCTAssertTrue(source.contains("outcome = await onOverridesRequested(requests)"))
         XCTAssertTrue(source.contains("GenotypeMutationActionButton("))
         XCTAssertTrue(source.contains("[not observed]"))
         XCTAssertTrue(source.contains("haplotypeSlotCards(evidence)"))

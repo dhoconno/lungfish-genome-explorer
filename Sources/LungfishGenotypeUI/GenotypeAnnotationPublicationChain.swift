@@ -18,9 +18,6 @@ final class GenotypeAnnotationPublicationChain {
     @ObservationIgnored private var editsInFlight = 0
     @ObservationIgnored private var editWaiters: [CheckedContinuation<Void, Never>] = []
 
-    /// Whether no step runs, so a publication on the main actor reads what the store adopted.
-    var isIdle: Bool { !isRunning }
-
     /// Runs `step` after every step queued before it has ended.
     func run<T>(_ step: () async throws -> T) async throws -> T {
         if GenotypeAnnotationPublicationStepScope.isInside {
@@ -60,6 +57,19 @@ final class GenotypeAnnotationPublicationChain {
         }
     }
 
+    /// Runs `edit`, which a UI edge awaits, as an edit the UI started, so the edit controls hold and
+    /// `waitForEveryEdit` waits until it ends.
+    func performEdit<T>(_ edit: () async throws -> T) async rethrows -> T {
+        editsInFlight += 1
+        isHoldingEdits = true
+        Self.editsInFlightEverywhere += 1
+        defer {
+            endEdit()
+            Self.endEditEverywhere()
+        }
+        return try await edit()
+    }
+
     /// Returns once every edit the UI started has ended.
     func waitForEdits() async {
         while editsInFlight > 0 {
@@ -88,12 +98,16 @@ final class GenotypeAnnotationPublicationChain {
         editsInFlightEverywhere += 1
         Task.immediate { @MainActor in
             await work()
-            editsInFlightEverywhere -= 1
-            guard editsInFlightEverywhere == 0 else { return }
-            let waiters = everyEditWaiters
-            everyEditWaiters = []
-            waiters.forEach { $0.resume() }
+            endEditEverywhere()
         }
+    }
+
+    private static func endEditEverywhere() {
+        editsInFlightEverywhere -= 1
+        guard editsInFlightEverywhere == 0 else { return }
+        let waiters = everyEditWaiters
+        everyEditWaiters = []
+        waiters.forEach { $0.resume() }
     }
 
     /// Returns once every edit the UI started on any store has ended, whichever store it

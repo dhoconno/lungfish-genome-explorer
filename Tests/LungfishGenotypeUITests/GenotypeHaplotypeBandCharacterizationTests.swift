@@ -97,8 +97,8 @@ private struct BandExport {
 final class GenotypeHaplotypeBandCharacterizationTests: GenotypeResultViewportTestCase {
     // MARK: B1, effective MiSeq calls
 
-    func testEffectiveMiSeqBandDisclosureCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotype-band.effective") {
+    func testEffectiveMiSeqBandDisclosureCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "haplotype-band.effective") {
             var scenario = try makeEffectiveBandScenario()
             defer { scenario.cleanup() }
             var steps: [BandStep] = []
@@ -114,7 +114,7 @@ final class GenotypeHaplotypeBandCharacterizationTests: GenotypeResultViewportTe
             let target = GenotypeHaplotypeBandTarget(sample: "Sample-A", locus: "MHC-A", slot: .h1)
             try XCTUnwrap(matrix.testingHaplotypeBandHitTarget(target)).performClick(nil)
             try record("Sample-A MHC-A H1 selected through its hit target")
-            let overrideError = scenario.controller.testingApplyOverridesFromInspectorWithoutPresentingError([
+            let overrideError = await scenario.controller.testingApplyOverridesFromInspectorWithoutPresentingError([
                 .init(slot: .h1, haplotypeName: "A9"),
             ])
             XCTAssertNil(overrideError, "The override must apply without an error")
@@ -145,8 +145,8 @@ final class GenotypeHaplotypeBandCharacterizationTests: GenotypeResultViewportTe
 
     // MARK: B2, manual assignments
 
-    func testManualAssignmentBandDisclosureCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotype-band.manual") {
+    func testManualAssignmentBandDisclosureCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "haplotype-band.manual") {
             var scenario = try makeManualBandScenario()
             defer { scenario.cleanup() }
             var steps: [BandStep] = []

@@ -376,9 +376,9 @@ struct GenotypeCallEvidenceView: View {
     let evidence: Evidence?
     /// Optional callback that fires when the analyst promotes a candidate
     /// haplotype from the review matrix.
-    var onOverrideRequested: ((String, HaplotypeSlot) ->
+    var onOverrideRequested: ((String, HaplotypeSlot) async ->
         GenotypeHaplotypeMutationOutcome)?
-    var onOverridesRequested: (([HaplotypeOverrideRequest]) ->
+    var onOverridesRequested: (([HaplotypeOverrideRequest]) async ->
         GenotypeHaplotypeMutationOutcome)?
     /// Whether this pane is being used as the explicit Review-lens queue.
     ///
@@ -399,9 +399,9 @@ struct GenotypeCallEvidenceView: View {
 
     init(
         evidence: Evidence?,
-        onOverrideRequested: ((String, HaplotypeSlot) ->
+        onOverrideRequested: ((String, HaplotypeSlot) async ->
             GenotypeHaplotypeMutationOutcome)? = nil,
-        onOverridesRequested: (([HaplotypeOverrideRequest]) ->
+        onOverridesRequested: (([HaplotypeOverrideRequest]) async ->
             GenotypeHaplotypeMutationOutcome)? = nil,
         showsReviewActions: Bool = false,
         onConfirmRequested: (() -> Void)? = nil,
@@ -642,8 +642,8 @@ struct GenotypeCallEvidenceView: View {
                         isEnabled: Self.swapRequests(for: evidence) != nil
                             && onOverridesRequested != nil
                     ) {
-                        guard let requests = Self.swapRequests(for: evidence) else { return }
-                        _ = onOverridesRequested?(requests)
+                        guard let requests = Self.swapRequests(for: evidence), let onOverridesRequested else { return }
+                        GenotypeAnnotationPublicationChain.startEdit { _ = await onOverridesRequested(requests) }
                     }
                     .help("Swap H1 and H2 for this locus and save immediately")
                     haplotypeSlotCards(evidence)
@@ -1327,17 +1327,17 @@ struct GenotypeCallEvidenceView: View {
                     accessibilityIdentifier:
                         "genotype-call-evidence-apply-pending",
                     isEnabled: !pendingOverrides.isEmpty
-                ) {
+                ) { GenotypeAnnotationPublicationChain.startEdit {
                     let requests = pendingOverrides.requests
                     let outcome: GenotypeHaplotypeMutationOutcome
                     if let onOverridesRequested {
-                        outcome = onOverridesRequested(requests)
+                        outcome = await onOverridesRequested(requests)
                     } else if let onOverrideRequested {
-                        let outcomes = requests.map {
-                            onOverrideRequested(
-                                $0.haplotypeName,
-                                $0.slot
-                            )
+                        var outcomes: [GenotypeHaplotypeMutationOutcome] = []
+                        for request in requests {
+                            outcomes.append(await onOverrideRequested(
+                                request.haplotypeName, request.slot
+                            ))
                         }
                         if outcomes.contains(.failure) {
                             outcome = .failure
@@ -1352,7 +1352,7 @@ struct GenotypeCallEvidenceView: View {
                     if outcome == .changed {
                         pendingOverrides.clear()
                     }
-                }
+                } }
             }
         }
         .padding(.vertical, 6)

@@ -24,7 +24,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
     private let otherSample = "SIMULATED-MHC-B-pairs"
     private let genotype = "01_Mafa_A1_001_01"
 
-    func testFirstReplacementOnABundleWithoutASidecarPublishesTheAssignment() throws {
+    func testFirstReplacementOnABundleWithoutASidecarPublishesTheAssignment() async throws {
         let fixture = try makeFreshGenotypeOnlyBundle()
         defer { TestTempDirectory.cleanup(fixture.root) }
         // The viewer opens a genotype-only bundle without the built-in cohorts.
@@ -35,7 +35,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.annotationURL.path))
 
-        let result = try store.replaceManualHaplotypeAssignments(
+        let result = try await store.replaceManualHaplotypeAssignments(
             for: sample,
             with: [
                 ManualHaplotypeAssignment(
@@ -78,7 +78,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
     /// replay from the post-save bundle puts the embedded prior back, reads it
     /// as `lungfish-cli genotype replay-manual-haplotype-assignments` does and
     /// reproduces the published file byte for byte.
-    func testAReplayFromThePostSaveBundleReproducesTheFirstSave() throws {
+    func testAReplayFromThePostSaveBundleReproducesTheFirstSave() async throws {
         let fixture = try makeFreshGenotypeOnlyBundle()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let store = try GenotypeAnnotationStore(
@@ -86,7 +86,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
             author: "Analyst",
             seedBuiltInSmartCohorts: false
         )
-        try store.replaceManualHaplotypeAssignments(
+        try await store.replaceManualHaplotypeAssignments(
             for: sample,
             with: [
                 ManualHaplotypeAssignment(
@@ -143,7 +143,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
         XCTAssertEqual(try Data(contentsOf: fixture.annotationURL), publishedData)
     }
 
-    func testSaveAssignmentsOnAFreshGenotypeOnlyBundleKeepsTheLabel() throws {
+    func testSaveAssignmentsOnAFreshGenotypeOnlyBundleKeepsTheLabel() async throws {
         let fixture = try makeFreshGenotypeOnlyBundle()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeManualHaplotypeGuardedController()
@@ -158,6 +158,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
         XCTAssertTrue(controller.testingManualHaplotypeEditorCanSave)
 
         controller.testingSaveManualHaplotypeDraft()
+        await waitForAnnotationEdits()
 
         XCTAssertNil(controller.testingManualHaplotypeEditorPersistenceError)
         XCTAssertFalse(controller.testingManualHaplotypeEditorIsDirty)
@@ -208,7 +209,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
     /// A bundle whose annotations.json was deleted after the store read it is
     /// not a fresh bundle. The viewed sidecar no longer matches the missing
     /// file, so the store refuses the save as stale and writes nothing.
-    func testASaveAfterTheSidecarWasDeletedIsRefusedAsStaleAndWritesNothing() throws {
+    func testASaveAfterTheSidecarWasDeletedIsRefusedAsStaleAndWritesNothing() async throws {
         let fixture = try makeFreshGenotypeOnlyBundle()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let store = try GenotypeAnnotationStore(
@@ -216,7 +217,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
             author: "Analyst",
             seedBuiltInSmartCohorts: false
         )
-        try store.replaceManualHaplotypeAssignments(
+        try await store.replaceManualHaplotypeAssignments(
             for: sample,
             with: [assignment("WALK3")],
             copySource: nil,
@@ -226,7 +227,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
         try FileManager.default.removeItem(at: fixture.annotationURL)
         let recordBefore = try Data(contentsOf: fixture.provenanceURL)
 
-        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+        await XCTAssertThrowsErrorInIsolation(try await store.replaceManualHaplotypeAssignments(
             for: sample,
             with: [assignment("WALK4")],
             copySource: nil,
@@ -244,7 +245,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
     /// Call overrides share the helper. Before it, only a store holding unsaved
     /// built-in cohorts published the viewed sidecar first, so a store opened
     /// without them refused a first override with missingPriorSidecar.
-    func testAFirstCallOverrideOnAStoreWithoutCohortsPublishesTheViewedSidecarFirst() throws {
+    func testAFirstCallOverrideOnAStoreWithoutCohortsPublishesTheViewedSidecarFirst() async throws {
         let fixture = try makeFreshGenotypeOnlyBundle()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let store = try GenotypeAnnotationStore(
@@ -253,7 +254,7 @@ final class GenotypeManualHaplotypeFirstSaveTests: GenotypeResultViewportTestCas
             seedBuiltInSmartCohorts: false
         )
 
-        let result = try store.mutateCallOverrides(
+        let result = try await store.mutateCallOverrides(
             [
                 CallOverrideMutation(
                     target: .init(sample: sample, locus: "MHC-A", slot: .h1),

@@ -2,6 +2,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 @testable import LungfishGenotypeUI
 
 @MainActor
@@ -84,7 +85,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         )
         let memoryBefore = store.sidecar
 
-        XCTAssertThrowsError(try store.mutateCallOverrides(
+        await XCTAssertThrowsErrorInIsolation(try await store.mutateCallOverrides(
             [
                 .init(
                     target: .init(
@@ -168,7 +169,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
             author: "Read-only Analyst"
         )
 
-        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+        await XCTAssertThrowsErrorInIsolation(try await store.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: [
                 ManualHaplotypeAssignment(

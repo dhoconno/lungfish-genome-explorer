@@ -20,11 +20,11 @@ extension GenotypeAnnotationStore {
     /// replay-manual-haplotype-assignments` or `replay-call-overrides` starts
     /// from those bytes put back in place, as GenotypeManualHaplotypeFirstSaveTests
     /// shows for the post-save bundle.
-    func preparePriorSidecarForReplay(changesSomething: Bool) throws -> Bool {
+    func preparePriorSidecarForReplay(changesSomething: Bool) async throws -> Bool {
         let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
         guard !FileManager.default.fileExists(atPath: annotationURL.path) else { return true }
         guard changesSomething else { return false }
-        try publishViewedSidecar()
+        try await publishViewedSidecar()
         return true
     }
 }

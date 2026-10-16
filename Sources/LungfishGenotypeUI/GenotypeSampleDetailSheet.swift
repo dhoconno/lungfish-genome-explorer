@@ -30,8 +30,8 @@ struct GenotypeSampleDetailSheet: View {
     var onSaveOverride: (
         CallRow,
         GenotypeOverrideSection.OverrideDraft
-    ) -> GenotypeHaplotypeMutationOutcome
-    var onClearOverride: (CallRow) -> GenotypeHaplotypeMutationOutcome
+    ) async -> GenotypeHaplotypeMutationOutcome
+    var onClearOverride: (CallRow) async -> GenotypeHaplotypeMutationOutcome
     var onDismiss: () -> Void
     var typographyModel: ContentTypographyModel = .shared
 
@@ -123,8 +123,10 @@ struct GenotypeSampleDetailSheet: View {
                     originalCall: override?.originalCall ?? row.callName,
                     allowedTargets: allowedTargetsForLocus(row.locus),
                     onSave: { draft in
-                        if onSaveOverride(row, draft) == .changed {
-                            editingRowId = nil
+                        GenotypeAnnotationPublicationChain.startEdit {
+                            if await onSaveOverride(row, draft) == .changed {
+                                editingRowId = nil
+                            }
                         }
                     },
                     onCancel: {
@@ -186,8 +188,10 @@ struct GenotypeSampleDetailSheet: View {
                         "Restore the pipeline call \(override.originalCall) "
                         + "for \(row.locus) \(row.slot.displayName)."
                 ) {
-                    if onClearOverride(row) == .changed {
-                        editingRowId = nil
+                    GenotypeAnnotationPublicationChain.startEdit {
+                        if await onClearOverride(row) == .changed {
+                            editingRowId = nil
+                        }
                     }
                 }
             }

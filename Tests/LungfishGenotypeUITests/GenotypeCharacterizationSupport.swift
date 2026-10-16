@@ -460,13 +460,13 @@ enum GenotypeCharacterizationExpectedStore {
     @MainActor
     static func verify(
         prefix: String,
-        _ build: () throws -> [String: Data],
+        _ build: () async throws -> [String: Data],
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
+    ) async throws {
         if isCaptureMode {
-            let first = try build()
-            let second = try build()
+            let first = try await build()
+            let second = try await build()
             guard !first.isEmpty else {
                 XCTFail("The build produced no file for \(prefix), so nothing was written.", file: file, line: line)
                 return
@@ -490,7 +490,7 @@ enum GenotypeCharacterizationExpectedStore {
             }
             return
         }
-        let actual = try build()
+        let actual = try await build()
         guard !actual.isEmpty else {
             XCTFail("The build produced no file for \(prefix), so there is nothing to compare.", file: file, line: line)
             return

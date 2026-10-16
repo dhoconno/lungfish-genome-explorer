@@ -79,7 +79,7 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
     }
 
     func testChangedKeyOverrideInvalidatesOnlyItsBandSample()
-        throws
+        async throws
     {
         let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 100)
         let bundleURL = try makeTemporaryBundleURL(named: "TargetedOverride")
@@ -102,8 +102,8 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
         )
         controller.testingResetSynchronizedMiSeqPerformanceCounters()
 
-        XCTAssertNil(
-            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+        await XCTAssertNilInIsolation(
+            await controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
                 sample: fixture.samples[0],
                 row: row,
                 target: "MHC-A-Override"

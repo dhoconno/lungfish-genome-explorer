@@ -170,7 +170,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testGenotypeOnlyMiSeqPresentsProvisionalExon2SequenceAndArtifacts()
-        throws
+        async throws
     {
         let genotype = "Mafa-A1*007:08:01:01_1nt_nov"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 11)
@@ -250,6 +250,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
         XCTAssertTrue(controller.testingManualHaplotypeEditorCanSave)
         controller.testingSaveManualHaplotypeDraft()
+        await waitForAnnotationEdits()
         XCTAssertNil(controller.testingManualHaplotypeEditorPersistenceError)
         XCTAssertFalse(controller.testingManualHaplotypeEditorIsDirty)
         XCTAssertEqual(

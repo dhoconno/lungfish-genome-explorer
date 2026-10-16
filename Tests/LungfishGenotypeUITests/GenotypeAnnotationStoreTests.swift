@@ -4,6 +4,7 @@ import CryptoKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 @testable import LungfishGenotypeUI
 
 @MainActor
@@ -1971,7 +1972,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             publicationFaultInjector: publications.inject
         )
         let priorData = try Data(contentsOf: annotationURL)
-        let result = try store.replaceManualHaplotypeAssignments(
+        let result = try await store.replaceManualHaplotypeAssignments(
             for: " Animal-1 ",
             with: [
                 ManualHaplotypeAssignment(
@@ -2271,7 +2272,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
                 scenario.expectedCopySource,
                 scenario.name
             )
-            let replacement = try store.replaceManualHaplotypeAssignments(
+            let replacement = try await store.replaceManualHaplotypeAssignments(
                 for: draft.sample,
                 with: try draft.validatedAssignments(),
                 copySource: draft.copySource,
@@ -2384,7 +2385,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let beforeAnnotation = try Data(contentsOf: annotationURL)
         let beforeProvenance = try Data(contentsOf: provenanceURL)
 
-        let result = try store.replaceManualHaplotypeAssignments(
+        let result = try await store.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: [existing],
             copySource: "Animal-8",
@@ -2460,7 +2461,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         try initial.encoded().write(to: annotationURL, options: .atomic)
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
 
-        let result = try store.replaceManualHaplotypeAssignments(
+        let result = try await store.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: [
                 ManualHaplotypeAssignment(
@@ -2565,7 +2566,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let priorData = try Data(contentsOf: annotationURL)
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
 
-        let result = try store.replaceManualHaplotypeAssignments(
+        let result = try await store.replaceManualHaplotypeAssignments(
             for: canonicalSample,
             with: [],
             copySource: nil,
@@ -2652,7 +2653,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let annotationBefore = try Data(contentsOf: annotationURL)
         let provenanceBefore = try Data(contentsOf: provenanceURL)
 
-        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+        await XCTAssertThrowsErrorInIsolation(try await store.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: [],
             copySource: nil,
@@ -2663,7 +2664,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(store.sidecar, sidecarBefore)
         XCTAssertEqual(store.manualHaplotypeAssignmentMutationRevision, 0)
 
-        let retry = try store.replaceManualHaplotypeAssignments(
+        let retry = try await store.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: [],
             copySource: nil,
@@ -2700,7 +2701,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             notes: ""
         )
 
-        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+        await XCTAssertThrowsErrorInIsolation(try await store.replaceManualHaplotypeAssignments(
             for: " \n ",
             with: [assignment],
             copySource: nil,
@@ -2713,7 +2714,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         }
         var invalidLocus = assignment
         invalidLocus.locus = " "
-        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+        await XCTAssertThrowsErrorInIsolation(try await store.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: [invalidLocus],
             copySource: nil,
@@ -2726,7 +2727,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         }
         var aliasDuplicate = assignment
         aliasDuplicate.locus = "MHC A"
-        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+        await XCTAssertThrowsErrorInIsolation(try await store.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: [assignment, aliasDuplicate],
             copySource: nil,
@@ -2770,7 +2771,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
                 notes: ""
             )
         ]
-        _ = try fresh.replaceManualHaplotypeAssignments(
+        _ = try await fresh.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: freshDraft,
             copySource: nil,
@@ -2785,7 +2786,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
 
         var staleDraft = freshDraft
         staleDraft[0].label = "Stale"
-        XCTAssertThrowsError(try stale.replaceManualHaplotypeAssignments(
+        await XCTAssertThrowsErrorInIsolation(try await stale.replaceManualHaplotypeAssignments(
             for: "Animal-1",
             with: staleDraft,
             copySource: nil,

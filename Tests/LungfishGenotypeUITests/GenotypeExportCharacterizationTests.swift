@@ -50,24 +50,24 @@ private struct SettleFailure: LocalizedError {
 final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase {
     // MARK: E1 to E3'', committed expected files
 
-    func testHaplotypedMiSeqExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq") {
+    func testHaplotypedMiSeqExportCapturesMatchCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq") {
             let scenario = try makeHaplotypedMiSeqScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq")
         }
     }
 
-    func testGenotypeOnlyManualExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "genotype-only-manual") {
+    func testGenotypeOnlyManualExportCapturesMatchCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "genotype-only-manual") {
             let scenario = try makeGenotypeOnlyManualScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "genotype-only-manual")
         }
     }
 
-    func testLiteralStatusMiSeqExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "literal-status-miseq") {
+    func testLiteralStatusMiSeqExportCapturesMatchCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "literal-status-miseq") {
             let scenario = try makeLiteralStatusMiSeqScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "literal-status-miseq")
@@ -78,8 +78,8 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
     /// global percent stays 0.0 while the filter context records 7.5, the
     /// prevalence control reaches the capture, and the sidecar locus order
     /// reaches the authority.
-    func testThresholdedMiSeqExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-thresholds") {
+    func testThresholdedMiSeqExportCapturesMatchCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-thresholds") {
             let scenario = try makeThresholdedMiSeqScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq-thresholds")
@@ -92,8 +92,8 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
     /// animals. 04_Mafa_B_082_01, seen in two of them, leaves the matrix and
     /// the Filtered sheet alike. Its Samples and Unique Reads columns are
     /// hidden here and visible in the next scenario.
-    func testCatalogPrevalenceMiSeqExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-catalog-prevalence") {
+    func testCatalogPrevalenceMiSeqExportCapturesMatchCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-catalog-prevalence") {
             let scenario = try makeCatalogPrevalenceMiSeqScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq-catalog-prevalence")
@@ -136,8 +136,8 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
     /// roster, so the capture succeeds with the count columns visible, the
     /// panel flow opens one save panel and publishes no failed event, and the
     /// capture is pinned as its own expected file.
-    func testCatalogPrevalenceWithCountColumnsExportCapturesMatchCharacterization() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-catalog-prevalence-counts") {
+    func testCatalogPrevalenceWithCountColumnsExportCapturesMatchCharacterization() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "haplotyped-miseq-catalog-prevalence-counts") {
             let scenario = try makeCatalogPrevalenceWithCountColumnsMiSeqScenario()
             defer { scenario.cleanup() }
             return try scenario.canonicalExportFiles(prefix: "haplotyped-miseq-catalog-prevalence-counts")

@@ -53,8 +53,8 @@ private struct ReviewEligibilityCase {
 
 @MainActor
 final class GenotypeReviewEligibilityCharacterizationTests: GenotypeResultViewportTestCase {
-    func testControllerCapabilityAndMenuVerdictTable() throws {
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "review-eligibility") {
+    func testControllerCapabilityAndMenuVerdictTable() async throws {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "review-eligibility") {
             let scenario = try makeReviewEligibilityScenario(readOnly: false)
             defer { scenario.cleanup() }
             let writable = recordPass("writable bundle", controller: scenario.controller)
@@ -71,9 +71,9 @@ final class GenotypeReviewEligibilityCharacterizationTests: GenotypeResultViewpo
 
     /// The bundle folder is 0o555 before configure, so the annotation store
     /// opens read-only and every mutation is disabled with the read-only reason.
-    func testReadOnlyBundleCapabilityAndMenuVerdictTable() throws {
+    func testReadOnlyBundleCapabilityAndMenuVerdictTable() async throws {
         try XCTSkipIf(geteuid() == 0, "A read-only folder is writable to root, so this pass would equal the writable one.")
-        try GenotypeCharacterizationExpectedStore.verify(prefix: "review-eligibility-read-only") {
+        try await GenotypeCharacterizationExpectedStore.verify(prefix: "review-eligibility-read-only") {
             let scenario = try makeReviewEligibilityScenario(readOnly: true)
             defer { scenario.cleanup() }
             let pass = recordPass("read-only bundle", controller: scenario.controller)
