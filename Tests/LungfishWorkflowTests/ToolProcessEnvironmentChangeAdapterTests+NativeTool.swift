@@ -359,8 +359,10 @@ extension ToolProcessEnvironmentChangeAdapterTests {
         XCTAssertEqual(prefix("", nil), [])
     }
 
-    /// Phase 2.10 S8. The flag reads the same two facts as `pathPrefix`, and is true only when the launch's
-    /// PATH dropped the inherited one.
+    /// Phase 2.10 S8. The flag reads the same two facts as `pathPrefix`. It is true when the PATH a launch sets is
+    /// neither the inherited PATH nor entries followed by it at an entry boundary, an empty PATH included, so the
+    /// child got a PATH of its own in place of the inherited one. It is false for no PATH, for the inherited PATH
+    /// itself, for entries put before it, and when nothing is inherited. The environment change carries the same value.
     func testPathReplacedIsTheLaunchDroppingTheInheritedPath() {
         let replaced = NativeToolRunner.pathReplaced(by:inheritedPath:)
 

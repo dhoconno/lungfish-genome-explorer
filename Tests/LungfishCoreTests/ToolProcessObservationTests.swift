@@ -108,8 +108,8 @@ final class ToolProcessEnvironmentChangeAllowlistTests: XCTestCase {
         XCTAssertEqual(inherited.unset, ["CONDA_PREFIX", "PYTHONHOME"])
     }
 
-    /// Phase 2.10 S8. An inherited base keeps the flag that its PATH dropped the inherited one, a hermetic
-    /// base inherits no PATH and never does, and the flag is false unless the adapter says so.
+    /// Phase 2.10 S8. An inherited base keeps the `pathReplaced` flag that the adapter passes. A hermetic base
+    /// clears it, since it inherits no PATH to replace, and the flag is false unless the adapter passes true.
     func testOnlyAnInheritedBaseKeepsPathReplaced() {
         let inherited = ToolProcessEnvironmentChange(
             base: .inherited, set: ["PATH": "/opt/only/bin"], pathPrefix: ["/opt/only/bin"], pathReplaced: true,
