@@ -55,8 +55,9 @@ final class ImportFastaAnnotatedSIGTERMConformanceTests: XCTestCase {
         }
         for await _ in entered {}
 
-        signal(SIGTERM, SIG_IGN)
-        defer { signal(SIGTERM, SIG_DFL) }
+        // Ignore SIGTERM for the test and put back the disposition the runner had (A48 M3 review, Fix 12).
+        let previousDisposition = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previousDisposition) }
         let arguments = [
             source.path, "--output-dir", project.path, "--name", "Annotated Selection", "--annotations", bed.path, "--quiet",
         ]
