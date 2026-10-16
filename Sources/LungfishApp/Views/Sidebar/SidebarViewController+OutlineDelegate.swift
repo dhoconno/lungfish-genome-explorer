@@ -258,6 +258,25 @@ extension SidebarViewController: NSOutlineViewDelegate {
         applySidebarSelection([])
     }
 
+    /// Selects the row for `url` for a reveal and returns whether a row was selected.
+    ///
+    /// The caller already shows the item in the viewport, so the selection delegate hears nothing and
+    /// nothing opens again. The revealed rows still become the committed selection, so a deferred
+    /// transition restores to them and not to the item selected before. The sidebar also posts the
+    /// selection notice, which the Inspector acts on to point its tabs at the row. Without it the
+    /// Inspector kept showing the item selected before a finished run opened its result.
+    func revealSelection(forURL url: URL) -> Bool {
+        guard withSelectionSuppressed({ selectItem(forURL: url) }) else { return false }
+        let items = selectedItems()
+        committedSelectionItems = items
+        NotificationCenter.default.post(
+            name: .sidebarSelectionChanged,
+            object: self,
+            userInfo: sidebarSelectionUserInfo(items: items)
+        )
+        return true
+    }
+
     private func applySidebarSelection(_ items: [SidebarItem]) {
         let rows = IndexSet(
             items.compactMap { item in

@@ -78,6 +78,62 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(scans.count, 1)
     }
 
+    /// A single Kraken2 run points the Inspector at its result (U-INSP-REVEAL, Phase 2.11 lane U61).
+    /// The reveal selected the row with callbacks suppressed, so `committedSelectionItems` kept the item
+    /// selected before the run and no `.sidebarSelectionChanged` was posted. The Inspector went on showing
+    /// that item, such as the input FASTQ's summary and its import record. Once the reveal ends, the sidebar
+    /// has posted exactly one notice naming the result, the selection delegate heard nothing, the Inspector's
+    /// provenance target is the result, its Summary describes the result and not the details planted before
+    /// the run, and nothing was written into the result folder (UX 6).
+    func testASingleKraken2RunPointsTheInspectorAtItsResult() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let notices = SelectionNoticeRecorder()
+        defer { notices.stop() }
+        let run = try await runThroughRoute(
+            .kraken2([kraken2Config(inputs: made.inputs, sampleFolder: "classification-0000U61A")]),
+            tool: StandInClassifierTool(tool: .kraken2, units: [("reads", .complete)], layout: .singleFolder),
+            made: made,
+            beforeRelease: { rig in
+                notices.watch(rig.sidebar)
+                Self.plantStaleOperationDetails(in: rig)
+            }
+        )
+        let folderBefore = try TreeDigest.of(run.folder)
+
+        let revealed = await waitUntil(timeout: .seconds(30)) { run.selectedPaths == [run.folderPath] }
+        XCTAssertTrue(revealed, "the sidebar never selected the result folder, it selects \(run.selectedPaths)")
+        XCTAssertEqual(notices.paths, [run.folderPath], "the reveal posts one selection notice and it names the result")
+        XCTAssertEqual(run.recorder.selections, [], "the reveal must not open the result again")
+
+        let inspector = try XCTUnwrap(run.rig.controller.mainSplitViewController.inspectorController)
+        XCTAssertEqual(
+            inspector.viewModel.provenanceSectionViewModel.currentItem?.url?.standardizedFileURL.path, run.folderPath,
+            "the Inspector's provenance target is the result and not the item selected before the run"
+        )
+        XCTAssertEqual(inspector.viewModel.selectedItem, run.rig.sidebar.selectedItems().first?.title)
+        let summary = inspector.viewModel.documentSectionViewModel
+        let details = try XCTUnwrap(MainSplitViewController.singleKraken2ResultInspectorDetails(resultURL: run.folder))
+        XCTAssertEqual(summary.batchOperationTool, "Kraken2", "the Summary describes the result, not the planted details")
+        XCTAssertEqual(summary.batchOperationParameters, details.parameters)
+        XCTAssertEqual(summary.batchSourceSampleURLs.map(\.sampleId), details.sourceSamples.map(\.sampleId))
+        XCTAssertEqual(try TreeDigest.of(run.folder), folderBefore, "the reveal and the notice write nothing into the result")
+    }
+
+    /// A result with no details to show clears the Summary's Operation Details instead of leaving those of
+    /// the result shown before (the clear branch of `showKraken2OperationDetails`).
+    func testAResultWithNoDetailsClearsTheOperationDetailsShownBefore() throws {
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.updateBatchOperationDetails(tool: "TaxTriage", parameters: ["Stale": "yes"], timestamp: nil, sourceSamples: [])
+
+        AppDelegate.showKraken2OperationDetails(ofResultAt: root, in: inspector)
+
+        let summary = inspector.viewModel.documentSectionViewModel
+        XCTAssertNil(summary.batchOperationTool)
+        XCTAssertEqual(summary.batchOperationParameters, [:])
+        XCTAssertTrue(summary.batchSourceSampleURLs.isEmpty)
+    }
+
     /// A Kraken2 batch reloads the sidebar and has the selected row refreshed. It selects nothing
     /// (the Kraken2 batch case of `finishClassifierThroughCLI`).
     func testAKraken2BatchReloadsTheSidebarAndSelectsNothing() async throws {
@@ -92,6 +148,31 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
         )
 
         try await expectAReloadWithTheResultShown(run)
+    }
+
+    /// A Kraken2 batch shows its first sample in the viewport, so the Summary's Operation Details describe that
+    /// sample's result and not those of the result shown before (U-INSP-REVEAL, the batch arm of lane U61).
+    /// The sidebar still reloads and selects nothing.
+    func testAKraken2BatchPointsTheOperationDetailsAtTheSampleItShows() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["A.fastq", "B.fastq"])
+        let run = try await runThroughRoute(
+            .kraken2([
+                kraken2Config(inputs: [made.inputs[0]], sampleFolder: "classification-batch-u61/A"),
+                kraken2Config(inputs: [made.inputs[1]], sampleFolder: "classification-batch-u61/B"),
+            ]),
+            tool: StandInClassifierTool(tool: .kraken2, units: [("A", .complete), ("B", .complete)], layout: .batchRoot),
+            made: made,
+            beforeRelease: { rig in Self.plantStaleOperationDetails(in: rig) }
+        )
+
+        try await expectAReloadWithTheResultShown(run)
+        let manifest = try XCTUnwrap(MetagenomicsBatchResultStore.loadClassification(from: run.folder))
+        let firstSample = run.folder.appendingPathComponent(try XCTUnwrap(manifest.samples.first).resultDirectory, isDirectory: true)
+        let details = try XCTUnwrap(MainSplitViewController.singleKraken2ResultInspectorDetails(resultURL: firstSample))
+        let summary = run.rig.controller.mainSplitViewController.inspectorController.viewModel.documentSectionViewModel
+        XCTAssertEqual(summary.batchOperationTool, "Kraken2", "the Summary describes the sample the viewport shows")
+        XCTAssertEqual(summary.batchOperationParameters, details.parameters)
+        XCTAssertEqual(summary.batchSourceSampleURLs.map(\.sampleId), details.sourceSamples.map(\.sampleId))
     }
 
     /// An EsViritu run of one sample reloads the sidebar and selects nothing, since the user picks
@@ -228,7 +309,8 @@ private extension ClassifierCLIRouteSidebarTests {
         _ configs: RouteConfigs,
         tool: StandInClassifierTool,
         made: (project: URL, inputs: [URL]),
-        expectsAlert: Bool = false
+        expectsAlert: Bool = false,
+        beforeRelease: ((Rig) -> Void)? = nil
     ) async throws -> Run {
         let imports = made.project.appendingPathComponent("Imports", isDirectory: true)
         let launch = try Self.launch(of: configs, project: made.project)
@@ -272,6 +354,7 @@ private extension ClassifierCLIRouteSidebarTests {
         XCTAssertFalse(sidebarRowPaths(of: rig.sidebar).contains(folder.standardizedFileURL.path), "a running result must not be a row")
         rig.recorder.reset()
         scans.reset()
+        beforeRelease?(rig)
         FileManager.default.createFile(atPath: go.path, contents: nil)
 
         let finished = await waitUntil(timeout: .seconds(30)) { self.item(started.id).map { !$0.state.isActive } ?? true }
@@ -314,6 +397,13 @@ private extension ClassifierCLIRouteSidebarTests {
 
     func item(_ id: UUID) -> OperationCenter.Item? {
         OperationCenter.shared.items.first { $0.id == id }
+    }
+
+    /// Details of an earlier result in the Inspector's Summary, which a finished run must replace.
+    static func plantStaleOperationDetails(in rig: Rig) {
+        rig.controller.mainSplitViewController.inspectorController.updateBatchOperationDetails(
+            tool: "TaxTriage", parameters: ["Stale": "yes"], timestamp: nil, sourceSamples: []
+        )
     }
 
     static func launch(of configs: RouteConfigs, project: URL) throws -> ClassifierCLIRouteLaunch {

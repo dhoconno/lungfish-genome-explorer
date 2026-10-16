@@ -332,28 +332,59 @@ extension AppDelegate {
             : OperationCenter.shared.complete(id: operationID, detail: completion.detail)
         guard completed else { return }
 
-        let sidebar = appDelegate?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?.sidebarController
+        let split = appDelegate?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController
+        let sidebar = split?.sidebarController
         switch (launch.tool, launch.isBatch) {
         case (.kraken2, false):
             if let result = completion.taxonomyResult {
                 viewerController.displayTaxonomyResult(result)
+                showKraken2OperationDetails(ofResultAt: completion.folder, in: split?.inspectorController)
                 if launch.extractsReads, let folder = completion.folder {
                     presentReadExtraction(for: result, folder: folder, viewerController: viewerController, routeContext: routeContext)
                 }
             }
-            // The viewport already shows the result, so the sidebar selects its row.
+            // The viewport already shows the result, so the sidebar selects its row and the Inspector follows it.
             if let folder = completion.folder {
                 sidebar?.reloadAndRevealItem(forURL: folder)
             }
         case (.kraken2, true):
             if let result = completion.taxonomyResult {
                 viewerController.displayTaxonomyResult(result)
+                // The viewport shows the first sample, so the Summary describes that sample's result.
+                showKraken2OperationDetails(ofResultAt: firstSampleFolder(of: completion.folder), in: split?.inspectorController)
             }
             sidebar?.requestReloadFromFilesystem()
         case (.esViritu, _):
             // Nothing opens. The user picks the new result in the sidebar.
             sidebar?.requestReloadFromFilesystem()
         }
+    }
+
+    /// Points the Inspector's Summary at the Kraken2 result the viewport now shows, as `displayBatchGroup`
+    /// does when a sidebar row opens it. The command wrote the sidecar, so nothing is written here. A result
+    /// whose sidecar names no configuration has no details, and the Summary then drops those of the result
+    /// shown before (Phase 2.11 lane U61).
+    static func showKraken2OperationDetails(ofResultAt folder: URL?, in inspector: InspectorViewController?) {
+        guard let inspector else { return }
+        guard let folder, let details = MainSplitViewController.singleKraken2ResultInspectorDetails(resultURL: folder) else {
+            inspector.clearBatchOperationDetails()
+            return
+        }
+        inspector.updateBatchOperationDetails(
+            tool: "Kraken2",
+            parameters: details.parameters,
+            timestamp: details.timestamp,
+            sourceSamples: details.sourceSamples
+        )
+        // A Kraken2 result reads its own sidecars, so no aggregated manifest is cached (as `displayBatchGroup` sets it).
+        inspector.viewModel.documentSectionViewModel.batchManifestStatus = .notCached
+    }
+
+    /// The result folder of the first sample of a Kraken2 batch root, which is the sample the viewport shows.
+    private static func firstSampleFolder(of batchRoot: URL?) -> URL? {
+        guard let batchRoot,
+              let sample = MetagenomicsBatchResultStore.loadClassification(from: batchRoot)?.samples.first else { return nil }
+        return batchRoot.appendingPathComponent(sample.resultDirectory, isDirectory: true)
     }
 
     /// Today's extract goal opens the read extraction sheet on the dominant species.

@@ -877,7 +877,7 @@ public class SidebarViewController: NSViewController {
     /// Rescans the project, then selects the row for `url` without opening it
     /// again: the caller already shows it in the viewport (a finished
     /// analysis). Expanded folders are kept, and a search that hides the row
-    /// is cleared.
+    /// is cleared. The selection notice then points the Inspector at the row.
     ///
     /// A newer scan can supersede this one before it applies (writing the
     /// result starts a file-watcher rescan, for example). The superseded scan
@@ -891,7 +891,7 @@ public class SidebarViewController: NSViewController {
             for _ in 0..<Self.revealRescanAttempts {
                 await reload?.value
                 guard let self else { return false }
-                if self.withSelectionSuppressed({ self.selectItem(forURL: url) }) { return true }
+                if self.revealSelection(forURL: url) { return true }
                 guard self.sidebarScanGeneration != generation else { return false }
                 reload = self.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
                 generation = self.sidebarScanGeneration
