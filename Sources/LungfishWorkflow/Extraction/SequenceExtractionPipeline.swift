@@ -10,12 +10,12 @@ import LungfishIO
 /// `lungfish-gui sequence extract-bundle`. It names the bundle and the command, and
 /// ``SequenceExtractionBundleBuilder`` builds it, with the source bundle's annotation and variant
 /// tracks and the sample filter when the run keeps them, and writes its one record (2.11 A48 M1).
-public final class SequenceExtractionPipeline: Sendable {
+package final class SequenceExtractionPipeline: Sendable {
 
-    public typealias SourceAnnotationTrack = SequenceExtractionSourceAnnotationTrack
-    public typealias SourceVariantTrack = SequenceExtractionSourceVariantTrack
+    package typealias SourceAnnotationTrack = SequenceExtractionSourceAnnotationTrack
+    package typealias SourceVariantTrack = SequenceExtractionSourceVariantTrack
 
-    public init() {}
+    package init() {}
 
     /// Creates a `.lungfishref` bundle from an extraction result.
     ///
@@ -25,7 +25,7 @@ public final class SequenceExtractionPipeline: Sendable {
     ///   - sourceBundleURL: Optional source bundle for metadata inheritance.
     ///   - progressHandler: Optional progress callback (fraction, message).
     /// - Returns: URL of the created `.lungfishref` bundle.
-    public func buildBundle(
+    package func buildBundle(
         from result: LungfishCore.ExtractionResult,
         outputDirectory: URL,
         sourceBundleURL: URL? = nil,
@@ -200,7 +200,7 @@ public final class SequenceExtractionPipeline: Sendable {
     /// `--option=value` word, so a name that starts with a hyphen stays a value, and each
     /// sample is one `--samples` word, so a name may hold a comma. `--next-free-name` keeps a
     /// bundle that another run published under the name while this one built (Fix 6, SC5).
-    public static func cliArguments(
+    package static func cliArguments(
         source: ExtractionRequest.Source,
         flank5Prime: Int,
         flank3Prime: Int,

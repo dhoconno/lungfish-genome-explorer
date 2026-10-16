@@ -10,13 +10,13 @@ import os.log
 private let trackLogger = Logger(subsystem: LogSubsystem.workflow, category: "SequenceExtraction")
 
 /// An annotation track of the source bundle whose features in the region the extracted bundle keeps.
-public struct SequenceExtractionSourceAnnotationTrack: Sendable {
-    public let id: String
-    public let name: String
-    public let databaseURL: URL
-    public let annotationType: AnnotationTrackType
+package struct SequenceExtractionSourceAnnotationTrack: Sendable {
+    package let id: String
+    package let name: String
+    package let databaseURL: URL
+    package let annotationType: AnnotationTrackType
 
-    public init(id: String, name: String, databaseURL: URL, annotationType: AnnotationTrackType) {
+    package init(id: String, name: String, databaseURL: URL, annotationType: AnnotationTrackType) {
         self.id = id
         self.name = name
         self.databaseURL = databaseURL
@@ -25,13 +25,13 @@ public struct SequenceExtractionSourceAnnotationTrack: Sendable {
 }
 
 /// A variant track of the source bundle whose calls in the region the extracted bundle keeps.
-public struct SequenceExtractionSourceVariantTrack: Sendable {
-    public let id: String
-    public let name: String
-    public let databaseURL: URL
-    public let variantType: VariantTrackType
+package struct SequenceExtractionSourceVariantTrack: Sendable {
+    package let id: String
+    package let name: String
+    package let databaseURL: URL
+    package let variantType: VariantTrackType
 
-    public init(id: String, name: String, databaseURL: URL, variantType: VariantTrackType) {
+    package init(id: String, name: String, databaseURL: URL, variantType: VariantTrackType) {
         self.id = id
         self.name = name
         self.databaseURL = databaseURL

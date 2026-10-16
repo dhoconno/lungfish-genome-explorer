@@ -6,20 +6,20 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-public struct SequenceExtractionBundleCommandContext: Sendable {
-    public let workflowName: String
-    public let toolName: String
-    public let toolVersion: String
-    public let argv: [String]
-    public let explicitOptions: [String: ParameterValue]
-    public let defaultOptions: [String: ParameterValue]
-    public let resolvedOptions: [String: ParameterValue]
-    public let inputURLs: [URL]
+package struct SequenceExtractionBundleCommandContext: Sendable {
+    package let workflowName: String
+    package let toolName: String
+    package let toolVersion: String
+    package let argv: [String]
+    package let explicitOptions: [String: ParameterValue]
+    package let defaultOptions: [String: ParameterValue]
+    package let resolvedOptions: [String: ParameterValue]
+    package let inputURLs: [URL]
     /// The caller's clock, when the caller timed the run. The bundle's
     /// provenance takes both its start and its end from it.
-    public let runClock: ProvenanceRunClock?
+    package let runClock: ProvenanceRunClock?
 
-    public init(
+    package init(
         workflowName: String,
         toolName: String,
         toolVersion: String = WorkflowRun.currentAppVersion,
@@ -42,28 +42,28 @@ public struct SequenceExtractionBundleCommandContext: Sendable {
     }
 }
 
-public struct SequenceExtractionBundleBuildRequest: Sendable {
-    public let result: LungfishCore.ExtractionResult
-    public let outputDirectory: URL
-    public let outputBundleURL: URL?
-    public let sourceBundleURL: URL?
-    public let sourceBundleName: String?
-    public let desiredBundleName: String?
+package struct SequenceExtractionBundleBuildRequest: Sendable {
+    package let result: LungfishCore.ExtractionResult
+    package let outputDirectory: URL
+    package let outputBundleURL: URL?
+    package let sourceBundleURL: URL?
+    package let sourceBundleName: String?
+    package let desiredBundleName: String?
     /// The source bundle's chromosomes, which map a track's chromosome names to the region's.
-    public let sourceBundleChromosomes: [ChromosomeInfo]
-    public let sourceAnnotationTracks: [SequenceExtractionSourceAnnotationTrack]
-    public let sourceVariantTracks: [SequenceExtractionSourceVariantTrack]
+    package let sourceBundleChromosomes: [ChromosomeInfo]
+    package let sourceAnnotationTracks: [SequenceExtractionSourceAnnotationTrack]
+    package let sourceVariantTracks: [SequenceExtractionSourceVariantTrack]
     /// The samples whose calls the variant tracks keep, or nil for every sample.
-    public let sampleFilter: Set<String>?
-    public let isConcatenated: Bool
+    package let sampleFilter: Set<String>?
+    package let isConcatenated: Bool
     /// When a bundle already holds `outputBundleURL`'s name at the publish, the new bundle takes the
     /// next free name (`_1`, `_2`) and replaces nothing, and its identifier, the plain path's manifest
     /// name and its record follow the name it took (2.11 A48 M1 review Fix 6, SC5). When false the
     /// bundle replaces the one there, as a typed `-o` asks.
-    public let publishesUnderNextFreeName: Bool
-    public let commandContext: SequenceExtractionBundleCommandContext
+    package let publishesUnderNextFreeName: Bool
+    package let commandContext: SequenceExtractionBundleCommandContext
 
-    public init(
+    package init(
         result: LungfishCore.ExtractionResult,
         outputDirectory: URL,
         outputBundleURL: URL? = nil,
@@ -99,17 +99,17 @@ public struct SequenceExtractionBundleBuildRequest: Sendable {
     }
 }
 
-public final class SequenceExtractionBundleBuilder: Sendable {
+package final class SequenceExtractionBundleBuilder: Sendable {
     let toolRunner: NativeToolRunner
 
-    public init(toolRunner: NativeToolRunner = .shared) {
+    package init(toolRunner: NativeToolRunner = .shared) {
         self.toolRunner = toolRunner
     }
 
     /// The folder a bundle of `result` takes in `directory`. The desired name, or the result's
     /// source name when no name is desired, goes through the one sanitizer and the one uniquer of
     /// `BundleBuildHelpers`, and an empty name becomes `extracted_sequence`.
-    public static func uniqueBundleURL(
+    package static func uniqueBundleURL(
         for result: LungfishCore.ExtractionResult,
         desiredBundleName: String?,
         in directory: URL
@@ -122,7 +122,7 @@ public final class SequenceExtractionBundleBuilder: Sendable {
         )
     }
 
-    public func buildBundle(
+    package func buildBundle(
         request: SequenceExtractionBundleBuildRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
