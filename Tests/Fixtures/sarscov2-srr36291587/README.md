@@ -1,7 +1,7 @@
 # SARS-CoV-2 SRR36291587 chapter fixture
 
 Reference is MN908947.3 (Wuhan-Hu-1, GenBank).
-Reads are SRR36291587 (QIAseq Direct SARS-CoV-2, paired-end Illumina, 86,281 read pairs).
+Reads are SRR36291587 (QIAseq Direct SARS-CoV-2, paired-end Illumina) with 85,199 read pairs (the ENA read count, read on 2026-10-15).
 
 Committed artifacts.
 
@@ -17,7 +17,7 @@ annotations attached, the iVar pipeline calls codon-aware variants and
 the Lungfish converter merges three adjacent SNPs that fall inside one
 codon into a single VCF row.
 
-The 21.7 MB compressed FASTQ from SRA is **not** committed. Run
+The two compressed FASTQ files from ENA (11,520,356 and 13,206,863 bytes, about 25 MB) are **not** committed. Run
 `./regenerate.sh` to re-derive every artifact from the original
 accessions.
 
