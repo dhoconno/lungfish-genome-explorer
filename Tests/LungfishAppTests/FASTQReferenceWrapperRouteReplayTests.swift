@@ -1,0 +1,116 @@
+// FASTQReferenceWrapperRouteReplayTests.swift - Where a FASTQ operation's FASTA output lands as a reference bundle
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// A FASTQ operation that writes a FASTA has it wrapped as a `.lungfishref` bundle in the
+// operation's destination folder as given, which is the project, its Analyses folder, a folder
+// the person chose or the input's folder, never the project's Reference Sequences folder
+// (`MainSplitViewController+GenomicsDisplay.swift`, `runFASTQOperationLaunchRequestValidated`).
+// The bundle's record then leads with the operation's own step. This class pins both on the
+// route the wrapper runs, with the FASTA inside the project (ruling 5 of the A48 M3 review).
+
+import Foundation
+import XCTest
+@testable import LungfishApp
+import LungfishCore
+import LungfishIO
+import LungfishTestSupport
+@testable import LungfishWorkflow
+
+final class FASTQReferenceWrapperRouteReplayTests: XCTestCase {
+    private var scratch: URL!
+
+    override func setUp() async throws {
+        do {
+            try await BundleBuildHelpers.validateTools(using: .shared)
+        } catch {
+            try ToolAvailability.skipOrFail("Managed bgzip and samtools are required: \(error)")
+        }
+        scratch = try TestTempDirectory.make(prefix: "fastq-reference-wrapper").resolvingSymlinksInPath()
+    }
+
+    override func tearDown() async throws {
+        if let scratch { TestTempDirectory.cleanup(scratch) }
+    }
+
+    func testTheBundleLandsInTheFolderAsGivenAndLeadsWithTheOperationStep() async throws {
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        let source = project.appendingPathComponent("source.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let output = try await Self.writeOperationOutput(in: analyses.appendingPathComponent("run-1", isDirectory: true))
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .ribosomalRNAFilter(retention: .rRNA, ensure: .rrna),
+            inputURLs: [source],
+            outputMode: .perInput
+        )
+        let importer = BundleFASTQOperationImporter(destinationDirectory: analyses, referenceBundleWrapper: makeWrapper())
+
+        let imported = try await importer.importOutputs(
+            at: [output], forResolvedRequest: request, originalRequest: request, outputDirectory: output.deletingLastPathComponent()
+        )
+
+        XCTAssertEqual(imported.map(\.lastPathComponent), ["source-deacon-ribo-rrna.lungfishref"])
+        let bundle = try XCTUnwrap(imported.first)
+        XCTAssertEqual(bundle.deletingLastPathComponent().standardizedFileURL.path, analyses.standardizedFileURL.path)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: project.appendingPathComponent(ReferenceSequenceFolder.folderName).path),
+            "the bundle goes to the folder as given, so no Reference Sequences folder is made"
+        )
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))
+        XCTAssertEqual(envelope.steps.first?.toolName, "fixture-tool", "the record leads with the operation's step")
+        XCTAssertGreaterThan(envelope.steps.count, 1, "the import's own step follows the operation's")
+    }
+
+    /// The wrapper the importer runs.
+    private func makeWrapper() -> any ReferenceBundleWrapping {
+        HelperRouteWrapper()
+    }
+
+    /// The service called as `ReferenceImportHelper` calls it, the helper's in-process body.
+    private struct HelperRouteWrapper: ReferenceBundleWrapping {
+        func importReferenceBundle(sourceURL: URL, outputDirectory: URL, preferredBundleName: String?) async throws -> URL {
+            try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+                sourceURL: sourceURL, outputDirectory: outputDirectory, preferredBundleName: preferredBundleName
+            ).bundleURL
+        }
+    }
+
+    // MARK: - Fixture
+
+    /// A FASTQ operation's output with its record, normalized to FASTA as the operation leaves it,
+    /// as `ReferenceImportParityReplayTests` builds it. Returns the FASTA.
+    private static func writeOperationOutput(in folder: URL) async throws -> URL {
+        let execution = folder.appendingPathComponent("execution", isDirectory: true)
+        try FileManager.default.createDirectory(at: execution, withIntermediateDirectories: true)
+        let reads = folder.appendingPathComponent("reads.fastq")
+        let raw = execution.appendingPathComponent("output.fastq")
+        try Data("@r\nACGTACGTAC\n+\nIIIIIIIIII\n".utf8).write(to: reads)
+        try Data("@r\nACGTACGTAC\n+\nIIIIIIIIII\n".utf8).write(to: raw)
+        let argv = ["fixture-tool", "--input", reads.path, "--output", raw.path]
+        let step = ProvenanceStep(
+            toolName: "fixture-tool", toolVersion: "1", argv: argv, runtimeIdentity: ProvenanceRuntimeIdentity(),
+            inputs: [try descriptor(reads, role: .input)], outputs: [try descriptor(raw, role: .output)],
+            exitStatus: 0, wallTimeSeconds: 1
+        )
+        let run = try ProvenanceRunBuilder(
+            workflowName: "lungfish fixture", workflowVersion: "1", toolName: "fixture-tool", toolVersion: "1"
+        )
+        .argv(argv).runtime(ProvenanceRuntimeIdentity()).input(reads, format: .fastq)
+        .output(raw, format: .fastq).step(step)
+        .complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
+        try ProvenanceWriter(signingProvider: nil).write(run, toSidecar: ProvenanceRecorder.fileSidecarURL(for: raw))
+        _ = try await SequenceProcessingOutputNormalizer.normalize(outputURL: raw, preferredFormat: .fasta)
+        let normalized = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(atPath: execution.path).first { $0.hasPrefix("sequence-normalized-") }
+        )
+        return execution.appendingPathComponent(normalized, isDirectory: true).appendingPathComponent("output.fasta")
+    }
+
+    private static func descriptor(_ url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: url.path, checksumSHA256: try ProvenanceFileHasher.sha256(of: url),
+            fileSize: try ProvenanceFileHasher.fileSize(of: url), role: role
+        )
+    }
+}
