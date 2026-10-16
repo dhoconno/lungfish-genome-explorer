@@ -534,6 +534,40 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         try await exerciseExternalRecovery(insideProject: true, ordinaryFolder: true)
     }
 
+    /// The lock this window wrote moves with the project folder, and its lease
+    /// releases only the old path, so Locate met a lock sheet naming this process (2.11 S60).
+    func testLocatedNativeProjectReopensWritableWithoutAskingAboutItsOwnLock() async throws {
+        _ = NSApplication.shared
+        let app = makeAppDelegateWithTemporaryState()
+        let previousDelegate = NSApp.delegate
+        NSApp.delegate = app
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LocatedOwnLock-\(UUID())")
+        defer { NSApp.delegate = previousDelegate; ProjectFilesystemRefreshCoordinator.shared.unregisterAll(); try? FileManager.default.removeItem(at: root) }
+        let url = try fixture(in: root, name: "original")
+        let window = MainWindowController()
+        window.window?.setFrameAutosaveName("")
+        defer { window.projectSession.closeProject(); window.close() }
+        app.openProject(url, in: window)
+        try await awaitBounded("project open") { await app.testingWaitForProjectOpen(in: window) }
+        try await awaitBounded("root identity read") {
+            await ProjectFilesystemRefreshCoordinator.shared.testingWaitForIdentity(projectURL: url)
+        }
+        let moved = root.appendingPathComponent("moved.lungfish")
+        try FileManager.default.moveItem(at: url, to: moved)
+        ProjectFilesystemRefreshCoordinator.shared.testingSimulateRootChanged(projectURL: url)
+        let split = try XCTUnwrap(window.mainSplitViewController)
+        let rebound = try await awaitBounded("located-root rebind") {
+            await split.sidebarController.retryProjectFilesystem(at: moved)
+        }
+        XCTAssertTrue(rebound)
+        try await awaitBounded("recovery project open") { await app.testingWaitForProjectOpen(in: window) }
+        XCTAssertNil(window.window?.attachedSheet)
+        XCTAssertEqual(window.projectSession.project?.url.resolvingSymlinksInPath().standardizedFileURL.path,
+            moved.resolvingSymlinksInPath().standardizedFileURL.path)
+        XCTAssertFalse(window.projectSession.isReadOnlyRecommended,
+            "The located project is the one this window wrote, so it reopens writable")
+    }
+
     func testRejectedStartupRestoreFinishesAccountingAndAllowsLaterStateSave() async throws {
         _ = NSApplication.shared
         let app = makeAppDelegateWithTemporaryState()
