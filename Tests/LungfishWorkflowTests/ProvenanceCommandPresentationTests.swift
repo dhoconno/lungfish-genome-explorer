@@ -171,4 +171,20 @@ struct ProvenanceCommandPresentationTests {
         #expect(ProvenanceCommandPresentation.displayPath("/Volumes/Data/ref.fa", projectURL: project, fileExists: { _ in false })
             == "/Volumes/Data/ref.fa")
     }
+
+    // MARK: - A quoted project path with a space (Phase 2.11 lane U60, decision U1)
+
+    /// Decision U1 of Phase 2.11 (question Q-U61, answer (a)) keeps `pathPart` as it is, so a word whose value splits
+    /// into several shell words is still read as one path when it starts with the project's path. A project folder with
+    /// a space in its name is the common case. These rows pass at the base. They guard the shell rule against a refusal
+    /// of such a word, which would leave the project's whole path in the row.
+    @Test("A quoted project path with a space still shortens as an argument, a flag value, a redirect target and a script path")
+    func aQuotedProjectPathWithASpaceStillShortens() {
+        let root = "/Users/someone/Desktop/HG002 chr20.lungfish"
+        #expect(display("cat '\(root)/Imports/reads.fq'") == "cat Imports/reads.fq")
+        #expect(display("tool --ref='\(root)/Inputs/ref.fa'") == "tool --ref=Inputs/ref.fa")
+        #expect(display("tool > '\(root)/Logs/run.log'") == "tool > Logs/run.log")
+        #expect(display("tool '\(root)/Analyses/run 1/out.vcf'") == "tool 'Analyses/run 1/out.vcf'")
+        #expect(display("/bin/sh -c '\(root)/Scripts/run one.sh'") == "/bin/sh -c 'Scripts/run one.sh'")
+    }
 }
