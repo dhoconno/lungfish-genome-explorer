@@ -1198,6 +1198,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         publicationLock.release()
         scheduler.fire()
+        // The retried comment publishes after the fire returns (2.11 S35 review fix 4).
+        await waitForAnnotationEdits()
         let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
         )
