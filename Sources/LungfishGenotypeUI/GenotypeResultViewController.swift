@@ -2082,7 +2082,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             [weak self] in
             guard let self else { return }
             self.deferredMatrixAnnotationRetryTask = nil
-            Task.immediate { await self.retryDeferredMatrixAnnotationMutations() }
+            GenotypeAnnotationPublicationChain.startEdit { await self.retryDeferredMatrixAnnotationMutations() }
         }
     }
 
@@ -6822,11 +6822,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             onAnnotationSidecarChanged?(store.sidecar)
             rebuildArtifactLens()
         } onFailure: { [self] error in
-            if let window = view.window ?? NSApp.keyWindow {
-                NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
-            } else {
-                NSApp.presentError(error)
-            }
+            presentSheetAlert(error: error)
             rebuildArtifactLens()
         }
     }
@@ -6842,11 +6838,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             onAnnotationSidecarChanged?(store.sidecar)
             rebuildArtifactLens()
         } onFailure: { [self] error in
-            if let window = view.window ?? NSApp.keyWindow {
-                NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
-            } else {
-                NSApp.presentError(error)
-            }
+            presentSheetAlert(error: error)
             rebuildArtifactLens()
         }
     }

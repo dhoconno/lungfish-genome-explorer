@@ -1500,7 +1500,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
     }
 
 
-    func testUnsupportedKnownCellRefreshDoesNotResurrectPreviousCandidateDetail() throws {
+    func testUnsupportedKnownCellRefreshDoesNotResurrectPreviousCandidateDetail() async throws {
         let root = try TestTempDirectory.make(prefix: "UnsupportedKnownCellRefresh")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -1546,6 +1546,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Unsupported cell note"
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertTrue(candidateAlleleDetails(in: controller.view).isEmpty)
         XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
@@ -1666,6 +1667,7 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
             targets: [.column(sample: "AnimalA")],
             intent: .upsert(body: "retain pending tint")
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(scheduler.scheduledCount, 0)
 
 

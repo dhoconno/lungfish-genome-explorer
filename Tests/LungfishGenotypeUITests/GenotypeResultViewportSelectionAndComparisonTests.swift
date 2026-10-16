@@ -138,7 +138,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testSelectedMultipleColumnsShowCompactSummaryForEachSample() throws {
+    func testSelectedMultipleColumnsShowCompactSummaryForEachSample() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMultiSampleSelection")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -160,6 +160,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Selected cohort note"
         ))
+        await waitForAnnotationEdits()
 
         let text = controller.testingDetailText
         XCTAssertTrue(text.contains("Selected Samples"))
@@ -287,7 +288,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testSelectedCellIncludesApplicableRowColumnAndCellComments() throws {
+    func testSelectedCellIncludesApplicableRowColumnAndCellComments() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeSelectionComments")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -302,10 +303,13 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         ))
         controller.testingSelectMatrixRows(genotypes: ["NHP01222"], sample: nil)
         controller.addMatrixComment(.init(targets: controller.testingCurrentSelectionMatrixTargets, body: "Row note"))
+        await waitForAnnotationEdits()
         controller.testingSelectMatrixColumn(sample: "AnimalA")
         controller.addMatrixComment(.init(targets: controller.testingCurrentSelectionMatrixTargets, body: "Column note"))
+        await waitForAnnotationEdits()
         controller.testingSelectMatrixCell(genotype: "NHP01222", sample: "AnimalA")
         controller.addMatrixComment(.init(targets: controller.testingCurrentSelectionMatrixTargets, body: "Cell note"))
+        await waitForAnnotationEdits()
 
         let rows = controller.testingCurrentSelectionDetailRows
         XCTAssertTrue(rows.contains { $0 == ("Row Comment", "Row note") })
@@ -314,7 +318,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testKnownRowAndSupportedCellShowApplicableCommentsWithoutStaleViewsOrEvidence() throws {
+    func testKnownRowAndSupportedCellShowApplicableCommentsWithoutStaleViewsOrEvidence() async throws {
         let root = try TestTempDirectory.make(prefix: "KnownAlleleComments")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -347,16 +351,19 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "First row note"
         ))
+        await waitForAnnotationEdits()
         controller.testingSelectMatrixColumn(sample: "AnimalA")
         controller.addMatrixComment(.init(
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Animal column note"
         ))
+        await waitForAnnotationEdits()
         controller.testingSelectMatrixCell(genotype: firstID, sample: "AnimalA")
         controller.addMatrixComment(.init(
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "First cell note"
         ))
+        await waitForAnnotationEdits()
 
         controller.testingSelectMatrixRows(genotypes: [firstID], sample: nil)
 
@@ -398,6 +405,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Second row note"
         ))
+        await waitForAnnotationEdits()
 
         let replacementDetail = try XCTUnwrap(onlyKnownAlleleDetail(in: controller.view))
         XCTAssertTrue(cellDetail === replacementDetail)
@@ -492,7 +500,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testLateGeneratedContentRebuildsUseCurrentTypographyWithoutTypographySideEffects() throws {
+    func testLateGeneratedContentRebuildsUseCurrentTypographyWithoutTypographySideEffects() async throws {
         let settings = AppSettings.shared
         let typographyDefaults = makeTestDefaultsSuite(prefix: "GenotypeResultViewportSelectionAndComparisonTests").defaults
         let restoreSettings = AppSettings.isolateForTesting(defaults: typographyDefaults)
@@ -558,6 +566,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             targets: [target],
             intent: .upsert(body: "Late typography annotation")
         ))
+        await waitForAnnotationEdits()
 
         let enlargedSnapshots = GenotypeGeneratedContentSurface.allCases.map {
             controller.testingGeneratedContentSnapshot($0)
@@ -605,6 +614,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             targets: [target],
             intent: .upsert(body: "System typography annotation")
         ))
+        await waitForAnnotationEdits()
         let systemSnapshots = GenotypeGeneratedContentSurface.allCases.map {
             controller.testingGeneratedContentSnapshot($0)
         }
@@ -1410,7 +1420,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testScopedSaveCurrentFilterOnlyMutatesMatchingWindow() throws {
+    func testScopedSaveCurrentFilterOnlyMutatesMatchingWindow() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeResultViewportTests")
         defer { TestTempDirectory.cleanup(root) }
         let bundleA = root.appendingPathComponent("a.lungfishgenotype", isDirectory: true)
@@ -1445,6 +1455,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             object: nil,
             userInfo: [NotificationUserInfoKey.windowStateScope: scopeA]
         )
+        await waitForAnnotationEdits()
 
         let sidecarA = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleA)
         let sidecarB = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleB)

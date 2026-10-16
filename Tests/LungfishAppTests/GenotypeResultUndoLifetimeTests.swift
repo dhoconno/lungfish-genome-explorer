@@ -44,7 +44,7 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
 
     /// The removal is scoped to the dropped controller. Undo that the next
     /// genotype controller or any other view registered survives the switch.
-    func testSwitchingResultsKeepsUndoThatTargetsSomethingElse() throws {
+    func testSwitchingResultsKeepsUndoThatTargetsSomethingElse() async throws {
         final class OtherUndoTarget {}
         let host = makeHostedSplit()
         defer { host.window.close() }
@@ -65,10 +65,12 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
         undoManager.endUndoGrouping()
 
         undoManager.undo()
+        await waitForAnnotationEdits()
         XCTAssertTrue(secondUndone, "the controller on screen keeps its Undo")
         // The dropped controller's handler fails the test if it ever runs. Its
         // group may linger empty, so undo until the other target's action runs.
         while undoManager.canUndo, !otherUndone { undoManager.undo() }
+        await waitForAnnotationEdits()
         XCTAssertTrue(otherUndone, "Undo another view registered survives the switch")
     }
 

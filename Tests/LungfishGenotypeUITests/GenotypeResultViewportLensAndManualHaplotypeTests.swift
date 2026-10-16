@@ -391,7 +391,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     }
 
 
-    func testManualHaplotypeCreatorRequiresSharedEligibilityAndShowsDisabledReason() throws {
+    func testManualHaplotypeCreatorRequiresSharedEligibilityAndShowsDisabledReason() async throws {
         let root = try TestTempDirectory.make(prefix: "ManualHaplotypeEligibility")
         defer { TestTempDirectory.cleanup(root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -486,6 +486,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
                 selectedGenotypeIDs: ["MHC-A::01_Mafa_A1_001_01"],
                 label: "Must Not Be Created"
             )
+            await waitForAnnotationEdits()
             XCTAssertTrue(controller.testingManualHaplotypeAssignments.isEmpty)
         }
 
@@ -509,6 +510,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
             selectedGenotypeIDs: ["MHC-A::01_Mafa_A1_001_01"],
             label: "Eligible Manual Haplotype"
         )
+        await waitForAnnotationEdits()
         XCTAssertEqual(
             eligibleController.testingManualHaplotypeAssignments.map(\.label),
             ["Eligible Manual Haplotype"]
@@ -542,7 +544,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     }
 
 
-    func testHaplotypedResultWithManualAssignmentsPreservesFullCreatorBehavior() throws {
+    func testHaplotypedResultWithManualAssignmentsPreservesFullCreatorBehavior() async throws {
         let bundleURL = try TestTempDirectory.make(prefix: "HaplotypedManualAssignments")
         defer { TestTempDirectory.cleanup(bundleURL) }
         try FileManager.default.createDirectory(
@@ -604,6 +606,7 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
             selectedGenotypeIDs: ["MHC-A::01_Mafa_A1_001_01"],
             label: "Grandfathered Manual Haplotype"
         )
+        await waitForAnnotationEdits()
         XCTAssertEqual(
             Set(controller.testingManualHaplotypeAssignments.map(\.label)),
             ["Existing Manual Haplotype", "Grandfathered Manual Haplotype"]

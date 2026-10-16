@@ -150,6 +150,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             targets: [reviewTarget],
             intent: .set(.falsePositive)
         ))
+        await waitForAnnotationEdits()
 
         let snapshot = try controller.captureExcelExportSnapshot()
         let frozen = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: XCTUnwrap(snapshot.excelSnapshotData))
@@ -165,6 +166,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         // Later native edits and source deletion cannot change captured calls,
         // evidence, annotations, definition or provenance.
         controller.editMatrixComment(.init(targets: [.column(sample: "AnimalA")], intent: .upsert(body: "Later edit")))
+        await waitForAnnotationEdits()
         try FileManager.default.removeItem(at: inputsURL)
         let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let nativeBytes = try Data(contentsOf: annotationURL)

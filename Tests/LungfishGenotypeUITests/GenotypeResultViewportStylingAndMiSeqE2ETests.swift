@@ -80,7 +80,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testClearMatrixStyleWithAllRowsAndColumnsClearsIntersectingCellStyles() throws {
+    func testClearMatrixStyleWithAllRowsAndColumnsClearsIntersectingCellStyles() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixClearAllStyles")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -151,6 +151,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .clear
         ))
+        await waitForAnnotationEdits()
 
         let savedSidecar = try GenotypeAnnotationSidecar.decode(
             Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
@@ -162,7 +163,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixRowSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
+    func testMatrixRowSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixRowThresholdStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -206,6 +207,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             field: .fillColor(AnnotationColor(hex: "#FF0000")),
             minimumReads: 5
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")).fillColor?.hexString, "#FF0000")
         XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalB")).fillColor)
@@ -217,7 +219,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixColumnSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() throws {
+    func testMatrixColumnSelectionFillAppliesOnlyCellsAtOrAboveReadThreshold() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixColumnThresholdStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -255,6 +257,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             field: .fillColor(AnnotationColor(hex: "#00AAFF")),
             minimumReads: 5
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: first, sample: "AnimalA")).fillColor?.hexString, "#00AAFF")
         XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: first, sample: "AnimalB")).fillColor)
@@ -263,7 +266,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixThresholdedRowFillRemovesExistingBroadRowFill() throws {
+    func testMatrixThresholdedRowFillRemovesExistingBroadRowFill() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixRowBroadThresholdStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -297,18 +300,20 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: [rowTarget],
             field: .fillColor(AnnotationColor(hex: "#FF0000"))
         ))
+        await waitForAnnotationEdits()
         controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
             targets: [rowTarget],
             field: .fillColor(AnnotationColor(hex: "#00AAFF")),
             minimumReads: 5
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")).fillColor?.hexString, "#00AAFF")
         XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalB")).fillColor)
     }
 
 
-    func testMatrixThresholdedColumnFillRemovesExistingBroadColumnFillIncludingEmptyCells() throws {
+    func testMatrixThresholdedColumnFillRemovesExistingBroadColumnFillIncludingEmptyCells() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixColumnBroadThresholdStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -344,11 +349,13 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: [columnTarget],
             field: .fillColor(AnnotationColor(hex: "#FF0000"))
         ))
+        await waitForAnnotationEdits()
         controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
             targets: [columnTarget],
             field: .fillColor(AnnotationColor(hex: "#00AAFF")),
             minimumReads: 5
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: first, sample: "AnimalA")).fillColor?.hexString, "#00AAFF")
         XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: second, sample: "AnimalA")).fillColor)
@@ -399,7 +406,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixAnnotationStyleRedrawsOnlyAffectedSelection() throws {
+    func testMatrixAnnotationStyleRedrawsOnlyAffectedSelection() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixReloadScope")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -434,13 +441,14 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .textColor(AnnotationColor(red: 0.1, green: 0.2, blue: 0.8, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
         XCTAssertGreaterThan(controller.testingMatrixPartialReloadCount, 0)
     }
 
 
-    func testNativeMatrixAnnotationPreservesViewportState() throws {
+    func testNativeMatrixAnnotationPreservesViewportState() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixWorkbookRefreshState")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -475,6 +483,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(hex: "#00AAFF"))
         ))
+        await waitForAnnotationEdits()
 
         controller.testingSetMatrixSupportSelectionPreviewMinimumReads(5)
 
@@ -521,7 +530,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixColumnSelectionCanApplyStyleToMultipleColumns() throws {
+    func testMatrixColumnSelectionCanApplyStyleToMultipleColumns() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixColumnStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -571,6 +580,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(red: 0.95, green: 0.75, blue: 0.2, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
 
         let sidecarURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let sidecar = try GenotypeAnnotationSidecar.decode(Data(contentsOf: sidecarURL))
@@ -655,7 +665,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixAnnotationStyleRequestPersistsAndRenders() throws {
+    func testMatrixAnnotationStyleRequestPersistsAndRenders() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixApplyStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -671,10 +681,12 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(red: 0.2, green: 0.6, blue: 0.3, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
         controller.applyMatrixStyle(GenotypeMatrixStyleRequest(
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .isBold(true)
         ))
+        await waitForAnnotationEdits()
 
         let sidecarURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let sidecar = try GenotypeAnnotationSidecar.decode(Data(contentsOf: sidecarURL))
@@ -687,7 +699,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixAnnotationDarkFillRendersFullDepthWithWhiteText() throws {
+    func testMatrixAnnotationDarkFillRendersFullDepthWithWhiteText() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixDarkFillStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -703,6 +715,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(hex: "#0C0000"))
         ))
+        await waitForAnnotationEdits()
 
         let style = try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA"))
         XCTAssertEqual(style.fillColor?.hexString, "#0C0000")
@@ -716,7 +729,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixAnnotationStyleRequestAppliesToMultipleSelectedCells() throws {
+    func testMatrixAnnotationStyleRequestAppliesToMultipleSelectedCells() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixApplyMultiStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -743,6 +756,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(red: 0.95, green: 0.75, blue: 0.2, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
             .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
             .cell(locus: "MHC-A", genotype: second, sample: "AnimalA"),
@@ -751,6 +765,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Review both calls."
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(Set(controller.testingCurrentSelectionMatrixTargets), Set([
             .cell(locus: "MHC-A", genotype: first, sample: "AnimalA"),
             .cell(locus: "MHC-A", genotype: second, sample: "AnimalA"),
@@ -773,7 +788,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
 
-    func testMatrixRowSelectionCanApplyTextColorAcrossEntireRow() throws {
+    func testMatrixRowSelectionCanApplyTextColorAcrossEntireRow() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixRowTextStyle")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -807,13 +822,14 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .textColor(AnnotationColor(red: 0.1, green: 0.2, blue: 0.8, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")).textColor?.hexString, "#1933CC")
         XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalB")).textColor?.hexString, "#1933CC")
     }
 
 
-    func testMatrixCommentsPersistAndAppearInSelectionDetails() throws {
+    func testMatrixCommentsPersistAndAppearInSelectionDetails() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixComment")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -846,6 +862,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Expected but missing."
         ))
+        await waitForAnnotationEdits()
 
         let sidecarURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let sidecar = try GenotypeAnnotationSidecar.decode(Data(contentsOf: sidecarURL))
@@ -2392,7 +2409,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqCallEvidenceAndReviewKeyboardCommandsStayInCalls()
-        throws
+        async throws
     {
         let root = try TestTempDirectory.make(prefix: "HaplotypedMiSeqReviewIngress")
         defer { TestTempDirectory.cleanup(root) }
@@ -2430,8 +2447,10 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             action: #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:)),
             keyEquivalent: ""
         )
+        await waitForAnnotationEdits()
         XCTAssertTrue(controller.validateMenuItem(flagItem))
         controller.flagSelectedSampleNeedsReview(flagItem)
+        await waitForAnnotationEdits()
         let sidecar = try GenotypeAnnotationStore(
             bundleURL: bundleURL,
             author: "test",
@@ -2450,7 +2469,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     /// the real dispatch path reaches the controller, which a
     /// `performKeyEquivalent` override on a view controller never did.
     func testReviewMenuActionsReachTheControllerThroughTheResponderChain()
-        throws
+        async throws
     {
         let root = try TestTempDirectory.make(prefix: "ReviewMenuDispatch")
         defer { TestTempDirectory.cleanup(root) }
@@ -2482,6 +2501,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         _ = window.makeFirstResponder(controller.view)
 
         let reviewed = #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:))
+        await waitForAnnotationEdits()
         let reviewedItem = NSMenuItem(title: "Mark Sample Reviewed", action: reviewed, keyEquivalent: "r")
 
         // Nothing selected: the item is disabled and the action is a no-op.
@@ -2500,6 +2520,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         }
 
         let handled = window.firstResponder?.tryToPerform(reviewed, with: reviewedItem) ?? false
+        await waitForAnnotationEdits()
         XCTAssertTrue(handled, "the responder chain must reach the controller")
 
         let sidecar = try GenotypeAnnotationStore(
@@ -2513,7 +2534,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
     }
 
     func testHaplotypedMiSeqReconfigurationClearsReviewShortcutAuthority()
-        throws
+        async throws
     {
         let root = try TestTempDirectory.make(prefix: "HaplotypedMiSeqReviewAuthority")
         defer { TestTempDirectory.cleanup(root) }
@@ -2565,11 +2586,13 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             action: #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:)),
             keyEquivalent: ""
         )
+        await waitForAnnotationEdits()
 
         XCTAssertNil(controller.testingCurrentSelectedSample)
         XCTAssertNil(controller.testingCurrentCallEvidenceSample)
         XCTAssertFalse(controller.validateMenuItem(flagItem))
         controller.flagSelectedSampleNeedsReview(flagItem)
+        await waitForAnnotationEdits()
         let secondSidecar = try GenotypeAnnotationStore(
             bundleURL: secondURL,
             author: "test",
@@ -3630,7 +3653,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
 
     func testHaplotypedMiSeqMatrixSuppressesDetailPaneAcrossSelectionAndRefreshTransitions()
-        throws
+        async throws
     {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
@@ -3692,6 +3715,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             targets: [cell],
             body: "Retained Inspector identity"
         ))
+        await waitForAnnotationEdits()
         XCTAssertTrue(controller.testingDetailPaneHidden)
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
             $0 == ("Cell Comment", "Retained Inspector identity")

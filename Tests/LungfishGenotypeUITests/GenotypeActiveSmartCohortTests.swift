@@ -79,7 +79,7 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(events, ["sidecar Filter: AnimalA", "mark Filter: AnimalA"])
     }
 
-    func testDeletingTheActiveCohortClearsItEverywhere() throws {
+    func testDeletingTheActiveCohortClearsItEverywhere() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = configuredController(fixture)
@@ -92,6 +92,7 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
             name: .genotypeResultSmartCohortDeleteRequested, object: nil,
             userInfo: ScopedEventFilter.scopedUserInfo(["cohort": try JSONEncoder().encode(homozygous)], scope: fixture.scope)
         )
+        await waitForAnnotationEdits()
 
         XCTAssertNil(controller.testingActiveSmartCohort)
         XCTAssertNil(controller.testingSavedCohortChipTitle)
@@ -99,13 +100,14 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
         XCTAssertFalse(controller.annotationStore?.sidecar.smartCohorts.map(\.name).contains("Homozygous") ?? true)
     }
 
-    func testRestoreFromTheInspectorBringsTheDismissedCohortBackThroughTheViewersStore() throws {
+    func testRestoreFromTheInspectorBringsTheDismissedCohortBackThroughTheViewersStore() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = configuredController(fixture)
         let homozygous = try builtIn("Homozygous")
         let scoped = ScopedEventFilter.scopedUserInfo(["cohort": try JSONEncoder().encode(homozygous)], scope: fixture.scope)
         NotificationCenter.default.post(name: .genotypeResultSmartCohortDeleteRequested, object: nil, userInfo: scoped)
+        await waitForAnnotationEdits()
         var inspectorSidecars: [GenotypeAnnotationSidecar] = []
         controller.onAnnotationSidecarChanged = { inspectorSidecars.append($0) }
 
@@ -113,12 +115,14 @@ final class GenotypeActiveSmartCohortTests: GenotypeResultViewportTestCase {
             name: .genotypeResultSmartCohortsRestoreRequested, object: nil,
             userInfo: ScopedEventFilter.scopedUserInfo(scope: WindowStateScope())
         )
+        await waitForAnnotationEdits()
         XCTAssertTrue(inspectorSidecars.isEmpty, "another window's request must not reach this viewer")
 
         NotificationCenter.default.post(
             name: .genotypeResultSmartCohortsRestoreRequested, object: nil,
             userInfo: ScopedEventFilter.scopedUserInfo(scope: fixture.scope)
         )
+        await waitForAnnotationEdits()
 
         let onDisk = try GenotypeAnnotationSidecar.decode(Data(contentsOf: fixture.annotationURL))
         XCTAssertTrue(onDisk.smartCohorts.map(\.name).contains("Homozygous"))

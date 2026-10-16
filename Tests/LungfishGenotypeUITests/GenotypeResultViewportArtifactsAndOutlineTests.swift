@@ -893,7 +893,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     }
 
 
-    func testConfirmingReviewCallMarksLocusResolvedAndAdvancesQueue() throws {
+    func testConfirmingReviewCallMarksLocusResolvedAndAdvancesQueue() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeReviewConfirm")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
@@ -925,6 +925,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "DW001")
 
         controller.testingConfirmCurrentCallEvidence()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingOutlineIssueCount(sample: "DW001"), 0)
         XCTAssertEqual(controller.testingCurrentSelectedSample, "DW002")
@@ -936,7 +937,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
     }
 
 
-    func testConfirmingReviewCallAdvancesWithinSameSampleBeforeNextSample() throws {
+    func testConfirmingReviewCallAdvancesWithinSameSampleBeforeNextSample() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeReviewConfirmMultiLocus")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
@@ -966,7 +967,9 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         controller.testingSelectCellEvidence(animalId: "DW001", locus: "MHC-B")
 
         controller.testingConfirmCurrentCallEvidence()
+        await waitForAnnotationEdits()
         controller.testingConfirmCurrentCallEvidence()
+        await waitForAnnotationEdits()
 
         let sidecar = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
         XCTAssertTrue(sidecar.callStatusFlags.contains {
@@ -1685,7 +1688,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         XCTAssertEqual(matrix.testingVisibleGenotypes, [names[2], names[0], names[4], names[3], names[1]])
     }
 
-    func testLocusOrderEditorApplyReloadAndResetRestorePortableBundleDefault() throws {
+    func testLocusOrderEditorApplyReloadAndResetRestorePortableBundleDefault() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeLocusOrder")
         defer { try? FileManager.default.removeItem(at: root) }
         let names = ["Mafa-B_001:01", "Mafa-A2_001:01", "Mafa-F_001:01", "Mafa-A1_001:01"]
@@ -1709,6 +1712,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         viewModel.onDisplayStateChanged = { controller.applyDisplayState($0) }
         viewModel.locusDisplayOrderDraft = "B, A2/A3/A4/A5, A1, F"
         viewModel.applyLocusDisplayOrderDraft()
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [names[0], names[1], names[3], names[2]])
         let reloaded = makeMatrixAnnotationGuardedController()
         _ = reloaded.view
@@ -1716,6 +1720,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         XCTAssertEqual(reloaded.testingVisibleMatrixGenotypes, [names[0], names[1], names[3], names[2]])
         viewModel.onDisplayStateChanged = { reloaded.applyDisplayState($0) }
         viewModel.resetLocusDisplayOrder()
+        await waitForAnnotationEdits()
         XCTAssertEqual(reloaded.testingVisibleMatrixGenotypes, [names[2], names[3], names[1], names[0]])
         XCTAssertNil(try GenotypeAnnotationStore(bundleURL: root, author: "test").sidecar.settings.genotypeLocusDisplayOrder)
         if let screenshotPath = ProcessInfo.processInfo.environment["LUNGFISH_LOCUS_ORDER_EDITOR_SCREENSHOT"] {
@@ -1732,7 +1737,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         }
     }
 
-    func testCustomLocusOrderSeparatesAAllelesWithoutChangingRawCallsOrIncludedLoci() throws {
+    func testCustomLocusOrderSeparatesAAllelesWithoutChangingRawCallsOrIncludedLoci() async throws {
         let names = ["Mafa-B_001:01", "Mafa-A2_001:01", "Mafa-F_001:01", "Mafa-A1_001:01"]
         let result = makeResult(samples: [], calls: names.map {
             makeCall(sample: "AnimalA", genotype: $0, reads: 10)
@@ -1752,14 +1757,17 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
         viewModel.updateMHCCandidatePresentation(from: result)
         viewModel.locusDisplayOrderDraft = "B, A1, A2/A3/A4/A5, F"
         viewModel.applyLocusDisplayOrderDraft()
+        await waitForAnnotationEdits()
         XCTAssertNil(viewModel.locusDisplayOrderValidationError)
         XCTAssertEqual(viewModel.displayState.includedLoci, ["MHC-A"])
         XCTAssertEqual(viewModel.displayState.genotypeLocusDisplayOrder?.first, "MHC-B")
         viewModel.locusDisplayOrderDraft = "A1, A1"
         viewModel.applyLocusDisplayOrderDraft()
+        await waitForAnnotationEdits()
         XCTAssertNotNil(viewModel.locusDisplayOrderValidationError)
         XCTAssertEqual(viewModel.displayState.genotypeLocusDisplayOrder?.first, "MHC-B")
         viewModel.resetLocusDisplayOrder()
+        await waitForAnnotationEdits()
         XCTAssertNil(viewModel.displayState.genotypeLocusDisplayOrder)
         XCTAssertEqual(viewModel.displayState.includedLoci, ["MHC-A"])
     }
@@ -2368,14 +2376,17 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             target: rowTarget,
             body: "Review provisional sequence"
         )
+        await waitForAnnotationEdits()
         try await store.addMatrixComment(
             target: .column(sample: "AnimalA"),
             body: "Retained sample annotation"
         )
+        await waitForAnnotationEdits()
         try await store.addMatrixComment(
             target: cellTarget,
             body: "Supported call needs review"
         )
+        await waitForAnnotationEdits()
         let annotationsURL = bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -3577,7 +3588,7 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testAnnotationOnlyReviewAndCommentRefreshDirtyComparisonInPlace()
-        throws
+        async throws
     {
         let root = try TestTempDirectory.make(prefix: "SampleComparisonAnnotation")
         defer { TestTempDirectory.cleanup(root) }
@@ -3630,14 +3641,17 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
             targets: [sharedTarget],
             intent: .set(.falsePositive)
         ))
+        await waitForAnnotationEdits()
         controller.applyMatrixReview(.init(
             targets: [falseNegativeTarget],
             intent: .set(.falseNegative)
         ))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(
             targets: [sharedTarget],
             intent: .upsert(body: "Source review note")
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
         XCTAssertEqual(controller.testingSampleCurationTrailingMode, .compareAndCopy)

@@ -106,6 +106,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             status: .reviewed,
             actionName: "Mark Sample Reviewed"
         )
+        await waitForAnnotationEdits()
     }
 
     func testMarkSampleConfirmedUndoesToNoStatusAndRedoes() async throws {
@@ -115,6 +116,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             status: .confirmed,
             actionName: "Mark Sample Confirmed"
         )
+        await waitForAnnotationEdits()
     }
 
     func testFlagSampleForReviewUndoesToNoStatusAndRedoes() async throws {
@@ -124,6 +126,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             status: .needsReview,
             actionName: "Flag Sample for Review"
         )
+        await waitForAnnotationEdits()
     }
 
     func testMarkSampleReviewedUndoesToThePriorStatusAndRedoes() async throws {
@@ -133,6 +136,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             status: .reviewed,
             actionName: "Mark Sample Reviewed"
         )
+        await waitForAnnotationEdits()
     }
 
     func testMarkSampleConfirmedUndoesToThePriorStatusAndRedoes() async throws {
@@ -142,6 +146,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             status: .confirmed,
             actionName: "Mark Sample Confirmed"
         )
+        await waitForAnnotationEdits()
     }
 
     func testFlagSampleForReviewUndoesToThePriorStatusAndRedoes() async throws {
@@ -151,13 +156,14 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
             status: .needsReview,
             actionName: "Flag Sample for Review"
         )
+        await waitForAnnotationEdits()
     }
 
     func testCommandThatKeepsTheStatusRegistersNoUndo() async throws {
         let fixture = try await makeHostedController(priorStatus: .reviewed)
         defer { fixture.tearDown() }
 
-        performAsOneUserEvent(fixture.undoManager) {
+        await performAsOneUserEvent(fixture.undoManager) {
             fixture.controller.markSelectedSampleReviewed(nil)
         }
 
@@ -171,13 +177,14 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         // end of a real event.
         XCTAssertEqual(fixture.undoManager.undoActionName, "")
         fixture.undoManager.undo()
+        await waitForAnnotationEdits()
         XCTAssertEqual(try persistedSidecar(fixture.bundleURL), sidecar)
     }
 
     func testUndoWritesToTheBundleTheCommandChangedAfterTheViewerMovesOn() async throws {
         let fixture = try await makeHostedController(priorStatus: .reviewed)
         defer { fixture.tearDown() }
-        performAsOneUserEvent(fixture.undoManager) {
+        await performAsOneUserEvent(fixture.undoManager) {
             fixture.controller.markSelectedSampleConfirmed(nil)
         }
         let otherBundleURL = fixture.bundleURL
@@ -195,6 +202,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         ))
 
         fixture.undoManager.undo()
+        await waitForAnnotationEdits()
 
         let sidecar = try persistedSidecar(fixture.bundleURL)
         XCTAssertEqual(status(of: sample, in: sidecar), .reviewed)
@@ -213,7 +221,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
     func testUndoAfterTheViewerReopensTheSameBundleKeepsItsStoreCurrent() async throws {
         let fixture = try await makeHostedController(priorStatus: .reviewed)
         defer { fixture.tearDown() }
-        performAsOneUserEvent(fixture.undoManager) {
+        await performAsOneUserEvent(fixture.undoManager) {
             fixture.controller.markSelectedSampleConfirmed(nil)
         }
         fixture.controller.configure(result: makeResult(
@@ -232,7 +240,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         }
 
         fixture.undoManager.undo()
-        performAsOneUserEvent(fixture.undoManager) {
+        await waitForAnnotationEdits()
+        await performAsOneUserEvent(fixture.undoManager) {
             fixture.controller.flagSelectedSampleNeedsReview(nil)
         }
 
@@ -282,7 +291,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         }
         let auditCountBefore = try persistedSidecar(fixture.bundleURL).auditLog.count
 
-        performAsOneUserEvent(fixture.undoManager) { command(fixture.controller) }
+        await performAsOneUserEvent(fixture.undoManager) { command(fixture.controller) }
 
         var sidecar = try persistedSidecar(fixture.bundleURL)
         XCTAssertEqual(status(of: sample, in: sidecar), newStatus, file: file, line: line)
@@ -299,6 +308,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(fixture.undoManager.undoActionName, actionName, file: file, line: line)
 
         fixture.undoManager.undo()
+        await waitForAnnotationEdits()
 
         sidecar = try persistedSidecar(fixture.bundleURL)
         XCTAssertEqual(status(of: sample, in: sidecar), priorStatus, file: file, line: line)
@@ -322,6 +332,7 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(fixture.undoManager.redoActionName, actionName, file: file, line: line)
 
         fixture.undoManager.redo()
+        await waitForAnnotationEdits()
 
         sidecar = try persistedSidecar(fixture.bundleURL)
         XCTAssertEqual(status(of: sample, in: sidecar), newStatus, file: file, line: line)
@@ -415,9 +426,12 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         )
     }
 
-    private func performAsOneUserEvent(_ undoManager: UndoManager, _ body: () -> Void) {
+    /// The command registers its Undo in the event and its edit publishes after `body` returns
+    /// (2.11 S35 M2a), so the event ends once the edit has.
+    private func performAsOneUserEvent(_ undoManager: UndoManager, _ body: () -> Void) async {
         undoManager.beginUndoGrouping()
         body()
+        await waitForAnnotationEdits()
         undoManager.endUndoGrouping()
     }
 

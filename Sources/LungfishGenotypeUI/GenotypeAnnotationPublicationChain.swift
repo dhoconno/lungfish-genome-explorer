@@ -50,13 +50,13 @@ final class GenotypeAnnotationPublicationChain {
     ) {
         editsInFlight += 1
         isHoldingEdits = true
-        Task.immediate { @MainActor in
+        Self.startEdit { [self] in
             do {
                 try await edit()
             } catch {
                 onFailure(error)
             }
-            self.endEdit()
+            endEdit()
         }
     }
 
@@ -74,6 +74,35 @@ final class GenotypeAnnotationPublicationChain {
         let waiters = editWaiters
         editWaiters = []
         waiters.forEach { $0.resume() }
+    }
+
+    // MARK: Every chain
+
+    /// The edits the UI started on any chain, including a retry the matrix queue schedules, that
+    /// have not ended yet.
+    private static var editsInFlightEverywhere = 0
+    private static var everyEditWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Starts `work` in this event's turn and counts it among the edits `waitForEveryEdit` waits on.
+    static func startEdit(_ work: @escaping @MainActor () async -> Void) {
+        editsInFlightEverywhere += 1
+        Task.immediate { @MainActor in
+            await work()
+            editsInFlightEverywhere -= 1
+            guard editsInFlightEverywhere == 0 else { return }
+            let waiters = everyEditWaiters
+            everyEditWaiters = []
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    /// Returns once every edit the UI started on any store has ended, whichever store it
+    /// publishes to. A test awaits it before it asserts on what an edit saved or removes the
+    /// bundle an edit writes to.
+    static func waitForEveryEdit() async {
+        while editsInFlightEverywhere > 0 {
+            await withCheckedContinuation { everyEditWaiters.append($0) }
+        }
     }
 }
 

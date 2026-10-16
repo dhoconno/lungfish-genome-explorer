@@ -9,15 +9,15 @@ import LungfishTestSupport
 
 @MainActor
 final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestCase {
-    func testNativeReviewOnlyRecomputesCallsBeforeRefreshAndAfterReload() throws {
-        try exerciseNativeEvidenceReview(mixed: false)
+    func testNativeReviewOnlyRecomputesCallsBeforeRefreshAndAfterReload() async throws {
+        try await exerciseNativeEvidenceReview(mixed: false)
     }
 
-    func testNativeMixedReviewOverrideAndCommentSurviveRecomputeAndReload() throws {
-        try exerciseNativeEvidenceReview(mixed: true)
+    func testNativeMixedReviewOverrideAndCommentSurviveRecomputeAndReload() async throws {
+        try await exerciseNativeEvidenceReview(mixed: true)
     }
 
-    private func exerciseNativeEvidenceReview(mixed: Bool) throws {
+    private func exerciseNativeEvidenceReview(mixed: Bool) async throws {
         let directory = try TestTempDirectory.make(prefix: "ExcelEvidenceImport")
         defer { TestTempDirectory.cleanup(directory) }
         let root = directory.appendingPathComponent("reviewed.lungfishgenotype")
@@ -54,8 +54,10 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         flushMountedController(controller)
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: "02_M2_A_marker", sample: "AnimalA")
         controller.applyMatrixReview(.init(targets: [target], intent: .set(.falsePositive)))
+        await waitForAnnotationEdits()
         if mixed {
             controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "Reviewed contaminant natively")))
+            await waitForAnnotationEdits()
             controller.testingApplyOverrideFromInspector(haplotype: "M3A", slot: .h2)
         }
         let accepted = try XCTUnwrap(controller.testingCapturedScientificCalls().first)
@@ -77,6 +79,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             XCTAssertEqual(sidecar.callOverrides.first?.overrideCall, "M3A")
         }
         controller.applyMatrixReview(.init(targets: [target], intent: .clear))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingCapturedScientificCalls().first?.baselineHaplotype2, "M2A")
         XCTAssertEqual(controller.testingCapturedScientificCalls().first?.haplotype2, mixed ? "M3A" : "M2A")
         XCTAssertEqual(controller.testingCurrentCallEvidence?.observedGenotypes, rawCalls.map(\.genotype))
@@ -87,7 +90,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("calls.csv")), rawCSV)
     }
 
-    func testFalsePositiveRefreshesEvidenceAndWorkbookProjectionButPreservesRawCalls() throws {
+    func testFalsePositiveRefreshesEvidenceAndWorkbookProjectionButPreservesRawCalls() async throws {
         let root = try TestTempDirectory.make(prefix: "ReviewedHaplotypeInference")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
@@ -167,6 +170,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             targets: [target],
             intent: .set(.falsePositive)
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingCurrentCallEvidence?.h1Name, "M1A")
         XCTAssertEqual(controller.testingCurrentCallEvidence?.h2Name, "M1A")
@@ -245,7 +249,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
         )
     }
 
-    func testReopeningUsesPersistedFalsePositiveAndClearingRestoresDerivedCall() throws {
+    func testReopeningUsesPersistedFalsePositiveAndClearingRestoresDerivedCall() async throws {
         let root = try TestTempDirectory.make(prefix: "ReviewedHaplotypeReopen")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent(
@@ -295,6 +299,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             targets: [target],
             intent: .set(.falsePositive)
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(first.testingCurrentCallEvidence?.h2Name, "M1A")
 
         let reopened = GenotypeResultViewController()
@@ -308,6 +313,7 @@ final class GenotypeReviewedHaplotypeInferenceTests: GenotypeResultViewportTestC
             targets: [target],
             intent: .clear
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(reopened.testingCurrentCallEvidence?.h1Name, "M1A")
         XCTAssertEqual(reopened.testingCurrentCallEvidence?.h2Name, "M2A")
         XCTAssertEqual(

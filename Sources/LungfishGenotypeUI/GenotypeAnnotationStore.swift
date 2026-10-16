@@ -1967,24 +1967,19 @@ public final class GenotypeAnnotationStore {
         let expected = lastPersistedSidecar
         let unsaved = unsavedBuiltInSmartCohorts
         // The stale check below makes the file equal `expected`, so the edit is made on it here and
-        // the file is only checked and written away from the main actor.
+        // the file is only checked and written away from the main actor. A refused request is
+        // reported only after that check, so a newer file is still adopted first (D5c).
         var desired = expected
-        let editContext: ProvenanceEditContext
-        do {
+        let prepared = Result { () throws -> ProvenanceEditContext in
             try desired.promoteToCurrentSchema()
-            editContext = try mutate(&desired, now())
-        } catch {
-            adoptPersisted(expected)
-            if sidecar != previousSidecar {
-                matrixMutationRevision &+= 1
-            }
-            throw error
+            return try mutate(&desired, now())
         }
         let published = desired
         let outcome = await publishAwayFromMainActor(expected: expected) { [self] snapshot, latest in
             guard latest == expected else {
                 throw GenotypeAnnotationStorePersistenceError.staleRevision
             }
+            let editContext = try prepared.get()
             let payload = try annotationPublicationPayload(
                 sidecar: published,
                 action: action,

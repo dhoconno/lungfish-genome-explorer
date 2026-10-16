@@ -38,6 +38,7 @@ final class GenotypeExactZeroWorkbookAcceptanceTests: XCTestCase {
         let target = GenotypeAnnotationSidecar.MatrixTarget.cell(locus: "MHC-A", genotype: "01_Mafa_A1_Zero", sample: "Scientific-S")
         for phase in ["set", "clear"] {
             controller.applyMatrixReview(.init(targets: [target], intent: phase == "set" ? .set(.falseNegative) : .clear))
+            await waitForAnnotationEdits()
             let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root)
             XCTAssertEqual(sidecar.matrixReviews.count, phase == "set" ? 1 : 0)
             let reopened = GenotypeResultViewController(); _ = reopened.view

@@ -48,24 +48,21 @@ extension GenotypeResultViewController {
             presentSheetAlert(error: error)
             return
         }
-        // The edit publishes away from the main actor and the refresh follows it (2.11 S35 M2a).
+        // The Undo registers in the command's own event, before the edit awaits, so Undo and Redo
+        // land on the right stack (N3). The edit publishes away from the main actor and the
+        // refresh follows it (2.11 S35 M2a). M2b removes the Undo when the edit is refused.
+        let previous = store.sidecar.sampleStatusFlags.first { $0.sample == sample }?.value
+        if previous != value, let undoManager = view.window?.undoManager {
+            undoManager.registerUndo(withTarget: self) { target in
+                target.writeSampleStatus(previous, sample: sample, bundleURL: bundleURL, actionName: name)
+            }
+            undoManager.setActionName(name)
+        }
         store.beginEdit { [self] in
-            let previous = store.sidecar.sampleStatusFlags.first { $0.sample == sample }?.value
             if let value {
                 try await store.setSampleStatus(value, sample: sample, author: author)
             } else {
                 try await store.clearSampleStatus(sample: sample, author: author)
-            }
-            if previous != value, let undoManager = view.window?.undoManager {
-                undoManager.registerUndo(withTarget: self) { target in
-                    target.writeSampleStatus(
-                        previous,
-                        sample: sample,
-                        bundleURL: bundleURL,
-                        actionName: name
-                    )
-                }
-                undoManager.setActionName(name)
             }
             if shownStore != nil {
                 refreshAfterSampleStatusChange()

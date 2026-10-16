@@ -550,6 +550,7 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             style: .init(fillColor: "#FFF2CC", textColor: "#C00000", borderColor: "#666666", isBold: true, isItalic: true)
         )
         try await store.addMatrixComment(target: target, body: "Expected genotype missing from reads.")
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(store.sidecar.matrixStyles.count, 1)
         XCTAssertEqual(store.sidecar.matrixComments.count, 1)

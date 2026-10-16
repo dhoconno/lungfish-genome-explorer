@@ -439,7 +439,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(panels, 1)
     }
 
-    func testNativeAnnotationDoesNotRequestBackgroundWorkbookRegeneration() throws {
+    func testNativeAnnotationDoesNotRequestBackgroundWorkbookRegeneration() async throws {
         let root = try TestTempDirectory.make(prefix: "ExcelNoSync")
         defer { TestTempDirectory.cleanup(root) }
         let controller = GenotypeResultViewController()
@@ -449,6 +449,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         ]))
         var requests = 0
         controller.editMatrixComment(.init(targets: [.column(sample: "AnimalA")], intent: .upsert(body: "Native review")))
+        await waitForAnnotationEdits()
         let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root)
         XCTAssertEqual(saved.resolvedMatrixComments[.column(sample: "AnimalA")]?.body, "Native review")
     }

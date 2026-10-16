@@ -455,7 +455,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
     }
 
 
-    func testSupportedCellSelectionHelperSkipsEmptyCells() {
+    func testSupportedCellSelectionHelperSkipsEmptyCells() async {
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         let genotype = "01_Mafa_A1_SHARED"
@@ -498,11 +498,13 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(red: 0.2, green: 0.6, blue: 0.3, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, targets)
         controller.addMatrixComment(GenotypeMatrixCommentEditRequest(
             targets: controller.testingCurrentSelectionMatrixTargets,
             body: "Supported cell remains selected."
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, targets)
     }
 
@@ -545,7 +547,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
     }
 
 
-    func testSupportedCellSelectionHelperWorksAfterRowChicletSelection() throws {
+    func testSupportedCellSelectionHelperWorksAfterRowChicletSelection() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixSupportedChiclet")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -590,6 +592,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(red: 0.2, green: 0.6, blue: 0.3, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")).fillColor?.hexString, "#33994C")
         XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalB")).fillColor)
@@ -597,7 +600,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
     }
 
 
-    func testSupportedCellSelectionHelperClearsRowSelectionWhenNoCellsPassThreshold() throws {
+    func testSupportedCellSelectionHelperClearsRowSelectionWhenNoCellsPassThreshold() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeMatrixSupportedNone")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -626,6 +629,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             targets: controller.testingCurrentSelectionMatrixTargets,
             field: .fillColor(AnnotationColor(red: 0.2, green: 0.6, blue: 0.3, alpha: 1.0))
         ))
+        await waitForAnnotationEdits()
         XCTAssertNil(try XCTUnwrap(controller.testingRenderedMatrixStyle(genotype: genotype, sample: "AnimalA")).fillColor)
     }
 
@@ -1599,7 +1603,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
     }
 
 
-    func testQuickSearchMatrixCommentMutationInvalidatesIndex() throws {
+    func testQuickSearchMatrixCommentMutationInvalidatesIndex() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeSearchComment")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
@@ -1636,6 +1640,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             ],
             body: "analyst-note"
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
         XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
@@ -1650,6 +1655,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             ],
             intent: .set(.falsePositive)
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingSearchIndexBuildCount, 2)
         XCTAssertEqual(controller.testingVisibleGenotypes, [genotype])
 
@@ -1659,6 +1665,7 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             ],
             intent: .remove
         ))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingSearchIndexBuildCount, 3)
         XCTAssertTrue(controller.testingVisibleGenotypes.isEmpty)
     }

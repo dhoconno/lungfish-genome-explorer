@@ -146,7 +146,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
             host.convert(NSRect(x: 0, y: 0, width: host.bounds.width, height: 1), to: document)
         }
         // SwiftUI sizes the card until scrolling to its end hides the header.
-        AccessibilityTreeProbe.waitUntil {
+        await waitUntilMainQueueRuns {
             controller.view.layoutSubtreeIfNeeded()
             return document.bounds.height - scrollView.contentView.bounds.height > headerTop().maxY
         }
@@ -163,7 +163,7 @@ final class GenotypeHaplotypeAssignmentSaveFailureTests: GenotypeResultViewportT
         controller.testingSaveManualHaplotypeDraft()
         var frame = NSRect.zero
         let visible = { scrollView.contentView.documentVisibleRect.insetBy(dx: -0.5, dy: -0.5) }
-        AccessibilityTreeProbe.waitUntil {
+        await waitUntilMainQueueRuns {
             controller.view.layoutSubtreeIfNeeded()
             guard let region = descendant(
                 of: host,

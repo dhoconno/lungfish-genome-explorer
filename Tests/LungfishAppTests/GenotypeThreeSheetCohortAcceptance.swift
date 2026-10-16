@@ -92,7 +92,9 @@ enum GenotypeThreeSheetCohortAcceptance {
         for phase in ["initial", "set", "clear"] {
             if phase != "initial" {
                 controller.applyMatrixReview(.init(targets: [target], intent: phase == "set" ? .set(.falsePositive) : .clear))
+                await waitForAnnotationEdits()
                 controller.editMatrixComment(.init(targets: [target], intent: phase == "set" ? .upsert(body: "QA native cell comment") : .remove))
+                await waitForAnnotationEdits()
             }
             let nativeWitness = try captureNativeWitness(controller, samples: rawSamples, loci: callLoci)
             let nativeWitnessURL = root.appendingPathComponent("\(phase)-native-witness.json")

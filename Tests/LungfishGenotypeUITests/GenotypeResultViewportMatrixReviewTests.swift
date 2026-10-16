@@ -36,7 +36,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         XCTAssertEqual(try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root).matrixReviews, sidecar.matrixReviews)
     }
 
-    func testDuplicateReviewsWithholdMatrixChromeAndFailedMutationRefreshInvalidatesMultiplicityChanges() throws {
+    func testDuplicateReviewsWithholdMatrixChromeAndFailedMutationRefreshInvalidatesMultiplicityChanges() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixDuplicateReviews")
         defer { TestTempDirectory.cleanup(root) }
         let genotype = "01_Mafa_A1_DUPLICATE"
@@ -61,6 +61,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             // Reading a newer disk revision before rejecting an incompatible
             // mutation reconciles and redraws every changed exact target.
             controller.applyMatrixReview(.init(targets: [target], intent: .set(.falseNegative)))
+            await waitForAnnotationEdits()
             XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "AnimalA"), records.count == 1 ? "[7]" : "7")
             XCTAssertEqual(controller.testingMatrixReviewCapability.reviewState, records.count == 1 ? .uniform(.falsePositive) : .none)
             XCTAssertTrue(controller.testingMatrixReviewCapability.clearReview.isEnabled)
@@ -68,6 +69,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             XCTAssertEqual(try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root).matrixReviews, records)
         }
         controller.applyMatrixReview(.init(targets: [target], intent: .clear))
+        await waitForAnnotationEdits()
         XCTAssertTrue(try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: root).matrixReviews.isEmpty)
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)))
         let replayData = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(provenance.options.explicit["replayPayloadBase64"]?.stringValue)))
@@ -912,7 +914,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixVisibilityContextCommandRevalidatesCurrentCapability() throws {
+    func testMatrixVisibilityContextCommandRevalidatesCurrentCapability() async throws {
         let call = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
         let controller = makeMatrixAnnotationGuardedController()
@@ -935,6 +937,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         })
 
         XCTAssertFalse(controller.testingActivateMatrixContextMenuItem(capturedHideRow))
+        await waitForAnnotationEdits()
         XCTAssertEqual(
             Set(controller.testingVisibleMatrixGenotypes),
             Set([call.genotype, second.genotype])
@@ -967,6 +970,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         XCTAssertFalse(
             controller.testingActivateMatrixContextMenuItem(capturedCellHideRow)
         )
+        await waitForAnnotationEdits()
         XCTAssertEqual(
             Set(controller.testingVisibleMatrixGenotypes),
             Set([call.genotype, second.genotype])
@@ -974,7 +978,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixVisibilityActualContextMenuCapturesImmutableSnapshotTargets() throws {
+    func testMatrixVisibilityActualContextMenuCapturesImmutableSnapshotTargets() async throws {
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
         let controller = makeMatrixAnnotationGuardedController()
@@ -994,6 +998,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         })
 
         XCTAssertFalse(controller.testingActivateMatrixContextMenuItem(capturedHide))
+        await waitForAnnotationEdits()
         XCTAssertEqual(
             Set(controller.testingVisibleMatrixGenotypes),
             Set([first.genotype, second.genotype])
@@ -1001,7 +1006,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixShowAllContextCommandRemainsGlobalWhenSelectionChanges() throws {
+    func testMatrixShowAllContextCommandRemainsGlobalWhenSelectionChanges() async throws {
         let first = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1", reads: 8)
         let second = makeCall(sample: "AnimalA", genotype: "02_Mafa_B", reads: 7)
         let controller = makeMatrixAnnotationGuardedController()
@@ -1019,6 +1024,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.testingSelectMatrixColumn(sample: "AnimalA")
 
         XCTAssertTrue(controller.testingActivateMatrixContextMenuItem(showAll))
+        await waitForAnnotationEdits()
         XCTAssertEqual(
             Set(controller.testingVisibleMatrixGenotypes),
             Set([first.genotype, second.genotype])
@@ -1026,7 +1032,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixAnnotationContextCommandContinuesToUseCurrentSelection() throws {
+    func testMatrixAnnotationContextCommandContinuesToUseCurrentSelection() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixCurrentAnnotationSelection")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1053,6 +1059,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         )
 
         _ = controller.testingActivateMatrixContextMenuItem(falsePositive)
+        await waitForAnnotationEdits()
 
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
             forBundleAt: bundleURL
@@ -1250,7 +1257,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixMenuAndKeyboardCommandsShareCachedCapabilityAndDisabledReasons() throws {
+    func testMatrixMenuAndKeyboardCommandsShareCachedCapabilityAndDisabledReasons() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixMenuKeyboardState")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1299,7 +1306,9 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         )
         XCTAssertEqual(falseNegative.availability, controller.testingMatrixReviewCapability.falseNegative)
         XCTAssertFalse(controller.testingPerformMatrixKeyboardCommand(.markFalsePositive))
+        await waitForAnnotationEdits()
         XCTAssertTrue(controller.testingPerformMatrixKeyboardCommand(.markFalseNegative))
+        await waitForAnnotationEdits()
 
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         XCTAssertEqual(sidecar.matrixReviews.map(\.target), [target])
@@ -1307,7 +1316,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixRowAndHeaderMenusOfferScopedCommentsAndSupportSelectionHelper() throws {
+    func testMatrixRowAndHeaderMenusOfferScopedCommentsAndSupportSelectionHelper() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixScopedContextMenus")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1338,7 +1347,9 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             "Show Only Columns with Calls in This Row",
         ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
+        await waitForAnnotationEdits()
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.showOnlyColumnsWithSelectedRowCalls))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
 
         let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
@@ -1351,9 +1362,11 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             "Show All Rows and Columns",
         ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
+        await waitForAnnotationEdits()
 
         _ = controller.testingBuildMatrixContextMenu(for: rowTarget)
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.selectSupportedCells))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingCurrentSelectionMatrixTargets, [
             .cell(locus: "MHC-A", genotype: genotype, sample: "AnimalA"),
         ])
@@ -1438,7 +1451,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixMenuReviewMutationUsesTargetedReloadAndSelectionKeepsEvidenceIndex() throws {
+    func testMatrixMenuReviewMutationUsesTargetedReloadAndSelectionKeepsEvidenceIndex() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixMenuTargetedReload")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1459,6 +1472,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         _ = controller.testingBuildMatrixContextMenu(for: target)
         XCTAssertEqual(controller.testingMatrixEvidenceIndexBuildCount, evidenceBuildCount)
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.markFalsePositive))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
         XCTAssertGreaterThan(controller.testingMatrixPartialReloadCount, 0)
@@ -1466,7 +1480,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testMatrixRowCommentMenuMutationUsesTargetedReloadAcrossPinnedAndSampleTables() throws {
+    func testMatrixRowCommentMenuMutationUsesTargetedReloadAcrossPinnedAndSampleTables() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixRowCommentTargetedReload")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1488,6 +1502,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.testingResetMatrixReloadCounters()
 
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingPinnedMatrixFullReloadCount, 0)
         XCTAssertEqual(controller.testingSampleMatrixFullReloadCount, 0)
@@ -1684,7 +1699,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testInspectorCapabilityCarriesApplicableCachedScopedCommentsForSelectedCell() throws {
+    func testInspectorCapabilityCarriesApplicableCachedScopedCommentsForSelectedCell() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixInspectorScopedComments")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1711,8 +1726,11 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
             calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 9)]
         ))
         controller.editMatrixComment(.init(targets: [cell], intent: .upsert(body: "Cell note")))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(targets: [row], intent: .upsert(body: "Row note")))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(targets: [column], intent: .upsert(body: "Column note")))
+        await waitForAnnotationEdits()
 
         controller.testingShowMatrixTargetSelection([cell])
 
@@ -1727,7 +1745,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testReviewRequestIsRevalidatedAgainstCurrentRawEvidenceBeforeStorePublication() throws {
+    func testReviewRequestIsRevalidatedAgainstCurrentRawEvidenceBeforeStorePublication() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixReviewRevalidation")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1761,6 +1779,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         var surfacedError: Error?
         controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
         controller.applyMatrixReview(request)
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(
             surfacedError as? GenotypeMatrixReviewMutationError,
@@ -1774,7 +1793,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testSemanticCommentRequestsUpsertReplaceAndRemoveExactTargets() throws {
+    func testSemanticCommentRequestsUpsertReplaceAndRemoveExactTargets() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixCommentIntents")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1809,16 +1828,20 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.testingResetMatrixReloadCounters()
 
         controller.editMatrixComment(.init(targets: [first], intent: .upsert(body: "first")))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(targets: [first], intent: .upsert(body: "edited")))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(
             targets: [first, second],
             intent: .replace(body: "bulk replacement")
         ))
+        await waitForAnnotationEdits()
         var sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         XCTAssertEqual(sidecar.matrixComments.count, 2)
         XCTAssertEqual(Set(sidecar.matrixComments.map(\.body)), ["bulk replacement"])
 
         controller.editMatrixComment(.init(targets: [first], intent: .remove))
+        await waitForAnnotationEdits()
         sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         XCTAssertEqual(sidecar.matrixComments.map(\.target), [second])
         XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
@@ -1826,7 +1849,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     }
 
 
-    func testSuccessfulMatrixAnnotationBurstPersistsNativeReviewWithoutWorkbookRegeneration() throws {
+    func testSuccessfulMatrixAnnotationBurstPersistsNativeReviewWithoutWorkbookRegeneration() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixWorkbookCoalesce")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1847,7 +1870,9 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         ))
 
         controller.applyMatrixReview(.init(targets: [target], intent: .set(.falsePositive)))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "reviewed")))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(scheduler.scheduledCount, 0)
         let persisted = try GenotypeAnnotationSidecar.decode(Data(contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)))
@@ -1855,6 +1880,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         XCTAssertEqual(persisted.matrixReviews.first?.disposition, .falsePositive)
         XCTAssertEqual(persisted.resolvedMatrixComments[target]?.body, "reviewed")
         scheduler.fireScheduledActions()
+        await waitForAnnotationEdits()
     }
 
     /// Phase 2.3 finding S1. The real catalog publisher keys a reference row
@@ -1864,7 +1890,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     /// so Mark False Negative is enabled on the cell, its stored review is
     /// drawn, the store accepts a new one, and the workbook capture of the
     /// same bundle agrees cell for cell.
-    func testProductionShapeCatalogZeroTakesAFalseNegativeLikeTheWorkbook() throws {
+    func testProductionShapeCatalogZeroTakesAFalseNegativeLikeTheWorkbook() async throws {
         let root = try TestTempDirectory.make(prefix: "ProductionCatalogZero")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1912,6 +1938,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         XCTAssertTrue(capability.falseNegative.isEnabled)
         XCTAssertFalse(capability.clearReview.isEnabled)
         controller.applyMatrixReview(.init(targets: [unmarked], intent: .set(.falseNegative)))
+        await waitForAnnotationEdits()
         let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         XCTAssertEqual(Set(persisted.matrixReviews.map(\.target)), [stored, unmarked], "the store accepts the write")
         XCTAssertEqual(controller.testingCellValue(genotype: genotype, sample: "S2"), "—")
@@ -1946,7 +1973,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     /// reference record carries, so Mark False Negative is enabled on the
     /// accession row's zero, the store accepts the review, it is drawn, and
     /// the workbook lists the allele once.
-    func testAccessionNamedCatalogZeroTakesAFalseNegativeThroughTheRecordAllele() throws {
+    func testAccessionNamedCatalogZeroTakesAFalseNegativeThroughTheRecordAllele() async throws {
         let root = try TestTempDirectory.make(prefix: "AccessionCatalogZero")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -1991,6 +2018,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         XCTAssertFalse(capability.falsePositive.isEnabled)
         XCTAssertEqual(controller.testingComparisonMatrixReviewCapability, capability)
         controller.applyMatrixReview(.init(targets: [cell("S1")], intent: .set(.falseNegative)))
+        await waitForAnnotationEdits()
         let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         XCTAssertEqual(persisted.matrixReviews.map(\.target), [cell("S1")], "the store accepts the write")
         XCTAssertEqual(controller.testingCellValue(genotype: accession, sample: "S1"), "—", "the false negative is drawn")
@@ -2078,7 +2106,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
     /// Clearing the review and removing the comment at the cell's current
     /// locus also removes the entries saved at the old pseudo-locus, so a
     /// reloaded matrix shows no review and the sidecar holds none.
-    func testClearingAReviewSavedAtTheOldPseudoLocusRemovesItFromTheSidecar() throws {
+    func testClearingAReviewSavedAtTheOldPseudoLocusRemovesItFromTheSidecar() async throws {
         let fixture = try makeLegacyPseudoLocusBundle(prefix: "LegacyPseudoLocusClear")
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeManualHaplotypeGuardedController()
@@ -2086,7 +2114,9 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.configure(result: fixture.result)
 
         controller.applyMatrixReview(.init(targets: [fixture.current], intent: .clear))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(targets: [fixture.current], intent: .remove))
+        await waitForAnnotationEdits()
 
         let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
         XCTAssertEqual(persisted.matrixReviews, [], "the legacy review is cleared")
@@ -2107,7 +2137,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
 
     /// Setting a review at the current locus replaces the one saved at the
     /// old pseudo-locus, and the audit's before value is the legacy review.
-    func testSettingAReviewReplacesTheOneSavedAtTheOldPseudoLocus() throws {
+    func testSettingAReviewReplacesTheOneSavedAtTheOldPseudoLocus() async throws {
         let fixture = try makeLegacyPseudoLocusBundle(prefix: "LegacyPseudoLocusSet")
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeManualHaplotypeGuardedController()
@@ -2115,6 +2145,7 @@ final class GenotypeResultViewportMatrixReviewTests: GenotypeResultViewportTestC
         controller.configure(result: fixture.result)
 
         controller.applyMatrixReview(.init(targets: [fixture.current], intent: .set(.falsePositive)))
+        await waitForAnnotationEdits()
 
         let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
         XCTAssertEqual(persisted.matrixReviews.map(\.target), [fixture.current], "one review, at the current locus")

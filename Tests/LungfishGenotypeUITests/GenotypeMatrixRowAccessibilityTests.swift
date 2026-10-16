@@ -69,7 +69,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         )
     }
 
-    func testSelectSupportedCellsLeadsToTheReviewMarksForAnAXClient() throws {
+    func testSelectSupportedCellsLeadsToTheReviewMarksForAnAXClient() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let table = try pinnedTable(in: fixture.matrix)
@@ -77,13 +77,15 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         let row = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first)
         XCTAssertFalse(AccessibilityRowProbe.firstCellActionNames(row).contains("Mark False Positive"))
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Select Supported Cells (≥ 1 read)", in: row))
+        await waitForAnnotationEdits()
         XCTAssertTrue(AccessibilityRowProbe.firstCellActionNames(row).contains("Mark False Positive"))
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Mark False Positive", in: row))
+        await waitForAnnotationEdits()
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
         XCTAssertEqual(sidecar.matrixReviews.map(\.disposition), [.falsePositive])
     }
 
-    func testMarkFalsePositiveActionAppliesToTheSelectedCellOfTheRow() throws {
+    func testMarkFalsePositiveActionAppliesToTheSelectedCellOfTheRow() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let table = try pinnedTable(in: fixture.matrix)
@@ -91,6 +93,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         fixture.controller.testingSelectMatrixCell(genotype: "01_Mafa_A1", sample: "AnimalA")
         let row = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Mark False Positive", in: row))
+        await waitForAnnotationEdits()
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
         XCTAssertEqual(sidecar.matrixReviews.map(\.disposition), [.falsePositive])
         XCTAssertEqual(
@@ -99,7 +102,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         )
     }
 
-    func testHideRowActionSelectsTheRowItIsOnAndHidesIt() throws {
+    func testHideRowActionSelectsTheRowItIsOnAndHidesIt() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let table = try pinnedTable(in: fixture.matrix)
@@ -108,10 +111,11 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         let rows = AccessibilityRowProbe.rowProxies(of: table)
         XCTAssertEqual(rows.count, 2)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Hide Selected Row", in: rows[1]))
+        await waitForAnnotationEdits()
         XCTAssertEqual(fixture.controller.testingVisibleMatrixGenotypes, ["01_Mafa_A1"])
     }
 
-    func testHideRowActsOnItsOwnRowWhenACellOfAnotherRowIsSelected() throws {
+    func testHideRowActsOnItsOwnRowWhenACellOfAnotherRowIsSelected() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let table = try pinnedTable(in: fixture.matrix)
@@ -119,10 +123,11 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         fixture.controller.testingSelectMatrixCell(genotype: "01_Mafa_A1", sample: "AnimalA")
         let rows = AccessibilityRowProbe.rowProxies(of: table)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Hide Selected Row", in: rows[1]))
+        await waitForAnnotationEdits()
         XCTAssertEqual(fixture.controller.testingVisibleMatrixGenotypes, ["01_Mafa_A1"], "the row hidden is the row acted on")
     }
 
-    func testReviewMarkActionMarksOnlyItsOwnRowWhenCellsOfTwoRowsAreSelected() throws {
+    func testReviewMarkActionMarksOnlyItsOwnRowWhenCellsOfTwoRowsAreSelected() async throws {
         let fixture = try makeFixture(extraCalls: [("03_Mafa_A2", 8)])
         defer { TestTempDirectory.cleanup(fixture.root) }
         let table = try pinnedTable(in: fixture.matrix)
@@ -135,6 +140,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         let names = AccessibilityRowProbe.firstCellActionNames(rows[0])
         XCTAssertTrue(names.contains("Mark False Positive"), "\(names)")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Mark False Positive", in: rows[0]))
+        await waitForAnnotationEdits()
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
         XCTAssertEqual(
             sidecar.matrixReviews.map(\.target),
@@ -143,7 +149,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         )
     }
 
-    func testSelectSupportedCellsAnnouncesTheSelection() throws {
+    func testSelectSupportedCellsAnnouncesTheSelection() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let table = try pinnedTable(in: fixture.matrix)
@@ -152,10 +158,11 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         fixture.matrix.accessibilityAnnouncementPoster = .init { message, _ in announcements.append(message) }
         let row = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table).first)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Select Supported Cells (≥ 1 read)", in: row))
+        await waitForAnnotationEdits()
         XCTAssertEqual(announcements, ["1 cell selected. Review actions available."])
     }
 
-    func testChordIsLeftToTheMenuAndTheMenuItemReachesTheFocusedMatrix() throws {
+    func testChordIsLeftToTheMenuAndTheMenuItemReachesTheFocusedMatrix() async throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let window = NSWindow(
@@ -189,6 +196,7 @@ final class GenotypeMatrixRowAccessibilityTests: GenotypeResultViewportTestCase 
         )
         XCTAssertTrue(fixture.matrix.validateMenuItem(item))
         XCTAssertTrue(table.tryToPerform(item.action!, with: item))
+        await waitForAnnotationEdits()
         let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: fixture.bundleURL)
         XCTAssertEqual(sidecar.matrixReviews.map(\.disposition), [.falsePositive])
     }

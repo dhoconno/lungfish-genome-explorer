@@ -193,7 +193,7 @@ final class GenotypeReviewMenuClickFocusTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(selectedCells(fixture.matrix), ["\(genotypes[1]) AnimalA"])
     }
 
-    func testClickingAHaplotypeCallFocusesTheCallsAndEnablesTheGenotypeSampleItems() throws {
+    func testClickingAHaplotypeCallFocusesTheCallsAndEnablesTheGenotypeSampleItems() async throws {
         let root = try TestTempDirectory.make(prefix: "HaplotypeCallClickFocus")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -239,6 +239,7 @@ final class GenotypeReviewMenuClickFocusTests: GenotypeResultViewportTestCase {
             action: #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:)),
             keyEquivalent: "r"
         )
+        await waitForAnnotationEdits()
         XCTAssertTrue(controller.validateMenuItem(item), "Mark Sample Reviewed is enabled")
     }
 }

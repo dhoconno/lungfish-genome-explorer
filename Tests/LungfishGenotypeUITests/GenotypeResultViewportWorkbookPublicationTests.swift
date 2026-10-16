@@ -12,7 +12,7 @@ import LungfishTestSupport
 // Configure, deferred mutation, and workbook publication lock behavior
 @MainActor
 final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewportTestCase {
-    func testWorkbookPublicationLockDefersStyleReviewAndCommentInSubmissionOrder() throws {
+    func testWorkbookPublicationLockDefersStyleReviewAndCommentInSubmissionOrder() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixAnnotationLockRetry")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -37,8 +37,11 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundleURL)
 
         controller.applyMatrixStyle(.init(targets: [target], field: .isItalic(true)))
+        await waitForAnnotationEdits()
         controller.applyMatrixReview(.init(targets: [target], intent: .set(.falsePositive)))
+        await waitForAnnotationEdits()
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "queued")))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 3)
         XCTAssertEqual(retryScheduler.scheduledCount, 1)
@@ -51,12 +54,14 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         XCTAssertTrue(persisted.matrixComments.isEmpty)
 
         retryScheduler.fireScheduledActions()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 3)
         XCTAssertEqual(retryScheduler.scheduledCount, 1)
         XCTAssertTrue(surfacedErrors.isEmpty)
         publicationLock.release()
         retryScheduler.fireScheduledActions()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
         XCTAssertTrue(surfacedErrors.isEmpty)
@@ -79,7 +84,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testExcelCaptureWaitsForPendingNativeAnnotationPersistenceBeforeOpeningPanel() throws {
+    func testExcelCaptureWaitsForPendingNativeAnnotationPersistenceBeforeOpeningPanel() async throws {
         let root = try TestTempDirectory.make(prefix: "ExcelPendingNative")
         defer { TestTempDirectory.cleanup(root) }
         let controller = makeMatrixAnnotationGuardedController()
@@ -93,6 +98,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: root)
         defer { publicationLock.release() }
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "pending native note")))
+        await waitForAnnotationEdits()
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 1)
         var panels = 0
         var failures: [String] = []
@@ -107,6 +113,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         )
         publicationLock.release()
         scheduler.fireScheduledActions()
+        await waitForAnnotationEdits()
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
         XCTAssertEqual(panels, 1)
         let capture = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self,
@@ -114,7 +121,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         XCTAssertEqual(capture.allMatrix.rows[0].cells[0].comment, "pending native note")
     }
 
-    func testConfigureWaitsForDeferredMutationAndThenAppliesNewBundleContext() throws {
+    func testConfigureWaitsForDeferredMutationAndThenAppliesNewBundleContext() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixDeferredConfigure")
         defer { TestTempDirectory.cleanup(root) }
         let firstBundle = root.appendingPathComponent("first.lungfishgenotype", isDirectory: true)
@@ -138,6 +145,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             targets: [target],
             intent: .upsert(body: "belongs to first")
         ))
+        await waitForAnnotationEdits()
 
         controller.configure(result: makeResult(
             bundleURL: secondBundle,
@@ -149,6 +157,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         XCTAssertEqual(controller.testingPendingConfigurationBundleURL, secondBundle.standardizedFileURL)
         publicationLock.release()
         retryScheduler.fireScheduledActions()
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(drainedCount, 1)
         XCTAssertEqual(controller.testingResultBundleURL, secondBundle.standardizedFileURL)
@@ -206,6 +215,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             targets: [.column(sample: "AnimalA")],
             intent: .upsert(body: "belongs to first")
         ))
+        await waitForAnnotationEdits()
         controller.configure(result: makeResult(
             bundleURL: secondBundle,
             samples: [],
@@ -224,6 +234,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
 
         publicationLock.release()
         retryScheduler.fireScheduledActions()
+        await waitForAnnotationEdits()
         await waitUntil { promptCount != 0 }
         await controller.testingWaitForManualHaplotypeTransitions()
 
@@ -246,7 +257,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testDeferredFailureOverlayRestoresUnderlyingWorkbookStatus() throws {
+    func testDeferredFailureOverlayRestoresUnderlyingWorkbookStatus() async throws {
 
         let root = try TestTempDirectory.make(prefix: "MatrixDeferredStatusOverlay")
         defer { TestTempDirectory.cleanup(root) }
@@ -264,6 +275,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             targets: [target],
             intent: .upsert(body: "will hit unsafe lock")
         ))
+        await waitForAnnotationEdits()
 
         publicationLock.release()
         let lockURL = ONTGenotypeBundlePublicationLock.lockURL(for: bundleURL)
@@ -275,6 +287,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         var surfacedError: Error?
         controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
         retryScheduler.fireScheduledActions()
+        await waitForAnnotationEdits()
 
         guard case .unsafeLock = surfacedError as? ONTGenotypeWorkbookUpdateRecoveryError else {
             return XCTFail("Expected unsafe lock error, got \(String(describing: surfacedError))")
@@ -320,7 +333,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testUnsafeWorkbookPublicationLockSurfacesWithoutDeferredRetry() throws {
+    func testUnsafeWorkbookPublicationLockSurfacesWithoutDeferredRetry() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixAnnotationUnsafeLock")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -350,6 +363,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
 
         controller.applyMatrixReview(.init(targets: [target], intent: .set(.falsePositive)))
+        await waitForAnnotationEdits()
 
         guard case .unsafeLock = surfacedError as? ONTGenotypeWorkbookUpdateRecoveryError else {
             return XCTFail("Expected unsafe lock error, got \(String(describing: surfacedError))")
@@ -370,10 +384,12 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
         let concurrent = try GenotypeAnnotationStore(bundleURL: bundleURL, author: "other")
         try await concurrent.addMatrixComment(target: target, body: "concurrent")
+        await waitForAnnotationEdits()
         var surfacedError: Error?
         controller.onMatrixAnnotationCommandError = { surfacedError = $0 }
 
         controller.editMatrixComment(.init(targets: [target], intent: .upsert(body: "stale")))
+        await waitForAnnotationEdits()
 
         XCTAssertNotNil(surfacedError)
         XCTAssertEqual(controller.testingDeferredMatrixAnnotationMutationCount, 0)
@@ -440,6 +456,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             targets: [attempted],
             intent: .upsert(body: "stale")
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertTrue(
             surfacedError?.localizedDescription.contains("changed in another process") == true
@@ -496,6 +513,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             targets: [staleAttemptTarget],
             intent: .upsert(body: "stale attempt")
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertTrue(
             surfacedError?.localizedDescription.contains("changed in another process") == true
@@ -547,6 +565,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             targets: [.column(sample: "AnimalA")],
             intent: .upsert(body: "stale")
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertTrue(
             surfacedError?.localizedDescription.contains("changed in another process") == true
@@ -559,7 +578,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testSemanticPublicationReloadsMultipleIsolatedCellsWithoutCartesianExpansion() throws {
+    func testSemanticPublicationReloadsMultipleIsolatedCellsWithoutCartesianExpansion() async throws {
         let root = try TestTempDirectory.make(prefix: "MatrixExactPartialReload")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -587,6 +606,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
             targets: [firstTarget, secondTarget],
             intent: .replace(body: "exact")
         ))
+        await waitForAnnotationEdits()
 
         XCTAssertEqual(
             Set(controller.testingLastMatrixReloadTargets),
@@ -598,7 +618,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
     }
 
 
-    func testMatrixEditsCaptureCurrentAuthorProviderAfterSingleConfigure() throws {
+    func testMatrixEditsCaptureCurrentAuthorProviderAfterSingleConfigure() async throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeEditAuthorProvider")
         defer { TestTempDirectory.cleanup(root) }
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
@@ -619,6 +639,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         )
 
         controller.applyMatrixStyle(.init(targets: [target], field: .isBold(true)))
+        await waitForAnnotationEdits()
         let annotationURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         let styleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
             fromSidecar: ProvenanceRecorder.fileSidecarURL(for: annotationURL)
@@ -626,6 +647,7 @@ final class GenotypeResultViewportWorkbookPublicationTests: GenotypeResultViewpo
         XCTAssertEqual(styleProvenance.options.resolvedDefaults["author"], .string("First analyst"))
         author = "Second analyst"
         controller.addMatrixComment(.init(targets: [target], body: "Reviewed after handoff"))
+        await waitForAnnotationEdits()
 
         let persisted = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
         let commentProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(
