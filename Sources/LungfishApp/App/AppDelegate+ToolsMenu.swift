@@ -239,7 +239,7 @@ extension AppDelegate {
                 }
 
                 if let config = state.pendingTaxTriageConfig {
-                    self.runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)
+                    self.launchTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
                 }
