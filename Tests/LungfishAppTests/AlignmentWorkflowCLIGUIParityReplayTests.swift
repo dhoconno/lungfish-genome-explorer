@@ -5,7 +5,8 @@
 // Phase 2.10 lane A54 M3 (census rows p36, p37 and p38, decision C4), on lane Q30's `RouteParityHarness`
 // (G1, QC-2). The Inspector creates a filtered alignment track, converts mapped reads to annotations, and
 // marks or removes duplicates. Side A is the in-process route, the Workflow service the Inspector's task
-// awaited (`BundleAlignmentFilterService`, `MappedReadsAnnotationService`, `AlignmentDuplicateService`).
+// awaited (`BundleAlignmentFilterService`, `MappedReadsAnnotationService`). The two duplicate cases have no
+// side A since Phase 2.11 (K3) removed the in-process duplicate route, so they run C against C' alone.
 // Side C is the CLI route, whose begin helper records the argv that runs and whose L3 runner runs it
 // through the app's transport (`runAlignmentLeafThroughCLI`), and which then reads from the leaf's
 // `complete` what the Inspector's completion code reads. Side C' replays the recorded command.
@@ -51,33 +52,9 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
     }
 
     /// Every difference A against C declares. Filtering, converting and a refusal declare none (C4), so
-    /// p36 and p37 launch the leaf with no key. The two duplicate cases differ by the leaf's records and by
-    /// what their numbering does to the statistics database, and C against C' declares nothing.
-    static let declared: [RouteParityDeclaredDifference<Case>] = [
-        RouteParityDeclaredDifference(
-            [.markDuplicates: 5, .deduplicateAlignments: 6],
-            "only in C: Project.lungfish/<ANY>.lungfish-provenance.json",
-            reason: "The leaf writes the provenance records of its run, the bundle's record and one for the BAM, the index "
-                + "and the statistics database of each new track, and the manifest's for a new bundle. The in-process "
-                + "service never wrote them, so the CLI route adds the envelope every leaf owes.",
-            closedBy: "2.11, when the in-process route goes (C4)"
-        ),
-        RouteParityDeclaredDifference(
-            [.markDuplicates: 9, .deduplicateAlignments: 9],
-            "differs: Project.lungfish/<ANY>.stats.db: only in A: <ANY>",
-            reason: "Both routes write the same nine rows to the new track's statistics database. A row names the scratch "
-                + "folder of the markdup run by a UUID, which the harness numbers across each side's tree in path order. "
-                + "The leaf's records come first, so the folder reads <UUID-3> on side C where side A reads <UUID-1>. "
-                + "This is the numbering effect of the first entry and no difference in the rows.",
-            closedBy: "2.11, when the in-process route goes (C4)"
-        ),
-        RouteParityDeclaredDifference(
-            [.markDuplicates: 9, .deduplicateAlignments: 9],
-            "differs: Project.lungfish/<ANY>.stats.db: only in C: <ANY>",
-            reason: "The same nine rows as the entry above, read on side C with the shifted UUID number.",
-            closedBy: "2.11, when the in-process route goes (C4)"
-        ),
-    ]
+    /// p36 and p37 launch the leaf with no key. The two duplicate cases have no side A since the in-process
+    /// duplicate route went (Phase 2.11, K3), and their C against C' declares nothing.
+    static let declared: [RouteParityDeclaredDifference<Case>] = []
 
     private var scratch: URL!
     private var cli: URL!
@@ -164,18 +141,9 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
                     request: annotationLaunch.workflowRequest(bundleURL: bundleURL)
                 )
                 return RouteParitySideOutcome(end: .completed, detail: "Created annotation track \"\(result.annotationTrackInfo.name)\".")
-            case .markDuplicates:
-                let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
-                return RouteParitySideOutcome(
-                    end: .completed,
-                    detail: InspectorViewController.duplicateWorkflowCompletionDetail(kind: .markDuplicates, result: result)
-                )
-            case .deduplicateAlignments:
-                let result = try await AlignmentDuplicateService.createDeduplicatedBundle(from: bundleURL)
-                return RouteParitySideOutcome(
-                    end: .completed,
-                    detail: InspectorViewController.duplicateWorkflowCompletionDetail(kind: .createDeduplicatedBundle, result: result)
-                )
+            case .markDuplicates, .deduplicateAlignments:
+                // The in-process duplicate route went in Phase 2.11 (K3), so these cases run C against C' alone.
+                return RouteParitySideOutcome(end: .failed, detail: "the duplicate workflows have no in-process route")
             }
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: error.localizedDescription)
@@ -224,11 +192,11 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
             let kind = duplicateKind(of: parityCase)
             let center = OperationCenter()
             guard case .started(let id) = InspectorViewController.startDuplicateWorkflowOperation(
-                kind: kind, bundleURL: bundleURL, route: .cli, routeContext: nil, center: center
+                kind: kind, bundleURL: bundleURL, routeContext: nil, center: center
             ) else {
                 throw XCTSkip("the row did not start")
             }
-            guard case .leaf(let arguments) = InspectorViewController.duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL, route: .cli) else {
+            guard case .leaf(let arguments) = InspectorViewController.duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL) else {
                 throw XCTSkip("the CLI route runs a leaf")
             }
             return BegunRow(id: id, command: center.items.first { $0.id == id }?.cliCommand, arguments: arguments)
@@ -328,21 +296,40 @@ final class AlignmentWorkflowCLIGUIParityReplayTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(completion).outputs.count, 1, "the leaf names the annotation database")
     }
 
+    /// A duplicate case has no side A, since the in-process duplicate route went (Phase 2.11, K3). It runs the
+    /// leaf on root C and replays the command the row recorded on root C'. C against C' declares nothing.
+    private func runDuplicateCase(_ parityCase: Case) async throws -> RouteParityRuns {
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
+            in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
+            fixture: { try Self.makeFixture(in: $0, parityCase: parityCase) },
+            sideC: { try await self.sideC($0, parityCase) }
+        )
+        for run in [runs.c, runs.cPrime] {
+            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
+        }
+        let found = try harness.differences(runs.c, runs.cPrime)
+        RouteParityHarness.assertNoFailures(found.map { "\($0.id): \($0.detail)" }, in: "\(parityCase), C against C'")
+        return runs
+    }
+
     func testMarkedDuplicatesAreTheSameTracksAndRecordOnEveryRoute() async throws {
-        let result = try await assertParity(.markDuplicates)
-        assertAllCompleted(result)
-        XCTAssertEqual(result.runs.a.outcome.detail, "Marked duplicates in 1 alignment track.")
-        XCTAssertEqual(result.runs.c.outcome.detail, result.runs.a.outcome.detail, "the count read before begin is the count the service processed")
+        let runs = try await runDuplicateCase(.markDuplicates)
+        XCTAssertEqual(
+            runs.c.outcome.detail, "Marked duplicates in 1 alignment track.",
+            "the count read before begin is the count the leaf processed"
+        )
     }
 
     func testADeduplicatedBundleIsTheSameBundleAndRecordOnEveryRoute() async throws {
-        let result = try await assertParity(.deduplicateAlignments)
-        assertAllCompleted(result)
-        XCTAssertEqual(result.runs.a.outcome.detail, "Created Sample-deduplicated.lungfishref from 1 alignment track.")
-        XCTAssertEqual(result.runs.c.outcome.detail, result.runs.a.outcome.detail, "the bundle the app opens is the one the leaf named")
-        let made = Self.bundleURL(in: result.runs.c.root).deletingLastPathComponent().appendingPathComponent("Sample-deduplicated.lungfishref")
+        let runs = try await runDuplicateCase(.deduplicateAlignments)
+        XCTAssertEqual(
+            runs.c.outcome.detail, "Created Sample-deduplicated.lungfishref from 1 alignment track.",
+            "the bundle the app opens is the one the leaf named"
+        )
+        let made = Self.bundleURL(in: runs.c.root).deletingLastPathComponent().appendingPathComponent("Sample-deduplicated.lungfishref")
         XCTAssertTrue(FileManager.default.fileExists(atPath: made.path), "the leaf made the bundle it named")
-        XCTAssertEqual(try BundleManifest.load(from: Self.bundleURL(in: result.runs.c.root)).alignments.count, 1, "the source bundle was not changed")
+        XCTAssertEqual(try BundleManifest.load(from: Self.bundleURL(in: runs.c.root)).alignments.count, 1, "the source bundle was not changed")
     }
 
     // MARK: - The records, verified

@@ -1,12 +1,12 @@
-// InspectorViewController+DuplicateWorkflowRoute.swift - What each route of a duplicate workflow runs and shows
+// InspectorViewController+DuplicateWorkflowRoute.swift - What a duplicate workflow runs and shows
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The pure parts of the duplicate workflows' two routes (Phase 2.10 lane A54, decision C4), kept apart from
+// The pure parts of the duplicate workflows' route (Phase 2.10 lane A54, decision C4), kept apart from
 // the launch in InspectorViewController+TrimDuplicateWorkflows.swift so that file stays under its size
-// limit and a test reaches them without a window. The in-process route runs `AlignmentDuplicateService`.
-// The CLI route runs `bundle mark-duplicates` or `bundle deduplicate-alignments` on the L3 runner. Both
-// routes complete the row with the words from `duplicateWorkflowCompletionDetail`.
+// limit and a test reaches them without a window. The route runs `bundle mark-duplicates` or
+// `bundle deduplicate-alignments` on the L3 runner and completes the row with the words from
+// `duplicateWorkflowCompletionDetail`. The in-process route and its hidden key went in Phase 2.11 (K3).
 
 import Foundation
 import LungfishCore
@@ -14,29 +14,19 @@ import LungfishKit
 import LungfishWorkflow
 
 extension InspectorViewController {
-    /// What a duplicate workflow's launch runs on a route.
+    /// What a duplicate workflow's launch runs.
     enum DuplicateWorkflowLaunch: Equatable {
-        /// `AlignmentDuplicateService` in this process, on a task the row's Cancel cancels.
-        case service
         /// `lungfish-cli` with these arguments, the argv after the binary, on the L3 runner.
         case leaf(arguments: [String])
     }
 
-    static func duplicateWorkflowLaunch(
-        kind: DuplicateWorkflowKind,
-        bundleURL: URL,
-        route: InspectorDuplicateWorkflowRoute
-    ) -> DuplicateWorkflowLaunch {
-        switch route {
-        case .legacy: return .service
-        case .cli: return .leaf(arguments: kind.cliArguments(bundleURL: bundleURL))
-        }
+    static func duplicateWorkflowLaunch(kind: DuplicateWorkflowKind, bundleURL: URL) -> DuplicateWorkflowLaunch {
+        .leaf(arguments: kind.cliArguments(bundleURL: bundleURL))
     }
 
-    /// What a duplicate workflow's launch decides before any window work (Phase 2.10 lane A54 M3): the route the
-    /// hidden key names, what that route runs, the track count read before the row begins, and the row itself.
+    /// What a duplicate workflow's launch decides before any window work (Phase 2.10 lane A54 M3): what it
+    /// runs, the track count read before the row begins, and the row itself.
     struct DuplicateWorkflowPlan {
-        let route: InspectorDuplicateWorkflowRoute
         let launch: DuplicateWorkflowLaunch
         let trackCount: Int
         let operationID: UUID
@@ -47,35 +37,32 @@ extension InspectorViewController {
         case refused(OperationStartRefusal)
     }
 
-    /// Reads the key from `settings`, counts the tracks and begins the row of the route the key names. The
-    /// Inspector's launch calls it with the user's defaults and runs what the plan says. A test passes a suite
-    /// of its own, so each value of the key is tried through the call the Inspector makes.
+    /// Counts the tracks and begins the row. The Inspector's launch calls it and runs what the plan says. A
+    /// test passes a center of its own.
     static func beginDuplicateWorkflow(
         kind: DuplicateWorkflowKind,
         bundleURL: URL,
-        settings: InspectorDuplicateWorkflowRouteSettings = InspectorDuplicateWorkflowRouteSettings(),
         routeContext: OperationRouteContext?,
         center: OperationCenter = .shared,
         onCancel: (@Sendable () -> Void)? = nil
     ) -> DuplicateWorkflowBegin {
-        let route = settings.route()
         let trackCount = duplicateWorkflowTrackCount(kind: kind, bundleURL: bundleURL)
-        let launch = duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL, route: route)
+        let launch = duplicateWorkflowLaunch(kind: kind, bundleURL: bundleURL)
         switch startDuplicateWorkflowOperation(
-            kind: kind, bundleURL: bundleURL, route: route, routeContext: routeContext, center: center, onCancel: onCancel
+            kind: kind, bundleURL: bundleURL, routeContext: routeContext, center: center, onCancel: onCancel
         ) {
         case .started(let id):
-            return .started(DuplicateWorkflowPlan(route: route, launch: launch, trackCount: trackCount, operationID: id))
+            return .started(DuplicateWorkflowPlan(launch: launch, trackCount: trackCount, operationID: id))
         case .refused(let refusal):
             return .refused(refusal)
         }
     }
 
     /// The number of alignment tracks the run will process, read from the bundle before the row begins.
-    /// The service processes every one of them or throws, so this is the count the final detail names on
-    /// either route. The CLI route reads it here because the leaf's `complete` message is text, and the
-    /// app parses no number out of text. A bundle that cannot be read gives 0, and the leaf then fails
-    /// with its own words before any row completes.
+    /// The service processes every one of them or throws, so this is the count the final detail names.
+    /// The app reads it here because the leaf's `complete` message is text, and the app parses no number
+    /// out of text. A bundle that cannot be read gives 0, and the leaf then fails with its own words
+    /// before any row completes.
     static func duplicateWorkflowTrackCount(kind: DuplicateWorkflowKind, bundleURL: URL) -> Int {
         guard let manifest = try? BundleManifest.load(from: bundleURL) else { return 0 }
         switch kind {
@@ -113,12 +100,12 @@ extension InspectorViewController {
         }
     }
 
-    /// "2 alignment tracks", the words both routes' row and alerts use.
+    /// "2 alignment tracks", the words the row and the alerts use.
     static func alignmentTrackCountText(_ count: Int) -> String {
         "\(count) alignment track\(count == 1 ? "" : "s")"
     }
 
-    /// The final detail of the row, on either route.
+    /// The final detail of the row.
     static func duplicateWorkflowCompletionDetail(
         kind: DuplicateWorkflowKind,
         result: AlignmentDuplicateService.WorkflowResult

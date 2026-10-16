@@ -310,27 +310,16 @@ extension InspectorViewController {
             }
         }
 
-        /// The CLI command the in-process route records, for the row's Copy CLI Command.
-        func cliCommand(bundleURL: URL) -> String {
-            OperationCenter.buildCLICommand(subcommand: subcommand, args: [bundleURL.path])
-        }
-
         /// The argv after the binary that the CLI route runs. `--format json` makes the leaf speak events.
         func cliArguments(bundleURL: URL) -> [String] {
             subcommand.split(separator: " ").map(String.init) + [bundleURL.path, "--format", "json"]
         }
 
-        /// The command the row records on `route`: today's string in process, and the argv that runs on
-        /// the CLI route.
-        func cliCommand(bundleURL: URL, route: InspectorDuplicateWorkflowRoute) -> String {
-            switch route {
-            case .legacy:
-                return cliCommand(bundleURL: bundleURL)
-            case .cli:
-                return OperationCenter.buildCLICommand(
-                    subcommand: subcommand, args: Array(cliArguments(bundleURL: bundleURL).dropFirst(2))
-                )
-            }
+        /// The command the row records, the argv the L3 runner runs, for the row's Copy CLI Command.
+        func cliCommand(bundleURL: URL) -> String {
+            OperationCenter.buildCLICommand(
+                subcommand: subcommand, args: Array(cliArguments(bundleURL: bundleURL).dropFirst(2))
+            )
         }
 
         var failureAlertTitle: String {
@@ -381,12 +370,10 @@ extension InspectorViewController {
     /// Registers the Operations Panel row for a duplicate workflow, holding
     /// the bundle's write lock for the run. `.refused` when another operation
     /// took the lock between the gate and this call. The row records the
-    /// command of `route`: today's string in process, and the argv the L3
-    /// runner runs on the CLI route.
+    /// argv the L3 runner runs.
     static func startDuplicateWorkflowOperation(
         kind: DuplicateWorkflowKind,
         bundleURL: URL,
-        route: InspectorDuplicateWorkflowRoute,
         routeContext: OperationRouteContext?,
         center: OperationCenter = .shared,
         onCancel: (@Sendable () -> Void)? = nil
@@ -396,7 +383,7 @@ extension InspectorViewController {
             detail: kind.startingDetail,
             operationType: .bamImport,
             targetBundleURL: bundleURL,
-            cliCommand: kind.cliCommand(bundleURL: bundleURL, route: route),
+            cliCommand: kind.cliCommand(bundleURL: bundleURL),
             routeContext: routeContext,
             onCancel: onCancel
         )
@@ -461,20 +448,13 @@ extension InspectorViewController {
             break
         }
 
-        final class TaskHandle: @unchecked Sendable {
-            var task: Task<Void, Never>?
-        }
-        let handle = TaskHandle()
-        // The hidden key picks the route (default the CLI, in process on `legacy`, Phase 2.10 lane A54). The plan holds the count
-        // read before the row begins, because the leaf's `complete` message is text and the app parses no
-        // number out of it.
+        // The plan holds the count read before the row begins, because the leaf's `complete` message is text
+        // and the app parses no number out of it. The runner sets the row's Cancel once its run starts.
         let plan: DuplicateWorkflowPlan
         switch Self.beginDuplicateWorkflow(
             kind: kind,
             bundleURL: bundleURL,
-            routeContext: operationRouteContext(for: bundleURL),
-            // The CLI route replaces this with the runner's cancel once its run starts.
-            onCancel: { handle.task?.cancel() }
+            routeContext: operationRouteContext(for: bundleURL)
         ) {
         case .started(let started):
             plan = started
@@ -487,7 +467,8 @@ extension InspectorViewController {
         viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
         split.activityIndicator.show(message: kind.startingDetail, style: .indeterminate)
 
-        if case .leaf(let arguments) = plan.launch {
+        switch plan.launch {
+        case .leaf(let arguments):
             // The leaf marks or copies the bundle and writes its record before it exits. The row completes
             // before the bundle opens or an alert shows, so the result stays hidden until then.
             Self.runAlignmentLeafThroughCLI(
@@ -499,59 +480,6 @@ extension InspectorViewController {
                     kind: kind, bundleURL: bundleURL, trackCount: plan.trackCount, operationID: operationID, outcome: outcome
                 )
             }
-            return
-        }
-
-        let progressHandler: @Sendable (Double, String) -> Void = { progress, message in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.updateWithLog(
-                        id: operationID,
-                        progress: max(0.01, min(0.99, progress)),
-                        detail: message
-                    )
-                }
-            }
-        }
-
-        handle.task = Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result: AlignmentDuplicateService.WorkflowResult
-                switch kind {
-                case .markDuplicates:
-                    result = try await AlignmentDuplicateService.markDuplicatesInBundle(
-                        bundleURL: bundleURL,
-                        progressHandler: progressHandler
-                    )
-                case .createDeduplicatedBundle:
-                    result = try await AlignmentDuplicateService.createDeduplicatedBundle(
-                        from: bundleURL,
-                        progressHandler: progressHandler
-                    )
-                }
-
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        self?.finishDuplicateWorkflow(kind: kind, operationID: operationID, result: result)
-                    }
-                }
-            } catch is CancellationError {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                        self?.resetDuplicateWorkflowUI()
-                    }
-                }
-            } catch {
-                let message = error.localizedDescription
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(id: operationID, detail: message, errorMessage: message)
-                        self?.resetDuplicateWorkflowUI()
-                        self?.presentSimpleAlert(title: kind.failureAlertTitle, message: message)
-                    }
-                }
-            }
         }
     }
 
@@ -560,10 +488,9 @@ extension InspectorViewController {
         (parent as? MainSplitViewController)?.activityIndicator.hide()
     }
 
-    /// Ends a duplicate workflow that ran on the CLI route. A leaf that completed gives the result the
-    /// in-process route gives, so the same completion code runs: the row completes first, and the bundle
-    /// opens and the alert shows only then. A leaf that failed fails the row with its own words, as the
-    /// in-process route's catch does.
+    /// Ends a duplicate workflow. A leaf that completed gives the result the completion code reads: the row
+    /// completes first, and the bundle opens and the alert shows only then. A leaf that failed fails the row
+    /// with its own words.
     private func finishDuplicateWorkflowThroughCLI(
         kind: DuplicateWorkflowKind,
         bundleURL: URL,
