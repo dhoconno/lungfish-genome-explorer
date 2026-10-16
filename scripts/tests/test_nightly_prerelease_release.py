@@ -2079,7 +2079,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         runner = self.coordinator.SubprocessRunner(Path(__file__).resolve().parents[2])
         cases = (
             (75, "build-notarized-dmg.sh", ("Apple has not finished notarizing", "In Progress", "same publish command")),
-            (76, "build-notarized-dmg.sh", ("signing transaction", "Signing transaction retained", "Durable signing recovery")),
+            (76, "build-notarized-dmg.sh", ("signing transaction", "Signing transaction retained", "AmbiguousUpload", "Durable signing recovery")),
         )
         for status, script, words in cases:
             with self.subTest(status):

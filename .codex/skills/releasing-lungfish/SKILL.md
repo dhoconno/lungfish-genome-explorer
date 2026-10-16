@@ -271,7 +271,8 @@ submission IDs or signing context block continuation.
 Exit 75 means Apple has not decided yet (status In Progress), and the same
 `publish` command polls the same submission again. Exit 76 means the signing
 pipeline stopped with its transaction retained. The `Signing transaction
-retained` line above the message gives the reason, so read it before any rerun.
+retained` line above the message gives the reason, and so does the
+`AmbiguousUpload` status line when that is the status. Read it before any rerun.
 
 ## Release compilation
 

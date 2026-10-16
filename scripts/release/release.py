@@ -1457,9 +1457,10 @@ _SIGNING_EXIT_NOTES = {
     ),
     76: (
         " (the signing pipeline stopped and retained its signing transaction."
-        " The Signing transaction retained line above says why. Keep"
-        " signing-transaction and read Durable signing recovery in the"
-        " releasing-lungfish skill before any rerun)"
+        " The Signing transaction retained line above says why, or the status"
+        " line above when it reads AmbiguousUpload. Keep signing-transaction"
+        " and read Durable signing recovery in the releasing-lungfish skill"
+        " before any rerun)"
     ),
 }
 
