@@ -88,22 +88,27 @@ final class FastqPlatformSIGTERMTests: XCTestCase {
     func testASIGTERMWhoseRestoreFailsIsNotRecordedAsRestored() async throws {
         let root = try TestTempDirectory.make(prefix: "fastq-platform-restore-fails")
         defer { TestTempDirectory.cleanup(root) }
-        // The command makes its backup folder in the temporary folder of the user, whatever TMPDIR says.
+        // The command makes its backup folder in the temporary folder of the user, whatever TMPDIR says, and the
+        // tests that run at the same time make theirs there too. The backup copies the sidecar, so a token that
+        // only this test writes into the sidecar marks the backup folder as this test's own, whatever else sits there.
+        let token = "restore-fails-\(UUID().uuidString)"
         let temporary = FileManager.default.temporaryDirectory
         let backupPrefix = "lungfish-fastq-platform-"
-        func backupFolders() -> Set<String> {
+        func ownBackupFolders() -> [String] {
             let names = (try? FileManager.default.contentsOfDirectory(atPath: temporary.path)) ?? []
-            return Set(names.filter { $0.hasPrefix(backupPrefix) })
+            return names.filter { name in
+                guard name.hasPrefix(backupPrefix) else { return false }
+                let copy = temporary.appendingPathComponent(name).appendingPathComponent("artifact-0")
+                return ((try? String(contentsOf: copy, encoding: .utf8)) ?? "").contains(token)
+            }.sorted()
         }
-        let backupsBefore = backupFolders()
         let bundle = root.appendingPathComponent("Sample.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let fastq = bundle.appendingPathComponent("Sample.fastq")
         XCTAssertEqual(mkfifo(fastq.path, 0o644), 0, "the reads file is a FIFO")
-        FASTQMetadataStore.save(
-            PersistedFASTQMetadata(sequencingPlatform: .illumina, assemblyReadType: .illuminaShortReads),
-            for: fastq
-        )
+        var metadata = PersistedFASTQMetadata(sequencingPlatform: .illumina, assemblyReadType: .illuminaShortReads)
+        metadata.downloadSource = token
+        FASTQMetadataStore.save(metadata, for: fastq)
         let cli = try CLISIGTERMHarness.launchCLI(
             ["fastq", "platform", bundle.path, "--set", "ont", "--format", "json"],
             workingDirectory: root,
@@ -114,11 +119,11 @@ final class FastqPlatformSIGTERMTests: XCTestCase {
             let stop = await CLISIGTERMHarness.cancel(cli, timeout: .seconds(5))
             return XCTFail("The command never read the reads file.\(stop.diagnostics)")
         }
-        let backups = backupFolders().subtracting(backupsBefore)
+        let backups = ownBackupFolders()
         guard backups.count == 1, let backupName = backups.first else {
             close(writer)
             let stop = await CLISIGTERMHarness.cancel(cli, timeout: .seconds(5))
-            return XCTFail("Expected one new backup folder in the temporary folder, found \(backups).\(stop.diagnostics)")
+            return XCTFail("Expected one backup folder of this test in the temporary folder, found \(backups).\(stop.diagnostics)")
         }
         let backup = temporary.appendingPathComponent(backupName, isDirectory: true)
         XCTAssertEqual(chmod(backup.path, 0o000), 0, "the backup folder is made unreadable")
