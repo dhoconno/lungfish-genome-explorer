@@ -85,16 +85,11 @@ package enum ProvenancePathRehydrator {
                 options: []
             )
             if let enumerator {
-                for case let url as URL in enumerator {
-                    guard url.pathExtension.lowercased() == "json",
-                          url.lastPathComponent.lowercased().contains("provenance") else {
-                        continue
-                    }
+                for case let url as URL in enumerator where isRecordFile(url) {
                     append(url)
                 }
             }
-        } else if destinationURL.pathExtension.lowercased() == "json",
-                  destinationURL.lastPathComponent.lowercased().contains("provenance") {
+        } else if isRecordFile(destinationURL) {
             append(destinationURL)
         }
 
@@ -107,6 +102,15 @@ package enum ProvenancePathRehydrator {
         }
 
         return urls
+    }
+
+    /// A JSON file whose name holds `provenance` is a record, and the signature file that signing writes beside one
+    /// (`<record>.signature.json`, `ProvenanceSigningConfiguration.signatureURL(for:)`) is not (2.11 A68, SW1 (b)).
+    private static func isRecordFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        return url.pathExtension.lowercased() == "json"
+            && name.contains("provenance")
+            && !name.hasSuffix(".signature.json")
     }
 
     private static func internalBundleProvenanceURL(for url: URL, fileManager fm: FileManager) -> URL? {
@@ -186,6 +190,9 @@ package enum ProvenancePathRehydrator {
         return value
     }
 
+    /// Rewrites a value that is the source path or lies under it. Any other value stays as it was, one that only holds
+    /// the source path inside it among them, so a sibling whose name extends the source's, `S-2/x` beside `S`, keeps
+    /// its name (2.11 A68, SW1 (c)).
     private static func rehydratePathString(
         _ string: String,
         sourcePath: String,
@@ -197,9 +204,6 @@ package enum ProvenancePathRehydrator {
         let sourcePrefix = sourcePath.hasSuffix("/") ? sourcePath : sourcePath + "/"
         if string.hasPrefix(sourcePrefix) {
             return destinationPath + "/" + string.dropFirst(sourcePrefix.count)
-        }
-        if string.contains(sourcePath) {
-            return string.replacingOccurrences(of: sourcePath, with: destinationPath)
         }
         return string
     }

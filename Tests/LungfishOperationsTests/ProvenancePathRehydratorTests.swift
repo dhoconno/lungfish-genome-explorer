@@ -203,7 +203,59 @@ final class ProvenancePathRehydratorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.publicKeyURL(for: recordURL).path))
     }
 
+    /// SW1 (b). A record's signature file is not a record. A rename that changes no signed value of a signed record
+    /// leaves its signature file alone, the same file with the same bytes, and the record still verifies. At the base
+    /// the enumerator took `<record>.signature.json` for a record and wrote it again.
+    func testTheRewriteLeavesASignatureFileAlone() throws {
+        let temp = try makeTemporaryFolder("Signature")
+        let source = temp.appendingPathComponent("kraken2-batch", isDirectory: true)
+        let destination = temp.appendingPathComponent("kraken2-batch renamed", isDirectory: true)
+        // The fixture names `input.fastq` and `output.fastq`, nothing under the folder.
+        let signer = LocalProvenanceSigningProvider(privateKey: "lane-a68-throwaway-signing-key")
+        let written = try ProvenanceWriter(signingProvider: signer).write(.fixture(), to: source)
+        try FileManager.default.moveItem(at: source, to: destination)
+        let recordURL = destination.appendingPathComponent(written.lastPathComponent)
+        let signatureURL = ProvenanceSigningConfiguration.signatureURL(for: recordURL)
+        let identity = try Self.fileNumber(of: signatureURL)
+        let bytes = try Data(contentsOf: signatureURL)
+
+        ProvenancePathRehydrator.rehydrate(from: source, to: destination)
+
+        XCTAssertEqual(try Self.fileNumber(of: signatureURL), identity, "the signature file is the file it was")
+        XCTAssertEqual(try Data(contentsOf: signatureURL), bytes, "the signature file holds the bytes it held")
+        XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: recordURL))
+    }
+
+    /// SW1 (c). A record under a folder that names a file in a sibling folder whose name extends the folder's keeps the
+    /// sibling's path after a rename. At the base the rewrite replaced the folder's path inside any value, so
+    /// `kraken2-batch-2/S1/report.tsv` came to read `kraken2-batch renamed-2/S1/report.tsv`, a file that never existed.
+    func testARenameKeepsThePathOfASiblingWhoseNameExtendsTheFolders() throws {
+        let temp = try makeTemporaryFolder("Sibling")
+        let source = temp.appendingPathComponent("kraken2-batch", isDirectory: true)
+        let destination = temp.appendingPathComponent("kraken2-batch renamed", isDirectory: true)
+        let siblingFile = temp.appendingPathComponent("kraken2-batch-2/S1/report.tsv").standardizedFileURL.path
+        let ownFile = source.appendingPathComponent("S1/report.tsv").standardizedFileURL.path
+        try Self.write(
+            ["inputs": [["path": siblingFile]], "outputs": [["path": ownFile]]],
+            to: source.appendingPathComponent(".lungfish-provenance.json")
+        )
+
+        try FileManager.default.moveItem(at: source, to: destination)
+        ProvenancePathRehydrator.rehydrate(from: source, to: destination)
+
+        let record = try Self.read(destination.appendingPathComponent(".lungfish-provenance.json"))
+        let input = (record["inputs"] as? [[String: Any]])?.first?["path"] as? String
+        let output = (record["outputs"] as? [[String: Any]])?.first?["path"] as? String
+        XCTAssertEqual(input, siblingFile, "the sibling's file keeps its path")
+        XCTAssertEqual(output, destination.appendingPathComponent("S1/report.tsv").standardizedFileURL.path)
+    }
+
     // MARK: - Helpers
+
+    private static func fileNumber(of url: URL) throws -> UInt64 {
+        let number = try FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber
+        return try XCTUnwrap(number, url.path).uint64Value
+    }
 
     private func makeTemporaryFolder(_ name: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory
