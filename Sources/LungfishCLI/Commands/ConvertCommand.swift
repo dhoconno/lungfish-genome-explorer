@@ -306,7 +306,7 @@ struct ConvertCommand: AsyncParsableCommand {
             sequences = try await reader.readAll()
             annotations = []
 
-        case "gb", "gbk", "genbank":
+        case "gb", "gbk", "genbank", "gbff":
             let reader = try GenBankReader(url: inputURL)
             let records = try await reader.readAll()
             sequences = records.map { $0.sequence }

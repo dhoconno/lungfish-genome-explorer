@@ -11,8 +11,10 @@
 // header holds the name and the time of the file it compressed, so the bytes of a `.gz` differ from run to
 // run and only the text after decompression is pinned.
 //
-// macOS ships no /usr/bin/zstd, which is the only path the export launches, so on a Mac without one the zstd
-// export fails and publishes nothing, and the pin says so. Where /usr/bin/zstd exists it pins the text.
+// macOS ships no /usr/bin/zstd, which was the only path the export launched, so at the base the zstd export
+// failed and published nothing on a Mac without one, and the pin said so. The route looks in /usr/bin and in
+// Homebrew's two prefixes, so with a zstd there the pin holds the same text, and without one the export still
+// fails and publishes nothing. The test at the end replays the row's recorded command on a copy of the folder.
 //
 // It runs the system gzip, so its name ends in Conformance, which keeps it out of the unit tier, and it
 // skips without gzip unless `LUNGFISH_REQUIRE_TOOLS=1`. It points `LUNGFISH_CLI_PATH` at the built
@@ -92,9 +94,11 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             XCTAssertEqual(text, SequenceExportPinExpected.cases[name], "\(name) with gzip")
         }
 
-        // The same four exports with zstd. The export launches /usr/bin/zstd, which macOS does not ship, so on
-        // a Mac without one the export fails and publishes nothing. Where one sits there, the text is the same.
-        let hasZstd = FileManager.default.isExecutableFile(atPath: "/usr/bin/zstd")
+        // The same four exports with zstd. At the base the export launched only /usr/bin/zstd, which macOS does
+        // not ship, so on a Mac without one it failed and published nothing. The route looks in /usr/bin and in
+        // Homebrew's two prefixes, so with a zstd in one of them the text is the same, and without one the export
+        // still fails and publishes nothing.
+        let hasZstd = SequenceExportCompressor.zstdExecutable() != nil
         for item in cases {
             if hasZstd {
                 let text = try await export(item.sources, to: "\(item.name).zst", format: item.format, compression: .zstd)
@@ -114,6 +118,46 @@ final class SequenceExportPinConformanceTests: XCTestCase {
                     )
                 }
             }
+        }
+    }
+
+    /// The row's recorded command, moved onto a copy of the folder and run there, writes the text the run wrote
+    /// (C against C'). Each compressor available here runs once.
+    func testTheRecordedCommandReproducesTheRun() async throws {
+        try requireTools()
+        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let first = inputs.appendingPathComponent("first.fa")
+        let second = inputs.appendingPathComponent("second.fa")
+        try ">alpha first record\nACGTACGTAC\n>beta\nTTGGCCAATT\n".write(to: first, atomically: true, encoding: .utf8)
+        try ">gamma\nGGGGCCCCAAAATTTT\n".write(to: second, atomically: true, encoding: .utf8)
+        let replayRoot = try TestTempDirectory.make(prefix: "sequence-export-replay")
+        defer { TestTempDirectory.cleanup(replayRoot) }
+        try FileManager.default.copyItem(at: inputs, to: replayRoot.appendingPathComponent("inputs"))
+        try FileManager.default.createDirectory(at: replayRoot.appendingPathComponent("out"), withIntermediateDirectories: true)
+
+        var compressions: [SequenceExportCompression] = [.gzip]
+        if SequenceExportCompressor.zstdExecutable() != nil { compressions.append(.zstd) }
+        for compression in compressions {
+            let name = compression == .gzip ? "run.fa.gz" : "run.fa.zst"
+            let text = try await export(
+                [Self.fileSource(first), Self.fileSource(second)], to: name, format: .fasta, compression: compression
+            )
+            let output = root.appendingPathComponent("out").appendingPathComponent(name)
+            let recorded = try XCTUnwrap(AppDelegate.sequenceExportCLICommand(
+                inputURLs: [first, second], outputURL: output, format: .fasta, compression: compression
+            ))
+            let rebased = try RecordedCLICommand.rebased(recorded, from: root, to: replayRoot)
+            let replayOutput = replayRoot.appendingPathComponent("out").appendingPathComponent(name)
+            let count = try await SequenceExportRoute.run(
+                arguments: RecordedCLICommand.arguments(of: rebased), outputURL: replayOutput
+            )
+            XCTAssertEqual(count, 3, "\(name) replay count")
+            let replayed = try Self.decompress(
+                replayOutput, with: compression == .gzip ? "/usr/bin/gzip" : (SequenceExportCompressor.zstdExecutable()?.path ?? "zstd")
+            )
+            XCTAssertEqual(replayed, text, "\(name) replay text")
+            XCTAssertEqual(text, SequenceExportPinExpected.cases["two"], "\(name) against the pinned text")
         }
     }
 
@@ -145,7 +189,9 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path),
             "\(name) has its record beside it"
         )
-        let text = try Self.decompress(output, with: compression == .gzip ? "/usr/bin/gzip" : "/usr/bin/zstd")
+        let text = try Self.decompress(
+            output, with: compression == .gzip ? "/usr/bin/gzip" : (SequenceExportCompressor.zstdExecutable()?.path ?? "zstd")
+        )
         return text.replacingOccurrences(of: "[0-9]{2}-[A-Z]{3}-[0-9]{4}", with: "<DATE>", options: .regularExpression)
     }
 

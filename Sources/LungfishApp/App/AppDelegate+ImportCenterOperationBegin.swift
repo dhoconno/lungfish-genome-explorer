@@ -373,21 +373,17 @@ extension AppDelegate {
     /// `launch` with the operation ID only when the row started. The row
     /// locks no bundle.
     ///
-    /// The row records `lungfish-cli convert` through
-    /// `sequenceExportCLICommand`, which adds `--include-annotations` for a
-    /// GenBank export because the run writes the source's annotations.
-    ///
-    /// cli-parity-gap: sequence-export-compressed-or-bundle. That command
-    /// exists only for a single file input without compression. `inputURL` is
-    /// nil when the export has several sources or its source is a captured
-    /// document snapshot rather than a file, and the command is nil whenever
-    /// compression is chosen, because
-    /// `convert` writes no compressed output. The row then records no command
-    /// until a command covers those exports.
+    /// The row records the `lungfish-cli convert` command the export runs
+    /// (`sequenceExportCLICommand`), with every file source as an input, the
+    /// `--compress` option when compression is chosen, and
+    /// `--include-annotations` for a GenBank export or a reference bundle.
+    /// `inputURLs` is empty when the selection holds a captured document
+    /// snapshot, which is sequences held in memory with no file for `convert`
+    /// to read, and the row then records no command.
     @discardableResult
     static func beginSequenceExportOperation(
         outputURL: URL,
-        inputURL: URL?,
+        inputURLs: [URL],
         format: SequenceExportFormat,
         compression: SequenceExportCompression,
         routeContext: OperationRouteContext?,
@@ -399,7 +395,7 @@ extension AppDelegate {
             detail: "Preparing sequence export...",
             operationType: .export,
             cliCommand: Self.sequenceExportCLICommand(
-                inputURL: inputURL,
+                inputURLs: inputURLs,
                 outputURL: outputURL,
                 format: format,
                 compression: compression
@@ -419,9 +415,9 @@ extension AppDelegate {
     /// reference bundle, and calls `launch` with the operation ID only when
     /// the row started. The row locks no bundle.
     ///
-    /// cli-parity-gap: sequence-export-batch. One `lungfish-cli convert`
-    /// command exports one bundle, and no command covers the batch, so the row
-    /// records no command until a command covers the batch.
+    /// The row records one `lungfish-cli convert` line for each bundle
+    /// (`batchSequenceExportCLICommands`), which the batch runs one after
+    /// another, so it records the commands that run.
     @discardableResult
     static func beginBatchSequenceExportOperation(
         bundleURLs: [URL],
@@ -432,11 +428,17 @@ extension AppDelegate {
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
+        let commands = Self.batchSequenceExportCLICommands(
+            for: bundleURLs,
+            outputFolder: outputFolder,
+            format: format,
+            compression: compression
+        )
         let result = reporter.begin(
             title: "Exporting \(bundleURLs.count) sequence files",
             detail: "Preparing batch export...",
             operationType: .export,
-            cliCommand: nil,
+            cliCommand: commands.isEmpty ? nil : commands.joined(separator: "\n"),
             routeContext: routeContext
         )
         switch result {

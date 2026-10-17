@@ -93,10 +93,11 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         let bundle = URL(fileURLWithPath: "/tmp/project/Alpha.lungfishref", isDirectory: true)
         let output = URL(fileURLWithPath: "/tmp/Exports/Alpha.fa")
 
-        let arguments = AppDelegate.referenceBundleSequenceExportCLIArguments(
-            bundleURL: bundle,
+        let arguments = SequenceExportRoute.arguments(
+            inputs: [bundle],
             outputURL: output,
-            format: .fasta
+            format: .fasta,
+            compression: .none
         )
 
         XCTAssertEqual(arguments, [
@@ -106,6 +107,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
             "--to-format", "fasta",
             "--include-annotations",
             "--force",
+            "--format", "json",
             "--quiet",
         ])
     }
@@ -297,7 +299,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertFalse(entries.contains { $0.hasPrefix(".barcode05-export") })
     }
 
-    func testBatchSequenceExportCLICommandsOmitUnsupportedCompressionWrapper() {
+    func testBatchSequenceExportCLICommandsCarryTheCompressor() {
         let folder = URL(fileURLWithPath: "/tmp/Exports", isDirectory: true)
         let bundles = [
             URL(fileURLWithPath: "/tmp/project/Alpha.lungfishref", isDirectory: true),
@@ -310,7 +312,9 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
             compression: .gzip
         )
 
-        XCTAssertTrue(commands.isEmpty)
+        XCTAssertEqual(commands.count, 1)
+        XCTAssertTrue(commands[0].contains("--compress gzip"))
+        XCTAssertTrue(commands[0].contains("Alpha.gb.gz"))
     }
 
     func testSuggestedMergedBundleNameUsesFirstSelectedTitle() {

@@ -1879,7 +1879,7 @@ extension AppDelegate {
             let itemURLs = sources.filter { $0.document == nil }.map { $0.metadata.url }
             Self.beginSequenceExportOperation(
                 outputURL: outputURL,
-                inputURL: sources.count == 1 && itemURLs.count == 1 ? itemURLs[0] : nil,
+                inputURLs: itemURLs.count == sources.count ? itemURLs : [],
                 format: format,
                 compression: compression,
                 routeContext: routeContext
@@ -2042,34 +2042,6 @@ extension AppDelegate {
                     task.cancel()
                 }
             }
-        }
-    }
-
-    nonisolated func compressExportFile(
-        _ writeURL: URL,
-        to outputURL: URL,
-        compression: SequenceExportCompression
-    ) throws {
-        let process = Process()
-        switch compression {
-        case .gzip:
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        case .zstd:
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/zstd")
-        case .none:
-            return
-        }
-        process.arguments = ["-c", writeURL.path]
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-        process.standardOutput = outputHandle
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "com.lungfish.browser", code: Int(process.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey: "Compression failed for \(outputURL.lastPathComponent)."])
         }
     }
 

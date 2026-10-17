@@ -682,7 +682,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
 
         AppDelegate.beginSequenceExportOperation(
             outputURL: outputURL,
-            inputURL: inputURL,
+            inputURLs: [inputURL],
             format: .genbank,
             compression: .none,
             routeContext: routeContext,
@@ -714,7 +714,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
 
         AppDelegate.beginSequenceExportOperation(
             outputURL: outputURL,
-            inputURL: inputURL,
+            inputURLs: [inputURL],
             format: .fasta,
             compression: .none,
             routeContext: nil,
@@ -736,7 +736,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
 
         AppDelegate.beginSequenceExportOperation(
             outputURL: outputURL,
-            inputURL: bundleURL,
+            inputURLs: [bundleURL],
             format: .fasta,
             compression: .none,
             routeContext: nil,
@@ -752,55 +752,86 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         XCTAssertTrue(command.force)
         XCTAssertTrue(command.globalOptions.quiet)
         // The run executes these arguments for a single reference bundle.
-        let runArguments = AppDelegate.referenceBundleSequenceExportCLIArguments(
-            bundleURL: bundleURL,
+        let runArguments = SequenceExportRoute.arguments(
+            inputs: [bundleURL],
             outputURL: outputURL,
-            format: .fasta
+            format: .fasta,
+            compression: .none
         )
         XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), runArguments)
     }
 
-    func testSequenceExportWithNoSingleFileInputRecordsNoCommandAsAParityGap() throws {
+    func testSequenceExportOfSeveralFilesRecordsOneConvertCommandWithEveryInput() throws {
         let reporter = RecordingOperationReporter()
+        let first = URL(fileURLWithPath: "/tmp/lane 1a2/Project.lungfish/Imports/first one.fasta")
+        let second = URL(fileURLWithPath: "/tmp/lane 1a2/Project.lungfish/Imports/second.gb")
+        let outputURL = URL(fileURLWithPath: "/tmp/lane 1a2/Exports/exported_sequences.fa")
 
         AppDelegate.beginSequenceExportOperation(
-            outputURL: URL(fileURLWithPath: "/tmp/lane 1a2/Exports/exported_sequences.fa"),
-            inputURL: nil,
+            outputURL: outputURL,
+            inputURLs: [first, second],
             format: .fasta,
             compression: .none,
             routeContext: nil,
             reporter: reporter
         ) { _ in }
 
-        // Several sources or a captured document snapshot have no single
-        // input file for `convert`.
+        // Several file sources are the inputs of one `convert`, written to one output in order.
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(item.operationType, .export)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ConvertCommand.self)
+        XCTAssertEqual(command.inputs, [first.path, second.path])
+        XCTAssertEqual(command.outputFile, outputURL.path)
+        XCTAssertNil(command.compress)
+        let runArguments = SequenceExportRoute.arguments(
+            inputs: [first, second], outputURL: outputURL, format: .fasta, compression: .none
+        )
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), runArguments)
+    }
+
+    func testSequenceExportOfACapturedSnapshotRecordsNoCommand() throws {
+        let reporter = RecordingOperationReporter()
+
+        AppDelegate.beginSequenceExportOperation(
+            outputURL: URL(fileURLWithPath: "/tmp/lane 1a2/Exports/exported_sequences.fa"),
+            inputURLs: [],
+            format: .fasta,
+            compression: .none,
+            routeContext: nil,
+            reporter: reporter
+        ) { _ in }
+
+        // A captured document snapshot is sequences held in memory with no file for `convert` to read.
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(item.operationType, .export)
         XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "sequence-export-compressed-or-bundle")
     }
 
-    func testCompressedSequenceExportRecordsNoCommandAsAParityGap() throws {
-        for compression in [SequenceExportCompression.gzip, .zstd] {
+    func testCompressedSequenceExportRecordsTheConvertCommandWithItsCompressor() throws {
+        for (compression, word) in [(SequenceExportCompression.gzip, "gzip"), (.zstd, "zstd")] {
             let reporter = RecordingOperationReporter()
+            let inputURL = URL(fileURLWithPath: "/tmp/lane 1a2/Project.lungfish/Imports/sample.fasta")
+            let outputURL = URL(fileURLWithPath: "/tmp/lane 1a2/Exports/sample.fa.gz")
 
             AppDelegate.beginSequenceExportOperation(
-                outputURL: URL(fileURLWithPath: "/tmp/lane 1a2/Exports/sample.fa.gz"),
-                inputURL: URL(fileURLWithPath: "/tmp/lane 1a2/Project.lungfish/Imports/sample.fasta"),
+                outputURL: outputURL,
+                inputURLs: [inputURL],
                 format: .fasta,
                 compression: compression,
                 routeContext: nil,
                 reporter: reporter
             ) { _ in }
 
-            // `convert` writes no compressed output.
             let item = try XCTUnwrap(reporter.items.first)
-            XCTAssertNil(item.cliCommand, "\(compression) export has no convert equivalent")
-            assertCLIParityGap(item.cliCommand, id: "sequence-export-compressed-or-bundle")
+            let command = try RecordedCLICommand.parse(item.cliCommand, as: ConvertCommand.self)
+            XCTAssertEqual(command.compress?.rawValue, word)
+            XCTAssertEqual(command.inputs, [inputURL.path])
+            XCTAssertEqual(command.outputFile, outputURL.path)
+            XCTAssertTrue(command.force)
         }
     }
 
-    func testBatchSequenceExportRecordsItsRowAndNoCommandAsAParityGap() throws {
+    func testBatchSequenceExportRecordsItsRowAndOneConvertLineForEachBundle() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = makeRouteContext()
         let outputFolder = URL(fileURLWithPath: "/tmp/lane 1a2/Exports", isDirectory: true)
@@ -829,13 +860,18 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
 
-        // One `convert` command exports one bundle and no command covers the
-        // batch, so the row records no command.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "sequence-export-batch")
+        // The batch runs one `convert` for each bundle, in order, and the row records those lines.
+        let commands = try RecordedCLICommand.parseScript(item.cliCommand).compactMap { $0 as? ConvertCommand }
+        XCTAssertEqual(commands.count, 3)
+        XCTAssertEqual(commands.map(\.inputs), bundles.map { [$0.path] })
+        XCTAssertEqual(
+            commands.map { URL(fileURLWithPath: $0.outputFile).lastPathComponent },
+            ["Alpha.gb", "Beta Name.gb", "Gamma.gb"]
+        )
+        XCTAssertTrue(commands.allSatisfy { $0.toFormat == "genbank" && $0.includeAnnotations && $0.force })
     }
 
-    func testCompressedBatchSequenceExportRecordsNoCommandAsAParityGap() throws {
+    func testCompressedBatchSequenceExportRecordsTheCompressorOfEachLine() throws {
         let reporter = RecordingOperationReporter()
 
         AppDelegate.beginBatchSequenceExportOperation(
@@ -852,8 +888,13 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
 
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(item.title, "Exporting 2 sequence files")
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "sequence-export-batch")
+        let commands = try RecordedCLICommand.parseScript(item.cliCommand).compactMap { $0 as? ConvertCommand }
+        XCTAssertEqual(commands.count, 2)
+        XCTAssertTrue(commands.allSatisfy { $0.compress == .gzip })
+        XCTAssertEqual(
+            commands.map { URL(fileURLWithPath: $0.outputFile).lastPathComponent },
+            ["Alpha.fa.gz", "Beta.fa.gz"]
+        )
     }
 
     // MARK: - Sites with no lock launch nothing when the begin is refused
@@ -892,7 +933,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
             routeContext: nil, reporter: reporter
         ) { _ in launched.append("classifier result import") })
         check("sequence export", AppDelegate.beginSequenceExportOperation(
-            outputURL: sourceURL, inputURL: nil, format: .fasta, compression: .none,
+            outputURL: sourceURL, inputURLs: [], format: .fasta, compression: .none,
             routeContext: nil, reporter: reporter
         ) { _ in launched.append("sequence export") })
         check("batch sequence export", AppDelegate.beginBatchSequenceExportOperation(
