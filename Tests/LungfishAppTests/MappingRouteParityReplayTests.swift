@@ -45,6 +45,7 @@ final class MappingRouteParityReplayTests: XCTestCase {
     enum Case: String, Sendable {
         case sarscov2PairedMinimap2
         case sarscov2MaterializedBundleMinimap2
+        case sarscov2PairedMinimap2OntoReferenceBundle
     }
 
     override func setUp() async throws {
@@ -234,13 +235,30 @@ final class MappingRouteParityReplayTests: XCTestCase {
     }
 
     /// The lines the legacy row declares for a case (BIO's ruling D8 on A46 M3), the same two as the plain FASTA case.
+    /// Onto a `.lungfishref` the in-process route also runs the BAM import in its host process, so the import record
+    /// names the host's executable where the CLI route names `lungfish-cli`. That adds seven lines, the five entries
+    /// below (lane A62, ruling A62-ARCH Fix 3, its finding 2 being the prediction row). They go with the in-process route.
     private static func declaredLegacyRow(_ parityCase: Case) -> [RouteParityDeclaredDifference<Case>] {
         let reason = "the legacy row records map without --format json, and the record names its row's command"
         let record = "Project.lungfish/Analyses/minimap2-<TS>/.lungfish-provenance.json"
-        return [
+        var declared = [
             RouteParityDeclaredDifference([parityCase: 2], "differs: \(record) at argv[<ANY>]", reason: reason, closedBy: "2.11"),
             RouteParityDeclaredDifference([parityCase: 1], "differs: \(record) at reproducibleCommand", reason: reason, closedBy: "2.11"),
         ]
+        guard parityCase == .sarscov2PairedMinimap2OntoReferenceBundle else { return declared }
+        let importReason = "the in-process route runs the BAM import in its host process, so the import record names the host's "
+            + "executable where the CLI route names lungfish-cli"
+        let importRecord = "Project.lungfish/Analyses/minimap2-<TS>/sarscov2.lungfishref/alignments/<RUN-ID-1>.import.lungfish-provenance.json"
+        let lines: [(path: String, count: Int)] = [
+            ("argv[0]", 1), ("durableReplayArgv[0]", 1), ("reproducibleCommand", 1),
+            ("steps[<ANY>].argv[0]", 2), ("steps[<ANY>].reproducibleCommand", 2),
+        ]
+        declared += lines.map { line in
+            RouteParityDeclaredDifference(
+                [parityCase: line.count], "differs: \(importRecord) at \(line.path)", reason: importReason, closedBy: "2.11"
+            )
+        }
+        return declared
     }
 
     // MARK: - The materialized input
