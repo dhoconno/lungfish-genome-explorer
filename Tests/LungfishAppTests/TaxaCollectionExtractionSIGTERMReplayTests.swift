@@ -74,6 +74,13 @@ final class TaxaCollectionExtractionSIGTERMReplayTests: XCTestCase {
             XCTAssertNotNil(stop.termination, "run \(repetition): the command exited")
             let record = ProvenanceRecorder.loadEnvelope(from: outputDirectory)
             XCTAssertEqual(record?.exitStatus, 125, "run \(repetition): the command exits 125")
+            XCTAssertEqual(
+                Array((record?.argv ?? []).dropFirst()), arguments,
+                "run \(repetition): the cancelled record names the command that ran, --format json included"
+            )
+            let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)) ?? [])
+                .filter { $0.hasPrefix(".kraken2-sources-") || $0.hasSuffix(".fastq") }
+            XCTAssertEqual(leftovers, [], "run \(repetition): a cancelled extraction leaves no scratch folder and no plain FASTQ file")
             let files = ((try? FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)) ?? [])
                 .filter { $0.hasSuffix(".fastq.gz") }
             XCTAssertEqual(files, [], "run \(repetition): a cancelled extraction writes no taxon file")

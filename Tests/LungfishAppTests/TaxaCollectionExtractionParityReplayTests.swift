@@ -75,6 +75,37 @@ final class TaxaCollectionExtractionParityReplayTests: XCTestCase {
         try await assertCase(.skippedTaxa, detail: "Extracted 1 taxa from A66 skips")
     }
 
+    /// The folder's root record names the command the row recorded and every file the run wrote (review
+    /// of A66, ARCH checks 2 and 3). The pipeline saves one record a taxon, so without the leaf's own
+    /// record the folder's root record would name the last taxon's step, a command the row did not run.
+    func testTheRootRecordNamesTheCommandTheRowRecorded() async throws {
+        try await requireSeqkit()
+        for parityCase in [Case.singleEndWithChildren, .pairedMates] {
+            let root = scratch.appendingPathComponent("record-\(parityCase.rawValue)", isDirectory: true)
+            _ = try TaxaCollectionFixtures(in: root)
+            let outcome = await sideC(root, parityCase)
+            XCTAssertEqual(outcome.end, .completed, "\(parityCase): \(outcome.detail)")
+            let command = try XCTUnwrap(outcome.recordedCommand, "\(parityCase): the row recorded no command")
+            let rowWords = try RouteParityHarness.arguments(ofLine: command)
+            let folder = Self.setup(root, parityCase).outputDirectory
+
+            let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), "\(parityCase): the folder holds no record")
+            XCTAssertEqual(record.status, .completed, "\(parityCase): the root record reads completed")
+            XCTAssertEqual(Array(record.argv.dropFirst()), rowWords, "\(parityCase): the root record names the command the row recorded")
+            let recorded = record.outputs.map { URL(fileURLWithPath: $0.path, relativeTo: folder).standardizedFileURL }
+            XCTAssertFalse(recorded.isEmpty, "\(parityCase): the root record names no output")
+            for output in recorded {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "\(parityCase): \(output.path) is recorded but missing")
+            }
+            let written = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".fastq.gz") })
+            XCTAssertFalse(written.isEmpty, "\(parityCase): the run wrote no file")
+            XCTAssertEqual(
+                written.subtracting(Set(recorded.map(\.lastPathComponent))), [],
+                "\(parityCase): every file of the folder is named in the root record"
+            )
+        }
+    }
+
     private func assertCase(_ parityCase: Case, detail: String) async throws {
         let result = try await harness.assertParity(
             parityCase,
