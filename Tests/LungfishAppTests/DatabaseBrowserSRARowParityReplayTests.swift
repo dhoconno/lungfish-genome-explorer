@@ -99,6 +99,15 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
             XCTAssertEqual(rootRecord.workflowName, "sra-fastq-download-bundle", "side \(run.side)")
             XCTAssertEqual(rootRecord.toolName, "lungfish-cli", "side \(run.side)")
             XCTAssertEqual(rootRecord.tool.name, "lungfish-cli", "side \(run.side)")
+            XCTAssertEqual(rootRecord.tool.kind, "cli", "side \(run.side)")
+            XCTAssertFalse(rootRecord.toolVersion.isEmpty, "side \(run.side)")
+            XCTAssertNotEqual(rootRecord.toolVersion, "unknown", "side \(run.side)")
+            // The run's tool changed. The steps still name the tools that ran.
+            if parityCase == .toolkitRun {
+                XCTAssertTrue(
+                    rootRecord.steps.contains { $0.toolName == "prefetch" },
+                    "side \(run.side): the toolkit's own step stays in the record")
+            }
         }
     }
 
