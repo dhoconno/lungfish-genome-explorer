@@ -109,6 +109,7 @@ final class ConvertCompressTests: XCTestCase {
     func testAFailingCompressorPublishesNothingAndLeavesNoStage() async throws {
         let missing = root.appendingPathComponent("missing.fa")
         let destination = root.appendingPathComponent("out.fa.gz")
+        HomebrewPrefixForZstd.exposeIfNeeded()
         var kinds: [SequenceExportCompressor.Kind] = [.gzip]
         if SequenceExportCompressor.zstdExecutable() != nil { kinds.append(.zstd) }
         for kind in kinds {
@@ -151,6 +152,7 @@ final class ConvertCompressTests: XCTestCase {
 /// zstd is not part of macOS, so this runs where a zstd sits in /usr/bin or a Homebrew prefix.
 final class ConvertCompressZstdConformanceTests: XCTestCase {
     func testZstdOutputHoldsTheConvertedText() async throws {
+        HomebrewPrefixForZstd.exposeIfNeeded()
         guard let zstd = SequenceExportCompressor.zstdExecutable() else {
             try ToolAvailability.skipOrFail("no zstd in \(SequenceExportCompressor.zstdCandidates)")
         }

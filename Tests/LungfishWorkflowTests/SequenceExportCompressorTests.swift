@@ -7,10 +7,44 @@
 // through `DurableReplace`, a new call that the tests of lane S62 do not cover, so the second class has Durability
 // in its name, which is what `scripts/testing/exfat-tests.sh --simulate` selects.
 
+import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
 final class SequenceExportCompressorTests: XCTestCase {
+    /// The lookup names no Homebrew prefix of its own, because the source scan of ReleaseBuildConfigurationTests
+    /// forbids it. It takes the prefix from HOMEBREW_PREFIX, keeps /usr/bin first and lists no place twice (Q66 fix a).
+    func testZstdIsLookedForInUsrBinThenTheHomebrewPrefixThenUsrLocal() {
+        XCTAssertEqual(
+            SequenceExportCompressor.zstdSearchList(homebrewPrefix: nil),
+            ["/usr/bin/zstd", "/usr/local/bin/zstd"]
+        )
+        XCTAssertEqual(
+            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "/custom/brew"),
+            ["/usr/bin/zstd", "/custom/brew/bin/zstd", "/usr/local/bin/zstd"]
+        )
+        XCTAssertEqual(
+            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "/custom/brew//"),
+            ["/usr/bin/zstd", "/custom/brew/bin/zstd", "/usr/local/bin/zstd"],
+            "a trailing slash is dropped"
+        )
+        XCTAssertEqual(
+            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "/usr/local"),
+            ["/usr/bin/zstd", "/usr/local/bin/zstd"],
+            "the Intel prefix is listed once"
+        )
+        XCTAssertEqual(
+            SequenceExportCompressor.zstdSearchList(homebrewPrefix: ""),
+            ["/usr/bin/zstd", "/usr/local/bin/zstd"],
+            "an empty value names no prefix"
+        )
+        XCTAssertEqual(
+            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "relative/brew"),
+            ["/usr/bin/zstd", "/usr/local/bin/zstd"],
+            "a prefix that is not an absolute path is ignored"
+        )
+    }
+
     func testTheRefusalWordsNameWhatToInstallAndWhereItLooked() {
         XCTAssertEqual(
             SequenceExportCompressor.CompressionError.compressorNotFound(searched: ["/a/zstd", "/b/zstd"]).errorDescription,
@@ -29,6 +63,8 @@ final class SequenceExportCompressorDurabilityTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
+        // The zstd of Homebrew is found through HOMEBREW_PREFIX, which a plain launch of the tests lacks.
+        HomebrewPrefixForZstd.exposeIfNeeded()
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("SequenceExportCompressorDurability-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

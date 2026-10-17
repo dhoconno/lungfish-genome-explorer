@@ -98,6 +98,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         // not ship, so on a Mac without one it failed and published nothing. The route looks in /usr/bin and in
         // Homebrew's two prefixes, so with a zstd in one of them the text is the same, and without one the export
         // still fails and publishes nothing.
+        HomebrewPrefixForZstd.exposeIfNeeded()
         let hasZstd = SequenceExportCompressor.zstdExecutable() != nil
         for item in cases {
             if hasZstd {
@@ -136,6 +137,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         try FileManager.default.copyItem(at: inputs, to: replayRoot.appendingPathComponent("inputs"))
         try FileManager.default.createDirectory(at: replayRoot.appendingPathComponent("out"), withIntermediateDirectories: true)
 
+        HomebrewPrefixForZstd.exposeIfNeeded()
         var compressions: [SequenceExportCompression] = [.gzip]
         if SequenceExportCompressor.zstdExecutable() != nil { compressions.append(.zstd) }
         for compression in compressions {
