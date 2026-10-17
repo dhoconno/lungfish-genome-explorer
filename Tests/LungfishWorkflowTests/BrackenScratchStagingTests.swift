@@ -214,4 +214,42 @@ final class BrackenScratchStagingTests: XCTestCase {
         let gone = SystemTempScratchSweep.sweep(root: scratchRoot, processInspector: { _ in nil })
         XCTAssertEqual(gone.removed.map(\.lastPathComponent), [name], "the sweep claims it once its creator is gone")
     }
+
+    /// S32 review fix 6. A run that is killed with a database path that has whitespace leaves a scratch folder that
+    /// holds a link to the user's Kraken2 database. The sweep removes that folder and the link in it, never the database.
+    func testSweepingAnAbandonedScratchLeavesTheLinkedDatabase() throws {
+        let fm = FileManager.default
+        let temp = try TestTempDirectory.make(prefix: "bracken-abandoned-scratch")
+        defer { TestTempDirectory.cleanup(temp) }
+        let scratchRoot = temp.appendingPathComponent("T", isDirectory: true)
+        let outputDirectory = temp.appendingPathComponent("out", isDirectory: true)
+        let databasePath = temp.appendingPathComponent("kraken db", isDirectory: true)
+        try fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try fm.createDirectory(at: databasePath, withIntermediateDirectories: true)
+        try "db".write(to: databasePath.appendingPathComponent("hash.k2d"), atomically: true, encoding: .utf8)
+        let config = makeConfig(outputDirectory: outputDirectory, databasePath: databasePath)
+        try "kreport".write(to: config.reportURL, atomically: true, encoding: .utf8)
+        let staging = BrackenScratchStaging.plan(
+            config: config,
+            distributionURL: databasePath.appendingPathComponent("database150mers.kmer_distrib"),
+            scratchRoot: scratchRoot
+        )
+
+        try staging.prepare()
+
+        let linked = try fm.destinationOfSymbolicLink(atPath: staging.stagedDatabasePath.path)
+        XCTAssertEqual(
+            URL(fileURLWithPath: linked).resolvingSymlinksInPath().path,
+            databasePath.resolvingSymlinksInPath().path,
+            "the whitespace in the database path puts a link to it in the scratch folder"
+        )
+        let gone = SystemTempScratchSweep.sweep(root: scratchRoot, processInspector: { _ in nil })
+
+        XCTAssertEqual(gone.removed.map(\.lastPathComponent), [staging.scratchDirectory.lastPathComponent])
+        XCTAssertFalse(fm.fileExists(atPath: staging.scratchDirectory.path), "the abandoned scratch folder is gone")
+        XCTAssertTrue(
+            fm.fileExists(atPath: databasePath.appendingPathComponent("hash.k2d").path),
+            "the sweep removes the link and never the database"
+        )
+    }
 }
