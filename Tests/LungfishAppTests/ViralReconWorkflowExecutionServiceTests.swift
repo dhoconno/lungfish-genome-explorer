@@ -1059,9 +1059,12 @@ final class PipelineCancelCallbackRegressionTests: XCTestCase {
             managedMappingBody.contains("taskHandle.assign(task)"),
             "runManagedMapping should assign its batch task to the handle so cancel callbacks can reach it"
         )
+        // Since the CLI route (0008ccfca) the helper that runs one bundle's command installs the row's cancel.
+        // `runManagedMapping` hands that helper `cancelBatch`, which the next assertion finds.
+        let singleMappingBody = try functionBody(named: "runSingleManagedMappingThroughCLI", in: source)
         XCTAssertTrue(
-            managedMappingBody.contains("OperationCenter.shared.setCancelCallback(for: opID)"),
-            "runManagedMapping should wire OperationCenter cancellation for each per-bundle operation"
+            singleMappingBody.contains("OperationCenter.shared.setCancelCallback(for: opID)"),
+            "runSingleManagedMappingThroughCLI should wire OperationCenter cancellation for each per-bundle operation"
         )
         XCTAssertTrue(
             managedMappingBody.contains("taskHandle.cancel()"),
