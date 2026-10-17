@@ -104,9 +104,58 @@ final class BAMImportCLIGUIParityReplayTests: XCTestCase {
         }
     }
 
+    /// Side C and its replay are cancelled through the real transport once a stand-in samtools holds the sort. Each exits 125
+    /// inside the grace after the cancel, its record in the project reads cancelled and no process of its tree is left (lane S30's
+    /// assertions in `assertCancelled`). The cancelled import adds nothing to the bundle. Side A is not run, since the in-process
+    /// service has no cancel and writes no record.
+    func testACancelWhileSortingEndsCancelledWithARecordAndNothingAddedOnTheCommandRoutes() async throws {
+        let cancel = RouteParityCancel(
+            when: { root in FileManager.default.fileExists(atPath: Self.standInPIDFile(in: root).path) },
+            record: { root in ProvenanceRecorder.loadEnvelope(from: Self.paths(root).project)?.status.rawValue }
+        )
+        let cli = harness.cliBinary
+        let standIn = RouteParityHarness(
+            cliBinary: cli,
+            kind: .bundle,
+            replayTimeout: .seconds(120),
+            environment: { root in ["LUNGFISH_CONDA_ROOT": root.appendingPathComponent("conda", isDirectory: true).path] }
+        )
+        let runs = try await standIn.run(
+            in: scratch.appendingPathComponent("cancel", isDirectory: true),
+            cancel: cancel,
+            fixture: { root in try Self.writeCancelFixture(root) },
+            sideA: { _ in RouteParitySideOutcome(end: .cancelled, detail: "not run, the in-process service has no cancel and writes no record") },
+            sideC: { root in
+                let (bam, bundle, _) = Self.paths(root)
+                let run = await RouteParityHarness.runCLI(
+                    cli,
+                    arguments: BAMImportCLICommand.arguments(bamURL: bam, bundleURL: bundle),
+                    timeout: .seconds(120),
+                    environment: standIn.environment(root),
+                    cancelWhen: { cancel.isReached(root) }
+                )
+                return RouteParitySideOutcome(
+                    end: run.end,
+                    detail: run.detail,
+                    recordedCommand: BAMImportCLICommand.build(bamURL: bam, bundleURL: bundle),
+                    cancel: run.cancel
+                )
+            }
+        )
+        for side in [runs.c, runs.cPrime] {
+            XCTAssertEqual(side.outcome.end, .cancelled, "\(side.side): \(side.outcome.detail)")
+            await RouteParityHarness.assertCancelled(side, cancel)
+            let alignments = Self.paths(side.root).bundle.appendingPathComponent("alignments", isDirectory: true)
+            XCTAssertEqual(
+                (try? FileManager.default.contentsOfDirectory(atPath: alignments.path)) ?? [], [],
+                "side \(side.side): a cancelled import adds nothing to the bundle"
+            )
+        }
+    }
+
     // MARK: - The sides
 
-    private static func paths(_ root: URL) -> (bam: URL, bundle: URL, project: URL) {
+    nonisolated private static func paths(_ root: URL) -> (bam: URL, bundle: URL, project: URL) {
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         return (
             project.appendingPathComponent("Incoming/test.paired_end.sorted.bam"),
@@ -166,6 +215,37 @@ final class BAMImportCLIGUIParityReplayTests: XCTestCase {
             identifier: "bundle.reference",
             source: SourceInfo(organism: "Virus", assembly: "MN908947.3", database: "Test")
         ).save(to: bundle)
+    }
+
+    /// Where the stand-in samtools of a side writes its process ID.
+    nonisolated private static func standInPIDFile(in root: URL) -> URL {
+        root.appendingPathComponent("conda/envs/samtools/bin/samtools.pid")
+    }
+
+    /// The fixture of the cancel case, a project and a bundle as above, a BAM that only needs to exist and a conda root
+    /// whose samtools answers a version probe and writes its process ID beside itself, then sleeps on any other call.
+    private static func writeCancelFixture(_ root: URL) throws {
+        let (bam, bundle, _) = paths(root)
+        try FileManager.default.createDirectory(at: bam.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try Data([0x1f, 0x8b]).write(to: bam)
+        try BundleManifest(
+            name: "Reference",
+            identifier: "bundle.reference",
+            source: SourceInfo(organism: "Virus", assembly: "MN908947.3", database: "Test")
+        ).save(to: bundle)
+        let samtools = """
+        #!/bin/sh
+        case "$*" in
+          *version*) echo "samtools 1.20"; exit 0 ;;
+        esac
+        echo $$ > "$(dirname "$0")/samtools.pid"
+        exec sleep 120
+        """
+        let binary = root.appendingPathComponent("conda/envs/samtools/bin/samtools")
+        try FileManager.default.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try samtools.write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
     }
 
     /// The command of each step of the one import record in the bundle.
