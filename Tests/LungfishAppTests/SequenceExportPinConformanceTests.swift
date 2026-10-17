@@ -161,7 +161,44 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         }
     }
 
+    /// A task that is cancelled before it asks for the export stops the route, publishes nothing and leaves no
+    /// stage file. The command does not start, so the cancel goes through the launcher as a row's Cancel does.
+    func testACancelledTaskStopsTheRouteAndLeavesNoOutput() async throws {
+        try requireTools()
+        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
+        let folder = root.appendingPathComponent("out", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let input = inputs.appendingPathComponent("first.fa")
+        try ">alpha\nACGTACGTAC\n".write(to: input, atomically: true, encoding: .utf8)
+        let output = folder.appendingPathComponent("cancelled.fa.gz")
+        let arguments = SequenceExportRoute.arguments(
+            inputs: [input], outputURL: output, format: .fasta, compression: .gzip
+        )
+
+        let task = Task { () -> Int in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await SequenceExportRoute.run(arguments: arguments, outputURL: output)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("a cancelled task must not publish an export")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("expected a cancel, got \(error)")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [], "nothing is left in the folder")
+    }
+
     // MARK: - Helpers
+
+    /// The file name a gzip header records, or nil when it records none.
+    private static func gzipHeaderName(_ bytes: Data) -> String? {
+        guard bytes.count > 10, bytes[bytes.startIndex + 3] & 0x08 != 0 else { return nil }
+        let start = bytes.startIndex + 10
+        guard let end = bytes[start...].firstIndex(of: 0) else { return nil }
+        return String(decoding: bytes[start..<end], as: UTF8.self)
+    }
 
     private static func fileSource(_ url: URL) -> SequenceExportSourceResolver.Source {
         .init(
@@ -189,6 +226,14 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path),
             "\(name) has its record beside it"
         )
+        if compression == .gzip {
+            // The base ran `gzip -c export.fa` (or export.gb) in the export's temp folder, so the header names that.
+            XCTAssertEqual(
+                Self.gzipHeaderName(try Data(contentsOf: output)),
+                format == .genbank ? "export.gb" : "export.fa",
+                "\(name) names the file the export gave gzip"
+            )
+        }
         let text = try Self.decompress(
             output, with: compression == .gzip ? "/usr/bin/gzip" : (SequenceExportCompressor.zstdExecutable()?.path ?? "zstd")
         )
