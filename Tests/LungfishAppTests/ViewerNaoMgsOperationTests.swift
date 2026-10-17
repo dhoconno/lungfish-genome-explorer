@@ -71,7 +71,7 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         XCTAssertEqual(command.subsampleCount, 3)
         XCTAssertEqual(command.subsampleSeed, 0)
         XCTAssertEqual(command.entrezQuery, "txid11320[Organism:exp]")
-        XCTAssertNil(command.sourceResult, "the NAO-MGS result folder is private to its view")
+        XCTAssertNil(command.sourceResult, "a plan built without a source result records none, and NaoMgsBlastLineageTests passes the folder")
         XCTAssertNil(command.contig)
         XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
