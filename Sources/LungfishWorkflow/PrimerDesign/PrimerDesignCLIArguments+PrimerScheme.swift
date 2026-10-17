@@ -8,8 +8,8 @@ extension PrimerDesignCLIArguments {
     /// named, so the command never falls back to an engine config the dialog did not send.
     /// A control that does not apply to the mode stays unnamed, since the command refuses it.
     public static func primerScheme(inputs: [URL], output: URL, options: PrimerSchemeDesignOptions) -> [String]? {
-        var args = inputs.map { "--msa=\($0.path)" }
-        args += ["--output=\(output.path)", "--grouping=\(options.grouping.rawValue)"]
+        var args = inputs.flatMap { ["--msa", $0.path] }
+        args += ["--output", output.path, "--grouping=\(options.grouping.rawValue)"]
         switch options.engine {
         case .olivar:
             guard let olivar = options.olivar else { return nil }

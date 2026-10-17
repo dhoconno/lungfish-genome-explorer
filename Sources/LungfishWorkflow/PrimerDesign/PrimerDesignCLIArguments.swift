@@ -35,14 +35,16 @@ public enum PrimerDesignCLIArguments {
             !options.pickInternalOligo && options.assayMode.picksInternalOligo,
         ]
         guard !selections.isEmpty, !clearsPresetRule.contains(true) else { return nil }
+        // A path is a word of its own, so a replay that moves the project folder can rebase it
+        // (RouteParityHarness.rebased only moves a word that starts with the folder).
         var args = ["--assay=\(options.assayMode.rawValue)"]
         var policy: Primer3BindingSitePolicy?
         for selection in selections {
             switch selection {
             case .fastaRecord(let url, let index):
-                args.append("--fasta-record=\(url.path)@\(index)")
+                args += ["--fasta-record", "\(url.path)@\(index)"]
             case .msaTemplate(let url, let index, let selectionPolicy):
-                args.append("--msa-template=\(url.path)@\(index)")
+                args += ["--msa-template", "\(url.path)@\(index)"]
                 policy = policy ?? selectionPolicy
             }
         }
@@ -50,7 +52,7 @@ public enum PrimerDesignCLIArguments {
             args.append("--binding-site-policy=" + (policy == .templateOnly
                 ? "template-only" : "exclude-variable-and-gapped-columns"))
         }
-        args.append("--output=\(output.path)")
+        args += ["--output", output.path]
         args += [
             "--product-size-min=\(options.productSizeMin)", "--product-size-max=\(options.productSizeMax)",
         ]
@@ -113,10 +115,10 @@ public enum PrimerDesignCLIArguments {
     ) -> [String] {
         func option(_ name: String, _ value: String) -> [String] { ["--\(name)=\(value)"] }
         var args: [String] = []
-        for input in inputs { args += option("msa", input.path) }
-        args += option("output", output.path)
+        for input in inputs { args += ["--msa", input.path] }
+        args += ["--output", output.path]
         args += option("grouping", grouping.rawValue)
-        if let executableURL { args += option("primalscheme3-path", executableURL.path) }
+        if let executableURL { args += ["--primalscheme3-path", executableURL.path] }
         args += option("amplicon-size", String(options.ampliconSize))
         if let value = options.requestedAmpliconSizeMinimum { args += option("amplicon-size-min", String(value)) }
         if let value = options.requestedAmpliconSizeMaximum { args += option("amplicon-size-max", String(value)) }
