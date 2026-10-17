@@ -6,8 +6,9 @@
 // so a command that put `error.localizedDescription` in its `failed` event showed the system's "The
 // operation couldn't be completed" in the Operations row, and the app alerts with the event's text.
 // Each test throws a refusal from the place its command catches errors and reads the `failed` line the
-// command wrote. A site that no input can reach with a `ValidationError` today (its do block calls
-// only Workflow and IO services) is pinned by the transcripts under `Tests/Fixtures/cli-events`.
+// command wrote. A site that no input can reach with a `ValidationError` today (its do block calls only
+// Workflow and IO services) has no test of its own here. `CLIFailureWordsTests` covers the helper, and a
+// `git grep` for `emitFailed(error.localizedDescription)` that prints nothing keeps those sites on it.
 
 import ArgumentParser
 import Foundation
@@ -19,6 +20,9 @@ import LungfishTestSupport
 final class CLIFailedRowWordsTests: XCTestCase {
     /// A refusal's words, such as the ones a command's own checks write.
     private static let refusal = "Give at least two sequences to align."
+
+    /// The words of a refusal to fetch a demo.
+    private static let demoRefusal = "No demo is named x."
 
     private var root: URL!
 
@@ -59,10 +63,10 @@ final class CLIFailedRowWordsTests: XCTestCase {
         let reporter = DemoFetchReporter(id: "demo", eventsOn: true, quiet: false, interactive: false)
 
         let output = try await ImportStreamCapture.capture(in: scratch) {
-            try reporter.finish(.failed(ValidationError(Self.refusal)))
+            try reporter.finish(.failed(ValidationError(Self.demoRefusal)))
         }
 
-        XCTAssertEqual(try Self.failedMessage(in: output.standardOutput), Self.refusal)
+        XCTAssertEqual(try Self.failedMessage(in: output.standardOutput), Self.demoRefusal)
         XCTAssertNotNil(output.thrown, "a failed fetch exits with the failure status")
     }
 
