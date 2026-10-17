@@ -400,14 +400,19 @@ struct ConvertCommand: AsyncParsableCommand {
         var command = [CLICommandIdentity.executableName, "convert"]
         command += inputURLs.map(\.path)
         command += ["--to", outputURL.path, "--to-format", toFormat]
-        if let compress {
-            command += ["--compress", compress.rawValue]
-        }
+        // The order is the order of the app's `SequenceExportRoute.arguments`, so the argv of the record, the
+        // command of the row and the run are one (review A49-M3, fix F4).
         if includeAnnotations {
             command.append("--include-annotations")
         }
+        if let compress {
+            command += ["--compress", compress.rawValue]
+        }
         if force {
             command.append("--force")
+        }
+        if globalOptions.outputFormat == .json {
+            command += ["--format", "json"]
         }
         if globalOptions.quiet {
             command.append("--quiet")
