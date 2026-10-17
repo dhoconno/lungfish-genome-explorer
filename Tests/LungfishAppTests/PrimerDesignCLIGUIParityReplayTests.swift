@@ -15,9 +15,10 @@
 // - Side C' is the harness's replay of that command.
 //
 // A against C and C against C' declare nothing (C4). The bundle needs a mask policy of its own, `primerAnalysis` at the end
-// of this file, which the review moves into the contract or refuses. It hides what each host says about itself in the two
-// provenance envelopes (the argument vector, the options it names and its tool name and version), and the class pins the
-// CLI's vector against the recorded command apart.
+// of this file. Ruling of the A67 review. Class-local for this class only. It is promoted to a family policy beside
+// OutputEquivalence.MaskPolicy.gatk, with a sentence in docs/contracts/CLI-EQUIVALENCE.md line 35, when a second case or
+// family needs it. It hides what each host says about itself in the two provenance envelopes (the argument vector, the
+// options it names and its tool name and version), and the class pins the CLI's vector against the recorded command apart.
 //
 // It launches the built lungfish-cli and the managed primer3_core, so its name ends in ReplayTests, which sends it to the
 // integration tier, and it skips without primer3 unless `LUNGFISH_REQUIRE_TOOLS=1`, which fails it. The other engines
@@ -210,17 +211,21 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
 }
 
 extension OutputEquivalence.MaskPolicy {
-    /// The masks of a primer analysis bundle, for the ARCH and QA review of lane A67 to move into the contract
-    /// (`OutputEquivalence+Masks.swift`) or refuse. The standard masks compare payload text as written and name a
+    /// The masks of a primer analysis bundle. Ruling of the A67 review. Class-local for this class only. It is promoted
+    /// to a family policy beside OutputEquivalence.MaskPolicy.gatk, with a sentence in docs/contracts/CLI-EQUIVALENCE.md
+    /// line 35, when a second case or family needs it. The standard masks compare payload text as written and name a
     /// provenance envelope or a record by the file's own name. A primer bundle holds fresh UUIDs and clock values in
     /// payload text (the BED lines, the Primer3 boulder files, the template FASTA headers, `results/*.json`), and keeps
     /// `provenance/wrapper.json` and `execution-provenance/*.json`, which are provenance envelopes by content and
     /// not by name. So two runs of one command differ in each of them, and C against C' could never be empty.
-    /// This policy gives that payload text the masks a record gets (UUIDs, run IDs, ISO times), the runtime keys a
-    /// provenance envelope masks, and hides the digests and sizes of files that hold the run's own UUIDs, in
-    /// the manifest and in the execution record. Each file is still compared as text, so a changed pair, template,
-    /// option or flag still differs.
-    static var primerAnalysis: OutputEquivalence.MaskPolicy {
+    /// This policy gives that payload text the masks a record gets (UUIDs, run IDs, ISO times) and the runtime keys a
+    /// provenance envelope masks. It hides every sha256, checksumSHA256, byteSize and fileSize value in every record and
+    /// payload of the bundle, not only those of files that hold the run's own UUIDs. Each file is still compared as
+    /// text, so a changed pair, template, option or flag still differs. argv and reproducibleCommand are hidden because
+    /// PrimerDesignDialogPresenter.swift:120 still records the app's launch arguments and not the recorded command
+    /// (CLI-EQUIVALENCE.md line 16), and they leave hostKeys when that is fixed. explicit is hidden because the app
+    /// names its dialog controls and the CLI its flags.
+    fileprivate static var primerAnalysis: OutputEquivalence.MaskPolicy {
         var policy = OutputEquivalence.MaskPolicy.standard
         let digests = OutputEquivalence.Mask(name: "primerAnalysisDigests") { text, _ in
             let pattern = try! NSRegularExpression(

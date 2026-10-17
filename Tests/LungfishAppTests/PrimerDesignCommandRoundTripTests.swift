@@ -46,6 +46,9 @@ final class PrimerDesignCommandRoundTripTests: XCTestCase {
         let args = try XCTUnwrap(
             PrimerDesignCLIArguments.primer3(selections: selections, output: Self.output, options: options),
             file: file, line: line)
+        XCTAssertTrue(
+            args.contains("--output") && !args.contains { $0.hasPrefix("--output=") },
+            "a path option is a word of its own so RouteParityHarness can rebase it", file: file, line: line)
         let command = try RecordedCLICommand.parse(
             OperationCenter.buildCLICommand(subcommand: "primers design primer3", args: args),
             as: PrimerDesignCommand.Primer3Subcommand.self, file: file, line: line)
