@@ -4,15 +4,21 @@ Convert sequences between FASTA, GenBank, GFF3, and other formats.
 Format is auto-detected from input file extension or can be specified.
 Input and output must be different files; in-place, symlink and hard-link
 aliases are rejected.
+Several inputs are written to one output, in the order given. --compress writes
+the output as gzip
+or zstd under the --to name as given, and publishes it only when the compressed
+file is whole.
 
 Examples:
   lungfish-cli convert input.gb --to output.fa --to-format fasta
   lungfish-cli convert input.fasta --to output.gb --to-format genbank
+  lungfish-cli convert first.fa second.fa --to both.fa.gz --compress gzip
 
-USAGE: lungfish-cli convert [<options>] <input> --to <to>
+USAGE: lungfish-cli convert [<options>] <inputs> ... --to <to>
 
 ARGUMENTS:
-  <input>                 Input file path
+  <inputs>                Input file paths. Several inputs are written to one
+                          output, in the order given
 
 OPTIONS:
   --to-format <to-format> Output format: fasta, genbank, gff3, fastq (default:
@@ -20,6 +26,8 @@ OPTIONS:
   --to <to>               Output file path (required)
   --include-annotations   Include annotations in output (if supported)
   --force                 Overwrite existing output file
+  --compress <compress>   Compress the output with gzip or zstd (the --to name
+                          is used as given) (values: gzip, zstd)
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

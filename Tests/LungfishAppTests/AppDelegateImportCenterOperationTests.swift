@@ -698,7 +698,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: ConvertCommand.self)
-        XCTAssertEqual(command.input, inputURL.path)
+        XCTAssertEqual(command.inputs, [inputURL.path])
         XCTAssertEqual(command.outputFile, outputURL.path)
         XCTAssertEqual(command.toFormat, "genbank")
         XCTAssertTrue(command.force)
@@ -723,7 +723,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
 
         // A FASTA file has no annotations, so the command is unchanged.
         let command = try RecordedCLICommand.parse(reporter.items.first?.cliCommand, as: ConvertCommand.self)
-        XCTAssertEqual(command.input, inputURL.path)
+        XCTAssertEqual(command.inputs, [inputURL.path])
         XCTAssertEqual(command.outputFile, outputURL.path)
         XCTAssertEqual(command.toFormat, "fasta")
         XCTAssertTrue(command.force)
@@ -745,7 +745,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
 
         let item = try XCTUnwrap(reporter.items.first)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: ConvertCommand.self)
-        XCTAssertEqual(command.input, bundleURL.path)
+        XCTAssertEqual(command.inputs, [bundleURL.path])
         XCTAssertEqual(command.outputFile, outputURL.path)
         XCTAssertEqual(command.toFormat, "fasta")
         XCTAssertTrue(command.includeAnnotations)

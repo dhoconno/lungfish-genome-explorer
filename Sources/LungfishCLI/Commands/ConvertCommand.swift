@@ -17,15 +17,18 @@ struct ConvertCommand: AsyncParsableCommand {
             Convert sequences between FASTA, GenBank, GFF3, and other formats.
             Format is auto-detected from input file extension or can be specified.
             Input and output must be different files; in-place, symlink and hard-link aliases are rejected.
+            Several inputs are written to one output, in the order given. --compress writes the output as gzip
+            or zstd under the --to name as given, and publishes it only when the compressed file is whole.
 
             Examples:
               lungfish-cli convert input.gb --to output.fa --to-format fasta
               lungfish-cli convert input.fasta --to output.gb --to-format genbank
+              lungfish-cli convert first.fa second.fa --to both.fa.gz --compress gzip
             """
     )
 
-    @Argument(help: "Input file path")
-    var input: String
+    @Argument(help: "Input file paths. Several inputs are written to one output, in the order given")
+    var inputs: [String]
 
     @Option(
         name: .customLong("to-format"),
@@ -51,18 +54,24 @@ struct ConvertCommand: AsyncParsableCommand {
     )
     var force: Bool = false
 
+    @Option(
+        name: .customLong("compress"),
+        help: "Compress the output with gzip or zstd (the --to name is used as given)"
+    )
+    var compress: ConvertCompression?
+
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
-        // Validate input file exists
-        guard FileManager.default.fileExists(atPath: input) else {
-            throw CLIError.inputFileNotFound(path: input)
+        // Validate every input file exists
+        for path in inputs where !FileManager.default.fileExists(atPath: path) {
+            throw CLIError.inputFileNotFound(path: path)
         }
 
-        let inputURL = URL(fileURLWithPath: input)
+        let inputURLs = inputs.map { URL(fileURLWithPath: $0) }
         let outputURL = URL(fileURLWithPath: outputFile)
         let outputAlreadyExists = FileManager.default.fileExists(atPath: outputFile)
         if outputAlreadyExists, !force {
@@ -71,78 +80,44 @@ struct ConvertCommand: AsyncParsableCommand {
                 reason: "File already exists. Use --force to overwrite."
             )
         }
-        let inputIdentity = try FileManager.default.attributesOfItem(atPath: inputURL.resolvingSymlinksInPath().path)
         let outputIdentity = try? FileManager.default.attributesOfItem(atPath: outputURL.resolvingSymlinksInPath().path)
-        let sameInode = outputIdentity != nil
-            && (inputIdentity[.systemNumber] as? NSNumber) == (outputIdentity?[.systemNumber] as? NSNumber)
-            && (inputIdentity[.systemFileNumber] as? NSNumber) == (outputIdentity?[.systemFileNumber] as? NSNumber)
-        guard inputURL.canonicalFilePath != outputURL.canonicalFilePath,
-              !sameInode else {
-            throw CLIError.outputWriteFailed(path: outputFile,
-                reason: "Input and output must be different files. In-place, symlink and hard-link aliases are not supported.")
+        for inputURL in inputURLs {
+            let inputIdentity = try FileManager.default.attributesOfItem(atPath: inputURL.resolvingSymlinksInPath().path)
+            let sameInode = outputIdentity != nil
+                && (inputIdentity[.systemNumber] as? NSNumber) == (outputIdentity?[.systemNumber] as? NSNumber)
+                && (inputIdentity[.systemFileNumber] as? NSNumber) == (outputIdentity?[.systemFileNumber] as? NSNumber)
+            guard inputURL.canonicalFilePath != outputURL.canonicalFilePath,
+                  !sameInode else {
+                throw CLIError.outputWriteFailed(path: outputFile,
+                    reason: "Input and output must be different files. In-place, symlink and hard-link aliases are not supported.")
+            }
         }
 
         // Show progress. Under `--format json` the text goes to standard error, so standard output
         // holds the JSON result alone (2.6 row 213).
         if !globalOptions.quiet {
+            let source = inputURLs.count == 1 ? inputURLs[0].lastPathComponent : "\(inputURLs.count) files"
             printHumanLine(
-                formatter.info("Converting \(inputURL.lastPathComponent) to \(toFormat.uppercased())..."),
+                formatter.info("Converting \(source) to \(toFormat.uppercased())..."),
                 eventsOn: globalOptions.outputFormat == .json
             )
         }
 
-        // Detect input format and read - strip .gz extension for format detection
-        let sequences: [Sequence]
-        let annotations: [SequenceAnnotation]
-
-        var detectURL = inputURL
-        if detectURL.pathExtension.lowercased() == "gz" {
-            detectURL = detectURL.deletingPathExtension()
+        // Read every input in the order given. Each keeps its own annotations beside its sequences.
+        var sourced: [(sequence: Sequence, annotations: [SequenceAnnotation])] = []
+        var allAnnotations: [SequenceAnnotation] = []
+        var provenanceInputs: [FileRecord] = []
+        var inputFormats: [String] = []
+        for inputURL in inputURLs {
+            let read = try await readInput(inputURL)
+            provenanceInputs += read.records
+            if !inputFormats.contains(read.format) { inputFormats.append(read.format) }
+            sourced += read.sequences.map { ($0, read.annotations) }
+            allAnnotations += read.annotations
         }
-        let ext = detectURL.pathExtension.lowercased()
-        let provenanceInputs = try Self.provenanceInputFiles(inputURL: inputURL, inputFormat: ext,
-            includeAnnotations: includeAnnotations)
-        switch ext {
-        case "fa", "fasta", "fna", "faa":
-            let reader = try FASTAReader(url: inputURL)
-            sequences = try await reader.readAll()
-            annotations = []
-
-        case "gb", "gbk", "genbank":
-            let reader = try GenBankReader(url: inputURL)
-            let records = try await reader.readAll()
-            sequences = records.map { $0.sequence }
-            annotations = records.flatMap { $0.annotations }
-
-        case "fastq", "fq":
-            let reader = FASTQReader()
-            let fastqRecords = try await reader.readAll(from: inputURL)
-            // Convert FASTQRecord to Sequence
-            sequences = try fastqRecords.map { record in
-                try Sequence(
-                    name: record.identifier,
-                    description: record.description,
-                    alphabet: .dna,
-                    bases: record.sequence
-                )
-            }
-            annotations = []
-
-        case "lungfishref":
-            (sequences, annotations) = try await Self.readReferenceBundle(
-                inputURL,
-                includeAnnotations: includeAnnotations
-            )
-
-        default:
-            throw CLIError.formatDetectionFailed(path: input)
-        }
-
-        let observedInputs = try Self.provenanceInputFiles(inputURL: inputURL, inputFormat: ext,
-            includeAnnotations: includeAnnotations)
-        guard observedInputs == provenanceInputs else {
-            throw CLIError.conversionFailed(reason: "Input files changed while conversion was reading them; retry with a stable source.")
-        }
+        let sequences = sourced.map(\.sequence)
+        let annotations = allAnnotations
+        let ext = inputFormats.joined(separator: ",")
 
         // Validate the output format (and any format-specific preconditions,
         // e.g. GFF3 needing non-empty annotations) BEFORE touching the
@@ -162,8 +137,21 @@ struct ConvertCommand: AsyncParsableCommand {
         }
 
         let outputDirectory = outputURL.deletingLastPathComponent()
-        let stagedOutputURL = outputDirectory.appendingPathComponent(".\(outputURL.lastPathComponent).\(UUID()).convert.tmp")
-        defer { try? FileManager.default.removeItem(at: stagedOutputURL) }
+        // The file that is published. Without --compress the writers below fill it. With --compress they write
+        // export.<ext> in a stage folder, the name the app's export gave it, and the compressor turns that into
+        // this file, so a gzip header names export.<ext> as it did.
+        let publishedStageURL = outputDirectory.appendingPathComponent(".\(outputURL.lastPathComponent).\(UUID()).convert.tmp")
+        defer { try? FileManager.default.removeItem(at: publishedStageURL) }
+        let rawStageDirectory = outputDirectory.appendingPathComponent(
+            ".\(outputURL.lastPathComponent).\(UUID()).convert.d", isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: rawStageDirectory) }
+        let stagedOutputURL = compress == nil
+            ? publishedStageURL
+            : rawStageDirectory.appendingPathComponent("export.\(Self.exportExtension(normalizedToFormat))")
+        if compress != nil {
+            try FileManager.default.createDirectory(at: rawStageDirectory, withIntermediateDirectories: true)
+        }
         let rootArtifacts = ProvenancePublicationArtifacts.bundleRootArtifacts(for: outputDirectory)
         let fileArtifacts = ProvenancePublicationArtifacts.fileSidecarArtifacts(for: outputURL)
         let publication = try ScientificFilePublicationTransaction(
@@ -178,10 +166,10 @@ struct ConvertCommand: AsyncParsableCommand {
 
         case "genbank", "gb":
             let writer = GenBankWriter(url: stagedOutputURL)
-            let records = sequences.map { seq in
+            let records = sourced.map { seq, sourceAnnotations in
                 GenBankRecord(
                     sequence: seq,
-                    annotations: includeAnnotations ? annotations.filter { $0.chromosome == seq.name } : [],
+                    annotations: includeAnnotations ? sourceAnnotations.filter { $0.chromosome == seq.name } : [],
                     locus: LocusInfo(
                         name: seq.name,
                         length: seq.length,
@@ -217,40 +205,43 @@ struct ConvertCommand: AsyncParsableCommand {
             // Unreachable: normalizedToFormat was already validated above.
             throw CLIError.unsupportedFormat(format: toFormat)
         }
+        if let compress {
+            try await SequenceExportCompressor.compress(
+                source: stagedOutputURL, to: publishedStageURL, kind: compress.kind
+            )
+        }
         let completedAt = runClock.now
         try Task.checkCancellation()
-        try publication.publish(stagedURL: stagedOutputURL, to: outputURL, replacingExisting: force)
+        try publication.publish(stagedURL: publishedStageURL, to: outputURL, replacingExisting: force)
 
+        var recordedParameters: [String: ParameterValue] = [
+            "input": .file(inputURLs[0]),
+            "output": .file(outputURL),
+            "inputFormat": .string(ext),
+            "toFormat": .string(toFormat),
+            "includeAnnotations": .boolean(includeAnnotations),
+            "force": .boolean(force),
+            "sequenceCount": .integer(sequences.count),
+            "annotationCount": .integer(includeAnnotations ? annotations.count : 0)
+        ]
+        if inputURLs.count > 1 {
+            recordedParameters["inputs"] = .array(inputURLs.map { .file($0) })
+        }
+        if let compress {
+            recordedParameters["compress"] = .string(compress.rawValue)
+        }
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish convert",
-            parameters: [
-                "input": .file(inputURL),
-                "output": .file(outputURL),
-                "inputFormat": .string(ext),
-                "toFormat": .string(toFormat),
-                "includeAnnotations": .boolean(includeAnnotations),
-                "force": .boolean(force),
-                "sequenceCount": .integer(sequences.count),
-                "annotationCount": .integer(includeAnnotations ? annotations.count : 0)
-            ],
+            parameters: recordedParameters,
             defaults: [
                 "toFormat": .string("fasta"),
                 "includeAnnotations": .boolean(false),
                 "force": .boolean(false)
             ],
-            resolved: [
-                "input": .file(inputURL),
-                "output": .file(outputURL),
-                "inputFormat": .string(ext),
-                "toFormat": .string(toFormat),
-                "includeAnnotations": .boolean(includeAnnotations),
-                "force": .boolean(force),
-                "sequenceCount": .integer(sequences.count),
-                "annotationCount": .integer(includeAnnotations ? annotations.count : 0)
-            ],
+            resolved: recordedParameters,
             toolName: "lungfish convert",
             toolVersion: LungfishCLI.configuration.version,
-            command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
+            command: provenanceCommand(inputURLs: inputURLs, outputURL: outputURL),
             inputs: provenanceInputs,
             outputs: [
                 ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
@@ -280,15 +271,86 @@ struct ConvertCommand: AsyncParsableCommand {
         // JSON output
         if globalOptions.outputFormat == .json {
             let result = ConvertResult(
-                inputFile: input,
+                inputFile: inputs[0],
                 outputFile: outputFile,
                 inputFormat: ext,
                 outputFormat: toFormat,
                 sequenceCount: sequences.count,
-                annotationCount: includeAnnotations ? annotations.count : 0
+                annotationCount: includeAnnotations ? annotations.count : 0,
+                inputFiles: inputs.count > 1 ? inputs : nil,
+                compression: compress?.rawValue
             )
             let handler = JSONOutputHandler()
             handler.writeData(result, label: nil)
+        }
+    }
+
+    /// Reads one input by its extension. The record names the files it read, and they are checked again after
+    /// the read, so an input that changed while it was read fails the conversion.
+    private func readInput(_ inputURL: URL) async throws -> (
+        format: String, sequences: [Sequence], annotations: [SequenceAnnotation], records: [FileRecord]
+    ) {
+        // Strip .gz extension for format detection
+        var detectURL = inputURL
+        if detectURL.pathExtension.lowercased() == "gz" {
+            detectURL = detectURL.deletingPathExtension()
+        }
+        let ext = detectURL.pathExtension.lowercased()
+        let provenanceInputs = try Self.provenanceInputFiles(inputURL: inputURL, inputFormat: ext,
+            includeAnnotations: includeAnnotations)
+        let sequences: [Sequence]
+        let annotations: [SequenceAnnotation]
+        switch ext {
+        case "fa", "fasta", "fna", "faa":
+            let reader = try FASTAReader(url: inputURL)
+            sequences = try await reader.readAll()
+            annotations = []
+
+        case "gb", "gbk", "genbank":
+            let reader = try GenBankReader(url: inputURL)
+            let records = try await reader.readAll()
+            sequences = records.map { $0.sequence }
+            annotations = records.flatMap { $0.annotations }
+
+        case "fastq", "fq":
+            let reader = FASTQReader()
+            let fastqRecords = try await reader.readAll(from: inputURL)
+            // Convert FASTQRecord to Sequence
+            sequences = try fastqRecords.map { record in
+                try Sequence(
+                    name: record.identifier,
+                    description: record.description,
+                    alphabet: .dna,
+                    bases: record.sequence
+                )
+            }
+            annotations = []
+
+        case "lungfishref":
+            (sequences, annotations) = try await Self.readReferenceBundle(
+                inputURL,
+                includeAnnotations: includeAnnotations
+            )
+
+        default:
+            throw CLIError.formatDetectionFailed(path: inputURL.path)
+        }
+
+        let observedInputs = try Self.provenanceInputFiles(inputURL: inputURL, inputFormat: ext,
+            includeAnnotations: includeAnnotations)
+        guard observedInputs == provenanceInputs else {
+            throw CLIError.conversionFailed(reason: "Input files changed while conversion was reading them; retry with a stable source.")
+        }
+        return (ext, sequences, annotations, provenanceInputs)
+    }
+
+    /// The extension of the text file the writers fill before it is compressed.
+    private static func exportExtension(_ normalizedToFormat: String) -> String {
+        switch normalizedToFormat {
+        case "genbank", "gb": return "gb"
+        case "fastq", "fq": return "fastq"
+        case "gff3", "gff": return "gff3"
+        default: return "fa"
         }
     }
 
@@ -299,14 +361,13 @@ struct ConvertCommand: AsyncParsableCommand {
         return formatter.string(from: Date()).uppercased()
     }
 
-    private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
-        var command = [
-            CLICommandIdentity.executableName,
-            "convert",
-            inputURL.path,
-            "--to", outputURL.path,
-            "--to-format", toFormat
-        ]
+    private func provenanceCommand(inputURLs: [URL], outputURL: URL) -> [String] {
+        var command = [CLICommandIdentity.executableName, "convert"]
+        command += inputURLs.map(\.path)
+        command += ["--to", outputURL.path, "--to-format", toFormat]
+        if let compress {
+            command += ["--compress", compress.rawValue]
+        }
         if includeAnnotations {
             command.append("--include-annotations")
         }
@@ -415,4 +476,21 @@ struct ConvertResult: Codable {
     let outputFormat: String
     let sequenceCount: Int
     let annotationCount: Int
+    /// Every input, when there are several. The first is `inputFile`.
+    var inputFiles: [String]? = nil
+    /// The compressor of the output, when `--compress` was given.
+    var compression: String? = nil
+}
+
+/// The compressors `convert --compress` offers.
+enum ConvertCompression: String, CaseIterable, ExpressibleByArgument {
+    case gzip
+    case zstd
+
+    var kind: SequenceExportCompressor.Kind {
+        switch self {
+        case .gzip: return .gzip
+        case .zstd: return .zstd
+        }
+    }
 }

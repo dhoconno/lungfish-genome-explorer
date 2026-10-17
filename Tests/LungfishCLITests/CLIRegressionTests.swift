@@ -649,7 +649,7 @@ final class ConvertCommandRegressionTests: XCTestCase {
 
     func testParsingWithRequiredArguments() throws {
         let cmd = try ConvertCommand.parse(["input.fa", "--to", "output.gb", "--to-format", "genbank"])
-        XCTAssertEqual(cmd.input, "input.fa")
+        XCTAssertEqual(cmd.inputs, ["input.fa"])
         XCTAssertEqual(cmd.outputFile, "output.gb")
         XCTAssertEqual(cmd.toFormat, "genbank")
         XCTAssertFalse(cmd.includeAnnotations)
