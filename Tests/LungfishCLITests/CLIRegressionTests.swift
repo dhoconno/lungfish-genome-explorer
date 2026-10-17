@@ -1779,7 +1779,9 @@ final class BlastCommandRegressionTests: XCTestCase {
 
     func testSubcommands() {
         let subs = BlastCommand.configuration.subcommands
-        XCTAssertEqual(subs.count, 1)
+        let names = subs.compactMap { $0.configuration.commandName }
+        XCTAssertEqual(subs.count, 2)
+        XCTAssertEqual(names.sorted(), ["submit", "verify"])
     }
 
     func testDefaultSubcommand() {
