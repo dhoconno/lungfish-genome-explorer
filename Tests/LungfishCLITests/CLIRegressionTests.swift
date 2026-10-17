@@ -1708,9 +1708,10 @@ final class BundleCommandRegressionTests: XCTestCase {
     func testSubcommands() {
         let subs = BundleCommand.configuration.subcommands
         let names = subs.map { $0.configuration.commandName }
-        XCTAssertEqual(subs.count, 8)
+        XCTAssertEqual(subs.count, 9)
         XCTAssertTrue(names.contains("mark-duplicates"))
         XCTAssertTrue(names.contains("deduplicate-alignments"))
+        XCTAssertTrue(names.contains("merge"))
     }
 
     func testDeduplicateAlignmentsSubcommandParsesBundleOptions() throws {
