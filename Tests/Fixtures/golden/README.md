@@ -25,7 +25,7 @@ The captures run the CLI with `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-gold
 
 ### cli-help
 
-`lungfish-cli --experimental-dump-help` lists the command tree, 283 command paths including the hidden `fastq ont-genotype`. The capture runs `<command path> --help` for each one and stores one file per path, named like `lungfish-cli.fastq.materialize.txt`, with `index.tsv` listing the path, whether it is shown, the exit status and the file.
+`lungfish-cli --experimental-dump-help` lists the command tree, 293 command paths including the hidden `fastq ont-genotype`. The capture runs `<command path> --help` for each one and stores one file per path, named like `lungfish-cli.fastq.materialize.txt`, with `index.tsv` listing the path, whether it is shown, the exit status and the file.
 
 ### mapping
 
