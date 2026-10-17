@@ -313,3 +313,18 @@ package struct AlignmentActionContext: Sendable, Equatable {
         value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
+
+extension AlignmentActionContext.EvidenceError: LocalizedError {
+    /// The words of a refusal to act on evidence that is not what the view was built from (Phase 2.11
+    /// lane A69, carry-in row SW11). The Operations row and the alert show this text, and without it they
+    /// showed the system's "The operation couldn't be completed". The words name the file, never its
+    /// path, and say that nothing was run. The lane proposes them and the UX review rules on them.
+    package var errorDescription: String? {
+        switch self {
+        case .missingEvidence(let url):
+            return "\(url.lastPathComponent) is missing, so nothing was run. Restore the file or reopen the alignment."
+        case .staleEvidence(let url):
+            return "\(url.lastPathComponent) changed after the alignment was opened, so nothing was run. Reopen the alignment and try again."
+        }
+    }
+}
