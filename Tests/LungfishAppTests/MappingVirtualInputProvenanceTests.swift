@@ -21,7 +21,7 @@ import LungfishTestSupport
 /// The window path is driven through its production composition. The request
 /// comes from `MappingWizardSheet.buildRunPlan`, and
 /// `AppDelegate.resolveManagedMappingInputs` turns it into the request the
-/// pipeline runs, exactly as `runSingleManagedMappingAwaitingCompletion` does.
+/// pipeline runs, exactly as `lungfish-cli map` does.
 /// `ManagedMappingPipeline` then runs with a stand-in mapper (micromamba)
 /// and a stand-in samtools. The CLI-shaped control builds the request the way
 /// `lungfish-cli map` does, through `MapCommand`'s own resolution, so the
@@ -564,7 +564,7 @@ private struct StandInMappingFixture {
 
     /// The request the Map Reads dialog hands to `runManagedMapping` for one
     /// bundle (the virtual bundle unless another is named), bound to its
-    /// analysis directory as `runSingleManagedMappingAwaitingCompletion`
+    /// analysis directory as `runSingleManagedMappingThroughCLI`
     /// binds it.
     func windowRequest(bundleURL: URL? = nil, outputDirectory: URL) throws -> MappingRunRequest {
         let plan = MappingWizardSheet.buildRunPlan(

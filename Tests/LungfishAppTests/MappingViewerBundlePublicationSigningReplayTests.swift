@@ -6,7 +6,7 @@
 // rewriting the analysis folder's record (`rewriteCanonicalProvenance`) through
 // `ProvenanceWriter(signingProvider: nil)`. The mapping pipeline signs that record when a key is set, and the
 // rewrite then removed the signature, so the record the result opens first, which both the in-process route and
-// `lungfish-cli map` leave, ended unsigned. This maps the golden's reads onto a reference bundle in process
+// `lungfish-cli map` leave, ended unsigned. This maps the golden's reads onto a reference bundle through the CLI route
 // with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the test's folder. It sets a process
 // variable and runs minimap2 and samtools, so its name ends in ReplayTests and it runs in the integration tier.
 //
@@ -32,18 +32,25 @@ final class MappingViewerBundlePublicationSigningReplayTests: XCTestCase {
         let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
         defer { saved.restore() }
 
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so the CLI route cannot run"
+        )
         let root = scratch.appendingPathComponent("root", isDirectory: true)
         try Self.writeFixture(root, onReferenceBundle: true)
         let request = try Self.request(in: root, onReferenceBundle: true)
+        let runner = CLIReadsRunner(cliURLOverride: cli)
         let (_, item) = try await ReadsRouteParity.record(title: Self.title) {
             Task { @MainActor in
-                await AppDelegate().runSingleManagedMappingAwaitingCompletion(
+                await AppDelegate().runSingleManagedMappingThroughCLI(
                     request: request, warning: nil, routeContext: nil,
-                    preassignedAnalysisDirectory: request.outputDirectory, registerCancel: { _ in }
+                    preassignedAnalysisDirectory: request.outputDirectory, runner: runner,
+                    cancelBatch: {}, registerCancel: { _ in }
                 )
             }
         }
-        let outcome = ReadsRouteParity.outcome(of: item)
+        let outcome = ReadsRouteParity.outcome(of: item, recordsCommand: true)
         XCTAssertEqual(outcome.end, .completed, outcome.detail)
 
         let record = Self.openingRecord(in: root)

@@ -867,19 +867,19 @@ final class OperationRoutingTests: XCTestCase {
         let tools = combinedAppDelegateSource()
         let mappingBody = try sourceFunctionBody(
             named: "func runManagedMapping(\n        plan: MappingRunPlan",
-            endingBefore: "    func runSingleManagedMappingAwaitingCompletion",
+            endingBefore: "    func resolveManagedMappingInputs(",
             in: tools
         )
         XCTAssertTrue(mappingBody.contains("SequentialAnalysisBatchHold("))
         XCTAssertFalse(mappingBody.contains("holdAnalysisOutput("))
         // Released from registerCancel, which runs right after the child
-        // starts and tracks its output, before its mapping is awaited. Each
-        // route behind the mapping key (2.10 A46) passes its own registerCancel,
-        // so the text after each one releases the hold before the next begins.
+        // starts and tracks its output, before its mapping is awaited. The CLI
+        // route passes the one registerCancel, so the text after it releases
+        // the hold before the child's command is awaited.
         let afterEachRegisterCancel = mappingBody
             .components(separatedBy: "registerCancel: { @MainActor opID in")
             .dropFirst()
-        XCTAssertEqual(afterEachRegisterCancel.count, 2, "the CLI route and the in-process route")
+        XCTAssertEqual(afterEachRegisterCancel.count, 1, "the CLI route")
         for piece in afterEachRegisterCancel {
             XCTAssertNotNil(piece.range(of: "batchOutputHold.didLaunchChild()"))
         }
@@ -1095,7 +1095,7 @@ final class OperationRoutingTests: XCTestCase {
         let source = combinedAppDelegateSource()
         let fanout = try sourceFunctionBody(
             named: "func runManagedMapping(\n        plan: MappingRunPlan",
-            endingBefore: "    func runSingleManagedMappingAwaitingCompletion",
+            endingBefore: "    func resolveManagedMappingInputs(",
             in: source
         )
         // F5: one `Task.detached` driving a sequential `for` loop over
@@ -1103,9 +1103,9 @@ final class OperationRoutingTests: XCTestCase {
         // starting the next -- NOT N concurrent Task.detached mappers.
         XCTAssertTrue(fanout.contains("let task = Task.detached"))
         XCTAssertTrue(fanout.contains("for request in requests"))
-        XCTAssertTrue(fanout.contains("await self.runSingleManagedMappingAwaitingCompletion("))
-        // Each route behind the mapping key (2.10 A46) hands its child the pooled warning.
-        XCTAssertEqual(fanout.components(separatedBy: "warning: plan.warning").count - 1, 2)
+        XCTAssertTrue(fanout.contains("await self.runSingleManagedMappingThroughCLI("))
+        // The route hands its child the pooled warning.
+        XCTAssertEqual(fanout.components(separatedBy: "warning: plan.warning").count - 1, 1)
         // Only one Task.detached CALL SITE (`let task = Task.detached`) in
         // the fan-out function -- per-bundle work is awaited inline inside
         // that one sequential loop, never spawned as its own detached task
@@ -1115,29 +1115,14 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertEqual(detachedCallSites, 1, "Expected exactly one `let task = Task.detached` (sequential driver), found \(detachedCallSites)")
 
         let single = try sourceFunctionBody(
-            named: "func runSingleManagedMappingAwaitingCompletion",
-            endingBefore: "private func routePostMappingDeterministicCompletion",
+            named: "func runSingleManagedMappingThroughCLI",
+            endingBefore: "private func reloadSidebarAfterMapping",
             in: source
         )
         let opStart = try XCTUnwrap(single.range(of: "Self.beginManagedMappingOperation("))
         let warningLog = try XCTUnwrap(single.range(of: "OperationCenter.shared.log(id: opID, level: .warning, message: warning)"))
         XCTAssertLessThan(opStart.lowerBound, warningLog.lowerBound)
         XCTAssertTrue(single.contains("if let warning {"))
-        // F2 and READ-PAIRING.md: pairing and the layout are decided after
-        // resolution by the shared MappingInputResolver, the call
-        // `lungfish-cli map` makes, never taken from the dialog's request
-        // as-is and never decided by file names in the app.
-        let resolveCall = try XCTUnwrap(single.range(of: "let resolved = try await resolveManagedMappingInputs(for: request)"))
-        XCTAssertTrue(single.contains("try await MappingInputResolver.resolve(request: request, materializer: materializer, progress: progress)"))
-        XCTAssertFalse(single.contains("resolvedPairedEnd"))
-        // The pipeline runs the resolved request, which carries the resolved
-        // files, pairing and read layout, and the read-set plan whose steps
-        // provenance records.
-        let resolvedRequest = try XCTUnwrap(single.range(of: "let resolvedRequest = resolved.request\n"))
-        let run = try XCTUnwrap(single.range(of: "pipeline.run(\n                request: resolvedRequest,"))
-        XCTAssertLessThan(resolveCall.lowerBound, resolvedRequest.lowerBound)
-        XCTAssertLessThan(resolvedRequest.lowerBound, run.lowerBound)
-        XCTAssertTrue(single.contains("inputLayoutReason: resolved.layoutResolution.reason,\n                readSetPlan: resolved.readSetPlan"))
     }
 
     /// Regression test for a round-2 fix: the F2 pairedEnd-resolution change
@@ -1154,43 +1139,12 @@ final class OperationRoutingTests: XCTestCase {
     ///  2. Build the manifest `parameters` field from `resolvedRequest`
     ///     (via `summaryParameters()`), so `isPairedEnd` reflects the
     ///     actually-resolved value used by the pipeline run.
+    ///  Phase 2.11 (K3) took out the in-process route that held item 1, so only the service's side is read here.
     func testManagedMappingManifestRecordsResolvedPairedEndNotPlaceholder() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        // Every AppDelegate file, so the mapping route reads the same wherever it sits (2.10 A46).
-        let source = combinedAppDelegateSource()
-        let single = try sourceFunctionBody(
-            named: "func runSingleManagedMappingAwaitingCompletion",
-            endingBefore: "private func routePostMappingDeterministicCompletion",
-            in: source
-        )
-
-        // The manifest record is written by the shared
-        // MappingResultLayoutService.recordAnalysisManifest (the same call
-        // `lungfish-cli map` makes). The window must hand it the ORIGINAL
-        // request's input URLs for the bundle walk and the resolved request
-        // for the persisted parameters.
-        let capturedAssign = try XCTUnwrap(single.range(of: "let capturedRequest = request\n"))
-        XCTAssertFalse(
-            single[capturedAssign.upperBound...].range(of: "let capturedRequest = resolvedRequest") != nil,
-            "capturedRequest must be derived from the original request, not resolvedRequest"
-        )
-        XCTAssertTrue(
-            single.contains("originalInputURLs: capturedRequest.inputFASTQURLs,"),
-            "recordAnalysisManifest must receive the original request's input URLs (built from capturedRequest), " +
-            "not resolvedRequest's, since resolved files may live in a scratch temp directory outside any bundle"
-        )
-        XCTAssertFalse(
-            single.contains("originalInputURLs: resolvedRequest.inputFASTQURLs"),
-            "the bundle walk must not start from resolvedRequest's (possibly materialized) input URLs"
-        )
-        XCTAssertTrue(
-            single.contains("resolvedRequest: resolvedRequest,"),
-            "recordAnalysisManifest must receive resolvedRequest so the manifest records the resolved run"
-        )
-
         // Inside the service: findSourceBundle walks up from the original
         // URLs, and the persisted parameters (including isPairedEnd) come
         // from resolvedRequest.summaryParameters(), which carries the

@@ -11,7 +11,7 @@ import LungfishWorkflow
 /// The Map Reads window publishes its result through
 /// `MappingResultLayoutService.publishViewerBundle` and records it through
 /// `MappingResultLayoutService.recordAnalysisManifest`
-/// (`AppDelegate.prepareMappingViewerBundleIfPossible`). `lungfish-cli map`
+/// (the Map Reads window's in-process viewer step, deleted in Phase 2.11). `lungfish-cli map`
 /// runs `MapCommand.publishLayout`, which must produce the identical
 /// project layout from the same mapping result.
 final class MapCommandLayoutParityTests: XCTestCase {

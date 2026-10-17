@@ -2,13 +2,14 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A46 M2, ruling 1 of the M1 review (UX 3). The row of today's in-process Map Reads
-// route is frozen here, each bar and detail it shows in order, each line it logs and its end, on
+// Phase 2.10 lane A46 M2, ruling 1 of the M1 review (UX 3). The row of a Map Reads run is frozen in
+// Fixtures/MappingRouteRow, each bar and detail it shows in order, each line it logs and its end, on
 // the mapping golden's fixture with its plain FASTA and once more with that FASTA in a `.lungfishref`
-// bundle, so that the reference viewer's words appear. M3's parity class plays the transcripts of
-// `lungfish-cli map --format json` through the bridge and holds the CLI route's row to these files.
-// The scratch folder of a run reads `/work`. Set LUNGFISH_RECAPTURE_MAPPING_ROW=1 to write the files
-// instead of comparing, and review the diff.
+// bundle, so that the reference viewer's words appear. The files were captured from the in-process
+// route, which Phase 2.11 lane A62 M3 deleted with the hidden mapping key (K3). The CLI route's row is
+// held to them, here on the `.lungfishref` and in MappingRouteParityReplayTests on the plain FASTA.
+// Nothing recaptures the files now, so a change of words is a reviewed edit of them.
+// The scratch folder of a run reads `/work`.
 //
 // The real tools run, so the name holds Conformance and the class never runs in the unit tier:
 //
@@ -38,25 +39,6 @@ final class MappingRouteRowConformanceTests: XCTestCase {
         TestTempDirectory.cleanup(scratch)
     }
 
-    func testTheInProcessRowOnThePlainFASTA() async throws {
-        _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
-        _ = try await ToolAvailability.require("samtools", environment: "samtools")
-        let fixture = try MappingRouteGolden.Fixture(in: scratch)
-        let row = try await MappingRouteRow.recordInProcess(fixture.windowRequest())
-        try MappingRouteRow.assertFrozen(row, name: "plain-fasta", scratch: scratch)
-    }
-
-    func testTheInProcessRowOnALungfishrefShowsTheViewersWords() async throws {
-        _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
-        _ = try await ToolAvailability.require("samtools", environment: "samtools")
-        let fixture = try MappingRouteGolden.Fixture(in: scratch)
-        let bundle = try MappingRouteRow.referenceBundle(from: fixture.reference, in: fixture.project)
-        let request = fixture.windowRequest(referenceFASTA: bundle.appendingPathComponent("genome/sequence.fa"))
-        let row = try await MappingRouteRow.recordInProcess(request)
-        XCTAssertTrue(row.shown.contains("Validating alignment file..."), row.text)
-        try MappingRouteRow.assertFrozen(row, name: "lungfishref", scratch: scratch)
-    }
-
     /// Fix 2 of the whole-lane review of lane A46. With a `.lungfishref` the CLI route's `map` publishes
     /// the reference viewer, so its row shows the viewer's steps, and the file the in-process route froze
     /// holds them too. The details, the lines logged and the end are the frozen ones. The CLI row's bar
@@ -80,14 +62,9 @@ final class MappingRouteRowConformanceTests: XCTestCase {
         let fixture = try MappingRouteGolden.Fixture(in: scratch)
         let bundle = try MappingRouteRow.referenceBundle(from: fixture.reference, in: fixture.project)
         let request = fixture.windowRequest(referenceFASTA: bundle.appendingPathComponent("genome/sequence.fa"))
-        let row = try await MappingRouteRow.recordInProcess(request) { appDelegate, plan in
-            let keys = TestDefaultsSuite(prefix: "MappingRouteRowConformanceTests")
-            defer { keys.tearDown() }
-            keys.defaults.set(ReadsLaunchRoute.cli.rawValue, forKey: ReadsLaunchPath.mapping.defaultsKey)
-            appDelegate.runManagedMapping(plan: plan, routeSettings: ReadsLaunchRouteSettings(defaults: keys.defaults))
-        }
+        let row = try await MappingRouteRow.record(request)
         XCTAssertTrue(row.shown.contains("Validating alignment file..."), row.text)
-        // The in-process row steps back after 1.0000, so a bar that only rises shows the CLI route ran.
+        // The frozen row steps back after 1.0000, so a bar that only rises shows the CLI route ran.
         XCTAssertEqual(row.bar, MappingRouteRow.heldBar(row.bar), "the CLI route holds the bar")
         try MappingRouteRow.assertFrozen(
             row, name: "lungfishref", scratch: scratch, recapturing: false, bar: MappingRouteRow.heldBar
@@ -151,24 +128,15 @@ struct MappingRouteRow: Equatable {
             .appendingPathComponent("Fixtures/MappingRouteRow", isDirectory: true)
     }
 
-    /// Runs `request` alone through `runManagedMapping` and records its row until it ends. The
-    /// freeze holds the in-process route, which stays one release behind the Map Reads key (2.7
-    /// E14), so the default `run` reads a key set to `legacy` now that the key defaults to `cli`.
+    /// Runs `request` alone through `runManagedMapping`, the CLI route since Phase 2.11 (K3) took out the mapping
+    /// key, and records its row until it ends.
     @MainActor
-    static func recordInProcess(
-        _ request: MappingRunRequest,
-        run: (AppDelegate, MappingRunPlan) -> Void = { appDelegate, plan in
-            let keys = TestDefaultsSuite(prefix: "MappingRouteRowConformanceTests")
-            defer { keys.tearDown() }
-            keys.defaults.set(ReadsLaunchRoute.legacy.rawValue, forKey: ReadsLaunchPath.mapping.defaultsKey)
-            appDelegate.runManagedMapping(plan: plan, routeSettings: ReadsLaunchRouteSettings(defaults: keys.defaults))
-        }
-    ) async throws -> MappingRouteRow {
+    static func record(_ request: MappingRunRequest) async throws -> MappingRouteRow {
         let recorder = Recorder(title: "Map Reads (\(request.tool.displayName)): \(request.sampleName)")
         let subscription = OperationCenter.shared.$items.sink { items in recorder.take(items) }
         defer { subscription.cancel() }
         let appDelegate = AppDelegate()
-        run(appDelegate, MappingRunPlan(requests: [request], mode: .perBundle, warning: nil))
+        appDelegate.runManagedMapping(plan: MappingRunPlan(requests: [request], mode: .perBundle, warning: nil))
         // A real mapping run, so the wait is long, and it returns once the row ends.
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline, recorder.ended == nil {

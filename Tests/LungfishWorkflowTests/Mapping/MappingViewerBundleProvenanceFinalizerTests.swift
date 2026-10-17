@@ -435,7 +435,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             baiURL: baiURL
         )
 
-        // Same sequence as AppDelegate.prepareMappingViewerBundleIfPossible.
+        // Same sequence as MappingResultLayoutService.publishViewerBundle, the call a Map Reads run makes.
         try MappingViewerBundlePreparer.prepareBaseBundle(
             sourceBundleURL: scaffold.sourceBundleURL,
             viewerBundleURL: candidateBundle
@@ -980,9 +980,9 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: concurrentURL), concurrentData)
     }
 
-    /// The window and `lungfish-cli map` publish the viewer bundle through
+    /// `lungfish-cli map` publishes the viewer bundle through
     /// the one shared service (which is what calls the transactional
-    /// publication below), so neither surface can drift on the layout.
+    /// publication below), and the window runs that command (Phase 2.11, K3), so it publishes nothing itself.
     func testToolsMenuAndMapCommandPublishThroughTheSharedLayoutService() throws {
         // Every AppDelegate file, so the window's mapping route reads the same wherever it sits.
         let appSource = combinedAppDelegateSource()
@@ -995,9 +995,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(appSource.contains("MappingResultLayoutService.publishViewerBundle("))
         XCTAssertTrue(cliSource.contains("MappingResultLayoutService.publishViewerBundle("))
-        XCTAssertTrue(appSource.contains("MappingResultLayoutService.recordAnalysisManifest("))
         XCTAssertTrue(cliSource.contains("MappingResultLayoutService.recordAnalysisManifest("))
         XCTAssertFalse(appSource.contains("MappingViewerBundlePublicationService.publishCandidate("))
         XCTAssertFalse(cliSource.contains("MappingViewerBundlePublicationService.publishCandidate("))

@@ -1,14 +1,14 @@
-// ReadsLaunchRouteTests.swift - The mapping key, the CLI route's argv and the L6 runner
+// ReadsLaunchRouteTests.swift - The CLI route's argv and the L6 runner
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A46 M1 and M2, decisions C4 and C5, ARCH 7. Each key value picks its route, each
-// launch has its own key, the mapping key's CLI route records the argv it runs, and CLIReadsRunner
-// reads an events leaf's end: its completion, its failed line, a failure with the command's standard
-// error when no failed line came, and a cancel before the run that launches nothing. Fix 8 adds the
-// route's end after a cancel, a command that finished first keeping its result and one that honoured
-// the cancel losing its folder. M3 adds each key value's route through the launch that reads it
-// (ARCH 7). The runner runs a stand-in `lungfish-cli` script, so no tool runs.
+// Phase 2.10 lane A46 M1 and M2, decisions C4 and C5, ARCH 7. Map Reads' CLI route records the argv it
+// runs, and CLIReadsRunner reads an events leaf's end: its completion, its failed line, a failure with
+// the command's standard error when no failed line came, and a cancel before the run that launches
+// nothing. Fix 8 adds the route's end after a cancel, a command that finished first keeping its result
+// and one that honoured the cancel losing its folder. M3 adds the launch that reads the route (ARCH 7).
+// Phase 2.11 lane A62 M3 took out the mapping key and its in-process route (K3), so the route has no key
+// left to test. The runner runs a stand-in `lungfish-cli` script, so no tool runs.
 
 import AppKit
 import Foundation
@@ -23,38 +23,6 @@ import LungfishTestSupport
 
 @MainActor
 final class ReadsLaunchRouteTests: XCTestCase {
-    func testAnUnsetKeyTakesTheCLIRoute() {
-        let settings = ReadsLaunchRouteSettings(defaults: makeTestDefaultsSuite(prefix: "reads-route").defaults)
-        XCTAssertEqual(ReadsLaunchRouteSettings.defaultRoute, .cli, "the CLI route is the default (C4)")
-        for path in ReadsLaunchPath.allCases {
-            XCTAssertEqual(settings.route(for: path), .cli, path.rawValue)
-        }
-    }
-
-    func testEachKeyValuePicksItsRoute() {
-        let defaults = makeTestDefaultsSuite(prefix: "reads-route").defaults
-        let settings = ReadsLaunchRouteSettings(defaults: defaults)
-        // A value the reader does not know, such as "in-process", reads the default, the CLI route.
-        let cases: [(Any, ReadsLaunchRoute)] = [
-            ("cli", .cli), ("CLI", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy),
-            ("in-process", .cli),
-        ]
-        for (value, route) in cases {
-            defaults.set(value, forKey: ReadsLaunchPath.mapping.defaultsKey)
-            XCTAssertEqual(settings.route(for: .mapping), route, "\(value)")
-        }
-    }
-
-    func testEachLaunchHasItsOwnKey() {
-        let defaults = makeTestDefaultsSuite(prefix: "reads-route").defaults
-        let settings = ReadsLaunchRouteSettings(defaults: defaults)
-        XCTAssertEqual(ReadsLaunchPath.mapping.defaultsKey, "ReadsLaunchRoute.mapping")
-        defaults.set("legacy", forKey: ReadsLaunchPath.mapping.defaultsKey)
-        XCTAssertEqual(settings.route(for: .mapping), .legacy)
-        defaults.removeObject(forKey: ReadsLaunchPath.mapping.defaultsKey)
-        XCTAssertEqual(settings.route(for: .mapping), .cli, "an unset key reads the default again")
-    }
-
     func testTheCLIRouteRecordsTheMapArgvItRuns() throws {
         let root = try TestTempDirectory.make(prefix: "reads-route-argv")
         defer { TestTempDirectory.cleanup(root) }
@@ -172,7 +140,7 @@ final class ReadsLaunchRouteTests: XCTestCase {
         XCTAssertEqual(item.detail, "the stand-in refused")
     }
 
-    // MARK: - Each key value runs its route (ARCH 7, lane A46 M3)
+    // MARK: - The launches run their CLI routes (ARCH 7, lane A46 M3)
 
     /// Reassemble starts the CLI route in `runValidated`, which launches the `lungfish-cli` that
     /// LUNGFISH_CLI_PATH names, a stand-in that fails with its `failed` line. The reads are missing,
@@ -220,65 +188,55 @@ final class ReadsLaunchRouteTests: XCTestCase {
         XCTAssertEqual(item.detail, "the stand-in refused", "the failed line is the row's detail")
     }
 
-    /// Map Reads reads its key at launch. `legacy` runs the in-process route, whose row records the
-    /// command without `--format json` and launches no `lungfish-cli`, and `cli` launches the
-    /// `lungfish-cli` that LUNGFISH_CLI_PATH names, a stand-in that fails, with the argv its row
-    /// records. An unset key takes the default, which is the CLI route. The reads are missing, so
-    /// the in-process run fails at once too.
-    func testEachMappingKeyValueRunsItsRoute() async throws {
+    /// Map Reads launches the `lungfish-cli` that LUNGFISH_CLI_PATH names, a stand-in that fails, and its row
+    /// records the argv it ran, with `--format json`. The reads are missing, so the stand-in is all that runs.
+    func testMapReadsRunsTheCLIRoute() async throws {
         let saved = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
         defer {
             if let saved { setenv("LUNGFISH_CLI_PATH", saved, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
         }
-        let keyValues: [(String?, Bool)] = [("legacy", false), ("cli", true), (nil, true)]
-        for (keyValue, runsCLI) in keyValues {
-            let value = keyValue ?? "unset"
-            let root = try TestTempDirectory.make(prefix: "map-key-\(value)")
-            defer { TestTempDirectory.cleanup(root) }
-            let launched = root.appendingPathComponent("launched")
-            let cli = try standInCLI("""
-            touch '\(launched.path)'
-            echo '{"error":"the stand-in refused","event":"failed","schemaVersion":2}'
-            exit 1
-            """)
-            setenv("LUNGFISH_CLI_PATH", cli.path, 1)
-            let suite = makeTestDefaultsSuite(prefix: "reads-route")
-            if let keyValue { suite.defaults.set(keyValue, forKey: ReadsLaunchPath.mapping.defaultsKey) }
-            let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
-            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-            let request = MappingRunRequest(
-                tool: .minimap2,
-                modeID: MappingMode.defaultShortRead.id,
-                inputFASTQURLs: [root.appendingPathComponent("missing.fastq")],
-                referenceFASTAURL: root.appendingPathComponent("missing.fasta"),
-                projectURL: project,
-                outputDirectory: project.appendingPathComponent("Analyses/unused", isDirectory: true),
-                sampleName: "key-\(value)",
-                threads: 1
-            )
-            let title = "Map Reads (\(MappingTool.minimap2.displayName)): key-\(value)"
-            let before = Set(OperationCenter.shared.items.map(\.id))
-            let appDelegate = AppDelegate()
+        let root = try TestTempDirectory.make(prefix: "map-cli-launch")
+        defer { TestTempDirectory.cleanup(root) }
+        let launched = root.appendingPathComponent("launched")
+        let cli = try standInCLI("""
+        touch '\(launched.path)'
+        echo '{"error":"the stand-in refused","event":"failed","schemaVersion":2}'
+        exit 1
+        """)
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [root.appendingPathComponent("missing.fastq")],
+            referenceFASTAURL: root.appendingPathComponent("missing.fasta"),
+            projectURL: project,
+            outputDirectory: project.appendingPathComponent("Analyses/unused", isDirectory: true),
+            sampleName: "cli-launch",
+            threads: 1
+        )
+        let title = "Map Reads (\(MappingTool.minimap2.displayName)): cli-launch"
+        let before = Set(OperationCenter.shared.items.map(\.id))
+        let appDelegate = AppDelegate()
 
-            appDelegate.runManagedMapping(
-                plan: MappingRunPlan(requests: [request], mode: .perBundle, warning: nil),
-                routeContext: nil,
-                routeSettings: ReadsLaunchRouteSettings(defaults: suite.defaults)
-            )
-            var ended: OperationCenter.Item?
-            await waitUntil(timeout: .seconds(30)) {
-                ended = OperationCenter.shared.items.first { !before.contains($0.id) && $0.title == title && $0.finishedAt != nil }
-                return ended != nil
-            }
-            withExtendedLifetime(appDelegate) {}
-
-            let item = try XCTUnwrap(ended, "the \(value) row never ended")
-            defer { OperationCenter.shared.clearItem(id: item.id) }
-            let parsed = try RecordedCLICommand.parse(item.cliCommand, as: MapCommand.self)
-            XCTAssertEqual(parsed.globalOptions.outputFormat == .json, runsCLI, "\(value): \(item.cliCommand ?? "no command")")
-            XCTAssertEqual(FileManager.default.fileExists(atPath: launched.path), runsCLI, "\(value) launches lungfish-cli only on cli")
-            XCTAssertEqual(item.state, .failed, "\(value): \(item.detail)")
+        appDelegate.runManagedMapping(
+            plan: MappingRunPlan(requests: [request], mode: .perBundle, warning: nil),
+            routeContext: nil
+        )
+        var ended: OperationCenter.Item?
+        await waitUntil(timeout: .seconds(30)) {
+            ended = OperationCenter.shared.items.first { !before.contains($0.id) && $0.title == title && $0.finishedAt != nil }
+            return ended != nil
         }
+        withExtendedLifetime(appDelegate) {}
+
+        let item = try XCTUnwrap(ended, "the row never ended")
+        defer { OperationCenter.shared.clearItem(id: item.id) }
+        let parsed = try RecordedCLICommand.parse(item.cliCommand, as: MapCommand.self)
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .json, item.cliCommand ?? "no command")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: launched.path), "Map Reads launches lungfish-cli")
+        XCTAssertEqual(item.state, .failed, item.detail)
     }
 
     // MARK: - A cancel that reaches a finished command (fix 8 of lane A46)

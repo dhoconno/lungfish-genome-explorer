@@ -156,7 +156,7 @@ struct MappingWizardSheet: View {
     /// they're an R1/R2 pair) are not knowable here -- they only become
     /// knowable after `FASTQSourceResolver.resolve` expands the bundle URL
     /// into its files, which happens later in `AppDelegate.
-    /// runSingleManagedMappingAwaitingCompletion`, one bundle at a time. Do NOT re-derive
+    /// runSingleManagedMappingThroughCLI`, one bundle at a time. Do NOT re-derive
     /// bundle boundaries by pattern-matching `_R1`/`_R2` etc. against these
     /// URLs' filenames: two distinct bundles can legitimately be named e.g.
     /// `Run1_R1.lungfishfastq` / `Run1_R2.lungfishfastq`, and matching on

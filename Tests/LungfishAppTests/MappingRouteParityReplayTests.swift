@@ -3,27 +3,25 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A46 M3 (panel G1, C4 and C13, ARCH 2 and 3, BIO 1 and 2, UX 1, 3 and 4, QA 1, 4
-// and 5). Map Reads runs on the route its key `ReadsLaunchRoute.mapping` picks. The parity case maps
-// the mapping golden's fixture (MappingRouteGolden, Tests/Fixtures/sarscov2 with minimap2, the sr
-// preset, paired reads and two threads) on the three sides of RouteParityHarness.
+// and 5), cut down in Phase 2.11 lane A62 M3, which deleted the hidden mapping key and the in-process route
+// it kept (K3). Map Reads runs `lungfish-cli map`. The parity cases map the mapping golden's fixture
+// (MappingRouteGolden, Tests/Fixtures/sarscov2 with minimap2, the sr preset, paired reads and two threads)
+// on the two sides of RouteParityHarness that remain, with no side A (ReadsRouteParity.runCAndCPrime).
 //
-// - Side A, the in-process route, `runSingleManagedMappingAwaitingCompletion`.
 // - Side C, the CLI route, `runSingleManagedMappingThroughCLI` on the built CLI.
 // - Side C', the command side C's row recorded, rebased and run by the built CLI.
 //
-// Both routes take the analysis folder the fixture made, without a run record, as a batch child
-// takes its folder, so the three roots name one folder. The case holds A against C and C against
-// C' to nothing declared, side C's row to the in-process row M2 froze (the stage words, the lines
-// logged and the end, Fixtures/MappingRouteRow/plain-fasta.txt), and side C's BAM,
-// counts and record to the mapping golden (BIO 1). The SIGTERM case cancels the route's `map` argv
-// through the real transport once a stand-in minimap2 runs, in a conda root of its own.
+// The route takes the analysis folder the fixture made, without a run record, as a batch child
+// takes its folder, so the two roots name one folder. Each case holds C against C' to nothing
+// declared. The plain FASTA case also holds side C's row to the row M2 froze (the stage words, the lines
+// logged and the end, Fixtures/MappingRouteRow/plain-fasta.txt), and side C's BAM, counts and record to
+// the mapping golden (BIO 1). The SIGTERM case cancels the route's `map` argv through the real transport
+// once a stand-in minimap2 runs, in a conda root of its own.
 //
-// Phase 2.11 lane A62 M1 (SW20) adds a case on the same three sides that maps a virtual FASTQ bundle,
-// so the run materializes its input (BIO's ruling D8, choice 2, and B7, each bundle with its digest
-// at the run level). It joins the in-process route's declared lines, which leave with that route.
-// A second case maps onto a `.lungfishref`, the launch the plain FASTA case never reaches, so each side
-// publishes the reference viewer bundle (K11, SW20). Side A's import record names the host's executable,
-// which `declaredLegacyRow` declares with the other lines that leave with the in-process route.
+// Phase 2.11 lane A62 M1 (SW20, K11) added a case that maps a virtual FASTQ bundle, so the run materializes
+// its input (BIO's ruling D8, choice 2, and B7, each bundle with its digest at the run level), and a case that
+// maps onto a `.lungfishref`, the launch the plain FASTA case never reaches, so the route publishes the
+// reference viewer bundle. Both ran against the in-process route as side A until M3.
 //
 // minimap2 and samtools are the storage root's own, stated with ToolAvailability, and the class
 // launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
@@ -69,60 +67,18 @@ final class MappingRouteParityReplayTests: XCTestCase {
     func testTheMapReadsRoutesAgreeAndTheRecordedCommandReproducesTheCLIRoute() async throws {
         _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
         let samtools = try await ToolAvailability.require("samtools", environment: "samtools")
-        let harness = RouteParityHarness(cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120))
-        let title = "Map Reads (\(MappingTool.minimap2.displayName)): \(MappingRouteGolden.sampleName)"
-        var rows: [RouteParitySide: MappingRouteRow] = [:]
-        let runs = try await harness.run(
-            in: scratch.appendingPathComponent("parity", isDirectory: true),
+        let (runs, rows) = try await runTwoSides(
+            .sarscov2PairedMinimap2,
             fixture: { root in
                 // The folder carries no run record, so the replay owns and completes it as a
                 // fresh run of the command would, rather than leaving it to the test process.
                 _ = AnalysisRunRecord.markComplete(try MappingRouteGolden.Fixture(in: root).analysisDirectory)
             },
-            sideA: { root in
-                let request = try Self.request(in: root)
-                let (_, item) = try await ReadsRouteParity.record(title: title) {
-                    Task { @MainActor in
-                        await AppDelegate().runSingleManagedMappingAwaitingCompletion(
-                            request: request, warning: nil, routeContext: nil,
-                            preassignedAnalysisDirectory: request.outputDirectory, registerCancel: { _ in }
-                        )
-                    }
-                }
-                return ReadsRouteParity.outcome(of: item)
-            },
-            sideC: { root in
-                let request = try Self.request(in: root)
-                let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
-                let (row, item) = try await ReadsRouteParity.record(title: title) {
-                    Task { @MainActor in
-                        await AppDelegate().runSingleManagedMappingThroughCLI(
-                            request: request, warning: nil, routeContext: nil,
-                            preassignedAnalysisDirectory: request.outputDirectory, runner: runner,
-                            cancelBatch: {}, registerCancel: { _ in }
-                        )
-                    }
-                }
-                rows[.c] = row
-                return ReadsRouteParity.outcome(of: item, recordsCommand: true)
-            }
+            request: { root in try Self.request(in: root) }
         )
 
         XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
-        // BIO's ruling D8 on A46 M3. Each record names its row's command, and the legacy row records
-        // `map` without the `--format json` that only the CLI route runs with.
-        let reason = "the legacy row records map without --format json, and the record names its row's command"
-        let declared = [
-            RouteParityDeclaredDifference(
-                [Case.sarscov2PairedMinimap2: 2], "differs: Project.lungfish/Analyses/minimap2-<TS>/.lungfish-provenance.json at argv[<ANY>]",
-                reason: reason, closedBy: "2.11"
-            ),
-            RouteParityDeclaredDifference(
-                [Case.sarscov2PairedMinimap2: 1], "differs: Project.lungfish/Analyses/minimap2-<TS>/.lungfish-provenance.json at reproducibleCommand",
-                reason: reason, closedBy: "2.11"
-            ),
-        ]
-        let result = try harness.evaluate(Case.sarscov2PairedMinimap2, declared: declared, runs: runs)
+        let result = try harness.evaluate(Case.sarscov2PairedMinimap2, declared: [], runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.sarscov2PairedMinimap2)")
         // UX 1 and 3, the CLI route's row shows the words, bar, lines and end of the in-process row
         // M2 froze. On either route the viewer's step back to 0.93 can reach the panel after the bar
@@ -170,7 +126,7 @@ final class MappingRouteParityReplayTests: XCTestCase {
         let parityCase = Case.sarscov2MaterializedBundleMinimap2
         // The digests are read before any side runs, from the bundle as the user chose it, by path under the root.
         var expected: [(path: String, digest: String?)] = []
-        let (runs, _) = try await runThreeSides(
+        let (runs, _) = try await runTwoSides(
             parityCase,
             fixture: { root in
                 try Self.writeMaterializedFixture(root)
@@ -182,7 +138,7 @@ final class MappingRouteParityReplayTests: XCTestCase {
             request: { root in try Self.materializedRequest(in: root) }
         )
         XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
-        let result = try harness.evaluate(parityCase, declared: Self.declaredLegacyRow(parityCase), runs: runs)
+        let result = try harness.evaluate(parityCase, declared: [], runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
         for side in runs.all {
             try Self.assertMaterializedInputRecord(
@@ -192,19 +148,18 @@ final class MappingRouteParityReplayTests: XCTestCase {
     }
 
     /// The sidebar's Map Reads onto a `.lungfishref`, the launch the plain FASTA case never reaches (K11, SW20). Each
-    /// side publishes the reference viewer bundle. A against C holds to the plain case's two lines and the seven import
-    /// record lines `declaredLegacyRow` adds, C against C' to nothing, and side C's row shows the viewer's words.
+    /// side publishes the reference viewer bundle, C against C' shows nothing, and side C's row shows the viewer's words.
     func testTheMapReadsRoutesAgreeOntoAReferenceBundle() async throws {
         _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
         _ = try await ToolAvailability.require("samtools", environment: "samtools")
         let parityCase = Case.sarscov2PairedMinimap2OntoReferenceBundle
-        let (runs, rows) = try await runThreeSides(
+        let (runs, rows) = try await runTwoSides(
             parityCase,
             fixture: { root in try Fixture.writeFixture(root, onReferenceBundle: true) },
             request: { root in try Fixture.request(in: root, onReferenceBundle: true) }
         )
         XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
-        let result = try harness.evaluate(parityCase, declared: Self.declaredLegacyRow(parityCase), runs: runs)
+        let result = try harness.evaluate(parityCase, declared: [], runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
         for side in runs.all {
             MappingRoutePrivateProjectReplayTests.assertViewerPublished(in: try Self.analysisFolder(in: side.root))
@@ -212,29 +167,18 @@ final class MappingRouteParityReplayTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(rows[.c]).shown.contains("Validating alignment file..."), "side C's row never showed the viewer's words")
     }
 
-    /// Runs `parityCase` on sides A, C and C', each with the request `makeRequest` builds for its root, and keeps the
-    /// row side C showed.
-    private func runThreeSides(
+    /// Runs `parityCase` on side C and side C', with the request `makeRequest` builds for its root, and keeps the row
+    /// side C showed. There is no side A, since the in-process route went with the mapping key (Phase 2.11, K3).
+    private func runTwoSides(
         _ parityCase: Case,
         fixture: (URL) throws -> Void,
         request makeRequest: @escaping (URL) throws -> MappingRunRequest
     ) async throws -> (RouteParityRuns, [RouteParitySide: MappingRouteRow]) {
         var rows: [RouteParitySide: MappingRouteRow] = [:]
-        let runs = try await harness.run(
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("\(parityCase)", isDirectory: true),
             fixture: fixture,
-            sideA: { root in
-                let request = try makeRequest(root)
-                let (_, item) = try await ReadsRouteParity.record(title: Self.title(of: request)) {
-                    Task { @MainActor in
-                        await AppDelegate().runSingleManagedMappingAwaitingCompletion(
-                            request: request, warning: nil, routeContext: nil,
-                            preassignedAnalysisDirectory: request.outputDirectory, registerCancel: { _ in }
-                        )
-                    }
-                }
-                return ReadsRouteParity.outcome(of: item)
-            },
             sideC: { root in
                 let request = try makeRequest(root)
                 let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
@@ -256,33 +200,6 @@ final class MappingRouteParityReplayTests: XCTestCase {
 
     nonisolated static func title(of request: MappingRunRequest) -> String {
         "Map Reads (\(request.tool.displayName)): \(request.sampleName)"
-    }
-
-    /// The lines the legacy row declares for a case (BIO's ruling D8 on A46 M3), the same two as the plain FASTA case.
-    /// Onto a `.lungfishref` the in-process route also runs the BAM import in its host process, so the import record
-    /// names the host's executable where the CLI route names `lungfish-cli`. That adds seven lines, the five entries
-    /// below (lane A62, ruling A62-ARCH Fix 3, its finding 2 being the prediction row). They go with the in-process route.
-    private static func declaredLegacyRow(_ parityCase: Case) -> [RouteParityDeclaredDifference<Case>] {
-        let reason = "the legacy row records map without --format json, and the record names its row's command"
-        let record = "Project.lungfish/Analyses/minimap2-<TS>/.lungfish-provenance.json"
-        var declared = [
-            RouteParityDeclaredDifference([parityCase: 2], "differs: \(record) at argv[<ANY>]", reason: reason, closedBy: "2.11"),
-            RouteParityDeclaredDifference([parityCase: 1], "differs: \(record) at reproducibleCommand", reason: reason, closedBy: "2.11"),
-        ]
-        guard parityCase == .sarscov2PairedMinimap2OntoReferenceBundle else { return declared }
-        let importReason = "the in-process route runs the BAM import in its host process, so the import record names the host's "
-            + "executable where the CLI route names lungfish-cli"
-        let importRecord = "Project.lungfish/Analyses/minimap2-<TS>/sarscov2.lungfishref/alignments/<RUN-ID-1>.import.lungfish-provenance.json"
-        let lines: [(path: String, count: Int)] = [
-            ("argv[0]", 1), ("durableReplayArgv[0]", 1), ("reproducibleCommand", 1),
-            ("steps[<ANY>].argv[0]", 2), ("steps[<ANY>].reproducibleCommand", 2),
-        ]
-        declared += lines.map { line in
-            RouteParityDeclaredDifference(
-                [parityCase: line.count], "differs: \(importRecord) at \(line.path)", reason: importReason, closedBy: "2.11"
-            )
-        }
-        return declared
     }
 
     // MARK: - The materialized input

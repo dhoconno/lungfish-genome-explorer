@@ -55,7 +55,7 @@ final class MappingRouteGoldenConformanceTests: XCTestCase {
         XCTAssertEqual(recorded.globalOptions.threads, 2)
         XCTAssertEqual(recorded.sampleName, "sarscov2-test")
 
-        // The steps runSingleManagedMappingAwaitingCompletion takes.
+        // The steps the Map Reads route took in process, which `lungfish-cli map` takes now.
         let resolved = try await AppDelegate().resolveManagedMappingInputs(for: request, progress: { _ in })
         let result = try await ManagedMappingPipeline().run(
             request: resolved.request,

@@ -9,6 +9,7 @@
 // whose paths are spelled under `/private` (the resolved form of a folder under `/var/folders`) then failed the
 // publication on the in-process route and on the CLI route alike. The fixture helpers keep the spelling of the root
 // they are given, so these cases hand them the root in its `/private` form.
+// The in-process case went with the in-process route (Phase 2.11 lane A62 M3, K3). The CLI case holds the fix.
 //
 // minimap2 and samtools are the storage root's own, stated with ToolAvailability, and the CLI case launches the
 // built lungfish-cli, so the name ends in ReplayTests, which sends the class to the integration tier.
@@ -43,22 +44,6 @@ final class MappingRoutePrivateProjectReplayTests: XCTestCase {
     override func tearDown() async throws {
         TestTempDirectory.cleanup(scratch)
         try await super.tearDown()
-    }
-
-    /// The in-process route, `runSingleManagedMappingAwaitingCompletion`, in a project spelled under `/private`.
-    func testAMapReadsOntoAReferenceBundleInAPrivateProjectPublishesOnTheInProcessRoute() async throws {
-        let request = try await privateProjectRequest()
-        let (_, item) = try await ReadsRouteParity.record(title: Fixture.title) {
-            Task { @MainActor in
-                await AppDelegate().runSingleManagedMappingAwaitingCompletion(
-                    request: request, warning: nil, routeContext: nil,
-                    preassignedAnalysisDirectory: request.outputDirectory, registerCancel: { _ in }
-                )
-            }
-        }
-        let outcome = ReadsRouteParity.outcome(of: item)
-        XCTAssertEqual(outcome.end, .completed, outcome.detail)
-        Self.assertViewerPublished(in: request.outputDirectory)
     }
 
     /// The CLI route, `runSingleManagedMappingThroughCLI` on the built `lungfish-cli map`, in the same project.

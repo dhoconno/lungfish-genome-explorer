@@ -4,10 +4,10 @@
 //
 // Phase 2.10 lane Q-SIGN, family L6 (the ruling of the A52 whole-lane review, Q6). The case of
 // MappingRouteParityReplayTests runs with no signing key. This one maps the same fixture again with
-// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side A (the in-process
-// route), side C (`runSingleManagedMappingThroughCLI` on the built CLI) and side C' (the recorded command), and
-// fails when the CLI route leaves unsigned a record the in-process route signs, or the analysis folder's record
-// that the result opens first.
+// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side C
+// (`runSingleManagedMappingThroughCLI` on the built CLI) and side C' (the recorded command), and fails when the
+// CLI route leaves unsigned a record, or the analysis folder's record that the result opens first. Side A, the
+// in-process route, went with the mapping key (Phase 2.11 lane A62 M3, K3).
 //
 // The parity class maps onto a plain FASTA and publishes no viewer bundle, so a second case maps onto a
 // `.lungfishref`, the launch from the sidebar, where `MappingViewerBundlePublicationService` rewrites the folder's
@@ -64,21 +64,10 @@ final class MappingRouteSigningReplayTests: XCTestCase {
         _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
         _ = try await ToolAvailability.require("samtools", environment: "samtools")
         let harness = RouteParityHarness(cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120))
-        let runs = try await harness.runSigned(
+        let runs = try await ReadsRouteParity.runSignedCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("signed", isDirectory: true),
             fixture: { root in try Fixture.writeFixture(root, onReferenceBundle: onReferenceBundle) },
-            sideA: { root in
-                let request = try Fixture.request(in: root, onReferenceBundle: onReferenceBundle)
-                let (_, item) = try await ReadsRouteParity.record(title: Fixture.title) {
-                    Task { @MainActor in
-                        await AppDelegate().runSingleManagedMappingAwaitingCompletion(
-                            request: request, warning: nil, routeContext: nil,
-                            preassignedAnalysisDirectory: request.outputDirectory, registerCancel: { _ in }
-                        )
-                    }
-                }
-                return ReadsRouteParity.outcome(of: item)
-            },
             sideC: { root in
                 let request = try Fixture.request(in: root, onReferenceBundle: onReferenceBundle)
                 let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
