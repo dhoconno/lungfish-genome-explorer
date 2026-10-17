@@ -129,10 +129,10 @@ final class KrakenCompactionBytePinTests: XCTestCase {
         let compaction = await ClassificationPipeline().compactKrakenOutputIfPossible(
             rawURL: raw, provenanceRecorder: recorder, runID: runID, dependsOn: []
         )
+        let indexBytes = try Data(contentsOf: index)
 
         XCTAssertEqual(try XCTUnwrap(compaction).url, gz)
         try assertPinnedGzip(gz)
-        try assertPinnedIndex(index)
         XCTAssertFalse(FileManager.default.fileExists(atPath: raw.path), "the raw output goes after both copies exist")
 
         let run = await recorder.findRun(runID)
@@ -148,6 +148,8 @@ final class KrakenCompactionBytePinTests: XCTestCase {
             CLICommandIdentity.executableName, "internal", "kraken2-index", "--classified-only", raw.path, index.path,
         ])
         XCTAssertEqual(indexStep.outputs.map(\.path), [index.path])
+        XCTAssertEqual(indexStep.outputs.map(\.checksumSHA256), [Self.sha256(indexBytes)], "the record states the digest of the index on disk")
+        try assertPinnedIndex(index)
     }
 
     // MARK: - build-db and the importers
@@ -159,9 +161,9 @@ final class KrakenCompactionBytePinTests: XCTestCase {
         let index = KrakenIndexDatabase.indexURL(for: gz)
 
         _ = try KrakenOutputCompactor.compact(rawURL: raw, includeUnclassifiedInIndex: false, removeRawOnSuccess: false)
+        let indexBytes = try Data(contentsOf: index)
 
         try assertPinnedGzip(gz)
-        try assertPinnedIndex(index)
         let steps = BuildDbCommand.Kraken2Subcommand.compactionSteps(raw: descriptor, compressed: gz, clock: ProvenanceRunClock())
         XCTAssertEqual(steps.map(\.toolName), ["lungfish-kraken2-index", "gzip"])
         XCTAssertEqual(steps[0].argv, [
@@ -169,7 +171,9 @@ final class KrakenCompactionBytePinTests: XCTestCase {
         ])
         XCTAssertEqual(steps[1].argv, ["/bin/sh", "-c", "/usr/bin/gzip -c '\(descriptor.path)' > '\(gz.path)'"])
         XCTAssertEqual(steps[1].outputs.map(\.checksumSHA256), [Self.gzipDigest], "the record states the digest of the bytes on disk")
+        XCTAssertEqual(steps[0].outputs.map(\.checksumSHA256), [Self.sha256(indexBytes)], "the record states the digest of the index on disk")
         XCTAssertEqual(steps[1].inputs, [descriptor])
+        try assertPinnedIndex(index)
     }
 
     func testTheCompactionRemovesTheRawOutputOnlyAfterBothCopiesExist() throws {
