@@ -5,7 +5,7 @@
 // Phase 2.10 lane A47 M2, plan decisions C5 and P2. The app's Cancel sends SIGTERM to
 // `lungfish-cli`, and the in-place ingest deletes the user's original FASTQ file, so a cancel
 // must leave that file as it was and publish no output. The leaf turns the signal into a cancel,
-// removes the hidden folder its output is built in, writes a `cancelled` record and exits 125
+// removes the staging folder its output is built in, writes a `cancelled` record and exits 125
 // inside the grace the app gives it before SIGKILL.
 //
 // The managed clumpify is a stand-in script in a conda root of this test's own. It records its
@@ -97,7 +97,7 @@ final class FastqIngestSIGTERMTests: XCTestCase {
         XCTAssertEqual(staged.count, 1, "the leaf builds its output in one folder in the system temp folder: \(staged)")
         if let staging = staged.first {
             XCTAssertTrue(staging.hasPrefix("lungfish-ingest-"), staging)
-            let part = try names(in: systemTemp.appendingPathComponent(staging, isDirectory: true)).filter { !$0.hasPrefix(".") }
+            let part = try names(in: systemTemp.appendingPathComponent(staging, isDirectory: true)).filter { $0 != OwnedWorkDirectoryMarker.fileName }
             XCTAssertEqual(part, ["SRR9.fastq.gz"], "a half-written output exists while the tool runs")
         }
         XCTAssertFalse(
