@@ -46,8 +46,11 @@ final class MappingRoutePrivateProjectReplayTests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// The CLI route, `runSingleManagedMappingThroughCLI` on the built `lungfish-cli map`, in the same project.
+    /// The CLI route, `runSingleManagedMappingThroughCLI` on the built `lungfish-cli map`, in the same project. A key
+    /// is set, so that the records are signed and `provenance verify` has a signature to check (review A62, Fix 10).
     func testAMapReadsOntoAReferenceBundleInAPrivateProjectPublishesOnTheCLIRoute() async throws {
+        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        defer { saved.restore() }
         let request = try await privateProjectRequest()
         let runner = CLIReadsRunner(cliURLOverride: cliBinary)
         let (_, item) = try await ReadsRouteParity.record(title: Fixture.title) {
@@ -62,6 +65,7 @@ final class MappingRoutePrivateProjectReplayTests: XCTestCase {
         let outcome = ReadsRouteParity.outcome(of: item, recordsCommand: true)
         XCTAssertEqual(outcome.end, .completed, outcome.detail)
         Self.assertViewerPublished(in: request.outputDirectory)
+        await Self.assertAnalysisRecordVerifies(in: request.outputDirectory, cli: cliBinary)
     }
 
     // MARK: - The project and the checks
@@ -125,5 +129,22 @@ final class MappingRoutePrivateProjectReplayTests: XCTestCase {
             let bytes = (try? Data(contentsOf: alignments.appendingPathComponent(name))) ?? Data()
             XCTAssertNil(bytes.range(of: Data("/private/private".utf8)), "\(name) doubles /private in a path", file: file, line: line)
         }
+    }
+
+    /// `lungfish-cli provenance verify` on the analysis folder passes and names no missing file (review A62, Fix 10).
+    /// After the K11 fix the final bundle is spelled `/var/...` for the whole publication while the request and the
+    /// project keep `/private/var/...`, so the records of this project can mix both spellings. A record that names a
+    /// file the publication moved, or a signature taken before a rewrite, would show here as a missing or a mismatched
+    /// file.
+    nonisolated static func assertAnalysisRecordVerifies(
+        in folder: URL, cli: URL, file: StaticString = #filePath, line: UInt = #line
+    ) async {
+        let verify = await RouteParityHarness.runCLI(cli, arguments: ["provenance", "verify", folder.path], timeout: .seconds(60))
+        XCTAssertEqual(verify.status, 0, "provenance verify \(folder.path): \(verify.detail)", file: file, line: line)
+        XCTAssertTrue(verify.stdout.contains("Signature valid"), "provenance verify \(folder.path): \(verify.stdout)", file: file, line: line)
+        XCTAssertFalse(
+            (verify.stdout + verify.stderr).contains("is missing"),
+            "provenance verify \(folder.path) names a missing file: \(verify.stdout) \(verify.stderr)", file: file, line: line
+        )
     }
 }
