@@ -1,0 +1,8 @@
+{"event":"start","message":"Preparing to BLAST query-from-viewer.fasta","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Submitting 2 sequences to NCBI BLAST","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Submitting 2 reads to NCBI BLAST...","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"BLAST job submitted (RID: STANDIN1). Waiting for results...","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"Polling BLAST results (attempt 1)...","progress":0.21202376345793408,"schemaVersion":2}
+{"event":"progress","message":"Parsing BLAST results...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"BLAST verification complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"rid=STANDIN1 supporting=0 contradicting=0 reads=2","output":"\/work\/result\/blast-result.json","outputs":["\/work\/result\/blast-result.json","\/work\/result\/query.fasta"],"progress":1,"schemaVersion":2}

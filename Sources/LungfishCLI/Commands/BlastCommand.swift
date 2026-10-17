@@ -33,6 +33,7 @@ struct BlastCommand: AsyncParsableCommand {
         """,
         subcommands: [
             VerifySubcommand.self,
+            SubmitSubcommand.self,
         ],
         defaultSubcommand: VerifySubcommand.self
     )

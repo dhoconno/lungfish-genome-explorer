@@ -1,0 +1,2 @@
+{"event":"start","message":"Preparing to BLAST missing.fasta","progress":0,"schemaVersion":2}
+{"error":"Query FASTA not found or unreadable: \/work\/missing.fasta","event":"failed","schemaVersion":2}

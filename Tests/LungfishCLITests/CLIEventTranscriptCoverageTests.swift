@@ -55,6 +55,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `import bam` runs samtools sort and index through BAMImportService. Its transcripts are runs of the
         // built CLI on the sarscov2 BAM and a reference bundle (lane A63 M1 of Phase 2.11).
         "import bam",
+        // `blast submit` reaches NCBI. Its transcripts are runs of the built CLI on a loopback BLAST stand-in,
+        // recaptured with LUNGFISH_RECAPTURE_CLI_EVENTS=1 (BlastSubmitStandInTests, lane A65 of Phase 2.11).
+        "blast submit",
         // `taxtriage run` and `workflow run` run Nextflow. Their transcripts are runs on stand-ins, recaptured with
         // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxTriageRunCommandReplayTests, lane A2, and WorkflowRunEventsTests, A30).
         "taxtriage run", "workflow run",

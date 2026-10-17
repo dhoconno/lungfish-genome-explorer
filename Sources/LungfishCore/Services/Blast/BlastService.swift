@@ -46,15 +46,22 @@ public actor BlastService {
     ///
     /// Its hourly submission ledger lives under the managed storage root
     /// (`<root>/blast/submission-ledger.json`), so quitting the app or
-    /// running the CLI does not reset NCBI's 50-reads-per-hour budget.
-    public static let shared = BlastService(
-        submissionLedger: FileBlastSubmissionLedger.managedStorageDefault()
-    )
+    /// running the CLI does not reset NCBI's 50-reads-per-hour budget. A
+    /// debug build pointed at a stand-in (``BlastServiceEndpoints``) keeps
+    /// its ledger in memory, because a stand-in spends none of that budget.
+    public static let shared: BlastService = {
+        let environment = ProcessInfo.processInfo.environment
+        let standIn = BlastServiceEndpoints(environment: environment).isStandIn
+        return BlastService(
+            submissionLedger: standIn ? InMemoryBlastSubmissionLedger() : FileBlastSubmissionLedger.managedStorageDefault(),
+            environment: environment
+        )
+    }()
 
     // MARK: - Constants
 
-    /// Base URL for the NCBI BLAST CGI endpoint.
-    nonisolated let blastBaseURL = URL(string: "https://blast.ncbi.nlm.nih.gov/blast/Blast.cgi")!
+    /// The BLAST CGI endpoint, NCBI's unless a debug build's environment names a stand-in.
+    nonisolated let blastBaseURL: URL
 
     /// Tool identifier sent with all BLAST requests (NCBI policy).
     private let toolName = "lungfish"
@@ -113,12 +120,15 @@ public actor BlastService {
     ///   - submissionLedger: Where the rolling-hour submission count is kept.
     ///     Defaults to an in-memory ledger; ``shared`` uses a file ledger.
     ///   - now: The clock, injectable for tests.
+    ///   - environment: Read only by a debug build, for a stand-in origin (``BlastServiceEndpoints``).
     public init(
         httpClient: HTTPClient = URLSessionHTTPClient(),
         rateLimits: BlastRateLimitConfiguration = .ncbiDefault,
         submissionLedger: any BlastSubmissionLedger = InMemoryBlastSubmissionLedger(),
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        self.blastBaseURL = BlastServiceEndpoints(environment: environment).blastURL
         self.httpClient = httpClient
         self.rateLimits = rateLimits
         self.submissionLedger = submissionLedger
