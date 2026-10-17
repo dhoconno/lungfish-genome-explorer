@@ -140,7 +140,7 @@ final class DurableGzipDurabilityTests: XCTestCase {
 
         XCTAssertFalse(existedMidWrite, "the final name stays empty while gzip writes: \(namesMidWrite)")
         XCTAssertEqual(namesMidWrite.count, 1, "the bytes sit in one hidden part file: \(namesMidWrite)")
-        XCTAssertTrue(namesMidWrite.first?.hasPrefix(".random.bin.gz.lungfish-stage-") ?? false, "\(namesMidWrite)")
+        XCTAssertTrue(namesMidWrite.first?.hasPrefix(".random.bin.gz\(DurableReplace.stageInfix)") ?? false, "\(namesMidWrite)")
         XCTAssertFalse(succeeded, "a killed gzip is a failed copy")
         XCTAssertEqual(try entries(of: output), [], "neither the final name nor a part file stays")
     }
