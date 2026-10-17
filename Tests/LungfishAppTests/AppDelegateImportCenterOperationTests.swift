@@ -805,6 +805,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(item.operationType, .export)
         XCTAssertNil(item.cliCommand)
+        assertCLIParityGap(item.cliCommand, id: "sequence-export-in-app-writer")
     }
 
     func testCompressedSequenceExportRecordsTheConvertCommandWithItsCompressor() throws {
