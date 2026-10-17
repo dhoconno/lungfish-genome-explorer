@@ -88,17 +88,17 @@ features:
       - lungfish-cli fetch ncbi
     tests:
       - Tests/LungfishAppTests/DatabaseBrowserNucleotideRowParityReplayTests.swift
+      - Tests/LungfishAppTests/DatabaseBrowserNoProjectDownloadRefusalTests.swift
     notes: >-
       Downloads one or more NCBI records through the CLI or database search UI.
       Saved CLI files write a file-specific Lungfish provenance sidecar with
       the resolved fetch options, endpoint, pseudo-input accession, output
       checksum, size, and command line.
       With a project open, the Database Browser's nucleotide and virus rows
-      download by running lungfish-cli fetch ncbi --bundle. The hidden key
-      DatabaseBrowserNucleotideRowRoute set to legacy keeps the in-process
-      route for one release. The bundle's one sequence is named with its
-      version, and the command prints events and no result document under
-      --format json.
+      download by running lungfish-cli fetch ncbi --bundle. The bundle's one
+      sequence is named with its version, and the command prints events and no
+      result document under --format json. With no project open the download
+      shows the No Project Open sheet and starts nothing.
   fetch.sra:
     title: Download FASTQ reads from SRA
     entry_points:
@@ -137,6 +137,7 @@ features:
       - Sources/LungfishCLI/Commands/SRADownloadBundle.swift
       - Sources/LungfishCLI/Commands/SRADownloadReporter.swift
       - Sources/LungfishCLI/Commands/SRADownloadRequest.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/SRADownloadPreparation.swift
     module: [LungfishApp, LungfishCLI, LungfishCore, LungfishWorkflow]
     cli:
       - lungfish-cli fetch sra download
@@ -146,6 +147,10 @@ features:
       - Tests/LungfishAppTests/SRADownloadSurfaceParityTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserSRARowParityReplayTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserSRARowSigningReplayTests.swift
+      - Tests/LungfishAppTests/DatabaseBrowserNoProjectDownloadRefusalTests.swift
+      - Tests/LungfishAppTests/SRADownloadPreparationTests.swift
+      - Tests/LungfishAppTests/SRADownloadPreparationOutageLineTests.swift
+      - Tests/LungfishAppTests/SRADownloadPreparationBrowserCancelTests.swift
     notes: >-
       Downloads SRA reads from ENA with an SRA Toolkit fallback, or from the
       SRA Toolkit first with an ENA fallback when the SRA window's "Download
@@ -164,10 +169,16 @@ features:
       downloader, preferredSource, options, produced FASTQ files, checksums,
       sizes, and runtime details in the output directory provenance sidecar.
       With a project open, the Database Browser's SRA rows download by
-      running lungfish-cli fetch sra download --bundle. The hidden key
-      DatabaseBrowserSRARowRoute set to legacy keeps the in-process route
-      for one release. Under --format json the command prints events and no
-      result document.
+      running lungfish-cli fetch sra download --bundle, and the run's record
+      names the workflow sra-fastq-download-bundle with lungfish-cli as its
+      tool. Under --format json the command prints events and no result
+      document. With no project open the download shows the No Project Open
+      sheet and starts nothing. Before the import settings open, the window
+      looks up the run's metadata. Cancel in the Database Browser during that
+      lookup, or the row's Cancel in the Operations Panel, ends the row
+      Cancelled, stops the lookup and opens no settings. When ENA and NCBI
+      both fail, the settings still open and the row's log says why in one
+      sentence.
   map:
     title: Map reads to a reference
     entry_points:
@@ -238,6 +249,9 @@ features:
       - Sources/LungfishWorkflow/Variants/BundleVariantTrackAttachmentService.swift
       - Sources/LungfishWorkflow/Variants/VariantSQLiteImportCoordinator.swift
       - Sources/LungfishCLI/Commands/VariantsCommand.swift
+      - Sources/LungfishCLI/Commands/VariantsCommand+Call.swift
+      - Sources/LungfishCLI/Commands/VariantsCommand+CallGATK.swift
+      - Sources/LungfishApp/Services/GATKVariantCallingRoute.swift
     module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     cli:
       - lungfish-cli variants call
@@ -248,6 +262,7 @@ features:
       - Tests/LungfishWorkflowTests/Variants/BAMVariantCallingPreflightTests.swift
       - Tests/LungfishWorkflowTests/Variants/BundleVariantTrackAttachmentServiceTests.swift
       - Tests/LungfishCLITests/VariantsCommandTests.swift
+      - Tests/LungfishAppTests/GATKVariantCallingCLIGUIParityReplayTests.swift
     notes: >-
       Runs LoFreq, iVar, Medaka, or bcftools against a bundle-owned BAM alignment
       track, normalizes the resulting VCF, imports it into the bundle
@@ -256,6 +271,19 @@ features:
       Medaka caller requires an ONT basecaller model identifier. The
       bcftools caller runs `mpileup` into `call` and records both native
       tool stages in provenance.
+      The GATK caller (--caller gatk) runs GATK HaplotypeCaller and attaches
+      the VCF as a variant track under variants/gatk/ as <track id>.vcf.gz
+      with its .tbi, the track database and a .lungfish-provenance.json. Its
+      own options are --emit-ref-confidence, --ploidy, --intervals,
+      --pcr-indel-model, --stand-call-conf, --max-alternate-alleles and
+      --pair-hmm-threads. Every variants call caller stops on SIGTERM,
+      records the cancel under provenance/cancelled as
+      lungfish-variants-call-<id>.lungfish-provenance.json and exits 125.
+      The Call Variants dialog's GATK row runs variants call --caller gatk,
+      and its attach record names that command. The hidden key
+      GATKVariantCallingRoute set to legacy keeps the in-process route for
+      one release. A later GATK run in a bundle replaces the bundle's GATK
+      execution record.
   bam.primer-trim:
     title: Primer-trim a BAM with iVar
     entry_points:
@@ -301,6 +329,8 @@ features:
       provenance JSON capturing resolved options, command line, runtime
       identity, input and output file records, per-step commands, exit status,
       stderr when available, checksums, sizes, and wall time.
+      A cancel (SIGTERM) stops the command, records the run as cancelled and
+      exits 125.
 
   # --- Sequences (sequence viewport) ---
   import.sequence:
@@ -319,11 +349,119 @@ features:
       - Sources/LungfishCLI/Commands/BundleCommand.swift
       - Sources/LungfishCLI/Commands/BundleCreateSubcommand.swift
       - Sources/LungfishCore/Bundles/BundleManifest.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ReferenceDrop.swift
+      - Sources/LungfishApp/Services/CLIReferenceBundleWrapper.swift
     module: [LungfishApp, LungfishCLI, LungfishCore]
     notes: >-
       Imports a standalone FASTA, GenBank, or 2bit sequence plus optional
       GFF3, GTF, or BED annotations as an indexed .lungfishref bundle with a
       .fai index for random access.
+      A standalone reference dropped on the sidebar imports through
+      lungfish-cli import fasta, so its row shows the command and can be
+      cancelled. A FASTA that a FASTQ operation writes is wrapped by the
+      same command, which the bundle's record names, and the operation's
+      Cancel stops the wrap. The wrap has no row of its own. import fasta
+      --bundle-dir names the folder to build in, and giving it with
+      --output-dir is refused at parse with exit 64.
+  sequence.extract-region-bundle:
+    title: Extract a region to a new reference bundle
+    entry_points:
+      - "Extract Sequence… on a selected region in a reference bundle viewer"
+      - "CLI: lungfish extract sequence --bundle"
+    inputs: [reference-bundle]
+    outputs: [lungfishref]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishCLI/Commands/ExtractCommand.swift
+      - Sources/LungfishCLI/Commands/ExtractSequenceSubcommand+Bundle.swift
+      - Sources/LungfishWorkflow/Extraction/SequenceExtractionPipeline.swift
+      - Sources/LungfishWorkflow/Extraction/SequenceExtractionBundleBuilder.swift
+      - Sources/LungfishWorkflow/Extraction/SequenceExtractionBundleBuilder+Tracks.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplayOperationBegin.swift
+      - Sources/LungfishApp/Services/CLIBundleBuildRunner.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+    cli:
+      - lungfish-cli extract sequence
+    tests:
+      - Tests/LungfishAppTests/RegionBundleExtractionParityReplayTests.swift
+    notes: >-
+      Extracting a region to a new bundle from a viewer that shows a reference
+      bundle runs lungfish-cli extract sequence --bundle. Its row in the
+      Operations panel records the command, which Copy Command shows, and
+      Cancel stops it before it publishes anything. A viewer that shows a
+      document still builds the bundle in the app and records no command. A
+      region extracted with only spaces typed as its bundle name is saved as
+      extracted_sequence. Two extractions given the same bundle name at the
+      same time keep both bundles, and with --next-free-name the one that
+      finishes second is saved under the next free name, such as Name_1.
+      extract sequence --bundle never writes over its input. An -o that is the
+      source bundle, lies inside it or holds it is refused with exit status 3,
+      and the bundle options (--name, --samples, --no-samples, --feature-name,
+      --feature-type, --strand, --concatenate-exons and --next-free-name) are
+      refused without --bundle.
+  bundle.merge:
+    title: Merge reference bundles into a new bundle
+    entry_points:
+      - "Merge into New Bundle for two or more reference bundles selected in the sidebar"
+      - "CLI: lungfish bundle merge"
+    inputs: [lungfishref]
+    outputs: [lungfishref]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishCLI/Commands/BundleMergeSubcommand.swift
+      - Sources/LungfishApp/Services/ReferenceBundleMergeRoute.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift
+      - Sources/LungfishWorkflow/Bundles/ReferenceBundleMergeService.swift
+      - Sources/LungfishWorkflow/Bundles/ReferenceBundleMergeService+Provenance.swift
+      - Sources/LungfishWorkflow/Bundles/ReferenceBundleMergeService+Sources.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+    cli:
+      - lungfish-cli bundle merge
+    tests:
+      - Tests/LungfishAppTests/ReferenceBundleMergeOperationTests.swift
+      - Tests/LungfishAppTests/ReferenceBundleMergeParityReplayTests.swift
+      - Tests/LungfishAppTests/ReferenceBundleMergeSIGTERMReplayTests.swift
+      - Tests/LungfishCLITests/BundleMergeSIGTERMTests.swift
+    notes: >-
+      lungfish-cli bundle merge merges two or more reference bundles into one
+      new bundle, with events on --format json. The sidebar's Merge into New
+      Bundle for reference bundles runs it, so Cancel stops the merge before
+      it publishes, the bundle appears under its name in one step, and the
+      Operations row shows the command to copy.
+  export.sequences:
+    title: Export sequences from a bundle
+    entry_points:
+      - "Export Sequences… on a bundle in the sidebar"
+      - "CLI: lungfish convert"
+    inputs: [bundle]
+    outputs: [fasta, genbank]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+ImportCenterSequenceExport.swift
+      - Sources/LungfishApp/Services/SequenceExportRoute.swift
+      - Sources/LungfishWorkflow/Native/SequenceExportCompressor.swift
+      - Sources/LungfishCLI/Commands/ConvertCommand.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+    cli:
+      - lungfish-cli convert
+    tests:
+      - Tests/LungfishAppTests/AppDelegateImportCenterOperationTests.swift
+      - Tests/LungfishAppTests/SequenceExportRouteTests.swift
+      - Tests/LungfishCLITests/ConvertCompressTests.swift
+      - Tests/LungfishWorkflowTests/SequenceExportCompressorTests.swift
+    notes: >-
+      lungfish-cli convert takes several input files and writes them to one
+      output, and --compress gzip or --compress zstd writes the output
+      compressed. A selection of files that convert reads, reference bundles
+      included, exports by running it, so the Operations row shows the
+      command to copy, including the compressor. A selection with a captured
+      document snapshot, or a file convert does not read, is written in the
+      app and records no command. A zstd export looks for zstd in /usr/bin
+      and in Homebrew's two prefixes, /opt/homebrew/bin and /usr/local/bin,
+      and not on the PATH. When it finds none, it stops with a message that
+      says what to install and where it looked, since macOS does not ship
+      zstd. gzip works on every Mac.
   viewport.sequence-browser:
     title: Sequence browser viewport
     entry_points:
@@ -508,9 +646,7 @@ features:
       A FASTQ file copied into a project is ingested in place by running
       lungfish-cli fastq ingest --delete-originals --format json, which
       removes the original last. The ONT import of a run folder runs
-      lungfish-cli fastq import-ont --format json. The hidden key
-      ReadsLaunchRoute.ontImport set to legacy keeps the in-process ONT
-      import for one release.
+      lungfish-cli fastq import-ont --format json.
   viewport.fastq-dataset:
     title: FASTQ dataset dashboard
     entry_points:
@@ -558,6 +694,8 @@ features:
       when the reads name a platform) and Keep, and both, like the Read Type
       popup, run lungfish-cli fastq platform through the Operations Panel.
       Only the sidecar is rewritten, never the reads.
+      A cancel (SIGTERM) restores the previous label and exits 125. When the
+      restore fails, the command exits with the output error status.
   fastq.qc-summary:
     title: FASTQ quality control and reporting
     entry_points:
@@ -780,17 +918,16 @@ features:
       - Tests/LungfishAppTests/DatabaseBrowserGenomeRowParityReplayTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserGenomeRowRouteTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserGenomeRowSigningReplayTests.swift
+      - Tests/LungfishAppTests/DatabaseBrowserNoProjectDownloadRefusalTests.swift
     notes: >-
       Downloads a genome assembly with annotations from NCBI and builds an
       indexed .lungfishref bundle ready for the sequence viewport.
       With a project open, the Database Browser's genome rows download by
       running lungfish-cli fetch genome, and a genome downloaded that way
-      carries the command's provenance record. The hidden key
-      DatabaseBrowserGenomeRowRoute set to legacy keeps the in-process route
-      for one release. A VCF import with no bundle open downloads its
-      reference by running fetch genome --into-bundle, and the hidden key
-      VariantOnlyReferenceDownloadRoute set to legacy keeps the earlier
-      route.
+      carries the command's provenance record. With no project open the
+      download shows the No Project Open sheet and starts nothing. A VCF
+      import with no bundle open downloads its reference by running fetch
+      genome --into-bundle.
   database.pathoplexus:
     title: Browse the Pathoplexus catalogue
     entry_points:
@@ -805,6 +942,7 @@ features:
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewModel+PathoplexusRowDownload.swift
       - Sources/LungfishCLI/Commands/FetchPathoplexus.swift
       - Sources/LungfishCLI/Commands/FetchPathoplexusBundle.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController+OperationBegin.swift
     module: [LungfishCore, LungfishApp, LungfishCLI]
     cli:
       - lungfish-cli fetch pathoplexus
@@ -812,14 +950,15 @@ features:
       - Tests/LungfishAppTests/DatabaseBrowserPathoplexusRowParityReplayTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserPathoplexusRowRouteTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserPathoplexusRowSigningReplayTests.swift
+      - Tests/LungfishAppTests/DatabaseBrowserNoProjectDownloadRefusalTests.swift
     notes: >-
       Searches the Pathoplexus pathogen reference catalogue and imports selected
       records as reference bundles.
       With a project open, the Database Browser's Pathoplexus rows download
-      by running the new lungfish-cli fetch pathoplexus command. The hidden
-      key DatabaseBrowserPathoplexusRowRoute set to legacy keeps the in-
-      process route for one release. A bundle's one sequence is named by its
-      INSDC accession with its version, and a restricted record fails with
+      by running the new lungfish-cli fetch pathoplexus command. With no
+      project open the download shows the No Project Open sheet and starts
+      nothing. A bundle's one sequence is named by its INSDC accession with
+      its version, and a restricted record fails with
       Record X is restricted and cannot be downloaded.
   database.manage:
     title: Manage metagenomics reference databases
@@ -911,7 +1050,6 @@ features:
       - Sources/LungfishCLI/Commands/MarkdupCommand.swift
       - Sources/LungfishCLI/Commands/CLIDeduplicatedBundleSupport.swift
       - Sources/LungfishCLI/Commands/BAMCommand.swift
-      - Sources/LungfishApp/Views/Inspector/InspectorDuplicateWorkflowRoute.swift
       - Sources/LungfishApp/Views/Inspector/InspectorViewController+DuplicateWorkflowRoute.swift
       - Sources/LungfishApp/Services/CLIAlignmentActionRunner.swift
     module: [LungfishCLI, LungfishWorkflow, LungfishApp]
@@ -933,9 +1071,7 @@ features:
       removed. Chapter: 04-alignments/04.
       In the Inspector, Mark Duplicates in Bundle Tracks and Create
       Deduplicated Bundle run the bundle mark-duplicates and bundle
-      deduplicate-alignments leaves by default. The hidden key
-      InspectorDuplicateWorkflowRoute set to legacy keeps the in-process
-      task for one release.
+      deduplicate-alignments leaves.
   bam.extract-reads:
     title: Extract reads by region
     entry_points:
@@ -1090,7 +1226,11 @@ features:
       - Sources/LungfishCLI/Commands/ClassifyCommand.swift
       - Sources/LungfishWorkflow/Metagenomics/KrakenReadSetPlanner.swift
       - Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline+InputCopies.swift
-    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDelegate.swift
+      - Sources/LungfishCore/Process/DurableGzip.swift
+      - Sources/LungfishIO/Formats/Kraken/KrakenOutputCompactor.swift
+      - Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline+KrakenOutputCompaction.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow, LungfishCore, LungfishIO]
     cli:
       - lungfish-cli kraken2 classify
       - lungfish-cli conda classify
@@ -1105,6 +1245,9 @@ features:
       - Tests/LungfishAppTests/ClassifierNoProjectRefusalTests.swift
       - Tests/LungfishAppTests/ClassifierCLIGUIParityReplayTests.swift
       - Tests/LungfishCLITests/Kraken2DemuxGroupRefusalTests.swift
+      - Tests/LungfishAppTests/ClassifierCLIRouteSidebarTests.swift
+      - Tests/LungfishAppTests/PrimerTrimInspectorAfterRevealTests.swift
+      - Tests/LungfishAppTests/RevealTestSupport.swift
     notes: >-
       Runs Kraken2 taxonomic classification with Bracken abundance estimation on
       FASTQ or FASTA inputs and opens the results in the taxonomy browser. A
@@ -1126,6 +1269,12 @@ features:
       bundle with exit 3 before they look at the database. A run of one
       sample into a project reads Completed with Warnings when its viewer
       index fails, as a batch does.
+      A finished single run selects the result's row and points the
+      Inspector at it. The Summary's Operation Details describe the result
+      the viewport shows, which is the first sample after a batch run. A
+      batch run leaves the sidebar selection where it was. Kraken2 per-read
+      output is kept as a gzip copy written through a part file and named
+      only when whole.
   classify.esviritu:
     title: EsViritu viral detection
     entry_points:
@@ -1183,6 +1332,8 @@ features:
       - Sources/LungfishCLI/Commands/TaxTriageCommand.swift
       - Sources/LungfishWorkflow/TaxTriage/TaxTriageReadSetPlanner.swift
       - Sources/LungfishWorkflow/TaxTriage/TaxTriageAnalysisRunTool+Finalize.swift
+      - Sources/LungfishApp/App/AppDelegate+TaxTriageCLIRoute.swift
+      - Sources/LungfishApp/Services/TaxTriageLaunchRoute.swift
     module: [LungfishApp, LungfishTaxTriageUI, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli taxtriage run
@@ -1194,6 +1345,9 @@ features:
       - Tests/LungfishAppTests/TaxTriageNoProjectRefusalTests.swift
       - Tests/LungfishCLITests/TaxTriageRunTextOutputTests.swift
       - Tests/LungfishCLITests/BuildDbTaxTriageCleanupFreezeTests.swift
+      - Tests/LungfishAppTests/TaxTriageCLIRouteRowTests.swift
+      - Tests/LungfishAppTests/TaxTriageLaunchRouteTests.swift
+      - Tests/LungfishAppTests/TaxTriageLaunchRouteRunTests.swift
     notes: >-
       Runs multi-level TaxTriage clinical triage and shows a confidence view,
       batch overview, and strain comparison across samples. A launch with no
@@ -1201,9 +1355,11 @@ features:
       In 2.10 lungfish-cli taxtriage run takes a repeated --input, a
       repeated --negative-control and writes taxtriage-result.json at the
       root of a batch, and build-db taxtriage keeps top/ on every completed
-      result. The launch from Tools > Classification stays the legacy in-app
-      route until 2.11. That route scales the runner's progress onto the
-      first nine tenths of the bar.
+      result. In 2.11 the Tools > Classification launch runs lungfish-cli
+      taxtriage run --project by default, and the hidden key
+      TaxTriageLaunchRoute set to legacy keeps the in-app route for one
+      Preview. The in-app route scales the runner's progress onto the first
+      nine tenths of the bar.
   classify.esviritu-cli-route:
     title: Run EsViritu from the command line into a project
     entry_points:
@@ -1301,10 +1457,14 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/NaoMgsImportSheet.swift
       - Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift
       - Sources/LungfishCLI/Commands/NaoMgsCommand.swift
-    module: [LungfishApp, LungfishNaoMgsUI, LungfishCLI]
+      - Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift
+    module: [LungfishApp, LungfishNaoMgsUI, LungfishCLI, LungfishWorkflow]
     notes: >-
       Imports NAO-MGS metagenomic surveillance results into a SQLite-backed
       viewport with charts and provenance for fast random-access queries.
+      A result imported before 2026-09-23 lists its accessions, with the
+      coverage shown as coverage unavailable (reference not fetched), and
+      extracts reads by taxon without a migration.
   classify.twelve-s:
     title: 12S amplicon metabarcoding
     entry_points:
@@ -1413,12 +1573,26 @@ features:
       - Sources/LungfishKit/BlastResultsDrawerContainerView.swift
       - Sources/LungfishCLI/Commands/BlastCommand.swift
       - Sources/LungfishWorkflow/Extraction/KrakenResultReadSources.swift
+      - Sources/LungfishApp/Services/BlastSubmitRoute.swift
+      - Sources/LungfishApp/Services/CLIBlastSubmitRunner.swift
+      - Sources/LungfishCLI/Commands/BlastSubmitCommand.swift
+      - Sources/LungfishCLI/Commands/BlastSubmitCommand+Record.swift
     module: [LungfishApp, LungfishKit, LungfishCLI, LungfishWorkflow]
+    cli:
+      - lungfish-cli blast submit
+    tests:
+      - Tests/LungfishAppTests/CLIBlastSubmitRunnerTests.swift
+      - Tests/LungfishCLITests/BlastSubmitCommandTests.swift
     notes: >-
       Verifies a classified sequence or taxon against NCBI BLAST and shows the
       hits in a results drawer. Kraken2 verification reads R1, R2 and the
       merged reads of the classified inputs, and blast verify takes one
       repeatable --source per input, a bundle or a file.
+      The NAO-MGS, assembly and FASTA selection BLAST actions run
+      lungfish-cli blast submit, so their rows show the command, Cancel
+      stops the whole tool tree, and the result is saved with a copy of the
+      query. The hidden key BlastReadActionRoute set to legacy keeps the
+      in-process search for one release.
   classify.extract-reads:
     title: Extract reads by taxon
     entry_points:
@@ -1435,9 +1609,15 @@ features:
       - Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline+MatePairs.swift
       - Sources/LungfishWorkflow/Extraction/KrakenResultReadSources.swift
       - Sources/LungfishWorkflow/Extraction/ClassifierExtractionError.swift
-    module: [LungfishApp, LungfishWorkflow]
+      - Sources/LungfishCLI/Commands/ExtractTaxaCollectionCommand.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+TaxaCollectionArguments.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli extract taxa-collection
     tests:
       - Tests/LungfishWorkflowTests/Extraction/Kraken2MateNameExtractionTests.swift
+      - Tests/LungfishCLITests/ExtractTaxaCollectionCommandTests.swift
     notes: >-
       Extracts reads assigned to any taxon back into a fresh FASTQ dataset for
       downstream mapping or assembly. A Kraken2 extraction returns both mates,
@@ -1448,6 +1628,10 @@ features:
       When a result's BAM is a link to a file outside the result folder, the
       failure says that LGE extracts reads only from BAM files inside the
       folder and asks for a copy in place of the link.
+      A taxa collection extraction records the lungfish-cli extract
+      taxa-collection command that Copy CLI Command copies, and the command
+      writes extracted-<collection id>/<name>_taxid<id>.fastq.gz. Clipboard
+      and share extraction follow in a later release.
 
   # --- Assembly (assembly viewport) ---
   assemble:
@@ -1475,10 +1659,8 @@ features:
     notes: >-
       Assembles reads with SPAdes, MEGAHIT, SKESA, Flye, or hifiasm in
       short-read, long-read, or haplotype-aware modes with a guided wizard.
-      Reassemble in the sidebar runs lungfish-cli assemble by default. The
-      hidden key ReadsLaunchRoute.assembly set to legacy keeps the in-
-      process route for one release. Under --format json the command prints
-      its events on standard output.
+      Reassemble in the sidebar runs lungfish-cli assemble. Under --format
+      json the command prints its events on standard output.
   viewport.assembly:
     title: Assembly result viewport
     entry_points:
@@ -1546,10 +1728,15 @@ features:
       - Sources/LungfishWorkflow/PBAA/PBAAClusteringPipeline.swift
       - Sources/LungfishCLI/Commands/FastqFullLengthONTMHCGenotypingSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqPBAAClusterSubcommand.swift
+      - Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCAlignmentProcessRunner.swift
     module: [LungfishWorkflow, LungfishCLI]
+    tests:
+      - Tests/LungfishWorkflowTests/FullLengthONTMHCAlignmentProcessRunnerTests.swift
     notes: >-
       Clusters full-length ONT MHC amplicons with Savont or pbAA and genotypes
       the cluster consensus sequences against an MHC allele library.
+      The alignment command records keep the last 65,536 bytes of each log
+      from the first whole line.
   genotype.ai-haplotyping:
     title: AI-assisted haplotype discovery
     entry_points:
@@ -1585,6 +1772,9 @@ features:
       - Sources/LungfishGenotypeUI/GenotypeResultViewController+SampleStatusUndo.swift
       - Sources/LungfishGenotypeUI/GenotypeAuditTimelineSection.swift
       - Sources/LungfishApp/App/MainMenu+GenotypeReview.swift
+      - Sources/LungfishGenotypeUI/GenotypeAnnotationStore+Publication.swift
+      - Sources/LungfishGenotypeUI/GenotypeAnnotationStore+PublicationPayload.swift
+      - Sources/LungfishGenotypeUI/GenotypeAnnotationPublicationChain.swift
     module: [LungfishGenotypeUI, LungfishApp]
     notes: >-
       Presents a genotype comparison matrix, haplotype tape, cohort summary, and
@@ -1596,6 +1786,9 @@ features:
       audit entry whose before value is the replaced status (clearSampleStatus
       when an Undo leaves no status). Selection > Genotype Call holds the
       matrix review commands, which are not undoable.
+      Annotation edits encode, hash and write their annotations.json pair
+      away from the main thread, one edit at a time in the order they were
+      made.
   genotype.export:
     title: Export genotype results
     entry_points:
@@ -1659,12 +1852,20 @@ features:
       - Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionEditor.swift
       - Sources/LungfishGenotypeUI/GenotypeHaplotypeDefinitionMatrixView.swift
       - Sources/LungfishCLI/Commands/HaplotypeDefinitionsCommand.swift
-    module: [LungfishGenotypeUI, LungfishCLI]
+      - Sources/LungfishIO/Bundles/HaplotypeDefinitionStore.swift
+      - Sources/LungfishCore/AppVersion.swift
+    module: [LungfishGenotypeUI, LungfishCLI, LungfishIO, LungfishCore]
+    tests:
+      - Tests/LungfishIOTests/HaplotypeToolVersionBuildTests.swift
+      - Tests/LungfishCoreTests/LungfishAppVersionBuildTests.swift
     notes: >-
       Defines and edits named haplotypes from aligned marker columns and applies
       them to genotype calls. The MHC Haplotype Definitions window is always in
       Tools > Genotyping and is disabled while no enabled workflow uses
       haplotype definitions.
+      A haplotype definition edit records Lungfish <version> (<build>) with
+      the app's own build from LungfishAppVersion.build, which reads dev for
+      a build without a Lungfish Info.plist.
 
   # --- Multiple sequence alignment and phylogenetics ---
   msa.align:
@@ -1693,6 +1894,8 @@ features:
       alignment bundle. A FASTQ bundle given as input contributes the records
       of every file it holds, every chunk of a chunked root and both mates of
       a paired derivative, and the pane's All sequences count includes them.
+      A cancel (SIGTERM) of align mafft records the run as cancelled and
+      exits 125.
   msa.actions:
     title: MSA editing and analysis
     entry_points:
@@ -1704,6 +1907,7 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/MSACommand.swift
       - Sources/LungfishCLI/Commands/ImportMSATreeSubcommands.swift
+      - Sources/LungfishCLI/Commands/MSAActionCancellation.swift
     module: [LungfishCLI]
     cli:
       - lungfish-cli msa consensus
@@ -1715,6 +1919,12 @@ features:
       columns, creates masked or trimmed derivatives, and computes identity or
       distance matrices (msa distance, see msa.inspection.distance-matrix for
       the window's Distances pane).
+      A cancel (SIGTERM) of an msa action records the run as cancelled and
+      exits 125. msa discriminating-sites is not converted, the four msa
+      annotate actions never reach the cancel point, and msa distance on a
+      large alignment cannot be cancelled after it has read the alignment. A
+      cancel that arrives after the write leaves a complete result under a
+      row that reads Cancelled by user.
   msa.inspection.distance-matrix:
     title: Pairwise distance matrix pane for an alignment
     entry_points:
@@ -1884,6 +2094,7 @@ features:
       manifest records supportLabels, branchLengthUnit and an inference
       summary the Inspector shows as its Inference section. Chapter:
       02-sequences/05.
+      A cancel (SIGTERM) records the run as cancelled and exits 125.
   viewport.phylogenetic-tree:
     title: Phylogenetic tree viewport
     entry_points:
@@ -1930,12 +2141,15 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/TreeCommand.swift
+      - Sources/LungfishCLI/Commands/TreeCommandTransform.swift
     module: [LungfishCLI]
     notes: >-
       Roots a tree on the branch above a chosen node (outgroup rooting, as
       the viewport's Root on Selected Branch does), extracts a selected clade
       as a subtree named from its tip labels, and relabels tips from bundle
       metadata, writing new bundles with provenance. Chapter: 02-sequences/05.
+      A cancel (SIGTERM) of reroot, extract-subtree or relabel records the
+      run as cancelled and exits 125.
 
   # --- Workflows ---
   workflow.nextflow:
@@ -2053,7 +2267,8 @@ features:
       - Sources/LungfishWorkflow/Provenance/ProvenanceExporter.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+SidecarLookup.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
-    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+      - Sources/LungfishOperations/ProvenancePathRehydrator.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI, LungfishOperations]
     cli:
       - lungfish-cli provenance export
       - lungfish-cli provenance verify
@@ -2063,6 +2278,8 @@ features:
       - Tests/LungfishAppTests/AppProvenanceExportSelectionTests.swift
       - Tests/LungfishCLITests/ProvenanceExportCommandTests.swift
       - Tests/LungfishWorkflowTests/ProvenanceExportFidelityTests.swift
+      - Tests/LungfishOperationsTests/ProvenancePathRehydratorTests.swift
+      - Tests/LungfishAppTests/SidebarMoveOfABuiltResultFolderReplayTests.swift
     notes: >-
       File > Export > Provenance holds the six ProvenanceExportMenuModel
       items. Each exports the record of the current viewer or sidebar
@@ -2076,6 +2293,16 @@ features:
       Inspector's Provenance tab offers the same six items. The CLI
       provenance export runs the same exporter, provenance verify checks a
       signed record and provenance bibliography prints a citation list.
+      A sidebar rename, move or copy of a result folder keeps its records
+      true. When the app has a signing key in its environment, each signed
+      record that the change rewrites is signed again and passes
+      lungfish-cli provenance verify. When it has none, such a record loses
+      its signature file and public key and reads unsigned, and lungfish-cli
+      provenance verify on it prints Signature artifact is missing and ends
+      with exit status 64, as it does for any unsigned record. A record
+      whose signature had already failed stays as it was, so a result
+      renamed by an earlier release still fails verify, since a rename
+      cannot tell an old rename from an edit.
   provenance.inspector:
     title: Read a result's provenance in the Inspector
     entry_points:
@@ -2099,6 +2326,7 @@ features:
       - Sources/LungfishWorkflow/Provenance/ProvenanceLineageResolver.swift
       - Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel+StepTermination.swift
       - Sources/LungfishApp/Views/Inspector/Sections/ProvenanceSection+StepTermination.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceCommandPresentation.swift
     module: [LungfishApp, LungfishWorkflow]
     tests:
       - Tests/LungfishAppTests/ProvenanceInspectorViewModelTests.swift
@@ -2108,6 +2336,8 @@ features:
       - Tests/LungfishAppTests/ProvenanceLegacyDisplayTests.swift
       - Tests/LungfishAppTests/ProvenanceRunStatusDisplayTests.swift
       - Tests/LungfishAppTests/ProvenanceStepTerminationDisplayTests.swift
+      - Tests/LungfishWorkflowTests/ProvenanceCommandPresentationTests.swift
+      - Tests/LungfishCoreTests/PortablePathRerootSpanTests.swift
     notes: >-
       View > Provenance Inspector (Option-Command-V) shows the Inspector on
       its Provenance tab. InspectorViewModel.availableTabs offers the tab in
@@ -2135,6 +2365,10 @@ features:
       A step recorded by this release shows an Environment row under
       Command, and a Termination or Output row only when the step ended in
       an unusual way. An older record shows none of them.
+      A step's Command row shows the recorded command with each path
+      shortened to its project-relative form, and a shell's -c or -lc script
+      keeps its program with each path inside it shortened. Copy Command
+      copies the full recorded command.
   provenance.result-popovers:
     title: Show a result viewer's pipeline information popover
     entry_points:
@@ -2218,11 +2452,13 @@ features:
       - Sources/LungfishApp/App/MainMenu.swift
       - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
       - Sources/LungfishKit/OperationCenter.swift
-    module: [LungfishApp, LungfishKit]
+      - Sources/LungfishCLI/Support/CLIFailureWords.swift
+    module: [LungfishApp, LungfishKit, LungfishCLI]
     tests:
       - Tests/LungfishAppViewTests/OperationRowActionAccessibilityTests.swift
       - Tests/LungfishAppViewTests/OperationResultNavigationTests.swift
       - Tests/LungfishAppViewTests/OperationsLiveInspectorTests.swift
+      - Tests/LungfishCLITests/CLIFailedRowWordsTests.swift
     notes: >-
       Operations > Show Operations Panel (Shift-Command-P) opens a window that
       lists every operation OperationCenter tracks, whether it is running,
@@ -2238,6 +2474,8 @@ features:
       Rows that run through lungfish-cli log the command's progress lines
       once, and the bar of the variant calling row no longer falls back when
       the SQLite import starts.
+      A failed command shows its own reason in the Operations row and the
+      alert, in place of the system's generic message.
   project.manage:
     title: Manage projects and shared locks
     entry_points:
@@ -2299,7 +2537,6 @@ features:
     sources:
       - Sources/LungfishCLI/Commands/CondaCommand.swift
       - Sources/LungfishKit/CLIBinaryLocator.swift
-      - Sources/LungfishApp/Services/ManagedToolsRoute.swift
       - Sources/LungfishApp/Services/CLIManagedToolsRunner.swift
       - Sources/LungfishCLI/Commands/ToolsUpdateApply.swift
       - Sources/LungfishCLI/Commands/ManagedToolLeafSupport.swift
@@ -2312,10 +2549,8 @@ features:
     notes: >-
       Bootstraps micromamba and installs bioconda tool packs into managed conda
       environments, with offline export and import.
-      Update Tools runs lungfish-cli tools update --apply --yes by default,
-      and an empty selection runs it with --required-only on a row named
-      Required updates. The hidden key ManagedToolsRoute set to legacy keeps
-      the in-process route for one release.
+      Update Tools runs lungfish-cli tools update --apply --yes, and an empty
+      selection runs it with --required-only on a row named Required updates.
   plugins.manage:
     title: Plugin Manager
     entry_points:
@@ -2329,7 +2564,6 @@ features:
       - Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift
       - Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel+OperationBegin.swift
       - Sources/LungfishCLI/Commands/CondaCommand.swift
-      - Sources/LungfishApp/Services/ManagedToolsRoute.swift
       - Sources/LungfishApp/Services/CLIManagedToolsRunner.swift
       - Sources/LungfishCLI/Commands/CondaInstallPackLeaf.swift
       - Sources/LungfishCLI/Commands/ManagedToolLeafSupport.swift
@@ -2344,11 +2578,9 @@ features:
       Discovers, installs, and manages the lifecycle of Python, Rust, Swift, and
       CLI plugins that add operations, viewers, data sources, or workflows.
       Pack installs, reinstalls and database updates run lungfish-cli conda
-      install --pack and conda db update by default. A pack whose smoke test
-      fails exits 126, and each pack and database run writes a record under
-      provenance/packs or provenance/databases. The hidden key
-      ManagedToolsRoute set to legacy keeps the in-process route for one
-      release.
+      install --pack and conda db update. A pack whose smoke test fails exits
+      126, and each pack and database run writes a record under
+      provenance/packs or provenance/databases.
   ai.assistant:
     title: AI Assistant
     entry_points:
@@ -2400,6 +2632,9 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/Primer3DesignInput.swift
       - Sources/LungfishWorkflow/PrimerDesign/Primer3FixedOligoValidation.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments+PrimerScheme.swift
+      - Sources/LungfishApp/Services/PrimerDesignOperation.swift
     module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     notes: >-
       Independent Primer3 designs per FASTA record or MSA row, with an assay
@@ -2408,6 +2643,9 @@ features:
       excludes variable columns. Fixed oligos (--left-primer, --right-primer,
       --probe) and per-oligo explanation lines are supported. Chapters:
       10-primer-design/02 and 04; settings in appendices/primer-design-settings.
+      A design run records a lungfish-cli primers design primer3 command
+      whose options carry the dialog's values, and a bundle replay of that
+      command is proven on the real tool.
   primer-design.primalscheme3:
     title: Design a tiled amplicon scheme with PrimalScheme
     entry_points:
@@ -2421,10 +2659,15 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments+PrimerScheme.swift
+      - Sources/LungfishApp/Services/PrimerDesignOperation.swift
     module: [LungfishWorkflow, LungfishApp, LungfishCLI]
     notes: >-
       Tiled, overlapping amplicons in two alternating pools, run through
       LGE's PrimalScheme 3 build. Chapter: 10-primer-design/03.
+      A design run records a lungfish-cli primers design primalscheme3
+      command, which is proven to resolve to the dialog's options.
   primer-design.olivar:
     title: Design a tiled amplicon scheme with Olivar
     entry_points:
@@ -2439,11 +2682,16 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeAdapterRunner.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments+PrimerScheme.swift
+      - Sources/LungfishApp/Services/PrimerDesignOperation.swift
     module: [LungfishWorkflow, LungfishApp, LungfishCLI]
     notes: >-
       Variant-aware tiled design through the versioned LGE adapter. An
       optional BLAST screen is built from chosen sequences
       (--screen-against). Chapter: 10-primer-design/03.
+      A design run records a lungfish-cli primers design olivar command,
+      which is proven to resolve to the dialog's options.
   primer-design.varvamp:
     title: Design single, tiled, or qPCR assays with varVAMP
     entry_points:
@@ -2458,11 +2706,16 @@ features:
       - Sources/LungfishWorkflow/PrimerDesign/VarVAMPCoverageAdvisories.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift
       - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerDesignCLIArguments+PrimerScheme.swift
+      - Sources/LungfishApp/Services/PrimerDesignOperation.swift
     module: [LungfishWorkflow, LungfishApp, LungfishCLI]
     notes: >-
       Degenerate primers from a consensus of the alignment, in single, tiled,
       or qPCR mode. The qPCR result selects the lowest-penalty assay.
       Chapters: 10-primer-design/03 and 04.
+      A design run records a lungfish-cli primers design varvamp command,
+      which is proven to resolve to the dialog's options.
   primer-analysis.review:
     title: Review a primer analysis
     entry_points:
@@ -2501,6 +2754,12 @@ features:
     notes: >-
       Writes order workbooks, a CSV, and order.json for the selected or all
       reported assays. Chapter: 10-primer-design/05.
+      primers analysis export-order takes --hide-primer, --hide-pool,
+      --hide-forward, --hide-reverse, --hide-amplicons,
+      --hide-identity-dots, --hide-unassessed, --filter-compatibility and
+      --min-compatibility, so a PrimalScheme order exported from a filtered
+      view records a command that carries them. A parse test alone covers
+      the compatibility options.
   primer-analysis.scheme-from-analysis:
     title: Save a designed scheme as a primer scheme bundle
     entry_points:
