@@ -235,7 +235,7 @@ def run_gate_in_process(scenario, tier, selection_filter, **options):
 
 
 class GateBehaviorTests(unittest.TestCase):
-    def run_gate(self, scenario, *options, env=None, with_leak_check=False, allowed=""):
+    def run_gate(self, scenario, *options, env=None, with_leak_check=False, allowed="", timeout=15):
         """Run the real gate and gate_evidence.py against a fake swift. env adds variables to the
         run. with_leak_check also gives the project the Preferences check, an allowed list holding
         `allowed`, a test file that builds ExampleTests-<UUID> names and a Preferences folder under
@@ -261,7 +261,7 @@ class GateBehaviorTests(unittest.TestCase):
             environment.update(env or {})
             result = subprocess.run(
                 ["/bin/bash", str(root / "scripts/full-suite-gate.sh"), *options],
-                env=environment, capture_output=True, text=True, timeout=15,
+                env=environment, capture_output=True, text=True, timeout=timeout,
             )
             reports = list(root.glob(".build/gate-logs/**/*.result.json"))
             evidence = json.loads(reports[0].read_text()) if reports else None
@@ -419,7 +419,7 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertLess(result.stdout.index("GATE FAIL"), result.stdout.index("preferences-leaks: FAIL"))
 
     # The serial integration run (Phase 2.11 Q65). The class_hang scenario's first class starts a
-    # child that ignores SIGTERM in a session of its own, as an xctest worker does, and waits forever.
+    # child that ignores SIGTERM in a session of its own, as an xctest worker does, and waits 120 s.
     def run_hang_gate(self, *options):
         """Run the gate on the class_hang scenario. Returns the process result, the evidence and the
         PID file and marker of the hanging stand-in's child, which only this test started."""
@@ -427,7 +427,7 @@ class GateBehaviorTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, stand_in, ignore_errors=True)
         pid_file, marker = stand_in / "child.pid", "lungfish-gate-hang-stand-in-" + uuid.uuid4().hex
         self.addCleanup(self.stop_own_stand_in, pid_file, marker)
-        result, evidence = self.run_gate("class_hang", *options,
+        result, evidence = self.run_gate("class_hang", *options, timeout=60,
                                          env={"STUB_HANG_PID_FILE": str(pid_file), "STUB_HANG_MARKER": marker})
         return result, evidence, (pid_file, marker)
 
@@ -641,7 +641,7 @@ test_id = os.environ.get("STUB_SWIFT_MODULE", "LungfishIntegrationTests") + ".Mi
 metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
 # Two serial classes (SERIAL_TESTS in the test module). In class_hang the first class hangs: it
 # starts a child that ignores SIGTERM in a session of its own, writes the child's PID to
-# STUB_HANG_PID_FILE and waits forever. The child's command line carries STUB_HANG_MARKER.
+# STUB_HANG_PID_FILE and waits 120 s, then exits 3. The child's command line carries STUB_HANG_MARKER.
 SERIAL = ["LungfishIntegrationTests.AlphaHangTests/testHangs", "LungfishIntegrationTests.BetaTests/testRuns"]
 serial_scenario = scenario in ("two_classes", "class_hang")
 if args == ["--version"]:
@@ -677,8 +677,8 @@ if serial_scenario:
             child = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(120)",
                                       os.environ["STUB_HANG_MARKER"]], start_new_session=True)
             pathlib.Path(os.environ["STUB_HANG_PID_FILE"]).write_text(str(child.pid))
-            while True:
-                time.sleep(1)
+            time.sleep(120)
+            sys.exit(3)
         print("Test Case '-[" + suite + " " + name + "]' passed (0.1 seconds).")
     print("Test Suite 'Selected tests' passed at 2026-09-05")
     print("Executed " + str(len(chosen)) + " test" + ("" if len(chosen) == 1 else "s") + ", with 0 failures (0 unexpected) in 0.1 seconds")
