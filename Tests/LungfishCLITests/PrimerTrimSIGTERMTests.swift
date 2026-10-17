@@ -91,6 +91,9 @@ final class PrimerTrimSIGTERMTests: XCTestCase {
             let stop = await CLISIGTERMHarness.cancel(started.cli, timeout: .seconds(5))
             return XCTFail("The command never started ivar.\(stop.diagnostics)")
         }
+        // What the bundle holds while ivar runs, before the signal. The record says the bundle was not
+        // changed, so the pin holds it to that (review S61, Fix 9).
+        let bundleBefore = SIGTERMPinSupport.relativePaths(under: started.bundle)
 
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(started.cli) {
             try SIGTERMPinSupport.cancelledRecordStatus(inBundle: started.bundle)
@@ -105,6 +108,12 @@ final class PrimerTrimSIGTERMTests: XCTestCase {
             SIGTERMPinSupport.paths(under: started.scratch, startingWith: "primer-trim-"), [],
             "the staging folder is gone"
         )
-        XCTAssertEqual(try BundleManifest.load(from: started.bundle).alignments.count, 2, "the bundle was not changed")
+        XCTAssertEqual(try BundleManifest.load(from: started.bundle).alignments.count, 2, "the manifest still lists two alignment tracks")
+        // The cancelled record is the one thing the cancel may add. A `provenance` folder that the record
+        // created counts with it.
+        let bundleAfter = SIGTERMPinSupport.relativePaths(under: started.bundle).filter {
+            !$0.hasPrefix("provenance/cancelled") && !($0 == "provenance" && !bundleBefore.contains("provenance"))
+        }
+        XCTAssertEqual(bundleAfter, bundleBefore, "the bundle was not changed beyond its cancelled record")
     }
 }
