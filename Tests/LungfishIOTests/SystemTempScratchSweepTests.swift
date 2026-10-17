@@ -108,6 +108,25 @@ final class SystemTempScratchSweepTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: target.appendingPathComponent(OwnedWorkDirectoryMarker.fileName).path))
     }
 
+    /// S32 review fix 5. Bracken's scratch holds a link to the user's Kraken2 database when the database path has
+    /// whitespace. The sweep removes each entry with `removeItem`, which removes a link and never follows it.
+    func testASymbolicLinkInsideARemovedFolderLosesOnlyTheLink() throws {
+        let outside = try TestTempDirectory.make(prefix: "sweep-link-target")
+        defer { TestTempDirectory.cleanup(outside) }
+        let database = outside.appendingPathComponent("kraken db", isDirectory: true)
+        try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
+        let hash = database.appendingPathComponent("hash.k2d")
+        try Data("db".utf8).write(to: hash)
+        let scratch = try makeScratch("lungfish-bracken-", creator: Self.goneCreator())
+        try FileManager.default.createSymbolicLink(at: scratch.appendingPathComponent("db"), withDestinationURL: database)
+
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp, processInspector: { _ in nil })
+
+        XCTAssertEqual(outcome.removed.map(\.lastPathComponent), [scratch.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scratch.path), "the folder and the link in it are gone")
+        XCTAssertEqual(try Data(contentsOf: hash), Data("db".utf8), "the sweep never follows a link out of the folder")
+    }
+
     func testScratchWhoseCreatorIsAliveStays() throws {
         let scratch = try SystemTempScratchSweep.createMarkedDirectory(prefix: "nfcore-run-", in: systemTemp, toolVersion: "test")
 
