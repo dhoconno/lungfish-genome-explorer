@@ -9,6 +9,7 @@
 
 import ArgumentParser
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
@@ -86,7 +87,7 @@ final class ConvertCompressTests: XCTestCase {
         XCTAssertEqual(records.map { $0.sequence.name }, ["a", "b"])
     }
 
-    func testAnExistingOutputStaysWhenCompressionFails() async throws {
+    func testAnExistingOutputIsRefusedWithoutForceAndStays() async throws {
         let input = root.appendingPathComponent("first.fa")
         try ">a\nACGT\n".write(to: input, atomically: true, encoding: .utf8)
         let output = root.appendingPathComponent("held.fa.gz")
@@ -99,6 +100,26 @@ final class ConvertCompressTests: XCTestCase {
             XCTFail("an existing output needs --force")
         } catch {
             XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "an earlier export")
+        }
+    }
+
+    /// A compressor that fails publishes nothing and leaves no part file, with gzip and with zstd where one is
+    /// installed (review A49-M3, fix F5 b). The source is a file that does not exist, so the compressor ends with
+    /// a nonzero status.
+    func testAFailingCompressorPublishesNothingAndLeavesNoStage() async throws {
+        let missing = root.appendingPathComponent("missing.fa")
+        let destination = root.appendingPathComponent("out.fa.gz")
+        var kinds: [SequenceExportCompressor.Kind] = [.gzip]
+        if SequenceExportCompressor.zstdExecutable() != nil { kinds.append(.zstd) }
+        for kind in kinds {
+            do {
+                try await SequenceExportCompressor.compress(source: missing, to: destination, kind: kind)
+                XCTFail("\(kind) of a missing file must fail")
+            } catch {
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "\(kind) publishes nothing")
+            let stages = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.contains("lungfish-stage-") }
+            XCTAssertEqual(stages, [], "\(kind) leaves no stage")
         }
     }
 
@@ -131,11 +152,7 @@ final class ConvertCompressTests: XCTestCase {
 final class ConvertCompressZstdConformanceTests: XCTestCase {
     func testZstdOutputHoldsTheConvertedText() async throws {
         guard let zstd = SequenceExportCompressor.zstdExecutable() else {
-            if ProcessInfo.processInfo.environment["LUNGFISH_REQUIRE_TOOLS"] == "1" {
-                XCTFail("LUNGFISH_REQUIRE_TOOLS=1: no zstd in \(SequenceExportCompressor.zstdCandidates)")
-                return
-            }
-            throw XCTSkip("no zstd in \(SequenceExportCompressor.zstdCandidates)")
+            try ToolAvailability.skipOrFail("no zstd in \(SequenceExportCompressor.zstdCandidates)")
         }
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ConvertCompressZstd-\(UUID().uuidString)", isDirectory: true)
