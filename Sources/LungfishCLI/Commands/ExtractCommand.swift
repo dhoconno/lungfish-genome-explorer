@@ -172,7 +172,7 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
         do {
             try await extractToFASTA(events: events, runClock: runClock, formatter: formatter)
         } catch {
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
     }

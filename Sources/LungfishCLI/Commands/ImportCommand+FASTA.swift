@@ -143,7 +143,7 @@ extension ImportCommand {
                 printHumanLine(formatter.error(refusal.message), eventsOn: eventsOn)
                 throw refusal.exitCode.exitCode
             case .failure(let error):
-                events.emitFailed(error.localizedDescription)
+                events.emitFailed(CLIFailureWords.describe(error))
                 throw error
             }
         }

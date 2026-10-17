@@ -84,12 +84,12 @@ struct BundleMergeSubcommand: AsyncParsableCommand {
             printHumanLine(Self.cancelledMessage, eventsOn: eventsOn)
             throw CLIExitCode.cancelled.exitCode
         case .failure(let error) where error is BundleMergeRefusal || error is ReferenceBundleMergeServiceError:
-            events.emitFailed(error.localizedDescription)
-            printHumanLine(error.localizedDescription, eventsOn: eventsOn)
+            events.emitFailed(CLIFailureWords.describe(error))
+            printHumanLine(CLIFailureWords.describe(error), eventsOn: eventsOn)
             throw CLIExitCode.inputError.exitCode
         case .failure(let error):
-            events.emitFailed(error.localizedDescription)
-            printHumanLine(error.localizedDescription, eventsOn: eventsOn)
+            events.emitFailed(CLIFailureWords.describe(error))
+            printHumanLine(CLIFailureWords.describe(error), eventsOn: eventsOn)
             throw CLIExitCode.workflowError.exitCode
         }
     }

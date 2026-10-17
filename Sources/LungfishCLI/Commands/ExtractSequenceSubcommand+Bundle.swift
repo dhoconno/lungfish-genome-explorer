@@ -56,7 +56,7 @@ extension ExtractSequenceSubcommand {
             printHumanLine(refusal.message, eventsOn: eventsOn)
             throw CLIExitCode.inputError.exitCode
         case .failure(let error):
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
     }
