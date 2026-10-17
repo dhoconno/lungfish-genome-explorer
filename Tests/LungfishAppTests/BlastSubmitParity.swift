@@ -15,8 +15,7 @@
 // A against C declares the files only side C writes, the query under the project's `.tmp` and the
 // search's folder under `blast-verifications/`, which the hidden key keeps out of the in-process route
 // for one release (C4). C against C' declares nothing. Every side sends the stand-in the same bytes. The
-// harness compares on the contract's masks and one of the family's, `blastRecordClocks`, which reads the
-// three clock values of the leaf's record as `<TIMESTAMP>` and which review may move into the contract.
+// harness compares on the contract's standard masks.
 
 import Foundation
 import XCTest
@@ -75,34 +74,10 @@ enum BlastSubmitParity {
         }
     }
 
-    /// The contract's standard masks and `blastRecordClocks` on payloads. A `blast submit` record is a payload
-    /// JSON, which the standard policy compares with its clock values as written, the way it compared a FASTQ
-    /// sidecar before `fastqSidecarClocks`. Lane A65 M2 asks review to move the mask into the contract's
-    /// standard policy (docs/contracts/CLI-EQUIVALENCE.md) at landing.
-    static let masks: OutputEquivalence.MaskPolicy = {
-        var policy = OutputEquivalence.MaskPolicy.standard
-        policy.payloads.append(blastRecordClocks)
-        return policy
-    }()
-
-    /// The three clock values of a `blast submit` record (`blast-result.json`), `savedAt` and the search's
-    /// `result.submittedAt` and `result.completedAt`, read as `<TIMESTAMP>`. Every other value of the record,
-    /// its query digest, lineage, RID and verdicts among them, and every other file are compared as written.
-    static let blastRecordClocks = OutputEquivalence.Mask(name: "blastRecordClocks") { text, context in
-        guard context.recordName.isEmpty || context.recordName == "blast-result.json",
-              var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              object["savedAt"] != nil, object["lineage"] != nil, var result = object["result"] as? [String: Any]
-        else { return text }
-        object["savedAt"] = "<TIMESTAMP>"
-        for key in ["submittedAt", "completedAt"] where result[key] != nil {
-            result[key] = "<TIMESTAMP>"
-        }
-        object["result"] = result
-        guard let masked = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else {
-            return text
-        }
-        return String(decoding: masked, as: UTF8.self)
-    }
+    /// The contract's standard masks, which read the three clock values of a `blast submit` record
+    /// (`blast-result.json`) as `<TIMESTAMP>` and compare every other value of it as written
+    /// (docs/contracts/CLI-EQUIVALENCE.md).
+    static let masks = OutputEquivalence.MaskPolicy.standard
 
     /// The project of a side root.
     static func project(in root: URL) -> URL {

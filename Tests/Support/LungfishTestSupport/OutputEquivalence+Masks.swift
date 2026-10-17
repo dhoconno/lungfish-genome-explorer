@@ -47,10 +47,10 @@ extension OutputEquivalence {
         /// and of its `parameters.wallClockSeconds`, and the `duration` of an
         /// alignment metadata database's `provenance` table.
         /// A file name gets the UUID and run ID masks. Payload text, request
-        /// bodies and plans get the roots and run wall time masks and a FASTQ
-        /// sidecar's three clock values and a demo project install record's
-        /// install time alone, so any other date, a host or a read ID in data
-        /// is compared as written.
+        /// bodies and plans get the roots and run wall time masks, a FASTQ
+        /// sidecar's three clock values, a demo project install record's
+        /// install time and a `blast submit` record's three clock values alone,
+        /// so any other date, a host or a read ID in data is compared as written.
         /// A managed plan gives a provenance envelope the provenance masks and every other file, a manifest
         /// included, the payload masks. It also masks the clock values of its receipt and pack status cache by
         /// key and the UTC stamp that starts a record's file name, and nothing else.
@@ -70,7 +70,9 @@ extension OutputEquivalence {
                 provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
-                payloads: [Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock],
+                payloads: [
+                    Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock, Masks.blastRecordClocks,
+                ],
                 managed: [Masks.managedStateClocks],
                 managedNames: [Masks.managedRecordStamp]
             )
@@ -450,6 +452,34 @@ extension OutputEquivalence {
         static func maskDemoInstallClock(in value: Any, changed: inout Bool) -> Any {
             guard var record = value as? [String: Any], Set(record.keys) == demoInstallRecordKeys else { return value }
             record["installedAt"] = "<TIMESTAMP>"
+            changed = true
+            return record
+        }
+
+        /// The clock values the leaf of `lungfish-cli blast submit` writes into its record (`blast-result.json`):
+        /// the top-level `savedAt`, the time the leaf saved the record, and `result.submittedAt` and
+        /// `result.completedAt`, the times the search was submitted and finished, each set to `<TIMESTAMP>` where
+        /// it is present. It reads a JSON object that holds the record's six keys and no other, `schemaVersion`,
+        /// `savedAt`, `query`, `lineage`, `search` and `result`, whose `result` is an object. So the same keys in
+        /// any other document, a key one level down, a record with another key or without `savedAt`, and every
+        /// other value of the record, such as the query digest, the lineage, the RID and the verdicts, are
+        /// compared as written. Two searches never take the same seconds (lane A65 review, fix F1, by the rule of
+        /// the BIO ruling on lane A45 M3c, section b).
+        public static let blastRecordClocks = Mask(name: "blastRecordClocks") { text, _ in
+            rewritingJSON(text) { value, changed in maskBlastRecordClocks(in: value, changed: &changed) }
+        }
+
+        static let blastRecordKeys: Set<String> = ["schemaVersion", "savedAt", "query", "lineage", "search", "result"]
+
+        static func maskBlastRecordClocks(in value: Any, changed: inout Bool) -> Any {
+            guard var record = value as? [String: Any], Set(record.keys) == blastRecordKeys,
+                  var result = record["result"] as? [String: Any]
+            else { return value }
+            record["savedAt"] = "<TIMESTAMP>"
+            for key in ["submittedAt", "completedAt"] where result[key] != nil {
+                result[key] = "<TIMESTAMP>"
+            }
+            record["result"] = result
             changed = true
             return record
         }

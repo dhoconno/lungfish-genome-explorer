@@ -65,6 +65,101 @@ extension OutputEquivalenceTests {
         }
     }
 
+    /// A `blast submit` record (`blast-result.json`) holds three clock values, the time the leaf saved the
+    /// record (`savedAt`) and the times its search was submitted and finished (`result.submittedAt` and
+    /// `result.completedAt`). Two searches never take the same seconds, so the contract masks the three in a
+    /// JSON payload. The mask reads a document that holds the record's six keys and no other, so the same keys
+    /// in any other document, a key one level down, a record with another key or without `savedAt`, a
+    /// `savedAt` alone and every other value of the record, such as the query digest, the lineage, the RID,
+    /// the verdicts and the search settings, are still compared (Phase 2.11 lane A65 review, fix F1, by the
+    /// rule of BIO's ruling on lane A45 M3c section b).
+    func testBlastRecordClocksMaskThreeValuesAndNoOthers() throws {
+        let top = try TestTempDirectory.make(prefix: "blast-record-clocks")
+        addTeardownBlock { TestTempDirectory.cleanup(top) }
+        let a = top.appendingPathComponent("a", isDirectory: true)
+        let b = top.appendingPathComponent("b", isDirectory: true)
+        let name = "Project.lungfish/blast-verifications/Influenza-A-virus-2026-10-17T10-00-00-1a2b3c4d/blast-result.json"
+        let found = { try OutputEquivalence.differences(a, b, kind: .files) }
+        typealias Clocks = (saved: String, submitted: String, completed: String)
+        let clocksA: Clocks = ("2026-10-17T10:00:05Z", "2026-10-17T10:00:01Z", "2026-10-17T10:00:04Z")
+        let clocksB: Clocks = ("2026-10-17T11:30:09Z", "2026-10-17T11:30:02Z", "2026-10-17T11:30:08Z")
+
+        // The record as the leaf writes it, with an edit applied to the document first.
+        let record = { (clocks: Clocks, edit: (inout [String: Any]) -> Void) throws -> Data in
+            let reads: [[String: Any]] = [["readId": "read_1", "verdict": "verified"], ["readId": "read_2", "verdict": "unverified"]]
+            let query: [String: Any] = ["fileName": "query.fasta", "sha256": String(repeating: "a", count: 64), "sequenceCount": 2]
+            let lineage: [String: Any] = [
+                "sourceResult": "/Project.lungfish/Analyses/naomgs", "sample": "S1,S2", "taxId": 11320, "subsampleCount": 2,
+                "subsampleSeed": 0,
+            ]
+            let search: [String: Any] = [
+                "program": "blastn", "database": "core_nt", "entrezQuery": "txid11320[Organism:exp]",
+                "eValueThreshold": 0.01, "maxTargetSeqs": 10, "extraArgs": "",
+            ]
+            let result: [String: Any] = [
+                "rid": "STANDIN1", "submittedAt": clocks.submitted, "completedAt": clocks.completed, "readResults": reads,
+            ]
+            var document: [String: Any] = [
+                "schemaVersion": 1, "savedAt": clocks.saved, "query": query, "lineage": lineage, "search": search, "result": result,
+            ]
+            edit(&document)
+            return try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .prettyPrinted])
+        }
+        let write = { (data: Data, root: URL) throws in
+            let url = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url)
+        }
+        // `edit` applied to the object the record holds under `key`.
+        func inObject(_ key: String, _ edit: @escaping (inout [String: Any]) -> Void) -> (inout [String: Any]) -> Void {
+            { document in
+                var object = document[key] as? [String: Any] ?? [:]
+                edit(&object)
+                document[key] = object
+            }
+        }
+
+        try write(record(clocksA) { _ in }, a)
+        try write(record(clocksB) { _ in }, b)
+        XCTAssertEqual(try found(), [], "only the three clock values differ")
+
+        // A search that left no submission or completion time still has its save time masked.
+        let noResultClocks = inObject("result") { result in
+            result["submittedAt"] = nil
+            result["completedAt"] = nil
+        }
+        try write(record(clocksA, noResultClocks), a)
+        try write(record(clocksB, noResultClocks), b)
+        XCTAssertEqual(try found(), [], "a result without its two times still has savedAt masked")
+
+        // Each change differs in the one file on top of the clocks. The last four leave the clocks to be
+        // compared as written, with each side's own times.
+        let cases: [(label: String, both: Bool, edit: (inout [String: Any]) -> Void)] = [
+            ("query.sha256", false, inObject("query") { $0["sha256"] = String(repeating: "b", count: 64) }),
+            ("lineage.sample", false, inObject("lineage") { $0["sample"] = "S3" }),
+            ("lineage.subsampleSeed", false, inObject("lineage") { $0["subsampleSeed"] = 1 }),
+            ("result.rid", false, inObject("result") { $0["rid"] = "STANDIN2" }),
+            ("one read's verdict", false, inObject("result") { result in
+                var reads = result["readResults"] as? [[String: Any]] ?? []
+                reads[0]["verdict"] = "unverified"
+                result["readResults"] = reads
+            }),
+            ("search.entrezQuery", false, inObject("search") { $0["entrezQuery"] = "txid11321[Organism:exp]" }),
+            ("schemaVersion", false, { $0["schemaVersion"] = 2 }),
+            ("no savedAt", true, { $0["savedAt"] = nil }),
+            ("another key", true, { $0["note"] = "x" }),
+            ("only savedAt", true, { $0 = ["savedAt": $0["savedAt"] as Any] }),
+            ("savedAt one level down", true, { $0 = ["record": $0] }),
+        ]
+        for (label, both, edit) in cases {
+            try write(record(clocksA, both ? edit : { _ in }), a)
+            try write(record(clocksB, edit), b)
+            let result = try found()
+            XCTAssertEqual(result.count, 1, "\(label): \(result)")
+            XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
+        }
+    }
+
     /// G5 (Phase 2.10, lane A50 M2, BR7). GATK writes the run's date into the VCF header line
     /// `##GATKCommandLine`, so two runs of one command never agree on it. The GATK compare masks the value of that
     /// line's trailing `Date=` and nothing else. A changed `CommandLine=` value, `Version=` or ID, the same key
