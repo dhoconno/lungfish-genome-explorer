@@ -57,18 +57,7 @@ final class BAMImportCLIGUIParityReplayTests: XCTestCase {
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so no side can run"
         )
-        // The import record that BAMImportService keeps in the bundle's stats.db ends in the run's duration in seconds,
-        // which no two runs share, so the family masks that one value. This is the one mask this class adds to the
-        // standard policy, and the contract's reviewer rules on it (lane A63 report).
-        var masks = OutputEquivalence.MaskPolicy.standard
-        masks.records.append(OutputEquivalence.Mask(name: "importBamDuration") { text, _ in
-            text.replacingOccurrences(
-                of: #"(\timport-bam\t[^\n]*\t)[0-9]+(?:\.[0-9]+)?(?=\t[^\t\n]*(?:\n|$))"#,
-                with: "$1<DURATION>",
-                options: .regularExpression
-            )
-        })
-        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: masks, replayTimeout: .seconds(300))
+        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(300))
     }
 
     override func tearDownWithError() throws {
