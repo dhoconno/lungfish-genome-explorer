@@ -16,6 +16,11 @@ struct CLIApplicationExportImportResult: Sendable, Equatable {
 /// import and the same operation log apart from the summary lines a version 2 CLI prints on standard
 /// error, which the transport logs at info (decision V13). The collection comes from `outputs` only.
 /// The typed artifact that a version 2 CLI adds describes it and never stands in for it.
+///
+/// A cancel goes through the transport. The command gets SIGTERM and ``terminationGracePeriod`` to
+/// stop, record its run as cancelled and exit 125 before SIGKILL, inside the ten seconds
+/// `OperationCenter` waits for a cancelling row, and the runner acknowledges the cancel on the row
+/// (Phase 2.11 lane A63, decision S7). A command that exits 125 reads as cancelled whoever asked.
 actor CLIApplicationExportImportRunner {
     enum RunError: Error, LocalizedError {
         case cliNotFound
@@ -42,6 +47,15 @@ actor CLIApplicationExportImportRunner {
             }
         }
     }
+
+    /// The time the command has between SIGTERM and SIGKILL, the launcher's
+    /// ``CLIProcessLauncher/operationGrace``.
+    static let terminationGracePeriod = CLIProcessLauncher.operationGrace
+    /// How long the run waits for a descendant that holds the command's output open after the
+    /// command exited, the launcher's ``CLIProcessLauncher/operationDrain``.
+    static let drainGracePeriod = CLIProcessLauncher.operationDrain
+    /// The status of a command that stopped on a cancel, `CLIExitCode.cancelled`.
+    static let cancelledExitStatus: Int32 = 125
 
     private let transport: CLISubprocessTransport
 
@@ -81,6 +95,8 @@ actor CLIApplicationExportImportRunner {
         do {
             let result = try await transport.run(
                 arguments: arguments,
+                terminationGracePeriod: Self.terminationGracePeriod,
+                drainGracePeriod: Self.drainGracePeriod,
                 isCancelled: { false },
                 onEvent: { event in
                     switch event {
@@ -107,6 +123,9 @@ actor CLIApplicationExportImportRunner {
                 collectionURL: URL(fileURLWithPath: collectionPath, isDirectory: true),
                 warningCount: warnings.withLock { $0 }
             )
+        } catch is CancellationError {
+            await OperationCenterCLIBridge.acknowledgeCancellation(opID)
+            throw CancellationError()
         } catch let error as CLISubprocessTransport.RunError {
             switch error {
             case .cliNotFound:
@@ -116,6 +135,10 @@ actor CLIApplicationExportImportRunner {
                 await failOperation(opID, detail: reason)
                 throw RunError.launchFailed(reason)
             case .nonZeroExit(let status, let stderr):
+                if status == Self.cancelledExitStatus {
+                    await OperationCenterCLIBridge.acknowledgeCancellation(opID)
+                    throw CancellationError()
+                }
                 throw RunError.nonZeroExit(status: status, stderr: stderr)
             case .missingCompletion:
                 throw RunError.missingCompletion

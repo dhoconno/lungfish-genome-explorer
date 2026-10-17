@@ -3,6 +3,8 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import os
+import Synchronization
 
 extension ImportCommand {
     struct MSASubcommand: AsyncParsableCommand {
@@ -40,18 +42,21 @@ extension ImportCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            do {
+            let name = name
+            let sourceFormat = sourceFormat
+            let outputPath = outputPath
+            let startedAt = Date()
+            let destination = ImportDestination()
+            // SIGTERM, the app's Cancel, cancels the import from here on (decision S7). The importer reads
+            // its input before it writes anything, so a cancel there leaves nothing behind.
+            let outcome = await ImportCancellation.run { () async throws -> ImportedBundle in
                 try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
-                let resolvedFormat: MultipleSequenceAlignmentBundle.SourceFormat?
                 if let sourceFormat {
-                    guard let parsed = MultipleSequenceAlignmentBundle.SourceFormat(rawValue: sourceFormat) else {
+                    guard MultipleSequenceAlignmentBundle.SourceFormat(rawValue: sourceFormat) != nil else {
                         emitter.emitFailed("Unsupported source format '\(sourceFormat)'")
                         throw CLIExitCode.inputError.exitCode
                     }
-                    resolvedFormat = parsed
-                } else {
-                    resolvedFormat = nil
                 }
 
                 emitter.emitProgress(0.12, message: "Preparing MSA bundle destination...")
@@ -63,6 +68,7 @@ extension ImportCommand {
                     displayName: displayName,
                     extensionName: MultipleSequenceAlignmentBundle.directoryExtension
                 )
+                destination.set(bundleURL)
                 let argv = canonicalArgv(
                     command: "msa",
                     sourceURL: sourceURL,
@@ -73,31 +79,51 @@ extension ImportCommand {
                 )
 
                 emitter.emitProgress(0.35, message: "Parsing and indexing \(sourceURL.lastPathComponent)...")
-                let bundle = try MultipleSequenceAlignmentBundle.importAlignment(
-                    from: sourceURL,
-                    to: bundleURL,
-                    options: .init(
-                        name: displayName,
-                        sourceFormat: resolvedFormat,
-                        argv: argv,
-                        reproducibleCommand: shellCommand(argv)
+                let summary = try await ImportCancellation.blocking {
+                    let bundle = try MultipleSequenceAlignmentBundle.importAlignment(
+                        from: sourceURL,
+                        to: bundleURL,
+                        options: .init(
+                            name: displayName,
+                            sourceFormat: sourceFormat.flatMap { MultipleSequenceAlignmentBundle.SourceFormat(rawValue: $0) },
+                            argv: argv,
+                            reproducibleCommand: shellCommand(argv)
+                        )
                     )
-                )
+                    return ImportedBundleSummary(
+                        warnings: bundle.manifest.warnings,
+                        summaryLines: ["Rows: \(bundle.manifest.rowCount)", "Columns: \(bundle.manifest.alignedLength)"]
+                    )
+                }
+                return ImportedBundle(bundleURL: bundleURL, summary: summary)
+            }
 
-                for warning in bundle.manifest.warnings {
+            switch outcome {
+            case .success(let imported):
+                for warning in imported.summary.warnings {
                     emitter.emitWarning(warning)
                 }
                 emitter.emitProgress(0.92, message: "Writing MSA provenance...")
-                emitter.emitComplete(bundle: bundleURL, kind: .multipleSequenceAlignment)
+                emitter.emitComplete(bundle: imported.bundleURL, kind: .multipleSequenceAlignment)
 
                 if !globalOptions.quiet {
-                    printHumanLine("Imported \(bundleURL.path)", eventsOn: eventsOn)
-                    printHumanLine("Rows: \(bundle.manifest.rowCount)", eventsOn: eventsOn)
-                    printHumanLine("Columns: \(bundle.manifest.alignedLength)", eventsOn: eventsOn)
+                    printHumanLine("Imported \(imported.bundleURL.path)", eventsOn: eventsOn)
+                    for line in imported.summary.summaryLines {
+                        printHumanLine(line, eventsOn: eventsOn)
+                    }
                 }
-            } catch let exitCode as ExitCode {
+            case .failure(let error) where error is CancellationError:
+                destination.removeIfCreatedByThisRun()
+                throw await ImportCancellation.finish(
+                    emitter: emitter,
+                    command: "import msa",
+                    parameters: ["input": .file(sourceURL), "project": .file(projectURL)],
+                    recordDirectory: projectURL,
+                    startedAt: startedAt
+                )
+            case .failure(let exitCode as ExitCode):
                 throw exitCode
-            } catch {
+            case .failure(let error):
                 emitter.emitFailed(error.localizedDescription)
                 throw CLIExitCode.formatError.exitCode
             }
@@ -139,7 +165,14 @@ extension ImportCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            do {
+            let name = name
+            let sourceFormat = sourceFormat
+            let outputPath = outputPath
+            let startedAt = Date()
+            let destination = ImportDestination()
+            // SIGTERM, the app's Cancel, cancels the import from here on (decision S7). The importer reads
+            // its input before it writes anything, so a cancel there leaves nothing behind.
+            let outcome = await ImportCancellation.run { () async throws -> ImportedBundle in
                 try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
                 emitter.emitProgress(0.12, message: "Preparing tree bundle destination...")
@@ -151,6 +184,7 @@ extension ImportCommand {
                     displayName: displayName,
                     extensionName: "lungfishtree"
                 )
+                destination.set(bundleURL)
                 let argv = canonicalArgv(
                     command: "tree",
                     sourceURL: sourceURL,
@@ -161,31 +195,54 @@ extension ImportCommand {
                 )
 
                 emitter.emitProgress(0.35, message: "Parsing and indexing \(sourceURL.lastPathComponent)...")
-                let bundle = try PhylogeneticTreeBundleImporter.importTree(
-                    from: sourceURL,
-                    to: bundleURL,
-                    options: .init(
-                        name: displayName,
-                        argv: argv,
-                        command: shellCommand(argv),
-                        sourceFormat: sourceFormat
+                let summary = try await ImportCancellation.blocking {
+                    let bundle = try PhylogeneticTreeBundleImporter.importTree(
+                        from: sourceURL,
+                        to: bundleURL,
+                        options: .init(
+                            name: displayName,
+                            argv: argv,
+                            command: shellCommand(argv),
+                            sourceFormat: sourceFormat
+                        )
                     )
-                )
+                    return ImportedBundleSummary(
+                        warnings: bundle.manifest.warnings,
+                        summaryLines: [
+                            "Tips: \(bundle.manifest.tipCount)",
+                            "Internal nodes: \(bundle.manifest.internalNodeCount)",
+                        ]
+                    )
+                }
+                return ImportedBundle(bundleURL: bundleURL, summary: summary)
+            }
 
-                for warning in bundle.manifest.warnings {
+            switch outcome {
+            case .success(let imported):
+                for warning in imported.summary.warnings {
                     emitter.emitWarning(warning)
                 }
                 emitter.emitProgress(0.92, message: "Writing tree provenance...")
-                emitter.emitComplete(bundle: bundleURL, kind: .phylogeneticTree)
+                emitter.emitComplete(bundle: imported.bundleURL, kind: .phylogeneticTree)
 
                 if !globalOptions.quiet {
-                    printHumanLine("Imported \(bundleURL.path)", eventsOn: eventsOn)
-                    printHumanLine("Tips: \(bundle.manifest.tipCount)", eventsOn: eventsOn)
-                    printHumanLine("Internal nodes: \(bundle.manifest.internalNodeCount)", eventsOn: eventsOn)
+                    printHumanLine("Imported \(imported.bundleURL.path)", eventsOn: eventsOn)
+                    for line in imported.summary.summaryLines {
+                        printHumanLine(line, eventsOn: eventsOn)
+                    }
                 }
-            } catch let exitCode as ExitCode {
+            case .failure(let error) where error is CancellationError:
+                destination.removeIfCreatedByThisRun()
+                throw await ImportCancellation.finish(
+                    emitter: emitter,
+                    command: "import tree",
+                    parameters: ["input": .file(sourceURL), "project": .file(projectURL)],
+                    recordDirectory: projectURL,
+                    startedAt: startedAt
+                )
+            case .failure(let exitCode as ExitCode):
                 throw exitCode
-            } catch {
+            case .failure(let error):
                 emitter.emitFailed(error.localizedDescription)
                 throw CLIExitCode.formatError.exitCode
             }
@@ -266,6 +323,177 @@ struct ImportCLIEventEmitter: Sendable {
         events.emitFailed(message)
         if !eventsOn {
             printStatusLine("Error: \(message)")
+        }
+    }
+}
+
+/// What a bundle import tells the rest of its command once the importer returned, in values that cross
+/// a task boundary.
+struct ImportedBundleSummary: Sendable {
+    let warnings: [String]
+    /// The lines the command prints after `Imported <path>`, such as `Rows: 12`.
+    let summaryLines: [String]
+}
+
+/// The bundle a bundle import made and what the importer reported.
+struct ImportedBundle: Sendable {
+    let bundleURL: URL
+    let summary: ImportedBundleSummary
+}
+
+/// What a collection import tells the rest of its command once the service returned.
+struct ImportedCollectionSummary: Sendable {
+    let collectionURL: URL
+    let provenanceURL: URL
+    let warnings: [String]
+}
+
+/// The bundle a run would publish, which the run sets once it has chosen the path, so a cancel can remove
+/// what the run made. A path that existed before the importer ran is never removed.
+final class ImportDestination: Sendable {
+    private let state = OSAllocatedUnfairLock<(url: URL, existedBefore: Bool)?>(initialState: nil)
+
+    func set(_ url: URL) {
+        let existedBefore = FileManager.default.fileExists(atPath: url.path)
+        state.withLock { $0 = (url, existedBefore) }
+    }
+
+    func removeIfCreatedByThisRun() {
+        guard let chosen = state.withLock({ $0 }), !chosen.existedBefore else { return }
+        try? FileManager.default.removeItem(at: chosen.url)
+    }
+}
+
+/// The cancel that the four import commands share (Phase 2.11 lane A63, decision S7).
+///
+/// The app's Cancel sends the command SIGTERM and gives it `operationGrace` before SIGKILL. A command
+/// that scopes ``run(_:)`` around its import turns the signal into a cancel of that import, records the
+/// run as cancelled in the project, tells the row with a `failed` event that carries ``message`` and
+/// exits 125 through ``finish(emitter:command:parameters:recordDirectory:startedAt:)``. A second SIGTERM
+/// ends the process at once.
+enum ImportCancellation {
+    /// What the command's `failed` event and its record say once the import was cancelled.
+    static let message = "Import cancelled. Nothing was published."
+
+    /// Runs `work` as a task that SIGTERM cancels, and returns how it ended. A failure after the signal
+    /// was caught is the cancel, whatever error it carries, since a tool that got the same signal can end
+    /// first.
+    static func run<Success: Sendable>(
+        _ work: @escaping @Sendable () async throws -> Success
+    ) async -> Result<Success, any Error> {
+        let pendingCancel = PendingTaskCancel<Result<Success, any Error>>()
+        let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+        let task = Task { () -> Result<Success, any Error> in
+            do {
+                return .success(try await work())
+            } catch {
+                let cancelled = Task.isCancelled || error is CancellationError || SIGTERMCancellation.signalCaught
+                return .failure(cancelled ? CancellationError() : error)
+            }
+        }
+        pendingCancel.attach(task)
+        let outcome = await task.value
+        termination.end()
+        return outcome
+    }
+
+    /// Runs the blocking `work` on a thread of its own and returns its result, or throws
+    /// `CancellationError` as soon as the calling task is cancelled, whichever comes first. A cancel does
+    /// not stop `work`, which may sit in a read that cannot be interrupted. The command exits right after
+    /// the cancel, which ends the thread.
+    static func blocking<Success: Sendable>(
+        _ work: @escaping @Sendable () throws -> Success
+    ) async throws -> Success {
+        let handoff = BlockingHandoff<Success>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                handoff.start(continuation)
+                Thread.detachNewThread {
+                    handoff.finish(Result { try work() })
+                }
+            }
+        } onCancel: {
+            handoff.cancel()
+        }
+    }
+
+    /// The end of a cancelled import, which every command shares. It records the run as cancelled in
+    /// `recordDirectory`, tells the row with the `failed` event and returns the exit code the command
+    /// throws, 125. A record that cannot be written does not hide the cancel.
+    static func finish(
+        emitter: ImportCLIEventEmitter,
+        command: String,
+        parameters: [String: ParameterValue],
+        recordDirectory: URL,
+        startedAt: Date
+    ) async -> ExitCode {
+        _ = try? await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish \(command)",
+            parameters: parameters,
+            toolName: "lungfish \(command)",
+            toolVersion: LungfishCLI.configuration.version,
+            command: [CLICommandIdentity.executableName] + Array(CommandLine.arguments.dropFirst()),
+            inputs: [],
+            outputs: [],
+            exitCode: CLIExitCode.cancelled.exitCode.rawValue,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: message,
+            status: .cancelled,
+            outputDirectory: recordDirectory,
+            writeFileSidecars: false
+        )
+        emitter.emitFailed(message)
+        return CLIExitCode.cancelled.exitCode
+    }
+}
+
+/// Hands the outcome of a blocking call to the task that awaits it, or the cancel of that task,
+/// whichever comes first. The continuation resumes once.
+private final class BlockingHandoff<Success: Sendable>: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Success, any Error>?
+        var cancelRequested = false
+        var resumed = false
+    }
+
+    private let state = Mutex(State())
+
+    /// Stores the continuation, or resumes it at once when the cancel came first.
+    func start(_ continuation: CheckedContinuation<Success, any Error>) {
+        let cancelled = state.withLock { state -> Bool in
+            if state.cancelRequested {
+                state.resumed = true
+                return true
+            }
+            state.continuation = continuation
+            return false
+        }
+        if cancelled {
+            continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Resumes the task with the result of the call, unless the cancel resumed it first.
+    func finish(_ result: Result<Success, any Error>) {
+        let continuation = takeContinuation(requestingCancel: false)
+        continuation?.resume(with: result)
+    }
+
+    /// Resumes the task with a cancel, unless the call finished first.
+    func cancel() {
+        let continuation = takeContinuation(requestingCancel: true)
+        continuation?.resume(throwing: CancellationError())
+    }
+
+    private func takeContinuation(requestingCancel: Bool) -> CheckedContinuation<Success, any Error>? {
+        state.withLock { state in
+            if requestingCancel {
+                state.cancelRequested = true
+            }
+            guard !state.resumed, let continuation = state.continuation else { return nil }
+            state.resumed = true
+            state.continuation = nil
+            return continuation
         }
     }
 }

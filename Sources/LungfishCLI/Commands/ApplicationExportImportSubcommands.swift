@@ -47,14 +47,21 @@ extension ImportCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            let options = GeneiousImportOptions(
-                collectionName: collectionName,
-                preserveRawSource: preserveRawSource && !noPreserveRawSource,
-                importStandaloneReferences: !noImportReferences,
-                preserveUnsupportedArtifacts: preserveUnsupported && !noPreserveUnsupported
-            )
+            let collectionName = collectionName
+            let preserveRawSource = preserveRawSource && !noPreserveRawSource
+            let importStandaloneReferences = !noImportReferences
+            let preserveUnsupportedArtifacts = preserveUnsupported && !noPreserveUnsupported
 
-            do {
+            // SIGTERM, the app's Cancel, cancels the import (decision S7). The service stops at the tool or
+            // await that the cancel reaches. The collection folder it made stays, as after any failure.
+            let startedAt = Date()
+            let outcome = await ImportCancellation.run {
+                let options = GeneiousImportOptions(
+                    collectionName: collectionName,
+                    preserveRawSource: preserveRawSource,
+                    importStandaloneReferences: importStandaloneReferences,
+                    preserveUnsupportedArtifacts: preserveUnsupportedArtifacts
+                )
                 let service = GeneiousImportCollectionService(
                     referenceImporter: Self.importReferenceViaSharedService
                 )
@@ -65,7 +72,14 @@ extension ImportCommand {
                 ) { progress, message in
                     emitter.emitProgress(progress, message: message)
                 }
-
+                return ImportedCollectionSummary(
+                    collectionURL: result.collectionURL,
+                    provenanceURL: result.provenanceURL,
+                    warnings: result.warnings
+                )
+            }
+            switch outcome {
+            case .success(let result):
                 for warning in result.warnings {
                     emitter.emitWarning(warning)
                 }
@@ -73,7 +87,15 @@ extension ImportCommand {
                 if !globalOptions.quiet {
                     printHumanLine("Imported \(result.collectionURL.path)", eventsOn: eventsOn)
                 }
-            } catch {
+            case .failure(let error) where error is CancellationError:
+                throw await ImportCancellation.finish(
+                    emitter: emitter,
+                    command: "import geneious",
+                    parameters: ["source": .file(sourceURL), "project": .file(projectURL)],
+                    recordDirectory: projectURL,
+                    startedAt: startedAt
+                )
+            case .failure(let error):
                 emitter.emitFailed(error.localizedDescription)
                 throw CLIExitCode.workflowError.exitCode
             }
@@ -138,14 +160,21 @@ extension ImportCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            let options = ApplicationExportImportOptions(
-                collectionName: collectionName,
-                preserveRawSource: !noPreserveRawSource,
-                importStandaloneReferences: !noImportReferences,
-                preserveUnsupportedArtifacts: !noPreserveUnsupported
-            )
+            let collectionName = collectionName
+            let preserveRawSource = !noPreserveRawSource
+            let importStandaloneReferences = !noImportReferences
+            let preserveUnsupportedArtifacts = !noPreserveUnsupported
 
-            do {
+            // SIGTERM, the app's Cancel, cancels the import (decision S7). The service stops at the tool or
+            // await that the cancel reaches. The collection folder it made stays, as after any failure.
+            let startedAt = Date()
+            let outcome = await ImportCancellation.run {
+                let options = ApplicationExportImportOptions(
+                    collectionName: collectionName,
+                    preserveRawSource: preserveRawSource,
+                    importStandaloneReferences: importStandaloneReferences,
+                    preserveUnsupportedArtifacts: preserveUnsupportedArtifacts
+                )
                 let service = ApplicationExportImportCollectionService(
                     referenceImporter: Self.importReferenceViaSharedService
                 )
@@ -157,7 +186,14 @@ extension ImportCommand {
                 ) { progress, message in
                     emitter.emitProgress(progress, message: message)
                 }
-
+                return ImportedCollectionSummary(
+                    collectionURL: result.collectionURL,
+                    provenanceURL: result.provenanceURL,
+                    warnings: result.warnings
+                )
+            }
+            switch outcome {
+            case .success(let result):
                 for warning in result.warnings {
                     emitter.emitWarning(warning)
                 }
@@ -165,7 +201,19 @@ extension ImportCommand {
                 if !globalOptions.quiet {
                     printHumanLine("Imported \(result.collectionURL.path)", eventsOn: eventsOn)
                 }
-            } catch {
+            case .failure(let error) where error is CancellationError:
+                throw await ImportCancellation.finish(
+                    emitter: emitter,
+                    command: "import application-export",
+                    parameters: [
+                        "kind": .string(applicationKind.cliArgument),
+                        "source": .file(sourceURL),
+                        "project": .file(projectURL),
+                    ],
+                    recordDirectory: projectURL,
+                    startedAt: startedAt
+                )
+            case .failure(let error):
                 emitter.emitFailed(error.localizedDescription)
                 throw CLIExitCode.workflowError.exitCode
             }
