@@ -62,7 +62,42 @@ struct ConvertCommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    /// The words a cancelled run prints, unless `--quiet` is given.
+    static let cancelledMessage = "Conversion cancelled. Nothing was published."
+
+    /// Runs the conversion with SIGTERM, which is the Import Center's Cancel, turned into a cancel of its task
+    /// (review A49-M3, fix F3). The checkpoints of the task reach the rollback of the publication transaction and
+    /// the `defer` blocks that remove the stage entries, so a cancel keeps the earlier output and leaves no
+    /// recovery folder in the temporary folder. A cancelled run exits 125. `convert` is a result leaf, so standard
+    /// output holds the JSON result alone and a cancel prints no event line.
     func run() async throws {
+        let pendingCancel = PendingTaskCancel<Result<Void, any Error>>()
+        let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
+        let command = self
+        let task = Task { () -> Result<Void, any Error> in
+            do {
+                try await command.convert()
+                return .success(())
+            } catch {
+                // A tool stopped by the cancel fails with its own error, which is the cancel. A rollback that
+                // could not restore keeps its error, which names the recovery folder.
+                let restoreFailed = error is ScientificPublicationRecoveryRequired
+                return .failure(Task.isCancelled && !restoreFailed ? CancellationError() : error)
+            }
+        }
+        pendingCancel.attach(task)
+        let outcome = await task.value
+        termination.end()
+        guard case .failure(let error) = outcome else { return }
+        guard error is CancellationError else { throw error }
+        if !globalOptions.quiet {
+            printHumanLine(Self.cancelledMessage, eventsOn: globalOptions.outputFormat == .json)
+        }
+        throw CLIExitCode.cancelled.exitCode
+    }
+
+    /// The conversion, which `run()` runs as a task that a SIGTERM can cancel.
+    private func convert() async throws {
         let runClock = ProvenanceRunClock()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
