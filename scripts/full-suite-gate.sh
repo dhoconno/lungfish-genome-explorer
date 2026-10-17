@@ -25,7 +25,24 @@
 #                                                   # wall-clock budget for the test-runner
 #                                                   # attempt; a hung test is killed and the
 #                                                   # gate fails with a named timeout instead
-#                                                   # of hanging forever
+#                                                   # of hanging forever (in a run split by
+#                                                   # class it bounds all classes together)
+#   scripts/full-suite-gate.sh --class-timeout-seconds N  # bound each class of a serial run
+#                                                   # (rejected with --parallel)
+#
+# The bound for each class. The integration tier runs each class of its serial
+# selection as its own attempt with its own timeout, 15 minutes a class
+# (DEFAULT_CLASS_TIMEOUT_SECONDS in scripts/release/gate_evidence.py) inside a
+# 90-minute budget for the whole run. A class that runs out is killed with its
+# whole process tree and named with the case it hung in (GATE CLASS TIMEOUT), and
+# the next class still runs. A class that would start after the budget is spent
+# is named too (GATE CLASS UNRUN). --class-timeout-seconds gives any serial run
+# the same split.
+#
+# The conformance tier runs with LUNGFISH_STORAGE_ROOT at the receipt root, the
+# folder of the dependency receipt, as release.py sets it for a step that needs
+# tools. The golden storage has no MEGAHIT, which the assembly conformance
+# classes need (Phase 2.11 SW27).
 #
 # Every run retains a unique evidence directory under .build/gate-logs.
 # Parallel XCTest uses xUnit plus explicit case records; serial XCTest uses
@@ -61,6 +78,7 @@ TIER=""
 SKIP=""
 PARALLEL=0
 TIMEOUT_SECONDS=""
+CLASS_TIMEOUT_SECONDS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --describe-selection) DESCRIBE_SELECTION=1; shift ;;
@@ -79,6 +97,12 @@ while [ $# -gt 0 ]; do
             # this overrides it.
             [ $# -ge 2 ] || { echo "--timeout-seconds requires a value" >&2; exit 64; }
             TIMEOUT_SECONDS="$2"
+            shift 2
+            ;;
+        --class-timeout-seconds)
+            # The bound for each class of a serial run (see "The bound for each class" above).
+            [ $# -ge 2 ] || { echo "--class-timeout-seconds requires a value" >&2; exit 64; }
+            CLASS_TIMEOUT_SECONDS="$2"
             shift 2
             ;;
         --filter)
@@ -223,6 +247,10 @@ if [ "$PARALLEL" -eq 1 ]; then
         echo "--parallel is not allowed for selections containing the ProjectStorage suites (integration/full/unfiltered)" >&2
         exit 64
     fi
+    if [ -n "$CLASS_TIMEOUT_SECONDS" ]; then
+        echo "--class-timeout-seconds bounds the classes of a serial run, and this run is parallel" >&2
+        exit 64
+    fi
 fi
 
 EFFECTIVE_TIER="${TIER:-full}"
@@ -259,6 +287,7 @@ run_gate() {
     [ "$PARALLEL" -eq 1 ] && command+=(--parallel)
     [ "$REQUIRE_TOOLS" -eq 1 ] && command+=(--require-tools)
     [ -n "$TIMEOUT_SECONDS" ] && command+=(--timeout-seconds "$TIMEOUT_SECONDS")
+    [ -n "$CLASS_TIMEOUT_SECONDS" ] && command+=(--class-timeout-seconds "$CLASS_TIMEOUT_SECONDS")
     command+=(-- "${ORIGINAL_ARGV[@]}")
     local status
     if [ "$REQUIRE_TOOLS" -eq 1 ]; then
@@ -302,6 +331,8 @@ else
             echo "GATE FAIL ($SHA) - evidence: $EVIDENCE_DIR"
             # A failed preferences check keeps its verdict in the evidence folder.
             [ -f "$EVIDENCE_DIR/preferences.txt" ] && cat "$EVIDENCE_DIR/preferences.txt"
+            # So does a class of a split run that ran out of its bound or never started.
+            [ -f "$EVIDENCE_DIR/class-timeouts.txt" ] && cat "$EVIDENCE_DIR/class-timeouts.txt"
         fi
         exit $status
     else

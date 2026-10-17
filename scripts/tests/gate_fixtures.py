@@ -22,7 +22,37 @@ def record(path, root):
     return {"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "sizeBytes": path.stat().st_size}
 
 
-def make_gate_fixture(directory, source, channel="stable", modules=None, *, contract_path=None, legacy=False):
+SPLIT_CLASSES = ("Fixture.AlphaTests", "Fixture.BetaTests")
+
+
+def class_split_attempts(target, classes=SPLIT_CLASSES):
+    """The attempts and the classBound record of a passing serial run split by class
+    (gate_evidence.DEFAULT_CLASS_TIMEOUT_SECONDS, Phase 2.11 Q65): one authoritative attempt a
+    class, each with its own runner.log under class-<index> in `target`."""
+    attempts = []
+    for index, suite in enumerate(classes):
+        folder = target / f"class-{index:03d}"
+        folder.mkdir()
+        (folder / "runner.log").write_text(
+            "Test Case '-[" + suite + " testA]' passed (0.1 seconds).\n"
+            "Test Suite 'Selected tests' passed\nExecuted 1 test, with 0 failures\n")
+        test = suite + "/testA"
+        harness = {"selected": 1, "executed": 1, "skipped": 0, "failures": 0, "completed": True,
+                   "selectedTests": [test], "completedTests": [test], "failedTests": [],
+                   "skippedTests": [], "missingTests": [], "unexpectedTests": []}
+        attempts.append({"role": "authoritative", "class": suite, "timeoutSeconds": 900,
+                         "exitStatus": 0, "passed": True, "errors": [], "intervention": None,
+                         "argv": ["swift", "test", "--skip-update", *build_options(FIXTURE_SDK_PATH),
+                                  "--filter", "^" + suite.replace(".", "\\.") + "(/|$)"],
+                         "harnesses": {"xctest": harness},
+                         "files": [record(folder / "runner.log", target)]})
+    bound = {"classTimeoutSeconds": 900, "budgetSeconds": 5400, "classes": list(classes),
+             "timedOut": [], "unrun": []}
+    return attempts, bound
+
+
+def make_gate_fixture(directory, source, channel="stable", modules=None, *, contract_path=None, legacy=False,
+                      split_tiers=()):
     directory.mkdir(parents=True)
     project_root = Path(__file__).resolve().parents[2]
     contract_path = Path(contract_path or project_root / "config/release-contract.json").resolve()
@@ -54,7 +84,8 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
         target = directory / str(index)
         target.mkdir()
         (target / "sdk-path.log").write_text(FIXTURE_SDK_PATH + "\n")
-        (target / "runner.log").write_text("Test Case '-[Fixture.ExampleTests testA]' passed (0.1 seconds).\nTest Suite 'All tests' passed\nExecuted 1 test, with 0 failures\n")
+        if tier not in split_tiers:
+            (target / "runner.log").write_text("Test Case '-[Fixture.ExampleTests testA]' passed (0.1 seconds).\nTest Suite 'All tests' passed\nExecuted 1 test, with 0 failures\n")
         flag = "--tier" if tier in {"smoke", "unit", "integration", "conformance", "full"} else "--profile"
         command = ["/bin/bash", str(Path(__file__).resolve().parents[1] / "full-suite-gate.sh"), "--describe-selection", flag, tier]
         if step["requireTools"]:
@@ -67,10 +98,13 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
         harness = {"selected": 1, "executed": 1, "skipped": 0, "failures": 0, "completed": True,
                    "selectedTests": ["Fixture.ExampleTests/testA"], "completedTests": ["Fixture.ExampleTests/testA"],
                    "failedTests": [], "skippedTests": [], "missingTests": [], "unexpectedTests": []}
-        swift["attempts"] = [{"role": "authoritative", "exitStatus": 0, "passed": True, "errors": [],
-                               "argv": ["swift", "test", "--skip-update", *build_options(FIXTURE_SDK_PATH)],
-                               "harnesses": {"xctest": harness},
-                               "files": [record(target / "runner.log", target)]}]
+        if tier in split_tiers:
+            swift["attempts"], swift["classBound"] = class_split_attempts(target)
+        else:
+            swift["attempts"] = [{"role": "authoritative", "exitStatus": 0, "passed": True, "errors": [],
+                                   "argv": ["swift", "test", "--skip-update", *build_options(FIXTURE_SDK_PATH)],
+                                   "harnesses": {"xctest": harness},
+                                   "files": [record(target / "runner.log", target)]}]
         write_json(target / "gate.result.json", swift)
         paths.append(target / "gate.result.json")
     if dependency_policy == "manifest":
@@ -162,6 +196,27 @@ def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True,
     write_json(pointer_dir / "latest-unit.json",
                {"resultPath": f"{name}/gate.result.json", "evidenceDir": str(evidence_dir)})
     return pointer_dir / "latest-unit.json"
+
+
+def make_class_split_result(root, source, *, tier="integration", name="fixture-integration"):
+    """Writes a passing serial run split by class (class_split_attempts) for `tier` under
+    .build/gate-logs/<name>, bound to `source`, with the canonical selection of `tier` as its
+    options, beside whatever unit evidence the folder holds. Returns the gate.result.json path."""
+    evidence_dir = root / ".build/gate-logs" / name
+    evidence_dir.mkdir(parents=True)
+    (evidence_dir / "sdk-path.log").write_text(FIXTURE_SDK_PATH + "\n")
+    attempts, bound = class_split_attempts(evidence_dir)
+    runtime = {"pythonExecutable": "/fixture/python3", "pythonVersion": "3.13 fixture",
+               "swiftVersion": "Swift version 6.4 fixture", "sdkPath": FIXTURE_SDK_PATH}
+    result = {"schemaVersion": 1, "kind": "swift", "source": source, "runtime": runtime,
+              "argv": ["fixture-gate"], "startedAt": "2026-09-05T00:00:00+00:00",
+              "endedAt": "2026-09-05T00:00:01+00:00", "options": canonical_selection(tier),
+              "identityCommand": {"argv": ["swift", "--version"], "exitStatus": 0, "intervention": None, "files": []},
+              "sdkCommand": {"argv": ["xcrun", "--sdk", "macosx", "--show-sdk-path"], "exitStatus": 0,
+                             "intervention": None, "files": [record(evidence_dir / "sdk-path.log", evidence_dir)]},
+              "discovery": [], "attempts": attempts, "classBound": bound, "errors": [], "authorized": True}
+    write_json(evidence_dir / "gate.result.json", result)
+    return evidence_dir / "gate.result.json"
 
 
 def make_app_smoke_fixture(directory, source, app, contract_path):

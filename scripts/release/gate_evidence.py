@@ -142,7 +142,7 @@ def _kill_descendant_tree(root_pid, sig):
             pass
 
 
-def command_record(argv, root, directory, name, *, split=False, timeout_seconds=None):
+def command_record(argv, root, directory, name, *, split=False, timeout_seconds=None, env=None):
     """Retain the actual exit, including a watchdog termination; never promote it.
 
     `timeout_seconds`, when given, is an overall wall-clock budget:
@@ -172,7 +172,7 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
         try:
             process = subprocess.Popen(argv, cwd=root, stdout=output,
                                        stderr=error if error else subprocess.STDOUT,
-                                       start_new_session=True)
+                                       start_new_session=True, env=env)
             next_watchdog = time.monotonic()
             intervention = None
             while process.poll() is None:
@@ -499,14 +499,60 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
 # machine (multiple worktrees building/testing at once) a clean run has
 # been observed to take the full 30 min, so the budget has headroom above
 # that. Tiers not listed here (custom filters, profiles) get no default and
-# must pass --timeout-seconds explicitly to be bounded.
+# must pass --timeout-seconds explicitly to be bounded. The integration tier
+# runs one attempt a class (below), and each start of the runner costs about
+# 6 to 8 seconds (the diagnostic retries of 2026-10-09 and 2026-10-12 took 8
+# to 30 seconds for 3 to 21 cases). Its budget covers about 16 minutes of
+# tests, about 20 minutes of runner starts for some 170 classes and one class
+# that runs out its bound.
 DEFAULT_TIER_TIMEOUT_SECONDS = {
     "smoke": 5 * 60,
     "unit": 45 * 60,
-    "integration": 45 * 60,
+    "integration": 90 * 60,
     "conformance": 90 * 60,
     "full": 90 * 60,
 }
+
+# The bound (seconds) for each class of a serial run, by tier (Phase 2.11 Q65,
+# panel decision S1). A serial run with a class bound, from this table or from
+# --class-timeout-seconds, runs every class of its selection as its own
+# authoritative attempt with its own timeout. A class that hangs is killed with
+# its process tree and named, and the next class still runs, where one attempt
+# for the whole selection lost every later class to the hang (R5,
+# ProjectFilesystemWindowOwnershipTests in 2.10). The tier budget above still
+# bounds the whole run, and a class that would start after it is spent does not
+# run and is named. A diagnostic retry would add nothing, since each class
+# already ran alone.
+DEFAULT_CLASS_TIMEOUT_SECONDS = {
+    "integration": 15 * 60,
+}
+
+
+def serial_class(test):
+    """The class of an XCTest case or the suite of a Swift Testing function."""
+    return test.split("/", 1)[0]
+
+
+def class_filter(suite, selection_filter, discovered, chosen, exclude):
+    """A --filter that selects, among the discovered tests, exactly the tests of one class that the
+    run's selection holds. The class's own pattern serves when the selection takes the whole class,
+    and the selection's pattern joins it as a lookahead when the selection takes part of it."""
+    own = "^" + re.escape(suite) + "(/|$)"
+    candidates = [own]
+    if selection_filter:
+        candidates.append("^(?=" + re.escape(suite) + "(?:/|$))(?=.*(?:" + selection_filter + "))")
+    for pattern in candidates:
+        if all(selected(tests, pattern, exclude) == chosen[harness] for harness, tests in discovered.items()):
+            return pattern
+    raise EvidenceError("no filter selects exactly the selected tests of " + suite)
+
+
+def unfinished_tests(log):
+    """XCTest cases that started and never ended in a runner log, the case a hung class was in."""
+    terminal = {suite + "/" + test for suite, test in
+                re.findall(r"Test Case '-\[([^ ]+) (.*?)\]' (?:passed|failed|skipped)(?: |$)", log, re.M)}
+    started = re.findall(r"Test Case '-\[([^ ]+) (.*?)\]' started\.", log)
+    return [suite + "/" + test for suite, test in started if suite + "/" + test not in terminal]
 
 
 def preferences_leaks(root, directory, command, *arguments):
@@ -523,6 +569,45 @@ def preferences_leaks(root, directory, command, *arguments):
         return []
     pointer = f", see {report.name}" if report.is_file() else ""
     return [f"preferences-leaks {command} exited {completed.returncode}{pointer}"]
+
+
+def run_class_attempts(attempt, bound, selection, discovered, args, directory):
+    """Run each class of a serial selection as its own authoritative attempt under its own timeout
+    (DEFAULT_CLASS_TIMEOUT_SECONDS) within the run's budget, recording each class that ran out or
+    never started in `bound`. Returns the errors that name them. The same lines go to stdout as
+    they happen and to class-timeouts.txt, which the quiet gate prints after its fail line."""
+    budget, started, notes, errors = bound["budgetSeconds"], time.monotonic(), [], []
+    # NSUnbufferedIO=YES makes the runner's stdio unbuffered, so the start line of the case a hung
+    # class is in reaches the log before the kill. A piped xctest log otherwise ends at a block.
+    environment = {**os.environ, "NSUnbufferedIO": "YES"}
+    for index, suite in enumerate(bound["classes"]):
+        remaining = None if budget is None else budget - (time.monotonic() - started)
+        if remaining is not None and remaining <= 0:
+            bound["unrun"] = bound["classes"][index:]
+            count = len(bound["unrun"])
+            message = (f"the run's {budget} s budget ran out before {count} class{'' if count == 1 else 'es'} ran: "
+                       + ", ".join(bound["unrun"]))
+            notes.append("GATE CLASS UNRUN: " + message)
+            errors.append(message)
+            print(notes[-1], flush=True)
+            break
+        timeout = bound["classTimeoutSeconds"] if remaining is None else min(bound["classTimeoutSeconds"], remaining)
+        chosen = {harness: [t for t in tests if serial_class(t) == suite] for harness, tests in selection.items()}
+        include = class_filter(suite, args.filter, discovered, chosen, args.skip)
+        result = attempt(f"class-{index:03d}", include, args.skip, False, "authoritative", chosen, timeout, environment)
+        result.update({"class": suite, "timeoutSeconds": timeout})
+        if result.get("intervention") == "timeout":
+            result["unfinishedTests"] = unfinished_tests(
+                (directory / result["files"][0]["path"]).read_text(errors="replace"))
+            bound["timedOut"].append(suite)
+            where = ", ".join(result["unfinishedTests"]) or "a case the log does not name"
+            message = f"{suite} ran out of its {timeout:.0f} s bound in {where} and was killed with its process tree"
+            notes.append("GATE CLASS TIMEOUT: " + message)
+            errors.append("class " + message)
+            print(notes[-1], flush=True)
+    if notes:
+        (directory / "class-timeouts.txt").write_text("".join(note + "\n" for note in notes))
+    return errors
 
 
 def run_swift_gate(args):
@@ -570,14 +655,13 @@ def run_swift_gate(args):
             xctests = (directory / "discover-xctest.log").read_text().splitlines()
             if any(not re.fullmatch(r"[^\s/]+/[^\s]+", t) for t in xctests):
                 raise EvidenceError("malformed XCTest discovery")
-            if profile:
-                audit(catalog, xctests + sorted(discovered_swift_tests(
-                    directory / "discover-swift-testing.log",
-                    directory / "discovered-swift-testing.jsonl")))
-            selection["xctest"] = selected(xctests, args.filter, args.skip)
-            selection["swift-testing"] = selected(discovered_swift_tests(
+            discovered_tests = {"xctest": xctests, "swift-testing": sorted(discovered_swift_tests(
                 directory / "discover-swift-testing.log",
-                directory / "discovered-swift-testing.jsonl"), args.filter, args.skip)
+                directory / "discovered-swift-testing.jsonl"))}
+            if profile:
+                audit(catalog, xctests + discovered_tests["swift-testing"])
+            selection = {harness: selected(tests, args.filter, args.skip)
+                         for harness, tests in discovered_tests.items()}
             if not any(selection.values()):
                 raise EvidenceError("empty test selection")
         except (EvidenceError, ValueError) as error:
@@ -586,11 +670,17 @@ def run_swift_gate(args):
     if discovered.exists():
         second["files"].append(file_record(discovered, directory))
     timeout_seconds = getattr(args, "timeout_seconds", None) or DEFAULT_TIER_TIMEOUT_SECONDS.get(args.tier)
+    class_timeout = getattr(args, "class_timeout_seconds", None) or DEFAULT_CLASS_TIMEOUT_SECONDS.get(args.tier)
+    class_bound = None
+    if class_timeout is not None and not args.parallel:
+        class_bound = {"classTimeoutSeconds": class_timeout, "budgetSeconds": timeout_seconds,
+                       "classes": sorted({serial_class(t) for tests in selection.values() for t in tests}),
+                       "timedOut": [], "unrun": []}
     preferences_before = directory / "preferences-before.json"
     if not errors:
         errors += preferences_leaks(root, directory, "snapshot", "--output", str(preferences_before))
     if not errors:
-        def attempt(name, include, exclude, parallel, role, chosen):
+        def attempt(name, include, exclude, parallel, role, chosen, timeout=timeout_seconds, environment=None):
             target = directory / name
             target.mkdir()
             command = [*common, "--skip-build", "--xunit-output", str(target / "xctest.xml"), "--event-stream-output-path", str(target / "swift-testing.jsonl"), "--event-stream-version", "0"]
@@ -604,13 +694,19 @@ def run_swift_gate(args):
                     command += ["--num-workers", str(args.workers)]
             result = analyze_attempt(
                 target,
-                command_record(command, root, target, "runner", timeout_seconds=timeout_seconds),
+                command_record(command, root, target, "runner", timeout_seconds=timeout, env=environment),
                 chosen, parallel, args.require_tools)
             result["role"] = role
             for record in result["files"]:
                 record["path"] = name + "/" + record["path"]
             attempts.append(result)
             return result
+    if not errors and class_bound is not None:
+        try:
+            errors += run_class_attempts(attempt, class_bound, selection, discovered_tests, args, directory)
+        except EvidenceError as error:
+            errors.append(str(error))
+    elif not errors:
         primary = attempt("primary", args.filter, args.skip, args.parallel, "authoritative", selection)
         # Assertion-only failures from complete runs, in XCTest or swift-testing, can be diagnosed in
         # isolation. Neither a clean diagnostic nor any retry changes primary. A retry cannot tell a
@@ -631,7 +727,12 @@ def run_swift_gate(args):
               "argv": args.gate_argv[1:] if args.gate_argv[:1] == ["--"] else args.gate_argv, "startedAt": started, "endedAt": now(),
               "options": {"tier": args.tier, "filter": args.filter, "skip": args.skip, "parallel": args.parallel, "requireTools": args.require_tools},
               "identityCommand": version, "sdkCommand": sdk, "discovery": discoveries, "attempts": attempts,
-              "errors": errors, "authorized": bool(attempts) and attempts[0]["passed"] and not errors}
+              "errors": errors}
+    if class_bound is not None:
+        result["classBound"] = class_bound
+    # Every authoritative attempt decides: the one primary attempt, or each class of a split run.
+    authoritative = [a for a in attempts if a["role"] == "authoritative"]
+    result["authorized"] = bool(authoritative) and all(a["passed"] for a in authoritative) and not errors
     if profile:
         result["options"].update(profile=profile, workers=args.workers)
         result["catalogSha256"] = hashlib.sha256((root / "config/test-catalog.json").read_bytes()).hexdigest()
@@ -678,6 +779,24 @@ def read_json(path):
 
 def same_source(observed, expected):
     return expected.get("clean") is True and observed.get("clean") is True and observed.get("commit") == expected.get("commit")
+
+
+def validate_class_split(bound, attempts):
+    """A serial run split by class (DEFAULT_CLASS_TIMEOUT_SECONDS) authorizes only when every class
+    of its selection ran once, in order, as an authoritative attempt that selected that class's
+    tests alone, and no class ran out of its bound or was left unrun."""
+    classes = bound.get("classes") if isinstance(bound, dict) else None
+    if (not isinstance(classes, list) or not classes or len(set(map(str, classes))) != len(classes)
+            or any(not isinstance(suite, str) for suite in classes)
+            or bound.get("timedOut") or bound.get("unrun")
+            or [attempt.get("class") for attempt in attempts] != classes
+            or any(attempt.get("role") != "authoritative" for attempt in attempts)):
+        raise EvidenceError("class-split gate did not run every class once")
+    for attempt in attempts:
+        for harness in attempt.get("harnesses", {}).values():
+            if any(not isinstance(test, str) or serial_class(test) != attempt["class"]
+                   for test in harness.get("selectedTests", [])):
+                raise EvidenceError("class-split attempt selected another class's tests")
 
 
 def validate_result(result, source):
@@ -728,19 +847,21 @@ def validate_result(result, source):
         if any(command.get("intervention") is not None for command in commands):
             raise EvidenceError("gate required watchdog intervention")
         attempts = result.get("attempts", [])
-        if len(attempts) != 1 or attempts[0].get("role") != "authoritative":
+        if "classBound" in result:
+            validate_class_split(result["classBound"], attempts)
+        elif len(attempts) != 1 or attempts[0].get("role") != "authoritative":
             raise EvidenceError("retried gate cannot authorize candidate")
-        first = attempts[0]
-        harnesses = first.get("harnesses", {})
-        if first.get("exitStatus") != 0 or first.get("passed") is not True or first.get("errors") or not harnesses:
-            raise EvidenceError("authoritative gate did not pass")
-        if sum(h.get("selected", 0) for h in harnesses.values()) <= 0:
-            raise EvidenceError("gate selection was empty")
-        for h in harnesses.values():
-            if h.get("completed") is not True or h.get("failures") != 0 or h.get("selected") != h.get("executed", 0) + h.get("skipped", 0) or h.get("missingTests") or h.get("unexpectedTests"):
-                raise EvidenceError("gate selection was incomplete")
-            if result["options"].get("requireTools") and h.get("skipped"):
-                raise EvidenceError("required-tools gate skipped tests")
+        for attempt in attempts:
+            harnesses = attempt.get("harnesses", {})
+            if attempt.get("exitStatus") != 0 or attempt.get("passed") is not True or attempt.get("errors") or not harnesses:
+                raise EvidenceError("authoritative gate did not pass")
+            if sum(h.get("selected", 0) for h in harnesses.values()) <= 0:
+                raise EvidenceError("gate selection was empty")
+            for h in harnesses.values():
+                if h.get("completed") is not True or h.get("failures") != 0 or h.get("selected") != h.get("executed", 0) + h.get("skipped", 0) or h.get("missingTests") or h.get("unexpectedTests"):
+                    raise EvidenceError("gate selection was incomplete")
+                if result["options"].get("requireTools") and h.get("skipped"):
+                    raise EvidenceError("required-tools gate skipped tests")
     else:
         raise EvidenceError("unknown gate kind")
 
@@ -1342,7 +1463,12 @@ def main():
                         help="Overall wall-clock budget for the primary test-runner attempt. "
                              "Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "
                              "a hung test is killed (process group SIGTERM then SIGKILL) and the "
-                             "gate fails with intervention=timeout rather than hanging forever.")
+                             "gate fails with intervention=timeout rather than hanging forever. "
+                             "A run split by class keeps it as the budget of all its classes together.")
+    swift.add_argument("--class-timeout-seconds", type=int, default=None,
+                       help="Bound for each class of a serial run. Overrides DEFAULT_CLASS_TIMEOUT_SECONDS "
+                            "and splits the serial run into one attempt a class; a class that runs out "
+                            "is killed with its process tree and named, and the next class runs.")
     swift.add_argument("gate_argv", nargs=argparse.REMAINDER)
     python = sub.add_parser("python")
     python.add_argument("tests", nargs="+")

@@ -7,6 +7,7 @@ and scheduling, including serial coverage for storage suites.
 
 import argparse
 import contextlib
+import copy
 import importlib.util
 import io
 import re
@@ -21,9 +22,12 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from scripts.release.swiftpm_build import build_options
+from scripts.tests.gate_fixtures import (SPLIT_CLASSES, make_class_split_result, make_gate_fixture,
+                                         make_unit_gate_pointer)
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_SDK_PATH = "/Applications/Xcode Fixture.app/SDKs/MacOSX27.0.sdk"
@@ -210,7 +214,8 @@ def run_gate_in_process(scenario, tier, selection_filter, **options):
     real = GATE.command_record
 
     def recording(argv, root, directory, name, **keywords):
-        calls.append({"name": name, "argv": argv, "timeout": keywords.get("timeout_seconds")})
+        calls.append({"name": name, "argv": argv, "timeout": keywords.get("timeout_seconds"),
+                      "unbuffered": (keywords.get("env") or {}).get("NSUnbufferedIO")})
         return real(argv, root, directory, name, **keywords)
 
     with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
@@ -449,30 +454,174 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertFalse(self.stand_in_alive(pid_file, marker),
                          "the gate left the hung class's child process alive")
 
-    # Q65 M1, the pin. The serial integration tier runs the whole selection as one runner attempt
-    # under the tier's one wall-clock budget (gate_evidence.py run_swift_gate, the attempt "primary"),
-    # not as one xctest a class, so a hang in one class leaves every later class unrun.
-    def test_pin_two_serial_classes_run_as_one_attempt_under_the_tier_budget(self):
+    # Q65 M1 pinned the base: the serial integration tier ran its whole selection as one runner
+    # attempt under the tier's one budget, so a hang in one class left every later class unrun.
+    # Q65 M2: a serial run with a class bound (DEFAULT_CLASS_TIMEOUT_SECONDS) runs each class as its
+    # own attempt with its own timeout, and the tier budget still bounds the whole run.
+    def test_two_serial_classes_run_as_two_attempts_under_the_class_bound(self):
         calls, status, evidence = run_gate_in_process("two_classes", "integration",
                                                       _legacy_selection("integration")["filter"])
         self.assertEqual(status, 0, evidence["errors"])
+        self.assertEqual(GATE.DEFAULT_CLASS_TIMEOUT_SECONDS, {"integration": 15 * 60})
+        self.assertEqual(GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"], 90 * 60)
         runners = [call for call in calls if call["name"] == "runner"]
-        self.assertEqual(len(runners), 1, "one runner attempt for the whole selection")
-        self.assertEqual(runners[0]["timeout"], GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"])
-        self.assertEqual(GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"], 45 * 60)
-        self.assertEqual([attempt["role"] for attempt in evidence["attempts"]], ["authoritative"])
-        self.assertEqual(evidence["attempts"][0]["harnesses"]["xctest"]["completedTests"], SERIAL_TESTS)
+        self.assertEqual([call["timeout"] for call in runners], [15 * 60, 15 * 60], "one attempt a class")
+        self.assertEqual([call["unbuffered"] for call in runners], ["YES", "YES"])
+        self.assertEqual([call["argv"][call["argv"].index("--filter") + 1] for call in runners],
+                         [r"^LungfishIntegrationTests\.AlphaHangTests(/|$)", r"^LungfishIntegrationTests\.BetaTests(/|$)"])
+        self.assertEqual([(attempt["class"], attempt["role"]) for attempt in evidence["attempts"]],
+                         [(test.split("/")[0], "authoritative") for test in SERIAL_TESTS])
+        self.assertEqual([attempt["harnesses"]["xctest"]["completedTests"] for attempt in evidence["attempts"]],
+                         [[test] for test in SERIAL_TESTS])
+        self.assertTrue(evidence["authorized"])
 
-    def test_pin_a_hang_in_the_first_serial_class_leaves_the_second_unrun(self):
+    def test_a_hung_serial_class_is_killed_and_named_and_the_next_class_still_runs(self):
+        result, evidence, child = self.run_hang_gate("--tier", "integration", "--class-timeout-seconds", "2")
+        self.assertIsNotNone(evidence, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertFalse(evidence["authorized"])
+        self.assertEqual(len(evidence["attempts"]), 2, "the second class still runs")
+        hung, after = evidence["attempts"]
+        self.assertEqual((hung["class"], hung["role"], hung["intervention"], hung["timeoutSeconds"]),
+                         ("LungfishIntegrationTests.AlphaHangTests", "authoritative", "timeout", 2))
+        self.assertGreaterEqual(hung["wallTimeSeconds"], 2)
+        self.assertEqual(hung["unfinishedTests"], [SERIAL_TESTS[0]])
+        self.assertEqual((after["class"], after["passed"], after["intervention"]),
+                         ("LungfishIntegrationTests.BetaTests", True, None))
+        self.assertEqual(after["harnesses"]["xctest"]["completedTests"], [SERIAL_TESTS[1]])
+        self.assertEqual(evidence["classBound"]["timedOut"], ["LungfishIntegrationTests.AlphaHangTests"])
+        self.assertEqual(evidence["classBound"]["unrun"], [])
+        named = "LungfishIntegrationTests.AlphaHangTests ran out of its 2 s bound in " + SERIAL_TESTS[0]
+        self.assertIn(named, evidence["errors"][0])
+        self.assertIn("GATE CLASS TIMEOUT: " + named, result.stdout)
+        self.assertLess(result.stdout.index("GATE CLASS TIMEOUT"), result.stdout.index("GATE FAIL"))
+        self.assert_stand_in_gone(child)
+
+    def test_the_quiet_gate_names_the_class_that_ran_out_after_its_fail_line(self):
+        result, _, child = self.run_hang_gate("--tier", "integration", "--class-timeout-seconds", "2", "--quiet")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("GATE FAIL", result.stdout)
+        self.assertIn("GATE CLASS TIMEOUT: LungfishIntegrationTests.AlphaHangTests ran out", result.stdout)
+        self.assertLess(result.stdout.index("GATE FAIL"), result.stdout.index("GATE CLASS TIMEOUT"))
+        self.assert_stand_in_gone(child)
+
+    def test_a_class_that_would_start_after_the_budget_is_spent_is_named_unrun(self):
         result, evidence, child = self.run_hang_gate("--tier", "integration", "--timeout-seconds", "3")
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(evidence["attempts"]), 1, "the one attempt, killed with both classes in it")
-        attempt = evidence["attempts"][0]
-        self.assertEqual(attempt["intervention"], "timeout")
-        self.assertGreaterEqual(attempt["wallTimeSeconds"], 3)
-        self.assertEqual(attempt["harnesses"]["xctest"]["missingTests"], SERIAL_TESTS)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(len(evidence["attempts"]), 1, "the hung class used the whole budget")
+        hung = evidence["attempts"][0]
+        self.assertEqual((hung["class"], hung["intervention"]), ("LungfishIntegrationTests.AlphaHangTests", "timeout"))
+        self.assertLessEqual(hung["timeoutSeconds"], 3)
+        self.assertEqual(evidence["classBound"]["unrun"], ["LungfishIntegrationTests.BetaTests"])
+        self.assertIn("GATE CLASS UNRUN: the run's 3 s budget ran out before 1 class ran: "
+                      "LungfishIntegrationTests.BetaTests", result.stdout)
         self.assertFalse(evidence["authorized"])
         self.assert_stand_in_gone(child)
+
+    def test_a_green_class_split_run_authorizes_and_its_reader_accepts_it(self):
+        result, evidence = self.run_gate("two_classes", "--tier", "integration")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(evidence["authorized"])
+        self.assertEqual(evidence["classBound"], {
+            "classTimeoutSeconds": 900, "budgetSeconds": 5400, "timedOut": [], "unrun": [],
+            "classes": [test.split("/")[0] for test in SERIAL_TESTS]})
+        # The fixture project has untracked files, so the run's source is not clean. Mark it clean
+        # to ask the release reader about the shape of the result alone.
+        source = {**evidence["source"], "clean": True, "commit": "fixture"}
+        GATE.validate_result({**evidence, "source": source}, source)
+
+    def test_a_serial_run_without_a_class_bound_stays_one_attempt(self):
+        result, evidence = self.run_gate("two_classes", "--filter", "LungfishIntegrationTests")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([attempt["role"] for attempt in evidence["attempts"]], ["authoritative"])
+        self.assertNotIn("classBound", evidence)
+        self.assertNotIn("class", evidence["attempts"][0])
+
+    def test_a_class_bound_is_refused_for_a_parallel_run(self):
+        result, evidence = self.run_gate("one", "--tier", "unit", "--class-timeout-seconds", "5")
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+        self.assertIn("--class-timeout-seconds bounds the classes of a serial run", result.stderr)
+        self.assertIsNone(evidence)
+
+
+class SplitRunReaderTests(unittest.TestCase):
+    """Q65 M3. Both readers of gate evidence still read a serial run split by class. `package`
+    (release.py run_local_gates) binds every result with create_manifest and verify_manifest, which
+    call validate_result. The pre-push hook and release.py's unit precondition run
+    `gate_evidence.py unit-evidence`, which reads results through find_unit_evidence."""
+
+    @staticmethod
+    def legacy_contract():
+        steps = [SimpleNamespace(tier="unit", requireTools=False),
+                 SimpleNamespace(tier="integration", requireTools=False)]
+        return SimpleNamespace(sourceRoot=ROOT, gates=SimpleNamespace(
+            dependencyPolicy="installed", focusedReleaseTests=[], for_channel=lambda _: steps))
+
+    def split_manifest(self, temp):
+        source = {"clean": True, "commit": "fixture"}
+        path = make_gate_fixture(Path(temp) / "gates", source, channel="preview", legacy=True,
+                                 split_tiers=("integration",))
+        return source, path
+
+    def test_package_reads_a_manifest_whose_integration_run_is_split_by_class(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source, path = self.split_manifest(temp)
+            digest = GATE.file_record(path, path.parent)["sha256"]
+            manifest = GATE.verify_manifest(path, digest, source, "preview", self.legacy_contract())
+            split = json.loads((path.parent / manifest["results"][2]["path"]).read_text())
+            self.assertEqual([attempt["class"] for attempt in split["attempts"]], list(SPLIT_CLASSES))
+            # The log of one class attempt changing after the run breaks the manifest.
+            log = path.parent / "1/class-001/runner.log"
+            log.write_text(log.read_text() + "changed\n")
+            with self.assertRaises(GATE.EvidenceError):
+                GATE.verify_manifest(path, digest, source, "preview", self.legacy_contract())
+
+    def test_package_refuses_a_split_run_that_left_out_repeated_or_lost_a_class(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source, path = self.split_manifest(temp)
+            baseline = json.loads((path.parent / "1/gate.result.json").read_text())
+            GATE.validate_result(baseline, source)
+            mutations = {
+                "a class never ran": lambda r: r["attempts"].pop(),
+                "classes out of order": lambda r: r["attempts"].reverse(),
+                "a class ran twice": lambda r: r["attempts"].append(copy.deepcopy(r["attempts"][0])),
+                "a diagnostic retry": lambda r: r["attempts"][1].update(role="diagnostic-retry"),
+                "a class ran out": lambda r: r["classBound"]["timedOut"].append(SPLIT_CLASSES[0]),
+                "a class left unrun": lambda r: r["classBound"]["unrun"].append(SPLIT_CLASSES[1]),
+                "another class's test": lambda r: r["attempts"][0]["harnesses"]["xctest"]["selectedTests"].append(
+                    SPLIT_CLASSES[1] + "/testA"),
+                "a watchdog kill": lambda r: r["attempts"][1].update(intervention="timeout"),
+                "a failed class": lambda r: r["attempts"][1].update(passed=False),
+                "no classes": lambda r: r["classBound"].update(classes=[]),
+            }
+            for name, mutate in mutations.items():
+                value = copy.deepcopy(baseline)
+                mutate(value)
+                with self.subTest(name), self.assertRaises(GATE.EvidenceError):
+                    GATE.validate_result(value, source)
+
+    def test_the_pre_push_reader_takes_the_unit_run_and_never_a_split_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            def git(*arguments):
+                return subprocess.run(["git", *arguments], cwd=root, check=True, capture_output=True,
+                                      text=True).stdout.strip()
+
+            git("init", "-q")
+            (root / ".gitignore").write_text(".build/\n")
+            git("add", ".gitignore")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-q", "-m", "A")
+            commit = git("rev-parse", "HEAD")
+            source = {"commit": commit, "clean": True, "worktreeSha256": "0" * 64}
+            split = json.loads(make_class_split_result(root, source).read_text())
+            GATE.validate_result(split, source)
+            self.assertIsNone(GATE.unit_result_status(split, GATE.canonical_tier_options("unit", False)))
+            self.assertIsNone(GATE.find_unit_evidence(root, commit, []), "a split run is never unit evidence")
+            make_unit_gate_pointer(root, source)
+            found = GATE.find_unit_evidence(root, commit, [])
+            self.assertEqual(found["kind"], "exact")
+            self.assertTrue(found["resultPath"].endswith("fixture-unit/gate.result.json"), found)
 
 
 FAKE_SWIFT = r'''import json, os, pathlib, re, signal, subprocess, sys, time
