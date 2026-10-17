@@ -237,6 +237,36 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
         let requested = await client.requestedURLs
         XCTAssertEqual(requested, [], "no archive is asked")
     }
+
+    /// More than 50 selected records ask "Download N Records?" first. With no project that question
+    /// would confirm a download that cannot run, so the refusal comes before it.
+    func testMoreThanFiftyRecordsWithNoProjectAreRefusedBeforeTheLargeBatchQuestion() async throws {
+        let suite = makeTestDefaultsSuite(prefix: "a60-no-project-refusal-51")
+        let client = RefusingNCBIClient()
+        let model = DatabaseBrowserViewModel(
+            source: .ncbi, ncbiService: NCBIService(httpClient: client), defaultsSuiteName: suite.name)
+        model.ncbiSearchType = .genome
+        let records = (0..<51).map { index in
+            SearchResultRecord(
+                id: "96001\(index)", accession: "GCF_96001\(index).1", title: "A60 refusal \(index)", source: .ncbi)
+        }
+        model.selectedRecords = Set(records)
+        let rowsBefore = OperationCenter.shared.items.count
+        var dismissed = false
+        model.onDownloadStarted = { dismissed = true }
+        let recorder = RecordingNoProjectPresenter()
+
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) { model.performBatchDownload() }
+
+        XCTAssertNil(model.errorMessage, "the large batch question is not reached")
+        XCTAssertFalse(dismissed, "the browser stays open")
+        XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open"])
+        XCTAssertEqual(
+            recorder.presentations.map(\.message), ["Open or create a project before downloading genome assemblies."])
+        XCTAssertEqual(OperationCenter.shared.items.count, rowsBefore, "no row starts")
+        let requested = await client.requestedURLs
+        XCTAssertEqual(requested, [], "nothing is asked")
+    }
 }
 
 /// An NCBI client that refuses every request and records the URL it was asked for.

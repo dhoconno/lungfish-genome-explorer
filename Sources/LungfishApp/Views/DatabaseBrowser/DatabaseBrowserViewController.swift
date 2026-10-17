@@ -2176,6 +2176,13 @@ public class DatabaseBrowserViewModel: ObservableObject {
             return
         }
 
+        // A download with no project is refused before the large-batch question, so nobody confirms
+        // a download that cannot run. The begin helper keeps the same refusal for its other callers.
+        guard routeContext?.projectURL != nil else {
+            Self.refuseBatchDownloadWithoutProject(source: source, searchType: ncbiSearchType, window: NSApp?.keyWindow)
+            return
+        }
+
         // Confirm large batch downloads (>50 records)
         if recordsToDownload.count > 50 {
             let alert = NSAlert()
