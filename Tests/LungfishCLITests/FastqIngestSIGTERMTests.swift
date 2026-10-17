@@ -171,6 +171,77 @@ final class FastqIngestSIGTERMTests: XCTestCase {
         XCTAssertEqual(try digests(in: fixture.folder), before, "the folder is byte for byte as it was, with no record added and nothing staged beside the input")
     }
 
+    /// S32 review fix 8, the kill-9 test of plan decision SW7 (a). SIGKILL gives the leaf no chance to clean up, so
+    /// its stage stays in the system temp folder with the marker that names the CLI, and nothing is left beside the
+    /// input. The launch sweep, with the real process inspector, leaves the stage while the CLI lives and removes
+    /// it once the CLI is gone, which is the disposal a killed run is promised.
+    func testAKilledIngestLeavesAMarkedFolderThatTheLaunchSweepRemoves() async throws {
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        try installStandInClumpify(in: condaRoot)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let pidFile = root.appendingPathComponent("clumpify.pid")
+
+        let folder = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let input = folder.appendingPathComponent("SRR9_1.fastq")
+        try FastqIngestPublishDurabilityTests.reads.write(to: input, atomically: true, encoding: .utf8)
+        let originalBytes = try Data(contentsOf: input)
+        let systemTemp = root.appendingPathComponent("T", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemTemp, withIntermediateDirectories: true)
+        let physicalTemp = systemTemp.resolvingSymlinksInPath()
+
+        let cli = try CLISIGTERMHarness.launchCLI(
+            ["fastq", "ingest", input.path, "--delete-originals", "--quiet"],
+            environment: [
+                "TMPDIR": systemTemp.path,
+                "LUNGFISH_CONDA_ROOT": condaRoot.path,
+                "LUNGFISH_STORAGE_ROOT": root.appendingPathComponent("storage", isDirectory: true).path,
+                "LUNGFISH_CONDA_SHARED_PKGS": "0",
+                "CFFIXED_USER_HOME": home.path,
+                "CLUMPIFY_PID_FILE": pidFile.path,
+            ],
+            workingDirectory: root,
+            testClass: Self.self
+        )
+        defer { cli.stop() }
+        guard let clumpifyPID = await CLISIGTERMHarness.waitForProcessID(in: pidFile) else {
+            let stop = await CLISIGTERMHarness.cancel(cli)
+            return XCTFail("The leaf never started the stand-in clumpify.\(stop.diagnostics)")
+        }
+        // The stand-in execs `sleep 300` and outlives its parent, so the test ends it.
+        defer { kill(clumpifyPID, SIGKILL) }
+
+        // The tool holds a part file, so the run is under way and its stage stands in the system temp folder.
+        let staged = try names(in: systemTemp)
+        XCTAssertEqual(staged.count, 1, "the leaf builds its output in one folder in the system temp folder: \(staged)")
+        let stageName = try XCTUnwrap(staged.first)
+        XCTAssertTrue(stageName.hasPrefix("lungfish-ingest-"), stageName)
+        let marker = try OwnedWorkDirectoryMarkerStore.load(
+            from: physicalTemp.appendingPathComponent(stageName, isDirectory: true),
+            expectedProjectURL: physicalTemp
+        )
+        XCTAssertEqual(marker.processIdentifier, cli.processIdentifier, "the marker names the CLI that made the stage")
+        let whileRunning = SystemTempScratchSweep.sweep(root: systemTemp)
+        XCTAssertEqual(whileRunning.refused[stageName], .liveCreator, "the sweep leaves the stage of a run that lives")
+        XCTAssertTrue(whileRunning.removed.isEmpty, "\(whileRunning.removed)")
+
+        kill(cli.processIdentifier, SIGKILL)
+        let exited = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(20)) { !cli.isRunning }
+        XCTAssertTrue(exited, "SIGKILL ends the CLI")
+
+        // Nothing ran the leaf's cleanup, so the stage stays in the system temp folder and nothing is beside the input.
+        XCTAssertEqual(try names(in: folder), ["SRR9_1.fastq"], "a killed run leaves nothing beside the input")
+        XCTAssertEqual(try names(in: systemTemp), [stageName], "a killed run leaves its stage in the system temp folder")
+
+        // The next launch's sweep, with no injected inspector, finds the creator gone and removes the stage.
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp)
+        XCTAssertEqual(outcome.removed.map(\.lastPathComponent), [stageName], "\(outcome.refused)")
+        XCTAssertEqual(try names(in: systemTemp), [], "the sweep removed the stage")
+        XCTAssertEqual(try names(in: folder), ["SRR9_1.fastq"])
+        XCTAssertEqual(try Data(contentsOf: input), originalBytes, "the original is as it was")
+    }
+
     /// The SHA-256 of every file directly in `folder` by name, and a marker for a folder.
     private func digests(in folder: URL) throws -> [String: String] {
         var result: [String: String] = [:]
