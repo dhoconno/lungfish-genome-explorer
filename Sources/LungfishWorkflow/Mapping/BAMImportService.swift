@@ -75,7 +75,8 @@ public final class BAMImportService: @unchecked Sendable {
         bundleURL: URL,
         name: String? = nil,
         materialization: SourceMaterialization = .sortAndIndex,
-        progressHandler: (@Sendable (Double, String) -> Void)? = nil
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil,
+        provenanceCommand: [String]? = nil  // the argv the record names, nil keeps the helper's
     ) async throws -> ImportResult {
         let runClock = ProvenanceRunClock()
         let fileName = bamURL.lastPathComponent
@@ -256,7 +257,7 @@ public final class BAMImportService: @unchecked Sendable {
             cloneCompletedAt: materialized.cloneCompletedAt,
             startedAt: runClock.startedAt,
             completedAt: runClock.now,
-            explicitTrackName: name
+            explicitTrackName: name, provenanceCommand: provenanceCommand
         )
 
         // 9. Get file size for staleness detection
@@ -561,10 +562,11 @@ public final class BAMImportService: @unchecked Sendable {
         cloneCompletedAt: Date? = nil,
         startedAt: Date,
         completedAt: Date,
-        explicitTrackName: String?
+        explicitTrackName: String?,
+        provenanceCommand: [String]?
     ) throws {
         let appVersion = WorkflowRun.currentAppVersion
-        let argv = importProvenanceArgv(bamURL: bamURL, bundleURL: bundleURL, name: explicitTrackName)
+        let argv = provenanceCommand ?? importProvenanceArgv(bamURL: bamURL, bundleURL: bundleURL, name: explicitTrackName)
         let input = try ProvenanceFileDescriptor.file(
             url: bamURL,
             format: fileFormat(for: sourceFormat),
