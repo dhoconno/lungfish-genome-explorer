@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane Q32, with 2.10 T2 and T7, 2.11 B6, B8 and K1 and the QA ruling on 2.9 O5. No real run had
-// compared side A, today's in-process GUI route, with side C, the routed `taxtriage run --project` through the
+// compared side A, the legacy in-process GUI route, with side C, the routed `taxtriage run --project` through the
 // built lungfish-cli, so the flip of the route rested on stand-in parity. This class runs the cases of
 // TaxTriageParityHarness on the real engine, the managed Nextflow 26.04.6 of the live root with the docker profile
 // and the Kraken2 Viral database.

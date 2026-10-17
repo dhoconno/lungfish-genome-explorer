@@ -24,7 +24,7 @@ enum TaxTriageLaunchRoute: String, Sendable, Equatable, CaseIterable {
 /// the user's defaults.
 struct TaxTriageLaunchRouteSettings {
     /// The hidden key. It holds `cli` or `legacy`, or a Boolean that is true for the CLI route, for
-    /// example `defaults write <app id> TaxTriageLaunchRoute cli`.
+    /// example `defaults write <app id> TaxTriageLaunchRoute legacy`, which keeps the in-process route.
     static let defaultsKey = "TaxTriageLaunchRoute"
     /// The route of a key that is unset or holds a value this reader does not know. It is `.cli`
     /// since the flip (U30 M4), after Q32 M3 showed each sample's payload hashes equal with declared

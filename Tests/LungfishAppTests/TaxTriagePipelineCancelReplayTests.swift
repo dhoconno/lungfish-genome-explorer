@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane S1, decisions T10 to T13 (docs/plans/2026-10-11-phase-2-8.md) and 2.7 E5. The Tools
-// menu runs TaxTriage in process, through `TaxTriageSerialBatchRunner` and `TaxTriagePipeline`, and
-// its Cancel cancels the task. Each case runs that route on `TaxTriageStandInEngine`, most of them
-// in its TERM-trapping mode, where the engine and a heartbeat child it forks trap TERM and go on, so
-// only a KILL after a grace ends the tree.
+// Phase 2.8 lane S1, decisions T10 to T13 (docs/plans/2026-10-11-phase-2-8.md) and 2.7 E5. Until
+// Phase 2.11 U30 M4 the Tools menu ran TaxTriage in process, through `TaxTriageSerialBatchRunner` and
+// `TaxTriagePipeline`, and the hidden key `TaxTriageLaunchRoute` set to `legacy` keeps that route for
+// one Preview. Its Cancel cancels the task. Each case runs that route on `TaxTriageStandInEngine`,
+// most of them in its TERM-trapping mode, where the engine and a heartbeat child it forks trap TERM
+// and go on, so only a KILL after a grace ends the tree.
 //
 // At the base of the lane each defect sat in an `XCTExpectFailure` block, XCTest's known issue.
 // The fix made them plain assertions. A cancel stops the whole tree with TERM, then KILL after a
