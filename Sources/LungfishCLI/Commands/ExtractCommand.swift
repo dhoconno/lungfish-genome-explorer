@@ -18,11 +18,13 @@ struct ExtractCommand: AsyncParsableCommand {
               sequence  Extract subsequences from FASTA files by region
               reads     Extract reads from FASTQ, BAM, or database sources
               contigs   Extract selected contigs from assemblies
+              taxa-collection  Extract each taxon of a collection from a Kraken2 result
             """,
         subcommands: [
             ExtractSequenceSubcommand.self,
             ExtractReadsSubcommand.self,
             ExtractContigsSubcommand.self,
+            ExtractTaxaCollectionSubcommand.self,
         ],
         defaultSubcommand: ExtractSequenceSubcommand.self
     )

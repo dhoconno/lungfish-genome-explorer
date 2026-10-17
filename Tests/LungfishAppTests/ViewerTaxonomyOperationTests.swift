@@ -4,8 +4,9 @@
 //
 // The Kraken2 viewer registers two kinds of rows (R4). BLAST verification
 // records a `lungfish-cli blast verify` command, now with the `--result-dir`
-// the app saves into. Batch extraction of a taxa collection has no CLI
-// equivalent yet, so its test pins today's note. Neither locks a bundle.
+// the app saves into. Batch extraction of a taxa collection records the
+// `lungfish-cli extract taxa-collection` command that runs it (Phase 2.11 lane
+// A66), and its test parses that command. Neither locks a bundle.
 
 import XCTest
 @testable import LungfishApp
@@ -79,18 +80,27 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         XCTAssertEqual(command.resultDirectory, sampleDirectory.path, "the app saves the verification under --result-dir")
     }
 
-    // MARK: - Taxa collection batch extraction, a CLI parity gap
+    // MARK: - Taxa collection batch extraction
 
-    func testTaxaCollectionExtractionRecordsNoCommandAsAParityGap() throws {
+    func testTaxaCollectionExtractionRecordsTheCommandThatReplaysIt() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = OperationRouteContext(
             projectURL: URL(fileURLWithPath: "/tmp/lane 1a1/Project.lungfish"),
             windowStateScopeID: UUID()
         )
+        let result = makeClassificationResult()
+        let collection = TaxaCollection.respiratoryViruses
+        let outputDirectory = result.config.outputDirectory.appendingPathComponent("extracted-\(collection.id)")
+        let arguments = ViewerViewController.taxaCollectionExtractionArguments(
+            collection: collection,
+            resultDirectory: result.config.outputDirectory,
+            outputDirectory: outputDirectory
+        )
         var launchedID: UUID?
 
         ViewerViewController.beginTaxaCollectionExtractionOperation(
-            collection: .respiratoryViruses,
+            collection: collection,
+            arguments: arguments,
             routeContext: routeContext,
             reporter: reporter
         ) { launchedID = $0 }
@@ -102,10 +112,19 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. No lungfish-cli command extracts a whole collection.
-        // The closest is `conda extract`, once per taxon. When a batch command
-        // exists, record it and replace this pin with a parse test.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "taxa-collection-extraction")
+        // The recorded command is the argv the run launches, and the real parser reads it back
+        // with the collection's taxa in order. A path with a space is quoted.
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ExtractTaxaCollectionSubcommand.self)
+        XCTAssertEqual(item.cliCommand?.hasPrefix("lungfish-cli extract taxa-collection --result '/tmp/lane 1a1/"), true)
+        XCTAssertEqual(command.result, result.config.outputDirectory.path)
+        XCTAssertEqual(command.collectionID, "respiratory-viruses")
+        XCTAssertEqual(command.collectionName, "Respiratory Viruses")
+        XCTAssertEqual(command.outputDirectory, outputDirectory.path)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json, "the row shows the command's events")
+        let parsed = try command.targets.map(ExtractTaxaCollectionSubcommand.parseTarget)
+        XCTAssertEqual(parsed.map(\.taxId), collection.taxa.map(\.taxId))
+        XCTAssertEqual(parsed.map(\.includeChildren), collection.taxa.map(\.includeChildren))
+        XCTAssertEqual(parsed.map(\.displayName), collection.taxa.map(\.displayName))
+        XCTAssertFalse(collection.taxa.isEmpty)
     }
 }

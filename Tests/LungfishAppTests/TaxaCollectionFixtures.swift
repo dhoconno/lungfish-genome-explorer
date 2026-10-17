@@ -31,6 +31,20 @@ struct TaxaCollectionFixtures {
         ]
     )
 
+    /// Genus A without its children, which the report gives no reads of its own, Species B alone and a
+    /// taxon the report does not hold. Only Species B gives a file.
+    static let skippingCollection = TaxaCollection(
+        id: "a66-skips",
+        name: "A66 skips",
+        description: "",
+        sfSymbol: "circle",
+        taxa: [
+            TaxonTarget(name: "Genus A", taxId: genus, includeChildren: false),
+            TaxonTarget(name: "Species B", taxId: speciesB, includeChildren: false),
+            TaxonTarget(name: "Absent", taxId: 999, includeChildren: true),
+        ]
+    )
+
     /// The report of both runs. Species 11 holds two reads, species 12 one and species 20 two.
     static let kreport = [
         " 16.67\t1\t1\tU\t0\tunclassified",
@@ -89,10 +103,14 @@ struct TaxaCollectionFixtures {
     ) throws -> URL {
         let directory = analyses.appendingPathComponent("kraken2-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // The result names its reads and its own folder relative to itself, as a copy of the project needs,
+        // so a copy of the project reads its own files.
+        let relativeInputs = inputs.map { URL(string: "../../\($0.lastPathComponent)")! }
         var config = ClassificationConfig(
-            inputFiles: inputs, isPairedEnd: paired, databaseName: "Viral", databasePath: directory, outputDirectory: directory
+            inputFiles: relativeInputs, isPairedEnd: paired, databaseName: "Viral",
+            databasePath: URL(string: ".")!, outputDirectory: URL(string: ".")!
         )
-        config.originalInputFiles = inputs
+        config.originalInputFiles = relativeInputs
         let kreportURL = directory.appendingPathComponent("classification.kreport")
         try kreport.write(to: kreportURL, atomically: true, encoding: .utf8)
         let krakenURL = directory.appendingPathComponent("classification.kraken")

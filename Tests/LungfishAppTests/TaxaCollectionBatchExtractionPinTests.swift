@@ -147,38 +147,6 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         let scratch = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasPrefix(".kraken2-sources-") }
         XCTAssertEqual(scratch, [], "a cancel removes the scratch folder too")
     }
-
-    // MARK: - The viewer's Extract button
-
-    func testTheExtractButtonWritesTheExtractedFolderAndEndsItsRowWithTheTaxaCount() async throws {
-        let collection = TaxaCollectionFixtures.collection
-        let result = try ClassificationResult.load(from: fixtures.singleEnd)
-        let viewer = ViewerViewController()
-        _ = viewer.view
-        viewer.displayTaxonomyResult(result)
-        let taxonomy = try XCTUnwrap(viewer.children.compactMap { $0 as? TaxonomyViewController }.first)
-        let before = Set(OperationCenter.shared.items.map(\.id))
-
-        taxonomy.onBatchExtract?(collection, result)
-
-        let title = "Extract \(collection.name)"
-        let deadline = ContinuousClock.now + .seconds(60)
-        while ContinuousClock.now < deadline {
-            if let row = OperationCenter.shared.items.first(where: { !before.contains($0.id) && $0.title == title }), !row.state.isActive {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        let row = try XCTUnwrap(OperationCenter.shared.items.first { !before.contains($0.id) && $0.title == title })
-        XCTAssertEqual(row.state, .completed, "detail: \(row.detail)")
-        XCTAssertEqual(row.detail, "Extracted 2 taxa from A66 genus and B")
-        XCTAssertNil(row.cliCommand, "CLI parity gap taxa-collection-extraction, the row records no command today")
-        let folder = extractedFolder(of: result, collection)
-        XCTAssertEqual(
-            try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".fastq.gz") }.sorted(),
-            ["Genus_A_taxid10.fastq.gz", "Species_B_taxid20.fastq.gz"]
-        )
-    }
 }
 
 /// Cancels a task from inside its own progress callback, once the task exists.

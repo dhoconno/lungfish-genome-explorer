@@ -4,6 +4,7 @@ Subcommands:
   sequence  Extract subsequences from FASTA files by region
   reads     Extract reads from FASTQ, BAM, or database sources
   contigs   Extract selected contigs from assemblies
+  taxa-collection  Extract each taxon of a collection from a Kraken2 result
 
 USAGE: lungfish-cli extract <subcommand>
 
@@ -17,5 +18,7 @@ SUBCOMMANDS:
                           classifier-result sources
   contigs                 Extract selected contigs from an assembly FASTA or
                           managed assembly result
+  taxa-collection         Extract the reads of each taxon of a collection from
+                          a Kraken2 result
 
   See 'lungfish-cli help extract <subcommand>' for detailed help.

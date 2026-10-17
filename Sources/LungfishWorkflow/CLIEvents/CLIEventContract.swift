@@ -72,7 +72,7 @@ package enum CLIEventContractTable {
     private static let exportFormat = "its --format names an export file format, not machine output"
     private static let helpCommand = "the help subcommand that ArgumentParser adds to the root, human text only"
 
-    // MARK: Leaves that emit events (63)
+    // MARK: Leaves that emit events (64)
 
     private static let events: [String: CLIEventContract] = [
         "align mafft": .events(flag: formatJSON, channel: .standardOutput),
@@ -96,6 +96,7 @@ package enum CLIEventContractTable {
         "demo fetch": .events(flag: formatJSON, channel: .standardOutput),
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "extract reads": .events(flag: formatJSON, channel: .standardOutput),
+        "extract taxa-collection": .events(flag: formatJSON, channel: .standardOutput),
         // Events since 2.11 A48 M2, with and without --bundle. It printed one `extract-sequence` document before.
         "extract sequence": .events(flag: formatJSON, channel: .standardOutput),
         "fastq import-ont": .events(flag: formatJSON, channel: .standardOutput),

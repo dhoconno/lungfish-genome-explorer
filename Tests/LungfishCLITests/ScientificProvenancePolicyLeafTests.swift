@@ -302,6 +302,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "extract contigs": "cli.extract",
         "extract reads": "cli.extract",
         "extract sequence": "cli.extract.sequence",
+        "extract taxa-collection": "cli.extract",
         "fastq 12s-export": "cli.fastq.12s-export",
         "fastq 12s-export-unresolved": "cli.fastq.12s-export-unresolved",
         "fastq 12s-match": "cli.fastq.12s-match",

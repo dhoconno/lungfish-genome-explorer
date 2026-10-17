@@ -20,6 +20,7 @@ lungfish-cli extract	shown	0	lungfish-cli.extract.txt
 lungfish-cli extract sequence	shown	0	lungfish-cli.extract.sequence.txt
 lungfish-cli extract reads	shown	0	lungfish-cli.extract.reads.txt
 lungfish-cli extract contigs	shown	0	lungfish-cli.extract.contigs.txt
+lungfish-cli extract taxa-collection	shown	0	lungfish-cli.extract.taxa-collection.txt
 lungfish-cli fastq	shown	0	lungfish-cli.fastq.txt
 lungfish-cli fastq subsample	shown	0	lungfish-cli.fastq.subsample.txt
 lungfish-cli fastq length-filter	shown	0	lungfish-cli.fastq.length-filter.txt

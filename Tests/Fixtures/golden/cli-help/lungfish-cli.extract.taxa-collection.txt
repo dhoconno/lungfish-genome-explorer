@@ -1,0 +1,37 @@
+OVERVIEW: Extract the reads of each taxon of a collection from a Kraken2 result
+
+Writes one gzip FASTQ file per taxon into --output-dir, named after the taxon's
+display name and tax ID, as the Extract button of the taxa collections drawer
+does. Each --target gives one taxon as <taxId>,<children|exact>,<display name>.
+A taxon with children also takes the reads of its descendants, which needs the
+report of the result. A taxon without reads in the result is skipped. When the
+result holds several read files, a taxon's file holds each pair together.
+
+With --format json standard output holds only the event lines. SIGTERM cancels
+the run, which is recorded as cancelled, and the command exits 125.
+
+USAGE: lungfish-cli extract taxa-collection [<options>] --result <result> --collection-id <collection-id> --collection-name <collection-name> --output-dir <output-dir>
+
+OPTIONS:
+  --result <result>       Kraken2 classification result folder
+  --collection-id <collection-id>
+                          Identifier of the collection
+  --collection-name <collection-name>
+                          Name of the collection, used in messages
+  --target <target>       A taxon as <taxId>,<children|exact>,<display name>.
+                          Repeat for each taxon of the collection.
+  --output-dir <output-dir>
+                          Folder for the per-taxon files
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

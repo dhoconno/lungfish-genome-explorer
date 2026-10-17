@@ -81,74 +81,48 @@ extension ViewerViewController {
         ])
 
         // Wire batch extraction callback for the taxa collections drawer.
-        // When the user clicks "Extract" on a collection, run the batch pipeline
-        // using the same Task.detached + OperationCenter pattern.
+        // When the user clicks "Extract" on a collection, run
+        // `lungfish-cli extract taxa-collection` on the CLI bundle build runner,
+        // which writes one file per taxon into `extracted-<collection id>`.
         controller.onBatchExtract = { [weak self] collection, classResult in
             guard let self else { return }
             let routeContext = OperationRouteContext(
                 projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
                 windowStateScope: self.windowStateScope
             )
+            let arguments = ViewerViewController.taxaCollectionExtractionArguments(
+                collection: collection,
+                resultDirectory: classResult.config.outputDirectory,
+                outputDirectory: classResult.config.outputDirectory
+                    .appendingPathComponent("extracted-\(collection.id)")
+            )
             ViewerViewController.beginTaxaCollectionExtractionOperation(
                 collection: collection,
+                arguments: arguments,
                 routeContext: routeContext
             ) { opID in
-                let tree = classResult.tree
-                let outputDir = classResult.config.outputDirectory
-                    .appendingPathComponent("extracted-\(collection.id)")
-
-                let task = Task.detached {
+                Task { @MainActor in
                     do {
-                        let pipeline = TaxonomyExtractionPipeline()
-                        let outputURLs = try await pipeline.extractBatch(
-                            collection: collection,
-                            classificationResult: classResult,
-                            tree: tree,
-                            outputDirectory: outputDir,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        _ = OperationCenter.shared.update(
-                                            id: opID,
-                                            progress: fraction,
-                                            detail: message
-                                        )
-                                    }
-                                }
-                            }
+                        let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: opID)
+                        let outputURLs = run.outputs.map { URL(fileURLWithPath: $0) }
+                        _ = OperationCenter.shared.complete(
+                            id: opID,
+                            detail: run.message ?? "Extracted \(outputURLs.count) taxa from \(collection.name)",
+                            bundleURLs: outputURLs
                         )
 
-                        let capturedURLs = outputURLs
-                        scheduleTaxonomyOnMainRunLoop {
-                            MainActor.assumeIsolated {
-                                let count = capturedURLs.count
-                                _ = OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: "Extracted \(count) taxa from \(collection.name)",
-                                    bundleURLs: capturedURLs
-                                )
-
-                                // Refresh sidebar to pick up new extracted files
-                                if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
-                                    sidebar.requestReloadFromFilesystem()
-                                }
-                            }
+                        // Refresh sidebar to pick up new extracted files
+                        if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
+                            sidebar.requestReloadFromFilesystem()
                         }
+                    } catch is CancellationError {
+                        // The runner acknowledged the cancel on the row, and the command stopped.
                     } catch {
                         let errorDesc = error.localizedDescription
-                        scheduleTaxonomyOnMainRunLoop {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.fail(
-                                    id: opID,
-                                    detail: errorDesc
-                                )
-                                showTaxonomyExtractionErrorAlert(errorDesc)
-                            }
-                        }
+                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                        showTaxonomyExtractionErrorAlert(errorDesc)
                     }
                 }
-
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
             }
         }
 
@@ -469,15 +443,14 @@ extension ViewerViewController {
 
     /// Registers the batch-extraction row for a taxa collection and, only when
     /// it starts, calls `launch` with the operation ID. The run writes into
-    /// the classification folder and locks no bundle.
-    ///
-    /// cli-parity-gap: taxa-collection-extraction. No `lungfish-cli` command
-    /// extracts a whole collection. The closest is `lungfish-cli conda
-    /// extract`, run once per taxon. The row records no command until a CLI
-    /// command covers the batch.
+    /// the classification folder and locks no bundle. The row records the
+    /// `lungfish-cli extract taxa-collection` command that `launch` runs, built
+    /// from `arguments` (``taxaCollectionExtractionArguments(collection:resultDirectory:outputDirectory:)``),
+    /// so Copy CLI Command replays the extraction (Phase 2.11 lane A66).
     @discardableResult
     static func beginTaxaCollectionExtractionOperation(
         collection: TaxaCollection,
+        arguments: [String],
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
@@ -486,7 +459,10 @@ extension ViewerViewController {
             title: "Extract \(collection.name)",
             detail: "Preparing batch extraction\u{2026}",
             operationType: .taxonomyExtraction,
-            cliCommand: nil,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "extract taxa-collection",
+                args: Array(arguments.dropFirst(2))
+            ),
             routeContext: routeContext
         )
         switch result {
