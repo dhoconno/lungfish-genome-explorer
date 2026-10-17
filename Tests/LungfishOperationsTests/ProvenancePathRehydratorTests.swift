@@ -250,6 +250,64 @@ final class ProvenancePathRehydratorTests: XCTestCase {
         XCTAssertEqual(output, destination.appendingPathComponent("S1/report.tsv").standardizedFileURL.path)
     }
 
+    /// SW1 (a) with the signer passed in. A signed record that the rename changes is signed again with a key and
+    /// passes the check of `provenance verify`. With no key it reads unsigned, with no signature file, no public key
+    /// and no signature named inside it (plan decision S5).
+    func testASignedRecordTheRenameChangesIsSignedAgainWithAKeyAndReadsUnsignedWithNone() throws {
+        let signer = LocalProvenanceSigningProvider(privateKey: "lane-a68-throwaway-signing-key")
+        for rebindSigner in [signer, nil] as [(any ProvenanceSigningProvider)?] {
+            let temp = try makeTemporaryFolder("Signed")
+            let source = temp.appendingPathComponent("kraken2-batch", isDirectory: true)
+            let destination = temp.appendingPathComponent("kraken2-batch renamed", isDirectory: true)
+            let report = source.appendingPathComponent("S1/report.tsv").standardizedFileURL.path
+            let written = try ProvenanceWriter(signingProvider: signer).write(.fixture(outputPath: report), to: source)
+            try FileManager.default.moveItem(at: source, to: destination)
+            let recordURL = destination.appendingPathComponent(written.lastPathComponent)
+            let label = rebindSigner == nil ? "with no key" : "with a key"
+
+            ProvenancePathRehydrator.rehydrate(from: source, to: destination, signingProvider: rebindSigner)
+
+            let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: recordURL))
+            XCTAssertEqual(
+                envelope.output?.path, destination.appendingPathComponent("S1/report.tsv").standardizedFileURL.path, label
+            )
+            let pair = [
+                ProvenanceSigningConfiguration.signatureURL(for: recordURL),
+                ProvenanceSigningConfiguration.publicKeyURL(for: recordURL),
+            ].map { FileManager.default.fileExists(atPath: $0.path) }
+            if rebindSigner == nil {
+                XCTAssertEqual(pair, [false, false], "\(label), the record holds no signature file and no public key")
+                XCTAssertTrue(envelope.signatures.isEmpty, "\(label), the record names no signature")
+            } else {
+                XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: recordURL), label)
+                // The fixture also names a signature of `fixture-provider`, which the writer keeps as it keeps any other provider's.
+                XCTAssertEqual(envelope.signatures.filter { $0.provider == signer.providerIdentifier }.count, 1, label)
+            }
+        }
+    }
+
+    /// A record whose signature failed before the rename still fails after it. The rename neither signs it again nor
+    /// drops its signature, so it reads tampered as it did and never verified or unsigned.
+    func testARecordWhoseSignatureFailedBeforeTheRenameStillFailsAfterIt() throws {
+        let signer = LocalProvenanceSigningProvider(privateKey: "lane-a68-throwaway-signing-key")
+        let temp = try makeTemporaryFolder("Tampered")
+        let source = temp.appendingPathComponent("kraken2-batch", isDirectory: true)
+        let destination = temp.appendingPathComponent("kraken2-batch renamed", isDirectory: true)
+        let report = source.appendingPathComponent("S1/report.tsv").standardizedFileURL.path
+        let written = try ProvenanceWriter(signingProvider: signer).write(.fixture(outputPath: report), to: source)
+        let tampered = try XCTUnwrap(Self.read(written).mutableCopy() as? NSMutableDictionary)
+        tampered["workflowName"] = "edited after signing"
+        try JSONSerialization.data(withJSONObject: tampered, options: [.prettyPrinted, .sortedKeys]).write(to: written)
+        XCTAssertThrowsError(try ProvenanceSignatureVerifier.verify(provenanceURL: written), "the edit breaks the signature")
+        try FileManager.default.moveItem(at: source, to: destination)
+        let recordURL = destination.appendingPathComponent(written.lastPathComponent)
+
+        ProvenancePathRehydrator.rehydrate(from: source, to: destination, signingProvider: signer)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: recordURL).path))
+        XCTAssertThrowsError(try ProvenanceSignatureVerifier.verify(provenanceURL: recordURL), "the record still fails")
+    }
+
     // MARK: - Helpers
 
     private static func fileNumber(of url: URL) throws -> UInt64 {

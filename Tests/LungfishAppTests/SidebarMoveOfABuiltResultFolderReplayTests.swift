@@ -116,6 +116,63 @@ final class SidebarMoveOfABuiltResultFolderReplayTests: XCTestCase {
         XCTAssertEqual(BuiltResultRecordChecks.problems(of: try BuiltResultRecordChecks.recordsOfTheTree(at: copy)), [])
     }
 
+    // MARK: - Signed records (Phase 2.11 lane A68, carry-in row SW1 (a))
+
+    /// With a throwaway key set, every record the build signed is signed after the rename and passes the check of
+    /// `provenance verify` at the new name. At the base the rename rewrote the records and left each one's signature,
+    /// so a record that names a file of the folder failed with a digest mismatch.
+    func testARenamedKraken2BatchBuiltWithAKeyHoldsRecordsThatVerify() async throws {
+        let key = try settingAThrowawayKey()
+        defer { key.restore() }
+        let built = try await buildTheBatch()
+        let signed = try signedRecords(in: batch)
+        XCTAssertFalse(signed.isEmpty, "the build signed records with the key")
+        let renamed = project.appendingPathComponent("Analyses/kraken2-batch renamed", isDirectory: true)
+
+        try FileManager.default.moveItem(at: batch, to: renamed)
+        SidebarViewController().rehydrateScientificProvenance(from: batch, to: renamed)
+
+        try assertTheRecordsNameTheirOwnFiles(at: renamed, from: batch, built)
+        XCTAssertEqual(try signedRecords(in: renamed), signed, "every record the build signed is signed at the new name")
+        XCTAssertEqual(failures(ofVerifying: signed, in: renamed), [], "every signed record passes provenance verify")
+    }
+
+    /// Plan decision S5. Signed with a key and renamed with none, a record the rename changed reads unsigned, with no
+    /// signature file, no public key and no signature named inside it, and a record it left as it was still verifies.
+    /// None keeps a signature that no longer matches it. At the base each changed record kept its signature.
+    func testARenamedKraken2BatchSignedEarlierAndRenamedWithNoKeyKeepsNoStaleSignature() async throws {
+        let key = try settingAThrowawayKey()
+        defer { key.restore() }
+        let built = try await buildTheBatch()
+        let signed = try signedRecords(in: batch)
+        XCTAssertFalse(signed.isEmpty, "the build signed records with the key")
+        let noKey = ProcessEnvironmentOverride(set: [:], unset: Self.signingKeyNames)
+        defer { noKey.restore() }
+        let renamed = project.appendingPathComponent("Analyses/kraken2-batch renamed", isDirectory: true)
+
+        try FileManager.default.moveItem(at: batch, to: renamed)
+        SidebarViewController().rehydrateScientificProvenance(from: batch, to: renamed)
+
+        try assertTheRecordsNameTheirOwnFiles(at: renamed, from: batch, built)
+        var unsigned: [String] = []
+        var stale: [String] = []
+        for (name, envelope) in try BuiltResultRecordChecks.recordsOfTheTree(at: renamed) {
+            let record = renamed.appendingPathComponent(name)
+            let pair = [ProvenanceSigningConfiguration.signatureURL(for: record), ProvenanceSigningConfiguration.publicKeyURL(for: record)]
+            if pair.allSatisfy({ !FileManager.default.fileExists(atPath: $0.path) }) {
+                if !envelope.signatures.isEmpty {
+                    stale.append("\(name) names a signature beside it, and there is none")
+                } else if signed.contains(name) {
+                    unsigned.append(name)
+                }
+            } else {
+                stale += failures(ofVerifying: [name], in: renamed)
+            }
+        }
+        XCTAssertEqual(stale, [], "no record keeps a signature that no longer matches it")
+        XCTAssertFalse(unsigned.isEmpty, "a record the rename changed reads unsigned")
+    }
+
     // MARK: - The setup
 
     /// Steps 1 to 5 of the design. It builds the batch, writes the classifier's record for SRR35517702, runs
@@ -195,6 +252,43 @@ final class SidebarMoveOfABuiltResultFolderReplayTests: XCTestCase {
             commands[name] = lines
         }
         return commands
+    }
+
+    // MARK: - Signing
+
+    private static let signingKeyNames = [
+        ProvenanceSigningConfiguration.signingKeyEnvironmentKey, ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey,
+    ]
+
+    /// Sets `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` to a throwaway key under the case root and clears the other key, as
+    /// `AlignmentWorkflowCLIGUIParityReplayTests` sets its key. The caller restores the environment.
+    private func settingAThrowawayKey() throws -> ProcessEnvironmentOverride {
+        let key = root.appendingPathComponent("lane-a68-throwaway.key")
+        try Data("lane-a68-throwaway-signing-key\n".utf8).write(to: key)
+        return ProcessEnvironmentOverride(
+            set: [ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey: key.path],
+            unset: [ProvenanceSigningConfiguration.signingKeyEnvironmentKey]
+        )
+    }
+
+    /// The records under `folder` with a signature file beside them, by path below it.
+    private func signedRecords(in folder: URL) throws -> [String] {
+        try BuiltResultRecordChecks.recordsOfTheTree(at: folder).map(\.name).filter {
+            FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: folder.appendingPathComponent($0)).path)
+        }
+    }
+
+    /// One line for each record of `names` under `folder` that fails `ProvenanceSignatureVerifier.verify`, the check
+    /// `provenance verify` runs.
+    private func failures(ofVerifying names: [String], in folder: URL) -> [String] {
+        names.compactMap { name in
+            do {
+                _ = try ProvenanceSignatureVerifier.verify(provenanceURL: folder.appendingPathComponent(name))
+                return nil
+            } catch {
+                return "\(name): \(error)"
+            }
+        }
     }
 
     /// The digest of every record file under `folder` and outside `excluded`, by path below `folder`. A record file is a

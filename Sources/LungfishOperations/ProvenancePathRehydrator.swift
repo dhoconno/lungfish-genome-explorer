@@ -4,11 +4,16 @@
 
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 
 package enum ProvenancePathRehydrator {
+    /// Rewrites the paths of the records at `destinationURL`, which came from `sourceURL`. A record that verified
+    /// before and that the rewrite changed is signed again with `signingProvider`, or reads unsigned with none
+    /// (2.11 A68, SW1 (a), plan decision S5).
     package static func rehydrate(
         from sourceURL: URL,
         to destinationURL: URL,
+        signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider(),
         logFailure: ((String) -> Void)? = nil
     ) {
         let sourcePath = sourceURL.standardizedFileURL.path
@@ -42,6 +47,7 @@ package enum ProvenancePathRehydrator {
                 // them where the item came from so the prefix rewrite below
                 // sees real paths, then store portable paths for its new home.
                 let stored = try Data(contentsOf: provenanceURL)
+                let verifiedBefore = (try? ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)) != nil
                 let data = (try? PortablePath.resolveJSON(stored, context: .forFile(at: sourceURL))) ?? stored
                 let json = try JSONSerialization.jsonObject(with: data)
                 let rehydrated = rehydrateJSONValue(
@@ -57,10 +63,46 @@ package enum ProvenancePathRehydrator {
                     options: [.prettyPrinted, .sortedKeys]
                 )
                 try PortablePath.sanitizeJSON(output, forFileAt: provenanceURL).write(to: provenanceURL, options: .atomic)
+                if verifiedBefore, (try? ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)) == nil {
+                    try rebindSignature(of: provenanceURL, rewritten: output, signingProvider: signingProvider, logFailure: logFailure)
+                }
             } catch {
                 logFailure?("Failed to rehydrate provenance \(provenanceURL.path): \(error)")
             }
         }
+    }
+
+    /// A record that verified before the rewrite and does not after it never keeps the signature that no longer
+    /// matches it. With a signer it is signed again through `ProvenanceWriter`, so `provenance verify` passes. With
+    /// none, or when signing fails, it is written through the writer with no signature, which removes its signature
+    /// file and public key, so it reads unsigned and never tampered (plan decision S5). Only an envelope can be signed
+    /// again, so a signed record of another shape loses its pair. A record whose signature failed before the rewrite
+    /// is left as it was, since a rename vouches for nothing.
+    private static func rebindSignature(
+        of provenanceURL: URL,
+        rewritten: Data,
+        signingProvider: (any ProvenanceSigningProvider)?,
+        logFailure: ((String) -> Void)?
+    ) throws {
+        guard var envelope = try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: rewritten) else {
+            for artifact in [
+                ProvenanceSigningConfiguration.signatureURL(for: provenanceURL),
+                ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL),
+            ] where FileManager.default.fileExists(atPath: artifact.path) {
+                try FileManager.default.removeItem(at: artifact)
+            }
+            return
+        }
+        if let signingProvider {
+            do {
+                try ProvenanceWriter(signingProvider: signingProvider).write(envelope, toSidecar: provenanceURL)
+                return
+            } catch {
+                logFailure?("Failed to sign rehydrated provenance \(provenanceURL.path) again, so it reads unsigned: \(error)")
+            }
+        }
+        envelope.signatures = []
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
     }
 
     private static func provenanceURLs(
