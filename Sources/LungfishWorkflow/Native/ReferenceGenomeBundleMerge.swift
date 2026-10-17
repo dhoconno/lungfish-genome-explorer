@@ -6,8 +6,8 @@ import Foundation
 import LungfishCore
 
 /// Adds the genome and annotations of a built reference bundle to an existing `.lungfishref`
-/// bundle, such as a variant-only bundle imported from a VCF with no reference, as the app's
-/// `mergeGenomeIntoBundle` does (`MainSplitViewController+GenomicsDisplay.swift`). It serves
+/// bundle, such as a variant-only bundle imported from a VCF with no reference. It did the merge
+/// that the app's in-process reference download did until Phase 2.11 (K3), and it serves
 /// `lungfish-cli fetch genome --into-bundle` (Phase 2.10 lane A44, census g17).
 ///
 /// The source's `genome/` folder replaces the target's, and its `annotations/` folder replaces the

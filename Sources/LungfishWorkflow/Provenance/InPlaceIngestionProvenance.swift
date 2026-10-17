@@ -8,9 +8,9 @@ import Foundation
 /// ingestion into it, so the ingestion keeps the file's earlier history (a download or an import)
 /// and adds its own steps after it (Phase 2.10 lane A47 M3, ruling section 1).
 ///
-/// The app's ingestion (`FASTQIngestionService`) and `lungfish-cli fastq ingest` both use it. A
-/// merge keeps the old record's identity, status and exit status, so a record of a run that did
-/// not complete is never merged into.
+/// `lungfish-cli fastq ingest` merges through it, and the app's sample sheet append uses its
+/// `combinedWallTime`. A merge keeps the old record's identity, status and exit status, so a record
+/// of a run that did not complete is never merged into.
 package enum InPlaceIngestionProvenance {
     nonisolated package static func existingInPlaceIngestionProvenance(
         outputDirectory: URL,
@@ -53,7 +53,7 @@ package enum InPlaceIngestionProvenance {
             finalFASTQURL: finalFASTQURL
         )
         // A caller that read the final file's digest already passes it, and the path rewrite takes it in place of
-        // a new hash of a file that may be large (review A47 fix 6 (e)). The app's route passes none and hashes.
+        // a new hash of a file that may be large (review A47 fix 6 (e)). The CLI leaf is the one caller and passes it.
         let rewrittenExisting = pathMap.isEmpty
             ? existingEnvelope
             : try GUIImportedProvenanceRehydrator.rewriteOutputDescriptors(

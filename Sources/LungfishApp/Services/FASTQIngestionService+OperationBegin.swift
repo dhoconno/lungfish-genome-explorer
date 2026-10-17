@@ -30,7 +30,6 @@ extension FASTQIngestionService {
     /// the FASTQ file in place, writes the FASTQ metadata sidecar and a record that names the original's
     /// digest, and only then deletes the original. `cliArguments` is the argv the route runs, built once
     /// by ``inPlaceIngestionCLIArguments(url:pairingMode:pairedFile:threads:)``, and the row records it.
-    /// The in-process route that ran until then, side A of the parity class, passes none and records none.
     @discardableResult
     static func beginInPlaceIngestionOperation(
         url: URL,
@@ -43,8 +42,7 @@ extension FASTQIngestionService {
             title: "FASTQ Ingestion: \(FASTQIngestionPipeline.deriveBaseName(from: url))",
             detail: "Preparing...",
             operationType: .ingestion,
-            // The CLI route passes the argv it runs, so the row records the command it ran. The
-            // in-process route passes none and records none (lane A47 M3).
+            // The CLI route passes the argv it runs, so the row records the command it ran (lane A47 M3).
             cliCommand: cliArguments.map { OperationCenter.buildCLICommand(subcommand: "", args: $0) },
             routeContext: routeContext
         )
