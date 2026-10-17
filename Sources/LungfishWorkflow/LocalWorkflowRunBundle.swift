@@ -92,7 +92,7 @@ public struct LocalWorkflowRunBundleManifest: Codable, Sendable, Equatable {
         self.engine = request.engine
         // Lungfish's own version and build, never `Bundle.main`'s, which is a test host's or a packaged CLI's.
         self.appVersion = LungfishAppVersion.short
-        self.appBuildVersion = RunBundleAppBuild.current
+        self.appBuildVersion = LungfishAppVersion.build
         self.params = request.effectiveParams
         self.inputBindings = inputBindings ?? request.inputURLs.map { LocalWorkflowInputBinding(url: $0) }
         self.outputDirectoryName = request.outputDirectory.lastPathComponent

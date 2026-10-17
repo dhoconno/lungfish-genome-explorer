@@ -79,7 +79,7 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         self.workflowGithubReleaseVersion = workflowGithubReleaseVersion ?? version
         // Lungfish's own version and build, never `Bundle.main`'s, which is a test host's or a packaged CLI's.
         self.appVersion = appVersion ?? LungfishAppVersion.short
-        self.appBuildVersion = appBuildVersion ?? RunBundleAppBuild.current
+        self.appBuildVersion = appBuildVersion ?? LungfishAppVersion.build
         self.executor = executor
         self.params = params
         self.outputDirectoryName = outputDirectoryName
