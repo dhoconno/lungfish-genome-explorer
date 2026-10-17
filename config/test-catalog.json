@@ -34,7 +34,7 @@
       "purpose": "All GUI-capable SwiftPM targets, including mixed state/view suites",
       "harness": "swift",
       "include": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests|LungfishOperationsTests)\\.",
-      "exclude": "",
+      "exclude": "^LungfishAppTests\\.ViralReconLiveConformanceTests(/|$)",
       "resources": [
         "window-server",
         "shared-defaults"
@@ -48,6 +48,19 @@
       "harness": "swift",
       "include": "Conformance|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineIntegrationTests|ReadsToVariantsEndToEndTests|BAMPrimerTrimSubcommandTests|IVarConverterViralReconParityTests|FASTQIngestionPipelineTests|FASTQBatchImporterRecipeIntegrationTests|ToolOutputGoldenTests|FastqGenotypingCommandTests|PrimerTrimThenIVarTests|ExtractReadsByIdBAMProcessTests|ONTGenotypingAlignmentCharacterizationTests|AlignmentDataProviderCharacterizationTests|VCFImportHelperRealToolTests|WorkflowEngineRealNextflowCancellationTests|DatabaseServiceIntegrationTests|AppleContainerRuntimeIntegrationTests|FastqPBAAClusterCommandTests|BBToolsArgumentStagingTests|IlluminaAmpliconPairMergeStagingTests|ManagedToolSourceInstallerTests|SavontCLIContractTests|BAMPrimerTrimPipelineTests|CondaManagerTests|ToolAvailabilityTests|ViralReconRealRunInventoryTests|TaxTriageLockCapableLaunchTests",
       "exclude": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests|LungfishOperationsTests)\\.",
+      "resources": [
+        "managed-tools",
+        "network"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
+    },
+    {
+      "id": "app-live-conformance",
+      "purpose": "Live Viral Recon Nextflow conformance of the app target (Docker, demo archive and built CLI when LUNGFISH_REQUIRE_TOOLS is set); the ui and tool-conformance profiles both select it, and no other app-target class reaches tool-conformance",
+      "harness": "swift",
+      "include": "^LungfishAppTests\\.ViralReconLiveConformanceTests(/|$)",
+      "exclude": "",
       "resources": [
         "managed-tools",
         "network"
@@ -213,7 +226,8 @@
     },
     "ui": {
       "collections": [
-        "ui-diagnostics"
+        "ui-diagnostics",
+        "app-live-conformance"
       ],
       "parallel": true,
       "workers": 1,
@@ -226,7 +240,8 @@
     "tool-conformance": {
       "collections": [
         "tool-conformance",
-        "integration-diagnostics"
+        "integration-diagnostics",
+        "app-live-conformance"
       ],
       "parallel": true,
       "workers": 1,

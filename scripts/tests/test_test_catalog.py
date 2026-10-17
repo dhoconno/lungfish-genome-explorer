@@ -65,6 +65,36 @@ class CatalogTests(unittest.TestCase):
                                for c in self.data['collections'])
                 self.assertEqual(self.catalog.matches(test, self.catalog.profile_options(self.data, profile)), expected, (profile, test))
 
+    def test_only_the_live_viral_recon_class_joins_tool_conformance(self):
+        """SW19 item (a), option 2: a collection of its own for ViralReconLiveConformanceTests.
+
+        The class gates on LUNGFISH_REQUIRE_TOOLS, so tool-conformance (requireTools) may select it. The real-run class
+        skips without LUNGFISH_VIRALRECON_REAL_RUN_PROJECT, which that profile fails on, so it stays on ui alone.
+        """
+        live = 'LungfishAppTests.ViralReconLiveConformanceTests/testX'
+        real_run = 'LungfishAppTests.ViralReconReferenceAnnotationRealRunTests/testX'
+        settings = 'LungfishAppTests.AppSettingsTests/testX'
+
+        def owners(test):
+            return [c['id'] for c in self.data['collections']
+                    if c['harness'] == 'swift' and self.catalog.collection_matches(test, c)]
+
+        def reaches(test, profile):
+            return self.catalog.matches(test, self.catalog.profile_options(self.data, profile))
+
+        def profiles_of(test):
+            return sorted(p for p in self.data['profiles'] if reaches(test, p))
+
+        self.assertEqual(owners(live), ['app-live-conformance'])
+        self.assertTrue(reaches(live, 'tool-conformance'))
+        self.assertTrue(reaches(live, 'ui'))
+        self.assertEqual(profiles_of(live), ['tool-conformance', 'ui'])
+        self.assertEqual(owners(real_run), ['ui-diagnostics'])
+        self.assertTrue(reaches(real_run, 'ui'))
+        self.assertFalse(reaches(real_run, 'tool-conformance'))
+        self.assertEqual(profiles_of(real_run), ['ui'])
+        self.assertEqual(profiles_of(settings), ['ui'])
+
     def test_profiles_refuse_resource_overrides_and_unknown_names(self):
         with self.assertRaises(ValueError):
             self.catalog.profile_options(self.data, 'made-up')
