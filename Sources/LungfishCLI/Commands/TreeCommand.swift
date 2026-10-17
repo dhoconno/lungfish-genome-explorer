@@ -246,10 +246,6 @@ struct TreeCommand: AsyncParsableCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        func run() throws {
-            try executeForTesting { printEventLine($0) }
-        }
-
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try executeTreeTransform(
                 bundlePath: bundlePath,
@@ -289,10 +285,6 @@ struct TreeCommand: AsyncParsableCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        func run() throws {
-            try executeForTesting { printEventLine($0) }
-        }
-
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try executeTreeTransform(
                 bundlePath: bundlePath,
@@ -331,10 +323,6 @@ struct TreeCommand: AsyncParsableCommand {
         var outputPath: String
 
         @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try executeForTesting { printEventLine($0) }
-        }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try executeTreeTransform(

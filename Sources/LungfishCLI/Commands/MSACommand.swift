@@ -76,10 +76,6 @@ extension MSACommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
-
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
         }
@@ -206,10 +202,6 @@ extension MSACommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
-
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
         }
@@ -323,10 +315,6 @@ extension MSACommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
-
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
         }
@@ -404,10 +392,6 @@ extension MSACommand {
         var conflictPolicy: String = "append"
 
         @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
@@ -524,10 +508,6 @@ extension MSACommand {
         var force: Bool = false
 
         @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
@@ -715,10 +695,6 @@ extension MSACommand {
         var force: Bool = false
 
         @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
@@ -911,10 +887,6 @@ extension MSACommand {
         var force: Bool = false
 
         @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
@@ -1206,10 +1178,6 @@ extension MSACommand {
         var force: Bool = false
 
         @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
@@ -1594,10 +1562,6 @@ extension MSACommand {
         var force: Bool = false
 
         @OptionGroup var globalOptions: GlobalOptions
-
-        func run() throws {
-            try execute(emit: { printEventLine($0) })
-        }
 
         func executeForTesting(emit: @escaping (String) -> Void) throws {
             try execute(emit: emit)
