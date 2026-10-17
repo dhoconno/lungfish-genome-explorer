@@ -47,6 +47,9 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
     private var scratch: URL!
     private var cliBinary: URL!
     private var savedEnvironment: [String: String?] = [:]
+    /// 2.11 S8. The command stages in the system temp folder, here a folder of this test's own that it inherits.
+    private var systemTemp: URL!
+    private var previousTMPDIR: String?
 
     enum Case: String, Sendable {
         case copiedIn
@@ -62,6 +65,10 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so sides C and C' cannot run"
         )
+        systemTemp = scratch.appendingPathComponent("T", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemTemp, withIntermediateDirectories: true)
+        previousTMPDIR = ProcessInfo.processInfo.environment["TMPDIR"]
+        setenv("TMPDIR", systemTemp.path, 1)
     }
 
     override func tearDown() async throws {
@@ -73,6 +80,7 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
             await NativeToolRunner.shared.clearCache()
         }
         savedEnvironment = [:]
+        if let previousTMPDIR { setenv("TMPDIR", previousTMPDIR, 1) } else { unsetenv("TMPDIR") }
         TestTempDirectory.cleanup(scratch)
         try await super.tearDown()
     }
@@ -263,14 +271,18 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
                 "side \(run.side) leaves the original as it was"
             )
         }
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: systemTemp.path), [],
+            "a cancelled ingest leaves no staging folder"
+        )
     }
 
     // MARK: - A failed clumpify (review A47 fix 6 (c), QC-2, UX 1)
 
     /// The stand-in clumpify answers the version probe and otherwise exits 1 with one line on standard error. Every
-    /// side ends failed with the original as it was, and no output, sidecar, record or `.lungfish-ingest-*` folder
-    /// stays. C's row words equal A's, and C against C' declares nothing, so the whole tree of each side is the
-    /// original alone.
+    /// side ends failed with the original as it was, and no output, sidecar, record or staging folder stays beside it
+    /// or in the system temp folder. C's row words equal A's, and C against C' declares nothing, so the whole tree
+    /// of each side is the original alone.
     func testAFailedClumpifyFailsOnEverySideAndKeepsTheOriginal() async throws {
         let condaRoot = try installStandInClumpify(Self.failingClumpify, at: scratch.appendingPathComponent("tools/conda"))
         let environment = Self.standInEnvironment(condaRoot: condaRoot.path)
@@ -312,9 +324,13 @@ final class FastqIngestRouteParityReplayTests: XCTestCase {
             XCTAssertEqual(
                 try FileManager.default.contentsOfDirectory(atPath: Self.input(in: run.root).deletingLastPathComponent().path),
                 ["SRR9_1.fastq"],
-                "side \(run.side) leaves no output, sidecar, record or .lungfish-ingest-* folder"
+                "side \(run.side) leaves no output, sidecar, record or staging folder beside the input"
             )
         }
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: systemTemp.path), [],
+            "a failed ingest leaves no staging folder in the system temp folder"
+        )
         let rowA = try XCTUnwrap(rows[.a])
         let rowC = try XCTUnwrap(rows[.c])
         XCTAssertEqual(rowC.shown, rowA.shown, "C's words are A's")

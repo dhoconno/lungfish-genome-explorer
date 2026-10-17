@@ -42,6 +42,22 @@ final class IngestLog: @unchecked Sendable {
 final class FastqIngestLeafDurabilityTests: XCTestCase {
     private static let reads = FastqIngestPublishDurabilityTests.reads
 
+    /// 2.11 S32 M3 review Group 1 fix 4. An input outside a project stages in the system temp folder (2.11 S8),
+    /// so `TMPDIR` names a folder of this test's own and no run stages in the real one.
+    private var rootedSystemTemp: URL!
+    private var previousTMPDIR: String?
+
+    override func setUpWithError() throws {
+        rootedSystemTemp = try TestTempDirectory.make(prefix: "fastq-ingest-leaf-tmp")
+        previousTMPDIR = ProcessInfo.processInfo.environment["TMPDIR"]
+        setenv("TMPDIR", rootedSystemTemp.path, 1)
+    }
+
+    override func tearDownWithError() throws {
+        if let previousTMPDIR { setenv("TMPDIR", previousTMPDIR, 1) } else { unsetenv("TMPDIR") }
+        TestTempDirectory.cleanup(rootedSystemTemp)
+    }
+
     private func requireCompressor() async throws {
         let runner = NativeToolRunner.shared
         let hasBgzip = (try? await runner.toolPath(for: .bgzip)) != nil

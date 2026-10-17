@@ -7,13 +7,16 @@
 // so ToolProcess sends SIGTERM to the command and its tree, and SIGKILL after
 // `CLIProcessLauncher.operationGrace`. `FastqIngestSIGTERMTests` signals the command alone. These
 // tests cancel the way the app does, while a stand-in clumpify holds a half-written output in the
-// command's hidden folder. The command must exit 125 inside the grace and leave no process behind.
+// command's staging folder. The command must exit 125 inside the grace and leave no process behind.
 //
 // - A folder with no record gets the command's `cancelled` record, and the original is as it was.
 // - A folder that holds a record already is the file's history, so the cancel writes nothing and
-//   every file in it keeps its digest, with no hidden `.lungfish-ingest-*` folder left.
+//   every file in it keeps its digest, with nothing staged beside the input.
 // - The first case again with every core busy, since the handler that writes the record races the
 //   death of the tool on a loaded machine.
+// - Since 2.11 S8 the command stages in the system temp folder, so each run gives it a `TMPDIR` of its own
+//   through the process environment. One `lungfish-ingest-*` folder sits there while the stand-in holds its
+//   output, and the folder is empty once the cancel ends.
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier. It needs no real tool.
@@ -42,6 +45,9 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         let status: Int32?
         let elapsed: Duration
         let tree: [Int32]
+        /// The system temp folder the command was given, and what it held while the stand-in clumpify ran.
+        let systemTemp: URL
+        let staged: [String]
     }
 
     /// Runs `fastq ingest` on `input` through the transport the L6 runner uses, against a stand-in
@@ -72,6 +78,12 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         let home = root.appendingPathComponent("home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let pidFile = root.appendingPathComponent("clumpify.pid")
+        // 2.11 S8. The command stages in the system temp folder it inherits, here a folder of this test's own.
+        let systemTemp = root.appendingPathComponent("T", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemTemp, withIntermediateDirectories: true)
+        let previousTMPDIR = ProcessInfo.processInfo.environment["TMPDIR"]
+        setenv("TMPDIR", systemTemp.path, 1)
+        defer { if let previousTMPDIR { setenv("TMPDIR", previousTMPDIR, 1) } else { unsetenv("TMPDIR") } }
 
         // The route's transport, as the L6 runner builds it: a real grace, events on standard output.
         let before = Set(ProcessTreeTerminator.descendantProcessIDs(of: getpid()))
@@ -101,6 +113,7 @@ final class FastqIngestCancelReplayTests: XCTestCase {
             XCTFail("The command never started the stand-in clumpify")
             throw CancellationError()
         }
+        let staged = ((try? FileManager.default.contentsOfDirectory(atPath: systemTemp.path)) ?? []).sorted()
         let tree = ProcessTreeTerminator.descendantProcessIDs(of: getpid()).filter { !before.contains($0) }
         let cliPID = try XCTUnwrap(tree.min(), "the command and its tree run")
         let watch = try XCTUnwrap(ChildExitWatch(pid: cliPID), "cannot watch \(tree)")
@@ -108,7 +121,10 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         transport.cancel()
         let outcome = await run.result
         let elapsed = ContinuousClock.now - sent
-        return Cancelled(outcome: outcome, status: watch.exitCode(timeoutSeconds: 5), elapsed: elapsed, tree: tree)
+        return Cancelled(
+            outcome: outcome, status: watch.exitCode(timeoutSeconds: 5), elapsed: elapsed, tree: tree,
+            systemTemp: systemTemp, staged: staged
+        )
     }
 
     private func assertCancelledInsideTheGrace(_ cancelled: Cancelled) async {
@@ -119,6 +135,13 @@ final class FastqIngestCancelReplayTests: XCTestCase {
             within: CLIProcessLauncher.operationGrace + Self.margin
         )
         await CLISIGTERMHarness.assertNoProcessLeft(cancelled.tree)
+        // The stage sat in the system temp folder the command inherited, and the cancel removed it.
+        XCTAssertEqual(cancelled.staged.count, 1, "the command stages in the system temp folder it inherits: \(cancelled.staged)")
+        XCTAssertTrue(cancelled.staged.allSatisfy { $0.hasPrefix("lungfish-ingest-") }, "\(cancelled.staged)")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: cancelled.systemTemp.path), [],
+            "a cancelled ingest leaves no staging folder"
+        )
     }
 
     /// The SHA-256 of every entry directly in `folder` by name, with a marker for a folder.
@@ -156,7 +179,7 @@ final class FastqIngestCancelReplayTests: XCTestCase {
     }
 
     /// Ruling on M3, section 5. A bundle that holds the import record is the file's history, so the
-    /// cancel writes nothing there. Every file keeps its digest and no hidden folder is left.
+    /// cancel writes nothing there. Every file keeps its digest and nothing is staged beside the input.
     func testACancelWhereARecordStandsChangesNothing() async throws {
         let root = try TestTempDirectory.make(prefix: "fastq-ingest-transport-record-stands")
         defer { TestTempDirectory.cleanup(root) }
@@ -177,7 +200,7 @@ final class FastqIngestCancelReplayTests: XCTestCase {
 
         await assertCancelledInsideTheGrace(try await cancelIngest(of: input, in: root))
 
-        XCTAssertEqual(try digests(in: folder), before, "every file keeps its digest, and no .lungfish-ingest folder remains")
+        XCTAssertEqual(try digests(in: folder), before, "every file keeps its digest, and nothing is staged beside the input")
     }
 
     /// Ruling on M3, section 5. The handler that writes the cancelled record runs while every core
