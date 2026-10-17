@@ -22,7 +22,7 @@ enum PrimerDesignOperation {
     title: String,
     destination: URL,
     routeContext: OperationRouteContext?,
-    cliCommand: String? = nil,
+    cliCommand: String?,
     reporter: any OperationReporting = OperationCenter.shared,
     launch: (UUID) -> Void
   ) -> OperationStartResult {
@@ -74,7 +74,7 @@ enum PrimerDesignOperation {
     title: String,
     destination: URL,
     routeContext: OperationRouteContext?,
-    cliCommand: String? = nil,
+    cliCommand: String?,
     operation: @escaping @Sendable (@escaping @Sendable (Double, String) -> Void) async throws -> URL,
     onResultSaved: @escaping @MainActor (URL) -> Void
   ) -> Handle {

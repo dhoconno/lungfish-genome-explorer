@@ -16,7 +16,7 @@ final class PrimerDesignOperationTests: XCTestCase {
     let route = OperationRouteContext(projectURL: project, windowStateScopeID: UUID())
     var saved: URL?
     let handle = PrimerDesignOperation.start(center: center, title: "Primer3 · Test",
-      destination: output, routeContext: route, operation: { progress in
+      destination: output, routeContext: route, cliCommand: nil, operation: { progress in
         progress(0.4, "Designing candidates")
         await Task.yield()
         return output
@@ -36,7 +36,7 @@ final class PrimerDesignOperationTests: XCTestCase {
     let gate = AsyncStream<Void>.makeStream()
     let output = URL(fileURLWithPath: "/tmp/progress.lungfishprimeranalysis")
     let handle = PrimerDesignOperation.start(center: center, title: "PrimalScheme",
-      destination: output, routeContext: nil, operation: { progress in
+      destination: output, routeContext: nil, cliCommand: nil, operation: { progress in
         progress(0.25, "Preparing saved alignment")
         for await _ in gate.stream { break }
         return output
@@ -56,7 +56,7 @@ final class PrimerDesignOperationTests: XCTestCase {
     let gate = AsyncStream<Void>.makeStream()
     let output = URL(fileURLWithPath: "/tmp/streaming.lungfishprimeranalysis")
     let handle = PrimerDesignOperation.start(center: center, title: "Native workflow",
-      destination: output, routeContext: nil, operation: { _ in
+      destination: output, routeContext: nil, cliCommand: nil, operation: { _ in
         NativeProcessObservation.onEvent?(.started(argv: ["/path with spaces/python", "adapter.py"]))
         NativeProcessObservation.onEvent?(.output(stream: .stdout, line: "Live native output"))
         NativeProcessObservation.onEvent?(.output(stream: .stderr, line: "Native progress on stderr"))
@@ -79,7 +79,7 @@ final class PrimerDesignOperationTests: XCTestCase {
     let center = OperationCenter()
     center.failureReportStore = .temporaryForTesting()
     let handle = PrimerDesignOperation.start(center: center, title: "PrimalScheme",
-      destination: URL(fileURLWithPath: "/tmp/failed.lungfishprimeranalysis"), routeContext: nil,
+      destination: URL(fileURLWithPath: "/tmp/failed.lungfishprimeranalysis"), routeContext: nil, cliCommand: nil,
       operation: { _ in throw NSError(domain: "design", code: 1, userInfo: [NSLocalizedDescriptionKey: "Design failed"]) },
       onResultSaved: { _ in XCTFail("Failed operation must not publish a result") })
     await handle.task.value
@@ -91,7 +91,7 @@ final class PrimerDesignOperationTests: XCTestCase {
     let center = OperationCenter()
     center.failureReportStore = .temporaryForTesting()
     let handle = PrimerDesignOperation.start(center: center, title: "PrimalScheme",
-      destination: URL(fileURLWithPath: "/tmp/cancelled.lungfishprimeranalysis"), routeContext: nil,
+      destination: URL(fileURLWithPath: "/tmp/cancelled.lungfishprimeranalysis"), routeContext: nil, cliCommand: nil,
       operation: { _ in
         try await Task.sleep(nanoseconds: 10_000_000_000)
         return URL(fileURLWithPath: "/tmp/unexpected")
@@ -107,7 +107,7 @@ final class PrimerDesignOperationTests: XCTestCase {
     center.failureReportStore = .temporaryForTesting()
     let output = URL(fileURLWithPath: "/tmp/race.lungfishprimeranalysis")
     let handle = PrimerDesignOperation.start(center: center, title: "Primer3",
-      destination: output, routeContext: nil,
+      destination: output, routeContext: nil, cliCommand: nil,
       operation: { _ in
         try? await Task.sleep(nanoseconds: 10_000_000_000)
         return output
@@ -130,7 +130,7 @@ final class PrimerDesignOperationTests: XCTestCase {
         cliCommand: nil
     )
     let handle = PrimerDesignOperation.start(center: center, title: "Primer3",
-      destination: output, routeContext: nil,
+      destination: output, routeContext: nil, cliCommand: nil,
       operation: { _ in XCTFail("A locked destination must not execute"); return output },
       onResultSaved: { _ in XCTFail("A locked destination must not publish") })
     await handle.task.value
