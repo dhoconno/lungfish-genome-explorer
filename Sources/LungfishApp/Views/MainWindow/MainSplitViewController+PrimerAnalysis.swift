@@ -219,10 +219,6 @@ extension MainSplitViewController {
     /// `launch` with the operation ID. The row locks the new order folder,
     /// `destinationURL`, and records the command
     /// ``primerOrderExportCLICommand(draft:metadata:destinationURL:)`` builds.
-    ///
-    /// cli-parity-gap: primer-order-export-custom-view. A PrimalScheme draft
-    /// whose view settings differ from the defaults records no command,
-    /// because the CLI captures the default view.
     @discardableResult
     static func beginPrimerOrderExportOperation(
         title: String,
@@ -252,68 +248,51 @@ extension MainSplitViewController {
     }
 
     /// The `lungfish-cli primers analysis export-order` command that reproduces
-    /// a primer order export, or nil when no command does.
+    /// a primer order export.
     ///
     /// The command names the scope the draft captured. A Primer3 draft names
     /// its candidate pairs, an Olivar or varVAMP draft names selected or all
-    /// reported assays, and a PrimalScheme draft names the displayed oligos.
-    /// The CLI captures the default view, so a PrimalScheme draft whose view
-    /// settings differ from the defaults has no command that reproduces it,
-    /// and the function returns nil for it. The other scopes ignore the view
-    /// settings.
+    /// reported assays, and a PrimalScheme draft names the displayed oligos
+    /// with the view options that reproduce its view, none for the default
+    /// view. The other scopes ignore the view settings.
     static func primerOrderExportCLICommand(
         draft: PrimerOrderDraft,
         metadata: PrimerOrderMetadata,
         destinationURL: URL
-    ) -> String? {
-        primerOrderExportCLIArguments(draft: draft, metadata: metadata, destinationURL: destinationURL).map {
-            OperationCenter.buildCLICommand(subcommand: "primers analysis export-order", args: $0)
-        }
+    ) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "primers analysis export-order",
+            args: primerOrderExportCLIArguments(draft: draft, metadata: metadata, destinationURL: destinationURL)
+        )
     }
 
     /// The arguments after `lungfish-cli primers analysis export-order` for a
-    /// primer order export, or nil when no command reproduces it. The row
-    /// command and the provenance argv are both built from this list.
+    /// primer order export. The row command and the provenance argv are both
+    /// built from this list.
     static func primerOrderExportCLIArguments(
         draft: PrimerOrderDraft,
         metadata: PrimerOrderMetadata,
         destinationURL: URL
-    ) -> [String]? {
-        guard let scope = primerOrderExportScopeArguments(draft.selection, includesViewSettings: false) else {
-            return nil
-        }
-        return [draft.selection.analysisURL.path, "--output", destinationURL.path] + scope
-            + primerOrderMetadataArguments(metadata)
+    ) -> [String] {
+        [draft.selection.analysisURL.path, "--output", destinationURL.path]
+            + primerOrderExportScopeArguments(draft.selection) + primerOrderMetadataArguments(metadata)
     }
 
     /// The argv the order's provenance records (findings R3 and R8). It is the
     /// `lungfish-cli primers analysis export-order` command the row records,
-    /// as words. A PrimalScheme order from a filtered view has no command, so
-    /// its argv names the app and the filtered view, as the app's other
-    /// exports do with `Lungfish.app <action>`. It used to be the app
-    /// process's own launch arguments, which named no export at all.
+    /// as words, for every order including one from a filtered PrimalScheme view.
     static func primerOrderExportProvenanceArgv(
         draft: PrimerOrderDraft,
         metadata: PrimerOrderMetadata,
         destinationURL: URL
     ) -> [String] {
-        if let arguments = primerOrderExportCLIArguments(
-            draft: draft, metadata: metadata, destinationURL: destinationURL
-        ) {
-            return [CLICommandIdentity.executableName, "primers", "analysis", "export-order"] + arguments
-        }
-        let scope = primerOrderExportScopeArguments(draft.selection, includesViewSettings: true) ?? []
-        return ["Lungfish.app", "export-primer-order", draft.selection.analysisURL.path,
-                "--output", destinationURL.path] + scope + primerOrderMetadataArguments(metadata)
+        [CLICommandIdentity.executableName, "primers", "analysis", "export-order"]
+            + primerOrderExportCLIArguments(draft: draft, metadata: metadata, destinationURL: destinationURL)
     }
 
-    /// The `--scope` arguments for the captured selection, or nil for a
-    /// PrimalScheme view that is not the default one, unless
-    /// `includesViewSettings` asks for that view to be named as `--view filtered`.
-    private static func primerOrderExportScopeArguments(
-        _ selection: PrimerOrderSelection,
-        includesViewSettings: Bool
-    ) -> [String]? {
+    /// The `--scope` arguments for the captured selection, and for a PrimalScheme
+    /// selection the view options of its view.
+    private static func primerOrderExportScopeArguments(_ selection: PrimerOrderSelection) -> [String] {
         if selection.isPrimer3CandidateSelection {
             return ["--scope", "candidate-pairs"]
                 + (selection.selectedAssayIDs ?? []).flatMap { ["--candidate-pair-id", $0] }
@@ -321,10 +300,25 @@ extension MainSplitViewController {
         if selection.selectedAssayIDs != nil {
             return ["--scope", selection.includesAllReportedAssays == true ? "all-reported-assays" : "selected-assays"]
         }
-        if selection.settings == PrimerAnalysisDisplaySettings() {
-            return ["--scope", "displayed"]
+        return ["--scope", "displayed"] + primerOrderViewArguments(selection.settings)
+    }
+
+    /// The view options of `export-order` that reproduce `settings`, none for the
+    /// default view. They name every field of the settings that differs from the
+    /// default, so the order records the same view as the app's.
+    private static func primerOrderViewArguments(_ settings: PrimerAnalysisDisplaySettings) -> [String] {
+        var args = settings.hiddenPrimerIDs.sorted().flatMap { ["--hide-primer", $0] }
+        args += settings.hiddenPoolIDs.sorted().flatMap { ["--hide-pool", $0] }
+        if !settings.showForward { args.append("--hide-forward") }
+        if !settings.showReverse { args.append("--hide-reverse") }
+        if !settings.showAmplicons { args.append("--hide-amplicons") }
+        if !settings.showIdentityDots { args.append("--hide-identity-dots") }
+        if !settings.showUnassessed { args.append("--hide-unassessed") }
+        if settings.filterByCompatibility { args.append("--filter-compatibility") }
+        if settings.minimumCompatibilityPercent != 0 {
+            args += ["--min-compatibility", String(settings.minimumCompatibilityPercent)]
         }
-        return includesViewSettings ? ["--scope", "displayed", "--view", "filtered"] : nil
+        return args
     }
 
     /// `--name` and the order fields the user filled in. `--name` is always

@@ -198,22 +198,33 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(item.cliCommand).contains("--requested-by"), "empty fields are left to the CLI defaults")
     }
 
-    func testPrimalSchemeOrderFromAFilteredViewRecordsNoCommandAsAParityGap() throws {
-        let filteredViews: [PrimerAnalysisDisplaySettings] = [
-            PrimerAnalysisDisplaySettings(hiddenPrimerIDs: ["primer-3"]),
-            PrimerAnalysisDisplaySettings(hiddenPoolIDs: ["result::pool::2"]),
-            PrimerAnalysisDisplaySettings(showForward: false),
-            PrimerAnalysisDisplaySettings(showReverse: false),
-            PrimerAnalysisDisplaySettings(filterByCompatibility: true, minimumCompatibilityPercent: 90),
+    func testPrimalSchemeOrderFromAFilteredViewRecordsTheViewOptionsThatReproduceIt() throws {
+        let filteredViews: [(PrimerAnalysisDisplaySettings, String)] = [
+            (PrimerAnalysisDisplaySettings(hiddenPrimerIDs: ["primer-3"]), "--hide-primer primer-3"),
+            (PrimerAnalysisDisplaySettings(hiddenPoolIDs: ["result::pool::2"]), "--hide-pool result::pool::2"),
+            (PrimerAnalysisDisplaySettings(showForward: false), "--hide-forward"),
+            (PrimerAnalysisDisplaySettings(showReverse: false), "--hide-reverse"),
+            (PrimerAnalysisDisplaySettings(showAmplicons: false, showIdentityDots: false, showUnassessed: false),
+             "--hide-amplicons --hide-identity-dots --hide-unassessed"),
+            (PrimerAnalysisDisplaySettings(filterByCompatibility: true, minimumCompatibilityPercent: 90),
+             "--filter-compatibility --min-compatibility 90.0"),
         ]
-        for settings in filteredViews {
+        for (settings, flags) in filteredViews {
             let item = try recordedOrder(draft: makeDraft(settings: settings))
-            // `primers analysis export-order --scope displayed` captures the
-            // default view and has no option for these filters, so no command
-            // reproduces the order.
-            XCTAssertNil(item.cliCommand)
-            assertCLIParityGap(item.cliCommand, id: "primer-order-export-custom-view")
+            // `export-order --scope displayed` names the view with these options, and the
+            // command resolves to the view the draft captured.
+            let command = try RecordedCLICommand.parse(item.cliCommand, as: PrimerAnalysisExportOrderCommand.self)
+            XCTAssertEqual(command.scope, .displayed)
+            XCTAssertEqual(command.displaySettings(), settings)
+            let words = try RecordedCLICommand.arguments(of: item.cliCommand).joined(separator: " ")
+            XCTAssertTrue(words.contains(flags), "\(flags) missing from \(words)")
         }
+        let defaultView = try recordedOrder(draft: makeDraft())
+        XCTAssertEqual(
+            try RecordedCLICommand.parse(defaultView.cliCommand, as: PrimerAnalysisExportOrderCommand.self)
+                .displaySettings(),
+            PrimerAnalysisDisplaySettings())
+        XCTAssertFalse(try XCTUnwrap(defaultView.cliCommand).contains("--hide"), "the default view names no view option")
     }
 
     func testAssayAndCandidateOrdersRecordTheCommandWhateverTheViewSettings() throws {
@@ -304,22 +315,20 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         }
     }
 
-    func testFilteredPrimalSchemeOrderProvenanceArgvNamesTheAppAndTheFilteredView() throws {
-        let draft = makeDraft(settings: PrimerAnalysisDisplaySettings(hiddenPrimerIDs: ["primer-3"]))
+    func testFilteredPrimalSchemeOrderProvenanceArgvIsTheExportOrderCommandWithTheViewOptions() throws {
+        let draft = makeDraft(settings: PrimerAnalysisDisplaySettings(hiddenPrimerIDs: ["primer-3"], showForward: false))
+        let item = try recordedOrder(draft: draft)
 
         let argv = MainSplitViewController.primerOrderExportProvenanceArgv(
             draft: draft, metadata: orderMetadata(), destinationURL: destinationURL
         )
 
-        XCTAssertEqual(argv, [
-            "Lungfish.app", "export-primer-order", analysisURL.path, "--output", destinationURL.path,
-            "--scope", "displayed", "--view", "filtered", "--name", "Spring panel order",
-            "--requested-by", "Pat Lee", "--project", "Panel 7", "--order-reference", "PO 1234",
-            "--notes", "Rush it, it's for Monday",
-        ])
-        XCTAssertThrowsError(
+        XCTAssertEqual(argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: item.cliCommand)))
+        XCTAssertEqual(Array(argv.prefix(4)), [CLICommandIdentity.executableName, "primers", "analysis", "export-order"])
+        XCTAssertTrue(argv.contains("--hide-primer") && argv.contains("--hide-forward"), "\(argv)")
+        XCTAssertNoThrow(
             try RecordedCLICommand.parse(argv.map(shellEscape).joined(separator: " ")),
-            "no lungfish-cli command reproduces a filtered view, so the argv names the app"
+            "a filtered view has a lungfish-cli command, so the argv is that command"
         )
     }
 

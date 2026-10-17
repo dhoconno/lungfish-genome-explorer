@@ -322,7 +322,40 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
     @Option(name: .customLong("order-reference"), help: "Purchase or order reference.") var orderReference = ""
     @Option(help: "Free-text order notes.") var notes = ""
 
+    // View options. They reproduce the view of a PrimalScheme analysis that the Inspector's View
+    // tab exports, with --scope displayed. The default view names none.
+    @Option(name: .customLong("hide-primer"), help: "PrimalScheme view option. A primer ID to leave out of the order (repeatable).")
+    var hiddenPrimerIDs: [String] = []
+    @Option(name: .customLong("hide-pool"), help: "PrimalScheme view option. A pool ID to leave out, as <result UUID>::pool::<number or none> (repeatable).")
+    var hiddenPoolIDs: [String] = []
+    @Flag(name: .customLong("hide-forward"), help: "PrimalScheme view option. Leave out forward primers.")
+    var hideForward = false
+    @Flag(name: .customLong("hide-reverse"), help: "PrimalScheme view option. Leave out reverse primers.")
+    var hideReverse = false
+    @Flag(name: .customLong("hide-amplicons"), help: "PrimalScheme view option. Record the amplicons as hidden.")
+    var hideAmplicons = false
+    @Flag(name: .customLong("hide-identity-dots"), help: "PrimalScheme view option. Record the identity dots as hidden.")
+    var hideIdentityDots = false
+    @Flag(name: .customLong("hide-unassessed"), help: "PrimalScheme view option. With --filter-compatibility, leave out primers whose MSA match cannot be assessed.")
+    var hideUnassessed = false
+    @Flag(name: .customLong("filter-compatibility"), help: "PrimalScheme view option. Keep only the primers whose MSA match is at least --min-compatibility.")
+    var filterByCompatibility = false
+    @Option(name: .customLong("min-compatibility"), help: "PrimalScheme view option. Minimum MSA match percentage, 0 to 100 (default 0).")
+    var minimumCompatibilityPercent: Double?
+
+    /// The view the options name. The default view when none is given.
+    func displaySettings() -> PrimerAnalysisDisplaySettings {
+        PrimerAnalysisDisplaySettings(
+            hiddenPrimerIDs: Set(hiddenPrimerIDs), hiddenPoolIDs: Set(hiddenPoolIDs),
+            showForward: !hideForward, showReverse: !hideReverse, showAmplicons: !hideAmplicons,
+            showIdentityDots: !hideIdentityDots, filterByCompatibility: filterByCompatibility,
+            minimumCompatibilityPercent: minimumCompatibilityPercent ?? 0, showUnassessed: !hideUnassessed)
+    }
+
     func validate() throws {
+        if let percent = minimumCompatibilityPercent, !(0...100).contains(percent) {
+            throw ValidationError("--min-compatibility must be between 0 and 100.")
+        }
         if !candidatePairIDs.isEmpty, let scope, scope != .candidatePairs {
             throw ValidationError("--candidate-pair-id applies only to --scope candidate-pairs.")
         }
@@ -339,7 +372,16 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
         let destination = try Self.resolvedDestination(outputPath)
         let snapshot = try PrimerAnalysisViewerSnapshot.load(from: analysisURL)
         let resolvedScope = try orderScope(for: snapshot)
-        let selection = try PrimerOrderExportService.captureSelection(snapshot: snapshot, scope: resolvedScope)
+        let settings = displaySettings()
+        if settings != PrimerAnalysisDisplaySettings(), resolvedScope != .displayed {
+            throw ValidationError("The view options (--hide-primer, --hide-pool, --hide-forward, --hide-reverse, --hide-amplicons, --hide-identity-dots, --hide-unassessed, --filter-compatibility, --min-compatibility) apply only to --scope displayed.")
+        }
+        // The Inspector compares each primer with the alignment it was designed on before it filters.
+        let summaries = settings.filterByCompatibility
+            ? try PrimerMSACompatibilitySummary.compute(contexts: snapshot.inspectableBindingContexts) : [:]
+        let selection = try PrimerOrderExportService.captureSelection(
+            snapshot: snapshot, scope: resolvedScope, settings: settings,
+            compatibilityReady: settings.filterByCompatibility, compatibilitySummaries: summaries)
         let metadata = PrimerOrderMetadata(
             name: name ?? PrimerOrderExportService.defaultOrderName(analysisURL: snapshot.bundle.url, scope: resolvedScope),
             requestedBy: requestedBy, project: project, orderReference: orderReference, notes: notes)

@@ -44,6 +44,47 @@ final class PrimerOrderViewParityTests: XCTestCase {
         XCTAssertEqual(try csvRows(filteredFolder), try csvRows(defaultFolder) - 1)
     }
 
+    /// Phase 2.11 lane A67 M2. The command the row records, parsed with the real command type and
+    /// run, writes the order the app wrote for the same filtered view, and the app's provenance
+    /// names that command.
+    func testTheFilteredViewCommandWritesTheOrderTheAppWrote() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        let primers = snapshot.designReview.filter { $0.presentation == .schemeReference }.flatMap(\.primers)
+        let settings = PrimerAnalysisDisplaySettings(hiddenPrimerIDs: [try XCTUnwrap(primers.first).id], showReverse: false)
+        let selection = try PrimerOrderExportService.captureSelection(snapshot: snapshot, scope: .displayed, settings: settings)
+        let draft = PrimerOrderDraft(
+            selection: selection, oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
+            defaultName: "filtered view order")
+        let metadata = PrimerOrderMetadata(name: "Filtered order", requestedBy: "Bench")
+
+        let guiDestination = fixture.root.appendingPathComponent("GUI order")
+        let guiArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
+            draft: draft, metadata: metadata, destinationURL: guiDestination)
+        let guiOutput = try await PrimerOrderExportService().export(
+            selection: selection, metadata: metadata, destinationURL: guiDestination, invocationArgv: guiArgv)
+        let guiRow = MainSplitViewController.primerOrderExportCLICommand(
+            draft: draft, metadata: metadata, destinationURL: guiDestination)
+        let gui = try PrimerOrderExportService.loadSnapshot(from: guiOutput)
+        XCTAssertEqual(gui.provenance.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: guiRow)))
+
+        let cliDestination = fixture.root.appendingPathComponent("CLI order")
+        let cliRow = MainSplitViewController.primerOrderExportCLICommand(
+            draft: draft, metadata: metadata, destinationURL: cliDestination)
+        let command = try RecordedCLICommand.parse(cliRow, as: PrimerAnalysisExportOrderCommand.self)
+        try await command.run()
+        let cli = try PrimerOrderExportService.loadSnapshot(from: cliDestination)
+
+        XCTAssertEqual(cli.document.oligos, gui.document.oligos)
+        XCTAssertEqual(cli.document.metadata, gui.document.metadata)
+        XCTAssertEqual(cli.provenance.workflowName, gui.provenance.workflowName)
+        XCTAssertEqual(try csvRows(cliDestination), try csvRows(guiDestination))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cliDestination.path).sorted(),
+                       try FileManager.default.contentsOfDirectory(atPath: guiDestination.path).sorted())
+        XCTAssertLessThan(cli.document.oligos.count, primers.count, "the hidden primer and the reverse primers are not ordered")
+    }
+
     // MARK: - Helpers
 
     private func export(_ selection: PrimerOrderSelection, to destination: URL) async throws -> URL {
