@@ -222,7 +222,7 @@ extension MSACommand {
                     emit("Wrote \(jsonURL.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: Self.actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: Self.actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }

@@ -137,7 +137,7 @@ extension MSACommand {
                     }
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -264,7 +264,7 @@ extension MSACommand {
                     emit("Bundle: \(updated.url.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -351,7 +351,7 @@ extension MSACommand {
                     emit("Bundle: \(updated.url.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -457,7 +457,7 @@ extension MSACommand {
                     }
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -621,7 +621,7 @@ extension MSACommand {
                     emit("Provenance: \(provenanceURL.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -823,7 +823,7 @@ extension MSACommand {
                     emit("Wrote consensus \(outputURL.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -1089,7 +1089,7 @@ extension MSACommand {
                     emit("Extracted \(outputURL.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -1305,7 +1305,7 @@ extension MSACommand {
                     emit("Bundle: \(outputURL.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -1695,7 +1695,7 @@ extension MSACommand {
                     emit("Bundle: \(outputURL.path)")
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }

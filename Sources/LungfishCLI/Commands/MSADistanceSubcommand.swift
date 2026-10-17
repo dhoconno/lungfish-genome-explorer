@@ -175,7 +175,7 @@ extension MSACommand {
                     }
                 }
             } catch {
-                emitter.emitFailed(actionID: actionID, message: error.localizedDescription)
+                emitter.emitFailed(actionID: actionID, message: CLIFailureWords.describe(error))
                 throw error
             }
         }
