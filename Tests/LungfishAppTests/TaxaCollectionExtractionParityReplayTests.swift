@@ -14,7 +14,8 @@
 //   Its row records the command.
 // - Side C' is the harness's replay of that command.
 //
-// A against C and C against C' declare nothing. The cases cover a taxon with children (BIO 2), a paired
+// C against C' declares nothing. A against C declares the root record the command writes last and the
+// run ids that follow from it (`declared`). The cases cover a taxon with children (BIO 2), a paired
 // result whose taxa keep their mates together (BIO 3) and taxa the result cannot give, skipped and not
 // counted. The last test drives the viewer's Extract button itself.
 //
@@ -106,10 +107,29 @@ final class TaxaCollectionExtractionParityReplayTests: XCTestCase {
         }
     }
 
+    /// The one way side A differs from side C (review of A66, fix 5). The leaf writes the folder's root
+    /// record after `extractBatch`, so it names the command that ran and every file of the run, where side
+    /// A's root record is the last taxon's step. The last taxon's own sidecar then keeps its run and step
+    /// ids, which side A shares with its root record. Nothing is declared for C against C'.
+    private static let declared: [RouteParityDeclaredDifference<Case>] = [
+        RouteParityDeclaredDifference(
+            [.singleEndWithChildren: 138, .pairedMates: 146, .skippedTaxa: 129],
+            "differs: Project.lungfish/Analyses/<ANY>/extracted-<ANY>/.lungfish-provenance.json at <ANY>",
+            reason: "the command's root record replaces the last taxon's",
+            closedBy: "2.11 A66, the retirement of side A"
+        ),
+        RouteParityDeclaredDifference(
+            [.singleEndWithChildren: 2, .pairedMates: 2, .skippedTaxa: 2],
+            "differs: Project.lungfish/Analyses/<ANY>/extracted-<ANY>/<ANY>.fastq.gz.lungfish-provenance.json at <ANY>",
+            reason: "the last taxon's sidecar keeps its own run and step ids, which side A shares with its root record",
+            closedBy: "2.11 A66, the retirement of side A"
+        ),
+    ]
+
     private func assertCase(_ parityCase: Case, detail: String) async throws {
         let result = try await harness.assertParity(
             parityCase,
-            declared: [],
+            declared: Self.declared,
             in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
             fixture: { root in _ = try TaxaCollectionFixtures(in: root) },
             sideA: { root in await self.sideA(root, parityCase) },
