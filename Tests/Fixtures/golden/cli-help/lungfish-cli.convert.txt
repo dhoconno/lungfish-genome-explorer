@@ -5,9 +5,8 @@ Format is auto-detected from input file extension or can be specified.
 Input and output must be different files; in-place, symlink and hard-link
 aliases are rejected.
 Several inputs are written to one output, in the order given. --compress writes
-the output as gzip
-or zstd under the --to name as given, and publishes it only when the compressed
-file is whole.
+the output as gzip or zstd under the --to name as given, and publishes it only
+when the compressed file is whole.
 
 Examples:
   lungfish-cli convert input.gb --to output.fa --to-format fasta
