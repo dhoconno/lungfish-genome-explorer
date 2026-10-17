@@ -32,8 +32,8 @@ import LungfishTestSupport
 private let databasePayloadFiles = ["hash.k2d", "opts.k2d", "taxo.k2d"]
 
 /// The version the installed Viral row reads before the update. `registerExisting` adopts the catalog's own
-/// row for the name Viral, so a database registered that way already holds the catalog's current label and
-/// an update would move nothing. The helper writes this older label through the manifest.
+/// row for the name Viral but records no version for a folder it did not check, so the row has no label for
+/// an update to move from. The helper states this older label through the manifest and reloads it.
 private let installedViralVersion = "20240904"
 
 extension ManagedToolsCLIGUIParityReplayTests {

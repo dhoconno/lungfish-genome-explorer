@@ -699,6 +699,24 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         XCTAssertTrue(registered.isDownloaded)
     }
 
+    /// BIO 4. A folder adopted under a catalog display name has no install receipt, so nothing checked its
+    /// files against the catalog's build. The row keeps the catalog identity, which an update still needs,
+    /// and records no version and no receipt digest.
+    func testAFolderRegisteredUnderACatalogNameWithNoReceiptRecordsNoVersion() async throws {
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        _ = try await registry.availableDatabases()
+        let dbDir = createMockKraken2Database(name: "viral-no-receipt")
+
+        let registered = try await registry.registerExisting(at: dbDir, name: "Viral")
+
+        XCTAssertEqual(registered.catalogID, "kraken2-viral", "the row keeps the catalog identity")
+        XCTAssertNil(registered.version, "the files were never checked, so the row must not repeat the catalog's label")
+        XCTAssertNil(registered.canonicalReceiptSHA256, "no receipt was read, so no digest is recorded")
+        let stored = try await registry.database(named: "Viral")
+        XCTAssertNil(stored?.version)
+        XCTAssertNil(stored?.canonicalReceiptSHA256)
+    }
+
     // MARK: - Remove
 
     func testRemoveDatabase() async throws {

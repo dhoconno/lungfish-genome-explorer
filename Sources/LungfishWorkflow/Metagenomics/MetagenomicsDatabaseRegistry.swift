@@ -586,10 +586,10 @@ public actor MetagenomicsDatabaseRegistry {
         var info: MetagenomicsDatabaseInfo
         let now = Date()
         if let existing = databases[dbName] {
-            // Update the existing catalog entry with the path.
             info = existing
             info.path = url
             info.status = .ready
+            info.version = nil  // The catalog row keeps its identity. Nothing checked the files against its build (BIO 4).
             info.installedAt = info.installedAt ?? now
             info.lastUpdated = now
             info.isExternal = isExternal

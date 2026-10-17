@@ -58,6 +58,9 @@ final class ManagedToolLeavesLiveConformanceTests: XCTestCase {
         }
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: databases)
         let before = try await registry.registerExisting(at: installed, name: "Viral")
+        // The folder was adopted without a receipt, so its row records no version. The equality on `version` at the
+        // end then fails if the cancelled update wrote any version at all.
+        XCTAssertNil(before.version, "an adopted folder records no version")
 
         let cli = try CLISIGTERMHarness.launchCLI(
             ["conda", "db", "update", "kraken2-viral", "--yes", "--format", "json"],
