@@ -216,66 +216,40 @@ extension AppDelegate {
             return nil
         }
 
-        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let result = Self.beginBAMImportOperation(
             bamURL: bamURL,
             bundleURL: bundleURL,
             routeContext: routeContext,
-            onCancel: { cancelFlag.withLock { $0 = true } }
+            onCancel: {} // CLIBundleBuildRunner.launch wires the row's Cancel to the command once it starts
         ) { opID in
-            let importStartedAt = Date()
-
-            Task.detached {
-                let result: Result<BAMImportHelperClient.Result, Error>
+            // The import is `lungfish-cli import bam`, and the row shows its events (Phase 2.11 lane A63).
+            Task { [weak self] in
                 do {
-                    let importResult = try await BAMImportHelperClient.importViaCLI(
-                        bamURL: bamURL,
-                        bundleURL: bundleURL,
-                        name: bamURL.lastPathComponent,
-                        shouldCancel: { cancelFlag.withLock { $0 } },
-                        progressHandler: { progress, message in
-                            let clampedProgress = max(0.0, min(1.0, progress))
-                            let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
-                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                            scheduleOnMainRunLoop {
-                                _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                            }
-                        }
+                    let run = try await CLIBundleBuildRunner.launch(
+                        arguments: BAMImportCLICommand.arguments(bamURL: bamURL, bundleURL: bundleURL),
+                        operationID: opID
                     )
-                    result = .success(importResult)
-                } catch {
-                    result = .failure(error)
-                }
+                    guard OperationCenter.shared.complete(id: opID, detail: run.message ?? "Alignments imported") else { return }
 
-                scheduleOnMainRunLoop { [weak self] in
-                    switch result {
-                    case .success(let importResult):
-                        let readCount = importResult.mappedReads + importResult.unmappedReads
-                        guard OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported") else { return }
-
-                        guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
-                            .mainSplitViewController?.viewerController else {
-                            debugLog("performBAMImport: No viewer controller")
-                            return
-                        }
-                        do {
-                            try viewerController.displayBundle(at: bundleURL)
-                            debugLog("performBAMImport: Bundle reloaded with alignment track (\(readCount) reads)")
-                        } catch {
-                            debugLog("performBAMImport: Bundle reload failed: \(error)")
-                            self?.showAlert(title: "Import Error", message: "Alignments imported but bundle reload failed: \(error.localizedDescription)")
-                        }
-
-                    case .failure(let error):
-                        if cancelFlag.withLock({ $0 }) || error is CancellationError {
-                            debugLog("performBAMImport: Cancelled by user")
-                            OperationCenter.shared.acknowledgeCancellation(id: opID)
-                        } else {
-                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                            debugLog("performBAMImport: Failed: \(error)")
-                            self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
-                        }
+                    guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?.viewerController else {
+                        debugLog("performBAMImport: No viewer controller")
+                        return
                     }
+                    do {
+                        try viewerController.displayBundle(at: bundleURL)
+                        debugLog("performBAMImport: Bundle reloaded with alignment track (\(run.message ?? ""))")
+                    } catch {
+                        debugLog("performBAMImport: Bundle reload failed: \(error)")
+                        self?.showAlert(title: "Import Error", message: "Alignments imported but bundle reload failed: \(error.localizedDescription)")
+                    }
+                } catch is CancellationError {
+                    // The runner acknowledged the cancel on the row.
+                    debugLog("performBAMImport: Cancelled by user")
+                } catch {
+                    guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                    debugLog("performBAMImport: Failed: \(error)")
+                    self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
                 }
             }
         }

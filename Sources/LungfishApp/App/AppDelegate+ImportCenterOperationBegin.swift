@@ -336,10 +336,10 @@ extension AppDelegate {
     /// only when the row started. The row locks `bundleURL` and registers
     /// `onCancel` when it starts.
     ///
-    /// The run launches this app executable in `--bam-import-helper` mode,
-    /// which is not a `lungfish-cli` flag. The row records the runnable
-    /// equivalent, `lungfish-cli import bam`, as `BAMImportCLICommand` builds
-    /// it. It attaches through the same primitive as the run.
+    /// The run is `lungfish-cli import bam` on `CLIBundleBuildRunner` (Phase 2.11
+    /// lane A63), and the row records that command as `BAMImportCLICommand` builds
+    /// it. The command attaches the alignment through `BAMImportService`, the
+    /// import the app ran in a helper process before.
     @discardableResult
     static func beginBAMImportOperation(
         bamURL: URL,

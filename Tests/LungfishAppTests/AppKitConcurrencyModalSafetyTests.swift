@@ -283,7 +283,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         let volatileMarkers = [
             "Self.runVCFImportViaHelper(",
             "Self.runVCFResumeViaHelper(",
-            "BAMImportHelperClient.importViaCLI(",
+            "CLIBundleBuildRunner.launch(",
         ]
         var violations: [String] = []
 
