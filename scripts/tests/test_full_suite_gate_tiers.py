@@ -5,20 +5,34 @@ preserve the original named tiers' exact filters, skips, tool requirements,
 and scheduling, including serial coverage for storage suites.
 """
 
+import argparse
+import contextlib
+import importlib.util
+import io
 import re
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+import uuid
 from pathlib import Path
+from unittest import mock
 
 from scripts.release.swiftpm_build import build_options
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_SDK_PATH = "/Applications/Xcode Fixture.app/SDKs/MacOSX27.0.sdk"
+GATE_SPEC = importlib.util.spec_from_file_location("tier_gate_evidence", ROOT / "scripts/release/gate_evidence.py")
+GATE = importlib.util.module_from_spec(GATE_SPEC)
+GATE_SPEC.loader.exec_module(GATE)
+# Two serial classes of the integration tier, in the order XCTest runs them. FAKE_SWIFT lists the
+# same two cases. In the class_hang scenario the first class hangs (see FAKE_SWIFT).
+SERIAL_TESTS = ["LungfishIntegrationTests.AlphaHangTests/testHangs", "LungfishIntegrationTests.BetaTests/testRuns"]
 
 
 def _gate_text() -> str:
@@ -160,6 +174,61 @@ class FullSuiteGateTierTests(unittest.TestCase):
 LEAKED_PLIST = "ExampleTests-00000001-0000-4000-8000-000000000001.plist"
 
 
+def _make_gate_project(root):
+    """Give the empty folder `root` the gate, its helpers, a git repository and a bin folder with a
+    fake swift, xcrun and sleep. Returns the bin folder."""
+    (root / ".gitignore").write_text(".build/\n")
+    (root / "scripts/release").mkdir(parents=True)
+    shutil.copy2(ROOT / "scripts/full-suite-gate.sh", root / "scripts/full-suite-gate.sh")
+    helper = ROOT / "scripts/release/gate_evidence.py"
+    if helper.exists():
+        shutil.copy2(helper, root / "scripts/release/gate_evidence.py")
+    shutil.copy2(ROOT / "scripts/release/swiftpm_build.py", root / "scripts/release/swiftpm_build.py")
+    bin_dir = root / "bin"
+    bin_dir.mkdir()
+    swift = bin_dir / "swift"
+    swift.write_text("#!" + sys.executable + "\n" + FAKE_SWIFT)
+    swift.chmod(0o755)
+    xcrun = bin_dir / "xcrun"
+    xcrun.write_text(
+        "#!/bin/sh\n"
+        "if [ \"${GATE_SCENARIO:-}\" = sdk_failure ]; then exit 1; fi\n"
+        f"printf '%s\\n' '{FIXTURE_SDK_PATH}'\n"
+    )
+    xcrun.chmod(0o755)
+    sleep = bin_dir / "sleep"
+    sleep.write_text("#!/bin/sh\nexit 0\n")
+    sleep.chmod(0o755)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    return bin_dir
+
+
+def run_gate_in_process(scenario, tier, selection_filter, **options):
+    """Run gate_evidence.run_swift_gate in this process against the fake swift and record the name
+    and the timeout of every command it starts. `options` override the parsed arguments."""
+    calls = []
+    real = GATE.command_record
+
+    def recording(argv, root, directory, name, **keywords):
+        calls.append({"name": name, "argv": argv, "timeout": keywords.get("timeout_seconds")})
+        return real(argv, root, directory, name, **keywords)
+
+    with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
+        root = Path(temp)
+        bin_dir = _make_gate_project(root)
+        output = root / ".build/gate-logs/in-process"
+        args = argparse.Namespace(**{
+            "root": str(root), "output": str(output), "tier": tier, "filter": selection_filter,
+            "skip": "", "parallel": False, "require_tools": False, "timeout_seconds": None,
+            "profile": None, "workers": None, "gate_argv": [], **options})
+        environment = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "GATE_SCENARIO": scenario}
+        with mock.patch.object(GATE, "command_record", recording), \
+                mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(io.StringIO()):
+            status = GATE.run_swift_gate(args)
+        evidence = json.loads((output / "gate.result.json").read_text())
+    return calls, status, evidence
+
+
 class GateBehaviorTests(unittest.TestCase):
     def run_gate(self, scenario, *options, env=None, with_leak_check=False, allowed=""):
         """Run the real gate and gate_evidence.py against a fake swift. env adds variables to the
@@ -168,29 +237,7 @@ class GateBehaviorTests(unittest.TestCase):
         .build that the fake swift fills with the names in STUB_WRITES while the tests run."""
         with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
             root = Path(temp)
-            (root / ".gitignore").write_text(".build/\n")
-            (root / "scripts/release").mkdir(parents=True)
-            shutil.copy2(ROOT / "scripts/full-suite-gate.sh", root / "scripts/full-suite-gate.sh")
-            helper = ROOT / "scripts/release/gate_evidence.py"
-            if helper.exists():
-                shutil.copy2(helper, root / "scripts/release/gate_evidence.py")
-            shutil.copy2(ROOT / "scripts/release/swiftpm_build.py", root / "scripts/release/swiftpm_build.py")
-            bin_dir = root / "bin"
-            bin_dir.mkdir()
-            swift = bin_dir / "swift"
-            swift.write_text("#!" + sys.executable + "\n" + FAKE_SWIFT)
-            swift.chmod(0o755)
-            xcrun = bin_dir / "xcrun"
-            xcrun.write_text(
-                "#!/bin/sh\n"
-                "if [ \"${GATE_SCENARIO:-}\" = sdk_failure ]; then exit 1; fi\n"
-                f"printf '%s\\n' '{FIXTURE_SDK_PATH}'\n"
-            )
-            xcrun.chmod(0o755)
-            sleep = bin_dir / "sleep"
-            sleep.write_text("#!/bin/sh\nexit 0\n")
-            sleep.chmod(0o755)
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            bin_dir = _make_gate_project(root)
             environment = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
                            "GATE_SCENARIO": scenario}
             if with_leak_check:
@@ -366,8 +413,69 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertIn(LEAKED_PLIST, result.stdout)
         self.assertLess(result.stdout.index("GATE FAIL"), result.stdout.index("preferences-leaks: FAIL"))
 
+    # The serial integration run (Phase 2.11 Q65). The class_hang scenario's first class starts a
+    # child that ignores SIGTERM in a session of its own, as an xctest worker does, and waits forever.
+    def run_hang_gate(self, *options):
+        """Run the gate on the class_hang scenario. Returns the process result, the evidence and the
+        PID file and marker of the hanging stand-in's child, which only this test started."""
+        stand_in = Path(tempfile.mkdtemp(prefix="lungfish-gate-hang-"))
+        self.addCleanup(shutil.rmtree, stand_in, ignore_errors=True)
+        pid_file, marker = stand_in / "child.pid", "lungfish-gate-hang-stand-in-" + uuid.uuid4().hex
+        self.addCleanup(self.stop_own_stand_in, pid_file, marker)
+        result, evidence = self.run_gate("class_hang", *options,
+                                         env={"STUB_HANG_PID_FILE": str(pid_file), "STUB_HANG_MARKER": marker})
+        return result, evidence, (pid_file, marker)
 
-FAKE_SWIFT = r'''import json, os, pathlib, signal, sys
+    @staticmethod
+    def stand_in_alive(pid_file, marker):
+        """True while the PID in pid_file still names the child this test's stand-in started. The
+        marker on its command line keeps a reused PID from reading as the child."""
+        if not pid_file.is_file():
+            return False
+        listing = subprocess.run(["ps", "-o", "command=", "-p", pid_file.read_text().strip()],
+                                 capture_output=True, text=True, timeout=5)
+        return marker in listing.stdout
+
+    def stop_own_stand_in(self, pid_file, marker):
+        if self.stand_in_alive(pid_file, marker):
+            os.kill(int(pid_file.read_text().strip()), signal.SIGKILL)
+
+    def assert_stand_in_gone(self, child):
+        pid_file, marker = child
+        self.assertTrue(pid_file.is_file(), "the hanging stand-in never started its child")
+        deadline = time.monotonic() + 30
+        while self.stand_in_alive(pid_file, marker) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertFalse(self.stand_in_alive(pid_file, marker),
+                         "the gate left the hung class's child process alive")
+
+    # Q65 M1, the pin. The serial integration tier runs the whole selection as one runner attempt
+    # under the tier's one wall-clock budget (gate_evidence.py run_swift_gate, the attempt "primary"),
+    # not as one xctest a class, so a hang in one class leaves every later class unrun.
+    def test_pin_two_serial_classes_run_as_one_attempt_under_the_tier_budget(self):
+        calls, status, evidence = run_gate_in_process("two_classes", "integration",
+                                                      _legacy_selection("integration")["filter"])
+        self.assertEqual(status, 0, evidence["errors"])
+        runners = [call for call in calls if call["name"] == "runner"]
+        self.assertEqual(len(runners), 1, "one runner attempt for the whole selection")
+        self.assertEqual(runners[0]["timeout"], GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"])
+        self.assertEqual(GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"], 45 * 60)
+        self.assertEqual([attempt["role"] for attempt in evidence["attempts"]], ["authoritative"])
+        self.assertEqual(evidence["attempts"][0]["harnesses"]["xctest"]["completedTests"], SERIAL_TESTS)
+
+    def test_pin_a_hang_in_the_first_serial_class_leaves_the_second_unrun(self):
+        result, evidence, child = self.run_hang_gate("--tier", "integration", "--timeout-seconds", "3")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(evidence["attempts"]), 1, "the one attempt, killed with both classes in it")
+        attempt = evidence["attempts"][0]
+        self.assertEqual(attempt["intervention"], "timeout")
+        self.assertGreaterEqual(attempt["wallTimeSeconds"], 3)
+        self.assertEqual(attempt["harnesses"]["xctest"]["missingTests"], SERIAL_TESTS)
+        self.assertFalse(evidence["authorized"])
+        self.assert_stand_in_gone(child)
+
+
+FAKE_SWIFT = r'''import json, os, pathlib, re, signal, subprocess, sys, time
 args = sys.argv[1:]
 scenario = os.environ["GATE_SCENARIO"]
 def option(name):
@@ -381,6 +489,11 @@ def event(kind, **kw):
 # STUB_SWIFT_MODULE moves the swift-testing function out of the integration tier, so that a unit tier run selects it.
 test_id = os.environ.get("STUB_SWIFT_MODULE", "LungfishIntegrationTests") + ".MixedTests/testB()/Fixture.swift:1:1"
 metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
+# Two serial classes (SERIAL_TESTS in the test module). In class_hang the first class hangs: it
+# starts a child that ignores SIGTERM in a session of its own, writes the child's PID to
+# STUB_HANG_PID_FILE and waits forever. The child's command line carries STUB_HANG_MARKER.
+SERIAL = ["LungfishIntegrationTests.AlphaHangTests/testHangs", "LungfishIntegrationTests.BetaTests/testRuns"]
+serial_scenario = scenario in ("two_classes", "class_hang")
 if args == ["--version"]:
     print("Apple Swift version 6.4 (fixture)")
     sys.exit(0)
@@ -389,7 +502,9 @@ if "list" in args:
         print("error: compilation failed", file=sys.stderr)
         sys.exit(1)
     if "--disable-swift-testing" in args:
-        if scenario != "empty":
+        if serial_scenario:
+            print("\n".join(SERIAL))
+        elif scenario != "empty":
             print("LungfishCoreTests.ExampleTests/testA")
         if scenario == "missing_case":
             print("LungfishCoreTests.ExampleTests/testMissing")
@@ -400,6 +515,25 @@ if "list" in args:
     sys.exit(0)
 for name in filter(None, os.environ.get("STUB_WRITES", "").split(",")):
     pathlib.Path(os.environ["LUNGFISH_PREFERENCES_DIR"], name).write_text("{}")
+if serial_scenario:
+    include, exclude = option("--filter"), option("--skip")
+    chosen = [t for t in SERIAL if (not include or re.search(include, t)) and (not exclude or not re.search(exclude, t))]
+    events([event("runStarted"), event("runEnded")])
+    print("Test Suite 'Selected tests' started at 2026-09-05", flush=True)
+    for test in chosen:
+        suite, name = test.split("/")
+        print("Test Case '-[" + suite + " " + name + "]' started.", flush=True)
+        if scenario == "class_hang" and suite.endswith("HangTests"):
+            child = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(120)",
+                                      os.environ["STUB_HANG_MARKER"]], start_new_session=True)
+            pathlib.Path(os.environ["STUB_HANG_PID_FILE"]).write_text(str(child.pid))
+            while True:
+                time.sleep(1)
+        print("Test Case '-[" + suite + " " + name + "]' passed (0.1 seconds).")
+    print("Test Suite 'Selected tests' passed at 2026-09-05")
+    print("Executed " + str(len(chosen)) + " test" + ("" if len(chosen) == 1 else "s") + ", with 0 failures (0 unexpected) in 0.1 seconds")
+    print("✔ Test run with 0 tests passed after 0.001 seconds.")
+    sys.exit(0)
 if scenario == "empty":
     sys.exit(0)
 is_retry = "--filter" in args and option("--filter").startswith("^Lungfish")
