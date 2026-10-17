@@ -76,14 +76,14 @@ final class FastqIngestLiveConformanceTests: XCTestCase {
         XCTAssertEqual(ingestion.originalSizeBytes, originalSize)
         XCTAssertGreaterThan(ingestion.storageOutputSizeBytes ?? 0, 0)
 
-        // The record names the clumpify step against the final file, not the hidden folder.
+        // The record names the clumpify step against the final file, not the staging folder.
         let envelope = try XCTUnwrap(
             ProvenanceEnvelopeReader.load(fromSidecar: root.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
         )
         XCTAssertEqual(envelope.status, .completed)
         let clumpify = try XCTUnwrap(envelope.steps.first { $0.toolName == "clumpify.sh" })
         XCTAssertTrue(clumpify.argv.contains("out=\(output.path)"), "\(clumpify.argv)")
-        XCTAssertFalse(clumpify.argv.joined(separator: " ").contains(".lungfish-ingest-"))
+        XCTAssertFalse(clumpify.argv.joined(separator: " ").contains("lungfish-ingest-"))
         XCTAssertTrue(clumpify.outputs.contains { $0.path == output.path })
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(),
