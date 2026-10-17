@@ -625,6 +625,25 @@ class SplitRunReaderTests(unittest.TestCase):
             self.assertTrue(found["resultPath"].endswith("fixture-unit/gate.result.json"), found)
 
 
+class ClassFilterTests(unittest.TestCase):
+    """Q65. A class attempt selects exactly the selected tests of its class, or the gate refuses to guess."""
+    DISCOVERED = {"xctest": ["M.A/testOne", "M.A/testTwo", "M.AB/testOne"], "swift-testing": []}
+
+    def test_a_whole_class_takes_its_own_pattern_and_not_a_longer_class_name(self):
+        chosen = {"xctest": ["M.A/testOne", "M.A/testTwo"], "swift-testing": []}
+        self.assertEqual(GATE.class_filter("M.A", "", self.DISCOVERED, chosen, ""), r"^M\.A(/|$)")
+
+    def test_part_of_a_class_adds_the_selection_as_a_lookahead(self):
+        chosen = {"xctest": ["M.A/testTwo"], "swift-testing": []}
+        pattern = GATE.class_filter("M.A", "testTwo", self.DISCOVERED, chosen, "")
+        self.assertEqual([t for t in self.DISCOVERED["xctest"] if re.search(pattern, t)], ["M.A/testTwo"])
+
+    def test_a_selection_that_no_pattern_expresses_is_refused(self):
+        chosen = {"xctest": ["M.A/testTwo"], "swift-testing": []}
+        with self.assertRaises(GATE.EvidenceError):
+            GATE.class_filter("M.A", "testOne", self.DISCOVERED, chosen, "")
+
+
 FAKE_SWIFT = r'''import json, os, pathlib, re, signal, subprocess, sys, time
 args = sys.argv[1:]
 scenario = os.environ["GATE_SCENARIO"]
