@@ -67,6 +67,10 @@ final class MSAActionSIGTERMTests: XCTestCase {
         XCTAssertEqual(thrown as? ExitCode, CLIExitCode.cancelled.exitCode, "a cancelled action exits 125, ended with \(String(describing: thrown))")
         XCTAssertEqual(try SIGTERMPinSupport.recordStatus(at: record), "cancelled", "the command records its run as cancelled")
         XCTAssertEqual(
+            try ProvenanceEnvelopeReader.load(fromSidecar: record)?.workflowName, "lungfish msa extract",
+            "the record names the workflow with the action's own words"
+        )
+        XCTAssertEqual(
             emitted.all.filter { $0.contains(#""event":"failed""#) }.count, 1,
             "the stream holds one failed line: \(emitted.all)"
         )

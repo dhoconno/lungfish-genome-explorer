@@ -38,22 +38,55 @@ protocol MSAActionCommand: AsyncParsableCommand {
     var msaOutputPath: String? { get }
     func executeForTesting(emit: @escaping (String) -> Void) throws
     var msaExecutor: MSAActionExecutor { get }
+    /// The words after `lungfish` that name the action, such as `msa mask columns`. The cancelled
+    /// record names its workflow with them.
+    static var msaCommandName: String { get }
 }
 
 extension MSAActionCommand where Self: Sendable {
     var msaExecutor: MSAActionExecutor { { [self] emit in try executeForTesting(emit: emit) } }
 }
 
-extension MSACommand.AddSubcommand: MSAActionCommand { var msaOutputPath: String? { nil } }
-extension MSACommand.EditSubcommand: MSAActionCommand { var msaOutputPath: String? { nil } }
-extension MSACommand.DeleteSubcommand: MSAActionCommand { var msaOutputPath: String? { nil } }
-extension MSACommand.ProjectSubcommand: MSAActionCommand { var msaOutputPath: String? { nil } }
-extension MSACommand.ExportSubcommand: MSAActionCommand { var msaOutputPath: String? { outputPath } }
-extension MSACommand.ConsensusSubcommand: MSAActionCommand { var msaOutputPath: String? { outputPath } }
-extension MSACommand.ExtractSubcommand: MSAActionCommand { var msaOutputPath: String? { outputPath } }
-extension MSACommand.MaskColumnsSubcommand: MSAActionCommand { var msaOutputPath: String? { outputPath } }
-extension MSACommand.TrimColumnsSubcommand: MSAActionCommand { var msaOutputPath: String? { outputPath } }
-extension MSACommand.DistanceSubcommand: MSAActionCommand { var msaOutputPath: String? { outputPath } }
+extension MSACommand.AddSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { nil }
+    static var msaCommandName: String { "msa annotate add" }
+}
+extension MSACommand.EditSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { nil }
+    static var msaCommandName: String { "msa annotate edit" }
+}
+extension MSACommand.DeleteSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { nil }
+    static var msaCommandName: String { "msa annotate delete" }
+}
+extension MSACommand.ProjectSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { nil }
+    static var msaCommandName: String { "msa annotate project" }
+}
+extension MSACommand.ExportSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { outputPath }
+    static var msaCommandName: String { "msa export" }
+}
+extension MSACommand.ConsensusSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { outputPath }
+    static var msaCommandName: String { "msa consensus" }
+}
+extension MSACommand.ExtractSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { outputPath }
+    static var msaCommandName: String { "msa extract" }
+}
+extension MSACommand.MaskColumnsSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { outputPath }
+    static var msaCommandName: String { "msa mask columns" }
+}
+extension MSACommand.TrimColumnsSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { outputPath }
+    static var msaCommandName: String { "msa trim columns" }
+}
+extension MSACommand.DistanceSubcommand: MSAActionCommand {
+    var msaOutputPath: String? { outputPath }
+    static var msaCommandName: String { "msa distance" }
+}
 
 extension MSAActionCommand {
     /// Runs the action so that SIGTERM cancels it instead of ending the command (decisions P2 and C5).
@@ -76,7 +109,7 @@ extension MSAActionCommand {
         guard error is CancellationError || error is MSAActionCancelled || SIGTERMCancellation.signalCaught else {
             throw error
         }
-        let workflow = "lungfish msa \(Self.configuration.commandName ?? "action")"
+        let workflow = "lungfish " + Self.msaCommandName
         let recordURL: URL
         if let msaOutputPath {
             let outputURL = URL(fileURLWithPath: msaOutputPath).standardizedFileURL

@@ -127,5 +127,29 @@ final class ConvertedCommandsDispatchTests: XCTestCase {
         }
     }
 
+    /// The cancelled record names its workflow with the action's own words (review S61 Fix 3), so mask
+    /// and trim, and `annotate add` and `distance`, never share a name.
+    func testTheTenMSAActionsNameDistinctWorkflows() {
+        let names = [
+            MSACommand.AddSubcommand.msaCommandName,
+            MSACommand.EditSubcommand.msaCommandName,
+            MSACommand.DeleteSubcommand.msaCommandName,
+            MSACommand.ProjectSubcommand.msaCommandName,
+            MSACommand.ExportSubcommand.msaCommandName,
+            MSACommand.ConsensusSubcommand.msaCommandName,
+            MSACommand.ExtractSubcommand.msaCommandName,
+            MSACommand.MaskColumnsSubcommand.msaCommandName,
+            MSACommand.TrimColumnsSubcommand.msaCommandName,
+            MSACommand.DistanceSubcommand.msaCommandName,
+        ]
+        XCTAssertEqual(
+            names,
+            [
+                "msa annotate add", "msa annotate edit", "msa annotate delete", "msa annotate project",
+                "msa export", "msa consensus", "msa extract", "msa mask columns", "msa trim columns", "msa distance",
+            ]
+        )
+        XCTAssertEqual(Set(names).count, 10, "each action names its own workflow")
+    }
 }
 #endif
