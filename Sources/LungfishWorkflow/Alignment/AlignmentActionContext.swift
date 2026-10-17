@@ -316,15 +316,16 @@ package struct AlignmentActionContext: Sendable, Equatable {
 
 extension AlignmentActionContext.EvidenceError: LocalizedError {
     /// The words of a refusal to act on evidence that is not what the view was built from (Phase 2.11
-    /// lane A69, carry-in row SW11). The Operations row and the alert show this text, and without it they
-    /// showed the system's "The operation couldn't be completed". The words name the file, never its
-    /// path, and say that nothing was run. The lane proposes them and the UX review rules on them.
+    /// lane A69, carry-in row SW11, ruled in the UX review of A69). The Operations row and the alert show
+    /// this text, and without it they showed the system's "The operation couldn't be completed". The check
+    /// runs before an action is launched and again before its result is published, so the words say that
+    /// nothing was saved and never that nothing was run. They name the file and not its path.
     package var errorDescription: String? {
         switch self {
         case .missingEvidence(let url):
-            return "\(url.lastPathComponent) is missing, so nothing was run. Restore the file or reopen the alignment."
+            return "The file \(url.lastPathComponent) is missing, so nothing was saved. Restore the file and try again."
         case .staleEvidence(let url):
-            return "\(url.lastPathComponent) changed after the alignment was opened, so nothing was run. Reopen the alignment and try again."
+            return "The file \(url.lastPathComponent) changed after the alignment was opened, so nothing was saved. Reopen the alignment and try again."
         }
     }
 }

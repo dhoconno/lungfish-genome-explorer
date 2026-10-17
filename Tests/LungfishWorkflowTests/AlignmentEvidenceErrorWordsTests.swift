@@ -4,8 +4,9 @@
 //
 // Phase 2.11 lane A69 (carry-in row SW11). `AlignmentActionContext.EvidenceError` had no
 // `LocalizedError` words, so the Operations row of an alignment action whose evidence had changed
-// read "The operation couldn't be completed". The words below are the lane's proposal and the UX review
-// rules on them. These tests print them, so a ruling changes one string here and one in the source.
+// read "The operation couldn't be completed". The words below are the UX ruling of the A69 review.
+// Each test reads `localizedDescription`, the text the row and the alert show, so each fails at the
+// base by its assertion and not by a build error.
 
 import Foundation
 import XCTest
@@ -15,35 +16,33 @@ final class AlignmentEvidenceErrorWordsTests: XCTestCase {
     private let bam = URL(fileURLWithPath: "/work/Project.lungfish/sample.sorted.bam")
 
     func testStaleEvidenceNamesTheFileThatChanged() {
-        let error = AlignmentActionContext.EvidenceError.staleEvidence(bam)
-
         XCTAssertEqual(
-            error.errorDescription,
-            "sample.sorted.bam changed after the alignment was opened, so nothing was run. Reopen the alignment and try again."
+            AlignmentActionContext.EvidenceError.staleEvidence(bam).localizedDescription,
+            "The file sample.sorted.bam changed after the alignment was opened, so nothing was saved. Reopen the alignment and try again."
         )
-        XCTAssertEqual(error.localizedDescription, error.errorDescription, "the row and the alert read this text")
     }
 
     func testMissingEvidenceNamesTheFileThatIsGone() {
-        let error = AlignmentActionContext.EvidenceError.missingEvidence(bam)
-
         XCTAssertEqual(
-            error.errorDescription,
-            "sample.sorted.bam is missing, so nothing was run. Restore the file or reopen the alignment."
+            AlignmentActionContext.EvidenceError.missingEvidence(bam).localizedDescription,
+            "The file sample.sorted.bam is missing, so nothing was saved. Restore the file and try again."
         )
-        XCTAssertEqual(error.localizedDescription, error.errorDescription)
     }
 
-    /// UX 7: sentence case, and no colon, semicolon or dash inside a sentence.
-    func testTheWordsFollowTheRulesOfProse() throws {
+    /// UX 7. Sentence case, exactly one period ending each sentence, no colon, semicolon or dash, the
+    /// file named and not its path, and the fix named in the last sentence.
+    func testTheWordsFollowTheRulesOfProse() {
         for error in [
             AlignmentActionContext.EvidenceError.staleEvidence(bam),
             AlignmentActionContext.EvidenceError.missingEvidence(bam),
         ] {
-            let words = try XCTUnwrap(error.errorDescription)
+            let words = error.localizedDescription
             XCTAssertFalse(words.contains(":") || words.contains(";") || words.contains("\u{2014}"), words)
-            XCTAssertTrue(words.hasSuffix("."), words)
+            XCTAssertFalse(words.contains(".."), words)
+            XCTAssertTrue(words.hasSuffix("and try again."), "the last sentence names the fix. \(words)")
+            XCTAssertTrue(words.first?.isUppercase == true, "sentence case. \(words)")
             XCTAssertFalse(words.contains("/work/"), "a file is named, not its path. \(words)")
+            XCTAssertFalse(words.contains("nothing was run"), "the check can come after the tool ran. \(words)")
         }
     }
 }
