@@ -141,9 +141,14 @@ final class FastqIngestSIGTERMTests: XCTestCase {
             "the download's record stands as the file's own sidecar"
         )
 
+        // 2.11 S8. The CLI stages in the system temp folder, here the test's own, so the cancel is read where the stage sits.
+        let systemTemp = root.appendingPathComponent("T", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemTemp, withIntermediateDirectories: true)
+
         let cli = try CLISIGTERMHarness.launchCLI(
             ["fastq", "ingest", fixture.fastq.path, "--delete-originals", "--quiet"],
             environment: [
+                "TMPDIR": systemTemp.path,
                 "LUNGFISH_CONDA_ROOT": condaRoot.path,
                 "LUNGFISH_STORAGE_ROOT": root.appendingPathComponent("storage", isDirectory: true).path,
                 "LUNGFISH_CONDA_SHARED_PKGS": "0",
@@ -162,7 +167,8 @@ final class FastqIngestSIGTERMTests: XCTestCase {
         let stop = await CLISIGTERMHarness.cancel(cli)
         CLISIGTERMHarness.assertCancelledExit(stop)
         CLISIGTERMHarness.assertNoProcessLeft(stop)
-        XCTAssertEqual(try digests(in: fixture.folder), before, "the folder is byte for byte as it was, with no record added and no hidden folder")
+        XCTAssertEqual(try names(in: systemTemp), [], "the cancel removes the staging folder from the system temp folder")
+        XCTAssertEqual(try digests(in: fixture.folder), before, "the folder is byte for byte as it was, with no record added and nothing staged beside the input")
     }
 
     /// The SHA-256 of every file directly in `folder` by name, and a marker for a folder.
