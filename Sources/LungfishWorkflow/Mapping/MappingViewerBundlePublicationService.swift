@@ -577,22 +577,21 @@ public enum MappingViewerBundlePublicationService {
         finalize: (URL, MappingViewerBundlePublicationPlan) throws -> Void
     ) throws {
         let candidate = candidateBundleURL.standardizedFileURL
-        let final = finalBundleURL.standardizedFileURL
-        guard candidate.deletingLastPathComponent() == final.deletingLastPathComponent(),
-              candidate != final else {
-            throw MappingViewerBundlePublicationError.invalidCandidateLocation(candidate, final)
+        // Standardizing drops a leading /private from the candidate, which exists, and keeps it on the final path,
+        // which does not yet. The final bundle takes the candidate's spelling of the folder both share (K11).
+        let final = candidate.deletingLastPathComponent().appendingPathComponent(finalBundleURL.lastPathComponent, isDirectory: true)
+        guard candidate.deletingLastPathComponent().resolvingSymlinksInPath()
+                == finalBundleURL.deletingLastPathComponent().resolvingSymlinksInPath(),
+              candidate.lastPathComponent != final.lastPathComponent else {
+            throw MappingViewerBundlePublicationError.invalidCandidateLocation(candidate, finalBundleURL.standardizedFileURL)
         }
-
         guard try validatePublicationRoot(
             candidate,
             allowMissing: false
         ) else {
             throw MappingViewerBundlePublicationError.missingViewerBundle(candidate)
         }
-        let replacingExisting = try validatePublicationRoot(
-            final,
-            allowMissing: true
-        )
+        let replacingExisting = try validatePublicationRoot(final, allowMissing: true)
         let resolvedCandidate = candidate.resolvingSymlinksInPath()
         let resolvedFinal = final.resolvingSymlinksInPath()
         guard resolvedCandidate.deletingLastPathComponent()
