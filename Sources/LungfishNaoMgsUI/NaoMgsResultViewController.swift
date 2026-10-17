@@ -62,8 +62,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Total hits for percentage display in the action bar.
     private var naoMgsTotalHits: Int = 0
 
-    /// URL of the NAO-MGS bundle directory.
-    private var bundleURL: URL?
+    /// URL of the NAO-MGS bundle directory, which the BLAST action names as the lineage of a search.
+    public private(set) var bundleURL: URL?
 
     /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.

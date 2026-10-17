@@ -17,7 +17,7 @@ import LungfishTestSupport
 
 @MainActor
 final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
-    /// The files only side C writes, under the project, since the NAO-MGS result folder is private to its view.
+    /// The files only side C writes, under the project and never in the NAO-MGS result folder the search names.
     static let declared = BlastSubmitParity.declared(stageFiles: 2, resultFiles: 3, resultsParent: "Project.lungfish")
 
     private var scratch: URL!
@@ -81,8 +81,14 @@ final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
         )
     }
 
+    /// The NAO-MGS result folder the reads came from, relative to a side root. The viewer names it as the
+    /// search's source result (review fix F2), and the search's folder still lands under the project.
+    private static let sourcePath = "Project.lungfish/Analyses/naomgs-flu-run"
+
     private static func makeProject(_ root: URL) throws {
-        try FileManager.default.createDirectory(at: BlastSubmitParity.project(in: root), withIntermediateDirectories: true)
+        let source = root.appendingPathComponent(sourcePath, isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: source.appendingPathComponent("manifest.json"))
     }
 
     /// The draw and the request of the in-process route, as the viewer built them before the route moved.
@@ -100,7 +106,8 @@ final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
 
     private static func plan(_ root: URL) throws -> BlastSubmitPlan {
         try ViewerViewController.naoMgsBlastSubmitPlan(
-            taxonName: taxonName, taxId: taxId, readCount: readCount, reads: reads, projectURL: BlastSubmitParity.project(in: root)
+            taxonName: taxonName, taxId: taxId, readCount: readCount, reads: reads, projectURL: BlastSubmitParity.project(in: root),
+            sourceResultURL: root.appendingPathComponent(sourcePath, isDirectory: true)
         )
     }
 

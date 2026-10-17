@@ -55,7 +55,7 @@ extension ViewerViewController {
                 do {
                     plan = try Self.naoMgsBlastSubmitPlan(
                         taxonName: taxonName, taxId: summary.taxId, readCount: selectedReadCount, reads: reads,
-                        projectURL: self?.blastSubmitProjectURL()
+                        projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
                     )
                 } catch {
                     controller?.showBlastFailure(error.localizedDescription)
@@ -197,13 +197,15 @@ extension ViewerViewController {
     /// The NAO-MGS taxon's search on `blast submit` (2.11 A65 M2). It draws the
     /// subsample the in-process route draws, the mixed strategy with its seed
     /// of 0, and records the taxon, the count, the seed and the samples of the
-    /// reads it drew.
+    /// reads it drew. `sourceResultURL` is the folder of the NAO-MGS result the reads came from, which the
+    /// record names as its lineage. The search's folder still sits under `projectURL`, never in that result.
     nonisolated static func naoMgsBlastSubmitPlan(
         taxonName: String,
         taxId: Int,
         readCount: Int,
         reads: [NaoMgsVirusHit],
         projectURL: URL?,
+        sourceResultURL: URL? = nil,
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         let allReads = reads.compactMap { hit -> (id: String, sequence: String)? in
@@ -219,7 +221,8 @@ extension ViewerViewController {
         let sampleByRead = Dictionary(reads.map { ($0.seqId, $0.sample) }, uniquingKeysWith: { first, _ in first })
         let samples = Set(subsampled.compactMap { sampleByRead[$0.id] }).sorted()
         return try BlastSubmitPlan.make(
-            sequences: subsampled, label: taxonName, projectURL: projectURL, taxId: taxId,
+            sequences: subsampled, label: taxonName, projectURL: projectURL, sourceResultURL: sourceResultURL,
+            outputParentURL: projectURL, taxId: taxId,
             sample: samples.isEmpty ? nil : samples.joined(separator: ","),
             subsampleCount: subsampled.count, subsampleSeed: seed,
             entrezQuery: "txid\(taxId)[Organism:exp]", date: date
