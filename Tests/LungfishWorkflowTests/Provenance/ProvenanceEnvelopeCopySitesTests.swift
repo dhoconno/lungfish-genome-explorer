@@ -154,6 +154,213 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
         }
     }
 
+    // MARK: InPlaceIngestionProvenance, the in-place ingestion merge
+
+    // Phase 2.11 lane A61 M3, review Group B (Fixes 4 to 6). The app's in-process ingestion reached the merge
+    // through `FASTQIngestionService`, and the tests that pinned the merge there went with that writer. The
+    // merge stays, because `lungfish-cli fastq ingest` still ships it, so these three tests keep what the merge
+    // itself promises. Each makes the three calls that the CLI leaf makes (`FastqIngestSubcommand+Run.swift`),
+    // the lookup of the standing record, the merge and the write of the folder's record.
+
+    /// The S4a pin of the merge (plan decisions P5 and E13). The merged record keeps the standing record's
+    /// identity, status and release facts, puts the ingestion's steps after the record's own, and leaves a
+    /// failed or cancelled record its exit status over the ingestion's 0.
+    func testInPlaceIngestionMergeCopiesEachSourceFaithfully() throws {
+        for (kind, failedExit) in CopySources.sourcesWithFailedExit {
+            let project = try ProvenanceCompatScenarios.makeProject()
+            defer { project.cleanup() }
+            let bundle = try project.folder("Imports/Sample.lungfishfastq")
+            let importedFASTQ = bundle.appendingPathComponent("Sample.fastq")
+            let optimizedFASTQ = bundle.appendingPathComponent("Sample.fastq.gz")
+            // The record names a file the ingestion does not replace, so the merge rewrites no path.
+            let recordedOutput = try ProvenanceCompatScenarios.write(
+                "@r\nACGT\n+\n!!!!\n", to: bundle.appendingPathComponent("Other.fastq")
+            )
+            try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: optimizedFASTQ)
+            let base = try CopySources.baseEnvelope(workflowName: "fastq import", output: recordedOutput)
+            try ProvenanceWriter(signingProvider: nil).write(base, to: bundle)
+            let sidecar = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+            try CopySources.rewriteSidecar(at: sidecar, as: kind, exitStatus: failedExit)
+            let source = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+            let ingestion = Self.ingestionEnvelope(
+                importedFASTQ: importedFASTQ, optimizedFASTQ: optimizedFASTQ, recordingTheImportedFile: false
+            )
+            XCTAssertEqual(ingestion.exitStatus, 0, "the ingestion that follows the record exited 0")
+
+            try Self.mergeAsTheCLILeafDoes(
+                ingestion: ingestion, into: bundle, replacing: importedFASTQ, with: optimizedFASTQ
+            )
+
+            let copy = try CopySources.capture(
+                site: "fastq-in-place", kind: kind, sidecar: sidecar, projectRoot: project.root
+            )
+            CopySources.assertFaithfulCopy(
+                site: "InPlaceIngestionProvenance.mergedInPlaceIngestionEnvelope", kind: kind, copy: copy,
+                keeping: source
+            )
+            XCTAssertEqual(copy.workflowName, source.workflowName, "the record stays the imported run")
+            XCTAssertEqual(copy.steps.prefix(source.steps.count).map(\.id), source.steps.map(\.id))
+            XCTAssertGreaterThan(copy.steps.count, source.steps.count, "the ingestion's steps follow")
+            if let failedExit {
+                XCTAssertEqual(
+                    copy.exitStatus, failedExit,
+                    "a \(kind.rawValue) record keeps its exit status over the ingestion's 0"
+                )
+            }
+        }
+    }
+
+    /// A completed ingestion finds the record that stands beside the input file when the folder holds no record
+    /// of its own. The lookup tries the folder's root record first and then the record of each input
+    /// (`InPlaceIngestionProvenance.existingInPlaceIngestionProvenance`).
+    func testInPlaceIngestionMergeFindsTheInputsOwnSidecar() throws {
+        let project = try ProvenanceCompatScenarios.makeProject()
+        defer { project.cleanup() }
+        let bundle = try project.folder("Imports/Sample.lungfishfastq")
+        let importedFASTQ = try ProvenanceCompatScenarios.write(
+            "@r\nACGT\n+\n!!!!\n", to: bundle.appendingPathComponent("Sample.fastq")
+        )
+        let optimizedFASTQ = bundle.appendingPathComponent("Sample.fastq.gz")
+        let inputSidecar = ProvenanceRecorder.fileSidecarURL(for: importedFASTQ)
+        let materializeArgv = ["lungfish-cli", "fastq", "materialize", "--output", importedFASTQ.path]
+        let cliEnvelope = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Materialize",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(materializeArgv)
+        .output(importedFASTQ, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: materializeArgv,
+                outputs: [try ProvenanceFileDescriptor.file(url: importedFASTQ, format: .fastq, role: .output)],
+                exitStatus: 0,
+                wallTimeSeconds: 1
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 40),
+            endedAt: Date(timeIntervalSince1970: 41)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(cliEnvelope, toSidecar: inputSidecar)
+        try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: optimizedFASTQ)
+        let ingestion = Self.ingestionEnvelope(
+            importedFASTQ: importedFASTQ, optimizedFASTQ: optimizedFASTQ, recordingTheImportedFile: true
+        )
+        // The clumpify run consumed the imported file, so only its record stands.
+        try FileManager.default.removeItem(at: importedFASTQ)
+
+        let found = try Self.mergeAsTheCLILeafDoes(
+            ingestion: ingestion, into: bundle, replacing: importedFASTQ, with: optimizedFASTQ
+        )
+
+        XCTAssertEqual(found.sourceURL?.path, inputSidecar.path, "the lookup found the input's own record")
+        XCTAssertEqual(found.envelope.workflowName, "CLI FASTQ Materialize")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundle))
+        XCTAssertEqual(
+            envelope.steps.map(\.toolName), ["lungfish-cli", "clumpify.sh"],
+            "the import step comes first and the ingestion's steps follow"
+        )
+        let importStep = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(importStep.outputs.map(\.path), [optimizedFASTQ.path])
+        XCTAssertEqual(importStep.outputs.first?.originPath, importedFASTQ.path)
+        XCTAssertEqual(importStep.durableReplayArgv?.last, optimizedFASTQ.path)
+        XCTAssertFalse(envelope.files.contains { $0.role == .output && $0.path == importedFASTQ.path })
+
+        // A folder that holds a root record and the input's record is answered by the root record.
+        let both = try project.folder("Imports/Both.lungfishfastq")
+        let bothInput = try ProvenanceCompatScenarios.write(
+            "@r\nACGT\n+\n!!!!\n", to: both.appendingPathComponent("Both.fastq")
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            try CopySources.baseEnvelope(workflowName: "root record", output: bothInput), to: both
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            try CopySources.baseEnvelope(workflowName: "input record", output: bothInput),
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: bothInput)
+        )
+        let preferred = try XCTUnwrap(
+            InPlaceIngestionProvenance.existingInPlaceIngestionProvenance(outputDirectory: both, inputFiles: [bothInput])
+        )
+        XCTAssertEqual(
+            preferred.sourceURL?.path, both.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path,
+            "the root record comes before the record of an input"
+        )
+        XCTAssertEqual(preferred.envelope.workflowName, "root record")
+    }
+
+    /// The merge points the standing record's output options and replay arguments at the file the ingestion
+    /// wrote. The record is the imported copy of a download, rebuilt by the rehydrator as the import makes it.
+    func testInPlaceIngestionMergeRewritesOutputOptionsAndReplayArgumentsToTheGzipFile() throws {
+        let project = try ProvenanceCompatScenarios.makeProject()
+        defer { project.cleanup() }
+        let bundle = try project.folder("Imports/Sample.lungfishfastq")
+        let sourceCLIOutput = try ProvenanceCompatScenarios.write(
+            "@r\nACGT\n+\n!!!!\n", to: project.root.appendingPathComponent("cli-output.fastq")
+        )
+        let importedFASTQ = try ProvenanceCompatScenarios.write(
+            "@r\nACGT\n+\n!!!!\n", to: bundle.appendingPathComponent("Sample.fastq")
+        )
+        let optimizedFASTQ = bundle.appendingPathComponent("Sample.fastq.gz")
+        let fetchArgv = ["lungfish-cli", "fetch", "ncbi", "SRR123", "--output", sourceCLIOutput.path]
+        let cliEnvelope = try ProvenanceRunBuilder(
+            workflowName: "CLI FASTQ Download",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(fetchArgv)
+        .options(
+            explicit: ["downloadOutput": .file(sourceCLIOutput)],
+            defaults: ["defaultOutput": .string(sourceCLIOutput.path)],
+            resolved: ["resolvedOutput": .file(sourceCLIOutput)]
+        )
+        .output(sourceCLIOutput, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: fetchArgv,
+                durableReplayArgv: fetchArgv,
+                outputs: [try ProvenanceFileDescriptor.file(url: sourceCLIOutput, format: .fastq, role: .output)],
+                exitStatus: 0,
+                wallTimeSeconds: 1
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 50),
+            endedAt: Date(timeIntervalSince1970: 51)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            cliEnvelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: sourceCLIOutput)
+        )
+        try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(from: sourceCLIOutput, to: importedFASTQ)
+        try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: optimizedFASTQ)
+        let ingestion = Self.ingestionEnvelope(
+            importedFASTQ: importedFASTQ, optimizedFASTQ: optimizedFASTQ, recordingTheImportedFile: true
+        )
+        try FileManager.default.removeItem(at: importedFASTQ)
+
+        try Self.mergeAsTheCLILeafDoes(
+            ingestion: ingestion, into: bundle, replacing: importedFASTQ, with: optimizedFASTQ
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundle))
+        let importStep = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(importStep.durableReplayArgv?.last, optimizedFASTQ.path)
+        XCTAssertEqual(envelope.durableReplayArgv?.last, optimizedFASTQ.path)
+        XCTAssertEqual(envelope.options.explicit["downloadOutput"]?.fileValue?.path, optimizedFASTQ.path)
+        XCTAssertEqual(envelope.options.defaults["defaultOutput"]?.stringValue, optimizedFASTQ.path)
+        XCTAssertEqual(envelope.options.resolvedDefaults["resolvedOutput"]?.fileValue?.path, optimizedFASTQ.path)
+    }
+
     // MARK: ReferenceBundleAnnotationImportService, lines 591 and 695
 
     /// The merged record is the annotation import run, which the builder completed, with the steps of the
@@ -287,6 +494,65 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    /// The envelope of an in-place ingestion as the deleted app writer built it, a completed run named
+    /// `FASTQ Ingestion` with the one clumpify step that reads the imported file and writes the gzip file.
+    /// The step records the imported file's digest only when `recordingTheImportedFile` is set, and then the
+    /// file has to exist. The gzip file always has to exist.
+    private static func ingestionEnvelope(
+        importedFASTQ: URL,
+        optimizedFASTQ: URL,
+        recordingTheImportedFile: Bool
+    ) -> ProvenanceEnvelope {
+        let optimizationStep = StepExecution(
+            toolName: "clumpify.sh",
+            toolVersion: "test-bbtools",
+            command: ["clumpify.sh", "in=\(importedFASTQ.path)", "out=\(optimizedFASTQ.path)"],
+            inputs: recordingTheImportedFile
+                ? [ProvenanceRecorder.fileRecord(url: importedFASTQ, format: .fastq, role: .input)]
+                : [],
+            outputs: [ProvenanceRecorder.fileRecord(url: optimizedFASTQ, format: .fastq, role: .output)],
+            exitCode: 0,
+            wallTime: 1.25
+        )
+        return WorkflowRun(name: "FASTQ Ingestion", status: .completed, steps: [optimizationStep], parameters: [:])
+            .canonicalEnvelope()
+    }
+
+    /// The three calls of `lungfish-cli fastq ingest` (`FastqIngestSubcommand+Run.swift`). It looks for the
+    /// record that stands in `bundle` for `importedFASTQ`, merges `ingestion` into it with the gzip file as the
+    /// file that replaces the imported one, and writes the result as the folder's record. Returns what the
+    /// lookup found.
+    @discardableResult
+    private static func mergeAsTheCLILeafDoes(
+        ingestion: ProvenanceEnvelope,
+        into bundle: URL,
+        replacing importedFASTQ: URL,
+        with optimizedFASTQ: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> (envelope: ProvenanceEnvelope, sourceURL: URL?) {
+        let found = try XCTUnwrap(
+            InPlaceIngestionProvenance.existingInPlaceIngestionProvenance(
+                outputDirectory: bundle, inputFiles: [importedFASTQ]
+            ),
+            "no record stands for the ingestion to join",
+            file: file,
+            line: line
+        )
+        let merged = try InPlaceIngestionProvenance.mergedInPlaceIngestionEnvelope(
+            existingEnvelope: found.envelope,
+            sourceProvenanceURL: found.sourceURL,
+            ingestionEnvelope: ingestion,
+            replacedInputFiles: [importedFASTQ],
+            finalFASTQURL: optimizedFASTQ,
+            finalFASTQDescriptor: ProvenanceFileDescriptor(
+                fileRecord: ProvenanceRecorder.fileRecord(url: optimizedFASTQ, format: .fastq, role: .output)
+            )
+        )
+        try ProvenanceWriter(signingProvider: nil).write(merged, to: bundle)
+        return found
+    }
 
     /// A reference bundle with a genome and no tracks, as the annotation import tests build one.
     private static func makeReferenceBundle(in project: ProvenanceCompatScenarios.Project) throws -> URL {
