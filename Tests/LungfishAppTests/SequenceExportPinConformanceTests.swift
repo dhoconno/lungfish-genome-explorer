@@ -12,9 +12,10 @@
 // run and only the text after decompression is pinned.
 //
 // macOS ships no /usr/bin/zstd, which was the only path the export launched, so at the base the zstd export
-// failed and published nothing on a Mac without one, and the pin said so. The route looks in /usr/bin and in
-// Homebrew's two prefixes, so with a zstd there the pin holds the same text, and without one the export still
-// fails and publishes nothing. The test at the end replays the row's recorded command on a copy of the folder.
+// failed and published nothing on a Mac without one, and the pin said so. The route looks in /usr/bin, in
+// /usr/local/bin and in the bin folder HOMEBREW_PREFIX names, so with a zstd there the pin holds the same text,
+// and without one the export still fails and publishes nothing. The test at the end replays the row's recorded
+// command on a copy of the folder.
 //
 // It runs the system gzip, so its name ends in Conformance, which keeps it out of the unit tier, and it
 // skips without gzip unless `LUNGFISH_REQUIRE_TOOLS=1`. It points `LUNGFISH_CLI_PATH` at the built
@@ -95,9 +96,9 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         }
 
         // The same four exports with zstd. At the base the export launched only /usr/bin/zstd, which macOS does
-        // not ship, so on a Mac without one it failed and published nothing. The route looks in /usr/bin and in
-        // Homebrew's two prefixes, so with a zstd in one of them the text is the same, and without one the export
-        // still fails and publishes nothing.
+        // not ship, so on a Mac without one it failed and published nothing. The route looks in /usr/bin, in
+        // /usr/local/bin and in the bin folder HOMEBREW_PREFIX names, so with a zstd in one of them the text is the
+        // same, and without one the export still fails and publishes nothing.
         HomebrewPrefixForZstd.exposeIfNeeded()
         let hasZstd = SequenceExportCompressor.zstdExecutable() != nil
         for item in cases {

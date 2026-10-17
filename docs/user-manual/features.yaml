@@ -457,9 +457,10 @@ features:
       included, exports by running it, so the Operations row shows the
       command to copy, including the compressor. A selection with a captured
       document snapshot, or a file convert does not read, is written in the
-      app and records no command. A zstd export looks for zstd in /usr/bin
-      and in Homebrew's two prefixes, /opt/homebrew/bin and /usr/local/bin,
-      and not on the PATH. When it finds none, it stops with a message that
+      app and records no command. A zstd export looks for zstd in /usr/bin,
+      in /usr/local/bin and in the bin folder of the folder that
+      HOMEBREW_PREFIX names, and not on the PATH. When it finds none, it
+      stops with a message that
       says what to install and where it looked, since macOS does not ship
       zstd. gzip works on every Mac.
   viewport.sequence-browser:
