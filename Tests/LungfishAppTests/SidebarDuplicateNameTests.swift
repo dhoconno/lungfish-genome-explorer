@@ -41,6 +41,18 @@ final class SidebarDuplicateNameTests: XCTestCase {
         XCTAssertTrue(exists(folder, "a copy 2.fasta"))
     }
 
+    /// SW3. A plain folder has no extension, so its copy is `Reads copy` and the second copy `Reads copy 2`, with no
+    /// trailing dot. At the base Duplicate appended a dot and the empty extension, and the copies were `Reads copy.`
+    /// and `Reads copy 2.`.
+    func testDuplicateOfAPlainFolderNamesItsCopyWithNoTrailingDot() throws {
+        try duplicate(folder, times: 2)
+
+        XCTAssertTrue(exists(project, "Reads copy"))
+        XCTAssertTrue(exists(project, "Reads copy 2"))
+        XCTAssertFalse(exists(project, "Reads copy."))
+        XCTAssertFalse(exists(project, "Reads copy 2."))
+    }
+
     // MARK: - Helpers
 
     /// Opens the project in a sidebar, selects `url` and runs Duplicate `times` times, as the menu does.

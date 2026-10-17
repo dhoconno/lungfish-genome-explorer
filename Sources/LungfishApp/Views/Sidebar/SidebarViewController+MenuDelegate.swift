@@ -937,13 +937,13 @@ extension SidebarViewController: NSMenuDelegate {
 
             // Generate unique name
             let baseName = url.deletingPathExtension().lastPathComponent
-            let ext = url.pathExtension
+            let ext = url.pathExtension.isEmpty ? "" : ".\(url.pathExtension)" // a plain folder takes no trailing dot (SW3)
             var counter = 1
-            var newURL = url.deletingLastPathComponent().appendingPathComponent("\(baseName) copy.\(ext)")
+            var newURL = url.deletingLastPathComponent().appendingPathComponent("\(baseName) copy\(ext)")
 
             while FileManager.default.fileExists(atPath: newURL.path) {
                 counter += 1
-                newURL = url.deletingLastPathComponent().appendingPathComponent("\(baseName) copy \(counter).\(ext)")
+                newURL = url.deletingLastPathComponent().appendingPathComponent("\(baseName) copy \(counter)\(ext)")
             }
 
             do {
