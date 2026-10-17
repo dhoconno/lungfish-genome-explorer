@@ -1,0 +1,2 @@
+{"event":"start","message":"Extracting taxa of a collection…","progress":0,"schemaVersion":2}
+{"error":"Classification result not found: \/work\/Project.lungfish\/Analyses\/kraken2-missing","event":"failed","schemaVersion":2}

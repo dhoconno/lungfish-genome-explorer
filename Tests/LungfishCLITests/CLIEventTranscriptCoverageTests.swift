@@ -58,6 +58,10 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `blast submit` reaches NCBI. Its transcripts are runs of the built CLI on a loopback BLAST stand-in,
         // recaptured with LUNGFISH_RECAPTURE_CLI_EVENTS=1 (BlastSubmitStandInTests, lane A65 of Phase 2.11).
         "blast submit",
+        // `extract taxa-collection` runs seqkit grep through TaxonomyExtractionPipeline. Its transcripts are runs of
+        // the built CLI on the argv of the taxa collections drawer's Extract button, recaptured with
+        // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxaCollectionEventTranscriptReplayTests, lane A66 of Phase 2.11).
+        "extract taxa-collection",
         // `taxtriage run` and `workflow run` run Nextflow. Their transcripts are runs on stand-ins, recaptured with
         // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxTriageRunCommandReplayTests, lane A2, and WorkflowRunEventsTests, A30).
         "taxtriage run", "workflow run",

@@ -1,0 +1,26 @@
+{"event":"start","message":"Extracting taxa of a collection…","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Starting batch extraction: A66 genus and B (2 taxa)","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Extracting Genus A (1 of 2)...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Reading classification output...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Filtering 3 tax IDs...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Scanning classification: 3 matches...","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"Extracting 3 reads...","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"Wrote 3 read IDs to filter file","progress":0.1825,"schemaVersion":2}
+{"event":"progress","message":"Extracting reads from reads.fastq...","progress":0.1825,"schemaVersion":2}
+{"event":"progress","message":"Counting extracted reads...","progress":0.41000000000000003,"schemaVersion":2}
+{"event":"progress","message":"Extracted 3 reads","progress":0.475,"schemaVersion":2}
+{"event":"progress","message":"Recording provenance...","progress":0.475,"schemaVersion":2}
+{"event":"progress","message":"Extraction complete: 3 reads","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Extracting Species B (2 of 2)...","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Reading classification output...","progress":0.5,"schemaVersion":2}
+{"event":"progress","message":"Filtering 1 tax IDs...","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"Scanning classification: 2 matches...","progress":0.65,"schemaVersion":2}
+{"event":"progress","message":"Extracting 2 reads...","progress":0.65,"schemaVersion":2}
+{"event":"progress","message":"Wrote 2 read IDs to filter file","progress":0.6825,"schemaVersion":2}
+{"event":"progress","message":"Extracting reads from reads.fastq...","progress":0.6825,"schemaVersion":2}
+{"event":"progress","message":"Counting extracted reads...","progress":0.91,"schemaVersion":2}
+{"event":"progress","message":"Extracted 2 reads","progress":0.975,"schemaVersion":2}
+{"event":"progress","message":"Recording provenance...","progress":0.975,"schemaVersion":2}
+{"event":"progress","message":"Extraction complete: 2 reads","progress":1,"schemaVersion":2}
+{"event":"progress","message":"Batch complete: 2 of 2 taxa extracted (0 skipped)","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Extracted 2 taxa from A66 genus and B","output":"\/work\/Project.lungfish\/Analyses\/kraken2-single\/extracted-a66-genus-and-b\/Genus_A_taxid10.fastq.gz","outputs":["\/work\/Project.lungfish\/Analyses\/kraken2-single\/extracted-a66-genus-and-b\/Genus_A_taxid10.fastq.gz","\/work\/Project.lungfish\/Analyses\/kraken2-single\/extracted-a66-genus-and-b\/Species_B_taxid20.fastq.gz"],"progress":1,"schemaVersion":2}
