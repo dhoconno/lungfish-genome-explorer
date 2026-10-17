@@ -124,6 +124,7 @@ struct ExtractTaxaCollectionSubcommand: AsyncParsableCommand {
 
     /// The batch of ``extractBatch``, taxon by taxon, with its progress as events.
     func extract(events: CLIEventEmitter) async throws -> ExtractTaxaCollectionOutcome {
+        let startedAt = Date()
         let resultURL = URL(fileURLWithPath: result, isDirectory: true)
         guard FileManager.default.fileExists(atPath: resultURL.path) else {
             throw ExtractTaxaCollectionRefusal("Classification result not found: \(result)")
@@ -145,6 +146,7 @@ struct ExtractTaxaCollectionSubcommand: AsyncParsableCommand {
             outputDirectory: URL(fileURLWithPath: outputDirectory, isDirectory: true),
             progress: { fraction, message in events.emitProgress(fraction, message: message) }
         )
+        try await recordCompletedRun(classification: classification, outputs: outputs, startedAt: startedAt)
         return ExtractTaxaCollectionOutcome(outputs: outputs.map(\.path), collectionName: collectionName)
     }
 
@@ -212,6 +214,36 @@ struct ExtractTaxaCollectionSubcommand: AsyncParsableCommand {
             stderr: Self.cancelledMessage,
             status: .cancelled,
             outputDirectory: folder,
+            writeFileSidecars: false
+        )
+    }
+
+    /// Writes the folder's root record last, naming the command that ran and every file this run wrote.
+    /// The pipeline's per-file sidecars stay (`writeFileSidecars: false`), since they hold each taxon's
+    /// tax IDs, counts and sources. The result's raw output and its report are inputs when they exist,
+    /// as the pipeline's own records name them, so a collection whose taxa are all skipped still ends.
+    private func recordCompletedRun(classification: ClassificationResult, outputs: [URL], startedAt: Date) async throws {
+        let inputs = [classification.outputURL, classification.reportURL]
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input) }
+        _ = try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish extract taxa-collection",
+            parameters: [
+                "result": .file(URL(fileURLWithPath: result)),
+                "collectionID": .string(collectionID),
+                "collectionName": .string(collectionName),
+                "targets": .array(targets.map(ParameterValue.string)),
+            ],
+            toolName: "lungfish extract taxa-collection",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: provenanceCommand(),
+            inputs: inputs,
+            outputs: outputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: URL(fileURLWithPath: outputDirectory, isDirectory: true),
             writeFileSidecars: false
         )
     }
