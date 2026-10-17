@@ -14,8 +14,9 @@ import LungfishWorkflow
 /// It runs the same `FASTQIngestionPipeline` as `debug fastq-ingest`, with three differences
 /// that matter because the run can delete the user's original file.
 ///
-/// - The pipeline builds its output in a hidden folder, under the project's `.tmp` folder when the
-///   input sits in a project and beside the input otherwise, and never deletes. The
+/// - The pipeline builds its output in a staging folder, under the project's `.tmp` folder when the
+///   input sits in a project, else in the system temp folder when that folder is on the input's disk,
+///   else in a hidden folder beside the input, and never deletes. The
 ///   output is synced and renamed into place only when it is whole, so a cancel or a failure
 ///   leaves the original in place and no half-written output.
 /// - The metadata sidecar is written, as the app's run does.
@@ -71,7 +72,7 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
 
     /// Runs the ingest so that SIGTERM cancels it instead of ending the command, as the app's
     /// Cancel does (plan decision C5). A cancel before the output is published stops the tool,
-    /// removes the hidden folder, writes a `cancelled` record and exits 125, with every original
+    /// removes the staging folder, writes a `cancelled` record and exits 125, with every original
     /// as it was. The command listens before the task starts, so an early SIGTERM cancels the
     /// task once it exists, and a second SIGTERM ends the command at once. A SIGTERM that comes
     /// after the output is published does not turn a finished ingest into a cancelled one.

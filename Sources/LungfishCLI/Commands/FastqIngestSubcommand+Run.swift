@@ -35,8 +35,9 @@ enum FastqIngestObservation {
 
 /// One in-place ingest, after its arguments are read. SWIFT's L6 order, stated once:
 ///
-/// 1. The pipeline writes its output into a hidden folder, under the project's `.tmp` folder when the input
-///    sits in a project and beside the input otherwise. It never deletes.
+/// 1. The pipeline writes its output into a staging folder, under the project's `.tmp` folder when the input
+///    sits in a project, else in the system temp folder when that folder is on the input's volume, else in
+///    a hidden folder beside the input. It never deletes.
 /// 2. The digest of each original is read, so the record can name it.
 /// 3. The output is synced, then renamed into place with ``PortableRename``, then the folder is synced.
 /// 4. The metadata sidecar is written and synced.
