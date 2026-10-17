@@ -319,6 +319,11 @@ struct ImportCLIEventEmitter: Sendable {
         )
     }
 
+    /// The completion of an import that added a track to an existing bundle, with the words the row shows.
+    func emitComplete(attachedTo bundleURL: URL, message: String) {
+        events.emitComplete(outputs: [bundleURL.path], message: message)
+    }
+
     func emitFailed(_ message: String) {
         events.emitFailed(message)
         if !eventsOn {

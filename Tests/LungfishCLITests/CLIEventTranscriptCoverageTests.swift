@@ -52,6 +52,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `bundle merge` builds with bgzip and samtools faidx. Its transcripts are runs of the built CLI on two
         // plain FASTA bundles (lane A49 M2 of Phase 2.11).
         "bundle merge",
+        // `import bam` runs samtools sort and index through BAMImportService. Its transcripts are runs of the
+        // built CLI on the sarscov2 BAM and a reference bundle (lane A63 M1 of Phase 2.11).
+        "import bam",
         // `taxtriage run` and `workflow run` run Nextflow. Their transcripts are runs on stand-ins, recaptured with
         // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxTriageRunCommandReplayTests, lane A2, and WorkflowRunEventsTests, A30).
         "taxtriage run", "workflow run",

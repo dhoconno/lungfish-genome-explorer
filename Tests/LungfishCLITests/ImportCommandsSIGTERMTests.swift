@@ -21,6 +21,7 @@ import Foundation
 import os
 import XCTest
 import LungfishCore
+import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
 
@@ -78,6 +79,43 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
         defer { burners.forEach { $0.stop() } }
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
         try Self.assertCancelledEvents(stop.standardOutput)
+    }
+
+    // MARK: - import bam
+
+    /// The same cancel for the attach of an alignment to a bundle, held at samtools by a stand-in that writes its
+    /// process ID and sleeps. The cancel removes what the run added to the bundle and leaves no process.
+    func testImportBAMTurnsSIGTERMIntoACancelAndLeavesNothingInTheBundle() async throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let bundle = project.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try BundleManifest(
+            name: "Reference",
+            identifier: "bundle.reference",
+            source: SourceInfo(organism: "Virus", assembly: "MN908947.3", database: "Test")
+        ).save(to: bundle)
+        let input = root.appendingPathComponent("sample.bam")
+        try Data([0x1f, 0x8b]).write(to: input)
+        let pidFile = root.appendingPathComponent("samtools.pid")
+        let condaRoot = try Self.samtoolsHoldingCondaRoot(in: root, pidFile: pidFile)
+
+        let run = try CLISIGTERMHarness.launchCLI(
+            ["import", "bam", input.path, "--output-dir", bundle.path, "--name", "sample.bam", "--format", "json"],
+            environment: ["LUNGFISH_CONDA_ROOT": condaRoot.path],
+            workingDirectory: root,
+            testClass: Self.self
+        )
+        defer { run.stop() }
+        let pid = await CLISIGTERMHarness.waitForProcessID(in: pidFile)
+        XCTAssertNotNil(pid, "the command never reached samtools")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
+        try Self.assertCancelledEvents(stop.standardOutput)
+        let alignments = bundle.appendingPathComponent("alignments", isDirectory: true)
+        XCTAssertEqual(
+            ((try? FileManager.default.contentsOfDirectory(atPath: alignments.path)) ?? []).sorted(), [],
+            "a cancelled import leaves nothing in the bundle's alignments folder"
+        )
+        XCTAssertEqual(try BundleManifest.load(from: bundle).alignments.count, 0, "and no track in its manifest")
     }
 
     // MARK: - What a cancelled import leaves
@@ -191,6 +229,24 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
         )
         let pid = await CLISIGTERMHarness.waitForProcessID(in: pidFile)
         return (run, project, pid)
+    }
+
+    /// A conda root whose samtools answers a version probe and sleeps on any other call, after it wrote `$$`.
+    static func samtoolsHoldingCondaRoot(in root: URL, pidFile: URL) throws -> URL {
+        let condaRoot = root.appendingPathComponent("conda-samtools", isDirectory: true)
+        let samtools = """
+        #!/bin/sh
+        case "$*" in
+          *version*) echo "samtools 1.20"; exit 0 ;;
+        esac
+        echo $$ > '\(pidFile.path)'
+        exec sleep 120
+        """
+        let binary = condaRoot.appendingPathComponent("envs/samtools/bin/samtools")
+        try FileManager.default.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try samtools.write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        return condaRoot
     }
 
     /// A conda root whose bgzip and samtools answer a version probe, and whose bgzip sleeps on any

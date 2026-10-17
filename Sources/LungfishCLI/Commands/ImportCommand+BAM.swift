@@ -37,15 +37,22 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
             let runClock = ProvenanceRunClock()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let inputURL = URL(fileURLWithPath: inputFile)
+            let outputDirectory = resolveOutputDirectory(outputDir)
+            let attachesToBundle = outputDirectory.pathExtension.lowercased() == "lungfishref"
+            // `--format json` makes the attach to a bundle print the events the app's row shows (Phase 2.11
+            // lane A63). An output folder that is a plain directory keeps its text output.
+            let eventsOn = globalOptions.outputFormat == .json && attachesToBundle
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
+            emitter.emitStart(kind: "alignment")
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
-                print(formatter.error("Input file not found: \(inputFile)"))
+                reportFailure("Input file not found: \(inputFile)", formatter: formatter, emitter: emitter, eventsOn: eventsOn)
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -56,29 +63,30 @@ extension ImportCommand {
             }
             let ext = formatURL.pathExtension.lowercased()
             guard ["bam", "cram", "sam"].contains(ext) else {
-                print(formatter.error("Unsupported alignment format: .\(ext). Expected .bam, .cram, or .sam"))
+                reportFailure(
+                    "Unsupported alignment format: .\(ext). Expected .bam, .cram, or .sam",
+                    formatter: formatter, emitter: emitter, eventsOn: eventsOn
+                )
                 throw CLIExitCode.formatError.exitCode
             }
-
-            let outputDirectory = resolveOutputDirectory(outputDir)
 
             // `-o` historically meant "a plain directory to drop
             // loose alignment files into", which silently produced a BAM/BAI
             // pair with no manifest entry when someone pointed it at an
-            // existing `.lungfishref` bundle — the sidebar and viewer never
-            // see the alignment because `manifest.alignments` stays empty.
-            // Detect that case and attach the alignment as a real track via
-            // the same PreparedAlignmentAttachmentService the GUI Import
-            // Center uses, instead of silently mis-importing.
-            if outputDirectory.pathExtension.lowercased() == "lungfishref" {
+            // existing `.lungfishref` bundle, so the sidebar and viewer never
+            // saw the alignment because `manifest.alignments` stayed empty.
+            // Detect that case and attach the alignment as a real track through
+            // BAMImportService, the import the GUI Import Center runs.
+            if attachesToBundle {
                 guard FileManager.default.fileExists(
                     atPath: outputDirectory.appendingPathComponent(BundleManifest.filename).path
                 ) else {
-                    print(formatter.error(
+                    reportFailure(
                         "\(outputDir ?? outputDirectory.path) looks like a .lungfishref bundle path, but no bundle exists there yet. "
                             + "`lungfish-cli import bam` writes loose files into a plain directory; to attach an alignment to an existing "
-                            + "reference bundle, create the bundle first and use `lungfish-cli bam adopt-mapping --bundle <bundle> --mapping-result <dir> --name <name>`."
-                    ))
+                            + "reference bundle, create the bundle first and use `lungfish-cli bam adopt-mapping --bundle <bundle> --mapping-result <dir> --name <name>`.",
+                        formatter: formatter, emitter: emitter, eventsOn: eventsOn
+                    )
                     throw CLIExitCode.inputError.exitCode
                 }
                 try await runAttachToExistingBundle(
@@ -86,7 +94,8 @@ extension ImportCommand {
                     ext: ext,
                     bundleURL: outputDirectory,
                     formatter: formatter,
-                    runClock: runClock
+                    emitter: emitter,
+                    eventsOn: eventsOn
                 )
                 return
             }
@@ -312,119 +321,106 @@ extension ImportCommand {
             }
         }
 
-        /// Attaches `inputURL` to an existing `.lungfishref` bundle as a
-        /// real manifest alignment track, using the same
-        /// `PreparedAlignmentAttachmentService` primitive the GUI Import
-        /// Center's `--bam-import-helper` path uses (`BAMImportHelper.swift`
-        /// -> `BAMImportService.importBAM` -> the same attachment core).
-        /// Requires a coordinate-sorted input, matching this command's
-        /// pre-existing assumption (it has never sorted; it only indexes).
+        /// Attaches `inputURL` to an existing `.lungfishref` bundle as a manifest alignment track through
+        /// `BAMImportService.importBAM`, the import the Import Center's BAM row runs (Phase 2.11 lane A63).
+        /// The service sorts and indexes the copy it makes in the bundle, so an unsorted BAM, a SAM file and
+        /// a CRAM file import as they did when the app ran the service in a helper process, and the record it
+        /// writes in the bundle names this command. With `--format json` the run prints the row's events.
+        /// SIGTERM, the app's Cancel, cancels the import, removes what the run added to the bundle's
+        /// alignments folder, records the run as cancelled in the project and exits 125 (decision S7).
         private func runAttachToExistingBundle(
             inputURL: URL,
             ext: String,
             bundleURL: URL,
             formatter: TerminalFormatter,
-            runClock: ProvenanceRunClock
+            emitter: ImportCLIEventEmitter,
+            eventsOn: Bool
         ) async throws {
-            guard ext != "sam" else {
-                print(formatter.error("Cannot attach a .sam alignment to a bundle. Convert to sorted, indexed BAM first (see project convention: never store SAM)."))
-                throw CLIExitCode.formatError.exitCode
-            }
-            let format: AlignmentFormat = ext == "cram" ? .cram : .bam
+            let startedAt = Date()
+            let trackName = name ?? inputURL.deletingPathExtension().lastPathComponent
+            let command = [CLICommandIdentity.executableName, "import", "bam", inputURL.path, "--output-dir", bundleURL.path]
+                + (name.map { ["--name", $0] } ?? [])
 
-            print(formatter.header("BAM/CRAM Import"))
-            print("")
-            print(formatter.keyValueTable([
+            printHumanLine(formatter.header("BAM/CRAM Import"), eventsOn: eventsOn)
+            printHumanLine("", eventsOn: eventsOn)
+            printHumanLine(formatter.keyValueTable([
                 ("Input", inputURL.lastPathComponent),
                 ("Format", ext.uppercased()),
                 ("Bundle", bundleURL.path),
-            ]))
-            print("")
+            ]), eventsOn: eventsOn)
+            printHumanLine("", eventsOn: eventsOn)
 
-            let tempDirectory = try ProjectTempDirectory.createFromContext(
-                prefix: "lungfish-cli-bam-attach-",
-                contextURL: bundleURL
-            )
-            defer { try? FileManager.default.removeItem(at: tempDirectory) }
-
-            let stagedBAMURL = tempDirectory.appendingPathComponent(inputURL.lastPathComponent)
-            try FileManager.default.copyItem(at: inputURL, to: stagedBAMURL)
-
-            var stagedIndexURL: URL?
-            if let sourceIndexURL = existingAlignmentIndex(for: inputURL) {
-                let destination = tempDirectory.appendingPathComponent(sourceIndexURL.lastPathComponent)
-                try FileManager.default.copyItem(at: sourceIndexURL, to: destination)
-                stagedIndexURL = destination
-            } else {
-                if !globalOptions.quiet {
-                    print(formatter.info("Creating index..."))
-                }
-                let runner = NativeToolRunner.shared
-                let indexResult = try await runner.run(.samtools, arguments: ["index", stagedBAMURL.path], timeout: 3600)
-                guard indexResult.isSuccess else {
-                    print(formatter.error("Failed to index alignment. The file may need coordinate sorting first."))
-                    throw CLIExitCode.failure.exitCode
-                }
-                stagedIndexURL = URL(fileURLWithPath: stagedBAMURL.path + ".bai")
+            let alignmentsFolder = bundleURL.appendingPathComponent("alignments", isDirectory: true)
+            let entriesBefore = Set((try? FileManager.default.contentsOfDirectory(atPath: alignmentsFolder.path)) ?? [])
+            let outcome = await ImportCancellation.run { () async throws -> BAMImportService.ImportResult in
+                try await BAMImportService.importBAM(
+                    bamURL: inputURL,
+                    bundleURL: bundleURL,
+                    name: trackName,
+                    progressHandler: { progress, message in
+                        emitter.emitProgress(max(0.0, min(1.0, progress)), message: message)
+                    },
+                    provenanceCommand: command
+                )
             }
-            guard let resolvedStagedIndexURL = stagedIndexURL,
-                  FileManager.default.fileExists(atPath: resolvedStagedIndexURL.path) else {
-                print(formatter.error("Could not produce an index for the alignment."))
+
+            switch outcome {
+            case .success(let imported):
+                emitter.emitComplete(
+                    attachedTo: bundleURL,
+                    message: "\(imported.mappedReads + imported.unmappedReads) reads imported"
+                )
+                if !globalOptions.quiet {
+                    printHumanLine("", eventsOn: eventsOn)
+                    printHumanLine(formatter.header("Summary"), eventsOn: eventsOn)
+                    printHumanLine("", eventsOn: eventsOn)
+                    printHumanLine(formatter.keyValueTable([
+                        ("Track ID", imported.trackInfo.id),
+                        ("Track name", imported.trackInfo.name),
+                        ("Mapped reads", formatNumber(imported.mappedReads)),
+                        ("Unmapped reads", formatNumber(imported.unmappedReads)),
+                    ]), eventsOn: eventsOn)
+                    printHumanLine("", eventsOn: eventsOn)
+                    printHumanLine(
+                        formatter.success("BAM import complete: attached '\(imported.trackInfo.name)' to \(bundleURL.lastPathComponent)"),
+                        eventsOn: eventsOn
+                    )
+                }
+            case .failure(let error) where error is CancellationError:
+                removeNewEntries(in: alignmentsFolder, notIn: entriesBefore)
+                throw await ImportCancellation.finish(
+                    emitter: emitter,
+                    command: "import bam",
+                    parameters: ["input": .file(inputURL), "bundle": .file(bundleURL)],
+                    recordDirectory: ProjectTempDirectory.findProjectRoot(bundleURL) ?? bundleURL.deletingLastPathComponent(),
+                    startedAt: startedAt
+                )
+            case .failure(let error):
+                reportFailure(error.localizedDescription, formatter: formatter, emitter: emitter, eventsOn: eventsOn)
                 throw CLIExitCode.failure.exitCode
             }
+        }
 
-            let outputTrackID = "aln_\(UUID().uuidString.prefix(8))"
-            let trackName = name ?? inputURL.deletingPathExtension().lastPathComponent
-            let service = PreparedAlignmentAttachmentService()
-            let request = PreparedAlignmentAttachmentRequest(
-                bundleURL: bundleURL,
-                stagedBAMURL: stagedBAMURL,
-                stagedIndexURL: resolvedStagedIndexURL,
-                outputTrackID: outputTrackID,
-                outputTrackName: trackName,
-                relativeDirectory: "alignments/imported",
-                format: format
-            )
-            let attachment = try await service.attach(request: request)
+        /// Tells the person, or the app's row, why the import stopped.
+        private func reportFailure(
+            _ message: String,
+            formatter: TerminalFormatter,
+            emitter: ImportCLIEventEmitter,
+            eventsOn: Bool
+        ) {
+            if eventsOn {
+                emitter.emitFailed(message)
+            } else {
+                print(formatter.error(message))
+            }
+        }
 
-            try await CLIProvenanceSupport.recordSingleStepRun(
-                name: "lungfish import bam",
-                parameters: bamProvenanceParameters(inputURL: inputURL),
-                defaults: bamProvenanceDefaults(),
-                resolved: [
-                    "bundle": .string(bundleURL.path),
-                    "trackId": .string(outputTrackID),
-                    "trackName": .string(trackName),
-                    "mappedReads": .integer(Int(attachment.mappedReads)),
-                    "unmappedReads": .integer(Int(attachment.unmappedReads))
-                ],
-                toolName: "lungfish import bam",
-                toolVersion: LungfishCLI.configuration.version,
-                command: [CLICommandIdentity.executableName, "import", "bam", inputURL.path, "--output-dir", bundleURL.path]
-                    + (name.map { ["--name", $0] } ?? []),
-                inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: alignmentFileFormat(forExtension: ext), role: .input)],
-                outputs: [
-                    ProvenanceRecorder.fileRecord(url: attachment.bamURL, format: alignmentFileFormat(forExtension: ext), role: .output),
-                    ProvenanceRecorder.fileRecord(url: attachment.indexURL, format: .unknown, role: .index)
-                ],
-                exitCode: 0,
-                wallTime: runClock.elapsed,
-                stderr: nil,
-                status: .completed,
-                outputDirectory: bundleURL
-            )
-
-            print("")
-            print(formatter.header("Summary"))
-            print("")
-            print(formatter.keyValueTable([
-                ("Track ID", outputTrackID),
-                ("Track name", trackName),
-                ("Mapped reads", formatNumber(attachment.mappedReads)),
-                ("Unmapped reads", formatNumber(attachment.unmappedReads)),
-            ]))
-            print("")
-            print(formatter.success("BAM import complete: attached '\(trackName)' to \(bundleURL.lastPathComponent)"))
+        /// Removes what a cancelled run added to `folder`, the entries it did not hold before the run.
+        private func removeNewEntries(in folder: URL, notIn before: Set<String>) {
+            let now = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+            for entry in now where !before.contains(entry) {
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent(entry))
+            }
         }
 
         /// Copies a companion index file (.bai, .csi, .crai) if one exists next to the input.

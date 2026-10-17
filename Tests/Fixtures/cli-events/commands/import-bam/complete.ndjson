@@ -1,0 +1,12 @@
+{"event":"start","message":"Started alignment import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Validating alignment file...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Sorting alignment into bundle...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Indexing sorted alignment...","progress":0.12,"schemaVersion":2}
+{"event":"progress","message":"Alignment prepared.","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"Collecting chromosome statistics...","progress":0.25,"schemaVersion":2}
+{"event":"progress","message":"Collecting alignment statistics...","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Parsing read group information...","progress":0.62,"schemaVersion":2}
+{"event":"progress","message":"Creating metadata database...","progress":0.74,"schemaVersion":2}
+{"event":"progress","message":"Updating manifest...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Import complete.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"200 reads imported","output":"\/work\/Project.lungfish\/Reference Sequences\/genome.lungfishref","outputs":["\/work\/Project.lungfish\/Reference Sequences\/genome.lungfishref"],"progress":1,"schemaVersion":2}
