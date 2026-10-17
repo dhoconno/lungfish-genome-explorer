@@ -69,19 +69,15 @@ extension BuildDbCommand {
         stderr: String? = nil,
         sampleDirectories: [URL] = [],
         additionalSteps: [ProvenanceStep] = [],
+        writtenFiles: [ProvenanceFileDescriptor] = [],
         includeOutputRecords: Bool = true,
         writesFolderRecord: Bool = true,
         events: BuildDbEventSink
     ) async throws -> ProvenanceEnvelope {
         let startedAt = runClock.startedAt
         let completedAt = runClock.now
-        let outputRecords = includeOutputRecords
-            ? buildDbOutputRecords(
-                tool: tool,
-                resultURL: resultURL,
-                dbURL: dbURL,
-                sampleDirectories: sampleDirectories
-            )
+        let outputDescriptors = includeOutputRecords
+            ? buildDbOutputRecords(tool: tool, dbURL: dbURL, resultURL: resultURL, written: writtenFiles)
             : []
         let command = buildDbReplayArgv(
             tool: tool,
@@ -95,7 +91,6 @@ extension BuildDbCommand {
         let toolVersion = WorkflowRun.currentAppVersion
         let wallTime = max(0, completedAt.timeIntervalSince(startedAt))
         let inputDescriptors = inputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
-        let outputDescriptors = outputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
         let step = ProvenanceStep(
             toolName: toolName,
             toolVersion: toolVersion,
@@ -268,40 +263,32 @@ extension BuildDbCommand {
         }
     }
 
+    /// The outputs of the run's own step: the database, the BAMs and indexes that `build-db esviritu` moved and marked,
+    /// and `written`, the files the run's cleanup wrote or rewrote with the digests its steps state. `build-db kraken2`
+    /// names no file it finds, since a per-read output, index or result sidecar that its cleanup did not write is not
+    /// its output. Such a file is an input of the step with its digest (`buildDbInputRecords`), and no sidecar is
+    /// written beside it, so it never gets `build-db` as its producer (2.11 B62, R-PRODUCER, BIO 6).
     private static func buildDbOutputRecords(
         tool: BuildDbProvenanceTool,
-        resultURL: URL,
         dbURL: URL,
-        sampleDirectories: [URL] = []
-    ) -> [FileRecord] {
+        resultURL: URL,
+        written: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
         var urls = [dbURL]
-        switch tool {
-        case .taxTriage:
-            break
-        case .esViritu:
+        if tool == .esViritu {
             urls.append(contentsOf: buildDbFileURLs(in: resultURL) { url in
                 let name = url.lastPathComponent
                 return url.pathComponents.contains("bams")
                     && (name.hasSuffix(".bam") || name.hasSuffix(".bam.bai") || name.hasSuffix(".bam.csi"))
             })
-        case .kraken2:
-            urls.append(contentsOf: buildDbSearchRoots(
-                tool: tool,
-                resultURL: resultURL,
-                sampleDirectories: sampleDirectories
-            ).flatMap { root in
-                buildDbFileURLs(in: root) { url in
-                    let name = url.lastPathComponent
-                    return name == "classification.kraken"
-                        || name == "classification.kraken.idx.sqlite"
-                        || name == "classification.kraken.gz"
-                        || name == "classification.kraken.gz.idx.sqlite"
-                        || name == "classification-result.json"
-                }
-            })
         }
-        return uniqueExistingFileURLs(urls).map { url in
-            ProvenanceRecorder.fileRecord(url: url, role: role(for: url, tool: tool, output: true))
+        let found = uniqueExistingFileURLs(urls).map { url in
+            ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: url, role: role(for: url, tool: tool, output: true)))
+        }
+        var seen = Set(found.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        return found + written.filter { file in
+            FileManager.default.fileExists(atPath: file.path)
+                && seen.insert(URL(fileURLWithPath: file.path).standardizedFileURL.path).inserted
         }
     }
 

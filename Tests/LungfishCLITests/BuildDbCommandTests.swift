@@ -1063,10 +1063,10 @@ final class BuildDbCommandTests: XCTestCase {
 
         let provenance = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
         let provenanceOutputPaths = Set(provenance.outputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
-        XCTAssertTrue(provenanceOutputPaths.contains(rawOutput.standardizedFileURL.path))
-
-        let rawSidecar = ProvenanceRecorder.fileSidecarURL(for: rawOutput.standardizedFileURL)
-        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(fromSidecar: rawSidecar))
+        // 2.11 B62. The run kept the raw output and did not write it, so it names it as an input, with no sidecar beside it.
+        XCTAssertFalse(provenanceOutputPaths.contains(rawOutput.standardizedFileURL.path))
+        XCTAssertTrue(provenance.files.contains { $0.role == .input && URL(fileURLWithPath: $0.path).standardizedFileURL == rawOutput.standardizedFileURL })
+        XCTAssertNil(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: rawOutput.standardizedFileURL)))
     }
 
     /// Verifies that --no-cleanup preserves all intermediate directories.

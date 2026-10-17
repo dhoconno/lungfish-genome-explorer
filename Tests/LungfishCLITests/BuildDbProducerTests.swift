@@ -5,8 +5,9 @@
 // Phase 2.11 lane B62 (SW4, R-PRODUCER, FXK2 follow-up 2, plan decision S9). `build-db kraken2` names as outputs of
 // its step every per-read output, index and result sidecar it finds, whoever wrote it, and writes a sidecar beside each
 // one that has none or a build-db one (`BuildDbCommand+Provenance.swift`, `buildDbOutputRecords`). A file it did not
-// write so carries `lungfish build-db kraken2` as its producer, which a sidebar copy spreads (BIO 4, 6). A test whose
-// name ends in `KnownDefect` asserts that defect as it is at the base, and the commit that fixes it changes the test.
+// write so carried `lungfish build-db kraken2` as its producer, which a sidebar copy spreads (BIO 4, 6). M1 pinned that
+// at the base in three `KnownDefect` tests. M2 names as outputs only `kraken2.sqlite` and the files the compaction wrote
+// or rewrote, from `KrakenOutputCompactor.compact`'s return value, and every other matched file stays an input.
 //
 // Every case runs over a copy of `Tests/Fixtures/kraken2-mini`, three sample folders that each keep the raw per-read
 // output `classification.kraken`, its report and `classification-result.json`, and no record.
@@ -35,27 +36,23 @@ final class BuildDbProducerTests: XCTestCase {
 
     // MARK: - A run that wrote nothing in the sample folders
 
-    /// `--no-cleanup` writes `kraken2.sqlite` and nothing in a sample folder, yet its step names each kept raw output and
-    /// each result sidecar as its outputs and writes a `build-db kraken2` sidecar beside each.
-    func testANoCleanupRunNamesTheFilesItKeptAsItsOutputsKnownDefect() async throws {
+    /// `--no-cleanup` writes `kraken2.sqlite` and nothing in a sample folder, so its step names only the database as its
+    /// output. Each kept raw output and result sidecar is an input of the step with the digest on disk, and no sidecar
+    /// sits beside it. At the base the step named both as its outputs and wrote a `build-db kraken2` sidecar beside each.
+    func testANoCleanupRunNamesOnlyTheDatabaseAsItsOutput() async throws {
         let result = try copyOfKraken2Mini()
 
         try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "--no-cleanup", "-q"]).run()
 
         let build = try buildStep(of: result)
-        XCTAssertEqual(names(build.outputs, in: result), Self.outputs([Self.sidecar, Self.rawOutput]))
-        for sample in Self.samples {
-            for name in [Self.rawOutput, Self.sidecar] {
-                let file = result.appendingPathComponent("\(sample)/\(name)")
-                XCTAssertEqual(sidecarRecord(of: file)?.workflowName, Self.workflowName, "\(sample)/\(name) has a build-db sidecar")
-            }
-        }
+        XCTAssertEqual(names(build.outputs, in: result), Self.outputs([]))
+        assertNamedAsInputsOnly(Self.samples.flatMap { ["\($0)/\(Self.rawOutput)", "\($0)/\(Self.sidecar)"] }, in: result)
     }
 
-    /// A rerun with `--force` over a result an earlier run compacted writes no file in a sample folder, yet its step
-    /// names the gzip copies, their indexes and the result sidecars the earlier run wrote, and replaces the earlier
-    /// run's sidecar beside each with its own.
-    func testAForcedRerunNamesTheFilesAnEarlierRunWroteAsItsOutputsKnownDefect() async throws {
+    /// A rerun with `--force` over a result an earlier run compacted writes no file in a sample folder, so its step names
+    /// only the database as its output, and the sidecar beside each gzip copy, index and result sidecar is still the
+    /// earlier run's, which wrote them. At the base the rerun named them as its outputs and replaced those sidecars.
+    func testAForcedRerunKeepsTheEarlierRunAsTheProducerOfWhatItWrote() async throws {
         let result = try copyOfKraken2Mini()
         try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
         let first = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result)).id
@@ -64,28 +61,31 @@ final class BuildDbProducerTests: XCTestCase {
 
         let second = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result))
         XCTAssertNotEqual(second.id, first)
-        XCTAssertEqual(names(try buildStep(of: result).outputs, in: result), Self.compactedOutputs)
-        for sample in Self.samples {
-            let gzip = result.appendingPathComponent("\(sample)/classification.kraken.gz")
-            XCTAssertEqual(sidecarRecord(of: gzip)?.id, second.id, "\(sample)'s gzip copy names the rerun as its producer")
+        XCTAssertEqual(names(try buildStep(of: result).outputs, in: result), Self.outputs([]))
+        for name in Self.compactedOutputs where name != "kraken2.sqlite" {
+            let file = result.appendingPathComponent(name)
+            XCTAssertEqual(sidecarRecord(of: file)?.id, first, "\(name) names the earlier run, which wrote it, as its producer")
+            XCTAssertTrue(
+                try buildStep(of: result).inputs.contains { names([$0], in: result) == [name] && $0.checksumSHA256 == ProvenanceRecorder.sha256(of: file) },
+                "the rerun names \(name) as an input with the digest on disk"
+            )
         }
+        XCTAssertEqual(sidecarRecord(of: result.appendingPathComponent("kraken2.sqlite"))?.id, second.id, "the rerun wrote the database")
     }
 
     /// Each sample folder holds the classifier's record, which names the raw output and the result sidecar, so the
-    /// cleanup keeps every folder as it is (2.10 FXA2). The run's step still names both files of each folder as its
-    /// outputs and writes a `build-db kraken2` sidecar beside each.
-    func testAFolderTheCleanupKeptNamesTheClassifierOutputsAsBuildDbOutputsKnownDefect() async throws {
+    /// cleanup keeps every folder as it is (2.10 FXA2). The run's step names only the database as its output, and both
+    /// files of each folder are inputs with the digest on disk and no sidecar. At the base the step named them as its
+    /// outputs and wrote a `build-db kraken2` sidecar beside each.
+    func testAFolderTheCleanupKeptNamesItsFilesAsInputs() async throws {
         let result = try copyOfKraken2Mini()
         try writeClassifierRecords(in: result)
 
         try await BuildDbCommand.Kraken2Subcommand.parse([result.path, "-q"]).run()
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.appendingPathComponent("SRR35517702/\(Self.rawOutput)").path))
-        XCTAssertEqual(names(try buildStep(of: result).outputs, in: result), Self.outputs([Self.sidecar, Self.rawOutput]))
-        for sample in Self.samples {
-            let raw = result.appendingPathComponent("\(sample)/\(Self.rawOutput)")
-            XCTAssertEqual(sidecarRecord(of: raw)?.workflowName, Self.workflowName, "\(sample)'s raw output has a build-db sidecar")
-        }
+        XCTAssertEqual(names(try buildStep(of: result).outputs, in: result), Self.outputs([]))
+        assertNamedAsInputsOnly(Self.samples.flatMap { ["\($0)/\(Self.rawOutput)", "\($0)/\(Self.sidecar)"] }, in: result)
     }
 
     // MARK: - A run that compacts
@@ -108,6 +108,15 @@ final class BuildDbProducerTests: XCTestCase {
             let sidecar = sidecarRecord(of: URL(fileURLWithPath: output.path))
             XCTAssertEqual(sidecar?.id, record.id, "\(output.path) has the run's sidecar")
             XCTAssertEqual(output.checksumSHA256, ProvenanceRecorder.sha256(of: URL(fileURLWithPath: output.path)), output.path)
+        }
+        // The run's step names each file the compaction wrote as the compaction's step names it, hashed once (SWIFT 5),
+        // so the run level names each file once. At the base it named each gzip copy and index twice.
+        for written in record.steps.filter({ ["gzip", "lungfish-kraken2-index"].contains($0.toolName) }).flatMap(\.outputs) {
+            XCTAssertTrue(build.outputs.contains(written), "the run's step names \(written.path) as the compaction does")
+        }
+        for (label, files) in [("outputs", record.outputs), ("files", record.files)] {
+            let named = files.map { "\($0.role.rawValue) \(names([$0], in: result).joined())" }
+            XCTAssertEqual(named.count, Set(named).count, "the run level's \(label) name each file once, \(named.sorted())")
         }
     }
 
@@ -211,6 +220,31 @@ final class BuildDbProducerTests: XCTestCase {
     private func buildStep(of result: URL) throws -> ProvenanceStep {
         let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result), "the result folder's record")
         return try XCTUnwrap(record.steps.last { $0.toolName == Self.workflowName }, "the run's own step")
+    }
+
+    /// Each of `relativePaths` in `result` is an input of the run's step with the digest on disk, is not among its outputs
+    /// or the run level's, and has no sidecar beside it (BIO 6, added check 3).
+    private func assertNamedAsInputsOnly(_ relativePaths: [String], in result: URL, file: StaticString = #filePath, line: UInt = #line) {
+        guard let record = ProvenanceRecorder.loadEnvelope(from: result), let build = try? buildStep(of: result) else {
+            return XCTFail("the result folder holds the run's record", file: file, line: line)
+        }
+        for relativePath in relativePaths {
+            let url = result.appendingPathComponent(relativePath)
+            let digest = ProvenanceRecorder.sha256(of: url)
+            XCTAssertNotNil(digest, relativePath, file: file, line: line)
+            XCTAssertTrue(
+                build.inputs.contains { names([$0], in: result) == [relativePath] && $0.checksumSHA256 == digest },
+                "the run names \(relativePath) as an input with the digest on disk", file: file, line: line
+            )
+            XCTAssertFalse(
+                (build.outputs + record.outputs).contains { names([$0], in: result) == [relativePath] },
+                "the run names \(relativePath), which it did not write, as an output", file: file, line: line
+            )
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: url).path),
+                "a sidecar sits beside \(relativePath), which the run did not write", file: file, line: line
+            )
+        }
     }
 
     private func sidecarRecord(of file: URL) -> ProvenanceEnvelope? {

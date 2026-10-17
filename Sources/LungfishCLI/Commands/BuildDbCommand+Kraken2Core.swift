@@ -93,7 +93,7 @@ extension BuildDbCommand {
                 sampleDirectories: explicitSampleDirectories
             )
             let databaseSnapshot = try BuildDbDatabaseSnapshot.capture(dbURL: dbURL)
-            var cleanupSteps: [ProvenanceStep] = []
+            var cleanup = Kraken2Cleanup()
 
             do {
                 // 1. Enumerate sample subdirectories and parse kreport files
@@ -121,7 +121,7 @@ extension BuildDbCommand {
                 events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
                 if !options.noCleanup {
-                    cleanupSteps = try performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
+                    cleanup = try performCleanup(resultURL: resultURL, sampleDirectories: explicitSampleDirectories, events: events)
                 }
 
                 try events.checkCancellation()
@@ -135,7 +135,8 @@ extension BuildDbCommand {
                     runClock: runClock,
                     inputRecords: provenanceInputs,
                     sampleDirectories: explicitSampleDirectories,
-                    additionalSteps: cleanupSteps,
+                    additionalSteps: cleanup.steps,
+                    writtenFiles: cleanup.written,
                     writesFolderRecord: options.writesFolderRecord,
                     events: events
                 )
@@ -164,7 +165,7 @@ extension BuildDbCommand {
                     inputRecords: provenanceInputs,
                     error: error,
                     sampleDirectories: explicitSampleDirectories,
-                    additionalSteps: cleanupSteps,
+                    additionalSteps: cleanup.steps,
                     includeOutputRecords: false,
                     writesFolderRecord: options.writesFolderRecord,
                     events: events
@@ -419,6 +420,15 @@ extension BuildDbCommand {
 
         // MARK: - Post-Build Cleanup
 
+        /// What the cleanup did. `steps` go in the run's record. `written` names each file the cleanup wrote or rewrote,
+        /// the gzip copy and index that `KrakenOutputCompactor.compact` returns and each result sidecar it rewrote, as
+        /// the steps name it, with the digest it has now. The run's own step names these and `kraken2.sqlite` as its
+        /// outputs and every other file it read as an input, so no file it did not write gets it as a producer (2.11 B62).
+        struct Kraken2Cleanup {
+            var steps: [ProvenanceStep] = []
+            var written: [ProvenanceFileDescriptor] = []
+        }
+
         /// Compacts Kraken2 intermediate files while preserving kreport,
         /// database, and the per-read classification output in retained form.
         ///
@@ -435,8 +445,8 @@ extension BuildDbCommand {
         /// step can be added to a record that is not this run's (ARCH's ruling on A45 M3, section 4, and the
         /// A39 review). A folder with no such record compacts as before.
         ///
-        /// Returns the steps of the run's record, the index and gzip of each compacted output and
-        /// one removal step that names every removed file with the digest it had, because the
+        /// Returns the files it wrote or rewrote and the steps of the run's record, the index and gzip of each compacted
+        /// output and one removal step that names every removed file with the digest it had, because the
         /// classifier's record names the per-read output it wrote (P1 of Phase 2.8, row 423). The removal step also
         /// names the sidecar of each folder it compacted, with the digest it had before the rewrite, since that
         /// file is still there while this run's inputs and the classifier's record state the old digest (2.10 B34).
@@ -447,10 +457,11 @@ extension BuildDbCommand {
         /// removal step once the last folder ends, so a caller that writes its own record keeps them (lane S33).
         private static func performCleanup(
             resultURL: URL, sampleDirectories: [URL] = [], events: BuildDbEventSink
-        ) throws -> [ProvenanceStep] {
+        ) throws -> Kraken2Cleanup {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
             var steps: [ProvenanceStep] = []
+            var written: [ProvenanceFileDescriptor] = []
             var removed: [ProvenanceFileDescriptor] = []
             // The result sidecars a compaction rewrote in place, as they were before. Each is still there, so the
             // filter on `removed` below would drop it.
@@ -462,7 +473,7 @@ extension BuildDbCommand {
                 guard let contents = try? fm.contentsOfDirectory(
                     at: resultURL,
                     includingPropertiesForKeys: [.isDirectoryKey]
-                ) else { return [] }
+                ) else { return Kraken2Cleanup() }
 
                 cleanupDirs = [resultURL] + contents
                     .filter { url in
@@ -527,19 +538,25 @@ extension BuildDbCommand {
                         // Hashed once, before the compaction removes it.
                         let raw = try ProvenanceFileDescriptor.file(url: krakenOutput, format: .text, role: .input)
                         let clock = ProvenanceRunClock()
-                        let compressedOutput = try KrakenOutputCompactor.compact(
+                        let compaction = try KrakenOutputCompactor.compact(
                             rawURL: krakenOutput,
                             includeUnclassifiedInIndex: false,
                             removeRawOnSuccess: true
-                        ).compressedURL
-                        let compaction = compactionSteps(raw: raw, compressed: compressedOutput, clock: clock)
-                        steps += compaction
+                        )
+                        let compressedOutput = compaction.compressedURL
+                        let folderSteps = compactionSteps(raw: raw, compressed: compressedOutput, clock: clock)
+                        steps += folderSteps
                         // The folder's two steps ended whole, so they go over now and a cancel before a later
                         // folder keeps them (2.9 R6, lane S33).
-                        compaction.forEach(events.step)
+                        folderSteps.forEach(events.step)
+                        written += writtenFiles(compaction.writtenFiles, namedBy: folderSteps)
                         removed.append(raw)
                         if let before = updateClassificationResultSidecar(in: dir, outputURL: compressedOutput, events: events) {
                             replaced.append(before)
+                            // The rewrite's new bytes, hashed once, which the run's step names as its output.
+                            if let rewritten = try? ProvenanceFileDescriptor.file(url: URL(fileURLWithPath: before.path), format: .json, role: .output) {
+                                written.append(rewritten)
+                            }
                         }
                         let compressedSize = fileSize(compressedOutput) ?? 0
                         freedBytes += max(0, originalSize - compressedSize)
@@ -561,7 +578,17 @@ extension BuildDbCommand {
             if let line = BuildDbCommand.cleanupLine(freedBytes: freedBytes) { events.text(line) }
             let removal = removalStep()
             if let removal { events.step(removal) }
-            return steps + (removal.map { [$0] } ?? [])
+            return Kraken2Cleanup(steps: steps + (removal.map { [$0] } ?? []), written: written)
+        }
+
+        /// Each of `files`, which one compaction wrote, as `steps` name it with its digest, so that it is hashed once
+        /// (SWIFT 5). A file that no step names, because hashing it for its step failed, is hashed here once more.
+        private static func writtenFiles(_ files: [URL], namedBy steps: [ProvenanceStep]) -> [ProvenanceFileDescriptor] {
+            let named = steps.flatMap(\.outputs)
+            return files.compactMap { url in
+                named.first { URL(fileURLWithPath: $0.path).standardizedFileURL == url.standardizedFileURL }
+                    ?? (try? ProvenanceFileDescriptor.file(url: url, role: url.lastPathComponent.hasSuffix(".idx.sqlite") ? .index : .output))
+            }
         }
 
         /// The index and gzip steps of one compaction, as the classifier records its own
