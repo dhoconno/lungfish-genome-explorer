@@ -71,7 +71,9 @@ extension ClassificationPipeline {
             )
 
             let gzipClock = ProvenanceRunClock()
-            try gzipCopy(source: rawURL, destination: compressedURL)
+            // The one gzip helper writes a part file and names the copy only when it is whole. The recorded command
+            // below replays it as `/bin/sh -c`, which is what a user can run by hand.
+            try DurableGzip.compress(source: rawURL, to: compressedURL)
             let gzipCompletedAt = gzipClock.now
             gzipStepID = await provenanceRecorder.recordStep(
                 runID: runID,
@@ -118,31 +120,4 @@ extension ClassificationPipeline {
         return ["/bin/sh", "-c", command]
     }
 
-    private func gzipCopy(source: URL, destination: URL) throws {
-        let fm = FileManager.default
-        try? fm.removeItem(at: destination)
-        fm.createFile(atPath: destination.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: destination)
-        defer { outputHandle.closeFile() }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-c", source.path]
-        process.standardOutput = outputHandle
-        let stderr = Pipe()
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let stderrText = String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
-            throw ClassificationPipelineError.kraken2Failed(
-                exitCode: process.terminationStatus,
-                stderr: stderrText
-            )
-        }
-    }
 }

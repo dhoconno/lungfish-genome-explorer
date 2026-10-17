@@ -165,7 +165,7 @@ public enum MetagenomicsImportService {
                 rawURL: rawURL,
                 includeUnclassifiedInIndex: false,
                 removeRawOnSuccess: true
-            )
+            ).compressedURL
         } catch {
             logger.warning("Failed to compact imported Kraken2 output; retaining raw output: \(error.localizedDescription, privacy: .public)")
             return rawURL

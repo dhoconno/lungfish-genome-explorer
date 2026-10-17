@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Errors raised while compacting Kraken2 per-read output.
 public enum KrakenOutputCompactorError: Error, LocalizedError, Sendable {
@@ -22,6 +23,18 @@ public enum KrakenOutputCompactorError: Error, LocalizedError, Sendable {
 
 /// Utilities for retaining Kraken2 per-read output in a compact, queryable form.
 public enum KrakenOutputCompactor {
+    /// The files one compaction wrote.
+    public struct Compaction: Sendable, Equatable {
+        /// The gzip copy of the raw per-read output.
+        public let compressedURL: URL
+        /// The classified-read SQLite index beside the gzip copy.
+        public let indexURL: URL
+
+        /// Every file the compaction wrote, the gzip copy first. A record step that names the copy or the index
+        /// names both, since the compaction made them together.
+        public var writtenFiles: [URL] { [compressedURL, indexURL] }
+    }
+
     /// Builds a classified-read SQLite index, writes a gzip copy of the raw
     /// Kraken2 output, and optionally removes the raw input after both retained
     /// artifacts exist.
@@ -34,13 +47,13 @@ public enum KrakenOutputCompactor {
     ///     classified-only indexes and rely on the gzip file for unclassified
     ///     extraction fallback.
     ///   - removeRawOnSuccess: Remove `rawURL` only after index and gzip succeed.
-    /// - Returns: The compressed output URL.
+    /// - Returns: The gzip copy and the index, the two files the compaction wrote.
     public static func compact(
         rawURL: URL,
         compressedURL explicitCompressedURL: URL? = nil,
         includeUnclassifiedInIndex: Bool = false,
         removeRawOnSuccess: Bool = true
-    ) throws -> URL {
+    ) throws -> Compaction {
         let fm = FileManager.default
         let compressedURL = explicitCompressedURL ?? rawURL.appendingPathExtension("gz")
         let indexURL = KrakenIndexDatabase.indexURL(for: compressedURL)
@@ -60,7 +73,7 @@ public enum KrakenOutputCompactor {
                 try fm.removeItem(at: rawURL)
             }
 
-            return compressedURL
+            return Compaction(compressedURL: compressedURL, indexURL: indexURL)
         } catch {
             try? fm.removeItem(at: compressedURL)
             removeSQLiteDatabase(at: indexURL)
@@ -68,32 +81,13 @@ public enum KrakenOutputCompactor {
         }
     }
 
-    /// Streams `source` through `/usr/bin/gzip -c` into `destination`.
+    /// Streams `source` through `/usr/bin/gzip -c` and publishes the result as `destination` through
+    /// ``DurableGzip``, so the name holds a whole copy or what it held before, never a cut one.
     public static func gzipCopy(source: URL, destination: URL) throws {
-        let fm = FileManager.default
-        try? fm.removeItem(at: destination)
-        fm.createFile(atPath: destination.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: destination)
-        defer { outputHandle.closeFile() }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-c", source.path]
-        process.standardOutput = outputHandle
-        let stderr = Pipe()
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let stderrText = String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
-            throw KrakenOutputCompactorError.gzipFailed(
-                exitCode: process.terminationStatus,
-                stderr: stderrText
-            )
+        do {
+            try DurableGzip.compress(source: source, to: destination)
+        } catch DurableGzipError.gzipFailed(let exitCode, let stderr) {
+            throw KrakenOutputCompactorError.gzipFailed(exitCode: exitCode, stderr: stderr)
         }
     }
 

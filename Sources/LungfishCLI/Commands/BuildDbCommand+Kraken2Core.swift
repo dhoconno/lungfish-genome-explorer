@@ -531,7 +531,7 @@ extension BuildDbCommand {
                             rawURL: krakenOutput,
                             includeUnclassifiedInIndex: false,
                             removeRawOnSuccess: true
-                        )
+                        ).compressedURL
                         let compaction = compactionSteps(raw: raw, compressed: compressedOutput, clock: clock)
                         steps += compaction
                         // The folder's two steps ended whole, so they go over now and a cancel before a later
