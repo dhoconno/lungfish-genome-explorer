@@ -4,10 +4,10 @@
 //
 // Phase 2.10 lane Q-SIGN, family L5 (the ruling of the A52 whole-lane review, Q6). The cases of
 // DatabaseBrowserSRARowParityReplayTests run with no signing key. This one runs the row's ENA mirror way again with
-// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side A (the window's route
-// before lane A45, the hidden key's `legacy` value), side C (`fetch sra download --bundle`) and side C' (the recorded
-// command), and fails when the CLI route leaves unsigned a record the in-process route signs, or the bundle's record
-// that the result opens first. The class declares nothing and compares no counts, since a signed record adds two
+// `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side C (`fetch sra download
+// --bundle`) and side C' (the recorded command), and fails when the replay leaves unsigned a record the row signs,
+// or the bundle's record that the result opens first. Side A, the in-process route, went with its key in Phase 2.11
+// (K3). The class declares nothing and compares no counts, since a signed record adds two
 // files to each root.
 //
 // It launches the built lungfish-cli and the managed tools of the import, so its name ends in ReplayTests and it
@@ -65,17 +65,14 @@ final class DatabaseBrowserSRARowSigningReplayTests: XCTestCase {
             ],
             unset: ["NCBI_API_KEY"])
         defer { saved.restore() }
-        let legacy = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowSigningReplayTests")
-        legacy.defaults.set(SRARowDownloadRoute.legacy.rawValue, forKey: SRARowDownloadRouteSettings.defaultsKey)
-        let viaCLI = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowSigningReplayTests")
-        viaCLI.defaults.set(SRARowDownloadRoute.cli.rawValue, forKey: SRARowDownloadRouteSettings.defaultsKey)
+        let suite = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowSigningReplayTests")
 
         let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(180))
-        let runs = try await harness.runSigned(
+        let runs = try await ReadsRouteParity.runSignedCAndCPrime(
+            harness,
             in: root.appendingPathComponent("case", isDirectory: true),
             fixture: DatabaseBrowserNucleotideRowParityReplayTests.makeProject,
-            sideA: { await Family.row(in: $0, suite: legacy.name) },
-            sideC: { await Family.row(in: $0, suite: viaCLI.name) }
+            sideC: { await Family.row(in: $0, suite: suite.name) }
         )
         for run in runs.all {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")

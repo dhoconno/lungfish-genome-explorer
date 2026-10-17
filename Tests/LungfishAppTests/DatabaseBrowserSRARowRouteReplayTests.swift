@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A45 M3, panel decision C4 and UX 7. With the hidden key on `cli` and a project in the
+// Phase 2.10 lane A45 M3, panel decision C4 and UX 7. With a project in the
 // route context, the SRA row begins before the import sheet with no command, and `startSRADownloadTask`
 // sets one line for each run once the sheet is confirmed. The row then launches `lungfish-cli fetch sra
 // download` for the first run. A stand-in program takes the place of the CLI here, notes its arguments and
@@ -46,7 +46,6 @@ final class DatabaseBrowserSRARowRouteReplayTests: XCTestCase {
         defer { if let prior { setenv("LUNGFISH_CLI_PATH", prior, 1) } else { unsetenv("LUNGFISH_CLI_PATH") } }
 
         let suite = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowRouteReplayTests")
-        suite.defaults.set(SRARowDownloadRoute.cli.rawValue, forKey: SRARowDownloadRouteSettings.defaultsKey)
         let viewModel = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(apiKey: nil, environment: [:]), enaService: ENAService(environment: [:]),
             sraDownloadSuiteName: suite.name)
@@ -119,7 +118,6 @@ final class DatabaseBrowserSRARowRouteReplayTests: XCTestCase {
         parent.beginSheet(browser) { _ in }
         let client = MockHTTPClient(responses: [Data("[]".utf8)])
         let suite = makeTestDefaultsSuite(prefix: "sra-browser-confirm")
-        suite.defaults.set("cli", forKey: SRARowDownloadRouteSettings.defaultsKey)
         let model = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(httpClient: client),
             enaService: ENAService(httpClient: client), sraDownloadSuiteName: suite.name)

@@ -17,8 +17,8 @@ import LungfishWorkflow
 ///
 /// Each case runs both surfaces against fresh copies of one scripted ENA and
 /// NCBI (`SRAScriptedArchives`) and the SRA Toolkit's recorded fasterq-dump
-/// output (`SRAToolkitRecordedRunner`). The window runs as
-/// `startENADownloadTask` runs one run: `SRAWindowRunDownload.stage`, then
+/// output (`SRAToolkitRecordedRunner`). The window's staging runs one run,
+/// `SRAWindowRunDownload.stage`, then
 /// the `import fastq` command its arguments name, in process, then
 /// `writeGUISRAFASTQImportProvenance`. The CLI runs `fetch sra download`, then
 /// `import fastq` with the same settings. No test reaches the network or
@@ -239,8 +239,8 @@ final class SRADownloadSurfaceParityTests: XCTestCase {
         let bundle: URL
     }
 
-    /// One run of the window's SRA download, as `startENADownloadTask` runs
-    /// each run of a batch.
+    /// One run of the window's SRA staging, as the in-process batch ran each
+    /// run before Phase 2.11 deleted it with its hidden key.
     private func windowDownload(
         _ run: String,
         archives: SRAScriptedArchives,

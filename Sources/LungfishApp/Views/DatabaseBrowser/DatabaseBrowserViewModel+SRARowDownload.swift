@@ -12,55 +12,7 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrowser")
 
-/// The route an SRA run of the browser's batch download takes (Phase 2.10 lane A45 M3, panel
-/// decision C4).
-enum SRARowDownloadRoute: String, Sendable, Equatable, CaseIterable {
-    /// The route before lane A45, kept for one release as the escape the hidden key names (C4). The app
-    /// downloads the run, runs the SRA Toolkit through `Process` when ENA cannot serve it, imports on
-    /// `CLIImportRunner` and writes the record after the import child exits
-    /// (`startENADownloadTask`). The records it writes differ from the CLI route's in the kinds the
-    /// parity class declares (`DatabaseBrowserSRARowParityReplayTests.declared`), and it states the
-    /// metadata sidecar's digest as the import child saw it, not as it stands (BIO ruling on lane A45
-    /// M3c, section b item 3). It goes in 2.11 with the key. The CLI route needs a project, because
-    /// the child publishes into the project's `Imports` folder, and a download with no project never
-    /// starts a row, since the browser refuses it (lane A60).
-    case legacy
-    /// The default. One `lungfish-cli fetch sra download <run> --bundle --project <project> <the
-    /// sheet's flags> --format json` child for each run, in order, which downloads, imports, writes
-    /// the record and publishes the bundle in its own process.
-    case cli
-}
-
-/// Reads the route of the SRA rows from the defaults it is given, so a test passes its own suite and
-/// never touches the user's defaults.
-struct SRARowDownloadRouteSettings {
-    /// The hidden key. It holds `cli` or `legacy`, or a Boolean that is true for the CLI route, for
-    /// example `defaults write <app id> DatabaseBrowserSRARowRoute legacy`.
-    static let defaultsKey = "DatabaseBrowserSRARowRoute"
-    /// The route of a key that is unset or holds a value this reader does not know.
-    static let defaultRoute: SRARowDownloadRoute = .cli
-
-    let defaults: UserDefaults
-
-    var route: SRARowDownloadRoute {
-        switch defaults.object(forKey: Self.defaultsKey) {
-        case let name as String:
-            return SRARowDownloadRoute(rawValue: name.lowercased()) ?? Self.defaultRoute
-        case let usesCLI as Bool:
-            return usesCLI ? .cli : .legacy
-        default:
-            return Self.defaultRoute
-        }
-    }
-}
-
 extension DatabaseBrowserViewModel {
-    /// The route of this browser's SRA rows, read from the defaults the view model was given
-    /// (`sraDownloadSuiteName`, nil for the standard defaults).
-    nonisolated var sraRowRoute: SRARowDownloadRoute {
-        SRARowDownloadRouteSettings(defaults: sraDownloadDefaults).route
-    }
-
     /// The arguments of `fetch sra download --bundle` for `accession` into `project`, with the import
     /// sheet's settings. The import's flags come from `sraImportCLIArguments`, the function the window
     /// builds its `import fastq` argv with, so the two never disagree. They never hold the NCBI key,
@@ -88,21 +40,22 @@ extension DatabaseBrowserViewModel {
             .joined(separator: "\n")
     }
 
-    /// Starts the download of the SRA runs `records` after the user confirmed the import sheet. On the
-    /// CLI route, with a project, each run is one `fetch sra download --bundle` child in order. The row
-    /// began before the sheet, so its command is set here with the sheet's flags. The legacy route takes
-    /// `startENADownloadTask`. A batch with no project never gets here, since the browser refuses it
-    /// before its row begins (lane A60).
+    /// Starts the download of the SRA runs `records` after the user confirmed the import sheet. Each run
+    /// is one `fetch sra download --bundle` child into the project, in order. The row began before the
+    /// sheet, so its command is set here with the sheet's flags. A batch with no project never gets
+    /// here, since the browser refuses it before its row begins (lane A60). If one ever does, the row
+    /// fails in the refusal's words and starts nothing, because the in-process download that took such
+    /// a batch went with the hidden key `DatabaseBrowserSRARowRoute` (Phase 2.11 K3).
     func startSRADownloadTask(
         records: [SearchResultRecord],
         importConfig: FASTQImportConfiguration,
         downloadCenterTaskID: UUID,
         totalCount: Int
     ) {
-        guard sraRowRoute == .cli, let context = routeContext, let projectURL = context.projectURL else {
-            startENADownloadTask(
-                records: records, importConfig: importConfig, downloadCenterTaskID: downloadCenterTaskID,
-                totalCount: totalCount)
+        guard let context = routeContext, let projectURL = context.projectURL else {
+            logger.error("startSRADownloadTask: No project for \(records.count) run(s), so nothing starts")
+            _ = DownloadCenter.shared.fail(
+                id: downloadCenterTaskID, detail: "Open or create a project before downloading SRA runs.")
             return
         }
         let preferNCBI = sraDownloadPreference() == .ncbi

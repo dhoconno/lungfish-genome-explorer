@@ -2329,8 +2329,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             }
 
                         case .ena:
-                            // ENA/SRA downloads are now handled by startENADownloadTask()
-                            // which is called after the user confirms the import config sheet.
                             // This case should not be reachable since performBatchDownload()
                             // returns early for ENA source before entering this Task.detached.
                             assertionFailure("ENA downloads should not reach this code path")

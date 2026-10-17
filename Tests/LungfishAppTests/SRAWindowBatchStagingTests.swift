@@ -9,7 +9,7 @@ import LungfishTestSupport
 @testable import LungfishApp
 
 /// The window downloads a batch of SRA runs into one batch folder, and
-/// `startENADownloadTask` stages each run with `SRAWindowRunDownload.stage`
+/// the batch staged each run with `SRAWindowRunDownload.stage`
 /// and removes the run's folder after the import or on failure. A run whose
 /// import failed must never hand its files to the next run, and a paired run
 /// imports as a pair or not at all. The SRA Toolkit is a scripted runner

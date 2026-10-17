@@ -26,10 +26,10 @@ struct SRAWindowToolkitStatus: Equatable, Sendable {
 /// The FASTQ files the window's SRA download staged for one run, and where
 /// they came from.
 ///
-/// `DatabaseBrowserViewModel.startENADownloadTask` stages each run in its
+/// `DatabaseBrowserViewModel.stageSRARun` stages a run in its
 /// own folder with `stage(accession:preference:ncbiRun:in:lookUpRoute:mirrorFile:toolkit:log:)`,
 /// which downloads it with `download(accession:preference:lookUpRoute:into:mirrorFile:toolkit:log:)`,
-/// and then imports the files with `lungfish-cli import fastq`. Both take the
+/// for an `import fastq` of the files. Both take the
 /// ENA lookup and the transfers as closures, so a test can drive them with a
 /// scripted portal, mirror and toolkit.
 struct SRAWindowRunDownload {
@@ -140,7 +140,7 @@ struct SRAWindowRunDownload {
         } catch let attempt as SRAWindowMirrorAttemptFailure {
             // Fetch the run from NCBI via the SRA Toolkit instead, with the
             // line `fetch sra download` prints for the same failure.
-            logger.warning("startENADownloadTask: ENA download failed for \(accession, privacy: .public): \(attempt.failure.message, privacy: .public); falling back to SRA Toolkit")
+            logger.warning("SRAWindowRunDownload: ENA download failed for \(accession, privacy: .public): \(attempt.failure.message, privacy: .public); falling back to SRA Toolkit")
             let line = SRAFASTQDownloadSource.toolkitFallbackMessage(accession: accession, after: attempt.failure)
             let files = try await toolkitAfterENA(toolkit, line: line, enaReason: attempt.failure.message)
             return SRAWindowRunDownload(
@@ -313,7 +313,7 @@ struct SRAWindowRunDownload {
                 let fileExpectedBytes = fileIdx < perFileSizes.count ? perFileSizes[fileIdx] : nil
                 let fileExpectedMD5 = fileIdx < perFileMD5s.count ? perFileMD5s[fileIdx] : nil
 
-                logger.info("startENADownloadTask: Downloading \(fastqURL.absoluteString, privacy: .public)")
+                logger.info("SRAWindowRunDownload: Downloading \(fastqURL.absoluteString, privacy: .public)")
 
                 let downloadClock = ProvenanceRunClock()
                 let data = try await mirrorFile(fastqURL, fileExpectedBytes, priorBytesDownloaded)
@@ -357,7 +357,7 @@ struct SRAWindowRunDownload {
                         endTime: downloadCompletedAt
                     )
                 )
-                logger.info("startENADownloadTask: Saved \(filename) (\(data.count) bytes)")
+                logger.info("SRAWindowRunDownload: Saved \(filename) (\(data.count) bytes)")
                 fastqFiles.append(localPath)
                 priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
             }

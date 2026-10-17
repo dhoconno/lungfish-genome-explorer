@@ -12,8 +12,7 @@
 //
 // Two cases, one for each step of a run. The toolkit stand-in holds `prefetch` while the run downloads, and
 // writes generated reads so the import that follows lasts well past the first event of the import stage. The
-// legacy route's two cancels are pinned by `SRAWindowRowPinReplayTests`, and the CLI alone and through the
-// bare transport by `FetchSRASIGTERMReplayTests`.
+// CLI alone and through the bare transport is pinned by `FetchSRASIGTERMReplayTests`.
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the integration tier.
 
@@ -73,7 +72,6 @@ final class DatabaseBrowserSRARowCancelReplayTests: XCTestCase {
             unset: ["NCBI_API_KEY"])
         defer { saved.restore() }
         let suite = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowCancelReplayTests")
-        suite.defaults.set(SRARowDownloadRoute.cli.rawValue, forKey: SRARowDownloadRouteSettings.defaultsKey)
         let viewModel = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(apiKey: nil), enaService: ENAService(), sraDownloadSuiteName: suite.name)
         viewModel.routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: UUID())

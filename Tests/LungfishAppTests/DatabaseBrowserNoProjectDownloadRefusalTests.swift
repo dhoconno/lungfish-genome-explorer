@@ -207,6 +207,36 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
         let requested = await client.requestedURLs
         XCTAssertEqual(requested, [], "no lookup is made before the refusal")
     }
+
+    /// The import sheet hands its runs to `startSRADownloadTask` only after the row began, which the
+    /// refusal prevents with no project. A row handed over with none anyway fails in the refusal's words,
+    /// records no command and asks no archive, since the in-process download that once took it went with
+    /// the hidden key `DatabaseBrowserSRARowRoute` (lane A60 M3, K3).
+    func testAnSRARowHandedOverWithNoProjectFailsInTheRefusalsWordsAndAsksNothing() async throws {
+        let suite = makeTestDefaultsSuite(prefix: "a60-no-project-sra-hand-over")
+        let client = RefusingNCBIClient()
+        let model = DatabaseBrowserViewModel(
+            source: .ena, ncbiService: NCBIService(httpClient: client),
+            enaService: ENAService(httpClient: client), sraDownloadSuiteName: suite.name)
+        XCTAssertNil(model.routeContext?.projectURL)
+        let accession = "SRR9000003"
+        let id = try XCTUnwrap(
+            OperationCenter.shared.begin(
+                title: accession, detail: "Preparing 1 record(s)...", operationType: .download, cliCommand: nil
+            ).startedID)
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        model.startSRADownloadTask(
+            records: [SearchResultRecord(id: accession, accession: accession, title: "A60 hand-over", source: .ena)],
+            importConfig: DatabaseBrowserSRARowParityReplayTests.sheet(), downloadCenterTaskID: id, totalCount: 1)
+
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == id })
+        XCTAssertEqual(row.state, .failed)
+        XCTAssertEqual(row.detail, "Open or create a project before downloading SRA runs.")
+        XCTAssertNil(row.cliCommand, "the row records no command")
+        let requested = await client.requestedURLs
+        XCTAssertEqual(requested, [], "no archive is asked")
+    }
 }
 
 /// An NCBI client that refuses every request and records the URL it was asked for.

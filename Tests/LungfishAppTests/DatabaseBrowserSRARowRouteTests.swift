@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A45 M3, panel decision C4. An SRA run of the browser's batch download runs
-// `lungfish-cli fetch sra download <run> --bundle` on the CLI route. The in-process route stays behind a
-// hidden key for one release, and each key value has a test. The row begins before the import sheet, so
+// `lungfish-cli fetch sra download <run> --bundle`, its only route since Phase 2.11 deleted the in-process
+// route with its hidden key (K3). The row begins before the import sheet, so
 // the command it records holds the sheet's flags and is set once the sheet is confirmed.
 
 import XCTest
@@ -17,21 +17,6 @@ import LungfishWorkflow
 
 final class DatabaseBrowserSRARowRouteTests: XCTestCase {
     private let project = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish")
-
-    func testTheHiddenKeyPicksTheRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "sra-row-route")
-        let settings = SRARowDownloadRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(SRARowDownloadRouteSettings.defaultRoute, .cli, "the flip: the CLI route is the default")
-        XCTAssertEqual(settings.route, .cli, "an unset key")
-        let cases: [(Any, SRARowDownloadRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), ("Cli", .cli), (true, .cli), (false, .legacy),
-            ("NO", SRARowDownloadRouteSettings.defaultRoute),
-        ]
-        for (value, route) in cases {
-            suite.defaults.set(value, forKey: SRARowDownloadRouteSettings.defaultsKey)
-            XCTAssertEqual(settings.route, route, "\(value)")
-        }
-    }
 
     /// Every spelling the sheet can produce reaches the leaf as the window passes it to `import fastq`,
     /// in the same order, and the key never travels in the arguments.
