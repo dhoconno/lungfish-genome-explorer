@@ -78,7 +78,7 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
         do {
             try await demultiplex(reporting: events)
         } catch {
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
     }

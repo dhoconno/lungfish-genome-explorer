@@ -130,7 +130,7 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
             await recordCancelled(inputs: inputs, clock: clock)
             throw CancellationError()
         } catch {
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
     }

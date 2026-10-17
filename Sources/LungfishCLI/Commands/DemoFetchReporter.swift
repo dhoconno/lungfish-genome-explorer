@@ -150,7 +150,7 @@ final class DemoFetchReporter: Sendable {
         case let .failed(error):
             // Text mode lets ArgumentParser print the error as it always did.
             guard eventsOn else { throw error }
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw CLIExitCode.failure.exitCode
         case .cancelled:
             events.emitFailed(Self.cancelledMessage)

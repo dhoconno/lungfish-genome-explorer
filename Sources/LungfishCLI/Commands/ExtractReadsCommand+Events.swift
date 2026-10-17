@@ -49,7 +49,7 @@ extension ExtractReadsSubcommand {
             say(TerminalFormatter(useColors: globalOptions.useColors).error(refusal.message))
             throw CLIExitCode.inputError.exitCode
         case .failure(let error):
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
     }

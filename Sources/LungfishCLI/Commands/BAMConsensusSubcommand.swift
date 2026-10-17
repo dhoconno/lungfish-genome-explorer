@@ -158,8 +158,8 @@ struct BAMConsensusSubcommand: AsyncParsableCommand {
             for line in Self.failureLog(error) {
                 events.emitLog(.error, line)
             }
-            events.emitFailed(error.localizedDescription)
-            say("Error: \(error.localizedDescription)")
+            events.emitFailed(CLIFailureWords.describe(error))
+            say("Error: \(CLIFailureWords.describe(error))")
             throw CLIExitCode.workflowError.exitCode
         }
     }

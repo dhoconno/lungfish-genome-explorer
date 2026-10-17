@@ -96,7 +96,7 @@ extension ImportCommand {
                     startedAt: startedAt
                 )
             case .failure(let error):
-                emitter.emitFailed(error.localizedDescription)
+                emitter.emitFailed(CLIFailureWords.describe(error))
                 throw CLIExitCode.workflowError.exitCode
             }
         }
@@ -214,7 +214,7 @@ extension ImportCommand {
                     startedAt: startedAt
                 )
             case .failure(let error):
-                emitter.emitFailed(error.localizedDescription)
+                emitter.emitFailed(CLIFailureWords.describe(error))
                 throw CLIExitCode.workflowError.exitCode
             }
         }

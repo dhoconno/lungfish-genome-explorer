@@ -88,7 +88,7 @@ extension VariantsCommand {
                     printHumanLine("Deleted \(count) variant\(count == 1 ? "" : "s").", eventsOn: eventsOn)
                 }
             } catch {
-                events.emitFailed(VariantsEditWords.describe(error))
+                events.emitFailed(CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -197,7 +197,7 @@ extension VariantsCommand {
                 // A cancel is not a failure. The app's transport reports it from the exit.
                 throw CancellationError()
             } catch {
-                events.emitFailed(VariantsEditWords.describe(error))
+                events.emitFailed(CLIFailureWords.describe(error))
                 throw error
             }
         }
@@ -238,12 +238,6 @@ enum VariantsEditWords {
     /// "Data and provenance updated" once it is done (`beginVariantStorageMutationOperation`).
     static let start = "Updating stored data and provenance"
     static let complete = "Data and provenance updated"
-
-    /// What a `failed` event says. ArgumentParser's `ValidationError` has no localized text of its
-    /// own, so its message is used and not the system's "operation couldn't be completed".
-    static func describe(_ error: Error) -> String {
-        (error as? ValidationError)?.message ?? error.localizedDescription
-    }
 
     /// The edits write inside `bundle`, so it is checked before the service writes anything.
     static func checkBundle(_ bundle: URL) throws {

@@ -124,7 +124,7 @@ extension ImportCommand {
             case .failure(let exitCode as ExitCode):
                 throw exitCode
             case .failure(let error):
-                emitter.emitFailed(error.localizedDescription)
+                emitter.emitFailed(CLIFailureWords.describe(error))
                 throw CLIExitCode.formatError.exitCode
             }
         }
@@ -243,7 +243,7 @@ extension ImportCommand {
             case .failure(let exitCode as ExitCode):
                 throw exitCode
             case .failure(let error):
-                emitter.emitFailed(error.localizedDescription)
+                emitter.emitFailed(CLIFailureWords.describe(error))
                 throw CLIExitCode.formatError.exitCode
             }
         }

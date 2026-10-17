@@ -75,7 +75,7 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
         do {
             try await materialize(reporting: events)
         } catch {
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
     }

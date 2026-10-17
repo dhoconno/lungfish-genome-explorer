@@ -20,12 +20,6 @@ extension FastqImportONTSubcommand {
     /// for the window, and this line is the stream's own record of it.
     static let cancelledMessage = "Import cancelled"
 
-    /// What the stream and the error report for a failure: the message of a usage error, else the
-    /// error's own description.
-    static func failureText(_ error: any Error) -> String {
-        (error as? ValidationError)?.message ?? error.localizedDescription
-    }
-
     /// Runs the import with SIGTERM turned into a cancel.
     ///
     /// The window's Cancel signals the leaf's group and tree, and kills them after
@@ -80,7 +74,7 @@ extension FastqImportONTSubcommand {
                 FileHandle.standardError.write(Data("\(Self.cancelledMessage)\n".utf8))
                 throw CLIExitCode.cancelled.exitCode
             }
-            events.emitFailed(Self.failureText(error))
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
     }

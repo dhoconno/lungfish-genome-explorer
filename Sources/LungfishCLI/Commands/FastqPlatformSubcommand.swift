@@ -243,7 +243,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             // The run began, so a throw before the first change ends the stream with one failed
             // line too, such as a folder that is not a bundle. The command fails with the same
             // error, which the app reads from the exit status (review of lane C4, ruling 3).
-            events.emitFailed(error.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(error))
             throw error
         }
         defer { snapshot.discard() }
@@ -273,9 +273,9 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             let cancelled = error is CancellationError || Task.isCancelled
             if !cancelled {
                 if globalOptions.outputFormat == .json {
-                    events.emitFailed(error.localizedDescription)
+                    events.emitFailed(CLIFailureWords.describe(error))
                 } else {
-                    print(formatter.error(error.localizedDescription))
+                    print(formatter.error(CLIFailureWords.describe(error)))
                 }
             }
             // When the first change fails nothing was written, since each

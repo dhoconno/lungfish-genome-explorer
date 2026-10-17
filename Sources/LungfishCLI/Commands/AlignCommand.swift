@@ -226,7 +226,7 @@ extension AlignCommand {
                 return result
             } catch {
                 if outputFormat == .json, !cancelling() {
-                    emitter.emitFailed(error.localizedDescription)
+                    emitter.emitFailed(CLIFailureWords.describe(error))
                 }
                 throw error
             }
