@@ -44,7 +44,8 @@ extension OutputEquivalence {
         /// record gets all but the executable path, host, process ID and wall
         /// time keys, which the contract masks in provenance alone, so its
         /// only wall time masks are the value of a manifest's Wall Time item
-        /// and of its `parameters.wallClockSeconds`.
+        /// and of its `parameters.wallClockSeconds`, and the `duration` of an
+        /// alignment metadata database's `provenance` table.
         /// A file name gets the UUID and run ID masks. Payload text, request
         /// bodies and plans get the roots and run wall time masks and a FASTQ
         /// sidecar's three clock values and a demo project install record's
@@ -63,6 +64,7 @@ extension OutputEquivalence {
                 Masks.epochValues,
                 Masks.manifestWallTime,
                 Masks.demuxManifestWallClock,
+                Masks.alignmentStatsDuration,
             ]
             return MaskPolicy(
                 provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
@@ -358,6 +360,79 @@ extension OutputEquivalence {
             manifest["parameters"] = parameters
             changed = true
             return manifest
+        }
+
+        /// The columns of the `provenance` table that `AlignmentMetadataDatabase` writes into an alignment's
+        /// `<track>.stats.db`, in the order it declares them.
+        static let alignmentStatsProvenanceColumns = [
+            "step_order", "tool", "subcommand", "version", "command", "timestamp", "input_file", "output_file",
+            "exit_code", "duration", "parent_step",
+        ]
+
+        /// The seconds a BAM import took, the `duration` column of the `provenance` table of an alignment metadata
+        /// database (`<track>.stats.db`), set to `<DURATION>` in a database dump. It reads a `table provenance`
+        /// section only when its schema declares exactly the columns in `alignmentStatsProvenanceColumns`, and in
+        /// each row there it replaces the second-to-last tab field when that field is a number, so a tab inside
+        /// `command` moves nothing. The same column in any other table, a `provenance` table with other columns,
+        /// a duration that is absent and every other column and table, such as `command`, `version`, `exit_code`
+        /// and `program_records`, are compared as written (lane A62, ruling A62-ARCH, Fix 2).
+        public static let alignmentStatsDuration = Mask(name: "alignmentStatsDuration") { text, _ in
+            guard text.contains("table provenance\n") else { return text }
+            var lines = text.components(separatedBy: "\n")
+            var changed = false
+            for header in lines.indices where lines[header] == "table provenance" {
+                var end = header + 1
+                while end < lines.count, !startsDumpTable(lines, at: end) { end += 1 }
+                let section = lines[(header + 1)..<end].joined(separator: "\n")
+                guard declaredColumns(inSchemaOf: section) == alignmentStatsProvenanceColumns else { continue }
+                for row in (header + 1)..<end {
+                    var fields = lines[row].components(separatedBy: "\t")
+                    guard fields.count >= alignmentStatsProvenanceColumns.count,
+                          Double(fields[fields.count - 2]) != nil
+                    else { continue }
+                    fields[fields.count - 2] = "<DURATION>"
+                    lines[row] = fields.joined(separator: "\t")
+                    changed = true
+                }
+            }
+            return changed ? lines.joined(separator: "\n") : text
+        }
+
+        /// Whether `lines[index]` is the `table <name>` line that opens a section of a database dump, which the
+        /// `CREATE` statement of its schema follows.
+        static func startsDumpTable(_ lines: [String], at index: Int) -> Bool {
+            lines[index].hasPrefix("table ") && index + 1 < lines.count && lines[index + 1].hasPrefix("CREATE ")
+        }
+
+        /// The column names declared by the first parenthesized list in `sql`, a `CREATE TABLE` statement and
+        /// whatever follows it in a dump: the first word of each top-level piece of the list, with the table
+        /// constraints left out. A list that never closes declares none.
+        static func declaredColumns(inSchemaOf sql: String) -> [String] {
+            var pieces = [""]
+            var depth = 0
+            for character in sql {
+                if character == "(" {
+                    depth += 1
+                    if depth == 1 { continue }
+                }
+                if character == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        let constraintWords: Set<String> = ["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"]
+                        return pieces.compactMap { piece in
+                            guard let word = piece.split(whereSeparator: \.isWhitespace).first else { return nil }
+                            return constraintWords.contains(word.uppercased()) ? nil : String(word)
+                        }
+                    }
+                }
+                if depth == 0 { continue }
+                if character == ",", depth == 1 {
+                    pieces.append("")
+                } else {
+                    pieces[pieces.count - 1].append(character)
+                }
+            }
+            return []
         }
 
         /// The time `DemoProjectInstaller` wrote into a demo project's install record (`.lgedemo.json`): the
