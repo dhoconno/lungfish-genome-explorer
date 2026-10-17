@@ -1,4 +1,5 @@
 import XCTest
+import LungfishWorkflow
 @testable import LungfishOperations
 
 final class ProvenancePathRehydratorTests: XCTestCase {
@@ -167,5 +168,57 @@ final class ProvenancePathRehydratorTests: XCTestCase {
             json?["command"] as? String,
             "lungfish-cli import fastq \(sourceFASTQ.standardizedFileURL.path)"
         )
+    }
+
+    // MARK: - A rename of a plain folder (Phase 2.11 lane A68, carry-in row SW1)
+
+    /// A pin that passes at the base. A rename of a plain folder rewrites a path value that is the folder itself or
+    /// lies under it, keeps argv and command values exact, and leaves an unsigned record unsigned with every other
+    /// value as it was.
+    func testARenamedFolderRewritesItsOwnPathAndPathsUnderItAndKeepsCommandsExact() throws {
+        let temp = try makeTemporaryFolder("Rename")
+        let source = temp.appendingPathComponent("kraken2-batch", isDirectory: true)
+        let destination = temp.appendingPathComponent("kraken2-batch renamed", isDirectory: true)
+        let sourcePath = source.standardizedFileURL.path
+        let destinationPath = destination.standardizedFileURL.path
+        let record: [String: Any] = [
+            "outputPath": sourcePath,
+            "outputs": [["path": sourcePath + "/S1/report.tsv"]],
+            "argv": ["lungfish-cli", "classify", "--output", sourcePath],
+            "command": "lungfish-cli classify --output \(sourcePath)",
+            "reproducibleCommand": "lungfish-cli classify --output \(sourcePath)/S1",
+            "workflowName": "Metagenomics Classification",
+        ]
+        try Self.write(record, to: source.appendingPathComponent(".lungfish-provenance.json"))
+
+        try FileManager.default.moveItem(at: source, to: destination)
+        ProvenancePathRehydrator.rehydrate(from: source, to: destination)
+
+        let recordURL = destination.appendingPathComponent(".lungfish-provenance.json")
+        var expected = record
+        expected["outputPath"] = destinationPath
+        expected["outputs"] = [["path": destinationPath + "/S1/report.tsv"]]
+        XCTAssertEqual(try Self.read(recordURL), expected as NSDictionary)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: recordURL).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.publicKeyURL(for: recordURL).path))
+    }
+
+    // MARK: - Helpers
+
+    private func makeTemporaryFolder(_ name: String) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProvenancePathRehydrator-\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        return folder
+    }
+
+    private static func write(_ record: [String: Any], to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys]).write(to: url)
+    }
+
+    private static func read(_ url: URL) throws -> NSDictionary {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? NSDictionary, url.path)
     }
 }
