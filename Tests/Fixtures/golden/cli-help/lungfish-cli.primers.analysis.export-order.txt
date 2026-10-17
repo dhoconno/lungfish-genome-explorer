@@ -10,7 +10,7 @@ falling back: displayed needs PrimalScheme's display filters, which Primer3 and
 varVAMP qPCR analyses do not have, so name selected-assays, all-reported-assays
 or candidate-pairs for those.
 
-USAGE: lungfish-cli primers analysis export-order <bundle-path> --output <output> [--scope <scope>] [--candidate-pair-id <candidate-pair-id> ...] [--name <name>] [--requested-by <requested-by>] [--project <project>] [--order-reference <order-reference>] [--notes <notes>]
+USAGE: lungfish-cli primers analysis export-order [<options>] <bundle-path> --output <output>
 
 ARGUMENTS:
   <bundle-path>           Path to the saved .lungfishprimeranalysis bundle.
@@ -35,6 +35,25 @@ OPTIONS:
   --order-reference <order-reference>
                           Purchase or order reference.
   --notes <notes>         Free-text order notes.
+  --hide-primer <hide-primer>
+                          PrimalScheme view option. A primer ID to leave out of
+                          the order (repeatable).
+  --hide-pool <hide-pool> PrimalScheme view option. A pool ID to leave out, as
+                          <result UUID>::pool::<number or none> (repeatable).
+  --hide-forward          PrimalScheme view option. Leave out forward primers.
+  --hide-reverse          PrimalScheme view option. Leave out reverse primers.
+  --hide-amplicons        PrimalScheme view option. Record the amplicons as
+                          hidden.
+  --hide-identity-dots    PrimalScheme view option. Record the identity dots as
+                          hidden.
+  --hide-unassessed       PrimalScheme view option. With
+                          --filter-compatibility, leave out primers whose MSA
+                          match cannot be assessed.
+  --filter-compatibility  PrimalScheme view option. Keep only the primers whose
+                          MSA match is at least --min-compatibility.
+  --min-compatibility <min-compatibility>
+                          PrimalScheme view option. Minimum MSA match
+                          percentage, 0 to 100 (default 0).
   --version               Show the version.
   -h, --help              Show help information.
 
