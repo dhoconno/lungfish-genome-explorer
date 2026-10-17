@@ -148,8 +148,9 @@ final class PrimerDesignDialogPresenter {
       let saved = resultSaved
       let showPanel = showOperations
       _ = PrimerDesignOperation.start(title: "\(state.engine.rawValue) · \(state.analysisName)",
-        destination: destination, routeContext: routeContext, operation: operation,
-        onResultSaved: { output in saved?(output) })
+        destination: destination, routeContext: routeContext,
+        cliCommand: PrimerDesignOperation.cliCommand(state: state, destination: destination),
+        operation: operation, onResultSaved: { output in saved?(output) })
       dismiss()
       showPanel?()
     } catch { state.errorMessage = error.localizedDescription }

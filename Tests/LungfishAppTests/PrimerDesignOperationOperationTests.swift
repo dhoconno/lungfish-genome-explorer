@@ -2,12 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The primer design row locks the analysis bundle it writes (R4). A held lock
-// must refuse the row and launch no worker. The run has no recorded
-// lungfish-cli command yet, because the app has no builder from the dialog's
-// settings to `lungfish-cli primers design`. Its tests pin the nil command
-// (CLI parity gap primer-design) and check that the native tool argv goes to
-// the row's log, so a command added later fails here and prompts a parse test.
+// The primer design row locks the analysis bundle it writes (R4) and records the
+// `lungfish-cli primers design <engine>` command that PrimerDesignOperation.cliCommand builds from
+// the dialog's settings (Phase 2.11 lane A67, row primer-design, which closed the CLI parity gap).
+// A held lock must refuse the row and launch no worker. The recorded command parses with the
+// command of its engine and names the run's inputs and destination. The native tool argv goes to the
+// row's log, since it is not a lungfish-cli command.
 
 import XCTest
 import LungfishKit
@@ -15,6 +15,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishCLI
 
 @MainActor
 final class PrimerDesignOperationOperationTests: XCTestCase {
@@ -22,6 +23,14 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         fileURLWithPath: "/tmp/lane 1a2/Project.lungfish/Analyses/Primer3 Test.lungfishprimeranalysis",
         isDirectory: true
     )
+
+    /// The command of a PrimalScheme run of an untouched dialog into `destination`.
+    private func recordedCommand() throws -> String {
+        let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
+        state.engine = .primalScheme
+        state.addInputs([URL(fileURLWithPath: "/input/mhc 1.fasta")])
+        return try XCTUnwrap(PrimerDesignOperation.cliCommand(state: state, destination: destination))
+    }
 
     private func centerHoldingBundleLock() throws -> OperationCenter {
         let center = OperationCenter()
@@ -45,6 +54,7 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
             title: "Primer3 · Test",
             destination: destination,
             routeContext: nil,
+            cliCommand: try recordedCommand(),
             reporter: center
         ) { _ in launched = true }
 
@@ -55,46 +65,46 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         XCTAssertEqual(refusal.blockingOperationTitle, "Existing writer")
     }
 
-    func testRecordsItsTypeAndLockWithNoCommandAsAParityGap() throws {
+    func testRecordsItsTypeLockAndACommandThatParsesWithTheRunsInputsAndDestination() throws {
         let reporter = RecordingOperationReporter()
         let routeContext = OperationRouteContext(projectURL: nil, windowStateScopeID: UUID())
         var launchedID: UUID?
 
         PrimerDesignOperation.beginPrimerDesignOperation(
-            title: "Primer3 · Test",
+            title: "PrimalScheme · Test",
             destination: destination,
             routeContext: routeContext,
+            cliCommand: try recordedCommand(),
             reporter: reporter
         ) { launchedID = $0 }
 
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "Primer3 · Test")
+        XCTAssertEqual(item.title, "PrimalScheme · Test")
         XCTAssertEqual(item.initialDetail, "Preparing primer design…")
         XCTAssertEqual(item.operationType, .workflow)
         XCTAssertEqual(item.targetBundleURL, destination)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. The app has no builder from the dialog's settings to
-        // `lungfish-cli primers design primer3|primalscheme3|olivar|varvamp`, so
-        // the row records no command when it starts. When one exists, record
-        // it and replace this pin with a parse test.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "primer-design")
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: PrimerDesignCommand.PrimalScheme3Subcommand.self)
+        XCTAssertEqual(command.msaPaths, ["/input/mhc 1.fasta"])
+        XCTAssertEqual(command.outputPath, destination.path)
     }
 
     // MARK: - start
 
-    func testTheNativeToolArgvGoesToTheLogAndTheRowRecordsNoCommand() async throws {
+    func testTheNativeToolArgvGoesToTheLogAndTheRowKeepsTheCommand() async throws {
         let reporter = RecordingOperationReporter()
         let gate = AsyncStream<Void>.makeStream()
         let argv = ["/path with spaces/primer3_core", "--format_output", "/tmp/lane 1a2/primer3 input.txt"]
         let output = destination
+        let recorded = try recordedCommand()
         let handle = PrimerDesignOperation.start(
             center: reporter,
             title: "Primer3 · Test",
             destination: output,
             routeContext: nil,
+            cliCommand: recorded,
             operation: { _ in
                 NativeProcessObservation.onEvent?(.started(argv: argv))
                 for await _ in gate.stream { break }
@@ -105,10 +115,9 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
 
         let expectedLog = "Native command: " + argv.map(shellEscape).joined(separator: " ")
         await waitUntil { reporter.item(handle.id)?.logs.contains { $0.message == expectedLog } == true }
-        // The native argv is not a lungfish-cli command, so it goes to the
-        // row's log and the row keeps recording no command.
-        XCTAssertNil(reporter.item(handle.id)?.cliCommand)
-        assertCLIParityGap(reporter.item(handle.id)?.cliCommand, id: "primer-design")
+        // The native argv is not a lungfish-cli command, so it goes to the row's log
+        // and the row keeps the command the dialog's settings build.
+        XCTAssertEqual(reporter.item(handle.id)?.cliCommand, recorded)
         gate.continuation.finish()
         await handle.task.value
         XCTAssertEqual(reporter.item(handle.id)?.state, .completed)
@@ -123,6 +132,7 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
             title: "Primer3 · Test",
             destination: output,
             routeContext: nil,
+            cliCommand: try recordedCommand(),
             operation: { _ in
                 XCTFail("a refused row must not run the design")
                 return output

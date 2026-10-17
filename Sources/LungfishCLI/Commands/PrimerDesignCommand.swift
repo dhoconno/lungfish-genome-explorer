@@ -478,55 +478,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         /// control the GUI dialog exposes; allele-coverage tuning stays at its defaults.
         static func arguments(inputs: [URL], output: URL, grouping: PrimerAnalysisGrouping,
                               options: PrimalScheme3DesignOptions) -> [String] {
-            func option(_ name: String, _ value: String) -> [String] { ["--\(name)=\(value)"] }
-            var args: [String] = []
-            for input in inputs { args += option("msa", input.path) }
-            args += option("output", output.path)
-            args += option("grouping", grouping.rawValue)
-            args += option("amplicon-size", String(options.ampliconSize))
-            if let value = options.requestedAmpliconSizeMinimum { args += option("amplicon-size-min", String(value)) }
-            if let value = options.requestedAmpliconSizeMaximum { args += option("amplicon-size-max", String(value)) }
-            args += option("pool-count", String(options.poolCount))
-            if grouping == .independent { args += option("min-overlap", String(options.minOverlap)) }
-            args += option("minimum-base-frequency", String(options.minimumBaseFrequency))
-            if options.highGC { args.append("--high-gc") }
-            args += option("core-count", String(options.coreCount))
-            args += option("terminal-gap-policy", options.terminalGapPolicy.rawValue)
-            args += option("dimer-score", String(options.dimerScore))
-            if !options.useMatchDB { args.append("--disable-matchdb") }
-            if options.backtrack { args.append("--backtrack") }
-            if options.ignoreN { args.append("--ignore-n") }
-            args += option("panel-mode", options.panelMode.rawValue)
-            if let value = options.maxAmplicons { args += option("max-amplicons", String(value)) }
-            if let value = options.maxAmpliconsPerMSA { args += option("max-amplicons-per-msa", String(value)) }
-            args += option("selection-algorithm", options.selectionAlgorithm.rawValue)
-            args += option("coverage-metric", options.coverageMetric.rawValue)
-            args += option("coverage-target", String(options.coverageTarget))
-            args += option("optimizer-seed", String(options.optimizerSeed))
-            if let value = options.requestedOptimizerStarts { args += option("optimizer-starts", String(value)) }
-            if let value = options.requestedOptimizerRepairRounds { args += option("optimizer-repair-rounds", String(value)) }
-            if let value = options.requestedOptimizerTimeLimit { args += option("optimizer-time-limit", String(value)) }
-            if let value = options.requestedMisprimingProductSize { args += option("mispriming-product-size", String(value)) }
-            let salvage = options.legacySalvageOptions
-            if salvage.mode != .off {
-                args += option("legacy-salvage", salvage.mode.rawValue)
-                if salvage.requestedOptionNames.contains("thresholds") {
-                    for value in salvage.thresholds { args += option("legacy-salvage-threshold", String(value)) }
-                }
-                if salvage.requestedOptionNames.contains("floor") { args += option("legacy-salvage-floor", String(salvage.floor)) }
-                if salvage.requestedOptionNames.contains("maxEdgesPerPool") { args += option("legacy-salvage-max-edges-per-pool", String(salvage.maxEdgesPerPool)) }
-                if salvage.requestedOptionNames.contains("maxIncidentSpeciesPerPool") { args += option("legacy-salvage-max-incident-species-per-pool", String(salvage.maxIncidentSpeciesPerPool)) }
-                if salvage.requestedOptionNames.contains("minReferenceGain") { args += option("legacy-salvage-min-reference-gain", String(salvage.minReferenceGain)) }
-                if salvage.requestedOptionNames.contains("maxCandidateEvaluations") { args += option("legacy-salvage-max-candidate-evaluations", String(salvage.maxCandidateEvaluations)) }
-            }
-            if let parent = options.gapCompletionParent { args += option("gap-completion-parent", parent.path) }
-            let expansion = options.gapExpansionOptions
-            if expansion.mode != .off {
-                args += option("gap-expansion", expansion.mode.rawValue)
-                if expansion.requestedOptionNames.contains("maxAnchorsPerMSA") { args += option("gap-expansion-max-anchors-per-msa", String(expansion.maxAnchorsPerMSA)) }
-                if expansion.requestedOptionNames.contains("maxPairsPerMSA") { args += option("gap-expansion-max-pairs-per-msa", String(expansion.maxPairsPerMSA)) }
-            }
-            return args
+            PrimerDesignCLIArguments.primalScheme3(inputs: inputs, output: output, grouping: grouping, options: options)
         }
     }
 }

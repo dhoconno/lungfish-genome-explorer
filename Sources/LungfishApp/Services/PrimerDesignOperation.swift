@@ -12,25 +12,22 @@ enum PrimerDesignOperation {
 
   /// Registers the primer design row and, only when it starts, calls `launch`
   /// with the operation ID. The row locks `destination`, the new
-  /// `.lungfishprimeranalysis` bundle the run writes.
-  ///
-  /// cli-parity-gap: primer-design. The row records no command. Once a
-  /// native tool launches, `start` logs that tool's argv, which is not a
-  /// `lungfish-cli` command, so the row's history keeps it. The closest
-  /// commands are `lungfish-cli primers design primer3`, `primalscheme3`,
-  /// `olivar` and `varvamp`, which run the same pipelines. The app has no
-  /// builder from the dialog's settings to those commands' options, so the row
-  /// records no command until one exists.
+  /// `.lungfishprimeranalysis` bundle the run writes, and records
+  /// `cliCommand`, the `lungfish-cli primers design <engine>` command
+  /// ``cliCommand(state:destination:)`` builds from the dialog's settings.
+  /// Once a native tool launches, `start` logs that tool's argv, which is not
+  /// a `lungfish-cli` command, to the row's log.
   @discardableResult
   static func beginPrimerDesignOperation(
     title: String,
     destination: URL,
     routeContext: OperationRouteContext?,
+    cliCommand: String? = nil,
     reporter: any OperationReporting = OperationCenter.shared,
     launch: (UUID) -> Void
   ) -> OperationStartResult {
     let result = reporter.begin(title: title, detail: "Preparing primer design…", operationType: .workflow,
-      targetBundleURL: destination, cliCommand: nil, routeContext: routeContext)
+      targetBundleURL: destination, cliCommand: cliCommand, routeContext: routeContext)
     switch result {
     case .started(let id):
       launch(id)
@@ -38,6 +35,35 @@ enum PrimerDesignOperation {
       break  // The panel already shows the refused row. Nothing was launched.
     }
     return result
+  }
+
+  /// The `lungfish-cli primers design <engine>` command that reproduces a run of the dialog's
+  /// current settings into `destination`, or nil when the settings are invalid or name an
+  /// option the command cannot say (see ``PrimerDesignCLIArguments``). The command names every
+  /// value the dialog controls, so it replays the parameters the run used.
+  static func cliCommand(state: PrimerDesignDialogState, destination: URL) -> String? {
+    do {
+      let subcommand: String
+      let arguments: [String]?
+      switch state.engine {
+      case .primer3:
+        subcommand = "primers design primer3"
+        arguments = PrimerDesignCLIArguments.primer3(
+          selections: try state.primer3Selections(), output: destination, options: try state.primer3Options())
+      case .primalScheme:
+        subcommand = "primers design primalscheme3"
+        arguments = PrimerDesignCLIArguments.primalScheme3(
+          inputs: state.inputURLs, output: destination, grouping: state.grouping,
+          options: try state.primalSchemeOptions(), executableURL: state.primalschemeExecutableURL)
+      case .olivar, .varVAMP:
+        subcommand = state.engine == .olivar ? "primers design olivar" : "primers design varvamp"
+        arguments = PrimerDesignCLIArguments.primerScheme(
+          inputs: state.inputURLs, output: destination, options: try state.primerSchemeOptions())
+      }
+      return arguments.map { OperationCenter.buildCLICommand(subcommand: subcommand, args: $0) }
+    } catch {
+      return nil
+    }
   }
 
   /// Starts the run and returns its handle. A refused row launches nothing,
@@ -48,6 +74,7 @@ enum PrimerDesignOperation {
     title: String,
     destination: URL,
     routeContext: OperationRouteContext?,
+    cliCommand: String? = nil,
     operation: @escaping @Sendable (@escaping @Sendable (Double, String) -> Void) async throws -> URL,
     onResultSaved: @escaping @MainActor (URL) -> Void
   ) -> Handle {
@@ -55,7 +82,7 @@ enum PrimerDesignOperation {
     // dependency preparation or scientific execution begins.
     var launched: Handle?
     let result = beginPrimerDesignOperation(
-      title: title, destination: destination, routeContext: routeContext, reporter: center
+      title: title, destination: destination, routeContext: routeContext, cliCommand: cliCommand, reporter: center
     ) { id in
       let task = Task { @MainActor in
         do {
