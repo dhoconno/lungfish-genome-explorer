@@ -1358,8 +1358,7 @@ features:
       result. In 2.11 the Tools > Classification launch runs lungfish-cli
       taxtriage run --project by default, and the hidden key
       TaxTriageLaunchRoute set to legacy keeps the in-app route for one
-      Preview. The in-app route scales the runner's progress onto the first
-      nine tenths of the bar.
+      Preview.
   classify.esviritu-cli-route:
     title: Run EsViritu from the command line into a project
     entry_points:
@@ -2365,10 +2364,11 @@ features:
       A step recorded by this release shows an Environment row under
       Command, and a Termination or Output row only when the step ended in
       an unusual way. An older record shows none of them.
-      A step's Command row shows the recorded command with each path
-      shortened to its project-relative form, and a shell's -c or -lc script
-      keeps its program with each path inside it shortened. Copy Command
-      copies the full recorded command.
+      A step's Command row shows the recorded command with each path inside
+      the project shortened to its project-relative form (a scratch file the
+      project did not keep by its name, any other path as recorded), and a
+      shell's -c or -lc script keeps its program with each path inside it
+      shortened the same way. Copy Command copies the full recorded command.
   provenance.result-popovers:
     title: Show a result viewer's pipeline information popover
     entry_points:
