@@ -8,7 +8,8 @@
 // which is the cancel point, before it writes anything. A cancel there ends the action through its own
 // failure handler, which restores what it had published and writes the one `failed` line. This path
 // then records the run as cancelled and exits 125. An action that had finished its writes when the
-// SIGTERM came completes as it always did, and the app reads its row as Cancelled.
+// SIGTERM came completes as it always did and says in one log line that the cancel came too late. The
+// app still reads its row as Cancelled, with the result on disk.
 
 import ArgumentParser
 import Foundation
@@ -105,7 +106,17 @@ extension MSAActionCommand {
     ) async throws {
         let startedAt = Date()
         let ran = await runCancellingOnSIGTERM { try execute(emit) }
-        guard case .failure(let error) = ran else { return }
+        guard case .failure(let error) = ran else {
+            if SIGTERMCancellation.signalCaught {
+                let note = "The cancel arrived after the action had written its result. The result was kept."
+                let output = AlignmentWorkflowLeafOutput(
+                    eventsOn: globalOptions.outputFormat == .json, quiet: globalOptions.quiet, emit: emit
+                )
+                output.events.emitLog(.info, note)
+                output.say(note)
+            }
+            return
+        }
         guard error is CancellationError || error is MSAActionCancelled || SIGTERMCancellation.signalCaught else {
             throw error
         }

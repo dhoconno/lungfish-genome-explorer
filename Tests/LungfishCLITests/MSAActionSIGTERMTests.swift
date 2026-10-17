@@ -76,4 +76,59 @@ final class MSAActionSIGTERMTests: XCTestCase {
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "no output was written")
     }
+
+    /// A SIGTERM that lands after the action wrote its result does not undo it. The command ends 0 with
+    /// its ordinary result, writes no cancelled record, and says in one log line that the cancel came too
+    /// late (review S61 Fix 4). The seam holds the action on its `complete` line.
+    func testASIGTERMAfterTheCancelPointLetsTheActionCompleteAndSaysSo() async throws {
+        let project = try IQTreeTestProject.make(fasta: fourRowFASTA)
+        defer { project.remove() }
+        let output = project.directory.appendingPathComponent("Extracted.fasta")
+        let command = try MSACommand.ExtractSubcommand.parse([
+            project.msaBundleURL.path, "--output-kind", "fasta", "--output", output.path, "--format", "json",
+        ])
+        let executor = command.msaExecutor
+        let emitted = EmittedLines()
+        let held = DispatchSemaphore(value: 0)
+
+        // A SIGTERM that arrives late must not end the test runner.
+        let previous = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previous) }
+
+        @Sendable func awaitHeld() -> Bool { held.wait(timeout: .now() + 30) == .success }
+        let poster = Task.detached {
+            if awaitHeld() { kill(getpid(), SIGTERM) }
+        }
+        var thrown: (any Error)?
+        do {
+            try await command.runActionCancellingOnSIGTERM(emit: { emitted.append($0) }) { _ in
+                try executor { line in
+                    emitted.append(line)
+                    guard line.contains(#""event":"complete""#) else { return }
+                    held.signal()
+                    // Held after the write until the SIGTERM handler cancels this task.
+                    let deadline = ContinuousClock.now + .seconds(20)
+                    while !Task.isCancelled, ContinuousClock.now < deadline { usleep(10_000) }
+                }
+            }
+        } catch {
+            thrown = error
+        }
+        await poster.value
+
+        XCTAssertNil(thrown, "an action that finished its writes completes, ended with \(String(describing: thrown))")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "the result was kept")
+        XCTAssertTrue(
+            SIGTERMPinSupport.cancelledRecords(under: project.directory).isEmpty,
+            "no cancelled record is written for a result that was kept"
+        )
+        XCTAssertTrue(
+            emitted.all.filter { $0.contains(#""event":"failed""#) }.isEmpty,
+            "the stream holds no failed line: \(emitted.all)"
+        )
+        XCTAssertEqual(
+            emitted.all.filter { $0.contains(#""event":"log""#) && $0.contains("The result was kept") }.count, 1,
+            "one log line says the cancel came too late: \(emitted.all)"
+        )
+    }
 }
