@@ -214,6 +214,53 @@ final class SystemTempScratchSweepTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: nested.path))
     }
 
+    /// S32 review fix 7. `createMarkedDirectory(at:prefix:toolName:toolVersion:)` marks a folder at a path its caller
+    /// planned. The sweep claims a name only when it is an LGE prefix from `prefixes` followed by a UUID, so the
+    /// function refuses any other name, since the folder it made would stay for ever.
+    func testMarkingAFolderAtAPlannedPathRefusesANameTheSweepNeverClaims() throws {
+        let refused = [
+            "bracken-\(UUID().uuidString)", // no LGE prefix
+            "lungfish-bracken-not-a-uuid", // no UUID tail
+            "taxtriage-\(UUID().uuidString)", // a name the sweep claims, but not the prefix the caller named
+        ]
+        for name in refused {
+            XCTAssertThrowsError(
+                try SystemTempScratchSweep.createMarkedDirectory(
+                    at: systemTemp.appendingPathComponent(name, isDirectory: true),
+                    prefix: "lungfish-bracken-",
+                    toolName: "Test",
+                    toolVersion: "1"
+                ),
+                name
+            )
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: systemTemp.path), [], "a refused name leaves no folder")
+
+        let planned = systemTemp.appendingPathComponent("lungfish-bracken-\(UUID().uuidString)", isDirectory: true)
+        try SystemTempScratchSweep.createMarkedDirectory(at: planned, prefix: "lungfish-bracken-", toolName: "Test", toolVersion: "1")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planned.appendingPathComponent(OwnedWorkDirectoryMarker.fileName).path))
+        let mode = try FileManager.default.attributesOfItem(atPath: planned.path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o700, "the folder is the user's alone")
+        let outcome = SystemTempScratchSweep.sweep(root: systemTemp, processInspector: { _ in nil })
+        XCTAssertEqual(outcome.removed.map(\.lastPathComponent), [planned.lastPathComponent], "the sweep claims a name that fits")
+    }
+
+    /// S32 review fix 7. A marker that cannot be written must not leave the bare `0700` folder behind. A blank tool
+    /// name is a request the marker store refuses, after the folder is made.
+    func testAMarkerThatCannotBeWrittenLeavesNoFolderBehind() throws {
+        let planned = systemTemp.appendingPathComponent("lungfish-bracken-\(UUID().uuidString)", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try SystemTempScratchSweep.createMarkedDirectory(at: planned, prefix: "lungfish-bracken-", toolName: " ", toolVersion: "1")
+        )
+
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: systemTemp.path),
+            [],
+            "the folder made for the marker is removed again"
+        )
+    }
+
     // MARK: - Helpers
 
     /// A marked folder whose marker names `creator`, made as `ProjectTempDirectory` makes one.

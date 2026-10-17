@@ -98,31 +98,40 @@ public enum SystemTempScratchSweep {
     }
 
     /// Creates `directory`, whose name its caller laid out before it touched the disk (Bracken's staging), the
-    /// user's alone (`0700`), and binds the same marker to it and its parent folder. The sweep claims it only
-    /// while its name is an LGE prefix from ``prefixes`` followed by a UUID.
+    /// user's alone (`0700`), and binds the same marker to it and its parent folder. It refuses a name that is not
+    /// an LGE prefix from ``prefixes`` followed by a UUID, since the sweep would never claim it. It also refuses a
+    /// name that does not start with `prefix`, and removes the folder again when the marker cannot be written.
     public static func createMarkedDirectory(at directory: URL, prefix: String, toolName: String, toolVersion: String) throws {
+        let name = directory.lastPathComponent
+        guard hasLGEPrefix(name), name.hasPrefix(prefix) else { throw CocoaError(.fileWriteInvalidFileName) }
         let root = directory.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let physicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
-        let physical = physicalRoot.appendingPathComponent(directory.lastPathComponent, isDirectory: true)
+        let physical = physicalRoot.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(
             at: physical, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700]
         )
-        try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
-            physical,
-            request: OwnedWorkDirectoryCreationRequest(
-                projectURL: physicalRoot,
-                parentDirectoryURL: physicalRoot,
-                prefix: prefix,
-                runID: UUID(),
-                processIdentity: try OwnedProcessIdentity.current(),
-                state: .active,
-                lockRelativePath: nil,
-                keepIntermediates: false,
-                toolName: toolName,
-                toolVersion: toolVersion
+        do {
+            try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                physical,
+                request: OwnedWorkDirectoryCreationRequest(
+                    projectURL: physicalRoot,
+                    parentDirectoryURL: physicalRoot,
+                    prefix: prefix,
+                    runID: UUID(),
+                    processIdentity: try OwnedProcessIdentity.current(),
+                    state: .active,
+                    lockRelativePath: nil,
+                    keepIntermediates: false,
+                    toolName: toolName,
+                    toolVersion: toolVersion
+                )
             )
-        )
+        } catch {
+            // A folder with no marker is one that no launch claims again.
+            try? FileManager.default.removeItem(at: physical)
+            throw error
+        }
         logger.debug("Created marked system temp directory: \(directory.path, privacy: .public)")
     }
 
