@@ -41,10 +41,12 @@ final class CLIFailureWordsTests: XCTestCase {
     }
 
     /// A typed refusal of a Workflow action reads as its own words once it has them (the alignment rows).
+    /// The system's text for a type with no words names no file, so this fails until the type has them.
     func testTheStaleEvidenceRefusalReadsAsItsOwnWords() {
         let stale = AlignmentActionContext.EvidenceError.staleEvidence(URL(fileURLWithPath: "/work/sample.bam"))
-        XCTAssertEqual(CLIFailureWords.describe(stale), stale.errorDescription)
-        XCTAssertTrue(CLIFailureWords.describe(stale).hasPrefix("sample.bam changed"), CLIFailureWords.describe(stale))
+        let words = CLIFailureWords.describe(stale)
+        XCTAssertEqual(words, stale.localizedDescription)
+        XCTAssertTrue(words.contains("sample.bam"), words)
     }
 
     /// The reason the helper exists. The system's text for a `ValidationError` holds none of its
