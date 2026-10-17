@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.11 lane U30 M1 and M2 (panel decision K1, UX R2 and U-211-1, the M1 review's items 2 to 4). The
-// Tools menu's TaxTriage launch takes the in-process route or, behind the hidden key `TaxTriageLaunchRoute`,
-// `lungfish-cli taxtriage run --project`. The key stays `legacy` until the flip (M4). These tests read each
-// value of the key from a defaults suite of their own and pin the argv the CLI route runs and records, which
-// the command's own parser reads back, and the refusals of samples the command would not name as the dialog does.
+// Phase 2.11 lane U30 M1, M2 and M4 (panel decision K1, UX R2 and U-211-1, the M1 review's items 2 to 4). The
+// Tools menu's TaxTriage launch takes `lungfish-cli taxtriage run --project` by default since the flip (M4), and
+// the hidden key `TaxTriageLaunchRoute` set to `legacy` keeps the in-process route for one Preview. These tests
+// read each value of the key from a defaults suite of their own and pin the argv the CLI route runs and records,
+// which the command's own parser reads back, and the refusals of samples the command would not name as the dialog does.
 
 import XCTest
 @testable import LungfishApp
@@ -50,11 +50,21 @@ final class TaxTriageLaunchRouteTests: XCTestCase {
         XCTAssertEqual(TaxTriageLaunchRoute.allCases, [.legacy, .cli])
     }
 
-    /// K1. The default stays the in-process route until Q32 M3's evidence and BIO's read (M4).
-    func testTheDefaultRouteStaysLegacyUntilTheFlip() {
-        XCTAssertEqual(TaxTriageLaunchRouteSettings.defaultRoute, .legacy)
-        XCTAssertEqual(route(holding: nil), .legacy, "an unset key keeps the in-process route")
-        XCTAssertEqual(route(holding: "in-process"), .legacy, "a value nothing reads keeps the in-process route")
+    /// K1 and U30 M4. Since the flip, which followed Q32 M3's evidence and BIO's read, an unset key and a
+    /// value nothing reads take the CLI route.
+    func testTheDefaultRouteIsTheCLIRouteSinceTheFlip() {
+        XCTAssertEqual(TaxTriageLaunchRouteSettings.defaultRoute, .cli)
+        XCTAssertEqual(route(holding: nil), .cli, "an unset key takes the CLI route")
+        XCTAssertEqual(route(holding: "in-process"), .cli, "a value nothing reads takes the CLI route")
+    }
+
+    /// K1 and U30 M4. An explicit `legacy`, as a word or as false, still selects the in-process route for
+    /// one Preview, and the route's deletion goes to 2.12.
+    func testAnExplicitLegacyValueKeepsTheInProcessRouteForOnePreview() {
+        XCTAssertEqual(route(holding: "legacy"), .legacy)
+        XCTAssertEqual(route(holding: "Legacy"), .legacy)
+        XCTAssertEqual(route(holding: false), .legacy)
+        XCTAssertEqual(TaxTriageLaunchRoute(rawValue: "legacy"), .legacy, "the value stays for one Preview")
     }
 
     // MARK: - The argv

@@ -34,10 +34,10 @@ extension AppDelegate {
     }
 
     /// Runs the TaxTriage config the dialog hands over on the route the hidden key
-    /// `TaxTriageLaunchRoute` names (Phase 2.11 lane U30, decision K1). `legacy`, the default until
-    /// the flip, runs `runTaxTriage` in this process unchanged. `cli` runs `lungfish-cli taxtriage
-    /// run --project` (AppDelegate+TaxTriageCLIRoute.swift). Either route refuses a launch with no
-    /// project open in the same words.
+    /// `TaxTriageLaunchRoute` names (Phase 2.11 lane U30, decision K1). `cli`, the default since the
+    /// flip (U30 M4), runs `lungfish-cli taxtriage run --project` (AppDelegate+TaxTriageCLIRoute.swift).
+    /// `legacy`, kept for one Preview, runs `runTaxTriage` in this process unchanged. Either route
+    /// refuses a launch with no project open in the same words.
     func launchTaxTriage(
         config: TaxTriageConfig,
         viewerController: ViewerViewController,
