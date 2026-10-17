@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import Synchronization
 
 /// `lungfish-cli fastq platform`. The Inspector's platform notice and its read
 /// type popup run this command, so a label change always has a provenance record.
@@ -155,33 +156,62 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
     /// stream with one `failed` line, and exits 125.
     func runChangeCancellingOnSIGTERM(bundleURLs: [URL]) async throws {
         let startedAt = Date()
+        let restoreNote = RestoreFailureNote()
         let ran = await runCancellingOnSIGTERM { [self] in
-            try await runChange(bundleURLs: bundleURLs, formatter: TerminalFormatter(useColors: globalOptions.useColors))
+            try await runChange(
+                bundleURLs: bundleURLs, formatter: TerminalFormatter(useColors: globalOptions.useColors),
+                restoreNote: restoreNote
+            )
         }
         guard case .failure(let error) = ran else { return }
-        guard error is CancellationError || SIGTERMCancellation.signalCaught else { throw error }
+        let restoreFailure = restoreNote.reason.map { PlatformRestoreFailure(reason: $0) }
+        guard restoreFailure != nil || error is CancellationError || SIGTERMCancellation.signalCaught else { throw error }
         let output = AlignmentWorkflowLeafOutput(
             eventsOn: globalOptions.outputFormat == .json,
             quiet: globalOptions.quiet,
             emit: { printEventLine($0) }
         )
         let workflow = "lungfish fastq platform"
-        throw output.cancelled(
-            "Platform label change cancelled. The recorded labels were restored.",
+        // A restore that failed leaves the labels changed. Neither the stream nor the record may say they
+        // were restored, and the command exits with the output error status and not 125 (review S61, Fix 10).
+        let message = restoreFailure.map {
+            "The platform label change was cancelled, but restoring the recorded labels failed. \($0.reason)"
+        } ?? "Platform label change cancelled. The recorded labels were restored."
+        let note = restoreFailure.map {
+            "Cancelled before the label change finished. Restoring the recorded labels failed, so they may still show the change. \($0.reason)"
+        } ?? "Cancelled before the label change finished. The recorded labels were restored."
+        let cancelledStatus = output.cancelled(
+            message,
             record: CancelledAlignmentWorkflowRecord(
                 workflow: workflow,
                 argv: [CLICommandIdentity.executableName] + CommandLine.arguments.dropFirst(),
                 explicit: [:],
-                note: "Cancelled before the label change finished. The recorded labels were restored.",
+                note: note,
                 startedAt: startedAt,
                 url: CancelledAlignmentWorkflowRecord.newURL(
                     in: CancelledAlignmentWorkflowRecord.folder(in: bundleURLs[0]), workflow: workflow
                 )
             )
         )
+        throw restoreFailure == nil ? cancelledStatus : CLIExitCode.outputError.exitCode
     }
 
-    func runChange(bundleURLs: [URL], formatter: TerminalFormatter) async throws {
+    /// The restore after a cancel threw, so the labels may still show the change.
+    private struct PlatformRestoreFailure: Error {
+        let reason: String
+    }
+
+    /// Where `runChange` leaves the reason a restore after a cancel failed. `runCancellingOnSIGTERM` turns
+    /// every error of a signalled run into a plain cancel, so the reason travels beside the error.
+    final class RestoreFailureNote: Sendable {
+        private let storage = Mutex<String?>(nil)
+        func record(_ reason: String) { storage.withLock { $0 = reason } }
+        var reason: String? { storage.withLock { $0 } }
+    }
+
+    func runChange(
+        bundleURLs: [URL], formatter: TerminalFormatter, restoreNote: RestoreFailureNote = RestoreFailureNote()
+    ) async throws {
         let runClock = ProvenanceRunClock()
         let platform = setPlatform.flatMap(Self.parsePlatform)
         let explicitReadType = readType.flatMap(Self.parseReadType)
@@ -252,7 +282,14 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
             // metadata file is replaced atomically. Restoring would only
             // rewrite the same files, and a locked one would hide the reason.
             if !changes.isEmpty {
-                try snapshot.restore()
+                do {
+                    try snapshot.restore()
+                } catch where cancelled {
+                    // The cancel came first, but the labels stay changed. Say so, so that the cancel path
+                    // does not record them as restored (review S61, Fix 10).
+                    restoreNote.record(error.localizedDescription)
+                    throw error
+                }
             }
             if cancelled { throw CancellationError() }
             throw CLIExitCode.outputError.exitCode
