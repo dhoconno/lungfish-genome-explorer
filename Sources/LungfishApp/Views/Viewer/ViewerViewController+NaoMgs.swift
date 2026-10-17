@@ -44,12 +44,34 @@ extension ViewerViewController {
         addChild(controller)
 
         // Wire BLAST verification callback.
-        controller.onBlastVerification = { [weak controller] summary, readCount, reads in
+        controller.onBlastVerification = { [weak self, weak controller] summary, readCount, reads in
             let selectedReadCount = min(50, max(1, readCount))
             let taxonName = summary.name.isEmpty ? "Taxid \(summary.taxId)" : summary.name
             naoMgsDisplayLogger.info(
                 "BLAST verification requested for \(taxonName, privacy: .public), readCount=\(selectedReadCount, privacy: .public), availableReads=\(reads.count, privacy: .public)"
             )
+            if BlastReadActionRouteSettings.currentRoute == .cli {
+                let plan: BlastSubmitPlan
+                do {
+                    plan = try Self.naoMgsBlastSubmitPlan(
+                        taxonName: taxonName, taxId: summary.taxId, readCount: selectedReadCount, reads: reads,
+                        projectURL: self?.blastSubmitProjectURL()
+                    )
+                } catch {
+                    controller?.showBlastFailure(error.localizedDescription)
+                    return
+                }
+                Self.beginNaoMgsBlastVerificationOperation(
+                    taxonName: taxonName, taxId: summary.taxId, cliCommand: plan.cliCommand
+                ) { opID in
+                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                        loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+                        results: { controller?.showBlastResults($0) },
+                        failure: { controller?.showBlastFailure($0) }
+                    )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+                }
+                return
+            }
 
             ViewerViewController.beginNaoMgsBlastVerificationOperation(
                 taxonName: taxonName,
@@ -172,18 +194,50 @@ extension ViewerViewController {
         ])
     }
 
+    /// The NAO-MGS taxon's search on `blast submit` (2.11 A65 M2). It draws the
+    /// subsample the in-process route draws, the mixed strategy with its seed
+    /// of 0, and records the taxon, the count, the seed and the samples of the
+    /// reads it drew.
+    nonisolated static func naoMgsBlastSubmitPlan(
+        taxonName: String,
+        taxId: Int,
+        readCount: Int,
+        reads: [NaoMgsVirusHit],
+        projectURL: URL?,
+        date: Date = Date()
+    ) throws -> BlastSubmitPlan {
+        let allReads = reads.compactMap { hit -> (id: String, sequence: String)? in
+            let sequence = hit.readSequence.trimmingCharacters(in: .whitespacesAndNewlines)
+            return sequence.isEmpty ? nil : (id: hit.seqId, sequence: sequence)
+        }
+        guard !allReads.isEmpty else { throw BlastServiceError.noSequences }
+        let longestCount = min(5, readCount / 4)
+        let seed: UInt64 = 0
+        let subsampled = BlastService(environment: [:]).subsampleReads(
+            from: allReads, strategy: .mixed(longest: longestCount, random: readCount - longestCount), seed: seed
+        )
+        let sampleByRead = Dictionary(reads.map { ($0.seqId, $0.sample) }, uniquingKeysWith: { first, _ in first })
+        let samples = Set(subsampled.compactMap { sampleByRead[$0.id] }).sorted()
+        return try BlastSubmitPlan.make(
+            sequences: subsampled, label: taxonName, projectURL: projectURL, taxId: taxId,
+            sample: samples.isEmpty ? nil : samples.joined(separator: ","),
+            subsampleCount: subsampled.count, subsampleSeed: seed,
+            entrezQuery: "txid\(taxId)[Organism:exp]", date: date
+        )
+    }
+
     /// Registers the BLAST verification row for a NAO-MGS taxon and, only when
     /// it starts, calls `launch` with the operation ID. The run submits reads
     /// the result already holds and locks no bundle.
     ///
-    /// cli-parity-gap: blast-nao-mgs. No `lungfish-cli` command BLASTs the
-    /// reads of a NAO-MGS taxon. The closest is `lungfish-cli blast verify`,
-    /// which covers a Kraken2 classification only. The row records no command
-    /// until a CLI command covers NAO-MGS verification.
+    /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
+    /// (``BlastSubmitPlan/cliCommand``). The in-process route the hidden key
+    /// `BlastReadActionRoute` keeps for one release passes nil.
     @discardableResult
     static func beginNaoMgsBlastVerificationOperation(
         taxonName: String,
         taxId: Int,
+        cliCommand: String? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -191,7 +245,7 @@ extension ViewerViewController {
             title: "BLAST \(taxonName)",
             detail: "Preparing BLAST verification\u{2026}",
             operationType: .blastVerification,
-            cliCommand: nil
+            cliCommand: cliCommand
         )
         switch result {
         case .started(let operationID):

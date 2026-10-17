@@ -16,14 +16,14 @@ extension ViewerViewController {
     /// it starts, calls `launch` with the operation ID. The row locks no
     /// bundle.
     ///
-    /// cli-parity-gap: blast-fasta-selection. `lungfish-cli blast verify`
-    /// verifies one Kraken2 taxon and needs the Kraken2 report, the per-read
-    /// output, the source FASTQ and a taxon ID. No command submits selected
-    /// FASTA sequences to BLAST, so the row records no command until one
-    /// does.
+    /// `cliCommand` is the `lungfish-cli blast submit` command the run
+    /// executes (``BlastSubmitPlan/cliCommand``, 2.11 A65 M2). The in-process
+    /// route the hidden key `BlastReadActionRoute` keeps for one release
+    /// passes nil.
     @discardableResult
     static func beginGenericBlastVerificationOperation(
         sourceLabel: String,
+        cliCommand: String? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -31,7 +31,7 @@ extension ViewerViewController {
             title: "BLAST \(sourceLabel)",
             detail: "Preparing BLAST verification\u{2026}",
             operationType: .blastVerification,
-            cliCommand: nil
+            cliCommand: cliCommand
         )
         switch result {
         case .started(let operationID):

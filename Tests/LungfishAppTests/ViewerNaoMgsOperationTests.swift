@@ -3,15 +3,17 @@
 // SPDX-License-Identifier: MIT
 //
 // The NAO-MGS viewer registers one row, the BLAST verification of a taxon
-// (R4). It locks no bundle. No lungfish-cli command BLASTs the reads of a
-// NAO-MGS taxon, so the recorded command is a CLI parity gap and the test pins
-// it.
+// (R4). It locks no bundle. Since 2.11 A65 M2 the row records the
+// `lungfish-cli blast submit` command its run executes, with the taxon, the
+// subsample and the samples of the drawn reads, and the test parses it.
 
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 @MainActor
 final class ViewerNaoMgsOperationTests: XCTestCase {
@@ -36,20 +38,54 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testTaxonBlastRowRecordsNoCommandAsAParityGap() throws {
+    func testTaxonBlastRowRecordsTheBlastSubmitCommandItRuns() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nao-mgs-blast-begin")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        // Three reads and a count of 4 draw every read, so the samples are fixed.
+        let reads = [("read_1", "S2"), ("read_2", "S1"), ("read_3", "S1")].map { Self.hit(id: $0.0, sample: $0.1) }
+        let plan = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Influenza A virus", taxId: 11320, readCount: 4, reads: reads, projectURL: project
+        )
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginNaoMgsBlastVerificationOperation(
-            taxonName: "Influenza A virus",
-            taxId: 11320,
-            reporter: reporter
+            taxonName: "Influenza A virus", taxId: 11320, cliCommand: plan.cliCommand, reporter: reporter
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // No lungfish-cli command BLASTs the reads of a NAO-MGS taxon, so the
-        // row records no command.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "blast-nao-mgs")
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), plan.arguments)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.SubmitSubcommand.self)
+        let query = URL(fileURLWithPath: command.queryPath)
+        XCTAssertEqual(query.lastPathComponent, "query.fasta")
+        XCTAssertTrue(query.deletingLastPathComponent().lastPathComponent.hasPrefix("blast-submit-"), command.queryPath)
+        XCTAssertEqual(query.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent, ".tmp")
+        let output = URL(fileURLWithPath: command.outputPath)
+        XCTAssertEqual(output.deletingLastPathComponent().lastPathComponent, "blast-verifications")
+        XCTAssertEqual(output.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent, "Project.lungfish")
+        XCTAssertTrue(output.lastPathComponent.hasPrefix("Influenza-A-virus-"), command.outputPath)
+        XCTAssertEqual(command.label, "Influenza A virus")
+        XCTAssertEqual(command.taxId, 11320)
+        XCTAssertEqual(command.sample, "S1,S2")
+        XCTAssertEqual(command.subsampleCount, 3)
+        XCTAssertEqual(command.subsampleSeed, 0)
+        XCTAssertEqual(command.entrezQuery, "txid11320[Organism:exp]")
+        XCTAssertNil(command.sourceResult, "the NAO-MGS result folder is private to its view")
+        XCTAssertNil(command.contig)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
+    /// A NAO-MGS read of `id` from `sample`, 20 bases long.
+    private static func hit(id: String, sample: String) -> NaoMgsVirusHit {
+        NaoMgsVirusHit(
+            sample: sample, seqId: id, taxId: 11320, bestAlignmentScore: 40,
+            cigar: "20M", queryStart: 0, queryEnd: 20, refStart: 0, refEnd: 20,
+            readSequence: "ACGTACGTACGTACGTACGT", readQuality: String(repeating: "I", count: 20),
+            subjectSeqId: "NC_026438.1", subjectTitle: "Influenza A virus", bitScore: 40, eValue: 1e-5,
+            percentIdentity: 100, editDistance: 0, fragmentLength: 20, isReverseComplement: false,
+            pairStatus: "CP", queryLength: 20
+        )
     }
 
     func testTaxonBlastLaunchesNothingWhenTheBeginIsRefused() {

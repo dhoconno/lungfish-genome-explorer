@@ -176,9 +176,8 @@ public class ViewerViewController: NSViewController {
     /// FASTA collection browser (shown in place of sequence viewer for multi-sequence FASTA files)
     private var fastaCollectionController: FASTACollectionViewController?
 
-    var fastaBlastVerificationRunner: FASTABlastVerificationRunner = { request, progress in
-        try await BlastService.shared.verify(request: request, progress: progress)
-    }
+    /// A test's search in place of `blast submit` (`fastaBlastRunner(plan:operationID:override:)`). Nil runs the route.
+    var fastaBlastVerificationRunner: FASTABlastVerificationRunner?
     var fastaOperationDialogPresenterForTesting: FASTAOperationDialogPresenter?
     private var activeFASTABlastTask: Task<Void, Never>?
     private var activeFASTABlastOperationID: UUID?
@@ -1864,7 +1863,11 @@ public class ViewerViewController: NSViewController {
             return
         }
 
-        Self.beginGenericBlastVerificationOperation(sourceLabel: sourceLabel) { opID in
+        let plan: BlastSubmitPlan?
+        do { plan = try fastaBlastSubmitPlan(sourceLabel: sourceLabel, sequences: sequences) } catch {
+            return controller.showBlastFailure(error.localizedDescription)
+        }
+        Self.beginGenericBlastVerificationOperation(sourceLabel: sourceLabel, cliCommand: plan?.cliCommand) { opID in
             cancelActiveFASTABlast()
             lastFASTABlastRequest = (sourceLabel, fastaRecords)
             let runID = UUID()
@@ -1873,13 +1876,9 @@ public class ViewerViewController: NSViewController {
             activeFASTABlastOperationID = opID
 
             let request = BlastVerificationRequest(
-                taxonName: sourceLabel,
-                taxId: 0,
-                sequences: sequences,
-                database: BlastDatabaseID.coreNT.rawValue,
-                entrezQuery: nil
+                taxonName: sourceLabel, taxId: 0, sequences: sequences, database: BlastDatabaseID.coreNT.rawValue, entrezQuery: nil
             )
-            let runner = fastaBlastVerificationRunner
+            let runner = Self.fastaBlastRunner(plan: plan, operationID: opID, override: fastaBlastVerificationRunner)
             let progressRelay = FASTABlastProgressRelay { [weak self, weak controller] fraction, message in
                 guard let self, let controller,
                       self.activeFASTABlastRunID == runID else { return }

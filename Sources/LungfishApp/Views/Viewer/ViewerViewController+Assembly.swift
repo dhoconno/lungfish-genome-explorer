@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 import os.log
 import LungfishKit
@@ -36,6 +37,28 @@ extension ViewerViewController {
         controller.onBlastVerification = { [weak self] request in
             guard let self else { return }
             guard let blastController = self.assemblyResultController else { return }
+            if BlastReadActionRouteSettings.currentRoute == .cli {
+                let plan: BlastSubmitPlan
+                do {
+                    plan = try Self.assemblyBlastSubmitPlan(
+                        sourceLabel: request.sourceLabel, taxId: request.taxId, fastaRecords: request.sequences,
+                        resultURL: result.outputDirectory
+                    )
+                } catch {
+                    blastController.showBlastFailure(error.localizedDescription)
+                    return
+                }
+                Self.beginAssemblyContigBlastVerificationOperation(
+                    sourceLabel: request.sourceLabel, cliCommand: plan.cliCommand
+                ) { opID in
+                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                        loading: { blastController.showBlastLoading(phase: $0, requestId: nil) },
+                        results: { blastController.showBlastResults($0) },
+                        failure: { blastController.showBlastFailure($0) }
+                    )) { [count = request.readCount] _ in "Results ready for \(count) contig\(count == 1 ? "" : "s")" }
+                }
+                return
+            }
             ViewerViewController.beginAssemblyContigBlastVerificationOperation(
                 sourceLabel: request.sourceLabel
             ) { opID in
@@ -156,17 +179,33 @@ extension ViewerViewController {
         )
     }
 
+    /// The contig search of an assembly result on `blast submit` (2.11 A65
+    /// M2). The result folder is the assembly's, and the record names the
+    /// contigs and the taxon when the selection has one.
+    nonisolated static func assemblyBlastSubmitPlan(
+        sourceLabel: String,
+        taxId: Int?,
+        fastaRecords: [String],
+        resultURL: URL,
+        date: Date = Date()
+    ) throws -> BlastSubmitPlan {
+        let sequences = blastSequences(from: fastaRecords)
+        return try BlastSubmitPlan.make(
+            sequences: sequences, label: sourceLabel, projectURL: ProjectTempDirectory.findProjectRoot(resultURL),
+            sourceResultURL: resultURL, taxId: taxId, contig: sequences.map(\.id).joined(separator: ","), date: date
+        )
+    }
+
     /// Registers the contig BLAST row for an assembly result and, only when it
     /// starts, calls `launch` with the operation ID. The run locks no bundle.
     ///
-    /// cli-parity-gap: blast-assembly. No `lungfish-cli` command BLASTs
-    /// assembled contigs. The closest is `lungfish-cli blast verify`, which
-    /// covers a Kraken2 classification only and needs `--kreport`,
-    /// `--kraken-output`, `--source` and `--taxid`. The row records no command
-    /// until a CLI command covers contig verification.
+    /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
+    /// (``BlastSubmitPlan/cliCommand``). The in-process route the hidden key
+    /// `BlastReadActionRoute` keeps for one release passes nil.
     @discardableResult
     static func beginAssemblyContigBlastVerificationOperation(
         sourceLabel: String,
+        cliCommand: String? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -174,7 +213,7 @@ extension ViewerViewController {
             title: "BLAST \(sourceLabel)",
             detail: "Preparing contig BLAST…",
             operationType: .blastVerification,
-            cliCommand: nil
+            cliCommand: cliCommand
         )
         switch result {
         case .started(let operationID):

@@ -1,0 +1,109 @@
+// ViewerViewController+BlastSubmit.swift - The viewers' BLAST actions on `lungfish-cli blast submit`
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import AppKit
+import LungfishCore
+import LungfishIO
+import LungfishKit
+import LungfishWorkflow
+
+/// What a BLAST drawer shows while its search runs and once it ends.
+struct BlastSubmitDrawer: Sendable {
+    let loading: @MainActor @Sendable (BlastJobPhase) -> Void
+    let results: @MainActor @Sendable (BlastVerificationResult) -> Void
+    let failure: @MainActor @Sendable (String) -> Void
+}
+
+extension ViewerViewController {
+    /// The project of this viewer's window, whose `.tmp` takes a BLAST query.
+    func blastSubmitProjectURL() -> URL? {
+        let windowController = view.window?.windowController as? MainWindowController
+        let split = windowController?.mainSplitViewController ?? (parent as? MainSplitViewController)
+        let session = windowController?.projectSession ?? split?.projectSession
+        return session?.projectURL ?? split?.sidebarController?.currentProjectURL
+    }
+
+    /// The FASTA selection's search on `blast submit`, or nil on the in-process route, which the hidden
+    /// key `BlastReadActionRoute` or a test's `fastaBlastVerificationRunner` picks.
+    func fastaBlastSubmitPlan(sourceLabel: String, sequences: [(id: String, sequence: String)]) throws -> BlastSubmitPlan? {
+        guard fastaBlastVerificationRunner == nil, BlastReadActionRouteSettings.currentRoute == .cli else { return nil }
+        let source = fastaExportSourceURLs().first
+        return try Self.fastaSelectionBlastSubmitPlan(
+            sourceLabel: sourceLabel, sequences: sequences, sourceURL: source,
+            projectURL: blastSubmitProjectURL() ?? source.flatMap(ProjectTempDirectory.findProjectRoot)
+        )
+    }
+
+    /// The search of selected FASTA sequences (2.11 A65 M2). The record names the file or bundle they
+    /// came from, and the result goes under the project's `blast-verifications/`, never into a bundle.
+    nonisolated static func fastaSelectionBlastSubmitPlan(
+        sourceLabel: String,
+        sequences: [(id: String, sequence: String)],
+        sourceURL: URL?,
+        projectURL: URL?,
+        date: Date = Date()
+    ) throws -> BlastSubmitPlan {
+        try BlastSubmitPlan.make(
+            sequences: sequences, label: sourceLabel, projectURL: projectURL, sourceResultURL: sourceURL,
+            outputParentURL: projectURL, date: date
+        )
+    }
+
+    /// The search of the FASTA selection's row: a test's `override`, else `plan` on `blast submit` with
+    /// its events on the row through `OperationCenterCLIBridge` and its progress on the drawer, else the
+    /// in-process search the hidden key keeps for one release. Cancelling the row's task stops the leaf.
+    static func fastaBlastRunner(
+        plan: BlastSubmitPlan?,
+        operationID: UUID,
+        override: FASTABlastVerificationRunner?
+    ) -> FASTABlastVerificationRunner {
+        if let override { return override }
+        guard let plan else {
+            return { request, progress in try await BlastService.shared.verify(request: request, progress: progress) }
+        }
+        let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
+        return { _, progress in
+            try await plan.run(runner: CLIBlastSubmitRunner()) { event in
+                bridge(event)
+                if case let .progress(fraction, message) = event { progress(fraction, message) }
+            }
+        }
+    }
+
+    /// Runs `plan` for the row `operationID` on `runner` (2.11 A65 M2, decision C5 of 2.10). The leaf's
+    /// events reach the row through `OperationCenterCLIBridge`, each progress message sets the drawer's
+    /// phase, and Cancel stops the leaf's whole process tree through the runner. The row completes with
+    /// `completeDetail` of the verdicts the record holds.
+    @discardableResult
+    static func launchBlastSubmit(
+        _ plan: BlastSubmitPlan,
+        operationID: UUID,
+        runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner(),
+        drawer: BlastSubmitDrawer,
+        completeDetail: @escaping @Sendable (BlastVerificationResult) -> String
+    ) -> Task<Void, Never> {
+        drawer.loading(.submitting)
+        let onEvent = OperationCenterCLIBridge.onEvent(operationID: operationID) { message in
+            drawer.loading(BlastSubmitPlan.phase(forProgressMessage: message))
+        }
+        let task = Task { @MainActor in
+            do {
+                let result = try await plan.run(runner: runner, onEvent: onEvent)
+                guard OperationCenter.shared.complete(id: operationID, detail: completeDetail(result)) else { return }
+                drawer.results(result)
+            } catch is CancellationError {
+                OperationCenter.shared.acknowledgeCancellation(id: operationID)
+            } catch {
+                let errorText = error.localizedDescription
+                guard OperationCenter.shared.fail(id: operationID, detail: errorText, errorMessage: errorText) else { return }
+                drawer.failure(errorText)
+            }
+        }
+        OperationCenter.shared.setCancelCallback(for: operationID) {
+            runner.cancel()
+            task.cancel()
+        }
+        return task
+    }
+}

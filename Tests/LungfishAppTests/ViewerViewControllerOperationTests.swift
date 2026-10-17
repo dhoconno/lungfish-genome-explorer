@@ -8,9 +8,9 @@
 // case. The reference bundle created straight from a FASTA selection records
 // the exact lungfish-cli argv it runs, and the annotated reference import
 // records the `import fasta` command that covers its first step. Both must
-// parse with the values the run uses. The FASTA collection BLAST records a
-// command no lungfish-cli command reproduces, and its test pins that, so a
-// command added later fails here and prompts a deliberate test change.
+// parse with the values the run uses. Since 2.11 A65 M2 the FASTA collection
+// BLAST records the `lungfish-cli blast submit` command its run executes, and
+// the in-process route the hidden key keeps for one release records none.
 
 import XCTest
 @testable import LungfishApp
@@ -18,6 +18,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 @testable import LungfishOperations
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -30,9 +31,46 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         OperationRouteContext(projectURL: projectURL, windowStateScopeID: UUID())
     }
 
-    // MARK: - FASTA collection BLAST, a CLI parity gap
+    // MARK: - FASTA collection BLAST on blast submit, the gap closed by 2.11 A65 M2
 
-    func testGenericBlastVerificationRecordsNoCommandAsAParityGap() throws {
+    func testFASTASelectionBlastRecordsTheBlastSubmitCommandItRuns() throws {
+        let scratch = try TestTempDirectory.make(prefix: "fasta-blast-begin")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let source = project.appendingPathComponent("Imports/savont clusters.fasta")
+        let plan = try ViewerViewController.fastaSelectionBlastSubmitPlan(
+            sourceLabel: "3 FASTA sequences",
+            sequences: [(id: "cluster-1", sequence: "ACGTACGTAC"), (id: "cluster-2", sequence: "GGCCTTAAGG")],
+            sourceURL: source, projectURL: project
+        )
+        let reporter = RecordingOperationReporter()
+
+        ViewerViewController.beginGenericBlastVerificationOperation(
+            sourceLabel: "3 FASTA sequences", cliCommand: plan.cliCommand, reporter: reporter
+        ) { _ in }
+
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), plan.arguments)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.SubmitSubcommand.self)
+        let query = URL(fileURLWithPath: command.queryPath)
+        XCTAssertEqual(query.lastPathComponent, "query.fasta")
+        XCTAssertTrue(query.deletingLastPathComponent().lastPathComponent.hasPrefix("blast-submit-"), command.queryPath)
+        XCTAssertEqual(query.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent, ".tmp")
+        // The result goes under the project, never into the file's folder or a bundle.
+        let output = URL(fileURLWithPath: command.outputPath)
+        XCTAssertEqual(output.deletingLastPathComponent().lastPathComponent, "blast-verifications")
+        XCTAssertEqual(output.deletingLastPathComponent().deletingLastPathComponent().path, project.path)
+        XCTAssertTrue(output.lastPathComponent.hasPrefix("3-FASTA-sequences-"), command.outputPath)
+        XCTAssertEqual(command.sourceResult, source.path)
+        XCTAssertEqual(command.label, "3 FASTA sequences")
+        XCTAssertNil(command.taxId)
+        XCTAssertNil(command.contig)
+        XCTAssertNil(command.sample)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
+    func testGenericBlastVerificationRecordsItsRowAndNoCommandOnTheLegacyRoute() throws {
         let reporter = RecordingOperationReporter()
         var launchedID: UUID?
 
@@ -49,10 +87,9 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertNil(item.routeContext)
-        // No lungfish-cli command submits selected FASTA sequences to BLAST, so
-        // the row records no command.
+        // The in-process route the hidden key `BlastReadActionRoute` keeps for
+        // one release passes no command.
         XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "blast-fasta-selection")
     }
 
     // MARK: - Reference bundle created straight from selected FASTA sequences

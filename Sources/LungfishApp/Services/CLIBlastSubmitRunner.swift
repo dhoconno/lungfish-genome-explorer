@@ -41,6 +41,7 @@ enum CLIBlastSubmitRunnerError: Error, LocalizedError, Equatable {
     case processExited(status: Int32, stderr: String)
     case runFailed(message: String)
     case missingCompletion
+    case queryDigestMismatch(expected: String, found: String)
 
     var errorDescription: String? {
         switch self {
@@ -50,6 +51,8 @@ enum CLIBlastSubmitRunnerError: Error, LocalizedError, Equatable {
             return stderr.isEmpty ? "lungfish-cli exited with status \(status)" : "lungfish-cli exited with status \(status): \(stderr)"
         case .runFailed(let message): return message
         case .missingCompletion: return "lungfish-cli finished without reporting the BLAST result."
+        case .queryDigestMismatch(let expected, let found):
+            return "The BLAST record names query \(found), not the query \(expected) the viewer wrote."
         }
     }
 }
