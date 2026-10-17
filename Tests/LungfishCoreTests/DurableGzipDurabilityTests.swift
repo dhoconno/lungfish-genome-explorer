@@ -197,4 +197,37 @@ final class DurableGzipDurabilityTests: XCTestCase {
 
         XCTAssertEqual(try entries(), ["fake-gzip.sh"])
     }
+
+    func testAFullDiskStopsGzipAndKeepsTheOlderFileUnderTheName() throws {
+        let source = try makeRandomFile(named: "random.bin", in: root.appendingPathComponent("input", isDirectory: true))
+        let output = root.appendingPathComponent("output", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let destination = output.appendingPathComponent("random.bin.gz")
+        let older = Data("an older copy".utf8)
+        try older.write(to: destination)
+        // A helper that waits for gzip without stopping it hangs on gzip's full pipe, so this guard ends the test.
+        let guardCancellation = ToolProcessCancellation()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 60) { guardCancellation.cancel() }
+        let operations = DurableReplace.Operations(writeBytes: { _, _, _ in
+            errno = ENOSPC
+            return -1
+        })
+
+        XCTAssertThrowsError(
+            try DurableReplace.$overrideOperations.withValue(operations) {
+                try DurableGzip.compress(source: source, to: destination, cancellation: guardCancellation)
+            }
+        ) { error in
+            guard case .systemFailure(_, let operation, let code)? = error as? DurableReplace.ReplaceError else {
+                return XCTFail("expected the failed write, got \(error)")
+            }
+            XCTAssertEqual(operation, "write the stage file")
+            XCTAssertEqual(code, ENOSPC)
+        }
+
+        XCTAssertFalse(guardCancellation.isCancelled, "the failed write stopped gzip, not the 60 second guard")
+        XCTAssertEqual(try Data(contentsOf: destination), older, "the older copy stays under the name")
+        XCTAssertEqual(try entries(of: output), ["random.bin.gz"], "no part file stays")
+        XCTAssertEqual(gzipChildren(), [], "no gzip is left running")
+    }
 }
