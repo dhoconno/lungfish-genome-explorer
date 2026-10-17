@@ -179,6 +179,7 @@ final class AlignmentReadRowReplayTests: XCTestCase {
         XCTAssertEqual(item.state, .failed, item.detail)
         XCTAssertEqual(item.detail, "Alignment read extraction failed")
         XCTAssertEqual(item.errorMessage, AlignmentActionContext.EvidenceError.staleEvidence(shown.alignmentURL).localizedDescription)
+        XCTAssertTrue(item.errorMessage?.contains(shown.alignmentURL.lastPathComponent) == true, item.errorMessage ?? "no error message")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: bundle.deletingLastPathComponent().path), [], "nothing was published")
     }
 

@@ -285,6 +285,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
     func testAConsensusWhoseEvidenceChangedSinceItWasShownWritesNothing() async throws {
         let lines = try await run(.destination(.file), staleEvidence: true)
         let stale = AlignmentActionContext.EvidenceError.staleEvidence(Self.bam).localizedDescription
+        XCTAssertTrue(stale.contains(Self.bam.lastPathComponent), "the row names the file that changed. \(stale)")
         XCTAssertEqual(lines, [
             "row Generate Alignment Consensus",
             "end failed Alignment consensus failed",
@@ -307,6 +308,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
             try handle.write(contentsOf: Data([0]))
         }
         let stale = AlignmentActionContext.EvidenceError.staleEvidence(bam).localizedDescription
+        XCTAssertTrue(stale.contains(bam.lastPathComponent), "the row names the file that changed. \(stale)")
         XCTAssertEqual(lines, [
             "row Generate Alignment Consensus",
             "end failed Alignment consensus failed",
