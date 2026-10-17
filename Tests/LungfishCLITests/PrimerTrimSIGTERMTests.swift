@@ -59,9 +59,7 @@ final class PrimerTrimSIGTERMTests: XCTestCase {
             .deletingLastPathComponent()  // LungfishCLITests/
             .deletingLastPathComponent()  // Tests/
             .appendingPathComponent("LungfishWorkflowTests/Resources/primerschemes/mt192765-integration.lungfishprimers")
-        guard FileManager.default.fileExists(atPath: scheme.path) else {
-            throw XCTSkip("mt192765-integration scheme missing at \(scheme.path)")
-        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scheme.path), "the primer scheme fixture is missing")
         let cli = try CLISIGTERMHarness.launchCLI(
             [
                 "bam", "primer-trim",

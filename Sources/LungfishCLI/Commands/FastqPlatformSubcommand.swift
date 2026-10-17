@@ -154,7 +154,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
     /// `operationGrace`. The run ends at its next step and restores the metadata files it had changed.
     /// It records itself as cancelled under the first bundle's `provenance/cancelled` folder, ends the
     /// stream with one `failed` line, and exits 125.
-    func runChangeCancellingOnSIGTERM(bundleURLs: [URL]) async throws {
+    private func runChangeCancellingOnSIGTERM(bundleURLs: [URL]) async throws {
         let startedAt = Date()
         let restoreNote = RestoreFailureNote()
         let ran = await runCancellingOnSIGTERM { [self] in
@@ -209,7 +209,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
         var reason: String? { storage.withLock { $0 } }
     }
 
-    func runChange(
+    private func runChange(
         bundleURLs: [URL], formatter: TerminalFormatter, restoreNote: RestoreFailureNote = RestoreFailureNote()
     ) async throws {
         let runClock = ProvenanceRunClock()

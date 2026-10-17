@@ -100,7 +100,8 @@ struct CLIMSAActionRunner {
         }
     }
 
-    func cancel() {
+    /// Stops the command, whether it is running or about to start. It returns at once, from any thread.
+    nonisolated func cancel() {
         transport.cancel()
     }
 
