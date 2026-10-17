@@ -99,6 +99,7 @@ final class ProjectStoreTests: XCTestCase {
         XCTAssertEqual(provenance["outputPath"] as? String, directory.appendingPathComponent(".project.db").path)
         XCTAssertNotNil(provenance["inputs"])
         XCTAssertNotNil(provenance["outputs"])
+        XCTAssertEqual(provenance["toolVersion"] as? String, LungfishAppVersion.short)
     }
 
     func testStoreSequenceRollsBackWhenCurrentStateInsertFails() throws {

@@ -250,7 +250,7 @@ public final class ProjectStore: @unchecked Sendable {
             "schemaVersion": 1,
             "workflow": "Lungfish.ProjectStore.migrate",
             "workflowVersion": "1",
-            "toolVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development",
+            "toolVersion": LungfishAppVersion.short,
             "invocation": "ProjectFile.migrate(at: URL(fileURLWithPath: \(String(reflecting: url.path))), access: .writable)",
             "argv": ProcessInfo.processInfo.arguments,
             "options": ["access": "writable", "sourceSchema": version, "targetSchema": schemaVersion, "retainRecovery": true],
