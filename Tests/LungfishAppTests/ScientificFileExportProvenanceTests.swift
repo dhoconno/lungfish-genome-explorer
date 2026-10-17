@@ -511,19 +511,15 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(fastqMetadataSource.contains("assignmentCount"))
     }
 
-    func testReferenceBundleSequenceExportDeclaresRequiredProvenancePolicy() throws {
+    func testSequenceExportWriterDeclaresRequiredProvenancePolicy() throws {
         let source = try String(
             contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ImportCenterSequenceExport.swift"),
             encoding: .utf8
         )
-        // Dynamic document publication is covered by CapturedSequenceExportTests,
-        // which failed when the old writer dropped a captured source and lacked replay.
-        // Retain this narrow static policy check for the separate reference path.
-        let referenceStart = try XCTUnwrap(source.range(of: "nonisolated private func performReferenceBundleSequenceExport"))
-        let referenceEnd = try XCTUnwrap(source.range(of: "nonisolated private func sequenceForWholeChromosome"))
-        let referenceBody = source[referenceStart.lowerBound..<referenceEnd.lowerBound]
-
-        XCTAssertTrue(referenceBody.contains("try Self.writeSequenceExportProvenance("))
+        // Dynamic document publication is covered by CapturedSequenceExportTests. A reference bundle export now
+        // runs as `lungfish-cli convert`, which writes its own record, and SequenceExportPinConformanceTests checks
+        // that a record sits beside each output. This check covers the writer that stays in the app.
+        XCTAssertTrue(source.contains("try Self.writeSequenceExportProvenance("))
         XCTAssertTrue(source.contains(#"workflowName: "lungfish app sequence export""#))
         XCTAssertTrue(source.contains(#""compression": .string(compression.provenanceValue)"#))
     }
