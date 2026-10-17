@@ -512,6 +512,7 @@ class GateBehaviorTests(unittest.TestCase):
         hung = evidence["attempts"][0]
         self.assertEqual((hung["class"], hung["intervention"]), ("LungfishIntegrationTests.AlphaHangTests", "timeout"))
         self.assertLessEqual(hung["timeoutSeconds"], 3)
+        self.assertIn("ran out of the run's 3 s budget, which left it 3 s in " + SERIAL_TESTS[0], evidence["errors"][0])
         self.assertEqual(evidence["classBound"]["unrun"], ["LungfishIntegrationTests.BetaTests"])
         self.assertIn("GATE CLASS UNRUN: the run's 3 s budget ran out before 1 class ran: "
                       "LungfishIntegrationTests.BetaTests", result.stdout)

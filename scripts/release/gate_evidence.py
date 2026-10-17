@@ -601,7 +601,11 @@ def run_class_attempts(attempt, bound, selection, discovered, args, directory):
                 (directory / result["files"][0]["path"]).read_text(errors="replace"))
             bound["timedOut"].append(suite)
             where = ", ".join(result["unfinishedTests"]) or "a case the log does not name"
-            message = f"{suite} ran out of its {timeout:.0f} s bound in {where} and was killed with its process tree"
+            if timeout >= bound["classTimeoutSeconds"]:
+                limit = f"its {timeout:.0f} s bound"
+            else:
+                limit = f"the run's {budget} s budget, which left it {timeout:.0f} s"
+            message = f"{suite} ran out of {limit} in {where} and was killed with its process tree"
             notes.append("GATE CLASS TIMEOUT: " + message)
             errors.append("class " + message)
             print(notes[-1], flush=True)
