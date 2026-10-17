@@ -18,10 +18,15 @@
 // counts and record to the mapping golden (BIO 1). The SIGTERM case cancels the route's `map` argv
 // through the real transport once a stand-in minimap2 runs, in a conda root of its own.
 //
+// Phase 2.11 lane A62 M1 (SW20) adds a case on the same three sides that maps a virtual FASTQ bundle,
+// so the run materializes its input (BIO's ruling D8, choice 2, and B7, each bundle with its digest
+// at the run level). It joins the in-process route's declared lines, which leave with that route.
+//
 // minimap2 and samtools are the storage root's own, stated with ToolAvailability, and the class
 // launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier (docs/contracts/CLI-EQUIVALENCE.md).
 
+import CryptoKit
 import Foundation
 import XCTest
 @testable import LungfishApp
@@ -39,6 +44,7 @@ final class MappingRouteParityReplayTests: XCTestCase {
 
     enum Case: String, Sendable {
         case sarscov2PairedMinimap2
+        case sarscov2MaterializedBundleMinimap2
     }
 
     override func setUp() async throws {
@@ -140,6 +146,202 @@ final class MappingRouteParityReplayTests: XCTestCase {
         let roots = ["/private" + scratch.standardizedFileURL.path, scratch.standardizedFileURL.path]
         let spelled = { (words: [String]) in words.map { roots.reduce($0) { $1.isEmpty ? $0 : $0.replacingOccurrences(of: $1, with: "<scratch>") } } }
         XCTAssertEqual(spelled(Array(record.argv.dropFirst())), spelled(try RecordedCLICommand.arguments(of: command)))
+    }
+
+    // MARK: - Onto a .lungfishref, and from a materialized input (Phase 2.11 lane A62, K11 and SW20)
+
+    private typealias Fixture = MappingViewerBundlePublicationSigningReplayTests
+
+    private var harness: RouteParityHarness {
+        RouteParityHarness(cliBinary: cliBinary, kind: .bundle, replayTimeout: .seconds(120))
+    }
+
+    /// BIO's ruling D8 on A46 M3 and B7 (SW20). The input is a virtual FASTQ bundle, so each route materializes it
+    /// before the mapper runs. Every record names the run's own `lungfish-cli map` command with no replay of the
+    /// mapper beside it, lists the bundle and the files it reads at the run level with their digests, and no step
+    /// makes a bundle. Only the materialization step names the bundle, as the input it read.
+    func testTheMapReadsRoutesAgreeFromAMaterializedInput() async throws {
+        _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
+        _ = try await ToolAvailability.require("samtools", environment: "samtools")
+        let parityCase = Case.sarscov2MaterializedBundleMinimap2
+        // The digests are read before any side runs, from the bundle as the user chose it, by path under the root.
+        var expected: [(path: String, digest: String?)] = []
+        let (runs, _) = try await runThreeSides(
+            parityCase,
+            fixture: { root in
+                try Self.writeMaterializedFixture(root)
+                let rootPath = URL(fileURLWithPath: root.path).standardizedFileURL.path
+                expected = try CLISequenceInputMaterialization
+                    .originalInputDescriptors(for: root.appendingPathComponent(Self.materializedBundle, isDirectory: true))
+                    .map { (String($0.path.dropFirst(rootPath.count)), $0.checksumSHA256) }
+            },
+            request: { root in try Self.materializedRequest(in: root) }
+        )
+        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        let result = try harness.evaluate(parityCase, declared: Self.declaredLegacyRow(parityCase), runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
+        for side in runs.all {
+            try Self.assertMaterializedInputRecord(
+                in: try Self.analysisFolder(in: side.root), root: side.root, side: side.side, expected: expected
+            )
+        }
+    }
+
+    /// Runs `parityCase` on sides A, C and C', each with the request `makeRequest` builds for its root, and keeps the
+    /// row side C showed.
+    private func runThreeSides(
+        _ parityCase: Case,
+        fixture: (URL) throws -> Void,
+        request makeRequest: @escaping (URL) throws -> MappingRunRequest
+    ) async throws -> (RouteParityRuns, [RouteParitySide: MappingRouteRow]) {
+        var rows: [RouteParitySide: MappingRouteRow] = [:]
+        let runs = try await harness.run(
+            in: scratch.appendingPathComponent("\(parityCase)", isDirectory: true),
+            fixture: fixture,
+            sideA: { root in
+                let request = try makeRequest(root)
+                let (_, item) = try await ReadsRouteParity.record(title: Self.title(of: request)) {
+                    Task { @MainActor in
+                        await AppDelegate().runSingleManagedMappingAwaitingCompletion(
+                            request: request, warning: nil, routeContext: nil,
+                            preassignedAnalysisDirectory: request.outputDirectory, registerCancel: { _ in }
+                        )
+                    }
+                }
+                return ReadsRouteParity.outcome(of: item)
+            },
+            sideC: { root in
+                let request = try makeRequest(root)
+                let runner = CLIReadsRunner(cliURLOverride: self.cliBinary)
+                let (row, item) = try await ReadsRouteParity.record(title: Self.title(of: request)) {
+                    Task { @MainActor in
+                        await AppDelegate().runSingleManagedMappingThroughCLI(
+                            request: request, warning: nil, routeContext: nil,
+                            preassignedAnalysisDirectory: request.outputDirectory, runner: runner,
+                            cancelBatch: {}, registerCancel: { _ in }
+                        )
+                    }
+                }
+                rows[.c] = row
+                return ReadsRouteParity.outcome(of: item, recordsCommand: true)
+            }
+        )
+        return (runs, rows)
+    }
+
+    nonisolated static func title(of request: MappingRunRequest) -> String {
+        "Map Reads (\(request.tool.displayName)): \(request.sampleName)"
+    }
+
+    /// The lines the legacy row declares for a case (BIO's ruling D8 on A46 M3), the same two as the plain FASTA case.
+    private static func declaredLegacyRow(_ parityCase: Case) -> [RouteParityDeclaredDifference<Case>] {
+        let reason = "the legacy row records map without --format json, and the record names its row's command"
+        let record = "Project.lungfish/Analyses/minimap2-<TS>/.lungfish-provenance.json"
+        return [
+            RouteParityDeclaredDifference([parityCase: 2], "differs: \(record) at argv[<ANY>]", reason: reason, closedBy: "2.11"),
+            RouteParityDeclaredDifference([parityCase: 1], "differs: \(record) at reproducibleCommand", reason: reason, closedBy: "2.11"),
+        ]
+    }
+
+    // MARK: - The materialized input
+
+    /// The virtual bundle of the materialized case, under a side root, and the root bundle it reads.
+    nonisolated static let materializedBundle = "Project.lungfish/Imports/pooled-oriented.lungfishfastq"
+    nonisolated static let materializedRootFASTQ = "Project.lungfish/Imports/pooled.lungfishfastq/pooled.fastq"
+
+    /// The golden's project with its first mate file as a virtual bundle, an `orient` derivative that keeps every read
+    /// forward over a root bundle that holds the reads, so mapping the bundle materializes its input.
+    @MainActor
+    static func writeMaterializedFixture(_ root: URL) throws {
+        let fixture = try MappingRouteGolden.Fixture(in: root)
+        let fileManager = FileManager.default
+        let rootBundle = root.appendingPathComponent(materializedRootFASTQ).deletingLastPathComponent()
+        let derived = root.appendingPathComponent(materializedBundle, isDirectory: true)
+        for folder in [rootBundle, derived] { try fileManager.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let reads = try MappingRouteGolden.run(URL(fileURLWithPath: "/usr/bin/gunzip"), ["-c", fixture.readOne.path])
+        try reads.write(to: root.appendingPathComponent(materializedRootFASTQ), atomically: true, encoding: .utf8)
+        let lines = reads.split(separator: "\n", omittingEmptySubsequences: false)
+        let identifiers = lines.enumerated().compactMap { index, line in
+            index % 4 == 0 && line.hasPrefix("@") ? line.dropFirst().split(separator: " ").first.map(String.init) : nil
+        }
+        try (identifiers.map { "\($0)\t+" }.joined(separator: "\n") + "\n")
+            .write(to: derived.appendingPathComponent("orient-map.tsv"), atomically: true, encoding: .utf8)
+        try (lines.prefix(4).joined(separator: "\n") + "\n")
+            .write(to: derived.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .orient)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "pooled-oriented",
+                parentBundleRelativePath: "@/Imports/pooled.lungfishfastq",
+                rootBundleRelativePath: "@/Imports/pooled.lungfishfastq",
+                rootFASTQFilename: "pooled.fastq",
+                payload: .orientMap(orientMapFilename: "orient-map.tsv", previewFilename: "preview.fastq"),
+                lineage: [operation],
+                operation: operation,
+                cachedStatistics: .placeholder(readCount: identifiers.count, baseCount: 0),
+                pairingMode: .singleEnd,
+                sequenceFormat: .fastq
+            ),
+            in: derived
+        )
+        _ = AnalysisRunRecord.markComplete(fixture.analysisDirectory)
+    }
+
+    /// The request the Map Reads window builds when the user chooses the virtual bundle of the fixture in `root`.
+    @MainActor
+    static func materializedRequest(in root: URL) throws -> MappingRunRequest {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let folder = try analysisFolder(in: root)
+        let plan = MappingWizardSheet.buildRunPlan(
+            bundleURLs: [root.appendingPathComponent(materializedBundle, isDirectory: true)],
+            mode: .perBundle, tool: .minimap2, modeID: MappingMode.defaultShortRead.id,
+            referenceFASTAURL: project.appendingPathComponent("inputs/genome.fasta"),
+            sourceReferenceBundleURL: nil, projectURL: project, outputDirectory: folder, runToken: "parity",
+            readGroupIDText: "", readGroupSampleText: "", readGroupLibraryText: "",
+            readGroupPlatformText: "", readGroupPlatformUnitText: "", threads: 2,
+            includeSecondary: false, includeSupplementary: true, minimumMappingQuality: 0, advancedArguments: []
+        )
+        return try XCTUnwrap(plan.requests.first).withOutputDirectory(folder)
+    }
+
+    /// BIO's ruling D8 and B7 on the record a side left in `folder`.
+    nonisolated static func assertMaterializedInputRecord(
+        in folder: URL, root: URL, side: RouteParitySide, expected: [(path: String, digest: String?)],
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), "side \(side) wrote no record in \(folder.path)", file: file, line: line)
+        let canonical = { (path: String) in URL(fileURLWithPath: path).standardizedFileURL.path }
+        // D8, choice 2. The record names the run's command, and no replay of the mapper stands beside it.
+        XCTAssertEqual(Array(record.argv.prefix(2)), [CLICommandIdentity.executableName, "map"], "side \(side) argv", file: file, line: line)
+        XCTAssertNil(record.durableReplayArgv, "side \(side) keeps a mapper replay beside the run command", file: file, line: line)
+        XCTAssertTrue(
+            record.reproducibleCommand.hasPrefix("\(CLICommandIdentity.executableName) map "),
+            "side \(side) reproducibleCommand \(record.reproducibleCommand)", file: file, line: line
+        )
+        // B7. Every file of the bundle is at the run level with the digest of its bytes, and the bundle with its own.
+        let bundle = root.appendingPathComponent(materializedBundle, isDirectory: true)
+        let recorded = Dictionary(record.files.map { (canonical($0.path), $0) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertGreaterThanOrEqual(expected.count, 3, "the bundle, its manifest and its reads", file: file, line: line)
+        for (relative, digest) in expected {
+            let path = canonical(root.path) + relative
+            let entry = recorded[path]
+            XCTAssertNotNil(entry, "side \(side) lists no \(path) at the run level", file: file, line: line)
+            XCTAssertEqual(entry?.checksumSHA256, digest, "side \(side) digest of \(path)", file: file, line: line)
+            XCTAssertFalse((entry?.checksumSHA256 ?? "").isEmpty, "side \(side) lists \(path) with no digest", file: file, line: line)
+        }
+        let reads = root.appendingPathComponent(materializedRootFASTQ)
+        let readsDigest = SHA256.hash(data: try Data(contentsOf: reads)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(recorded[canonical(reads.path)]?.checksumSHA256, readsDigest, "side \(side) digest of the reads", file: file, line: line)
+        // No step makes a bundle, and only the materialization step names the bundle, as the input it read.
+        let bundlePath = canonical(bundle.path)
+        XCTAssertEqual(
+            record.steps.filter { $0.outputs.contains { canonical($0.path) == bundlePath } }.map(\.toolName), [],
+            "side \(side) has a step that makes the bundle", file: file, line: line
+        )
+        XCTAssertEqual(
+            record.steps.filter { $0.inputs.contains { canonical($0.path) == bundlePath } }.map(\.toolName),
+            [CLISequenceInputMaterialization.materializationToolName], "side \(side) steps that name the bundle", file: file, line: line
+        )
     }
 
     // MARK: - SIGTERM through the transport (P2, SWIFT 3 and 7)
