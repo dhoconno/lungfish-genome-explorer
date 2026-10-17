@@ -81,8 +81,9 @@ final class MappingRouteParityReplayTests: XCTestCase {
         let result = try harness.evaluate(Case.sarscov2PairedMinimap2, declared: [], runs: runs)
         RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.sarscov2PairedMinimap2)")
         // UX 1 and 3, the CLI route's row shows the words, bar, lines and end of the in-process row
-        // M2 froze. On either route the viewer's step back to 0.93 can reach the panel after the bar
-        // reached 1 and be missed, so both bars are read through comparableBar (QA's ruling D9).
+        // M2 froze. The frozen file still holds that route's step back to 0.93 after the bar reached 1,
+        // which the CLI row never shows (it holds the bar, W2), so both bars are read through
+        // comparableBar (QA's ruling D9).
         let row = try XCTUnwrap(rows[.c])
         let frozen = try String(contentsOf: MappingRouteRow.frozenFolder.appendingPathComponent("plain-fasta.txt"), encoding: .utf8)
         XCTAssertEqual(
