@@ -24,8 +24,8 @@ extension DatabaseBrowserViewModel {
     /// source" setting, so a change mid-batch does not split the batch. Nil
     /// reads the setting now.
     ///
-    /// `mirrorFile` also
-    /// gets the bytes ENA lists for the whole run, for the row's progress.
+    /// `mirrorFile` gets the bytes ENA lists for the whole run, for the row's
+    /// progress.
     /// `lookUpNCBIRun` covers a run the window's last search did not.
     nonisolated func stageSRARun(
         accession: String,
