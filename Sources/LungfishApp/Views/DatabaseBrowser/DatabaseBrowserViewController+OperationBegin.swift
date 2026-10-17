@@ -113,9 +113,7 @@ extension DatabaseBrowserViewModel {
     ///   DatabaseBrowserViewModel+GenomeRowDownload.swift), and each bundle's
     ///   record names its own accession, so one line with every accession
     ///   builds the same bundles. The folder is the project's Downloads folder,
-    ///   which the run writes into and the import keeps in place. The
-    ///   in-process route behind the hidden key builds the same bundles with no
-    ///   record, a difference the parity class declares.
+    ///   which the run writes into and the import keeps in place.
     /// - SRA runs begin with no command. The import sheet comes after the
     ///   row, and its settings are flags of the command, so
     ///   `startSRADownloadTask` (DatabaseBrowserViewModel+SRARowDownload.swift)
