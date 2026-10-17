@@ -103,6 +103,7 @@ while [ $# -gt 0 ]; do
         --class-timeout-seconds)
             # The bound for each class of a serial run (see "The bound for each class" above).
             [ $# -ge 2 ] || { echo "--class-timeout-seconds requires a value" >&2; exit 64; }
+            [ "$2" -ge 1 ] 2>/dev/null || { echo "--class-timeout-seconds requires a whole number of seconds, 1 or more" >&2; exit 64; }
             CLASS_TIMEOUT_SECONDS="$2"
             shift 2
             ;;

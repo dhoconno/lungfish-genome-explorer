@@ -544,6 +544,14 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertIn("--class-timeout-seconds bounds the classes of a serial run", result.stderr)
         self.assertIsNone(evidence)
 
+    def test_a_class_bound_must_be_a_whole_number_of_seconds_of_one_or_more(self):
+        for value in ("0", "-5", "ten", "1.5"):
+            with self.subTest(value):
+                result, evidence = self.run_gate("two_classes", "--tier", "integration", "--class-timeout-seconds", value)
+                self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+                self.assertIn("--class-timeout-seconds requires a whole number of seconds", result.stderr)
+                self.assertIsNone(evidence)
+
 
 class SplitRunReaderTests(unittest.TestCase):
     """Q65 M3. Both readers of gate evidence still read a serial run split by class. `package`
