@@ -48,7 +48,7 @@ final class DatabaseBrowserSRARowRouteReplayTests: XCTestCase {
         let suite = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowRouteReplayTests")
         let viewModel = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(apiKey: nil, environment: [:]), enaService: ENAService(environment: [:]),
-            sraDownloadSuiteName: suite.name)
+            defaultsSuiteName: suite.name)
         viewModel.routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: UUID())
         let id = OperationCenter.shared.begin(
             title: "SRA row route", detail: "Starting...", operationType: .download, cliCommand: nil).rowID
@@ -120,7 +120,7 @@ final class DatabaseBrowserSRARowRouteReplayTests: XCTestCase {
         let suite = makeTestDefaultsSuite(prefix: "sra-browser-confirm")
         let model = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(httpClient: client),
-            enaService: ENAService(httpClient: client), sraDownloadSuiteName: suite.name)
+            enaService: ENAService(httpClient: client), defaultsSuiteName: suite.name)
         model.routeContext = OperationRouteContext(
             projectURL: project, windowStateScopeID: controller.projectSession.windowStateScope.id)
         model.onDownloadStarted = { parent.endSheet(browser) }

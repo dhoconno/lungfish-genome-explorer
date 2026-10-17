@@ -112,7 +112,7 @@
     },
     "workflow" : {
       "type" : "string",
-      "value" : "gui-sra-fastq-import"
+      "value" : "sra-fastq-download-bundle"
     }
   },
   "factsVersion" : 2,
@@ -204,7 +204,7 @@
     },
     "workflow" : {
       "type" : "string",
-      "value" : "gui-sra-fastq-import"
+      "value" : "sra-fastq-download-bundle"
     }
   },
   "legacyRunSteps" : [
@@ -275,5 +275,5 @@
   "toolName" : "lungfish-cli",
   "toolVersion" : "test",
   "wallTimeSeconds" : 1,
-  "workflowName" : "gui-sra-fastq-import"
+  "workflowName" : "sra-fastq-download-bundle"
 }

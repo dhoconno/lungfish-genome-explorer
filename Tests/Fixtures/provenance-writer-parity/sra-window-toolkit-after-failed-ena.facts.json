@@ -140,7 +140,7 @@
     },
     "workflow" : {
       "type" : "string",
-      "value" : "gui-sra-fastq-import"
+      "value" : "sra-fastq-download-bundle"
     }
   },
   "factsVersion" : 2,
@@ -239,7 +239,7 @@
     },
     "workflow" : {
       "type" : "string",
-      "value" : "gui-sra-fastq-import"
+      "value" : "sra-fastq-download-bundle"
     }
   },
   "legacyRunSteps" : [
@@ -456,5 +456,5 @@
   "toolName" : "prefetch",
   "toolVersion" : "sra-tools <sra-tools-version>",
   "wallTimeSeconds" : 1001,
-  "workflowName" : "gui-sra-fastq-import"
+  "workflowName" : "sra-fastq-download-bundle"
 }

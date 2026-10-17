@@ -8,15 +8,15 @@ import LungfishIO
 
 extension DatabaseBrowserViewModel {
     /// The defaults the window's "Download source" popup writes and its
-    /// downloads read, the suite `sraDownloadSuiteName` names or the
+    /// downloads read, the suite `defaultsSuiteName` names or the
     /// standard defaults.
-    nonisolated var sraDownloadDefaults: UserDefaults {
-        sraDownloadSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+    nonisolated var browserDefaults: UserDefaults {
+        defaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
     }
 
     /// The window's "Download source" setting as stored now.
     nonisolated func sraDownloadPreference() -> SRADownloadSourcePreference {
-        .stored(in: sraDownloadDefaults)
+        .stored(in: browserDefaults)
     }
 
     /// Downloads one run of the window's SRA batch into its own folder of

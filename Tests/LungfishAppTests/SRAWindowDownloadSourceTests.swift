@@ -204,7 +204,7 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
         let defaults = suite.defaults
         SRADownloadSourcePreference.ncbi.store(in: defaults)
         let viewModel = await MainActor.run {
-            DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite.name)
+            DatabaseBrowserViewModel(source: .ena, defaultsSuiteName: suite.name)
         }
 
         let statuses = Statuses()
@@ -235,9 +235,9 @@ final class SRAWindowDownloadSourceTests: XCTestCase {
     @MainActor
     func testThePopupAndTheDownloadShareTheWindowsDefaults() throws {
         let suite = makeTestDefaultsSuite(prefix: "SRAWindowDownloadSourceTests")
-        let viewModel = DatabaseBrowserViewModel(source: .ena, sraDownloadSuiteName: suite.name)
+        let viewModel = DatabaseBrowserViewModel(source: .ena, defaultsSuiteName: suite.name)
         XCTAssertEqual(viewModel.sraDownloadPreference(), .ena)
-        let storage = SRADownloadSourcePicker.storage(in: viewModel.sraDownloadDefaults)
+        let storage = SRADownloadSourcePicker.storage(in: viewModel.browserDefaults)
         storage.wrappedValue = .ncbi
         XCTAssertEqual(viewModel.sraDownloadPreference(), .ncbi)
         XCTAssertEqual(SRADownloadSourcePreference.stored(in: suite.makeDefaults()), .ncbi)

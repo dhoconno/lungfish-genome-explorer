@@ -492,7 +492,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
     private var importedGenBankQuery: String?
 
     /// Where the SRA "Download source" setting is stored, and NCBI's run info from the last SRA search.
-    nonisolated let sraDownloadSuiteName: String? // nil is the standard defaults
+    nonisolated let defaultsSuiteName: String? // nil is the standard defaults
     var sraNCBIRunsFromSearch: [String: SRARunInfo] = [:]
     /// Maximum number of SRA results to return for non-accession queries
     @Published var sraResultLimit: Int = 50
@@ -1014,10 +1014,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
         enaService: ENAService = ENAService(),
         automationBackend: DatabaseSearchAutomationBackend? = nil,
         largeResultActionProvider: (@Sendable (_ totalCount: Int, _ sourceLabel: String) async -> LargeResultAction)? = nil,
-        sraDownloadSuiteName: String? = nil
+        defaultsSuiteName: String? = nil
     ) {
         self.source = source
-        self.sraDownloadSuiteName = sraDownloadSuiteName
+        self.defaultsSuiteName = defaultsSuiteName
         self.ncbiService = ncbiService
         self.enaService = enaService
         self.automationBackend = automationBackend

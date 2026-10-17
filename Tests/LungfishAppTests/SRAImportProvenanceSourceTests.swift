@@ -71,7 +71,7 @@ final class SRAImportProvenanceSourceTests: XCTestCase {
             cliBinaryPath: { URL(fileURLWithPath: "/injected/lungfish-cli") }
         )
         let run = try XCTUnwrap(ProvenanceRecorder.load(from: bundleURL))
-        XCTAssertEqual(run.name, "gui-sra-fastq-import")
+        XCTAssertEqual(run.name, "sra-fastq-download-bundle")
         return run.parameters
     }
 }

@@ -73,7 +73,7 @@ final class DatabaseBrowserSRARowCancelReplayTests: XCTestCase {
         defer { saved.restore() }
         let suite = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowCancelReplayTests")
         let viewModel = DatabaseBrowserViewModel(
-            source: .ena, ncbiService: NCBIService(apiKey: nil), enaService: ENAService(), sraDownloadSuiteName: suite.name)
+            source: .ena, ncbiService: NCBIService(apiKey: nil), enaService: ENAService(), defaultsSuiteName: suite.name)
         viewModel.routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: UUID())
         let id = OperationCenter.shared.begin(
             title: "SRA row cancel", detail: "Starting...", operationType: .download, cliCommand: nil).rowID

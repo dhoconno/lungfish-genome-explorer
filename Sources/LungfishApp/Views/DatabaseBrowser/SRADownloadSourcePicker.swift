@@ -7,7 +7,7 @@ import LungfishCore
 
 /// The "Download source" popup in the SRA search's advanced settings. It
 /// stores the choice under `SRADownloadSourcePreference.userDefaultsKey` in
-/// the window's `DatabaseBrowserViewModel.sraDownloadDefaults`, which every
+/// the window's `DatabaseBrowserViewModel.browserDefaults`, which every
 /// download the window starts reads once per batch. The caption under the popup names
 /// the trade-off, so nothing depends on the help tag alone.
 struct SRADownloadSourcePicker: View {

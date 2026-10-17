@@ -93,6 +93,12 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
             // in-process route and its key (BIO ruling on lane A45 M3c, section b item 3, Phase 2.11 K3).
             try FetchSRAFetchedRecordReplayTests.assertEveryRecordNamesItsFilesInTheBundle(
                 bundle, side: "side \(run.side)")
+            // The bundle's record is the leaf's own, with its workflow name and lungfish-cli as the run's tool,
+            // also when the toolkit's prefetch is the first step (Phase 2.11 K3, A45 review note 1).
+            let rootRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle), "side \(run.side)")
+            XCTAssertEqual(rootRecord.workflowName, "sra-fastq-download-bundle", "side \(run.side)")
+            XCTAssertEqual(rootRecord.toolName, "lungfish-cli", "side \(run.side)")
+            XCTAssertEqual(rootRecord.tool.name, "lungfish-cli", "side \(run.side)")
         }
     }
 
@@ -103,7 +109,7 @@ final class DatabaseBrowserSRARowParityReplayTests: XCTestCase {
     static func row(in root: URL, suite: String) async -> RouteParitySideOutcome {
         let project = DatabaseBrowserNucleotideRowParityReplayTests.project(in: root)
         let viewModel = DatabaseBrowserViewModel(
-            source: .ena, ncbiService: NCBIService(apiKey: nil), enaService: ENAService(), sraDownloadSuiteName: suite)
+            source: .ena, ncbiService: NCBIService(apiKey: nil), enaService: ENAService(), defaultsSuiteName: suite)
         viewModel.routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: UUID())
         let id = OperationCenter.shared.begin(
             title: "SRA row parity", detail: "Starting...", operationType: .download, cliCommand: nil).rowID

@@ -136,7 +136,7 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
         let suite = makeTestDefaultsSuite(prefix: "a60-no-project-refusal")
         let client = RefusingNCBIClient()
         let model = DatabaseBrowserViewModel(
-            source: .ncbi, ncbiService: NCBIService(httpClient: client), sraDownloadSuiteName: suite.name)
+            source: .ncbi, ncbiService: NCBIService(httpClient: client), defaultsSuiteName: suite.name)
         model.ncbiSearchType = .genome
         let accession = "GCF_960000002.1"
         model.selectedRecord = SearchResultRecord(id: "960000002", accession: accession, title: "A60 refusal", source: .ncbi)
@@ -178,7 +178,7 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
         let client = RefusingNCBIClient()
         let model = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(httpClient: client),
-            enaService: ENAService(httpClient: client), sraDownloadSuiteName: suite.name)
+            enaService: ENAService(httpClient: client), defaultsSuiteName: suite.name)
         let accession = "SRR9000002"
         model.selectedRecord = SearchResultRecord(id: accession, accession: accession, title: "A60 refusal", source: .ena)
         var dismissed = false
@@ -217,7 +217,7 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
         let client = RefusingNCBIClient()
         let model = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(httpClient: client),
-            enaService: ENAService(httpClient: client), sraDownloadSuiteName: suite.name)
+            enaService: ENAService(httpClient: client), defaultsSuiteName: suite.name)
         XCTAssertNil(model.routeContext?.projectURL)
         let accession = "SRR9000003"
         let id = try XCTUnwrap(

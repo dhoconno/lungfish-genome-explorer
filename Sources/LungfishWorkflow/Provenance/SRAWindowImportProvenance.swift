@@ -6,7 +6,14 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// Writes the provenance of one SRA run the window downloaded and imported.
+/// The workflow name of the record `fetch sra download --bundle` writes for one SRA run it downloaded
+/// and imported. The leaf kept the window's name `gui-sra-fastq-import` while the window's in-process
+/// route wrote the same record, and took its own when Phase 2.11 deleted that route with its hidden key
+/// (K3, `ARCH/reviews/A45.md:165`).
+package let sraFASTQBundleWorkflowName = "sra-fastq-download-bundle"
+
+/// Writes the provenance of one SRA run that `fetch sra download --bundle` downloaded and imported.
+/// The window's staging calls it too, in tests only, since its in-process route is gone (K3).
 /// Internal, not private, so tests can read what it records.
 ///
 /// `cliBinaryPath` names the CLI in the import step, and `cliCommandLine`
@@ -23,6 +30,9 @@ import LungfishIO
 /// `stagedReadCounts` gives the reads each staged file held for a run that
 /// imported unpaired reads beside its pairs, recorded under
 /// `stagingInputReadCounts`. Any other run passes nil and records nothing new.
+///
+/// `runTool` names the run's tool and its version. The leaf passes `lungfish-cli`, because the run is
+/// its own (Phase 2.11 K3). Nil keeps the first step's tool as the run's, as the window's record did.
 package func writeGUISRAFASTQImportProvenance(
     accession: String,
     readRecord: ENAReadRecord?,
@@ -45,7 +55,8 @@ package func writeGUISRAFASTQImportProvenance(
     qualityBinning: String,
     optimizeStorage: Bool,
     compressionLevel: String,
-    cliBinaryPath: () -> URL?
+    cliBinaryPath: () -> URL?,
+    runTool: (name: String, version: String)? = nil
 ) throws {
     let existingCLIProvenance = ProvenanceRecorder.load(from: bundleURL)
     let source = SRAFASTQDownloadSource(rawValue: downloadSource)
@@ -108,7 +119,7 @@ package func writeGUISRAFASTQImportProvenance(
     }
 
     var parameters: [String: ParameterValue] = [
-        "workflow": .string("gui-sra-fastq-import"),
+        "workflow": .string(sraFASTQBundleWorkflowName),
         "accession": .string(accession),
         "downloadSource": .string(downloadSource),
         // The window's "Download source" setting. The window records `import
@@ -151,7 +162,7 @@ package func writeGUISRAFASTQImportProvenance(
     }
 
     let run = WorkflowRun(
-        name: "gui-sra-fastq-import",
+        name: sraFASTQBundleWorkflowName,
         startTime: steps.first?.startTime ?? cliStartedAt,
         endTime: cliCompletedAt,
         status: .completed,
@@ -161,10 +172,27 @@ package func writeGUISRAFASTQImportProvenance(
         parameters: parameters
     )
 
+    let envelope = run.canonicalEnvelope()
     try ProvenanceWriter(signingProvider: nil).write(
-        run.canonicalEnvelope(),
+        runTool.map { envelope.naming(tool: $0.name, version: $0.version) } ?? envelope,
         toSidecar: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
     )
+}
+
+private extension ProvenanceEnvelope {
+    /// This envelope with `name` at `version` as the run's tool and every other field kept. An
+    /// envelope's tool is fixed when it is made, so this makes a new one.
+    func naming(tool name: String, version: String) -> ProvenanceEnvelope {
+        ProvenanceEnvelope(
+            schemaVersion: schemaVersion, id: id, createdAt: createdAt, workflowName: workflowName,
+            workflowVersion: workflowVersion, toolName: name, toolVersion: version,
+            githubReleaseVersion: githubReleaseVersion,
+            tool: ProvenanceToolIdentity(name: name, version: version, kind: "cli"),
+            argv: argv, durableReplayArgv: durableReplayArgv, reproducibleCommand: reproducibleCommand,
+            options: options, runtimeIdentity: runtimeIdentity, files: files, output: output, outputs: outputs,
+            steps: steps, wallTimeSeconds: wallTimeSeconds, exitStatus: exitStatus, stderr: stderr,
+            signatures: signatures, status: status, legacyWorkflowRun: legacyRun)
+    }
 }
 
 private func sraGUIInputFormat(for path: String) -> FileFormat? {

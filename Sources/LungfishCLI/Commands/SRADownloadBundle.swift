@@ -198,7 +198,8 @@ struct SRADownloadBundleRun: Sendable {
         [".fastq.gz", ".fq.gz", ".fastq", ".fq"].contains { name.hasSuffix($0) }
     }
 
-    /// The window's record of an SRA import (`writeGUISRAFASTQImportProvenance`), with the download's
+    /// The leaf's record of an SRA import (`writeGUISRAFASTQImportProvenance`), under its own workflow
+    /// name with `lungfish-cli` as the run's tool (Phase 2.11 K3), with the download's
     /// steps from this process and the import's own steps merged in from the bundle's record.
     private func writeRecord(
         accession: String, reads: SRARunReads, layoutWarning: String?, metadata: PersistedFASTQMetadata,
@@ -233,7 +234,8 @@ struct SRADownloadBundleRun: Sendable {
             qualityBinning: settings.qualityBinning,
             optimizeStorage: !settings.noOptimizeStorage && settings.clumpingTool != "none",
             compressionLevel: settings.compression,
-            cliBinaryPath: { nil }
+            cliBinaryPath: { nil },
+            runTool: (CLICommandIdentity.executableName, WorkflowRun.currentAppVersion)
         )
     }
 
