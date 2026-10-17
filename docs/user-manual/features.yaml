@@ -183,11 +183,11 @@ features:
       - Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift
       - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
       - Sources/LungfishWorkflow/Mapping/MappingViewerBundlePreparer.swift
+      - Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift
       - Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift
       - Sources/LungfishWorkflow/Mapping/MappingInputResolver.swift
       - Sources/LungfishWorkflow/Mapping/MappingResult.swift
       - Sources/LungfishWorkflow/Mapping/MappingProvenance.swift
-      - Sources/LungfishApp/App/ReadsLaunchRoute.swift
       - Sources/LungfishApp/Services/CLIReadsRunner.swift
       - Sources/LungfishApp/App/AppDelegate+ManagedMapping.swift
       - Sources/LungfishCLI/Commands/MapCommand+Events.swift
@@ -203,14 +203,15 @@ features:
       - Tests/LungfishCLITests/MapCommandTests.swift
       - Tests/LungfishAppTests/MappingRouteParityReplayTests.swift
       - Tests/LungfishAppTests/MappingRouteSigningReplayTests.swift
+      - Tests/LungfishAppTests/MappingRoutePrivateProjectReplayTests.swift
       - Tests/LungfishAppTests/ReadsLaunchRouteTests.swift
     notes: >-
       Runs minimap2 or the selected mapper, normalizes the resulting BAM, writes
       a mapping-result sidecar, and can attach the mapping outputs to a
       reference bundle with `lungfish bam adopt-mapping`.
-      Map Reads runs lungfish-cli map by default. The hidden key
-      ReadsLaunchRoute.mapping set to legacy keeps the in-process route for
-      one release. With --format json the command prints CLIEvent lines in
+      Map Reads runs lungfish-cli map, and a Map Reads onto a reference bundle
+      in a project spelled under /private publishes the reference viewer. With
+      --format json the command prints CLIEvent lines in
       place of the r5-map-report document, so a script reads the complete
       line.
   variants.call:
@@ -474,7 +475,6 @@ features:
       - Sources/LungfishCLI/Commands/FastqIngestSubcommand+Run.swift
       - Sources/LungfishCLI/Commands/FastqImportONTSubcommand+Events.swift
       - Sources/LungfishApp/Services/FASTQIngestionService+CLIRoute.swift
-      - Sources/LungfishApp/App/ReadsLaunchRoute.swift
     module: [LungfishApp, LungfishCLI, LungfishIO, LungfishWorkflow]
     cli:
       - lungfish-cli fastq ingest
@@ -1465,7 +1465,6 @@ features:
       - Sources/LungfishCLI/Commands/AssembleCommand.swift
       - Sources/LungfishCLI/Commands/AssembleCommand+ReadSets.swift
       - Sources/LungfishWorkflow/Assembly
-      - Sources/LungfishApp/App/ReadsLaunchRoute.swift
       - Sources/LungfishApp/Services/CLIReadsRunner.swift
       - Sources/LungfishCLI/Commands/AssembleCommand+Events.swift
       - Sources/LungfishCLI/Commands/AssembleCommand+ReferenceBundle.swift
