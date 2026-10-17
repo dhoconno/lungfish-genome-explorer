@@ -45,7 +45,7 @@ extension DatabaseBrowserViewModel {
     /// sheet, so its command is set here with the sheet's flags. A batch with no project never gets
     /// here, since the browser refuses it before its row begins (lane A60). If one ever does, the row
     /// fails in the refusal's words and starts nothing, because the in-process download that took such
-    /// a batch went with the hidden key `DatabaseBrowserSRARowRoute` (Phase 2.11 K3).
+    /// a batch went with the hidden key of the SRA row (Phase 2.11 K3).
     func startSRADownloadTask(
         records: [SearchResultRecord],
         importConfig: FASTQImportConfiguration,

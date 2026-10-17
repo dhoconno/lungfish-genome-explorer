@@ -211,7 +211,7 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
     /// The import sheet hands its runs to `startSRADownloadTask` only after the row began, which the
     /// refusal prevents with no project. A row handed over with none anyway fails in the refusal's words,
     /// records no command and asks no archive, since the in-process download that once took it went with
-    /// the hidden key `DatabaseBrowserSRARowRoute` (lane A60 M3, K3).
+    /// the hidden key of the SRA row (lane A60 M3, K3).
     func testAnSRARowHandedOverWithNoProjectFailsInTheRefusalsWordsAndAsksNothing() async throws {
         let suite = makeTestDefaultsSuite(prefix: "a60-no-project-sra-hand-over")
         let client = RefusingNCBIClient()

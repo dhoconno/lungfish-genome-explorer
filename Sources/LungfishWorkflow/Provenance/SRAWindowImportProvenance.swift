@@ -191,7 +191,7 @@ private extension ProvenanceEnvelope {
             argv: argv, durableReplayArgv: durableReplayArgv, reproducibleCommand: reproducibleCommand,
             options: options, runtimeIdentity: runtimeIdentity, files: files, output: output, outputs: outputs,
             steps: steps, wallTimeSeconds: wallTimeSeconds, exitStatus: exitStatus, stderr: stderr,
-            signatures: signatures, status: status, legacyWorkflowRun: legacyRun)
+            signatures: signatures, status: status)
     }
 }
 
