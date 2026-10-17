@@ -82,8 +82,8 @@ extension BAMCommand {
             case .failure(let error as BundleAlignmentTrackRemovalError):
                 throw refuse(error.localizedDescription, events)
             case .failure(let error):
-                events.emitFailed("Remove Derived Alignment failed: \(error.localizedDescription)")
-                say("Error: \(error.localizedDescription)")
+                events.emitFailed("Remove Derived Alignment failed: \(CLIFailureWords.describe(error))")
+                say("Error: \(CLIFailureWords.describe(error))")
                 throw CLIExitCode.workflowError.exitCode
             }
         }

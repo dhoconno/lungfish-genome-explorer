@@ -212,7 +212,7 @@ extension ToolsCommand.UpdateSubcommand {
             throw CLIExitCode.cancelled.exitCode
         }
         if let failure {
-            events.emitFailed(failure.localizedDescription)
+            events.emitFailed(CLIFailureWords.describe(failure))
             throw failure
         }
         guard let result else { return }

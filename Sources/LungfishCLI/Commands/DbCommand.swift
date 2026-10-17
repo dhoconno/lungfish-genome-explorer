@@ -590,7 +590,7 @@ extension DbCommand {
                 throw CLIExitCode.cancelled.exitCode
             }
             if let runError {
-                events.emitFailed(runError.localizedDescription)
+                events.emitFailed(CLIFailureWords.describe(runError))
                 throw runError
             }
 
