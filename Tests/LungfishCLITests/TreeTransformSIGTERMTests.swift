@@ -84,4 +84,76 @@ final class TreeTransformSIGTERMTests: XCTestCase {
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "no tree bundle was left behind")
     }
+
+    private final class StepRan: Sendable {
+        private let storage = Mutex(false)
+        func mark() { storage.withLock { $0 = true } }
+        var value: Bool { storage.withLock { $0 } }
+    }
+
+    /// A SIGTERM before the writer starts ends the run at the first checkpoint, once the bundle is loaded.
+    /// The test above holds the writer inside the transform, so it reaches only the checkpoint after the
+    /// write. This one holds the run on its `Loading tree bundle.` progress line. The transform step never
+    /// runs, no bundle is written, the run is recorded as cancelled beside the output path and the stream
+    /// ends with one `failed` line (review S61, Fix 7).
+    func testASIGTERMBeforeTheWriteEndsTheTransformWithoutRunningIt() async throws {
+        let directory = try TestTempDirectory.make(prefix: "tree-transform-sigterm-early")
+        defer { TestTempDirectory.cleanup(directory) }
+        let newick = directory.appendingPathComponent("Source.nwk")
+        try "((A:0.1,B:0.2)Clade:0.3,C:0.4);\n".write(to: newick, atomically: true, encoding: .utf8)
+        let source = directory.appendingPathComponent("Source.lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(from: newick, to: source, options: .init(name: "Source"))
+        let output = directory.appendingPathComponent("Rerooted.lungfishtree", isDirectory: true)
+        let record = URL(fileURLWithPath: output.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
+        let command = try TreeCommand.RerootSubcommand.parse([
+            "--bundle", source.path, "--on", "C", "--output", output.path, "--format", "json",
+        ])
+        let emitted = EmittedLines()
+        let transformRan = StepRan()
+        let held = DispatchSemaphore(value: 0)
+
+        // A SIGTERM that arrives late must not end the test runner.
+        let previous = signal(SIGTERM, SIG_IGN)
+        defer { signal(SIGTERM, previous) }
+
+        @Sendable func awaitHeld() -> Bool { held.wait(timeout: .now() + 30) == .success }
+        let poster = Task.detached {
+            if awaitHeld() { kill(getpid(), SIGTERM) }
+        }
+        var thrown: (any Error)?
+        do {
+            try await command.runTransformCancellingOnSIGTERM(emit: { emitted.append($0) }) {
+                try executeTreeTransform(
+                    bundlePath: source.path,
+                    outputPath: output.path,
+                    toolName: "lungfish tree reroot",
+                    argv: ["lungfish", "tree", "reroot"],
+                    globalOptions: try GlobalOptions.parse(["--format", "json"]),
+                    emit: { line in
+                        emitted.append(line)
+                        guard line.contains("Loading tree bundle.") else { return }
+                        // Held on the progress line, before the bundle loads, until the SIGTERM handler cancels this task.
+                        held.signal()
+                        let deadline = ContinuousClock.now + .seconds(20)
+                        while !Task.isCancelled, ContinuousClock.now < deadline { usleep(10_000) }
+                    }
+                ) { bundle, outputURL, provenance in
+                    transformRan.mark()
+                    return try bundle.rerootedBundle(on: "C", to: outputURL, provenance: provenance)
+                }
+            }
+        } catch {
+            thrown = error
+        }
+        await poster.value
+
+        XCTAssertFalse(transformRan.value, "the transform step never ran")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "no tree bundle was written")
+        XCTAssertEqual(try SIGTERMPinSupport.recordStatus(at: record), "cancelled", "the command records its run as cancelled")
+        XCTAssertEqual(thrown as? ExitCode, CLIExitCode.cancelled.exitCode, "a cancelled transform exits 125, ended with \(String(describing: thrown))")
+        XCTAssertEqual(
+            emitted.all.filter { $0.contains(#""event":"failed""#) }.count, 1,
+            "the stream ends with one failed line: \(emitted.all)"
+        )
+    }
 }
