@@ -168,12 +168,25 @@ struct ExtractTaxaCollectionSubcommand: AsyncParsableCommand {
         return await task.value
     }
 
+    /// The words the process was started with when it runs `extract taxa-collection`, so the record's
+    /// argv is the command the row recorded, `--format json` included.
+    private static func observedArguments() -> [String]? {
+        let raw = CommandLine.arguments
+        guard let executable = raw.first else { return nil }
+        let arguments = Array(raw.dropFirst())
+        let normalized = LungfishCLI.normalizedArgumentsForParsing(arguments)
+        guard normalized.starts(with: ["extract", "taxa-collection"]) else { return nil }
+        return [executable] + arguments
+    }
+
     /// The command as the record names it.
     func provenanceCommand() -> [String] {
-        [CLICommandIdentity.executableName, "extract", "taxa-collection", "--result", result,
-         "--collection-id", collectionID, "--collection-name", collectionName]
-            + targets.flatMap { ["--target", $0] }
-            + ["--output-dir", outputDirectory]
+        Self.observedArguments()
+            ?? ([CLICommandIdentity.executableName, "extract", "taxa-collection", "--result", result,
+                 "--collection-id", collectionID, "--collection-name", collectionName]
+                + targets.flatMap { ["--target", $0] }
+                + ["--output-dir", outputDirectory]
+                + (globalOptions.outputFormat == .json ? ["--format", "json"] : []))
     }
 
     /// Records a run that a cancel stopped as cancelled, in the folder its files go to. A failure
