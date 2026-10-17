@@ -21,6 +21,9 @@
 // Phase 2.11 lane A62 M1 (SW20) adds a case on the same three sides that maps a virtual FASTQ bundle,
 // so the run materializes its input (BIO's ruling D8, choice 2, and B7, each bundle with its digest
 // at the run level). It joins the in-process route's declared lines, which leave with that route.
+// A second case maps onto a `.lungfishref`, the launch the plain FASTA case never reaches, so each side
+// publishes the reference viewer bundle (K11, SW20). Side A's import record names the host's executable,
+// which `declaredLegacyRow` declares with the other lines that leave with the in-process route.
 //
 // minimap2 and samtools are the storage root's own, stated with ToolAvailability, and the class
 // launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
@@ -186,6 +189,27 @@ final class MappingRouteParityReplayTests: XCTestCase {
                 in: try Self.analysisFolder(in: side.root), root: side.root, side: side.side, expected: expected
             )
         }
+    }
+
+    /// The sidebar's Map Reads onto a `.lungfishref`, the launch the plain FASTA case never reaches (K11, SW20). Each
+    /// side publishes the reference viewer bundle. A against C holds to the plain case's two lines and the seven import
+    /// record lines `declaredLegacyRow` adds, C against C' to nothing, and side C's row shows the viewer's words.
+    func testTheMapReadsRoutesAgreeOntoAReferenceBundle() async throws {
+        _ = try await ToolAvailability.require("minimap2", environment: "minimap2")
+        _ = try await ToolAvailability.require("samtools", environment: "samtools")
+        let parityCase = Case.sarscov2PairedMinimap2OntoReferenceBundle
+        let (runs, rows) = try await runThreeSides(
+            parityCase,
+            fixture: { root in try Fixture.writeFixture(root, onReferenceBundle: true) },
+            request: { root in try Fixture.request(in: root, onReferenceBundle: true) }
+        )
+        XCTAssertEqual(runs.all.map(\.outcome.end), [.completed, .completed, .completed], runs.all.map(\.outcome.detail).joined(separator: "\n"))
+        let result = try harness.evaluate(parityCase, declared: Self.declaredLegacyRow(parityCase), runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
+        for side in runs.all {
+            MappingRoutePrivateProjectReplayTests.assertViewerPublished(in: try Self.analysisFolder(in: side.root))
+        }
+        XCTAssertTrue(try XCTUnwrap(rows[.c]).shown.contains("Validating alignment file..."), "side C's row never showed the viewer's words")
     }
 
     /// Runs `parityCase` on sides A, C and C', each with the request `makeRequest` builds for its root, and keeps the
