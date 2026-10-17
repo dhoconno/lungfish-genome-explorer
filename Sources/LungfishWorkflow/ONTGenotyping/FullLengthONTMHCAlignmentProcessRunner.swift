@@ -163,6 +163,11 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
         }
     }
 
+    /// The last `maximumDiagnosticBytes` of a log, as whole lines. A longer log is read from inside a line, and on
+    /// a path line the part after the cut is folder names without their root, which the writer that rewrites paths
+    /// cannot recognise. So the first line of such a tail is dropped, as it is for a ToolProcess capture
+    /// (docs/contracts/RECORDING-PROVENANCE.md, Stderr). A tail with no line break lies inside one line and keeps
+    /// nothing, and a log that fits is returned as it is.
     private static func boundedTail(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -170,7 +175,7 @@ struct FullLengthONTMHCAlignmentProcessRunner: @unchecked Sendable {
         let start = size > UInt64(maximumDiagnosticBytes) ? size - UInt64(maximumDiagnosticBytes) : 0
         try handle.seek(toOffset: start)
         let data = handle.readData(ofLength: maximumDiagnosticBytes)
-        return String(decoding: data, as: UTF8.self)
+        return ProvenanceStderr.wholeLines(ofCapture: String(decoding: data, as: UTF8.self), truncated: start > 0)
     }
 
     private static func descriptor(
