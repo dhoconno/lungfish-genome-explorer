@@ -42,7 +42,7 @@ final class BrackenFailureMessagePipelineTests: XCTestCase {
         XCTAssertTrue(message.hasPrefix("FileNotFoundError: no such file: <workspace>/lungfish-bracken-"), message)
         XCTAssertTrue(message.hasSuffix("/classification.kreport"), message)
         XCTAssertFalse(message.contains("\n"), message)
-        XCTAssertFalse(message.contains(FileManager.default.temporaryDirectory.path), message)
+        XCTAssertFalse(message.contains(BrackenScratchStaging.defaultScratchRoot().path), message)
 
         let recorded = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
         let step = try XCTUnwrap(recorded.steps.first { $0.toolName == "bracken" })
@@ -60,7 +60,7 @@ final class BrackenFailureMessagePipelineTests: XCTestCase {
             .profile(config: fixture.makeConfig())
 
         let message = try XCTUnwrap(result.profileOutcome.message)
-        let scratch = FileManager.default.temporaryDirectory.path
+        let scratch = BrackenScratchStaging.defaultScratchRoot().path
         XCTAssertTrue(message.hasPrefix("FileNotFoundError: no such file: \(scratch)"), message)
         XCTAssertTrue(message.contains("/lungfish-bracken-"), message)
         XCTAssertFalse(message.contains("<workspace>"), message)
