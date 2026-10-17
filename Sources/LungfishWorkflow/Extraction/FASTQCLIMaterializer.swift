@@ -588,7 +588,7 @@ public final class FASTQCLIMaterializer: Sendable {
     /// rather than absolute (start, end) positions. The read ID in the trim file may
     /// include an ` rc` suffix (cutadapt demux convention); this suffix is stripped
     /// before lookup so it matches the extracted FASTQ header.
-    private func applyLegacyRelativeTrim(
+    func applyLegacyRelativeTrim(
         from sourceFASTQ: URL,
         trimPositionsURL: URL,
         outputFASTQ: URL
@@ -644,6 +644,9 @@ public final class FASTQCLIMaterializer: Sendable {
                 try writer.write(record)
             }
         }
+        // The deferred close covers a throw above. This one reports a flush the disk refused, which the
+        // deferred `try?` lost, so the trimmed FASTQ never ends short with no error.
+        try writer.close()
     }
 
     /// The mate a demultiplex trim table names a record by: 1 or 2 from a
