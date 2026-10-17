@@ -39,10 +39,11 @@
 # is named too (GATE CLASS UNRUN). --class-timeout-seconds gives any serial run
 # the same split.
 #
-# The conformance tier runs with LUNGFISH_STORAGE_ROOT at the receipt root, the
-# folder of the dependency receipt, as release.py sets it for a step that needs
-# tools. The golden storage has no MEGAHIT, which the assembly conformance
-# classes need (Phase 2.11 SW27).
+# The conformance tier needs LUNGFISH_STORAGE_ROOT set to the receipt root, the
+# folder of the dependency receipt. release.py sets it for a step that needs
+# tools, and this script does not, so export it before a run by hand. The golden
+# storage has no MEGAHIT, which the assembly conformance classes need
+# (Phase 2.11 SW27).
 #
 # Every run retains a unique evidence directory under .build/gate-logs.
 # Parallel XCTest uses xUnit plus explicit case records; serial XCTest uses
