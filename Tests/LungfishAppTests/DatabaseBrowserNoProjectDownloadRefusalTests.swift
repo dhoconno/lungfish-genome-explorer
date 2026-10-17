@@ -5,8 +5,8 @@
 // Phase 2.11 lane A60 M2 (plan row K2, decision C2 branch b, Q-A2 with UX's words). With no project
 // the browser's download ran in process, built in the system scratch folder, and the import copied
 // the bundle into the user's `Downloads/Lungfish Downloads` folder while the row named only the
-// bundle and recorded no command (`download-genome-no-project`, DatabaseBrowserNoProjectDownloadPinTests
-// at base 4586560ed). That folder is one a person can find, but the row never names it, so C2 takes
+// bundle and recorded no command (`download-genome-no-project`, pinned by lane A60 M1 at
+// base 4586560ed). That folder is one a person can find, but the row never names it, so C2 takes
 // branch b. The download now refuses before any row, in the words of Q-U65's family, `No Project
 // Open` over `Open or create a project before downloading <thing>.`, through
 // `AppDelegate.NoProjectPresenterSeam`. It starts no row, launches nothing, asks no service and makes
@@ -19,10 +19,48 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishOperations
 import LungfishTestSupport
 
 @MainActor
 final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
+    /// One kind of browser row, with what a person downloads through it.
+    struct Kind {
+        let name: String
+        let source: DatabaseSource
+        let searchType: NCBISearchType
+        let accession: String
+        let organism: String?
+        /// The noun the No Project Open refusal names.
+        let thing: String
+    }
+
+    static let kinds: [Kind] = [
+        Kind(name: "genome", source: .ncbi, searchType: .genome, accession: "GCF_003047895.1", organism: nil,
+             thing: "genome assemblies"),
+        Kind(name: "GenBank", source: .ncbi, searchType: .nucleotide, accession: "MN908947.3", organism: nil,
+             thing: "GenBank records"),
+        Kind(name: "virus", source: .ncbi, searchType: .virus, accession: "NC_045512.2", organism: nil,
+             thing: "virus records"),
+        Kind(name: "Pathoplexus", source: .pathoplexus, searchType: .nucleotide, accession: "PP_0012345", organism: "mpox",
+             thing: "Pathoplexus records"),
+        Kind(name: "SRA", source: .ena, searchType: .nucleotide, accession: "SRR11140748", organism: nil,
+             thing: "SRA runs"),
+    ]
+
+    /// No route context, and the context a main window with no project gives the browser
+    /// (`currentOperationRouteContext`), which names the window and no project.
+    static let noProjectContexts: [OperationRouteContext?] = [
+        nil,
+        OperationRouteContext(projectURL: nil, windowStateScopeID: UUID()),
+    ]
+
+    /// The `batch-` folders directly in `folder`.
+    static func batchFolders(in folder: URL) -> Set<String> {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return Set(names.filter { $0.hasPrefix("batch-") })
+    }
+
     override func setUp() async throws {
         try await super.setUp()
         _ = NSApplication.shared
@@ -30,8 +68,8 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
     }
 
     func testEachRowWithNoProjectRefusesWithNoProjectOpenAndStartsNothing() {
-        for context in DatabaseBrowserNoProjectDownloadPinTests.noProjectContexts {
-            for kind in DatabaseBrowserNoProjectDownloadPinTests.kinds {
+        for context in Self.noProjectContexts {
+            for kind in Self.kinds {
                 let label = "\(kind.name), context \(context == nil ? "nil" : "with a window only")"
                 let reporter = RecordingOperationReporter()
                 let recorder = RecordingNoProjectPresenter()
@@ -105,7 +143,7 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
         var dismissed = false
         model.onDownloadStarted = { dismissed = true }
         let scratch = ProjectTempDirectory.systemTemporaryDirectory()
-        let before = DatabaseBrowserNoProjectDownloadPinTests.batchFolders(in: scratch)
+        let before = Self.batchFolders(in: scratch)
         let recorder = RecordingNoProjectPresenter()
 
         AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) { model.performBatchDownload() }
@@ -118,7 +156,7 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
             }
             OperationCenter.shared.clearItem(id: row.id)
         }
-        let made = DatabaseBrowserNoProjectDownloadPinTests.batchFolders(in: scratch).subtracting(before)
+        let made = Self.batchFolders(in: scratch).subtracting(before)
         for name in made { try? FileManager.default.removeItem(at: scratch.appendingPathComponent(name)) }
 
         XCTAssertNil(row, "no row starts")
@@ -168,5 +206,15 @@ final class DatabaseBrowserNoProjectDownloadRefusalTests: XCTestCase {
             recorder.presentations.map(\.message), ["Open or create a project before downloading SRA runs."])
         let requested = await client.requestedURLs
         XCTAssertEqual(requested, [], "no lookup is made before the refusal")
+    }
+}
+
+/// An NCBI client that refuses every request and records the URL it was asked for.
+actor RefusingNCBIClient: HTTPClient {
+    private(set) var requestedURLs: [String] = []
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requestedURLs.append(request.url?.absoluteString ?? "")
+        throw URLError(.cannotConnectToHost)
     }
 }

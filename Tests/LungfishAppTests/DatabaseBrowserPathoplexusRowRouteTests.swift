@@ -2,10 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane A45, panel decision C4. A Pathoplexus row runs `lungfish-cli fetch pathoplexus` by
-// default. A declared difference between the routes (the sequence's name on the INSDC way, the record
-// the FASTA ways gain) keeps the in-process route behind a hidden key for one release, and each key
-// value has a test.
+// Phase 2.10 lane A45, panel decision C4. A Pathoplexus row runs `lungfish-cli fetch pathoplexus`. Lane
+// A60 of 2.11 deleted the in-process route with its hidden key, and the key's test with it.
 
 import XCTest
 @testable import LungfishApp
@@ -13,21 +11,6 @@ import LungfishCore
 import LungfishTestSupport
 
 final class DatabaseBrowserPathoplexusRowRouteTests: XCTestCase {
-    func testTheHiddenKeyPicksTheRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "pathoplexus-row-route")
-        let settings = PathoplexusRowDownloadRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(PathoplexusRowDownloadRouteSettings.defaultRoute, .cli, "the flip: the CLI route is the default")
-        XCTAssertEqual(settings.route, .cli, "an unset key")
-        let cases: [(Any, PathoplexusRowDownloadRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy),
-            ("NO", PathoplexusRowDownloadRouteSettings.defaultRoute),
-        ]
-        for (value, route) in cases {
-            suite.defaults.set(value, forKey: PathoplexusRowDownloadRouteSettings.defaultsKey)
-            XCTAssertEqual(settings.route, route, "\(value)")
-        }
-    }
-
     @MainActor
     func testTheArgumentsHoldTheOrganismAndNoKeyAndFollowTheGFF3Setting() {
         let folder = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish/Downloads", isDirectory: true)

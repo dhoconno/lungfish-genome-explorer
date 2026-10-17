@@ -70,13 +70,11 @@ final class DatabaseBrowserPathoplexusRowCancelReplayTests: XCTestCase {
         let operationID = try XCTUnwrap(started?.startedID)
         defer { _ = OperationCenter.shared.acknowledgeCancellation(id: operationID) }
         let service = NCBIService()
-        let genBankVM = GenBankBundleDownloadViewModel(ncbiService: service)
-        let batchFolder = BatchDownloadFolder(projectURL: project)
         let row: @Sendable (Int) async throws -> URL = { index in
             try await DatabaseBrowserViewModel.downloadPathoplexusRow(
-                records[index], index: index, totalCount: records.count, operationID: operationID, route: .cli,
-                organism: PathoplexusLAPISStandIn.organism, ncbi: service, genBankVM: genBankVM,
-                includeGFF3Annotations: true, batchFolder: batchFolder, projectURL: project, cliURLOverride: cli)
+                records[index], index: index, totalCount: records.count, operationID: operationID,
+                organism: PathoplexusLAPISStandIn.organism, ncbi: service,
+                includeGFF3Annotations: true, projectURL: project, cliURLOverride: cli)
         }
 
         // Row 1 runs until the stand-in holds its GFF3, then the batch row is cancelled.

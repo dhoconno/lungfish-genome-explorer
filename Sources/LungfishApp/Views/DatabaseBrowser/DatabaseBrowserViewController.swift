@@ -1006,9 +1006,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
     private let automationBackend: DatabaseSearchAutomationBackend?
     private let largeResultActionProvider: (@Sendable (_ totalCount: Int, _ sourceLabel: String) async -> LargeResultAction)?
 
-    /// View model for GenBank nucleotide downloads to .lungfishref bundles.
-    private lazy var genBankDownloadViewModel = GenBankBundleDownloadViewModel(ncbiService: ncbiService)
-
     // MARK: - Initialization
 
     init(
@@ -2223,8 +2220,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let searchType = ncbiSearchType
         let includeGFF3Annotations = includeGFF3Annotations
 
-        // Capture the genome download view model for genome assembly downloads
-        let genBankVM = genBankDownloadViewModel
         if currentSource == .pathoplexus, pathoplexusOrganism == nil {
             errorMessage = "Select a Pathoplexus organism"
             return
@@ -2286,9 +2281,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             // the sheet controller which gets deallocated on dismissal.
             onDownloadStarted?()
 
-            // Capture project URL for project-local temp allocation
             let batchProjectURL = routeContext?.projectURL
-            let pathoplexusRoute = batchProjectURL == nil ? PathoplexusRowDownloadRoute.legacy : pathoplexusRowRoute
 
             // Use Task.detached to break out of MainActor context.
             // This is critical when running in a modal sheet - regular Task {}
@@ -2298,9 +2291,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 var downloadedURLs: [URL] = []
                 var failedCount = 0
                 var failureDetails: [String] = []
-
-                // One batch folder for the batch, made on its first use, so a CLI genome batch makes none
-                let batchFolder = BatchDownloadFolder(projectURL: batchProjectURL)
 
                 for (index, record) in recordsToDownload.enumerated() {
                     // Update progress via performOnMainRunLoop for modal compatibility.
@@ -2350,13 +2340,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                         case .pathoplexus:
                             // A Pathoplexus row runs `lungfish-cli fetch pathoplexus` into the folder
-                            // the row's command names, or the in-process build behind the hidden key
-                            // (lane A45, DatabaseBrowserViewModel+PathoplexusRowDownload.swift).
+                            // the row's command names (lane A45, DatabaseBrowserViewModel+PathoplexusRowDownload.swift).
                             fileURL = try await Self.downloadPathoplexusRow(
                                 record, index: index, totalCount: totalCount,
-                                operationID: downloadCenterTaskID, route: pathoplexusRoute, organism: ppOrganism,
-                                ncbi: ncbi, genBankVM: genBankVM, includeGFF3Annotations: includeGFF3Annotations,
-                                batchFolder: batchFolder, projectURL: batchProjectURL
+                                operationID: downloadCenterTaskID, organism: ppOrganism,
+                                ncbi: ncbi, includeGFF3Annotations: includeGFF3Annotations, projectURL: batchProjectURL
                             )
 
                         default:

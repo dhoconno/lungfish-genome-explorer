@@ -7,10 +7,6 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
-import os.log
-import Synchronization
-
-private let genomeRowLogger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrowserGenomeRows")
 
 extension DatabaseBrowserViewModel {
     /// The folder a genome row writes its bundle into, which its command names. With a project
@@ -61,32 +57,6 @@ extension DatabaseBrowserViewModel {
             into: genomeRowFolder(projectURL: projectURL),
             apiKey: await ncbi.resolvedAPIKey
         )
-    }
-}
-
-/// The batch folder of one batch download of the browser, made on its first use (Phase 2.10 lane
-/// A44, ruling 1). An in-process row builds its bundle in it, under the project's `.tmp` folder,
-/// or the system's temporary folder with no project. A genome row on the CLI route writes straight
-/// into the folder its command names and never asks for it, so a CLI genome batch makes no batch
-/// folder. A failure to make it fails the row that asked, and the next row asks again. One batch
-/// download makes one inside its own task and never shares it.
-final class BatchDownloadFolder: Sendable {
-    let projectURL: URL?
-    private let made = Mutex<URL?>(nil)
-
-    init(projectURL: URL?) {
-        self.projectURL = projectURL
-    }
-
-    /// The batch folder, made with its owner marker on the first call.
-    func url() throws -> URL {
-        try made.withLock { folder in
-            if let folder { return folder }
-            let created = try ProjectTempDirectory.create(prefix: "batch-", in: projectURL)
-            genomeRowLogger.info("performBatchDownload: Created batch directory at \(created.path, privacy: .public)")
-            folder = created
-            return created
-        }
     }
 }
 

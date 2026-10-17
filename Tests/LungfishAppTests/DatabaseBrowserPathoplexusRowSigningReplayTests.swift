@@ -4,14 +4,15 @@
 //
 // Phase 2.10 lane Q-SIGN, family L5 (the ruling of the A52 whole-lane review, Q6). The cases of
 // DatabaseBrowserPathoplexusRowParityReplayTests run with no signing key. This one runs two of the row's ways
-// again with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side A (the
-// in-process route), side C (`fetch pathoplexus`) and side C' (the recorded command), and fails when the CLI route
-// leaves unsigned a record the in-process route signs, or the bundle's record that the result opens first.
+// again with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under the case root, on side C
+// (`fetch pathoplexus`) and side C' (the recorded command), and fails when the replay leaves unsigned a record the
+// row signs, or the bundle's record that the result opens first, or a signature fails `provenance verify`. Lane
+// A60 of 2.11 deleted the in-process route with its hidden key, and side A with it.
 //
-// - The INSDC way builds the bundle from the GenBank record, so both routes write the builder's record and the CLI
-//   rewrites it in the final place (`FetchNCBIBundleRecord.rebase`).
-// - The way with no INSDC accession builds the bundle from the Pathoplexus FASTA, where the in-process route writes
-//   no record and the CLI route writes the one the bundle opens first.
+// - The INSDC way builds the bundle from the GenBank record, and the CLI rewrites the builder's record in the
+//   final place (`FetchNCBIBundleRecord.rebase`).
+// - The way with no INSDC accession builds the bundle from the Pathoplexus FASTA, and the CLI writes the record
+//   the bundle opens first.
 //
 // It launches the built lungfish-cli and the managed bgzip and samtools, so its name ends in ReplayTests and it
 // runs in the integration tier.
@@ -68,10 +69,10 @@ final class DatabaseBrowserPathoplexusRowSigningReplayTests: XCTestCase {
 
         let record = Family.record(of: parityCase)
         let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(120))
-        let runs = try await harness.runSigned(
+        let runs = try await ReadsRouteParity.runSignedCAndCPrime(
+            harness,
             in: root.appendingPathComponent("case", isDirectory: true),
             fixture: DatabaseBrowserNucleotideRowParityReplayTests.makeProject,
-            sideA: { try await Family.sideA($0, record: record) },
             sideC: { try await Family.sideC($0, cli: cli, record: record) }
         )
         for run in runs.all {

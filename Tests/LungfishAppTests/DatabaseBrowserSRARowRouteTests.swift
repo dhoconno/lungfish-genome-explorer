@@ -33,13 +33,6 @@ final class DatabaseBrowserSRARowRouteTests: XCTestCase {
         }
     }
 
-    func testTheKeyIsNotTheOtherRowsKeys() {
-        let others = [
-            PathoplexusRowDownloadRouteSettings.defaultsKey,
-        ]
-        XCTAssertFalse(others.contains(SRARowDownloadRouteSettings.defaultsKey))
-    }
-
     /// Every spelling the sheet can produce reaches the leaf as the window passes it to `import fastq`,
     /// in the same order, and the key never travels in the arguments.
     func testTheFlagsAreTheWindowsImportFlagsForEverySheetValue() {

@@ -1,17 +1,17 @@
-// DatabaseBrowserPathoplexusRowLiveConformanceTests.swift - The Pathoplexus row's requests to the real Pathoplexus and NCBI on both routes
+// DatabaseBrowserPathoplexusRowLiveConformanceTests.swift - The Pathoplexus row's requests to the real Pathoplexus and NCBI
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.10 lane A45 M2, panel decision G5 and the 2.9 O5 ruling, as DatabaseBrowserNucleotideRowLiveConformanceTests
 // checks a nucleotide row. With LUNGFISH_LIVE_PATHOPLEXUS=1, one Pathoplexus row of the browser's batch
-// download reads a small real record from Pathoplexus on the in-process route and on the CLI route, each
-// through loopback recorders that forward every request to Pathoplexus's LAPIS and, for the GenBank record
-// the row prefers, to NCBI. The class compares the requests the two routes sent to each, method, target and
-// body, and never the bundles, which follow what Pathoplexus and NCBI serve that day. NCBI answers a client
-// over its rate limit with HTTP 429, and the service then sends the same request again, so the routes start
-// a second apart and the compare leaves out each request NCBI answered 429. Without the switch, or without
-// the managed bgzip and samtools, it skips, and DatabaseBrowserPathoplexusRowParityReplayTests on the
-// stand-ins stays the default.
+// download reads a small real record from Pathoplexus on the CLI route, through loopback recorders that forward
+// every request to Pathoplexus's LAPIS and, for the GenBank record the row prefers, to NCBI. Until lane A60 of
+// 2.11 deleted the in-process route with its hidden key, the class compared the requests of the two routes. It
+// now checks that the CLI route asks both, and never reads the bundle, which follows what Pathoplexus and NCBI
+// serve that day. NCBI answers a client over its rate limit with HTTP 429, and the service then sends the same
+// request again, so the check leaves out each request NCBI answered 429. Without the switch, or without the
+// managed bgzip and samtools, it skips, and DatabaseBrowserPathoplexusRowParityReplayTests on the stand-ins
+// stays the default.
 
 import Foundation
 import Synchronization
@@ -58,38 +58,21 @@ final class DatabaseBrowserPathoplexusRowLiveConformanceTests: XCTestCase {
         let service = NCBIService()
         let record = SearchResultRecord(id: Self.accession, accession: Self.accession, title: Self.accession, source: .pathoplexus)
 
-        var toNCBI: [PathoplexusRowDownloadRoute: [LoopbackHTTPRequest]] = [:]
-        var toLAPIS: [PathoplexusRowDownloadRoute: [LoopbackHTTPRequest]] = [:]
-        var rateLimited = 0
-        for route in [PathoplexusRowDownloadRoute.legacy, .cli] {
-            // Without a key NCBI takes three E-utilities requests a second, so each route starts a
-            // second after the requests before it.
-            try await Task.sleep(for: .seconds(1))
-            let project = root.appendingPathComponent("\(route.rawValue)/Project.lungfish", isDirectory: true)
-            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-            let ncbiStart = ncbi.answered.count
-            let lapisStart = lapis.requests.count
-            _ = try await DatabaseBrowserViewModel.downloadPathoplexusRow(
-                record, index: 0, totalCount: 1, operationID: UUID(), route: route, organism: Self.organism,
-                ncbi: service, genBankVM: GenBankBundleDownloadViewModel(ncbiService: service),
-                includeGFF3Annotations: true, batchFolder: BatchDownloadFolder(projectURL: project),
-                projectURL: project, cliURLOverride: cli)
-            let answered = Array(ncbi.answered.dropFirst(ncbiStart))
-            rateLimited += answered.filter { $0.status == DatabaseBrowserGenomeRowLiveConformanceTests.rateLimitedStatus }.count
-            toNCBI[route] = DatabaseBrowserGenomeRowLiveConformanceTests.withoutRateLimited(answered)
-            toLAPIS[route] = Array(lapis.requests.dropFirst(lapisStart))
-        }
+        let project = root.appendingPathComponent("cli/Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        _ = try await DatabaseBrowserViewModel.downloadPathoplexusRow(
+            record, index: 0, totalCount: 1, operationID: UUID(), organism: Self.organism, ncbi: service,
+            includeGFF3Annotations: true, projectURL: project, cliURLOverride: cli)
+        let answered = Array(ncbi.answered)
+        let rateLimited = answered.filter { $0.status == DatabaseBrowserGenomeRowLiveConformanceTests.rateLimitedStatus }.count
         if rateLimited > 0 {
             print("NCBI answered \(rateLimited) request(s) with HTTP 429, and the service sent each again")
         }
 
-        XCTAssertFalse(toLAPIS[.legacy]?.isEmpty ?? true, "the in-process route read nothing from Pathoplexus")
-        XCTAssertEqual(
-            DatabaseBrowserGenomeRowLiveConformanceTests.bytes(toLAPIS[.legacy] ?? []),
-            DatabaseBrowserGenomeRowLiveConformanceTests.bytes(toLAPIS[.cli] ?? []), "requests to Pathoplexus")
-        XCTAssertEqual(
-            DatabaseBrowserGenomeRowLiveConformanceTests.bytes(toNCBI[.legacy] ?? []),
-            DatabaseBrowserGenomeRowLiveConformanceTests.bytes(toNCBI[.cli] ?? []), "requests to NCBI")
+        XCTAssertFalse(lapis.requests.isEmpty, "the row asked Pathoplexus")
+        XCTAssertFalse(
+            DatabaseBrowserGenomeRowLiveConformanceTests.withoutRateLimited(answered).isEmpty,
+            "the row asked NCBI for the GenBank record of the INSDC accession")
     }
 }
 
