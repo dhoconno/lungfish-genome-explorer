@@ -715,6 +715,16 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let stored = try await registry.database(named: "Viral")
         XCTAssertNil(stored?.version)
         XCTAssertNil(stored?.canonicalReceiptSHA256)
+
+        // An update writes the catalog label, so a row with no version is offered it.
+        let pinned = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-viral")?.version)
+        XCTAssertEqual(registered.availableUpdateVersion, pinned, "an unchecked row is offered the catalog build")
+
+        // Nothing at load writes the label back.
+        let reloaded = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let reloadedRow = try await reloaded.database(named: "Viral")
+        XCTAssertNil(reloadedRow?.version, "a reload does not give the row the catalog's label")
+        XCTAssertEqual(reloadedRow?.catalogID, "kraken2-viral")
     }
 
     // MARK: - Remove
