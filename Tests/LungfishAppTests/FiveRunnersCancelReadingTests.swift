@@ -110,7 +110,24 @@ final class FiveRunnersCancelReadingTests: XCTestCase {
                 return Running(
                     rowID: rowID,
                     cancel: { OperationCenter.shared.cancel(id: rowID) },
-                    ended: Task { await Self.ending { _ = try await runner.run(arguments: ["align", "mafft"], operationID: rowID) } }
+                    ended: Task {
+                        await Self.ending {
+                            do {
+                                _ = try await runner.run(arguments: ["align", "mafft"], operationID: rowID)
+                            } catch {
+                                // This runner leaves its row to its caller. The Tools menu ends the row with `fail`
+                                // for every error (AppDelegate+ToolsMenu, MAFFT alignment), and a row that is
+                                // cancelling ends Cancelled whatever the error says.
+                                await MainActor.run {
+                                    _ = OperationCenter.shared.fail(
+                                        id: rowID, detail: error.localizedDescription,
+                                        errorMessage: error.localizedDescription, errorDetail: "\(error)"
+                                    )
+                                }
+                                throw error
+                            }
+                        }
+                    }
                 )
             },
             Subject(name: "msa action") { cli in
@@ -192,6 +209,12 @@ final class FiveRunnersCancelReadingTests: XCTestCase {
             running.cancel()
             let ending = await running.ended.value
             XCTAssertEqual(ending, .cancelled, "\(subject.name): the row reads a cancel as Cancelled")
+            if let rowID = running.rowID {
+                XCTAssertEqual(
+                    OperationCenter.shared.items.first { $0.id == rowID }?.state, .cancelled,
+                    "\(subject.name): the row itself ends Cancelled"
+                )
+            }
             XCTAssertEqual(
                 FileManager.default.fileExists(atPath: marker.path), Self.convertedRunners.contains(subject.name),
                 "\(subject.name): the command records its cancel only when the runner gives it the grace"
@@ -262,6 +285,49 @@ final class FiveRunnersCancelReadingTests: XCTestCase {
             let ending = await running.ended.value
             if case .failed = ending {} else {
                 XCTFail("\(subject.name): a signal death with no cancel reads as a failure, not \(ending)")
+            }
+            clearRow(running)
+        }
+    }
+
+    /// A cancel that lands after the command finished its work: the command traps TERM, writes its result,
+    /// prints a `complete` event that names the result and exits 0. None of the five runners keeps a result
+    /// the app cancelled (`completionOutlivesCancel` is off), so every one ends Cancelled while the result
+    /// file sits on disk, and a row reads `Cancelled by user` and names no output. This freezes today's rule,
+    /// so a later move to keep the result is a decision and not a drift (review S61, Fix 8 and note N4).
+    func testACancelThatArrivesAfterTheCommandFinishedEndsCancelledAndNamesNoOutput() async throws {
+        for subject in subjects {
+            let ready = root.appendingPathComponent("\(subject.name)-ready")
+            let result = root.appendingPathComponent("\(subject.name)-result")
+            let cli = try standInCLI(
+                named: subject.name,
+                """
+                finish() {
+                  echo finished > "\(result.path)"
+                  printf '%s\\n' '{"event":"complete","progress":1,"outputs":["\(result.path)"],"output":"\(result.path)"}'
+                  exit 0
+                }
+                trap finish TERM
+                printf '%s\\n' '{"event":"start","progress":0,"message":"starting"}'
+                echo ready > "\(ready.path)"
+                while :; do sleep 0.1; done
+                """
+            )
+            let running = subject.start(cli)
+            guard await CLISIGTERMHarness.waitForFile(ready) else {
+                running.cancel()
+                return XCTFail("\(subject.name): the stand-in command never started")
+            }
+            running.cancel()
+            let ending = await running.ended.value
+            XCTAssertEqual(ending, .cancelled, "\(subject.name): a cancel that lands after the work still reads Cancelled")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: result.path), "\(subject.name): the command finished its work")
+            if let rowID = running.rowID {
+                let row = OperationCenter.shared.items.first { $0.id == rowID }
+                XCTAssertEqual(row?.state, .cancelled, "\(subject.name): the row ends Cancelled")
+                XCTAssertEqual(row?.detail, "Cancelled by user", "\(subject.name): the row says the user cancelled")
+                XCTAssertEqual(row?.outputURLs.isEmpty, true, "\(subject.name): the row names no output")
+                XCTAssertEqual(row?.bundleURLs.isEmpty, true, "\(subject.name): the row names no bundle")
             }
             clearRow(running)
         }
