@@ -418,7 +418,8 @@ public enum OutputEquivalence {
         masks.reduce(text) { partial, mask in mask(partial, context: context) }
     }
 
-    /// The first differing line of two normalized forms, for a failure message.
+    /// The first differing line of two normalized forms, for a failure message. The lines before it are the
+    /// same on both sides. The three lines after it are shown for each side under its own `A:` or `B:`.
     static func firstDifference(_ a: String, _ b: String) -> String {
         let linesA = a.components(separatedBy: "\n")
         let linesB = b.components(separatedBy: "\n")
@@ -428,8 +429,13 @@ public enum OutputEquivalence {
             if lineA != lineB {
                 let before = linesA[max(0, index - 3)..<min(index, linesA.count)]
                     .map { "    = \($0.prefix(300))" }
-                let after = linesA[min(index + 1, linesA.count)..<min(index + 4, linesA.count)]
-                    .map { "    = \($0.prefix(300))" }
+                let after = (1...3).flatMap { offset -> [String] in
+                    let next = index + offset
+                    guard next < max(linesA.count, linesB.count) else { return [] }
+                    let nextA = next < linesA.count ? linesA[next] : "<end>"
+                    let nextB = next < linesB.count ? linesB[next] : "<end>"
+                    return ["    A: \(nextA.prefix(300))", "    B: \(nextB.prefix(300))"]
+                }
                 return (["  line \(index + 1)"] + before + ["    A: \(lineA.prefix(300))", "    B: \(lineB.prefix(300))"] + after)
                     .joined(separator: "\n")
             }
