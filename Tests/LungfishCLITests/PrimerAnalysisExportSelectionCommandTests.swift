@@ -136,6 +136,30 @@ final class PrimerAnalysisExportSelectionCommandTests: XCTestCase {
     XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: fixture.root.path).contains { $0.hasPrefix(".primer-selection-") })
   }
 
+  func testRefusesAnOutputInsideTheSavedAnalysisAndLeavesItUnchanged() async throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    let target = try XCTUnwrap(snapshot.designReview.first)
+    let before = try relativeEntries(of: fixture.bundle)
+    XCTAssertFalse(before.isEmpty, "the saved analysis holds files to compare")
+
+    let inside = fixture.bundle.appendingPathComponent("inside.lungfishref")
+    let command = try PrimerAnalysisExportSelectionCommand.parse([fixture.bundle.path, "--kind", "primer-fasta",
+      "--source-result-id", target.sourceResultID, "--pool", "1", "--output", inside.path])
+    do { try await command.run(); XCTFail("An output inside the saved analysis must be refused") } catch {
+      XCTAssertTrue(String(describing: error).contains("inside the saved analysis"), "\(error)")
+    }
+    XCTAssertEqual(try relativeEntries(of: fixture.bundle), before,
+      "the saved analysis is never changed, so no output folder and no .primer-selection- staging entry appear in it")
+  }
+
+  /// Every file and folder under `folder`, hidden entries included, as sorted paths relative to it.
+  private func relativeEntries(of folder: URL) throws -> [String] {
+    let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil))
+    return enumerator.compactMap { ($0 as? URL).map { String($0.path.dropFirst(folder.path.count + 1)) } }.sorted()
+  }
+
   /// A PrimalScheme-style analysis with one amplicon and three primers, the fixture the Workflow tests use.
   private func makeFixture() throws -> (root: URL, bundle: URL) {
     let physical = try XCTUnwrap(realpath(FileManager.default.temporaryDirectory.path, nil))

@@ -107,6 +107,12 @@ struct PrimerAnalysisExportSelectionCommand: AsyncParsableCommand {
     func run() async throws {
         let analysisURL = try PrimerAnalysisExportOrderCommand.realURL(bundlePath, label: "The analysis bundle")
         let destination = try PrimerAnalysisExportOrderCommand.resolvedDestination(outputPath)
+        // Both paths come from realpath, so a plain prefix test is exact. standardizedFileURL would turn
+        // /private/var back into /var and the test would miss an output under the analysis.
+        let analysisPath = analysisURL.path
+        guard destination.path != analysisPath, !destination.path.hasPrefix(analysisPath + "/") else {
+            throw ValidationError("--output must not be inside the saved analysis. Choose a folder outside \(analysisPath).")
+        }
         let output = try await PrimerAnalysisSelectionExportService().export(
             analysisURL: analysisURL, selection: try selection(), kind: kind.exportKind,
             destinationURL: destination, invocationArgv: CommandLine.arguments)
