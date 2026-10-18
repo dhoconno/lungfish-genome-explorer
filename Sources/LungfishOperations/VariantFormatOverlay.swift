@@ -145,7 +145,7 @@ package struct VariantFormatOverlaySnapshot: Sendable {
     package func matches(
         _ smartFilter: VariantSmartFilter,
         trackID: String,
-        row: AnnotationSearchIndex.SearchResult
+        row: AnnotationSearchResult
     ) -> Bool {
         guard let ref = row.ref, let alt = row.alt,
               let projectedSample = singleSampleByTrack[trackID] else { return false }

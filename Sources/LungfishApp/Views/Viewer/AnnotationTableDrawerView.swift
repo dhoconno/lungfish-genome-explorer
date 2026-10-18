@@ -214,15 +214,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
     }
 
-    /// A single row in the samples tab display.
-    struct SampleDisplayRow {
-        let rowKey: String
-        let name: String
-        let sourceFile: String
-        var isVisible: Bool
-        var metadata: [String: String]
-        var displayName: String?
-    }
+    /// A single row in the samples tab display (``AnnotationTableSampleRow``).
+    typealias SampleDisplayRow = AnnotationTableSampleRow
 
     // MARK: - Properties
 

@@ -28,81 +28,8 @@ extension AnnotationTableDrawerView {
 
     // MARK: - Genotype Display Row
 
-    /// A single row in the genotype subtab display.
-    struct GenotypeDisplayRow: Sendable {
-        let sampleName: String
-        let variantRowId: Int64
-        let variantID: String   // rs ID or "."
-        let chromosome: String
-        let position: Int       // 0-based
-        let ref: String
-        let alt: String
-        let genotype: String    // Raw GT string (e.g. "0/1")
-        let zygosity: String    // "Het", "Hom Ref", "Hom Alt", "Missing"
-        let alleleDepths: String // AD field
-        let depth: Int?         // DP
-        let genotypeQuality: Int? // GQ
-        let alleleBalance: Double? // Computed from AD
-        let infoDict: [String: String] // INFO key-value pairs for this variant
-        let trackId: String
-        let trackName: String
-
-        init(
-            sampleName: String,
-            variantRowId: Int64,
-            variantID: String,
-            chromosome: String,
-            position: Int,
-            ref: String,
-            alt: String,
-            genotype: String,
-            zygosity: String,
-            alleleDepths: String,
-            depth: Int?,
-            genotypeQuality: Int?,
-            alleleBalance: Double?,
-            infoDict: [String: String],
-            trackId: String = "",
-            trackName: String = ""
-        ) {
-            self.sampleName = sampleName
-            self.variantRowId = variantRowId
-            self.variantID = variantID
-            self.chromosome = chromosome
-            self.position = position
-            self.ref = ref
-            self.alt = alt
-            self.genotype = genotype
-            self.zygosity = zygosity
-            self.alleleDepths = alleleDepths
-            self.depth = depth
-            self.genotypeQuality = genotypeQuality
-            self.alleleBalance = alleleBalance
-            self.infoDict = infoDict
-            self.trackId = trackId
-            self.trackName = trackName
-        }
-
-        /// Classifies genotype for display.
-        static func classify(allele1: Int, allele2: Int) -> String {
-            if allele1 < 0 || allele2 < 0 { return "Missing" }
-            if allele1 == 0 && allele2 == 0 { return "Hom Ref" }
-            if allele1 == allele2 { return "Hom Alt" }
-            return "Het"
-        }
-
-        /// Computes allele balance from AD string (e.g. "10,15" -> 0.6).
-        static func computeAlleleBalance(from adString: String?) -> Double? {
-            guard let adString, !adString.isEmpty else { return nil }
-            let parts = adString.split(separator: ",").compactMap { Int($0) }
-            guard parts.count >= 2 else { return nil }
-            let total = parts.reduce(0, +)
-            guard total > 0 else { return nil }
-            // Allele balance = alt reads / total reads
-            let altReads = parts.dropFirst().reduce(0, +)
-            return Double(altReads) / Double(total)
-        }
-    }
+    /// A single row in the genotype subtab display (``AnnotationTableGenotypeRow``).
+    typealias GenotypeDisplayRow = AnnotationTableGenotypeRow
 
     // MARK: - Genotype Column Identifiers
 

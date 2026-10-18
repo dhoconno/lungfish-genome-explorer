@@ -130,7 +130,7 @@ package struct VariantTableExportResolverSnapshot: Sendable {
         )
     }
 
-    package func resolve(_ row: AnnotationSearchIndex.SearchResult) -> VariantTableExportResolvedFields {
+    package func resolve(_ row: AnnotationSearchResult) -> VariantTableExportResolvedFields {
         let info = row.infoDict ?? [:]
         let overlapping = overlappingFeatures(for: row)
         let derived = derivedConsequence(for: row, overlapping: overlapping)
@@ -163,7 +163,7 @@ package struct VariantTableExportResolverSnapshot: Sendable {
     }
 
     private func overlappingFeatures(
-        for row: AnnotationSearchIndex.SearchResult
+        for row: AnnotationSearchResult
     ) -> [CodingFeature] {
         let chromosome = resolvedReferenceChromosome(row.chromosome)
         let end = row.start + max(1, row.ref?.count ?? 1)
@@ -294,7 +294,7 @@ package struct VariantTableExportResolverSnapshot: Sendable {
     }
 
     private func derivedConsequence(
-        for row: AnnotationSearchIndex.SearchResult,
+        for row: AnnotationSearchResult,
         overlapping: [CodingFeature]
     ) -> (consequence: String?, aaChange: String?) {
         guard let ref = row.ref, !ref.isEmpty,
