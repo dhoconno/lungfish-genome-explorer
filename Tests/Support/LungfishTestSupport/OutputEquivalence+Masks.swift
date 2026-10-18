@@ -49,7 +49,7 @@ extension OutputEquivalence {
         /// A file name gets the UUID and run ID masks. Payload text, request
         /// bodies and plans get the roots and run wall time masks, a FASTQ
         /// sidecar's three clock values, a demo project install record's
-        /// install time and a `blast submit` record's three clock values alone,
+        /// install time, a `blast submit` record's three clock values and the run clocks of three result sidecars alone,
         /// so any other date, a host or a read ID in data is compared as written.
         /// A managed plan gives a provenance envelope the provenance masks and every other file, a manifest
         /// included, the payload masks. It also masks the clock values of its receipt and pack status cache by
@@ -71,7 +71,7 @@ extension OutputEquivalence {
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
                 payloads: [
-                    Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock, Masks.blastRecordClocks,
+                    Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock, Masks.blastRecordClocks, Masks.resultSidecarClocks,
                 ],
                 managed: [Masks.managedStateClocks],
                 managedNames: [Masks.managedRecordStamp]

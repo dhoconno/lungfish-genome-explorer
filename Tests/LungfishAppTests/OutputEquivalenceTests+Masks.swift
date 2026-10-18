@@ -160,6 +160,112 @@ extension OutputEquivalenceTests {
         }
     }
 
+    /// Three result sidecars hold a run clock. A classification result (`classification-result.json`) states the
+    /// seconds the pipeline or conversion ran (`runtime`) and the time it was saved (`savedAt`), an EsViritu result
+    /// (`esviritu-result.json`) the time it was saved, and an analysis folder's `analysis-metadata.json` the time the
+    /// folder was made (`created`). Two runs never take the same seconds, so the contract masks those values in a JSON
+    /// payload, at the top level of a document that holds the sidecar's own keys and none beyond its optional ones.
+    /// The EsViritu `runtime`, the same keys in any other document, a key one level down, a document with another
+    /// key or without a named one, and every other value are still compared (Phase 2.12, ruling 1 of the review of
+    /// lane 12.06 M1, by the rule of BIO's ruling on lane A45 M3c section b).
+    func testResultSidecarClocksMaskTheNamedKeysAndNoOthers() throws {
+        let top = try TestTempDirectory.make(prefix: "result-sidecar-clocks")
+        addTeardownBlock { TestTempDirectory.cleanup(top) }
+        let a = top.appendingPathComponent("a", isDirectory: true)
+        let b = top.appendingPathComponent("b", isDirectory: true)
+        let found = { try OutputEquivalence.differences(a, b, kind: .files) }
+        let classification = "Analyses/kraken2-x/classification-result.json"
+        let esViritu = "Analyses/esviritu-x/esviritu-result.json"
+        let metadata = "Analyses/esviritu-x/analysis-metadata.json"
+        typealias Clocks = (runtime: Double, saved: String)
+        let clocksA: Clocks = (4.5, "2026-10-18T10:00:05Z")
+        let clocksB: Clocks = (9.25, "2026-10-18T11:30:09Z")
+        let config: [String: Any] = ["inputFiles": ["/in/S1.fastq"], "databaseName": "Viral", "threads": 4]
+
+        // The documents as the writers emit them. The EsViritu runtime is the same on both sides, since only its
+        // save time is masked.
+        func classificationDocument(_ clocks: Clocks, withOptionalKeys: Bool = false) -> [String: Any] {
+            var document: [String: Any] = [
+                "config": config, "reportPath": "classification.kreport", "outputPath": "classification.kraken",
+                "runtime": clocks.runtime, "toolVersion": "2.1.3", "savedAt": clocks.saved,
+            ]
+            if withOptionalKeys {
+                document["brackenPath"] = "classification.bracken"
+                document["profileOutcome"] = "profiled"
+                document["provenanceId"] = "3f2c1d4e-0000-4000-8000-000000000001"
+                document["fragmentComposition"] = ["pairs": 10]
+                document["readPairingContract"] = 1
+            }
+            return document
+        }
+        func esVirituDocument(_ clocks: Clocks) -> [String: Any] {
+            [
+                "config": config, "detectionPath": "S1.detected_virus.info.tsv", "virusCount": 3, "runtime": 3.5,
+                "toolVersion": "1.0.0", "savedAt": clocks.saved,
+            ]
+        }
+        func metadataDocument(_ clocks: Clocks) -> [String: Any] {
+            ["tool": "kraken2", "isBatch": false, "created": clocks.saved]
+        }
+        let documents: [String: (Clocks) -> [String: Any]] = [
+            classification: { classificationDocument($0) }, esViritu: esVirituDocument, metadata: metadataDocument,
+        ]
+        let write = { (document: [String: Any], name: String, root: URL) throws in
+            let url = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .prettyPrinted]).write(to: url)
+        }
+        // The three sidecars in both trees, each side with its own clocks.
+        func reset() throws {
+            for (name, document) in documents {
+                try write(document(clocksA), name, a)
+                try write(document(clocksB), name, b)
+            }
+        }
+
+        try reset()
+        XCTAssertEqual(try found(), [], "only the masked keys differ")
+
+        // A classification result with none of its optional keys masks, and so does one with all five.
+        try write(classificationDocument(clocksA, withOptionalKeys: true), classification, a)
+        try write(classificationDocument(clocksB, withOptionalKeys: true), classification, b)
+        XCTAssertEqual(try found(), [], "a classification result with its five optional keys still masks")
+
+        // Each case differs in the one file. `both` puts the edit into the document of both sides, so a document
+        // that the mask does not read keeps its different clocks and they are compared as written. Without it only
+        // side B has the edit, and the clocks stay masked.
+        typealias Edit = (inout [String: Any]) -> Void
+        let cases: [(label: String, name: String, both: Bool, edit: Edit)] = [
+            ("classification toolVersion", classification, false, { $0["toolVersion"] = "2.1.4" }),
+            ("classification outputPath", classification, false, { $0["outputPath"] = "other.kraken" }),
+            ("EsViritu runtime", esViritu, false, { $0["runtime"] = 4.5 }),
+            ("EsViritu virusCount", esViritu, false, { $0["virusCount"] = 4 }),
+            ("EsViritu detectionPath", esViritu, false, { $0["detectionPath"] = "S2.detected_virus.info.tsv" }),
+            ("metadata tool", metadata, false, { $0["tool"] = "esviritu" }),
+            ("metadata isBatch", metadata, false, { $0["isBatch"] = true }),
+            ("classification keys one level down", classification, true, { $0 = ["record": $0] }),
+            ("classification with an unknown key", classification, true, { $0["note"] = "x" }),
+            ("classification without toolVersion", classification, true, { $0["toolVersion"] = nil }),
+            ("EsViritu keys one level down", esViritu, true, { $0 = ["record": $0] }),
+            ("EsViritu with an unknown key", esViritu, true, { $0["note"] = "x" }),
+            ("EsViritu without virusCount", esViritu, true, { $0["virusCount"] = nil }),
+            ("metadata keys one level down", metadata, true, { $0 = ["record": $0] }),
+            ("metadata with a fourth key", metadata, true, { $0["note"] = "x" }),
+        ]
+        for (label, name, both, edit) in cases {
+            try reset()
+            var documentA = try XCTUnwrap(documents[name])(clocksA)
+            var documentB = try XCTUnwrap(documents[name])(clocksB)
+            if both { edit(&documentA) }
+            edit(&documentB)
+            try write(documentA, name, a)
+            try write(documentB, name, b)
+            let result = try found()
+            XCTAssertEqual(result.count, 1, "\(label): \(result)")
+            XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
+        }
+    }
+
     /// G5 (Phase 2.10, lane A50 M2, BR7). GATK writes the run's date into the VCF header line
     /// `##GATKCommandLine`, so two runs of one command never agree on it. The GATK compare masks the value of that
     /// line's trailing `Date=` and nothing else. A changed `CommandLine=` value, `Version=` or ID, the same key
