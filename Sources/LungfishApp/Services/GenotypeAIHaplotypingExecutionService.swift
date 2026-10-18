@@ -31,6 +31,8 @@ final class GenotypeAIHaplotypingExecutionService {
         let runClock = ProvenanceRunClock()
         let ownsOperation = parentOperationID == nil
         let operationID: UUID
+        var prepared: PreparedRun?
+        var preparationError: Error?
         if let parentOperationID {
             operationID = parentOperationID
             _ = operationCenter.updateWithLog(
@@ -39,15 +41,22 @@ final class GenotypeAIHaplotypingExecutionService {
                 detail: "Preparing \(displayName(for: mode))"
             )
         } else {
-            // cli-parity-gap: ai-haplotyping. The run builds its command
-            // preview only after it resolves the provider, and it only logs
-            // that preview, so the row records no command.
+            // The row records its command before `begin`, naming the provider
+            // and model as resolved (2.12 L11, BIO 4). The key stays with the
+            // provider and reaches no argument (Q-S10). A run that cannot
+            // resolve a provider or read its bundle records no command, and
+            // its row fails with the same words as before.
+            do {
+                prepared = try await prepare(bundle: bundle, mode: mode)
+            } catch {
+                preparationError = error
+            }
             let startResult = operationCenter.begin(
                 title: "AI Haplotyping",
                 detail: "Preparing \(displayName(for: mode))",
                 operationType: .fastqOperation,
                 targetBundleURL: bundle,
-                cliCommand: nil,
+                cliCommand: prepared?.cliCommand,
                 routeContext: routeContext
             )
             guard case .started(let startedID) = startResult else {
@@ -57,46 +66,26 @@ final class GenotypeAIHaplotypingExecutionService {
         }
 
         do {
-            let provider = try await resolveProvider()
+            if let preparationError {
+                throw preparationError
+            }
             _ = operationCenter.updateWithLog(
                 id: operationID,
                 progress: progress(0.1, ownsOperation: ownsOperation),
                 detail: "Loading genotype bundle"
             )
-
-            let result = try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)
-            let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundle)
-            let sidecarSnapshot = try ONTGenotypeResultBundleData
-                .loadAnnotationSidecarSnapshot(forBundleAt: bundle)
+            let run = try await currentRun(prepared, bundle: bundle, mode: mode, operationID: operationID)
+            let provider = run.provider
+            let sidecarURL = run.sidecarURL
+            let sidecarSnapshot = run.sidecarSnapshot
             let sidecar = sidecarSnapshot.sidecar
-            let activeResult = GenotypeHaplotypeAnalysisResolver.resultByResolvingActiveAnalysis(
-                for: result,
-                bundleURL: bundle,
-                sidecar: sidecar
-            )
+            let activeResult = run.activeResult
             if mode == .aiRefinement, activeResult.haplotypeAnalysis == nil {
                 throw AIHaplotypingExecutionError.refinementRequiresCurrentAnalysis
             }
-            let promptSelection = AIHaplotypingPromptSelectionResolver.resolve(
-                result: activeResult,
-                mode: mode,
-                requestedPromptTemplateID: nil,
-                requestedPromptTemplateVersion: nil,
-                compactKnowledgePack: AIHaplotypingExecutionDefaults.compactKnowledgePack
-            )
-            let argv = commandPreview(
-                bundleURL: bundle,
-                mode: mode,
-                providerID: provider.providerID,
-                modelID: provider.structuredProvider.modelId,
-                promptSelection: promptSelection,
-                openAIEndpointConfiguration: provider.openAIEndpointConfiguration
-            )
-            let cliCommand = ViralReconWorkflowCommandPreview.build(
-                executableName: argv.first ?? "lungfish-gui",
-                arguments: Array(argv.dropFirst())
-            )
-            operationCenter.log(id: operationID, level: .info, message: cliCommand)
+            let promptSelection = run.promptSelection
+            let argv = run.argv
+            operationCenter.log(id: operationID, level: .info, message: run.cliCommand)
             _ = operationCenter.updateWithLog(
                 id: operationID,
                 progress: progress(0.25, ownsOperation: ownsOperation),
@@ -288,6 +277,78 @@ final class GenotypeAIHaplotypingExecutionService {
         throw AIProviderError.missingAPIKey
     }
 
+    /// Resolves the provider and reads the bundle, so the command names the
+    /// provider, model and prompt pins this run uses.
+    private func prepare(bundle: URL, mode: AIHaplotypingPromptMode) async throws -> PreparedRun {
+        let provider = try await resolveProvider()
+        let bundleState = try Self.bundleState(of: bundle)
+        let result = try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)
+        let sidecarSnapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundle)
+        let activeResult = GenotypeHaplotypeAnalysisResolver.resultByResolvingActiveAnalysis(
+            for: result,
+            bundleURL: bundle,
+            sidecar: sidecarSnapshot.sidecar
+        )
+        let promptSelection = AIHaplotypingPromptSelectionResolver.resolve(
+            result: activeResult,
+            mode: mode,
+            requestedPromptTemplateID: nil,
+            requestedPromptTemplateVersion: nil,
+            compactKnowledgePack: AIHaplotypingExecutionDefaults.compactKnowledgePack
+        )
+        let argv = commandPreview(
+            bundleURL: bundle,
+            mode: mode,
+            providerID: provider.providerID,
+            modelID: provider.structuredProvider.modelId,
+            promptSelection: promptSelection,
+            openAIEndpointConfiguration: provider.openAIEndpointConfiguration
+        )
+        return PreparedRun(
+            provider: provider,
+            bundleState: bundleState,
+            activeResult: activeResult,
+            sidecarURL: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundle),
+            sidecarSnapshot: sidecarSnapshot,
+            promptSelection: promptSelection,
+            argv: argv
+        )
+    }
+
+    /// The run prepared before `begin`, prepared again under the bundle lock
+    /// when the manifest or sidecar changed in between, so the run never
+    /// works from a read that another operation's write overtook.
+    private func currentRun(
+        _ prepared: PreparedRun?,
+        bundle: URL,
+        mode: AIHaplotypingPromptMode,
+        operationID: UUID
+    ) async throws -> PreparedRun {
+        guard let prepared else {
+            return try await prepare(bundle: bundle, mode: mode)
+        }
+        if try Self.bundleState(of: bundle) == prepared.bundleState {
+            return prepared
+        }
+        let reread = try await prepare(bundle: bundle, mode: mode)
+        if reread.argv != prepared.argv {
+            operationCenter.log(
+                id: operationID,
+                level: .warning,
+                message: "The bundle changed before the run started. The revision's provenance names the command this run used: \(reread.cliCommand)"
+            )
+        }
+        return reread
+    }
+
+    private static func bundleState(of bundle: URL) throws -> PreparedRun.BundleState {
+        PreparedRun.BundleState(
+            manifest: try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: bundle)),
+            sidecar: try ONTGenotypeResultBundleData.loadAnnotationSidecarSnapshot(forBundleAt: bundle).revision
+        )
+    }
+
     private func commandPreview(
         bundleURL: URL,
         mode: AIHaplotypingPromptMode,
@@ -398,6 +459,30 @@ private struct ResolvedProvider {
     let credentialSource: AIHaplotypingCredentialSource
     let structuredProvider: any StructuredAIProvider
     let openAIEndpointConfiguration: OpenAIEndpointConfiguration?
+}
+
+/// A run with its provider resolved and its bundle read, and the command
+/// that names them.
+private struct PreparedRun {
+    struct BundleState: Equatable {
+        let manifest: Data
+        let sidecar: GenotypeAnnotationSidecarRevision
+    }
+
+    let provider: ResolvedProvider
+    let bundleState: BundleState
+    let activeResult: ONTGenotypeResultBundleData
+    let sidecarURL: URL
+    let sidecarSnapshot: GenotypeAnnotationSidecarSnapshot
+    let promptSelection: AIHaplotypingPromptSelection
+    let argv: [String]
+
+    var cliCommand: String {
+        ViralReconWorkflowCommandPreview.build(
+            executableName: argv.first ?? "lungfish-gui",
+            arguments: Array(argv.dropFirst())
+        )
+    }
 }
 
 private enum AIHaplotypingExecutionError: Error, LocalizedError {

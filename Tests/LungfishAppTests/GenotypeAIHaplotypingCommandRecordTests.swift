@@ -12,6 +12,7 @@
 import Foundation
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 import LungfishCore
 import LungfishIO
 import LungfishKit
@@ -20,7 +21,7 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeAIHaplotypingCommandRecordTests: XCTestCase {
-    func testDiscoveryRowRecordsNoCommandAndTheRevisionRecordsThePreview() async throws {
+    func testDiscoveryRowRecordsTheResolvedCommandAndTheRevisionRecordsTheSameArgv() async throws {
         let fixture = try await GenotypeAIHaplotypingRunFixture(testCase: self)
         let published = try await fixture.makeService().run(bundleURL: fixture.bundleURL, mode: .aiDiscovery)
 
@@ -28,20 +29,49 @@ final class GenotypeAIHaplotypingCommandRecordTests: XCTestCase {
         XCTAssertEqual(fixture.operationCenter.items.count, 1)
         XCTAssertEqual(item.title, "AI Haplotyping")
         XCTAssertEqual(item.state, .completed)
-        // Today the row records no command (cli-parity-gap: ai-haplotyping).
-        XCTAssertNil(item.cliCommand)
 
+        // The row records the command it was begun with, naming the provider
+        // and model the run resolved (BIO 4), and logs the same line.
         let argv = try await fixture.expectedArgv()
         let preview = ViralReconWorkflowCommandPreview.build(
             executableName: argv[0],
             arguments: Array(argv.dropFirst())
         )
+        XCTAssertEqual(item.cliCommand, preview)
         XCTAssertTrue(item.logEntries.map(\.message).contains(preview), "\(item.logEntries.map(\.message))")
         // The record names the preview for the run and for its one step. Its
         // other argv is the copy of the specialist prompt into the revision.
         let recordArgvs = try GenotypeAIHaplotypingRunFixture.argvArrays(inRecordAt: published.provenanceURL)
         XCTAssertEqual(recordArgvs.filter { $0.first == CLICommandIdentity.executableName }, [argv, argv])
         XCTAssertEqual(fixture.server.requests.map(\.path), ["/openai/v1/responses"])
+    }
+
+    /// `GenotypeAIHaplotypingExecutionService.run` records a command the
+    /// shipped parser reads back as the run it made.
+    func testRecordedCommandParsesAsTheResolvedAIHaplotypingRun() async throws {
+        let fixture = try await GenotypeAIHaplotypingRunFixture(testCase: self)
+        let service: GenotypeAIHaplotypingExecutionService = fixture.makeService()
+        try await service.run(bundleURL: fixture.bundleURL, mode: .aiDiscovery)
+
+        let recorded = fixture.operationCenter.items.first?.cliCommand
+        let command = try RecordedCLICommand.parse(recorded, as: GenotypeAIHaplotypingSubcommand.self)
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        XCTAssertEqual(command.bundle, fixture.bundleURL.standardizedFileURL.path)
+        XCTAssertEqual(command.mode, .aiDiscovery)
+        XCTAssertEqual(command.provider, .openAI)
+        XCTAssertEqual(command.model, fixture.deployment)
+        XCTAssertEqual(command.azureOpenAIEndpoint, fixture.server.baseURL.absoluteString)
+        XCTAssertEqual(command.azureOpenAIDeployment, fixture.deployment)
+        XCTAssertEqual(command.promptTemplateID, preset.aiPromptTemplateID(for: .aiDiscovery))
+        XCTAssertEqual(command.promptTemplateVersion, preset.aiPromptTemplateVersion)
+        XCTAssertEqual(command.maxObservationsPerChunk, 10_000)
+        XCTAssertEqual(command.maxOutputTokens, 16_384)
+        XCTAssertEqual(command.temperature, 0)
+        XCTAssertEqual(command.reasoningEffort, preset.aiReasoningEffort)
+        XCTAssertEqual(command.maxProviderRetries, 5)
+        XCTAssertFalse(command.compactKnowledgePack)
+        XCTAssertFalse(command.previewPrompt)
+        XCTAssertNil(command.debugOutput)
     }
 
     func testMissingKeyFailsTheRowAfterItBegins() async throws {
