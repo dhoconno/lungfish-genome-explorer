@@ -1,0 +1,2 @@
+{"event":"start","message":"Started cz-id-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"CZ-ID input not found: \/work\/inputs\/missing.tsv","event":"failed","schemaVersion":2}

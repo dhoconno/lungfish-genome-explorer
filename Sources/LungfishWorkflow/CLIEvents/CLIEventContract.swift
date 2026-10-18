@@ -310,7 +310,7 @@ package enum CLIEventContractTable {
         "genotype replay-manual-haplotype-assignments": .text(reason: humanTextOnly),
         "genotype replay-matrix-annotation": .text(reason: humanTextOnly),
         "help": .text(reason: helpCommand),
-        "import cz-id": .text(reason: humanTextOnly),
+        "import cz-id": .events(flag: formatJSON, channel: .standardOutput), // Since 2.12 lane 12.06. Text only before.
         // Events since 2.12 lane 12.04, the three classifier result imports the Import Center runs. Text only before.
         "import esviritu": .events(flag: formatJSON, channel: .standardOutput),
         "import kraken2": .events(flag: formatJSON, channel: .standardOutput),

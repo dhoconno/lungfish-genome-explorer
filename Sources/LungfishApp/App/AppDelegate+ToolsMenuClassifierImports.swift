@@ -100,116 +100,68 @@ extension AppDelegate {
             return
         }
 
-        // The task must be stored and the OperationCenter row given
-        // a cancel callback, or the Operations panel shows no Cancel button
-        // and a stalled import can only be ended by quitting the app (the
-        // task itself already handles CancellationError correctly below —
-        // it was only ever unreachable). `TaskBox` lets the task capture a
-        // handle to itself for that callback, set immediately after
-        // `Task.detached` returns, below.
-        final class TaskBox: @unchecked Sendable {
-            var task: Task<Void, Never>?
-        }
-        let taskBox = TaskBox()
-        let task = Task.detached { [weak self] in
-            var opID: UUID?
-            var bundleURL: URL?
+        // The import is `lungfish-cli import cz-id` on `CLIBundleBuildRunner`, and the row shows its events
+        // (Phase 2.12 lane 12.06). The app reads the report only for the sample name and the row's words.
+        Task { @MainActor [weak self] in
+            let sampleName: String
+            let reportFileName: String
             do {
-                try Task.checkCancellation()
-
-                let preview = try await CzIdImportPreview.scan(url)
-                let sampleName = preview.sampleName
-                let finalBundleURL = projectURL
-                    .standardizedFileURL
-                    .appendingPathComponent("Classifications", isDirectory: true)
-                    .appendingPathComponent(
-                        "\(CzIdProjectImportWorkflow.bundleFileName(for: sampleName)).lungfishtax",
-                        isDirectory: true
-                    )
-                bundleURL = finalBundleURL
-
-                // The row, its Cancel button and its first progress line are
-                // set up in one main-actor turn. Without the callback the
-                // Operations panel shows no Cancel button, and a hung import
-                // can only be ended by quitting the app. `taskBox.task` is set
-                // to this very task right after `Task.detached` returns below,
-                // and the callback only reads it when the user cancels.
-                let began = await appPerformOnMainRunLoop {
-                    AppDelegate.beginCzIdImportOperation(
-                        sourceURL: url,
-                        projectURL: projectURL,
-                        sampleName: sampleName,
-                        reportFileName: preview.reportFileName,
-                        routeContext: routeContext
-                    ) { startedID in
-                        OperationCenter.shared.setCancelCallback(for: startedID) { taskBox.task?.cancel() }
-                        onDispatch?(.started)
-                        _ = OperationCenter.shared.updateWithLog(
-                            id: startedID,
-                            progress: 0.35,
-                            detail: "Converting \(preview.reportFileName)..."
-                        )
-                    }
-                }
-                switch began {
-                case .started(let startedID):
-                    opID = startedID
-                case .refused(let refusal):
-                    await appPerformOnMainRunLoop { onDispatch?(.rejected(refusal.message)) }
-                    return
-                }
-
-                let imported = try await CzIdProjectImportWorkflow.importFromURL(
-                    url,
-                    projectURL: projectURL,
-                    sampleName: sampleName
-                )
-
-                let completedOpID = opID
-                await appPerformOnMainRunLoop {
-                    guard let opID = completedOpID else { return }
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Imported \(imported.sampleName)",
-                        bundleURLs: [imported.bundleURL]
-                    ) else { return }
-                    OperationCenter.shared.log(
-                        id: opID,
-                        level: .info,
-                        message: "Imported CZ-ID result at \(imported.bundleURL.lastPathComponent)"
-                    )
-                }
-            } catch is CancellationError {
-                if let bundleURL {
-                    try? FileManager.default.removeItem(at: bundleURL)
-                }
-                if let opID {
-                    await appPerformOnMainRunLoop {
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Cancelled")
-                    }
-                } else {
-                    await appPerformOnMainRunLoop { onDispatch?(.cancelled) }
-                }
+                (sampleName, reportFileName) = try await Task.detached {
+                    let preview = try await CzIdImportPreview.scan(url)
+                    return (preview.sampleName, preview.reportFileName)
+                }.value
             } catch {
-                if let bundleURL {
-                    try? FileManager.default.removeItem(at: bundleURL)
-                }
-                let detail = error.localizedDescription
-                let failedOpID = opID
-                await appPerformOnMainRunLoop {
-                    if let opID = failedOpID {
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
-                    } else {
-                        onDispatch?(.rejected(detail))
-                    }
-                    self?.showAlert(
-                        title: "CZ-ID Import Failed",
-                        message: detail,
-                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
-                    )
-                }
+                onDispatch?(.rejected(error.localizedDescription))
+                self?.showAlert(
+                    title: "CZ-ID Import Failed",
+                    message: error.localizedDescription,
+                    presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                )
+                return
+            }
+            let began = AppDelegate.beginCzIdImportOperation(
+                sourceURL: url,
+                projectURL: projectURL,
+                sampleName: sampleName,
+                reportFileName: reportFileName,
+                routeContext: routeContext
+            ) { _ in onDispatch?(.started) }
+            guard case .started(let opID) = began else {
+                if case .refused(let refusal) = began { onDispatch?(.rejected(refusal.message)) }
+                return
+            }
+            do {
+                let run = try await CLIBundleBuildRunner.launch(
+                    arguments: CzIdImportCLICommand.arguments(sourceURL: url, projectURL: projectURL, sampleName: sampleName),
+                    operationID: opID
+                )
+                let bundleURL = run.outputs.first.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                    ?? projectURL.standardizedFileURL
+                        .appendingPathComponent("Classifications", isDirectory: true)
+                        .appendingPathComponent(
+                            "\(CzIdProjectImportWorkflow.bundleFileName(for: sampleName)).lungfishtax",
+                            isDirectory: true
+                        )
+                guard OperationCenter.shared.complete(
+                    id: opID,
+                    detail: "Imported \(sampleName)",
+                    bundleURLs: [bundleURL]
+                ) else { return }
+                OperationCenter.shared.log(
+                    id: opID,
+                    level: .info,
+                    message: "Imported CZ-ID result at \(bundleURL.lastPathComponent)"
+                )
+            } catch is CancellationError {
+                // The runner acknowledged the cancel on the row.
+            } catch {
+                guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                self?.showAlert(
+                    title: "CZ-ID Import Failed",
+                    message: error.localizedDescription,
+                    presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                )
             }
         }
-        taskBox.task = task
     }
 }

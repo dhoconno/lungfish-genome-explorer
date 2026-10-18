@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.06 (A63-M3, QA 1). The app's Cancel sends the command it runs SIGTERM. At the lane base
-// `import cz-id` had no cancel, so the signal ended it before it wrote any record of the run. This pin holds
-// that until the leaf turns SIGTERM into a cancel, which flips it.
+// `import cz-id` had no cancel, so the signal ended it before it wrote any record of the run (the pin of
+// commit 22e540b79). The leaf now turns SIGTERM into a cancel. It exits 125 inside the grace, records the run
+// as cancelled in the project, tells the row with a `failed` event and publishes no bundle.
 //
 // The command reads a large taxon report for seconds in a debug build, so a SIGTERM that follows the
 // command's `Classifications` folder by a poll interval meets it at work. No tool and no network are needed.
@@ -25,15 +26,38 @@ final class ImportCzIdSIGTERMTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testImportCzIdEndsBySIGTERMWithNoRecordOfTheRunToday() async throws {
-        let held = try await startOnALargeReport()
+    func testImportCzIdTurnsSIGTERMIntoACancelAndPublishesNothing() async throws {
+        let held = try await startOnALargeReport(arguments: ["--format", "json"])
         defer { held.run.stop() }
-        let stop = await CLISIGTERMHarness.cancel(held.run)
-        XCTAssertNotEqual(stop.exitStatus, 125, "the leaf has no cancel at the base." + stop.diagnostics)
-        XCTAssertNil(
-            ImportCommandsSIGTERMTests.recordStatus(in: held.project),
-            "and writes no record of the run in the project"
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            held.run,
+            record: { ImportCommandsSIGTERMTests.recordStatus(in: held.project) }
         )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(
+            ImportCommandsSIGTERMTests.bundles(in: held.project, folder: "Classifications"), [],
+            "a cancelled import publishes no bundle"
+        )
+    }
+
+    /// The same cancel with every core busy, which the grace must still cover.
+    func testImportCzIdTurnsSIGTERMIntoACancelWithEveryCoreBusy() async throws {
+        let held = try await startOnALargeReport(arguments: ["--format", "json"])
+        defer { held.run.stop() }
+        let burners = try (0..<ProcessInfo.processInfo.activeProcessorCount).map { _ in
+            try CLISIGTERMHarness.launch(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "while :; do :; done"],
+                environment: [:]
+            )
+        }
+        defer { burners.forEach { $0.stop() } }
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            held.run,
+            record: { ImportCommandsSIGTERMTests.recordStatus(in: held.project) }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(ImportCommandsSIGTERMTests.bundles(in: held.project, folder: "Classifications"), [])
     }
 
     // MARK: - Holding the command at work

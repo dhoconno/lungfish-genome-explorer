@@ -97,6 +97,7 @@ A failed run is kept only when Lungfish wrote its message. A Foundation message 
 | `fastq-ont-pacbio-barcode-demux` | `complete`, `failed` | `fastq ont-pacbio-barcode-demux` on two reads between one barcode pair, then on an output folder that already exists |
 | `fastq-platform` | `complete`, `failed` | `fastq platform --set ont` on a bundle recorded as Illumina, then on a folder that is not a bundle |
 | `import-msa` | `complete`, `complete-with-warning`, `failed` | `import msa` of a two-row CLUSTAL alignment, then of an alignment whose rows share a name, then of a file that does not exist |
+| `import-cz-id` | `complete`, `failed` | `import cz-id --sample-name "Sample CZ 001"` of a three-row taxon report into the scratch project, then of a report that does not exist (`CzIdImportStreamCapture`, Phase 2.12 lane 12.06) |
 | `import-tree` | `complete`, `complete-with-warning`, `failed` | `import tree` of a tree with numeric support values, then of a tree with no branch lengths, then of a file that does not exist |
 | `import-geneious` | `complete`, `complete-with-warning`, `failed` | `import geneious --no-import-references` of a folder that scans as a Geneious export, then the same with `--preserve-unsupported`, then of a file that does not exist |
 | `import-application-export` | `complete`, `complete-with-warning`, `failed` | `import application-export alignment-tree --no-import-references` of a folder with one alignment and one tree, then of the same folder with a report file the card does not import, then of a folder that does not exist |

@@ -1,0 +1,4 @@
+{"event":"start","message":"Started cz-id-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Reading taxon_report.tsv...","progress":0.12,"schemaVersion":2}
+{"event":"progress","message":"Converting taxon_report.tsv...","progress":0.35,"schemaVersion":2}
+{"artifacts":[{"kind":"cz-id-result","path":"\/work\/Project.lungfish\/Classifications\/Sample-CZ-001.lungfishtax","provenancePath":"\/work\/Project.lungfish\/Classifications\/Sample-CZ-001.lungfishtax\/.lungfish-provenance.json","role":"bundle"}],"event":"complete","output":"\/work\/Project.lungfish\/Classifications\/Sample-CZ-001.lungfishtax","outputs":["\/work\/Project.lungfish\/Classifications\/Sample-CZ-001.lungfishtax"],"progress":1,"schemaVersion":2}
