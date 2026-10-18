@@ -40,12 +40,11 @@ final class ClassifierResultImportCLIGUIParityReplayTests: XCTestCase {
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so no side can run"
         )
-        // The result folders' sidecars stamp the second they were saved (`savedAt` of `esviritu-result.json`,
-        // `created` of `analysis-metadata.json`), which differs between any two runs. The contract masks timestamps,
-        // so their payload text gets the ISO timestamp mask too.
-        var masks = OutputEquivalence.MaskPolicy.standard
-        masks.payloads.append(OutputEquivalence.Masks.isoTimestamps)
-        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: masks, replayTimeout: .seconds(300))
+        // The sidecars of the result folders stamp the second they were saved (`savedAt` of `esviritu-result.json`,
+        // `created` of `analysis-metadata.json`), which differs between any two runs. The contract masks those keys by
+        // name (`Masks.resultSidecarClocks`, ruling 1 of the review of lane 12.06 M1), and no pattern runs over the
+        // text of a payload, so the standard policy is the whole compare.
+        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .standard, replayTimeout: .seconds(300))
     }
 
     override func tearDownWithError() throws {
