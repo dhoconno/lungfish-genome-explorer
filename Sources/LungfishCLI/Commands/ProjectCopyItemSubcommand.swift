@@ -112,6 +112,7 @@ struct ProjectCopyItemSubcommand: AsyncParsableCommand {
             itemAt: request.source,
             intoProject: request.target,
             requestedFolder: request.folder,
+            now: Self.copiedAt(),
             identity: .command(request.identity),
             checkCancellation: { try Task.checkCancellation() }
         )
@@ -119,6 +120,21 @@ struct ProjectCopyItemSubcommand: AsyncParsableCommand {
             events.emitLog(.warning, line)
         }
         return outcome
+    }
+
+    /// The variable a debug build reads for the time `project-copy.json` names, so a parity class gives each
+    /// side one clock (BIO ruling on `caller`, answer 2). The route parity harness reads that record as a
+    /// payload, which no wall-clock mask covers.
+    static let copiedAtVariable = "LUNGFISH_TEST_COPIED_AT"
+
+    /// The time the copy record names. The clock, or in a debug build the ISO 8601 time `copiedAtVariable` holds.
+    static func copiedAt(environment: [String: String] = ProcessInfo.processInfo.environment) -> Date {
+        #if DEBUG
+        if let text = environment[copiedAtVariable], let date = ISO8601DateFormatter().date(from: text) {
+            return date
+        }
+        #endif
+        return Date()
     }
 
     /// Records the run a cancel stopped as cancelled, in the folder the item would have gone to when it
