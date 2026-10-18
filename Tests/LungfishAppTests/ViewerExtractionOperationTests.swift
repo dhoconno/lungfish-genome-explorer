@@ -18,6 +18,8 @@ import XCTest
 import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -113,23 +115,95 @@ final class ViewerExtractionOperationTests: XCTestCase {
         XCTAssertEqual(command.samples, [])
     }
 
-    func testAViewerWithNoReferenceBundleRecordsNoCommandAsAParityGap() throws {
+    /// A viewer with no reference bundle records `extract sequence` on the FASTA it staged (2.12 lane
+    /// 12.12, A48-GAP), with the name the person gave, a blank one included, and the document it shows.
+    func testAViewerWithNoReferenceBundleRecordsTheCommandOnItsStagedFASTA() throws {
         let reporter = RecordingOperationReporter()
+        let staged = URL(fileURLWithPath: "/tmp/lane 1a2f/Project.lungfish/.tmp/extract-sequence-input-1/sequence.fa")
+        let document = URL(fileURLWithPath: "/tmp/lane 1a2f/Project.lungfish/Downloads/-virus.gb")
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "-cds, A", chromosome: nil,
+            intervals: [AnnotationInterval(start: 2, end: 6), AnnotationInterval(start: 10, end: 14)], strand: .reverse
+        )
+        let arguments = SequenceExtractionPipeline.cliFASTAArguments(
+            source: .annotation(annotation), flank5Prime: 2, flank3Prime: 0, reverseComplement: false,
+            concatenateExons: true, inputURL: staged, sequenceName: "NC_TEST", sourceDocumentURL: document,
+            bundleName: "  ", outputBundleURL: outputBundle
+        )
 
         SequenceViewerView.beginExtractionBundleOperation(
-            sourceName: "NC_045512.2:100-200",
-            arguments: nil,
-            routeContext: nil,
-            reporter: reporter
+            sourceName: "-cds, A", arguments: arguments, routeContext: nil, reporter: reporter
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(item.title, "Extracting NC_045512.2:100-200")
+        XCTAssertEqual(item.title, "Extracting -cds, A")
         XCTAssertEqual(item.initialDetail, "Preparing...")
-        // CLI parity gap. The viewer reads its sequence from the document it
-        // shows, which `extract sequence --bundle` cannot read.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "region-extraction-without-bundle")
+        XCTAssertEqual(item.cliCommand, OperationCenter.buildCLICommand(subcommand: "extract sequence", args: Array(arguments.dropFirst(2))))
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ExtractSequenceSubcommand.self)
+        XCTAssertEqual(command.input, staged.path)
+        XCTAssertEqual(command.region, "NC_TEST:3-6,11-14", "a feature that names no sequence takes the viewer's")
+        XCTAssertFalse(command.bundle)
+        XCTAssertEqual(command.featureName, "-cds, A")
+        XCTAssertEqual(command.strand, "-")
+        XCTAssertTrue(command.concatenateExons)
+        XCTAssertEqual(command.flank5, 2)
+        XCTAssertEqual(command.name, "  ", "a blank name is recorded as given, as the in-process route did")
+        XCTAssertEqual(command.sourceDocument, document.path)
+        XCTAssertEqual(command.output, outputBundle.path)
+        XCTAssertTrue(command.nextFreeName)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+
+        let empty = SequenceExtractionPipeline.cliFASTAArguments(
+            source: .region(chromosome: "NC_TEST", start: 9, end: 40), flank5Prime: 0, flank3Prime: 0,
+            reverseComplement: false, concatenateExons: false, inputURL: staged, sequenceName: "NC_TEST",
+            sourceDocumentURL: nil, bundleName: "", outputBundleURL: outputBundle
+        )
+        let emptyCommand = try ExtractSequenceSubcommand.parse(Array(empty.dropFirst(2)))
+        XCTAssertNil(emptyCommand.name, "an empty name, which no option carries, goes as none")
+        XCTAssertNil(emptyCommand.sourceDocument)
+        XCTAssertEqual(emptyCommand.region, "NC_TEST:10-40")
+    }
+
+    /// The hidden key `RegionExtractionWithoutBundleRoute` is `cli` unless it says `legacy` (U-R1).
+    func testTheRouteWithoutABundleIsTheCLIUnlessTheHiddenKeySaysLegacy() {
+        let suite = makeTestDefaultsSuite(prefix: "region-extraction-route")
+        let key = RegionExtractionWithoutBundleRouteSettings.defaultsKey
+        let settings = RegionExtractionWithoutBundleRouteSettings(defaults: suite.defaults)
+        XCTAssertEqual(key, "RegionExtractionWithoutBundleRoute")
+        XCTAssertEqual(settings.route, .cli)
+        suite.defaults.set("LEGACY", forKey: key)
+        XCTAssertEqual(settings.route, .legacy)
+        suite.defaults.set("other", forKey: key)
+        XCTAssertEqual(settings.route, .cli)
+        suite.defaults.set(false, forKey: key)
+        XCTAssertEqual(settings.route, .legacy)
+        suite.defaults.set(true, forKey: key)
+        XCTAssertEqual(settings.route, .cli)
+    }
+
+    /// The staged FASTA holds the viewer's sequence under its name, 70 bases a line, in a folder of its
+    /// own under the project's `.tmp/` that stays, and nothing else.
+    func testTheStagedInputIsAFASTAUnderTheProjectTmpThatStays() async throws {
+        let root = try TestTempDirectory.make(prefix: "staged-sequence-input")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let bases = String(repeating: "ACGT", count: 40)
+
+        let url = try await StagedSequenceInput.writeFASTA(
+            [.init(name: "NC_TEST", bases: bases)], fileName: "sequence.fa", prefix: "extract-sequence-input-", projectURL: project
+        )
+
+        let folder = url.deletingLastPathComponent()
+        XCTAssertEqual(folder.deletingLastPathComponent().standardizedFileURL.path, project.appendingPathComponent(".tmp").standardizedFileURL.path)
+        XCTAssertTrue(folder.lastPathComponent.hasPrefix("extract-sequence-input-"))
+        let expected = ">NC_TEST\n" + String(bases.prefix(70)) + "\n" + String(bases.dropFirst(70).prefix(70)) + "\n"
+            + String(bases.dropFirst(140)) + "\n"
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), expected)
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        XCTAssertFalse(names.contains { $0.contains(DurableReplace.stageInfix) }, "\(names)")
+        let sequences = try await FASTAReader(url: url).readAll()
+        XCTAssertEqual(sequences.map(\.name), ["NC_TEST"])
     }
 
     func testExtractionBundleLaunchesNothingWhenTheBeginIsRefused() throws {

@@ -407,13 +407,21 @@ extension SequenceViewerView {
         ) else { return }
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
         guard let bundle = currentReferenceBundle else {
-            createExtractionBundleInProcess(
-                from: result,
-                bundleName: bundleName,
-                concatenateExons: request.concatenateExons,
-                outputDir: outputDir,
-                routeContext: routeContext
-            )
+            switch RegionExtractionWithoutBundleRouteSettings.currentRoute {
+            case .cli:
+                createExtractionBundleFromDocument(
+                    from: result, request: request, bundleName: bundleName, outputDir: outputDir,
+                    projectURL: projectURL, routeContext: routeContext
+                )
+            case .legacy:
+                createExtractionBundleInProcess(
+                    from: result,
+                    bundleName: bundleName,
+                    concatenateExons: request.concatenateExons,
+                    outputDir: outputDir,
+                    routeContext: routeContext
+                )
+            }
             return
         }
 
@@ -442,32 +450,89 @@ extension SequenceViewerView {
             arguments: arguments,
             routeContext: routeContext
         ) { itemId in
-            Task { @MainActor in
-                do {
-                    let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: itemId)
-                    let bundleURL = run.outputs.first.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? outputBundleURL
-                    extractionLogger.info("createExtractionBundle: SUCCESS -> \(bundleURL.path)")
-                    _ = DownloadCenter.shared.complete(
-                        id: itemId,
-                        detail: run.message ?? "Bundle ready",
-                        bundleURLs: [bundleURL]
-                    )
-                } catch is CancellationError {
-                    // The runner acknowledged the cancel on the row, and the command published nothing.
-                } catch {
-                    Self.failExtractionBundle(
-                        itemId: itemId,
-                        description: error.localizedDescription,
-                        detail: "\(error)"
-                    )
-                }
+            Self.launchExtractionBundle(arguments: arguments, outputBundleURL: outputBundleURL, itemId: itemId)
+        }
+    }
+
+    /// Runs `arguments` on `CLIBundleBuildRunner` for the row `itemId`. The row completes with the
+    /// bundle the command's `complete` line names, a cancel the runner acknowledged on the row ends it
+    /// Cancelled with no alert, and a failure fails it with the alert.
+    private static func launchExtractionBundle(arguments: [String], outputBundleURL: URL, itemId: UUID) {
+        Task { @MainActor in
+            do {
+                let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: itemId)
+                let bundleURL = run.outputs.first.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? outputBundleURL
+                extractionLogger.info("createExtractionBundle: SUCCESS -> \(bundleURL.path)")
+                _ = DownloadCenter.shared.complete(id: itemId, detail: run.message ?? "Bundle ready", bundleURLs: [bundleURL])
+            } catch is CancellationError {
+                // The runner acknowledged the cancel on the row, and the command published nothing.
+            } catch {
+                failExtractionBundle(itemId: itemId, description: error.localizedDescription, detail: "\(error)")
             }
         }
     }
 
-    /// Builds the bundle in process for a viewer with no reference bundle, whose sequence comes
-    /// from the document it shows rather than from a bundle `extract sequence --bundle` can read.
-    /// Such a viewer has no track and no sample to keep.
+    /// Builds the bundle of a viewer with no reference bundle on `extract sequence` (2.12 lane 12.12,
+    /// A48-GAP). Before the row begins, the sequence the viewer shows is written as a FASTA under the
+    /// project's `.tmp/` (`StagedSequenceInput`), which stays for the record that names it. The row then
+    /// records `extract sequence <staged FASTA> <region> --name=<name> --source-document <document> -o
+    /// <bundle>`. A failure to write starts no row and shows the alert. A GenBank document's annotations
+    /// are not carried, as before, and the record says so (R-B3).
+    private func createExtractionBundleFromDocument(
+        from result: LungfishCore.ExtractionResult,
+        request: ExtractionRequest,
+        bundleName: String,
+        outputDir: URL,
+        projectURL: URL?,
+        routeContext: OperationRouteContext
+    ) {
+        guard let sequence else {
+            NSSound.beep()
+            return
+        }
+        let documentURL = viewController?.currentDocument.flatMap { document -> URL? in
+            guard document.projectSequenceID == nil, document.url.isFileURL,
+                  FileManager.default.fileExists(atPath: document.url.path) else { return nil }
+            return document.url
+        }
+        let outputBundleURL = SequenceExtractionBundleBuilder.uniqueBundleURL(
+            for: result, desiredBundleName: bundleName, in: outputDir
+        )
+        let record = StagedSequenceInput.Record(name: sequence.name, bases: sequence.asString())
+        Task { @MainActor in
+            let inputURL: URL
+            do {
+                inputURL = try await StagedSequenceInput.writeFASTA(
+                    [record], fileName: "sequence.fa", prefix: "extract-sequence-input-", projectURL: projectURL
+                )
+            } catch {
+                Self.failExtractionBundle(itemId: nil, description: error.localizedDescription, detail: "\(error)")
+                return
+            }
+            let arguments = SequenceExtractionPipeline.cliFASTAArguments(
+                source: request.source,
+                flank5Prime: request.flank5Prime,
+                flank3Prime: request.flank3Prime,
+                reverseComplement: request.reverseComplement,
+                concatenateExons: request.concatenateExons,
+                inputURL: inputURL,
+                sequenceName: sequence.name,
+                sourceDocumentURL: documentURL,
+                bundleName: bundleName,
+                outputBundleURL: outputBundleURL
+            )
+            extractionLogger.info("createExtractionBundle: input=\(inputURL.path), outputBundle=\(outputBundleURL.path)")
+            Self.beginExtractionBundleOperation(
+                sourceName: result.sourceName, arguments: arguments, routeContext: routeContext
+            ) { itemId in
+                Self.launchExtractionBundle(arguments: arguments, outputBundleURL: outputBundleURL, itemId: itemId)
+            }
+        }
+    }
+
+    /// Builds the bundle in process for a viewer with no reference bundle, the `legacy` value of the
+    /// hidden key `RegionExtractionWithoutBundleRoute`, which lane 13.03 deletes with this function.
+    /// Its row records no command.
     private func createExtractionBundleInProcess(
         from result: LungfishCore.ExtractionResult,
         bundleName: String,
@@ -515,10 +580,12 @@ extension SequenceViewerView {
         }
     }
 
-    /// Fails the row with the error's words and shows them in an alert over the key window.
-    private static func failExtractionBundle(itemId: UUID, description: String, detail: String) {
+    /// Fails the row, when one began, with the error's words and shows them in an alert over the key window.
+    private static func failExtractionBundle(itemId: UUID?, description: String, detail: String) {
         extractionLogger.error("Bundle creation failed: \(detail)")
-        _ = DownloadCenter.shared.fail(id: itemId, detail: "Failed: \(description)")
+        if let itemId {
+            _ = DownloadCenter.shared.fail(id: itemId, detail: "Failed: \(description)")
+        }
         let alert = NSAlert()
         alert.messageText = "Bundle Creation Failed"
         alert.informativeText = description
@@ -531,17 +598,11 @@ extension SequenceViewerView {
 
     /// Registers the row for building a bundle from an extracted sequence and,
     /// only when it starts, calls `launch` with the operation ID. The row locks
-    /// no bundle. With `arguments`, the `lungfish-cli` argv of
-    /// `extract sequence --bundle` that the route runs (2.11 A48 M2), the row
-    /// records that command.
-    ///
-    /// cli-parity-gap: region-extraction-without-bundle. A viewer with no
-    /// reference bundle reads its sequence from the document it shows, so it
-    /// passes no `arguments`, builds the bundle in process, and its row
-    /// records no command. The closest command is `extract sequence <fasta>
-    /// <region> -o <name>.lungfishref`. It builds the same plain bundle from a
-    /// FASTA file, but it names the bundle by its folder, reads FASTA only,
-    /// and is not told which file the viewer shows.
+    /// no bundle. With `arguments`, the `lungfish-cli` argv the route runs,
+    /// `extract sequence --bundle` with a reference bundle (2.11 A48 M2) or
+    /// `extract sequence <staged FASTA>` without one (2.12 lane 12.12), the
+    /// row records that command. Only the `legacy` value of the hidden key
+    /// `RegionExtractionWithoutBundleRoute` passes none, until lane 13.03.
     @discardableResult
     static func beginExtractionBundleOperation(
         sourceName: String,
