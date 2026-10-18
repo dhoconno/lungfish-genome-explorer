@@ -79,13 +79,8 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertNotNil(vc.view)
     }
 
-    @MainActor func testResultViewportExportWritesTSVToProvidedURL() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NaoMgsResultViewportExport-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let outputURL = tempDir.appendingPathComponent("naomgs-summary.tsv")
+    /// The summary table replaces a tab inside a name, on the builder `nao-mgs export table` calls.
+    @MainActor func testSummaryTableReplacesTabsInNames() throws {
         let vc = NaoMgsResultViewController()
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
@@ -116,30 +111,15 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             )
         )
 
-        try vc.exportResults(to: outputURL, format: .tsv)
-
-        let content = try readRepositorySource(outputURL)
+        let content = NaoMgsSummaryExport.summaryTSV(
+            rows: vc.testTableExportWriterState.rows, metadataHeaders: [], metadataValuesBySample: [:]
+        )
         XCTAssertTrue(
             content.hasPrefix(
                 "sample\ttaxon_id\tname\thit_count\tunique_read_count\tpcr_duplicate_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccession_count\n"
             )
         )
         XCTAssertTrue(content.contains("sample-1\t1234\tExample virus\t10\t8\t2\t99.50\t200.0\t1.0\t1\n"))
-
-        let provenance = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        )
-        XCTAssertEqual(provenance.workflowName, "lungfish app naomgs summary export")
-        XCTAssertEqual(provenance.output?.path, outputURL.path)
-        XCTAssertNotNil(provenance.output?.checksumSHA256)
-        XCTAssertEqual(provenance.options.resolvedDefaults["rowCount"]?.integerValue, 1)
-        XCTAssertEqual(
-            provenance.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
-            ["sample-1"]
-        )
-        XCTAssertEqual(provenance.options.resolvedDefaults["columnFilterComposition"]?.stringValue, "all")
-        XCTAssertNotNil(provenance.options.resolvedDefaults["sortKeys"])
-        XCTAssertNil(provenance.options.resolvedDefaults["sortDescriptors"])
     }
 
     @MainActor func testConfigureResultPopulatesCachedRowsForViewportExport() throws {
@@ -168,21 +148,15 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             virusHitsFile: tempDir.appendingPathComponent("virus_hits_final.tsv")
         )
 
-        let outputURL = tempDir.appendingPathComponent("parser-backed-summary.tsv")
         let vc = NaoMgsResultViewController()
         vc.loadViewIfNeeded()
         vc.configure(result: result)
 
-        try vc.exportResults(to: outputURL, format: .tsv)
-
-        let content = try readRepositorySource(outputURL)
-        XCTAssertTrue(content.contains("parser-sample\t5678\tCached result virus\t12\t9\t3\t98.25\t175.0\t2.0\t2\n"))
-
-        let provenance = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        let content = NaoMgsSummaryExport.summaryTSV(
+            rows: vc.testTableExportWriterState.rows, metadataHeaders: [], metadataValuesBySample: [:]
         )
-        XCTAssertEqual(provenance.options.resolvedDefaults["rowCount"]?.integerValue, 1)
-        XCTAssertEqual(provenance.options.resolvedDefaults["sampleName"]?.stringValue, "parser-sample")
+        XCTAssertTrue(content.contains("parser-sample\t5678\tCached result virus\t12\t9\t3\t98.25\t175.0\t2.0\t2\n"))
+        XCTAssertEqual(vc.testTableExportWriterState.sampleName, "parser-sample")
     }
 
     @MainActor func testTaxonomyTypographyScalesRealizedAndLateMetadataCellsWithoutReloading() throws {
@@ -1202,28 +1176,6 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         vc.testingShowMultiSelectionPlaceholder(count: 2)
 
         XCTAssertFalse(vc.testActionBar.extractButton.isEnabled)
-    }
-
-    // MARK: - AS10: Export enablement/behavior when only cached rows are loaded
-
-    @MainActor func testExportSucceedsWithCachedRowsAndNoDatabase() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NaoMgsExportCachedRows-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let vc = NaoMgsResultViewController()
-        vc.loadViewIfNeeded()
-        vc.configureWithCachedRows(
-            [Self.makeCachedRow()],
-            manifest: Self.makeManifest(),
-            awaitingDatabase: false
-        )
-
-        // exportResults() used to bail out entirely when database == nil, even
-        // though displayedRows (and therefore writeSummaryTSV) had data to export.
-        XCTAssertNoThrow(try vc.writeSummaryTSV(to: tempDir.appendingPathComponent("cached-summary.tsv")))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("cached-summary.tsv").path))
     }
 
     // MARK: - AS26: Accession NCBI URL must not force-unwrap

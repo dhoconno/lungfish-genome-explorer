@@ -2735,17 +2735,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     // MARK: - Export
 
-    public enum SummaryExportError: LocalizedError {
-        case noData
-
-        public var errorDescription: String? {
-            switch self {
-            case .noData:
-                return "No NAO-MGS rows are loaded; cannot export a summary."
-            }
-        }
-    }
-
     public func exportResults() {
         guard !displayedRows.isEmpty, let window = view.window else { return }
         let sampleName = manifest?.sampleName ?? "naomgs"
@@ -2795,98 +2784,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         )
     }
 
-    public func writeSummaryTSV(to url: URL) throws {
-        guard !displayedRows.isEmpty else {
-            throw SummaryExportError.noData
-        }
-        let runClock = ProvenanceRunClock()
-        let content = summaryTSVContent()
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app naomgs summary export",
-            sourceURLs: exportProvenanceSourceURLs(),
-            outputURL: url,
-            outputFormat: .text,
-            argv: ["Lungfish.app", "export-naomgs-summary", "--output", url.path],
-            explicitOptions: [
-                "outputPath": .file(url),
-                "format": .string("tsv"),
-            ],
-            defaults: [
-                "format": .string("tsv"),
-            ],
-            resolved: [
-                "rowCount": .integer(displayedRows.count),
-                "sourceSampleCount": .integer(exportSourceSampleCount),
-                "selectedSamples": .array(exportSelectedSampleIds.map { .string($0) }),
-                "columnFilterComposition": .string(columnFilterSet.composition.rawValue),
-                "columnFilters": .array(columnFilterSet.activeFilters.map(exportColumnFilterParameter)),
-                "sortKeys": .array(exportSortKeys.map { .string($0.argument) }),
-                "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
-                "sampleName": .string(manifest?.sampleName ?? "naomgs"),
-            ],
-            runClock: runClock
-        )) { outputURL in
-            try content.write(to: outputURL, atomically: true, encoding: .utf8)
-        }
-    }
-
-    private var exportSelectedSampleIds: [String] {
-        let selected = selectedSamples.sorted()
-        if !selected.isEmpty {
-            return selected
-        }
-        return Array(Set(displayedRows.map(\.sample))).sorted()
-    }
-
-    private var exportSourceSampleCount: Int {
-        max(sampleEntries.count, exportSelectedSampleIds.count)
-    }
-
     /// The one sort key `displayedRows` applies, the first descriptor's key and direction, which the record names in
     /// the `--sort` spelling of `nao-mgs export table` (manager's answer to Q1 of 12.31 c6).
     private var exportSortKeys: [ViewerExportSortKey] {
         taxonomyTableView.sortDescriptors.first.flatMap { descriptor in
             descriptor.key.map { [ViewerExportSortKey(column: $0, ascending: descriptor.ascending)] }
         } ?? []
-    }
-
-    private func exportColumnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
-        .dictionary([
-            "columnId": .string(filter.columnId),
-            "operator": .string(filter.op.rawValue),
-            "operatorName": .string(String(describing: filter.op)),
-            "value": .string(filter.value),
-            "value2": filter.value2.map(ParameterValue.string) ?? .null,
-            "inverted": .boolean(filter.isInverted),
-        ])
-    }
-
-    private func exportProvenanceSourceURLs() -> [URL] {
-        var urls: [URL] = []
-        if let database {
-            urls.append(database.databaseURL)
-        }
-        if let bundleURL {
-            urls.append(bundleURL.appendingPathComponent("manifest.json"))
-            // The export reads the sample metadata when it writes a column or a filter reads one, the rule of
-            // `nao-mgs export table` (BIO 6, manager's answer to Q2 of 12.31 c6).
-            let readsMetadata = metadataColumnController.store != nil && (
-                !metadataColumnController.exportHeaders.isEmpty
-                    || columnFilterSet.activeFilters.contains { $0.columnId.hasPrefix("metadata_") }
-            )
-            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: readsMetadata)
-        }
-        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    private func summaryTSVContent() -> String {
-        NaoMgsSummaryExport.summaryTSV(
-            rows: displayedRows,
-            metadataHeaders: metadataColumnController.exportHeaders,
-            metadataValuesBySample: Dictionary(uniqueKeysWithValues: Set(displayedRows.map(\.sample)).map {
-                ($0, metadataColumnController.exportValues(for: $0))
-            })
-        )
     }
 }
 
