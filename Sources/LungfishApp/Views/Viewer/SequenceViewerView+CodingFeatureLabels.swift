@@ -2,6 +2,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishOperations
+import LungfishWorkflow
 
 /// The coding features the variant table resolver reads, built over values, so the viewer and the table export leaf
 /// build one list (Phase 2.12 lane 12.39, ARCH ruling on 12.39 R1 item 5).
