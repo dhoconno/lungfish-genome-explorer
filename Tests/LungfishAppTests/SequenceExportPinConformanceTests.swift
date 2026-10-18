@@ -386,6 +386,8 @@ final class SequenceExportPinConformanceTests: XCTestCase {
                 !Self.convertEntries(in: folder).isEmpty
             }
             XCTAssertTrue(atWork, "attempt \(attempt), the command never made its stage")
+            let tree = ProcessTreeTerminator.descendantProcessIDs(of: getpid()).filter { !before.contains($0) }
+            XCTAssertFalse(tree.isEmpty, "attempt \(attempt), the command's process runs when the cancel is sent")
             let clock = ContinuousClock()
             let cancelled = clock.now
             task.cancel()
@@ -400,6 +402,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             XCTAssertLessThanOrEqual(elapsed, CLIProcessLauncher.operationGrace, "attempt \(attempt), the command ends inside the grace before SIGKILL, took \(elapsed)")
             XCTAssertEqual(try Data(contentsOf: output), earlier, "attempt \(attempt) keeps the earlier export")
             XCTAssertEqual(Self.convertEntries(in: folder), [], "attempt \(attempt) leaves no stage beside the output")
+            await CLISIGTERMHarness.assertNoProcessLeft(tree)
         }
         let temporary = ProjectTempDirectory.tempRoot(for: project).path
         let staging = ((try? FileManager.default.contentsOfDirectory(atPath: temporary)) ?? [])
