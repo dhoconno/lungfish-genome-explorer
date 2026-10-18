@@ -4,13 +4,15 @@
 
 import CryptoKit
 import Foundation
+import LungfishIO
 
 /// What the record of a Kraken2, EsViritu or TaxTriage result import names about its source (Phase 2.12 lane
 /// 12.04, BIO 5 and 6), merged into the record's resolved defaults.
 ///
 /// - `sampleNames`, the sample ids as the result's own file names spell them, dots kept: the kreport's name
 ///   without its extension, the `<sample>.detected_virus.info.tsv` files of EsViritu, and the per-sample reports
-///   and maps of TaxTriage.
+///   and maps of TaxTriage. The combined multi-sample report `all.odr.txt` of TaxTriage names no sample, and a
+///   result whose files name none has no `sampleNames`, which the record reads as Not recorded.
 /// - `sourceDigest`, the SHA-256 of the source result. A file's digest is its own. A folder's is the SHA-256 of
 ///   one `<relative path>\t<SHA-256>` line for each of its files in path order, made from the digests the
 ///   record's inputs already carry, so each file is read once.
@@ -26,7 +28,10 @@ enum MetagenomicsImportRecordFacts {
         guard let source = sourceURLs.first else { return [:] }
         var facts: [String: ParameterValue] = [:]
         if [.kraken2, .esviritu, .taxtriage].contains(kind) {
-            facts["sampleNames"] = .array(sampleNames(kind: kind, source: source, inputs: inputs).map(ParameterValue.string))
+            let names = sampleNames(kind: kind, source: source, inputs: inputs)
+            if !names.isEmpty {
+                facts["sampleNames"] = .array(names.map(ParameterValue.string))
+            }
         }
         if let digest = sourceDigest(source: source, inputs: inputs) {
             facts["sourceDigest"] = .string(digest)
@@ -34,11 +39,13 @@ enum MetagenomicsImportRecordFacts {
         return facts
     }
 
-    /// The per-sample file name endings of each kind, before which the sample id stands.
+    /// The per-sample file name endings of each kind, before which the sample id stands. The organism reports of
+    /// TaxTriage are not listed. Their id comes from `TaxTriageOrganismReport`, which knows that the combined
+    /// report `all.odr.txt` is no sample (review of lane 12.04, Fix 4).
     private static func sampleSuffixes(_ kind: MetagenomicsImportKind) -> [String] {
         switch kind {
         case .esviritu: return [".detected_virus.info.tsv"]
-        case .taxtriage: return [".organisms.report.txt", ".odr.txt", ".top_report.tsv", ".combined.gcfmap.tsv"]
+        case .taxtriage: return [".top_report.tsv", ".combined.gcfmap.tsv"]
         default: return []
         }
     }
@@ -49,7 +56,11 @@ enum MetagenomicsImportRecordFacts {
         }
         let suffixes = sampleSuffixes(kind)
         let names = inputs.compactMap { descriptor -> String? in
-            let name = URL(fileURLWithPath: descriptor.path).lastPathComponent
+            let url = URL(fileURLWithPath: descriptor.path)
+            if kind == .taxtriage, TaxTriageOrganismReport.isOrganismReportFile(url) {
+                return TaxTriageOrganismReport.sampleID(fromReportFile: url)
+            }
+            let name = url.lastPathComponent
             guard let suffix = suffixes.first(where: { name.hasSuffix($0) }), name.count > suffix.count else { return nil }
             return String(name.dropLast(suffix.count))
         }
