@@ -11,19 +11,6 @@ import LungfishWorkflow
 import os.log
 
 extension MainSplitViewController {
-    /// Navigates to a related metagenomics analysis from TaxTriage cross-links.
-    ///
-    /// Called when the user clicks a "View Kraken2" or "View EsViritu" button
-    /// in the TaxTriage action bar. Routes to the appropriate display method.
-    ///
-    /// - Parameters:
-    ///   - type: The analysis type ("kraken2" or "esviritu").
-    ///   - url: The result directory URL.
-    func navigateToRelatedAnalysis(type: String, url: URL) {
-        mainSplitLogger.info("navigateToRelatedAnalysis: type=\(type, privacy: .public), url=\(url.lastPathComponent, privacy: .public)")
-        routeClassifierDisplay(url: url)
-    }
-
     /// Display genomics file - cache-first, then load via DocumentManager.
     func displayGenomicsFile(url: URL) {
         // FASTQ bundles use the streaming statistics dashboard

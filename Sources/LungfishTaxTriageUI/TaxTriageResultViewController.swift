@@ -518,21 +518,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return btn
     }()
 
-    private let relatedAnalysesButton: NSButton = {
-        let btn = NSButton()
-        btn.title = "Related"
-        btn.image = NSImage(systemSymbolName: "link", accessibilityDescription: "Related Analyses")
-        btn.bezelStyle = .accessoryBarAction
-        btn.imagePosition = .imageLeading
-        btn.controlSize = .small
-        btn.font = .systemFont(ofSize: 11)
-        btn.setContentHuggingPriority(.required, for: .horizontal)
-        return btn
-    }()
-
-    /// Cached list of related analysis items: (displayLabel, analysisType, bundleURL).
-    private(set) var relatedAnalysisItems: [(String, String, URL)]?
-
     private let blastDrawer = BlastResultsDrawerTab()
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var splitViewBottomConstraint: NSLayoutConstraint?
@@ -3805,12 +3790,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         openReportButton.toolTip = "Open the TaxTriage report (PDF, or HTML when there is no PDF) for the selected row's sample"
         actionBar.addCustomButton(openReportButton)
 
-        // Custom button: Related analyses (hidden until discoveries are made)
-        relatedAnalysesButton.target = self
-        relatedAnalysesButton.action = #selector(relatedAnalysesTapped(_:))
-        relatedAnalysesButton.isHidden = true
-        actionBar.addCustomButton(relatedAnalysesButton)
-
         // Custom button: Recompute Unique Reads (hidden until batch/multi-sample mode)
         recomputeUniqueReadsButton.target = self
         recomputeUniqueReadsButton.action = #selector(recomputeUniqueReadsTapped)
@@ -4057,78 +4036,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
     }
 
-    // MARK: - Related Analyses Discovery
-
-    /// Scans source bundles for Kraken2 and EsViritu results to enable cross-navigation.
-    ///
-    /// After configuring, call this to populate the "Related" button in the action bar.
-    /// Source bundles are discovered from the TaxTriage config's `sourceBundleURLs`
-    /// or inferred from the input FASTQ paths.
-    func discoverRelatedAnalyses() {
-        guard let config = taxTriageConfig else { return }
-        let fm = FileManager.default
-
-        // Determine source bundle directories
-        var bundleURLs: [URL] = taxTriageResult?.sourceBundleURLs ?? []
-        if bundleURLs.isEmpty {
-            // Infer from input FASTQ parent directories
-            bundleURLs = config.samples.compactMap { sample in
-                let parent = sample.fastq1.deletingLastPathComponent()
-                // Check if this looks like a bundle (has FASTQ files)
-                let hasFastq = (try? fm.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.contains { url in
-                    let ext = url.pathExtension.lowercased()
-                    return ext == "fastq" || ext == "fq" || url.lastPathComponent.hasSuffix(".fastq.gz") || url.lastPathComponent.hasSuffix(".fq.gz")
-                } ?? false
-                return hasFastq ? parent : nil
-            }
-        }
-
-        var items: [(String, String, URL)] = []
-
-        for bundleURL in bundleURLs {
-            guard let contents = try? fm.contentsOfDirectory(
-                at: bundleURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-
-            let bundleName = bundleURL.lastPathComponent
-
-            for childURL in contents {
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                let dirName = childURL.lastPathComponent.lowercased()
-
-                let legacyKrakenFolderPrefix = "kraken" // any folder whose name starts with kraken, wider than kraken2-
-                if dirName.hasPrefix(MetagenomicsImportKind.kraken2.directoryPrefix) || dirName.hasPrefix(legacyKrakenFolderPrefix) {
-                    let hasReport = fm.fileExists(atPath: childURL.appendingPathComponent("classification.kraken2.report.txt").path)
-                        || fm.fileExists(atPath: childURL.appendingPathComponent("classification.report.txt").path)
-                    if hasReport {
-                        items.append(("View Kraken2 (\(bundleName))", "kraken2", childURL))
-                    }
-                }
-
-                // EsViritu results
-                if dirName.hasPrefix(MetagenomicsImportKind.esviritu.directoryPrefix) {
-                    let hasSidecar = fm.fileExists(atPath: childURL.appendingPathComponent("esviritu-result.json").path)
-                    if hasSidecar {
-                        items.append(("View EsViritu (\(bundleName))", "esviritu", childURL))
-                    }
-                }
-            }
-        }
-
-        relatedAnalysisItems = items
-        relatedAnalysesButton.isHidden = items.isEmpty
-        if !items.isEmpty {
-            logger.info("Discovered \(items.count) related analyses in source bundles")
-        }
-    }
-
-    /// Callback for navigating to a related analysis result.
-    /// Set by the host (ViewerViewController+TaxTriage) to handle cross-navigation.
-    public var onRelatedAnalysis: ((String, URL) -> Void)?
-
     // MARK: - NSSplitViewDelegate
 
     public func splitView(
@@ -4249,25 +4156,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     @objc private func openExternalTapped() {
         openReportExternally()
-    }
-
-    @objc private func relatedAnalysesTapped(_ sender: NSButton) {
-        guard let items = relatedAnalysisItems, !items.isEmpty else { return }
-
-        let menu = NSMenu()
-        for (label, analysisType, bundleURL) in items {
-            let menuItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
-            menuItem.representedObject = (analysisType, bundleURL)
-            menuItem.target = self
-            menuItem.action = #selector(relatedMenuItemSelected(_:))
-            menu.addItem(menuItem)
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
-    }
-
-    @objc private func relatedMenuItemSelected(_ sender: NSMenuItem) {
-        guard let tuple = sender.representedObject as? (String, URL) else { return }
-        onRelatedAnalysis?(tuple.0, tuple.1)
     }
 
     // MARK: - Export
