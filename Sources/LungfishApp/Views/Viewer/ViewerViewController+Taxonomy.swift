@@ -139,14 +139,23 @@ extension ViewerViewController {
         // the result is reopened and the taxon is selected.
         controller.blastVerificationDirectoryResolver = { _ in capturedResultDirectory }
 
-        controller.onBlastVerification = { [weak controller] node, readCount in
+        controller.onBlastVerification = { [weak self, weak controller] node, readCount in
+            if ClassifierBlastRouteSettings.currentRoute == .cli {
+                self?.beginKraken2BlastSubmit(
+                    controller: controller, node: node, readCount: readCount, classResult: result,
+                    sourceInputs: capturedInputs, resultDirectory: capturedResultDirectory
+                )
+                return
+            }
+
+            // The in-process search, the route before Phase 2.12, kept behind `ClassifierBlastRoute` for one
+            // release (C4, U-R1). Its row records `blast verify`. Phase 2.13 deletes it with the key.
             ViewerViewController.beginKraken2BlastVerificationOperation(
                 taxonName: node.name,
-                classResult: result,
-                sourceInputs: capturedInputs,
-                taxId: node.taxId,
-                readCount: readCount,
-                resultDirectory: capturedResultDirectory
+                cliCommand: kraken2BlastVerifyCLICommand(
+                    classResult: result, sourceInputs: capturedInputs, taxId: node.taxId,
+                    readCount: readCount, resultDirectory: capturedResultDirectory
+                )
             ) { opID in
                 let blastRunID = controller?.beginBlastVerification(for: node)
                 let weakController = controller
@@ -319,7 +328,7 @@ extension ViewerViewController {
             return kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node)
         }
 
-        controller.onBlastVerification = { [weak controller] node, readCount in
+        controller.onBlastVerification = { [weak self, weak controller] node, readCount in
             guard let controller else { return }
             guard let sampleDirectory = kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node),
                   let sampleResult = try? ClassificationResult.load(from: sampleDirectory) else {
@@ -328,14 +337,21 @@ extension ViewerViewController {
             }
             let runClock = ProvenanceRunClock()
             let sourceInputs = (try? KrakenResultReadSources.recordedInputs(of: sampleResult)) ?? []
+            if ClassifierBlastRouteSettings.currentRoute == .cli {
+                self?.beginKraken2BlastSubmit(
+                    controller: controller, node: node, readCount: readCount, classResult: sampleResult,
+                    sourceInputs: sourceInputs, resultDirectory: sampleDirectory, sample: controller.owningSampleId(for: node)
+                )
+                return
+            }
 
+            // The in-process search, kept behind `ClassifierBlastRoute` for one release. Phase 2.13 deletes it.
             ViewerViewController.beginKraken2BlastVerificationOperation(
                 taxonName: node.name,
-                classResult: sampleResult,
-                sourceInputs: sourceInputs,
-                taxId: node.taxId,
-                readCount: readCount,
-                resultDirectory: sampleDirectory
+                cliCommand: kraken2BlastVerifyCLICommand(
+                    classResult: sampleResult, sourceInputs: sourceInputs, taxId: node.taxId,
+                    readCount: readCount, resultDirectory: sampleDirectory
+                )
             ) { opID in
                 let blastRunID = controller.beginBlastVerification(for: node)
                 let weakController = controller
@@ -475,18 +491,16 @@ extension ViewerViewController {
     }
 
     /// Registers the BLAST verification row for a Kraken2 taxon and, only
-    /// when it starts, calls `launch` with the operation ID. The row records
-    /// the `lungfish-cli blast verify` command for the same inputs, one
-    /// `--source` for each of `sourceInputs`, including the `--result-dir`
-    /// the app saves the verification into. It locks no bundle.
+    /// when it starts, calls `launch` with the operation ID. It locks no
+    /// bundle. `cliCommand` is what the row records when it begins. The row
+    /// on `blast submit` begins with none and takes `plan.cliCommand` once
+    /// the read lookup has planned the search (`launchKraken2BlastSubmit`).
+    /// The in-process route that ``ClassifierBlastRouteSettings`` keeps for
+    /// one release records ``kraken2BlastVerifyCLICommand(classResult:sourceInputs:taxId:readCount:resultDirectory:)``.
     @discardableResult
     static func beginKraken2BlastVerificationOperation(
         taxonName: String,
-        classResult: ClassificationResult,
-        sourceInputs: [URL],
-        taxId: Int,
-        readCount: Int,
-        resultDirectory: URL,
+        cliCommand: String?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -494,16 +508,7 @@ extension ViewerViewController {
             title: "BLAST \(taxonName)",
             detail: "Preparing BLAST verification\u{2026}",
             operationType: .blastVerification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "blast verify",
-                args: blastVerifyCLIArguments(
-                    classResult: classResult,
-                    sourceInputs: sourceInputs,
-                    taxId: taxId,
-                    readCount: readCount,
-                    resultDirectory: resultDirectory
-                )
-            )
+            cliCommand: cliCommand
         )
         switch result {
         case .started(let operationID):
@@ -576,6 +581,25 @@ func blastVerifyCLIArguments(
     args += ["--taxid", "\(taxId)", "--include-children", "--reads", "\(readCount)"]
     args += ["--result-dir", resultDirectory.path]
     return args
+}
+
+/// The `lungfish-cli blast verify` command for the same inputs, one `--source`
+/// for each of `sourceInputs` and the `--result-dir` the app saves into, which
+/// the in-process Kraken2 row records. It goes with that route in Phase 2.13.
+func kraken2BlastVerifyCLICommand(
+    classResult: ClassificationResult,
+    sourceInputs: [URL],
+    taxId: Int,
+    readCount: Int,
+    resultDirectory: URL
+) -> String {
+    OperationCenter.buildCLICommand(
+        subcommand: "blast verify",
+        args: blastVerifyCLIArguments(
+            classResult: classResult, sourceInputs: sourceInputs, taxId: taxId,
+            readCount: readCount, resultDirectory: resultDirectory
+        )
+    )
 }
 
 /// The BLAST verification request for a Kraken2 taxon, which both BLAST
@@ -724,7 +748,7 @@ func saveBlastVerification(
 }
 
 /// Presents an error alert for a failed BLAST verification request.
-private func showBlastVerificationErrorAlert(_ errorDescription: String) {
+func showBlastVerificationErrorAlert(_ errorDescription: String) {
     MainActor.assumeIsolated {
         let alert = NSAlert()
         alert.messageText = "BLAST Verification Failed"

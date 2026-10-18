@@ -98,17 +98,17 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
         )
     }
 
-    /// The command the viewer's BLAST row records for taxon 100 of `result`.
+    /// The command the viewer's in-process BLAST row records for taxon 100 of `result`. That route, and with it
+    /// the `blast verify` record, stays behind `ClassifierBlastRoute` until Phase 2.13 (lane 12.10).
     @MainActor
     private static func recordedCommand(_ result: ClassificationResult, inputs: [URL]) -> String? {
         let reporter = RecordingOperationReporter()
         ViewerViewController.beginKraken2BlastVerificationOperation(
             taxonName: "Target virus",
-            classResult: result,
-            sourceInputs: inputs,
-            taxId: Kraken2BlastShapes.target,
-            readCount: 20,
-            resultDirectory: result.config.outputDirectory,
+            cliCommand: kraken2BlastVerifyCLICommand(
+                classResult: result, sourceInputs: inputs, taxId: Kraken2BlastShapes.target, readCount: 20,
+                resultDirectory: result.config.outputDirectory
+            ),
             reporter: reporter
         ) { _ in }
         return reporter.items.first?.cliCommand

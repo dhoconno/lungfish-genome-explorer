@@ -87,6 +87,19 @@ final class BlastSubmitNoProjectTests: XCTestCase {
         }
     }
 
+    /// Lane 12.10. The Kraken2 row checks the project before it begins, the same refusal its plan makes, so a click
+    /// with no project begins no row and runs no read lookup.
+    func testAKraken2TaxonSearchWithNoProjectRefusesAndStartsNothing() throws {
+        let result = try folder("kraken2-run")
+        let request = BlastVerificationRequest(
+            taxonName: "Escherichia coli", taxId: 562, sequences: [(id: "read_1", sequence: "ACGTACGTAC")],
+            database: BlastDatabaseID.coreNT.rawValue
+        )
+        assertRefused {
+            try ViewerViewController.kraken2BlastSubmitPlan(request: request, projectURL: nil, resultDirectory: result)
+        }
+    }
+
     // MARK: - Helpers
 
     /// A folder under the scratch folder, standing in for the result a search starts from.

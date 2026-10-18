@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: MIT
 //
 // The Kraken2 viewer registers two kinds of rows (R4). BLAST verification
-// records a `lungfish-cli blast verify` command, now with the `--result-dir`
-// the app saves into. Batch extraction of a taxa collection records the
-// `lungfish-cli extract taxa-collection` command that runs it (Phase 2.11 lane
-// A66), and its test parses that command. Neither locks a bundle.
+// records the `lungfish-cli blast submit` command its search runs (Phase 2.12
+// lane 12.10), and the in-process route kept for one release records
+// `lungfish-cli blast verify` with the `--result-dir` it saves into. Batch
+// extraction of a taxa collection records the `lungfish-cli extract
+// taxa-collection` command that runs it (Phase 2.11 lane A66). Each test parses
+// its command, and neither row locks a bundle.
 
 import XCTest
 @testable import LungfishApp
@@ -15,6 +17,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -46,7 +49,69 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
 
     // MARK: - BLAST verification
 
-    func testKraken2BlastVerificationRecordsARunnableCommandWithTheResultFolder() throws {
+    /// Since Phase 2.12 (lane 12.10) the row records the `lungfish-cli blast submit` command its search runs. The
+    /// row takes it once the read lookup has planned the search, the plan the site makes from the lookup's request.
+    func testKraken2BlastRowRecordsTheBlastSubmitCommandItRuns() throws {
+        let scratch = try TestTempDirectory.make(prefix: "kraken2-blast-begin")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        // A batch sample saves into its own folder, not the configured output folder.
+        let sampleDirectory = project.appendingPathComponent("Analyses/kraken2 batch/Sample 1", isDirectory: true)
+        try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
+        let request = BlastVerificationRequest(
+            taxonName: "Influenza A virus", taxId: 11320,
+            sequences: [(id: "read_1", sequence: "ACGTACGTAC"), (id: "read_2", sequence: "GGCCTTAAGG")],
+            entrezQuery: nil, sequenceMates: [:],
+            acceptedTaxIds: [11320, 211044], acceptedTaxonNames: ["Influenza A virus", "H1N1 subtype"],
+            relatedTaxIds: [11520], relatedTaxonNames: ["Influenza B virus"]
+        )
+        let plan = try ViewerViewController.kraken2BlastSubmitPlan(
+            request: request, projectURL: project, resultDirectory: sampleDirectory, sample: "Sample 1"
+        )
+        let reporter = RecordingOperationReporter()
+        var launchedID: UUID?
+
+        ViewerViewController.beginKraken2BlastVerificationOperation(
+            taxonName: "Influenza A virus", cliCommand: plan.cliCommand, reporter: reporter
+        ) { launchedID = $0 }
+
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(launchedID, item.id)
+        XCTAssertEqual(item.title, "BLAST Influenza A virus")
+        XCTAssertEqual(item.initialDetail, "Preparing BLAST verification\u{2026}")
+        XCTAssertEqual(item.operationType, .blastVerification)
+        XCTAssertNil(item.targetBundleURL)
+        XCTAssertEqual(item.additionalLockedBundleURLs, [])
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.SubmitSubcommand.self)
+        let stage = URL(fileURLWithPath: command.queryPath).deletingLastPathComponent()
+        XCTAssertTrue(stage.lastPathComponent.hasPrefix("blast-submit-"), command.queryPath)
+        XCTAssertEqual(stage.deletingLastPathComponent().lastPathComponent, ".tmp", "the query file sits in the project's .tmp")
+        let output = URL(fileURLWithPath: command.outputPath).deletingLastPathComponent()
+        XCTAssertEqual(output.lastPathComponent, "blast-verifications")
+        XCTAssertEqual(output.deletingLastPathComponent().path, sampleDirectory.path, "the search sits in the sample's result folder")
+        XCTAssertEqual(command.sourceResult, sampleDirectory.path, "--source-result is the Kraken2 result folder")
+        XCTAssertEqual(command.label, "Influenza A virus")
+        XCTAssertEqual(command.taxId, 11320)
+        XCTAssertEqual(command.sample, "Sample 1")
+        XCTAssertNil(command.contig)
+        XCTAssertEqual(command.acceptedTaxIds, [11320, 211044], "hits are judged against the clade")
+        XCTAssertEqual(command.acceptedNames, ["Influenza A virus", "H1N1 subtype"])
+        XCTAssertEqual(command.relatedTaxIds, [11520], "and the genus relatives")
+        XCTAssertEqual(command.relatedNames, ["Influenza B virus"])
+        XCTAssertEqual(command.subsampleCount, 2, "the reads the lookup drew")
+        XCTAssertEqual(command.subsampleSeed, 0)
+        XCTAssertEqual(command.database, "nt", "the search keeps the in-process row's database (BIO 3)")
+        XCTAssertTrue(plan.arguments.contains("--database"), "the recorded argv names the database (BIO 4)")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        XCTAssertEqual(
+            String(decoding: plan.queryData, as: UTF8.self), ">read_1\nACGTACGTAC\n>read_2\nGGCCTTAAGG\n",
+            "the reads reach BLAST as a file"
+        )
+    }
+
+    /// The in-process route that `ClassifierBlastRoute` keeps for one release still records `blast verify` for the
+    /// same inputs, with the `--result-dir` it saves into. Phase 2.13 deletes this test with the route.
+    func testTheInProcessKraken2RowStillRecordsARunnableBlastVerify() throws {
         let reporter = RecordingOperationReporter()
         let result = makeClassificationResult()
         let source = URL(fileURLWithPath: "/tmp/lane 1a1/Imports/Sample 1.lungfishfastq/reads.fastq")
@@ -56,11 +121,9 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
 
         ViewerViewController.beginKraken2BlastVerificationOperation(
             taxonName: "Influenza A virus",
-            classResult: result,
-            sourceInputs: [source],
-            taxId: 11320,
-            readCount: 20,
-            resultDirectory: sampleDirectory,
+            cliCommand: kraken2BlastVerifyCLICommand(
+                classResult: result, sourceInputs: [source], taxId: 11320, readCount: 20, resultDirectory: sampleDirectory
+            ),
             reporter: reporter
         ) { launchedID = $0 }
 
