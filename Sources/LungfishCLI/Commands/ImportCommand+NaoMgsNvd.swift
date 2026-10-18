@@ -89,10 +89,11 @@ extension ClassifierResultImportRun {
         return try box.take().get()
     }
 
-    /// Ends the processes this command started, such as the samtools runs of an import, so none outlives the
-    /// command (X14). They get SIGTERM, and SIGKILL after half a second.
-    private static func endTools() async {
-        let tools = ProcessTreeTerminator.descendantProcessIDs(of: getpid())
+    /// Ends the processes the command `root` started, such as the samtools runs of an import, so none outlives the
+    /// command (X14). The command itself is left running. They get SIGTERM, and SIGKILL after half a second.
+    /// A test names another root than this process, a shell that stands in for the command (review of lane 12.05, Fix 2).
+    static func endTools(of root: Int32 = getpid()) async {
+        let tools = ProcessTreeTerminator.descendantProcessIDs(of: root)
         guard !tools.isEmpty else { return }
         for pid in tools { kill(pid, SIGTERM) }
         let deadline = Date().addingTimeInterval(0.5)
