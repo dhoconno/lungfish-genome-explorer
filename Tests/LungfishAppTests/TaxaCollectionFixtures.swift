@@ -90,6 +90,37 @@ struct TaxaCollectionFixtures {
         )
     }
 
+    /// The report of ``writeGenusWithOwnRead()``. Genus A holds one read of its own beside its species.
+    static let ownReadKreport = [
+        "100.00\t4\t0\tR\t1\troot",
+        "100.00\t4\t1\tG\t10\t  Genus A",
+        " 50.00\t2\t2\tS\t11\t    Species A1",
+        " 25.00\t1\t1\tS\t12\t    Species A2",
+    ].joined(separator: "\n") + "\n"
+
+    /// Genus A alone, with or without its children.
+    static func genusOnly(includeChildren: Bool) -> TaxaCollection {
+        TaxaCollection(
+            id: "genus-only", name: "Genus only", description: "", sfSymbol: "circle",
+            taxa: [TaxonTarget(name: "Genus A", taxId: genus, includeChildren: includeChildren)]
+        )
+    }
+
+    /// Writes a third, single-end result, `kraken2-own`, whose reads a1 to a3 belong to Genus A's species
+    /// and g1 to Genus A itself (BIO's ruling on lane 12.11, the exact scope).
+    func writeGenusWithOwnRead() throws -> URL {
+        let reads = projectURL.appendingPathComponent("own-reads.fastq")
+        try ReadSetFixtures.fastq(["a1", "a2", "a3", "g1"]).write(to: reads, atomically: true, encoding: .utf8)
+        return try Self.writeResult(
+            named: "own", in: projectURL.appendingPathComponent("Analyses", isDirectory: true), inputs: [reads], paired: false,
+            lines: [
+                Self.single("a1", Self.speciesA1), Self.single("a2", Self.speciesA1), Self.single("a3", Self.speciesA2),
+                Self.single("g1", Self.genus),
+            ],
+            kreport: Self.ownReadKreport
+        )
+    }
+
     static func single(_ read: String, _ taxId: Int) -> String {
         "C\t\(read)\t\(taxId)\t10\t\(taxId):3"
     }
@@ -99,7 +130,7 @@ struct TaxaCollectionFixtures {
     }
 
     private static func writeResult(
-        named name: String, in analyses: URL, inputs: [URL], paired: Bool, lines: [String]
+        named name: String, in analyses: URL, inputs: [URL], paired: Bool, lines: [String], kreport: String = TaxaCollectionFixtures.kreport
     ) throws -> URL {
         let directory = analyses.appendingPathComponent("kraken2-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

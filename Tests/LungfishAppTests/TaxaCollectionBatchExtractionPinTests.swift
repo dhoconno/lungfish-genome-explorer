@@ -193,6 +193,7 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
     func testASecondRunOfAnEditedCollectionKeepsAFileItsRecordDoesNotName() async throws {
         let original = TaxaCollectionFixtures.collection
         _ = try await runLeaf(original)
+        let kept = try keptGenusFiles(original)
         let edited = TaxaCollection(
             id: original.id, name: original.name, description: "", sfSymbol: "circle",
             taxa: [TaxonTarget(name: "Species B", taxId: TaxaCollectionFixtures.speciesB, includeChildren: false)]
@@ -205,6 +206,44 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
             "the removed taxon's file stays, which the new record does not name"
         )
         XCTAssertTrue(second.entries.contains("Genus_A_taxid10.fastq.gz.lungfish-provenance.json"), "its sidecar stays too")
+        // BIO's ruling on lane 12.11, Q1 condition 1. The leaf never rewrites a file this run does not write.
+        let after = try keptGenusFiles(original)
+        XCTAssertEqual(after.file, kept.file, "a kept file and its record are not rewritten")
+        XCTAssertEqual(after.sidecar, kept.sidecar, "a kept file and its record are not rewritten")
+    }
+
+    /// BIO's ruling on lane 12.11, Q1. A taxon renamed between two runs of one collection leaves the
+    /// earlier file beside the new one, and the new record names only the new name. Both hold the reads.
+    func testASecondRunWithARenamedTaxonKeepsTheEarlierFileAndRecordsOnlyTheNewName() async throws {
+        let original = TaxaCollectionFixtures.collection
+        _ = try await runLeaf(original)
+        let renamed = TaxaCollection(
+            id: original.id, name: original.name, description: "", sfSymbol: "circle",
+            taxa: [
+                TaxonTarget(name: "Genus A2", taxId: TaxaCollectionFixtures.genus, includeChildren: true),
+                TaxonTarget(name: "Species B", taxId: TaxaCollectionFixtures.speciesB, includeChildren: false),
+            ]
+        )
+
+        let second = try await runLeaf(renamed)
+        XCTAssertTrue(second.files.contains("Genus_A_taxid10.fastq.gz"), "the earlier file stays")
+        XCTAssertTrue(second.files.contains("Genus_A2_taxid10.fastq.gz"), "the new name is written")
+        XCTAssertEqual(second.recorded, ["Genus_A2_taxid10.fastq.gz", "Species_B_taxid20.fastq.gz"], "the new record names only this run's files")
+        let folder = extractedFolder(of: try ClassificationResult.load(from: fixtures.singleEnd), original)
+        XCTAssertEqual(
+            try TaxaCollectionFixtures.recordNames(in: folder.appendingPathComponent("Genus_A_taxid10.fastq.gz")),
+            try TaxaCollectionFixtures.recordNames(in: folder.appendingPathComponent("Genus_A2_taxid10.fastq.gz")),
+            "the two Genus files hold the same reads"
+        )
+    }
+
+    /// The bytes of Genus A's file and its sidecar in the collection's folder.
+    private func keptGenusFiles(_ collection: TaxaCollection) throws -> (file: Data, sidecar: Data) {
+        let folder = extractedFolder(of: try ClassificationResult.load(from: fixtures.singleEnd), collection)
+        return (
+            try Data(contentsOf: folder.appendingPathComponent("Genus_A_taxid10.fastq.gz")),
+            try Data(contentsOf: folder.appendingPathComponent("Genus_A_taxid10.fastq.gz.lungfish-provenance.json"))
+        )
     }
 }
 
