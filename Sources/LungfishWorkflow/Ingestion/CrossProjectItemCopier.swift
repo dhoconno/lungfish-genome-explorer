@@ -232,7 +232,8 @@ package enum CrossProjectItemCopier {
         itemAt sourceURL: URL,
         intoProject targetProjectURL: URL,
         requestedFolder: URL? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        checkCancellation: () throws -> Void = {}
     ) throws -> Outcome {
         let fileManager = FileManager.default
         let source = sourceURL.standardizedFileURL
@@ -249,27 +250,44 @@ package enum CrossProjectItemCopier {
         )
         let destination = uniqueDestinationURL(for: source, in: folder, fileManager: fileManager)
         let sourcePath = source.resolvingSymlinksInPath().path
-        if destination.resolvingSymlinksInPath().path.hasPrefix(sourcePath + "/") {
+        if resolvedThroughExistingAncestor(destination, fileManager: fileManager).path.hasPrefix(sourcePath + "/") {
             throw CopyError.destinationInsideSource(source)
         }
-        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        let sourceFiles = try readSourceFiles(of: source, checkCancellation: checkCancellation)
 
-        try copyBytes(kind: kind, from: source, to: destination, sourceProjectURL: sourceProjectURL)
+        // The item is built whole in the target's `.tmp` folder and renamed into place once.
+        let stage = try ProjectTempDirectory.create(prefix: "project-copy-", in: targetProjectURL)
+        defer { try? fileManager.removeItem(at: stage) }
+        let staged = stage.appendingPathComponent(destination.lastPathComponent, isDirectory: true)
+        try copyBytes(kind: kind, from: source, to: staged, recordedAs: destination, sourceProjectURL: sourceProjectURL)
+        try checkCancellation()
 
         let links = try ProjectItemLinkRewriter.rewrite(context: .init(
             sourceItemURL: source,
-            destinationItemURL: destination,
+            destinationItemURL: staged,
             sourceProjectURL: sourceProjectURL,
             targetProjectURL: targetProjectURL
         ))
-        let record = ProjectItemCopyRecord(
+        try ProjectItemCopyRecord(
             copiedAt: now,
             sourceItemPath: source.path,
             sourceProjectPath: sourceProjectURL?.standardizedFileURL.path,
             targetProjectPath: targetProjectURL.standardizedFileURL.path,
-            links: links
-        )
-        try record.save(to: destination)
+            links: links,
+            sourceItemRelativePath: sourceProjectURL.flatMap {
+                ProjectItemLinkRewriter.relative(path: source.path, toAny: ProjectItemLinkRewriter.pathVariants(of: $0))
+            },
+            sourceItemFiles: sourceFiles,
+            sourceItemDigest: sourceItemDigest(of: sourceFiles)
+        ).save(to: staged)
+        try rewriteStagePaths(in: staged, to: destination, targetProjectURL: targetProjectURL)
+        try refreshRecordedDigests(in: staged, publishedAs: destination)
+        guard let record = ProjectItemCopyRecord.load(from: staged) else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: staged.appendingPathComponent(ProjectItemCopyRecord.filename).path])
+        }
+        try checkCancellation()
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        _ = try PortableRename.exclusive(staged, to: destination)
 
         if case .analysisResult(let tool, _) = kind {
             registerInSourceBundleHistory(
@@ -292,12 +310,15 @@ package enum CrossProjectItemCopier {
     /// the native copy service, which clones the tree and writes a receipt.
     /// A read bundle without provenance falls back to the native copy rather
     /// than refusing the drop.
-    private static func copyBytes(kind: ItemKind, from source: URL, to destination: URL, sourceProjectURL: URL?) throws {
+    ///
+    /// The bytes land at `staged`, and the read bundle's command names the
+    /// final place, `destination`, which the stage rewrite gives every path.
+    private static func copyBytes(kind: ItemKind, from source: URL, to staged: URL, recordedAs destination: URL, sourceProjectURL: URL?) throws {
         if kind == .fastqBundle {
             do {
                 _ = try FASTQBundleCopyImportWorkflow().importBundle(
                     sourceBundleURL: source,
-                    outputURL: destination,
+                    outputURL: staged,
                     context: fastqCopyContext(source: source, destination: destination, sourceProjectURL: sourceProjectURL)
                 )
                 return
@@ -305,7 +326,7 @@ package enum CrossProjectItemCopier {
                 copierLogger.info("Read bundle \(source.lastPathComponent, privacy: .public) has no provenance; using native copy")
             }
         }
-        _ = try NativeProjectCopyImportService.copy(from: source, to: destination, sourceProjectURL: sourceProjectURL)
+        _ = try NativeProjectCopyImportService.copy(from: source, to: staged, sourceProjectURL: sourceProjectURL)
     }
 
     private static func fastqCopyContext(source: URL, destination: URL, sourceProjectURL: URL?) -> FASTQBundleCopyImportWorkflow.CommandContext {

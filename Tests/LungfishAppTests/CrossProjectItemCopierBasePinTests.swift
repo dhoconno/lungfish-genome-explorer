@@ -167,7 +167,15 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         XCTAssertEqual(envelope.steps.last?.durableReplayArgv, argv)
 
         let record = try XCTUnwrap(ProjectItemCopyRecord.load(from: destination))
-        XCTAssertEqual(record.schemaVersion, 1)
+        // Schema 2 since lane 12.18 M2 adds the source item's relative path and digests (BIO ruling, answer 4).
+        XCTAssertEqual(record.schemaVersion, 2)
+        XCTAssertEqual(record.sourceItemRelativePath, "Imports/HG002.lungfishfastq")
+        XCTAssertEqual(record.sourceItemFiles?.map(\.path), [
+            ".lungfish-provenance.json",
+            "provenance/bundle.lungfish-provenance.json",
+            "provenance/reads.fastq.lungfish-provenance.json",
+            "reads.fastq",
+        ])
         XCTAssertEqual(record.copiedAt, fixedNow)
         XCTAssertEqual(record.sourceItemPath, source.path)
         XCTAssertEqual(record.sourceProjectPath, sourceProject.standardizedFileURL.path)

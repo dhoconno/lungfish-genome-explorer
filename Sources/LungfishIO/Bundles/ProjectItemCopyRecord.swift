@@ -66,25 +66,54 @@ public struct ProjectItemCopyLink: Codable, Sendable, Equatable, Identifiable {
 public struct ProjectItemCopyRecord: Codable, Sendable, Equatable {
     public static let filename = "project-copy.json"
 
+    /// One regular file the copy read from the source item (BIO 6, lane 12.18).
+    public struct SourceFile: Codable, Sendable, Equatable {
+        /// The file's path inside the item, with `/` between components.
+        public let path: String
+        public let size: UInt64
+        public let sha256: String
+
+        public init(path: String, size: UInt64, sha256: String) {
+            self.path = path
+            self.size = size
+            self.sha256 = sha256
+        }
+    }
+
+    /// 1 for a record with no source digests, 2 once it names them. Both load.
     public var schemaVersion: Int = 1
     public let copiedAt: Date
     public let sourceItemPath: String
     public let sourceProjectPath: String?
     public let targetProjectPath: String
     public let links: [ProjectItemCopyLink]
+    /// The source item's path from its project's root, nil outside a project. Never `@/`, which names the
+    /// project that holds the record.
+    public let sourceItemRelativePath: String?
+    /// The files the copy read, sorted by the bytes of their paths.
+    public let sourceItemFiles: [SourceFile]?
+    /// The SHA-256 of the lines `<path>\t<size>\t<sha256>\n` of ``sourceItemFiles`` in their order.
+    public let sourceItemDigest: String?
 
     public init(
         copiedAt: Date,
         sourceItemPath: String,
         sourceProjectPath: String?,
         targetProjectPath: String,
-        links: [ProjectItemCopyLink]
+        links: [ProjectItemCopyLink],
+        sourceItemRelativePath: String? = nil,
+        sourceItemFiles: [SourceFile]? = nil,
+        sourceItemDigest: String? = nil
     ) {
         self.copiedAt = copiedAt
         self.sourceItemPath = sourceItemPath
         self.sourceProjectPath = sourceProjectPath
         self.targetProjectPath = targetProjectPath
         self.links = links
+        self.sourceItemRelativePath = sourceItemRelativePath
+        self.sourceItemFiles = sourceItemFiles
+        self.sourceItemDigest = sourceItemDigest
+        self.schemaVersion = sourceItemFiles == nil ? 1 : 2
     }
 
     /// Unresolved links, one per distinct original path.
