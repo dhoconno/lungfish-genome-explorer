@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
@@ -109,7 +110,9 @@ final class ImportMSATreeE2ETests: XCTestCase {
     }
 
     /// The record of a published bundle names the bundle as its output and each file under it, never the stage in
-    /// the project's temporary folder that the importer wrote to (Phase 2.12 lane 12.06, SWIFT 4).
+    /// the project's temporary folder that the importer wrote to (Phase 2.12 lane 12.06, SWIFT 4). The files it lists
+    /// exist at the published paths with the digests it records, which shows through the real command that the
+    /// checksums read the stage and still hold for the published bundle (review of M2, fix 4).
     private static func assertTheRecordNamesThePublishedBundle(
         _ bundleURL: URL, file: StaticString = #filePath, line: UInt = #line
     ) throws {
@@ -118,6 +121,24 @@ final class ImportMSATreeE2ETests: XCTestCase {
         XCTAssertEqual((record["output"] as? [String: Any])?["path"] as? String, bundleURL.path, file: file, line: line)
         for (relativePath, entry) in (record["files"] as? [String: [String: Any]]) ?? [:] {
             XCTAssertEqual(entry["path"] as? String, bundleURL.appendingPathComponent(relativePath).path, file: file, line: line)
+        }
+        let output = try XCTUnwrap((record["output"] as? [String: Any])?["path"] as? String, file: file, line: line)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output), "the output the record names exists", file: file, line: line)
+        let files = (record["files"] as? [String: [String: Any]]) ?? [:]
+        let checksums = (record["checksums"] as? [String: String]) ?? [:]
+        XCTAssertFalse(files.isEmpty && checksums.isEmpty, "the record lists files with digests", file: file, line: line)
+        for (relativePath, entry) in files {
+            let path = try XCTUnwrap(entry["path"] as? String, file: file, line: line)
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            XCTAssertTrue(exists, "the file the record lists exists: \(relativePath)", file: file, line: line)
+            guard exists, !isDirectory.boolValue else { continue }
+            let digest = MultipleSequenceAlignmentBundle.sha256Hex(for: try Data(contentsOf: URL(fileURLWithPath: path)))
+            XCTAssertEqual(entry["checksumSHA256"] as? String, digest, relativePath, file: file, line: line)
+        }
+        for (relativePath, recorded) in checksums {
+            let digest = MultipleSequenceAlignmentBundle.sha256Hex(for: try Data(contentsOf: bundleURL.appendingPathComponent(relativePath)))
+            XCTAssertEqual(recorded, digest, relativePath, file: file, line: line)
         }
         let text = String(decoding: data, as: UTF8.self).replacingOccurrences(of: "\\/", with: "/")
         XCTAssertFalse(text.contains("/.tmp/"), "the record names no stage", file: file, line: line)
