@@ -141,6 +141,26 @@ final class SequenceExportStagingDurabilityTests: XCTestCase {
         XCTAssertEqual(entries.filter { $0.hasPrefix("sequence-export-") }, [])
     }
 
+    func testAStagingFallsBackToTheSystemTemporaryFolderWhenTheProjectCannotBeWritten() throws {
+        try XCTSkipIf(getuid() == 0, "root ignores 0555")
+        let seq = try writeSeqFile()
+        XCTAssertEqual(chmod(project.path, 0o555), 0, "the project becomes read-only")
+        defer { chmod(project.path, 0o755) }
+
+        let staged = try SequenceExportStaging.stage(
+            [Self.fileSource(seq)], format: .fasta, outputURL: root.appendingPathComponent("out.fa")
+        )
+        defer { staged.discard() }
+
+        let folder = try XCTUnwrap(staged.folder)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path), "the copy is staged")
+        XCTAssertFalse(
+            folder.standardizedFileURL.path.hasPrefix(project.standardizedFileURL.path + "/"),
+            "outside the project that cannot be written, \(folder.path)"
+        )
+        XCTAssertEqual(try Data(contentsOf: staged.inputs[0]), try Data(contentsOf: seq))
+    }
+
     func testAnEmptySnapshotKeepsTheNoSequencesMessage() throws {
         let empty = capturedSource("empty native", sequences: [], annotations: [])
 

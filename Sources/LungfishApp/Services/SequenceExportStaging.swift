@@ -13,7 +13,8 @@ import LungfishIO
 /// document as `.gb` for a GenBank export and `.fa` otherwise, the records the app's own writer built (a feature
 /// that names no sequence goes with every sequence of its document, as there), and copies each file `convert`
 /// does not read as `.fa` (`.fa.gz` after a `.gz`), since the app read such a file as FASTA. Each file is
-/// published with `DurableReplace` into `<project>/.tmp/sequence-export-<id>/`, beside `selection.json`, the
+/// published with `DurableReplace` into `<project>/.tmp/sequence-export-<id>/` (the system temporary folder when
+/// the selection names no project or its project cannot be written), beside `selection.json`, the
 /// selection's metadata. The folder's marker keeps intermediates, so no sweep removes it. It stays after a
 /// finished export, because the record `convert` writes names its files, and a failed or refused export
 /// discards it, since no record names it then. A file `convert` reads is used where it is, and a selection of
@@ -80,9 +81,16 @@ enum SequenceExportStaging {
                 userInfo: [NSLocalizedDescriptionKey: "No sequences found in selected files."]
             )
         }
-        let folder = try ProjectTempDirectory.create(
-            prefix: "sequence-export-", in: projectURL(for: sources, outputURL: outputURL), keepIntermediates: true
-        )
+        let project = projectURL(for: sources, outputURL: outputURL)
+        let folder: URL
+        do {
+            folder = try ProjectTempDirectory.create(prefix: "sequence-export-", in: project, keepIntermediates: true)
+        } catch {
+            // A project that cannot be written (a read-only folder or volume) must not stop an export that worked
+            // at the base, which staged beside the output, so the copy goes to the system temporary folder.
+            guard project != nil else { throw error }
+            folder = try ProjectTempDirectory.create(prefix: "sequence-export-", in: nil, keepIntermediates: true)
+        }
         do {
             var inputs: [URL] = []
             for (index, source) in sources.enumerated() {
