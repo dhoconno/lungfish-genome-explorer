@@ -6,6 +6,7 @@ import Testing
 import Foundation
 @testable import LungfishApp
 import LungfishKit
+import LungfishWorkflow
 
 struct ColumnFilterTests {
 

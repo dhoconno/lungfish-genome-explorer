@@ -1,10 +1,10 @@
 // TaxonomyTableView.swift - Hierarchical taxonomy table with NSOutlineView
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
-
 import AppKit
 import LungfishIO
 import LungfishKit
+import LungfishWorkflow
 
 // MARK: - TaxonomyTableView
 

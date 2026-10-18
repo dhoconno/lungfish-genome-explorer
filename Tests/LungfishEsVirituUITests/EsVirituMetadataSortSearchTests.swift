@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishEsVirituUI
 @testable import LungfishKit
 import LungfishIO
+import LungfishWorkflow
 
 @MainActor
 final class EsVirituMetadataSortSearchTests: XCTestCase {

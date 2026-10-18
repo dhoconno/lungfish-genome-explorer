@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishWorkflow
 
 /// A host that owns a table/outline view's column filter state and can be
 /// driven by ``ColumnHeaderFilterMenu`` to show the "Sort / Filter / Combine /

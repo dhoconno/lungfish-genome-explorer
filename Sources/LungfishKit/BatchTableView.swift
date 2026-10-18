@@ -1,9 +1,9 @@
 // BatchTableView.swift - Generic base class for batch aggregated classifier table views
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
-
 import AppKit
 import LungfishCore
+import LungfishWorkflow
 import os.log
 
 // MARK: - BatchColumnSpec

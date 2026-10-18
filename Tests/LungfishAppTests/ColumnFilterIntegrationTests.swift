@@ -12,6 +12,7 @@ import AppKit
 @testable import LungfishNaoMgsUI
 @testable import LungfishTaxTriageUI
 import LungfishKit
+import LungfishWorkflow
 import LungfishTestSupport
 
 // MARK: - Shared Test Helpers
