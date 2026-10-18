@@ -232,6 +232,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Path to the resolved BAM index (.bai or .csi).
     private var bamIndexURL: URL?
 
+    /// The sample and BAM of the last BLAST request this view forwarded to its host. The drawer's re-run sends
+    /// them again and not the BAM the view holds by then, since a changed selection between the two could send
+    /// another sample's reads, or none (2.12 lane 12.09b, review 12.09 note 1).
+    private var lastBlastBAM: (sample: String?, bamURL: URL?, bamIndexURL: URL?)?
+
     /// All discovered BAM files keyed by sample ID substring.
     private var bamFilesBySample: [String: URL] = [:]
     private var bamIndexesBySample: [String: URL] = [:]
@@ -602,7 +607,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Called when the user requests BLAST verification for a selected organism.
     ///
-    /// Parameters: organism, readCount, accessions (from BAM mapping), bamURL, bamIndexURL.
+    /// Parameters: organism, readCount, accessions (from BAM mapping), bamURL, bamIndexURL. The organism's
+    /// `sample` names the sample whose BAM it is, and is nil when the view cannot tell (2.12 lane 12.09b).
     public var onBlastVerification: ((TaxTriageOrganism, Int, [String]?, URL?, URL?) -> Void)?
 
     /// Called when the user wants to re-run TaxTriage with the same or different settings.
@@ -2789,12 +2795,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         blastDrawer.onRerunBlast = { [weak self] in
             guard let self, let result = self.lastBlastResult else { return }
+            // The sample and BAM of the request this repeats, not the BAM the view holds now (2.12 lane 12.09b).
+            let last = self.lastBlastBAM ?? (
+                sample: Self.sample(owning: self.bamURL, in: self.bamFilesBySample),
+                bamURL: self.bamURL, bamIndexURL: self.bamIndexURL
+            )
             let organism = TaxTriageOrganism(
                 name: result.taxonName, score: 0, reads: result.totalReads,
-                coverage: nil, taxId: result.taxId, rank: nil
+                coverage: nil, taxId: result.taxId, rank: nil, sample: last.sample
             )
-            let orgAccessions = self.accessions(for: result.taxonName)
-            self.onBlastVerification?(organism, result.totalReads, orgAccessions, self.bamURL, self.bamIndexURL)
+            let orgAccessions = self.accessions(for: result.taxonName, sampleId: last.sample)
+            self.forwardBlastVerification(organism, result.totalReads, orgAccessions, last.bamURL, last.bamIndexURL)
         }
     }
 
@@ -3804,24 +3815,43 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             reads: row.reads,
             coverage: row.coverage,
             taxId: row.taxId,
-            rank: row.rank
+            rank: row.rank,
+            sample: Self.sample(owning: bamURL, in: bamFilesBySample)
         )
         let rowAccessions = accessions(for: row)
-        onBlastVerification?(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+        forwardBlastVerification(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+    }
+
+    /// Hands a BLAST request to the host and keeps its sample and BAM for the drawer's re-run.
+    private func forwardBlastVerification(
+        _ organism: TaxTriageOrganism, _ readCount: Int, _ accessions: [String]?, _ bamURL: URL?, _ bamIndexURL: URL?
+    ) {
+        lastBlastBAM = (organism.sample, bamURL, bamIndexURL)
+        onBlastVerification?(organism, readCount, accessions, bamURL, bamIndexURL)
+    }
+
+    /// The sample whose BAM `bamURL` is, nil when no sample owns it or several do. A BLAST request names the
+    /// sample whose reads it searches, so a BAM that belongs to no one sample names none (2.12 lane 12.09b).
+    static func sample(owning bamURL: URL?, in bamFilesBySample: [String: URL]) -> String? {
+        guard let bamURL else { return nil }
+        let owners = bamFilesBySample.filter { $0.value == bamURL }.keys
+        return owners.count == 1 ? owners.first : nil
     }
 
     private func requestBlastVerification(for metric: TaxTriageMetric, readCount: Int) {
+        let rowAccessions = accessions(for: metric)
+        let ownBamURL = metric.sample.flatMap { bamFilesBySample[$0] }
+        let metricBamURL = ownBamURL ?? bamURL
+        // The request names the sample whose BAM goes with it: the metric's own, else the owner of the BAM held now.
         let organism = TaxTriageOrganism(
             name: metric.organism,
             score: metric.tassScore,
             reads: metric.reads,
             coverage: metric.coverageBreadth,
             taxId: metric.taxId,
-            rank: metric.rank
+            rank: metric.rank,
+            sample: ownBamURL == nil ? Self.sample(owning: metricBamURL, in: bamFilesBySample) : metric.sample
         )
-        let rowAccessions = accessions(for: metric)
-        let sampleId = metric.sample
-        let metricBamURL = sampleId.flatMap { bamFilesBySample[$0] } ?? bamURL
         let metricBamIndexURL: URL?
         if let metricBamURL {
             metricBamIndexURL = resolveBamIndex(
@@ -3831,7 +3861,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         } else {
             metricBamIndexURL = bamIndexURL
         }
-        onBlastVerification?(organism, readCount, rowAccessions, metricBamURL, metricBamIndexURL)
+        forwardBlastVerification(organism, readCount, rowAccessions, metricBamURL, metricBamIndexURL)
     }
 
     /// Action bar BLAST Verify. Opens the same read-count popover as the

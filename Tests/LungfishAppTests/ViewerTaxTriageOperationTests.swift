@@ -63,7 +63,7 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         // Six reads and a count of 4, so the subsample draws four.
         let reads = (1...6).map { (id: "read_\($0)", sequence: String(repeating: "ACGT", count: $0 + 2)) }
         let plan = try ViewerViewController.taxTriageBlastSubmitPlan(
-            organism: Self.organism(named: "Influenza A virus"), reads: reads, readCount: 4,
+            organism: Self.organism(named: "Influenza A virus", sample: "S1"), reads: reads, readCount: 4,
             accessions: ["NC_026438.1", "NC_026435.1"], projectURL: project, sourceResultURL: result
         )
         let reporter = RecordingOperationReporter()
@@ -86,7 +86,7 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         XCTAssertEqual(command.label, "Influenza A virus")
         XCTAssertEqual(command.taxId, 11320)
         XCTAssertEqual(command.contig, "NC_026438.1,NC_026435.1", "the accessions the reads came from")
-        XCTAssertNil(command.sample, "the result view's BLAST callback passes no sample")
+        XCTAssertEqual(command.sample, "S1", "the sample whose BAM the reads came from")
         XCTAssertEqual(command.sourceResult, result.path)
         XCTAssertEqual(command.subsampleCount, 4)
         XCTAssertEqual(command.subsampleSeed, 0)
@@ -274,8 +274,8 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         (id: "read_3", sequence: "TTTTGGGGCCCCAAAATTTT"),
     ]
 
-    private static func organism(named name: String) -> TaxTriageOrganism {
-        TaxTriageOrganism(name: name, score: 0.9, reads: 100, coverage: 50, taxId: 11320, rank: "species")
+    private static func organism(named name: String, sample: String? = nil) -> TaxTriageOrganism {
+        TaxTriageOrganism(name: name, score: 0.9, reads: 100, coverage: 50, taxId: 11320, rank: "species", sample: sample)
     }
 
     /// A project with a TaxTriage result and a stand-in `lungfish-cli` that records its process ID in

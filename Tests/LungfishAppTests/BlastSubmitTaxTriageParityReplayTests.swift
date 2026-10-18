@@ -71,7 +71,7 @@ final class BlastSubmitTaxTriageParityReplayTests: XCTestCase {
     // MARK: - The site
 
     private static let organism = TaxTriageOrganism(
-        name: "Influenza A virus", score: 0.9, reads: 100, coverage: 50, taxId: 11320, rank: "species"
+        name: "Influenza A virus", score: 0.9, reads: 100, coverage: 50, taxId: 11320, rank: "species", sample: "S1"
     )
     /// The count the viewer asks for, below the three reads, so the subsample draws.
     private static let readCount = 2

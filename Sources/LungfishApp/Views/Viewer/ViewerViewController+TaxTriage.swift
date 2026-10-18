@@ -328,9 +328,10 @@ extension ViewerViewController {
     /// reads of the selected accessions, it draws the subsample the in-process route drew, the mixed
     /// strategy with seed 0, and judges hits on the request `TaxTriageOrganism.blastVerificationRequest`
     /// builds, the organism's own tax ID and name with no relatives. The record names the TaxTriage result,
-    /// the organism's tax ID, the accessions as the contig and the count and seed of the subsample. It names
-    /// no sample, since the result view's BLAST callback passes none. The search's folder sits under the
-    /// project's `blast-verifications/`, never in the TaxTriage result.
+    /// the organism's tax ID, the accessions as the contig, the organism's sample when it names one and the
+    /// count and seed of the subsample. The result view names the sample whose BAM the reads came from (lane
+    /// 12.09b), and a nil sample records none. The search's folder sits under the project's
+    /// `blast-verifications/`, never in the TaxTriage result.
     nonisolated static func taxTriageBlastSubmitPlan(
         organism: TaxTriageOrganism,
         reads: [(id: String, sequence: String)],
@@ -349,7 +350,7 @@ extension ViewerViewController {
         return try BlastSubmitPlan.make(
             request: organism.blastVerificationRequest(sequences: subsampled),
             projectURL: projectURL, sourceResultURL: sourceResultURL, outputParentURL: projectURL,
-            contig: accessions.isEmpty ? nil : accessions.joined(separator: ","),
+            contig: accessions.isEmpty ? nil : accessions.joined(separator: ","), sample: organism.sample,
             subsampleCount: subsampled.count, subsampleSeed: seed, date: date
         )
     }

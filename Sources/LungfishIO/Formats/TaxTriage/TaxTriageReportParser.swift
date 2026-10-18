@@ -212,6 +212,11 @@ public struct TaxTriageOrganism: Sendable, Codable, Equatable, Identifiable {
     /// Taxonomic rank (e.g., "species", "genus"), if available.
     public let rank: String?
 
+    /// The sample whose reads a BLAST request for this organism searches, when the request names one (2.12 lane
+    /// 12.09b). The result view sets it on the requests it forwards to its host and the report parsers leave it nil.
+    /// A nil sample is not encoded, so an organism without one encodes as it always did.
+    public let sample: String?
+
     /// Creates a new organism identification result.
     ///
     /// - Parameters:
@@ -221,13 +226,15 @@ public struct TaxTriageOrganism: Sendable, Codable, Equatable, Identifiable {
     ///   - coverage: Genome coverage percentage.
     ///   - taxId: NCBI taxonomy ID.
     ///   - rank: Taxonomic rank.
+    ///   - sample: The sample whose reads a BLAST request searches.
     public init(
         name: String,
         score: Double,
         reads: Int,
         coverage: Double? = nil,
         taxId: Int? = nil,
-        rank: String? = nil
+        rank: String? = nil,
+        sample: String? = nil
     ) {
         self.name = name
         self.score = score
@@ -235,5 +242,6 @@ public struct TaxTriageOrganism: Sendable, Codable, Equatable, Identifiable {
         self.coverage = coverage
         self.taxId = taxId
         self.rank = rank
+        self.sample = sample
     }
 }
