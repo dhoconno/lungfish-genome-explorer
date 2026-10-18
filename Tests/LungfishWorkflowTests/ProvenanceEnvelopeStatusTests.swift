@@ -307,6 +307,7 @@ struct ProvenanceEnvelopeStatusTests {
 
         let copies: [(name: String, envelope: ProvenanceEnvelope)] = [
             ("focusedOnOutput", source.focusedOnOutput(output)),
+            ("focusedOnLineage", source.focusedOnLineage(of: output)),
             ("projectedToBundleOutputs", source.projectedToBundleOutputs([output])),
             ("replacingSignatures", source.replacingSignatures([signature])),
             ("upsertingSignatureReference", source.upsertingSignatureReference(signature)),

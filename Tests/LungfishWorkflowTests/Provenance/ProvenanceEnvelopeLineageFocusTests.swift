@@ -127,6 +127,20 @@ final class ProvenanceEnvelopeLineageFocusTests: XCTestCase {
         XCTAssertEqual(focused.steps.first?.outputs, [a])
     }
 
+    /// `/private/tmp` and `/private/etc` fold like `/private/var`, and a folder that only starts with one of those
+    /// words does not.
+    func testOnlyTheThreeSystemLinksFold() {
+        for root in ["tmp", "etc", "var"] {
+            let a = Self.file("/\(root)/x/A.bam", "a2", role: .output)
+            let record = Self.record([
+                Self.step("probe", inputs: [Self.file("/private/\(root)/x/A.bam", "a1")]),
+                Self.step("other", inputs: [Self.file("/private/\(root)x/x/A.bam", "a1")]),
+                Self.step("run", outputs: [a]),
+            ])
+            XCTAssertEqual(Self.names(record.focusedOnLineage(of: a)), ["probe", "run"], root)
+        }
+    }
+
     // MARK: - Records
 
     private static func file(

@@ -140,6 +140,25 @@ final class BuildDbEsVirituRunLevelTests: XCTestCase {
         let build = try await EsVirituRunLevel.markdupBuild(in: root, samples: ["S1", "S2"], rows: 2)
         let records = try EsVirituRunLevel.records(in: build.result)
         XCTAssertEqual(EsVirituRunLevel.problems(of: records), [])
+        for (name, envelope) in records where name.hasPrefix("S") {
+            // Each sidecar accounts for its own gone and replaced files, as `BuiltResultRecordChecks.problems` asks of a record.
+            let removed = Set(
+                envelope.steps.filter { $0.resolvedOptions["operation"] == .string(RecordedRemovalStep.operation) }
+                    .flatMap(\.inputs).map { EsVirituRunLevel.resolved($0.path) }
+            )
+            for step in envelope.steps {
+                for file in step.inputs + step.outputs {
+                    guard let digest = file.checksumSHA256 else { continue }
+                    let now = FileManager.default.fileExists(atPath: file.path)
+                        ? ProvenanceRecorder.sha256(of: URL(fileURLWithPath: file.path)) : nil
+                    if now == digest { continue }
+                    XCTAssertTrue(
+                        removed.contains(EsVirituRunLevel.resolved(file.path)),
+                        "\(name) step \(step.toolName) names \(EsVirituRunLevel.resolved(file.path)), which is gone or holds other bytes, and no removal step of the sidecar names it"
+                    )
+                }
+            }
+        }
         let run = build.labels(of: build.record)
         let everySidecar: Set<String> = [
             "move", "_temp removal", "run", "S1 fixmate", "S1 coordinate sort", "S2 fixmate", "S2 coordinate sort",
@@ -161,6 +180,11 @@ final class BuildDbEsVirituRunLevelTests: XCTestCase {
                 XCTAssertEqual(
                     envelope.steps.last?.inputs, build.record.steps.last?.inputs,
                     "the run's step in the sidecar of \(sample)'s \(name) keeps its inputs whole"
+                )
+                let removal = try XCTUnwrap(build.record.steps.first { $0.toolName == "Lungfish EsViritu BAM Relocation Source Removal" })
+                XCTAssertEqual(
+                    envelope.steps.first { $0.id == removal.id }?.inputs, removal.inputs,
+                    "the removal in the sidecar of \(sample)'s \(name) keeps every path it removed"
                 )
                 XCTAssertEqual(
                     EsVirituRunLevel.named(envelope.files).filter { $0.path.hasPrefix(otherBAMs) }, [],
@@ -184,7 +208,8 @@ final class BuildDbEsVirituRunLevelTests: XCTestCase {
         let today = try ProvenanceJSON.decoder.decode(
             ProvenanceEnvelope.self, from: ProvenanceJSON.encoder.encode(build.record.focusedOnOutput(output))
         )
-        XCTAssertEqual(sidecar, today, "the database's sidecar is today's projection of the run")
+        // `with` clears the signature references that a key in the environment makes the writer add to the file.
+        XCTAssertEqual(sidecar.with { _ in }, today.with { _ in }, "the database's sidecar is today's projection of the run")
         let runStep = build.record.steps.last?.id
         XCTAssertEqual(
             build.labels(of: sidecar),
