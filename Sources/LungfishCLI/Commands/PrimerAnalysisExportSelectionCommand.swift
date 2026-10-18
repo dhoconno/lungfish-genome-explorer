@@ -35,7 +35,7 @@ struct PrimerAnalysisExportSelectionCommand: AsyncParsableCommand {
         discussion: """
             Writes the same new .lungfishref bundle that the saved primer analysis view writes for \
             Save Primer FASTA Bundle and Extract Reference Amplicon, with its provenance and a copy \
-            of the evidence it came from. Name exactly one selection: one primer (--target-id and \
+            of the evidence it came from. Name exactly one selection, which is one primer (--target-id and \
             --primer-id), one amplicon (--target-id and --amplicon-id), one numbered pool \
             (--source-result-id and --pool) or one native pool (--source-result-id and --native-pool). \
             --kind primer-fasta saves the selected primers as primers.fasta, in the 5' to 3' \
@@ -49,7 +49,7 @@ struct PrimerAnalysisExportSelectionCommand: AsyncParsableCommand {
     )
 
     @Argument(help: "Path to the saved .lungfishprimeranalysis bundle.") var bundlePath: String
-    @Option(help: "What to write: primer-fasta saves the selected primers, reference-amplicon extracts one amplicon's reference span.")
+    @Option(help: "What to write. The value primer-fasta saves the selected primers and reference-amplicon extracts one amplicon's reference span.")
     var kind: Kind
     @Option(name: .customLong("target-id"), help: "Target ID of the primer or amplicon, with --primer-id or --amplicon-id.")
     var targetID: String?
@@ -63,7 +63,7 @@ struct PrimerAnalysisExportSelectionCommand: AsyncParsableCommand {
     var pool: Int?
     @Option(name: .customLong("native-pool"), help: "Pool name exactly as the design tool saved it, with --source-result-id.")
     var nativePool: String?
-    @Option(name: .customLong("output"), help: "New .lungfishref bundle to write. It must not exist; its parent must.")
+    @Option(name: .customLong("output"), help: "New .lungfishref bundle to write. It must not exist, and its parent folder must.")
     var outputPath: String
 
     /// The selection the options name. Exactly one of the four forms must be present.
@@ -79,7 +79,7 @@ struct PrimerAnalysisExportSelectionCommand: AsyncParsableCommand {
             return .nativePool(sourceResultID: result, pool: name)
         default:
             throw ValidationError("""
-                Name exactly one selection: --target-id with --primer-id (one primer), --target-id with \
+                Name exactly one selection, which is --target-id with --primer-id (one primer), --target-id with \
                 --amplicon-id (one amplicon), --source-result-id with --pool (a numbered pool) or \
                 --source-result-id with --native-pool (a native pool).
                 """)
