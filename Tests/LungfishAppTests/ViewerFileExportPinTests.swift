@@ -97,6 +97,9 @@ final class ViewerFileExportPinTests: XCTestCase {
         let bundle = scratch.appendingPathComponent("assembly.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let viewController = ViewerViewController()
+        // UserDefaults.standard resolves to the app's real identity inside xctest, and the drawer writes its height
+        // through annotationDrawerDefaults, so the viewer gets a suite of its own, as AnnotationDrawerSizingTests does.
+        viewController.annotationDrawerDefaults = makeTestDefaultsSuite(prefix: "ViewerFileExportPinTests").defaults
         _ = viewController.view
         XCTAssertEqual(viewController.fastaExportSourceURLs(), [], "a viewer with no document or bundle names no source")
 
