@@ -395,6 +395,7 @@ extension NvdExportCLIGUIParityReplayTests {
         let a = try Self.envelope(in: runs.a.root)
         let c = try Self.envelope(in: runs.c.root)
         XCTAssertEqual(Self.inputs(of: a, under: runs.a.root), Self.inputs(of: c, under: runs.c.root), "inputs and digests")
+        XCTAssertFalse(Self.inputs(of: c, under: runs.c.root).values.contains("no digest"), "every input has a digest")
         let metadataInput = parityCase == .shownRowsWithMetadataColumn ? ["/nvd-result/metadata/sample_metadata.tsv"] : []
         XCTAssertEqual(
             Self.inputs(of: c, under: runs.c.root).keys.sorted(),
