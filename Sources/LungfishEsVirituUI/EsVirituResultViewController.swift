@@ -1808,57 +1808,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         )
     }
 
-    func writeDelimitedDetections(
-        result: LungfishIO.EsVirituResult,
-        separator: String,
-        fileExtension: String,
-        to url: URL
-    ) throws {
-        let runClock = ProvenanceRunClock()
-        let metadata = detectionTableView.metadataColumns
-        let sampleIds = Set(result.detections.map(\.sampleId))
-        let content = EsVirituDetectionExport.buildDelimitedExport(
-            result: result,
-            separator: separator,
-            metadataHeaders: metadata.exportHeaders,
-            metadataValuesBySample: Dictionary(uniqueKeysWithValues: sampleIds.map { ($0, metadata.exportValues(for: $0)) })
-        )
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app esviritu detections export",
-            sourceURLs: exportProvenanceSourceURLs(),
-            outputURL: url,
-            outputFormat: .text,
-            argv: ["Lungfish.app", "export-esviritu-detections", "--format", fileExtension, "--output", url.path],
-            explicitOptions: [
-                "outputPath": .file(url),
-                "format": .string(fileExtension),
-            ],
-            defaults: [
-                "format": .string("tsv"),
-            ],
-            resolved: [
-                "rowCount": .integer(result.detections.count),
-                "sampleId": .string(result.sampleId),
-                "selectedSamples": .array(exportSelectedSampleIds(for: result).map(ParameterValue.string)),
-                "sourceSampleCount": .integer(sampleEntries.count),
-                "tableMode": .string(isBatchMode ? "batchHierarchical" : "singleSample"),
-                "searchText": .string(detectionTableView.exportSearchText),
-                "sortDescriptors": .array([
-                    .dictionary([
-                        "key": .string(detectionTableView.exportSortKey),
-                        "ascending": .boolean(detectionTableView.exportSortAscending),
-                    ]),
-                ]),
-                "columnFilterComposition": .string(detectionTableView.exportColumnFilterComposition.rawValue),
-                "columnFilters": .array(detectionTableView.exportColumnFilters.map(exportColumnFilterParameter)),
-                "metadataColumns": .array(detectionTableView.metadataColumns.exportHeaders.map { .string($0) }),
-            ],
-            runClock: runClock
-        )) { outputURL in
-            try content.write(to: outputURL, atomically: true, encoding: .utf8)
-        }
-    }
-
     private func exportSelectedSampleIds(for result: LungfishIO.EsVirituResult) -> [String] {
         if isBatchMode, let samplePickerState {
             return samplePickerState.selectedSamples.sorted()
@@ -1868,29 +1817,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             return detectionSamples.sorted()
         }
         return result.sampleId == "batch" ? [] : [result.sampleId]
-    }
-
-    private func exportColumnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
-        .dictionary([
-            "columnId": .string(filter.columnId),
-            "operator": .string(filter.op.rawValue),
-            "operatorName": .string(String(describing: filter.op)),
-            "value": .string(filter.value),
-            "value2": filter.value2.map(ParameterValue.string) ?? .null,
-            "inverted": .boolean(filter.isInverted),
-        ])
-    }
-
-    private func exportProvenanceSourceURLs() -> [URL] {
-        var urls: [URL] = []
-        if let databaseURL = esVirituDatabase?.databaseURL {
-            urls.append(databaseURL)
-        }
-        if let batchURL {
-            let writesMetadata = !detectionTableView.metadataColumns.exportHeaders.isEmpty
-            urls += EsVirituDetectionExport.metadataInputURLs(in: batchURL, writesMetadata: writesMetadata)
-        }
-        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     // MARK: - Summary Text
