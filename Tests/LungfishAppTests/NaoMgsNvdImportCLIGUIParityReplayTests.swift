@@ -37,24 +37,6 @@ final class NaoMgsNvdImportCLIGUIParityReplayTests: XCTestCase {
     private var harness: RouteParityHarness!
     private var storageBefore: String?
 
-    /// The clock of an analysis folder's `analysis-metadata.json`, which stamps the second the folder was made. It is
-    /// masked by name and by the document's own keys, the top-level `created` of an object that holds exactly the
-    /// keys `tool`, `isBatch` and `created`, as the ruling on the clock keys of the result sidecars words it
-    /// (`reviews/12.06-M1.md`, ruling 1). The `importDate` of a `manifest.json` and the dump of a database fall under
-    /// the policy's record masks already. No pattern runs over the text of a payload.
-    private static let analysisMetadataCreated = OutputEquivalence.Mask(name: "analysisMetadataCreated") { text, _ in
-        guard let data = text.data(using: .utf8),
-              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              Set(object.keys) == ["tool", "isBatch", "created"]
-        else { return text }
-        object["created"] = "<TIMESTAMP>"
-        guard let encoded = try? JSONSerialization.data(
-            withJSONObject: object,
-            options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
-        ), let masked = String(data: encoded, encoding: .utf8) else { return text }
-        return masked
-    }
-
     override func setUp() async throws {
         scratch = try TestTempDirectory.make(prefix: "naomgs-nvd-parity")
         storageBefore = NaoMgsNvdAppFixtures.useStorage(try await NaoMgsNvdAppFixtures.installFixtureTaxonomy(in: scratch))
@@ -63,9 +45,10 @@ final class NaoMgsNvdImportCLIGUIParityReplayTests: XCTestCase {
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so no side can run"
         )
-        var masks = OutputEquivalence.MaskPolicy.standard
-        masks.payloads.append(Self.analysisMetadataCreated)
-        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: masks, replayTimeout: .seconds(300))
+        // The `created` of an analysis folder's `analysis-metadata.json` stamps the second the folder was made. The
+        // contract masks it by name (`Masks.resultSidecarClocks`, ruling 1 of the review of lane 12.06 M1), so the
+        // standard policy is the whole compare.
+        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .standard, replayTimeout: .seconds(300))
     }
 
     override func tearDownWithError() throws {
