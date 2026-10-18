@@ -26,6 +26,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishCLI
 
 @MainActor
 final class TaxonomyExtractionClipboardSIGTERMReplayTests: XCTestCase {
@@ -65,17 +66,48 @@ final class TaxonomyExtractionClipboardSIGTERMReplayTests: XCTestCase {
             XCTAssertNotNil(stop.termination, "run \(repetition): the command exited")
             let record = ProvenanceRecorder.loadEnvelope(from: route.scratchDirectory)
             XCTAssertEqual(record?.exitStatus, 125, "run \(repetition): the command exits 125")
-            // The command records its canonical form, `--output` for `-o`, which names the same extraction.
-            let argv = record?.argv ?? []
-            XCTAssertTrue(
-                argv.contains("--by-classifier") && argv.contains(route.scratchFile.path),
-                "run \(repetition): the record names the extraction into the scratch file, \(argv)"
-            )
+            // The command records its own spelling of the run, `--output` for `-o` and no `--format json`.
+            try Self.assertRecordNamesTheRun(record?.argv ?? [], route: route, label: "run \(repetition)")
             XCTAssertFalse(FileManager.default.fileExists(atPath: route.scratchFile.path), "run \(repetition): a cancelled command publishes no file")
             if let seqkit {
                 await CLISIGTERMHarness.assertNoProcessLeft([seqkit])
             }
         }
+    }
+
+    /// The command's record against the run it records, both parsed by the command itself (ARCH 2,
+    /// `docs/contracts/CLI-EQUIVALENCE.md`). The row runs `-o <file> --format json`. The record holds the
+    /// command's canonical spelling, `--output <file>` and no `--format json`, a difference of transport
+    /// only. So the two compare by what they name, and `--format json` is on the run alone.
+    ///
+    /// - Parameters:
+    ///   - argv: The record's argv, from `ProvenanceRecorder.loadEnvelope(from: route.scratchDirectory)`.
+    ///   - route: The route that ran, whose `arguments` the transport launched.
+    ///   - label: Names the run in a failure.
+    static func assertRecordNamesTheRun(
+        _ argv: [String],
+        route: ClassifierExtractionCopyRoute,
+        label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let recordedWords = Array(argv.drop(while: { $0 != "--by-classifier" }))
+        guard !recordedWords.isEmpty else {
+            XCTFail("\(label): the record names no --by-classifier extraction, \(argv)", file: file, line: line)
+            return
+        }
+        let recorded = try ExtractReadsSubcommand.parse(recordedWords)
+        let ran = try ExtractReadsSubcommand.parse(Array(route.arguments.dropFirst(2)))
+        XCTAssertTrue(ran.byClassifier, "\(label): the run is a classifier extraction", file: file, line: line)
+        XCTAssertEqual(recorded.byClassifier, ran.byClassifier, "\(label): byClassifier", file: file, line: line)
+        XCTAssertEqual(recorded.classifierTool, ran.classifierTool, "\(label): classifierTool", file: file, line: line)
+        XCTAssertEqual(recorded.classifierResult, ran.classifierResult, "\(label): classifierResult", file: file, line: line)
+        XCTAssertEqual(recorded.classifierTaxonsRaw, ran.classifierTaxonsRaw, "\(label): classifierTaxonsRaw", file: file, line: line)
+        XCTAssertEqual(recorded.classifierFormat, ran.classifierFormat, "\(label): classifierFormat", file: file, line: line)
+        XCTAssertEqual(recorded.output, ran.output, "\(label): output", file: file, line: line)
+        XCTAssertEqual(ran.output, route.scratchFile.path, "\(label): the run writes the scratch file", file: file, line: line)
+        XCTAssertEqual(ran.globalOptions.outputFormat, .json, "\(label): the run asks for --format json", file: file, line: line)
+        XCTAssertNotEqual(recorded.globalOptions.outputFormat, .json, "\(label): the record does not", file: file, line: line)
     }
 
     func testCancellingTheClipboardRouteLeavesNoScratchFolderWithEveryCoreBusy() async throws {

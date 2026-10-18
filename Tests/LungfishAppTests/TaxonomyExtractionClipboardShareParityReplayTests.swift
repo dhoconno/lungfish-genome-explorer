@@ -193,6 +193,11 @@ final class TaxonomyExtractionClipboardShareParityReplayTests: XCTestCase {
             TaxonomyReadExtractionAction.beginExtractionOperation(context: context, cliCommand: command, reporter: reporter) { operationID = $0 }
             let id = try XCTUnwrap(operationID, "the row did not start")
             let outcome = try await route.run(operationID: id, cliURLOverride: cli)
+            if parityCase == .share {
+                // The command's own record sits beside the shared file until the hand-over removes the folder.
+                let argv = ProvenanceRecorder.loadEnvelope(from: route.scratchDirectory)?.argv ?? []
+                try TaxonomyExtractionClipboardSIGTERMReplayTests.assertRecordNamesTheRun(argv, route: route, label: "share")
+            }
             var handed = try Self.handOver(outcome, root: root)
             handed.recordedCommand = reporter.items.first?.cliCommand
             return handed
