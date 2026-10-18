@@ -44,6 +44,7 @@ final class WorkflowCompletionBundleDisplayTests: XCTestCase {
 
         let sidebar = openProjectSelecting(resultURL)
         split.displayMappingAnalysisFromSidebar(at: resultURL)
+        await split.bundleOpenTask?.value
         XCTAssertNotNil(split.viewerController.activeMappingViewportController, "precondition")
         XCTAssertNotNil(split.inspectorController.viewModel.documentSectionViewModel.mappingDocument, "precondition")
 

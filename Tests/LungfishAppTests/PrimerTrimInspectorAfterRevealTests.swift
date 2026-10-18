@@ -47,6 +47,7 @@ final class PrimerTrimInspectorAfterRevealTests: XCTestCase {
         AnalysesFolder.markAnalysisComplete(resultURL)
         let sidebar = openProjectSelecting(resultURL)
         split.displayMappingAnalysisFromSidebar(at: resultURL)
+        await split.bundleOpenTask?.value
         notices.watch(sidebar)
         let before = try TreeDigest.of(resultURL)
 

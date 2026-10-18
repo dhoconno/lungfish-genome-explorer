@@ -139,9 +139,10 @@ final class WindowProjectSwitchResetTests: XCTestCase {
         _ = split.view
         split.applyProjectSessionState()
 
-        // The reference bundle route defers its install to the next runloop turn.
+        // The reference bundle route shows its loading state at once and
+        // decodes the manifest off the main actor.
         split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
-        XCTAssertNil(split.viewerController.referenceBundleViewportController)
+        XCTAssertEqual(split.viewerController.referenceBundleViewportController?.isAwaitingOpenInput, true)
 
         try session.openProject(at: second)
         split.applyProjectSessionState()

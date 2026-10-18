@@ -469,8 +469,8 @@ public class MainSplitViewController: NSSplitViewController {
         try await DocumentManager.shared.readDocument(at: $0)
     }
 
-    /// Cancellable off-main genotype bundle validation for the active sidebar selection.
-    var genotypeResultLoadTask: Task<Void, Never>?
+    /// Cancellable off-main loads for the active sidebar selection: genotype bundle validation, and the one decode of a reference or mapping open.
+    var genotypeResultLoadTask: Task<Void, Never>?, bundleOpenTask: Task<Void, Never>?
     var genotypeResultLoader: @Sendable (URL) async throws -> ONTGenotypeResultBundleData = { url in
         try await ONTGenotypeResultBundle.loadResultAsync(from: url)
     }

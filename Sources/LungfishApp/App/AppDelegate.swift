@@ -1589,36 +1589,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         )
     }
 
-    /// The displayed (or selected) reference bundle with its manifest loaded, for
-    /// callers that need a `ReferenceBundle` rather than a URL (the Call Variants
-    /// dialog). `nil` when nothing resolves or the manifest cannot be read.
-    func currentReferenceBundle(in controller: MainWindowController?) -> ReferenceBundle? {
-        guard let bundleURL = currentReferenceBundleURL(in: controller) else { return nil }
-        return Self.loadReferenceBundle(at: bundleURL)
-    }
-
-    /// The reference bundles a sidebar selection stands for: a selected
-    /// `.lungfishref` itself, or a selected mapping result's reference copy
-    /// (read from its `mapping-result.json`). Anything else contributes nothing.
-    static func referenceBundleCandidates(inSidebarSelection urls: [URL]) -> [URL] {
-        urls.compactMap { url in
-            if url.pathExtension.lowercased() == "lungfishref" {
-                return url
-            }
-            guard let result = try? MappingResult.load(from: url),
-                  let viewerBundleURL = result.viewerBundleURL,
-                  FileManager.default.fileExists(atPath: viewerBundleURL.path) else {
-                return nil
-            }
-            return viewerBundleURL
-        }
-    }
-
-    static func loadReferenceBundle(at bundleURL: URL) -> ReferenceBundle? {
-        guard let manifest = try? BundleManifest.load(from: bundleURL) else { return nil }
-        return ReferenceBundle(url: bundleURL, manifest: manifest)
-    }
-
     /// Persists an Inspector or viewer-menu annotation edit to a reference bundle's
     /// SQLite annotation database, then reloads the bundle so the viewer, Inspector and
     /// annotation drawer all see the committed row (not just the in-memory copy).
@@ -2479,10 +2449,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         if menuItem.action == #selector(showBAMVariantCalling(_:)) {
-            // `currentReferenceBundle` is only set by the `.sequence` display route
-            // (and cleared by `clearBundleDisplay`), so checking it alone left the
-            // item disabled for every `.browse`-mode bundle and mapping result.
-            let bundle = currentReferenceBundle(in: activeMainWindowController())
+            // The bundle the viewer already holds for either display route or a
+            // mapping result's reference copy. Validation runs each time a menu
+            // opens, so it never decodes a manifest of its own.
+            let bundle = heldReferenceBundle(in: activeMainWindowController())
             return canShowBAMVariantCalling(bundle: bundle)
         }
 

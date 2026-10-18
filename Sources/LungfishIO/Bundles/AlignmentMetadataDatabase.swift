@@ -316,10 +316,10 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         sqlite3_step(stmt)
     }
 
-    /// Returns all chromosome statistics.
-    public func chromosomeStats() -> [ChromosomeStats] {
+    /// Returns chromosome statistics, most mapped reads first. `mappedOnly` keeps the rows with reads, read through `idx_chromstats_mapped`.
+    public func chromosomeStats(mappedOnly: Bool = false) -> [ChromosomeStats] {
         var result: [ChromosomeStats] = []
-        let sql = "SELECT chromosome, length, mapped_reads, unmapped_reads FROM chromosome_stats ORDER BY mapped_reads DESC"
+        let sql = "SELECT chromosome, length, mapped_reads, unmapped_reads FROM chromosome_stats\(mappedOnly ? " WHERE mapped_reads > 0" : "") ORDER BY mapped_reads DESC"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return result }
         defer { sqlite3_finalize(stmt) }

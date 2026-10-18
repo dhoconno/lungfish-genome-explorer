@@ -31,7 +31,7 @@ final class MappingInspectorProvenanceTests: XCTestCase {
         let (resultURL, viewerURL) = try makeMappingResult(variants: tracks)
         let inspector = InspectorViewController()
         inspector.updateProvenanceTarget(url: resultURL, sidebarType: .analysisResult, displayName: "minimap2")
-        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL)
+        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL, viewerBundleManifest: try? BundleManifest.load(from: viewerURL))
 
         let model = inspector.viewModel.provenanceSectionViewModel
         XCTAssertEqual(model.sources.map(\.name), ["Mapping", "HG002 bcftools", "HG002 LoFreq"])
@@ -47,7 +47,7 @@ final class MappingInspectorProvenanceTests: XCTestCase {
         let (resultURL, viewerURL) = try makeMappingResult(variants: [])
         let inspector = InspectorViewController()
         inspector.updateProvenanceTarget(url: resultURL, sidebarType: .analysisResult, displayName: "minimap2")
-        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL)
+        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL, viewerBundleManifest: try? BundleManifest.load(from: viewerURL))
         XCTAssertLessThanOrEqual(inspector.viewModel.provenanceSectionViewModel.sources.count, 1)
         inspector.viewModel.provenanceSectionViewModel.clear()
     }
@@ -65,7 +65,7 @@ final class MappingInspectorProvenanceTests: XCTestCase {
         let scope = WindowStateScope()
         inspector.testingWindowStateScope = scope
         inspector.updateProvenanceTarget(url: resultURL, sidebarType: .analysisResult, displayName: "minimap2")
-        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL)
+        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL, viewerBundleManifest: try? BundleManifest.load(from: viewerURL))
 
         inspector.handleContentModeChanged(Notification(
             name: .viewportContentModeDidChange,
@@ -93,7 +93,7 @@ final class MappingInspectorProvenanceTests: XCTestCase {
         let (resultURL, viewerURL) = try makeMappingResult(variants: tracks)
         let inspector = InspectorViewController()
         inspector.updateProvenanceTarget(url: resultURL, sidebarType: .analysisResult, displayName: "minimap2")
-        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL)
+        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL, viewerBundleManifest: try? BundleManifest.load(from: viewerURL))
 
         inspector.retargetProvenancePreservingSources(
             url: resultURL, sidebarType: .analysisResult, displayName: "minimap2"

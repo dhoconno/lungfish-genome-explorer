@@ -42,21 +42,21 @@ enum ViewerDisplayRouteFactory {
     static func mappingResult(
         _ result: MappingResult,
         resultDirectoryURL: URL?,
-        provenance: MappingProvenance?
+        provenance: MappingProvenance?,
+        viewerBundleManifest: BundleManifest?,
+        resultModificationDate: Date? = nil
     ) -> ViewerDisplayRoute {
         // Mapping rows need the embedded alignment declarations during their
-        // initial configuration, not after a later Inspector refresh. Loading
-        // the manifest here keeps the route self-contained for both sidebar
-        // and programmatic display paths; unreadable bundles remain a valid
-        // legacy mapping route with no track-derived rows.
-        let viewerBundleManifest = result.viewerBundleURL.flatMap {
-            try? BundleManifest.load(from: $0)
-        }
-        return .referenceBundle(.mappingResult(
+        // initial configuration, not after a later Inspector refresh. The
+        // caller passes the manifest it decoded off the main actor, so a large
+        // reference is never decoded here. A nil manifest (an unreadable
+        // bundle) remains a valid legacy mapping route with no track rows.
+        .referenceBundle(.mappingResult(
             result: result,
             resultDirectoryURL: resultDirectoryURL,
             provenance: provenance,
-            viewerBundleManifest: viewerBundleManifest
+            viewerBundleManifest: viewerBundleManifest,
+            resultModificationDate: resultModificationDate
         ))
     }
 

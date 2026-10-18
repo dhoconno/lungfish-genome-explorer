@@ -57,12 +57,12 @@ extension InspectorViewController {
     ///
     /// The tracks live in the result's embedded viewer bundle, so their paths
     /// resolve against that bundle while the mapping record stays the default.
-    func updateMappingProvenanceSources(resultURL: URL, viewerBundleURL: URL?) {
+    /// The open passes the viewer bundle's manifest it decoded once off the main actor.
+    func updateMappingProvenanceSources(resultURL: URL, viewerBundleURL: URL?, viewerBundleManifest manifest: BundleManifest?) {
         let model = viewModel.provenanceSectionViewModel
-        guard let viewerBundleURL,
+        guard let viewerBundleURL, let manifest,
               let item = model.currentItem,
-              item.url?.standardizedFileURL == resultURL.standardizedFileURL,
-              let manifest = try? BundleManifest.load(from: viewerBundleURL) else { return }
+              item.url?.standardizedFileURL == resultURL.standardizedFileURL else { return }
         model.configureVariantSources(
             bundleItem: item,
             tracks: manifest.variants,
@@ -87,8 +87,7 @@ extension InspectorViewController {
 
         // Auto-select the first chromosome so the Chromosome section is visible immediately.
         if let chromosomes = manifest?.genome?.chromosomes, !chromosomes.isEmpty {
-            let sorted = naturalChromosomeSort(chromosomes)
-            updateSelectedChromosome(sorted.first)
+            updateSelectedChromosome(firstChromosomeInNaturalOrder(chromosomes))
         }
     }
 

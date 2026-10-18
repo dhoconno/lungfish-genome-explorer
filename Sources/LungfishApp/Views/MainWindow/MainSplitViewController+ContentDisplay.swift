@@ -180,7 +180,7 @@ extension MainSplitViewController {
             case .assembly:
                 displayAssemblyAnalysisFromSidebar(at: url)
             case .mapping:
-                displayMappingAnalysisFromSidebar(at: url)
+                displayMappingAnalysisFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             case .viralRecon:
                 displayViralReconAnalysisFromSidebar(at: url)
             case .primerOrder:
@@ -800,36 +800,33 @@ extension MainSplitViewController {
             message: "Loading \(url.lastPathComponent)...",
             style: .indeterminate
         )
+        showBundleOpenLoading(at: url, kind: .directBundle)
 
-        // Defer execution to the next runloop so the loading indicator paints immediately.
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                defer {
-                if self.canCommitDisplayRequest(displayToken, identity: displayIdentity) {
-                    self.activityIndicator.hide()
-                }
-            }
-                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-
-                do {
-                    self.inspectorController.clearSelection()
-                    let manifest = try BundleManifest.load(from: url)
-                    let route = ViewerDisplayRouteFactory.directReferenceBundle(
-                        bundleURL: url,
-                        manifest: manifest
-                    )
-                    try self.viewerController.display(route)
-                    self.installBAMMetadataPresentation(
-                        resultURL: url, bundleURL: url, workflowName: "Reference Bundle"
-                    )
-                    self.wireDirectReferenceViewportInspectorUpdates()
-                    onDisplayed?()
-                    mainSplitLogger.info("displayReferenceBundleViewport: Bundle displayed successfully")
-                } catch {
-                    mainSplitLogger.error("displayReferenceBundleViewport: Failed - \(error.localizedDescription, privacy: .public)")
-                    self.viewerController.clearViewport(statusMessage: "Unable to load reference bundle.")
-                }
+        // A large reference's manifest is hundreds of megabytes, so the open
+        // decodes it once, off the main actor, and every consumer shares it.
+        bundleOpenTask?.cancel()
+        bundleOpenTask = Task { @MainActor [weak self] in
+            let loaded = await Self.loadReferenceManifestOffMain(at: url)
+            guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+            self.activityIndicator.hide()
+            guard self.viewerAwaitsBundleOpen(at: url, kind: .directBundle) else { return }
+            do {
+                self.inspectorController.clearSelection()
+                let manifest = try loaded.get()
+                let route = ViewerDisplayRouteFactory.directReferenceBundle(
+                    bundleURL: url,
+                    manifest: manifest
+                )
+                try self.viewerController.display(route)
+                self.installBAMMetadataPresentation(
+                    resultURL: url, bundleURL: url, workflowName: "Reference Bundle", manifest: manifest
+                )
+                self.wireDirectReferenceViewportInspectorUpdates()
+                onDisplayed?()
+                mainSplitLogger.info("displayReferenceBundleViewport: Bundle displayed successfully")
+            } catch {
+                mainSplitLogger.error("displayReferenceBundleViewport: Failed - \(error.localizedDescription, privacy: .public)")
+                self.viewerController.clearViewport(statusMessage: "Unable to load reference bundle.")
             }
         }
     }
@@ -903,65 +900,65 @@ extension MainSplitViewController {
         }
     }
 
-    func displayMappingAnalysisFromSidebar(at url: URL) {
+    func displayMappingAnalysisFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
         mainSplitLogger.info("displayMappingAnalysis: Opening '\(url.lastPathComponent, privacy: .public)'")
         recordUITestEvent("mapping.display.requested \(url.lastPathComponent)")
         invalidatePendingSelectionDebounce(reason: "display mapping analysis")
         cancelFASTQLoadIfNeeded(hideProgress: true, reason: "display mapping analysis")
         cancelMultiDocumentLoadIfNeeded(hideProgress: true, reason: "display mapping analysis")
-
-        do {
-            let result = try MappingResult.load(from: url)
-            let provenance = MappingProvenance.load(from: url)
-            let projectURL = projectSession.projectURL ?? sidebarController.currentProjectURL
-            let route = ViewerDisplayRouteFactory.mappingResult(
-                result,
-                resultDirectoryURL: url,
-                provenance: provenance
-            )
-            // The sidebar can re-announce the analysis that is already on
-            // screen (a refresh, a repeated selection event, a window-level
-            // relayout). Nothing on disk changed, so the viewer keeps its focus
-            // mode, selected contig, region and drawer tab instead of being
-            // rebuilt and re-wired to the Inspector from scratch.
-            if case .referenceBundle(let input) = route,
-               viewerController.contentMode == .mapping,
-               viewerController.referenceBundleViewportController?.currentInput == input {
-                mainSplitLogger.info(
-                    "displayMappingAnalysis: '\(url.lastPathComponent, privacy: .public)' is already displayed, keeping viewer state"
-                )
-                recordUITestEvent("mapping.display.unchanged \(url.lastPathComponent)")
-                return
-            }
-            inspectorController.clearSelection()
-            inspectorController.updateProvenanceTarget(
-                url: url,
-                sidebarType: .analysisResult,
-                displayName: url.lastPathComponent
-            )
-            inspectorController.updateMappingProvenanceSources(
-                resultURL: url,
-                viewerBundleURL: result.viewerBundleURL
-            )
-            inspectorController.updateMappingDocument(
-                MappingDocumentStateBuilder.build(
-                    result: result,
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "mappingResult")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+        showBundleOpenLoading(at: url, kind: .mappingResult)
+        // The result and the viewer bundle's manifest each list every reference
+        // sequence, so the open decodes each once, off the main actor.
+        bundleOpenTask?.cancel()
+        bundleOpenTask = Task { @MainActor [weak self] in
+            let loaded = await Self.loadMappingAnalysisOffMain(at: url)
+            guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity),
+                  self.viewerAwaitsBundleOpen(at: url, kind: .mappingResult) else { return }
+            do {
+                let open = try loaded.get()
+                let (result, provenance) = (open.result, open.provenance)
+                let projectURL = projectSession.projectURL ?? sidebarController.currentProjectURL
+                let route = ViewerDisplayRouteFactory.mappingResult(
+                    result,
+                    resultDirectoryURL: url,
                     provenance: provenance,
-                    projectURL: projectURL
+                    viewerBundleManifest: open.viewerBundleManifest,
+                    resultModificationDate: open.resultModificationDate
                 )
-            )
-            try viewerController.display(route)
-            installMappingBAMMetadataPresentation(resultURL: url, result: result)
-            wireMappingReferenceViewportInspectorUpdates()
-            recordUITestEvent(
-                "mapping.display.succeeded tool=\(result.mapper.rawValue) contigs=\(result.contigs.count)"
-            )
-        } catch {
-            mainSplitLogger.error(
-                "displayMappingAnalysis: Failed to load result from \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-            recordUITestEvent("mapping.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
-            viewerController.clearViewport(statusMessage: "Unable to load mapping result.")
+                // A re-announced analysis that is already on screen with nothing changed on disk
+                // keeps its focus mode, selected contig, region and drawer tab.
+                if case .referenceBundle(let input) = route,
+                   viewerController.contentMode == .mapping,
+                   viewerController.referenceBundleViewportController?.currentInput == input {
+                    mainSplitLogger.info("displayMappingAnalysis: '\(url.lastPathComponent, privacy: .public)' is already displayed, keeping viewer state")
+                    recordUITestEvent("mapping.display.unchanged \(url.lastPathComponent)")
+                    return
+                }
+                inspectorController.clearSelection()
+                inspectorController.updateProvenanceTarget(url: url, sidebarType: .analysisResult, displayName: url.lastPathComponent)
+                inspectorController.updateMappingProvenanceSources(
+                    resultURL: url, viewerBundleURL: result.viewerBundleURL, viewerBundleManifest: open.viewerBundleManifest
+                )
+                inspectorController.updateMappingDocument(
+                    MappingDocumentStateBuilder.build(result: result, provenance: provenance, projectURL: projectURL)
+                )
+                try viewerController.display(route)
+                installMappingBAMMetadataPresentation(resultURL: url, result: result, viewerBundleManifest: open.viewerBundleManifest)
+                wireMappingReferenceViewportInspectorUpdates()
+                recordUITestEvent("mapping.display.succeeded tool=\(result.mapper.rawValue) contigs=\(result.contigs.count)")
+            } catch {
+                mainSplitLogger.error(
+                    "displayMappingAnalysis: Failed to load result from \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                recordUITestEvent("mapping.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
+                viewerController.clearViewport(statusMessage: "Unable to load mapping result.")
+            }
         }
     }
 

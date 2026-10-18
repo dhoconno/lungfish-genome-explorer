@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct MappingContigSummary: Sendable, Codable, Equatable {
@@ -232,7 +233,18 @@ public extension MappingResult {
         )
     }
 
+    /// When the saved result in `directory` last changed, read from the file
+    /// system without decoding it. A large result lists every reference
+    /// sequence, so callers compare this date instead of the decoded contigs.
+    static func savedResultModificationDate(in directory: URL) -> Date? {
+        [mappingResultSidecarFilename, legacyAlignmentResultFilename].lazy.compactMap {
+            try? directory.appendingPathComponent($0)
+                .resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        }.first
+    }
+
     static func load(from directory: URL) throws -> MappingResult {
+        BundleLoadProbe.willDecode(.mappingResult, at: directory)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 

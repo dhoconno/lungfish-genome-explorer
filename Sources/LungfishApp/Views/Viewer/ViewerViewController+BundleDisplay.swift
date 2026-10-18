@@ -42,9 +42,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     }
 
     /// Displays a reference genome bundle using the harmonized viewport or direct sequence mode.
-    public func displayBundle(at url: URL, mode: BundleDisplayMode) throws {
+    public func displayBundle(at url: URL, mode: BundleDisplayMode, manifest: BundleManifest? = nil) throws {
         saveCurrentViewState()
-        let context = try loadBundleDisplayContext(at: url)
+        let context = try loadBundleDisplayContext(at: url, manifest: manifest)
         let displayRoute = ViewerDisplayRouteFactory.referenceBundleDisplayRoute(
             bundleURL: context.url,
             manifest: context.manifest,
@@ -110,10 +110,10 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         updateStatusBar()
     }
 
-    private func loadBundleDisplayContext(at url: URL) throws -> BundleDisplayContext {
+    /// `suppliedManifest` is the one the caller already decoded, which a large reference must not pay for twice.
+    private func loadBundleDisplayContext(at url: URL, manifest suppliedManifest: BundleManifest? = nil) throws -> BundleDisplayContext {
         bundleLogger.info("displayBundle: Opening bundle at '\(url.lastPathComponent, privacy: .public)'")
-
-        let manifest = try BundleManifest.load(from: url)
+        let manifest = try suppliedManifest ?? BundleManifest.load(from: url)
         let validationErrors = manifest.validate()
         if !validationErrors.isEmpty {
             let messages = validationErrors.map(\.localizedDescription).joined(separator: "; ")
@@ -257,24 +257,23 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             viewerView.applyTypeColorOverrides(context.viewState.typeColorOverrides)
         }
 
-        let sortedChromosomes = naturalChromosomeSort(context.chromosomes)
-        guard let firstChromosome = sortedChromosomes.first else {
+        // A named or restored sequence needs no order. Otherwise the first in
+        // natural order, found without sorting every sequence of the bundle.
+        let targetChromosome: ChromosomeInfo
+        if let preferredSequenceName,
+           let matchingChromosome = context.chromosomes.first(where: { $0.name == preferredSequenceName }) {
+            targetChromosome = matchingChromosome
+        } else if restoreViewState,
+                  let savedChromosome = context.viewState.lastChromosome,
+                  let matchingChromosome = context.chromosomes.first(where: { $0.name == savedChromosome }) {
+            targetChromosome = matchingChromosome
+        } else if let firstChromosome = firstChromosomeInNaturalOrder(context.chromosomes) {
+            targetChromosome = firstChromosome
+        } else {
             bundleLogger.error("displayBundle: No chromosomes in bundle")
             hideProgress()
             showNoSequenceSelected()
             return
-        }
-
-        let targetChromosome: ChromosomeInfo
-        if let preferredSequenceName,
-           let matchingChromosome = sortedChromosomes.first(where: { $0.name == preferredSequenceName }) {
-            targetChromosome = matchingChromosome
-        } else if restoreViewState,
-                  let savedChromosome = context.viewState.lastChromosome,
-                  let matchingChromosome = sortedChromosomes.first(where: { $0.name == savedChromosome }) {
-            targetChromosome = matchingChromosome
-        } else {
-            targetChromosome = firstChromosome
         }
 
         let chromosomeLength = Int(targetChromosome.length)

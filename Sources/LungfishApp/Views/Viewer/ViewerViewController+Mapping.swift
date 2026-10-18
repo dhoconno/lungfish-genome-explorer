@@ -153,14 +153,56 @@ extension ViewerViewController {
         if let existing = referenceBundleViewportController,
            contentMode == .mapping,
            existing.parent === self,
-           existing.view.superview === view,
-           existing.currentInput == input {
-            mappingDisplayLogger.info(
-                "displayReferenceBundleViewport: \(input.documentTitle, privacy: .public) is already displayed, keeping viewport state"
-            )
-            return
+           existing.view.superview === view {
+            if existing.currentInput == input {
+                mappingDisplayLogger.info(
+                    "displayReferenceBundleViewport: \(input.documentTitle, privacy: .public) is already displayed, keeping viewport state"
+                )
+                return
+            }
+            // The viewport shown while the open decoded its files takes the
+            // rows, so the list replaces its placeholder in place.
+            if existing.isAwaitingOpenInput {
+                do {
+                    try existing.configure(input: input)
+                } catch {
+                    existing.view.removeFromSuperview()
+                    existing.removeFromParent()
+                    referenceBundleViewportController = nil
+                    throw error
+                }
+                existing.finishOpenLoading()
+                return
+            }
         }
 
+        let controller = installReferenceBundleViewportController()
+        do {
+            try controller.configure(input: input)
+        } catch {
+            controller.view.removeFromSuperview()
+            controller.removeFromParent()
+            throw error
+        }
+        referenceBundleViewportController = controller
+        hideGenomicsChromeForReferenceViewport()
+
+        mappingDisplayLogger.info(
+            "displayReferenceBundleViewport: Showing \(input.documentTitle, privacy: .public)"
+        )
+    }
+
+    /// Shows the reference viewport before its rows are read, while an open
+    /// decodes its files off the main actor. The list and the summary bar
+    /// name the work, and `displayReferenceBundleViewport` fills it in place.
+    func displayReferenceBundleViewportLoading(title: String, documentURL: URL) {
+        let controller = installReferenceBundleViewportController()
+        controller.showOpenLoading(title: title, documentURL: documentURL)
+        referenceBundleViewportController = controller
+        hideGenomicsChromeForReferenceViewport()
+    }
+
+    private func installReferenceBundleViewportController() -> ReferenceBundleViewportController {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -195,26 +237,15 @@ extension ViewerViewController {
             referenceView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             referenceView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        return controller
+    }
 
-        do {
-            try controller.configure(input: input)
-        } catch {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            throw error
-        }
-
-        referenceBundleViewportController = controller
-
+    private func hideGenomicsChromeForReferenceViewport() {
         enhancedRulerView.isHidden = true
         viewerView.isHidden = true
         headerView.isHidden = true
         statusBar.isHidden = true
         geneTabBarView.isHidden = true
-
-        mappingDisplayLogger.info(
-            "displayReferenceBundleViewport: Showing \(input.documentTitle, privacy: .public)"
-        )
     }
 
     public func hideMappingView() {

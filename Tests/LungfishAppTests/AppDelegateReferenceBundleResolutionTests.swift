@@ -175,8 +175,9 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
     func testMenuValidationAndImportsShareTheResolver() {
         let source = combinedAppDelegateSource()
 
-        // Call Variants: validation and action both resolve through the shared helper.
-        XCTAssertTrue(source.contains("let bundle = currentReferenceBundle(in: activeMainWindowController())"))
+        // Call Variants: validation and action both resolve through the shared helper,
+        // and validation uses the bundle the viewer holds (AppDelegateMenuValidationTests).
+        XCTAssertTrue(source.contains("let bundle = heldReferenceBundle(in: activeMainWindowController())"))
         XCTAssertTrue(source.contains("bundle: currentReferenceBundle(in: controller)"))
         XCTAssertFalse(source.contains("viewerController?.currentReferenceBundle\n"),
                        "menu validation must not read the sequence-route-only property directly")

@@ -33,26 +33,26 @@ extension MainSplitViewController {
     /// Installs a result-scoped metadata context for a mapping BAM.  Identity
     /// comes only from each persisted alignment metadata database; filenames
     /// are intentionally absent from this path.
-    func installMappingBAMMetadataPresentation(resultURL: URL, result: MappingResult) {
+    func installMappingBAMMetadataPresentation(resultURL: URL, result: MappingResult, viewerBundleManifest: BundleManifest? = nil) {
         guard let bundleURL = result.viewerBundleURL else { return }
         installBAMMetadataPresentation(
-            resultURL: resultURL, bundleURL: bundleURL, workflowName: "Mapping"
+            resultURL: resultURL, bundleURL: bundleURL, workflowName: "Mapping", manifest: viewerBundleManifest
         )
     }
 
     /// Shared direct-reference and mapping route installation.  Every track
     /// is resolved through BAMSampleIdentityResolver before identities from
     /// separate tracks are merged, keeping one canonical policy for all BAM
-    /// viewports.
+    /// viewports. An open passes the manifest it already decoded.
     func installBAMMetadataPresentation(
         resultURL: URL,
         bundleURL: URL,
         workflowName: String,
-        persistedSampleAliases: [String: [String]] = [:]
+        persistedSampleAliases: [String: [String]] = [:], manifest suppliedManifest: BundleManifest? = nil
     ) {
         clearBAMMetadataPresentation()
         guard let consumer = viewerController.referenceBundleViewportController,
-              let manifest = try? BundleManifest.load(from: bundleURL)
+              let manifest = suppliedManifest ?? (try? BundleManifest.load(from: bundleURL))
         else { return }
         var collectedIdentities: [SampleIdentity] = []
         var manifestAliases: [String: [String]] = [:]

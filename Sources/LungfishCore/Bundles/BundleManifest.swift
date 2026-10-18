@@ -578,12 +578,10 @@ extension BundleManifest {
     /// - Returns: The loaded manifest
     /// - Throws: If the manifest cannot be read or decoded
     public static func load(from bundleURL: URL) throws -> BundleManifest {
-        let manifestURL = bundleURL.appendingPathComponent(filename)
-        let data = try Data(contentsOf: manifestURL)
-
+        BundleLoadProbe.willDecode(.bundleManifest, at: bundleURL)
+        let data = try Data(contentsOf: bundleURL.appendingPathComponent(filename))
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-
         return try decoder.decode(BundleManifest.self, from: data)
     }
 

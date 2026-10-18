@@ -31,6 +31,25 @@ final class AlignmentMetadataDatabaseTests: XCTestCase {
         return try AlignmentMetadataDatabase.create(at: dbURL)
     }
 
+    // MARK: - Mapped-only chromosome stats
+
+    /// A mapping onto a large reference keeps a stats row for every reference
+    /// sequence (905,628 for SILVA) though only a few have reads. The viewer
+    /// needs only those, read through `idx_chromstats_mapped`.
+    func testMappedOnlyStatsSkipZeroReadRows() throws {
+        let writer = try makeDatabase()
+        writer.addChromosomeStats(chromosome: "empty", length: 10, mapped: 0, unmapped: 3)
+        writer.addChromosomeStats(chromosome: "few", length: 20, mapped: 2, unmapped: 0)
+        writer.addChromosomeStats(chromosome: "many", length: 30, mapped: 9, unmapped: 1)
+        let reader = try AlignmentMetadataDatabase(url: writer.databaseURL)
+
+        let mapped = reader.chromosomeStats(mappedOnly: true)
+        XCTAssertEqual(mapped.map(\.chromosome), ["many", "few"])
+        XCTAssertEqual(mapped.map(\.mappedReads), [9, 2])
+        XCTAssertEqual(mapped.map(\.length), [30, 20])
+        XCTAssertEqual(reader.chromosomeStats().map(\.chromosome), ["many", "few", "empty"])
+    }
+
     // MARK: - Creation
 
     func testCreateDatabase() throws {

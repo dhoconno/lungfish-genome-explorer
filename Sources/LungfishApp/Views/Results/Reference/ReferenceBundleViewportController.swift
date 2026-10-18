@@ -11,11 +11,6 @@ import LungfishKit
 
 @MainActor
 public class ReferenceBundleViewportController: NSViewController, SampleMetadataPresentationConsumer {
-    private struct AlignmentReadCounts {
-        let mapped: Int
-        let total: Int
-    }
-
     enum PresentationMode: Equatable {
         case listDetail
         case focusedDetail
@@ -25,7 +20,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private(set) var presentationMode: PresentationMode = .listDetail
     private(set) var currentResult: MappingResult?
     private var currentResultDirectoryURL: URL?
-    private var loadedViewerBundleURL: URL?
+    var loadedViewerBundleURL: URL?
+    /// What each pane shows while a large reference opens (UX ruling Q-S1).
+    let openProgress = ReferenceViewportOpenProgress()
     private var sequenceRows: [ReferenceBundleRecordRow] = []
     private var usesRecordStoreTable = false
     private var recordStoreWarning: String?
@@ -70,6 +67,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
     private var alignmentActionContextGeneration = 0
     private var alignmentActionContextTask: Task<Void, Never>?
+    /// The running mapping row refresh. A newer refresh cancels it, which stops its samtools children.
+    private var mappingRowsRefreshTask: Task<Void, Never>?
 
     private struct AlignmentActionContextSeed: Sendable {
         let identity: AlignmentEvidenceIdentity
@@ -91,13 +90,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private let embeddedViewerController = ViewerViewController()
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
-    private let summaryBar: NSView = {
+    let summaryBar: NSView = {
         let bar = NSView()
         bar.translatesAutoresizingMaskIntoConstraints = false
         return bar
     }()
 
-    private let summaryLabel: NSTextField = {
+    let summaryLabel: NSTextField = {
         let label = NSTextField(labelWithString: "Reference Bundle")
         label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         label.textColor = .secondaryLabelColor
@@ -106,7 +105,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         return label
     }()
 
-    private let focusButton: NSButton = {
+    let focusButton: NSButton = {
         let button = NSButton(title: "Focus", target: nil, action: nil)
         button.bezelStyle = .rounded
         LungfishKitControlStyle.applyInspectorMetrics(to: button)
@@ -136,12 +135,12 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     private let focusedDetailContainer = NSView()
     private let splitView = TrackedDividerSplitView()
-    private let listContainer = NSView()
+    let listContainer = NSView()
     private let detailContainer = NSView()
     private let detailContentContainer = NSView()
     private var detailContentContainerConstraints: [NSLayoutConstraint] = []
-    private let contigTableView = MappingContigTableView()
-    private let sequenceTableView = ReferenceBundleRecordTable()
+    let contigTableView = MappingContigTableView()
+    let sequenceTableView = ReferenceBundleRecordTable()
 
     private let detailPlaceholderLabel: NSTextField = {
         let label = NSTextField(labelWithString: "Select a sequence to inspect.")
@@ -183,6 +182,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     deinit {
+        mappingRowsRefreshTask?.cancel()
         if let metadataPresentationContext, let metadataPresentationObserverToken {
             Task { @MainActor in
                 metadataPresentationContext.removeObserver(metadataPresentationObserverToken)
@@ -590,31 +590,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             ? configuredTrackID
             : defaultTrackID
         if let visibleTrackID, !visibleTrackID.isEmpty {
-            if let track = alignmentTracks.first(where: { $0.id == visibleTrackID }),
-               let bundleURL = currentInput?.renderedBundleURL,
-               let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL),
-               resolution.identityIndex.canonicalSampleIDs.count == 1,
-               resolution.unmatchedReadGroupIDs.isEmpty,
-               let sampleID = resolution.identityIndex.canonicalSampleIDs.first {
-                let readCounts = alignmentReadCounts(for: track, bundleURL: bundleURL)
-                if let cachedRows = metadataFallbackRows(
-                    for: track,
-                    bundleURL: bundleURL,
-                    totalReads: readCounts.total
-                ) {
-                    applyVisibleAlignmentRows(
-                        [(
-                            sampleID: sampleID,
-                            readGroupIDs: resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID),
-                            summaries: cachedRows
-                        )],
-                        track: track,
-                        mappedReads: readCounts.mapped,
-                        totalReads: readCounts.total,
-                        preferredSelectionName: preferredSelectionName
-                    )
-                }
-            }
+            // The refresh reads the track's stats once, off the main actor, and
+            // shows the rows with reads before the exact summaries finish.
             embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting = visibleTrackID
             refreshMappingRowsForVisibleAlignmentTrack(
                 visibleTrackID,
@@ -696,20 +673,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     /// avoiding a second manifest disk read here). Absent manifest ⇒ nil
     /// display name ⇒ tables fall back to the bare contig id, unchanged
     /// from pre-Item-2 behavior.
+    /// FASTA descriptions are looked up only for the rows the table shows
+    /// (`configureMappingContigRows`), never for every reference sequence.
     private func applyMappingBundleDisplayLabels() {
-        guard let manifest = currentInput?.viewerBundleManifest else {
-            contigTableView.bundleDisplayName = nil
-            contigTableView.fastaDescriptionsByContig = [:]
-            return
-        }
-        contigTableView.bundleDisplayName = manifest.name
-        var descriptions: [String: String] = [:]
-        for chromosome in manifest.genome?.chromosomes ?? [] {
-            if let fastaDescription = chromosome.fastaDescription, !fastaDescription.isEmpty {
-                descriptions[chromosome.name] = fastaDescription
-            }
-        }
-        contigTableView.fastaDescriptionsByContig = descriptions
+        contigTableView.bundleDisplayName = currentInput?.viewerBundleManifest?.name
     }
 
     private func loadRecordTableContent(
@@ -848,11 +815,15 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             return
         }
 
-        embeddedViewerController.clearViewport(statusMessage: "Loading reference viewer...")
+        embeddedViewerController.clearViewport(statusMessage: ReferenceViewportOpenProgress.loadingViewer)
         embeddedViewerController.annotationSearchIndex = nil
+        // The manifest the open decoded once, never a second decode here.
+        let heldManifest = standardized == currentInput?.renderedBundleURL
+            ? currentInput?.manifest ?? currentInput?.viewerBundleManifest : nil
         try embeddedViewerController.displayBundle(
             at: standardized,
-            mode: .sequence(name: sequenceName, restoreViewState: false)
+            mode: .sequence(name: sequenceName, restoreViewState: false),
+            manifest: heldManifest
         )
         rebuildEmbeddedAnnotationSearchIndex()
         loadedViewerBundleURL = standardized
@@ -929,55 +900,30 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         else { return }
         alignmentTrackSummaryRefreshID = UUID()
         let refreshID = alignmentTrackSummaryRefreshID
+        mappingRowsRefreshTask?.cancel()
         visibleAlignmentSummaryOverride = nil
         alignmentTrackSummaryWarning = nil
         updateSummaryBar()
         contigTableView.configure(rows: [])
         let builder = alignmentTrackSummaryBuilder
-        Task { @MainActor [weak self] in
+        let trackFiles = tracks.map { track in
+            (track: track,
+             bamURL: resolvedTrackURL(track.sourcePath, bundleURL: bundleURL),
+             databaseURL: track.metadataDBPath.map { resolvedTrackURL($0, bundleURL: bundleURL) })
+        }
+        mappingRowsRefreshTask = Task { @MainActor [weak self] in
             var rows: [MappingContigSummary] = []
-            for track in tracks {
-                let total = self?.alignmentReadCounts(for: track, bundleURL: bundleURL).total
-                    ?? Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
-                let bamURL = self?.resolvedTrackURL(track.sourcePath, bundleURL: bundleURL) ?? bundleURL
-                let resolution = self?.sampleIdentityResolution(for: track, bundleURL: bundleURL)
-                let canonicalSampleIDs = resolution?.identityIndex.canonicalSampleIDs.sorted() ?? []
-                let samples: [(sampleID: String?, readGroupIDs: Set<String>)]
-                if canonicalSampleIDs.isEmpty {
-                    // Metadata can exist while every RG has no usable SM tag.
-                    // Keep this track visible as an unmatched, no-RG row
-                    // rather than silently omitting it from All Alignments.
-                    samples = [(
-                        sampleID: nil,
-                        readGroupIDs: resolution?.unmatchedReadGroupIDs ?? []
-                    )]
-                } else if let resolution {
-                    var resolvedSamples: [(sampleID: String?, readGroupIDs: Set<String>)] = canonicalSampleIDs.map { sampleID in
-                        (
-                            sampleID: sampleID,
-                            readGroupIDs: resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID)
-                        )
-                    }
-                    if !resolution.unmatchedReadGroupIDs.isEmpty {
-                        resolvedSamples.append((
-                            sampleID: nil,
-                            readGroupIDs: resolution.unmatchedReadGroupIDs
-                        ))
-                    }
-                    samples = resolvedSamples
-                } else {
-                    samples = [(sampleID: nil, readGroupIDs: [])]
-                }
-                let canUseAggregateFallback = samples.count == 1
-                    && samples[0].sampleID != nil
-                    && resolution?.unmatchedReadGroupIDs.isEmpty == true
-                for (sampleID, readGroups) in samples {
+            for (track, bamURL, databaseURL) in trackFiles {
+                // One open of the track's stats database, off the main actor.
+                // A track whose read groups carry no usable SM tag stays
+                // visible as an unmatched, no-RG row in All Alignments.
+                let stats = await AlignmentTrackStatsSnapshot.read(track: track, databaseURL: databaseURL)
+                for (sampleID, readGroups) in stats.sampleReadGroups {
                     let summaries: [MappingContigSummary]
-                    if canUseAggregateFallback,
-                       let cached = self?.metadataFallbackRows(for: track, bundleURL: bundleURL, totalReads: total) {
+                    if stats.canUseAggregateFallback, let cached = stats.fallbackRows {
                         summaries = cached
                     } else {
-                        summaries = (try? await builder(bamURL, total, readGroups)) ?? []
+                        summaries = (try? await builder(bamURL, stats.totalReads, readGroups)) ?? []
                     }
                     rows += summaries.filter { $0.mappedReads > 0 }.map {
                         MappingContigSummary(sampleID: sampleID, alignmentTrackID: track.id, readGroupIDs: readGroups, contigName: $0.contigName, contigLength: $0.contigLength, mappedReads: $0.mappedReads, mappedReadPercent: $0.mappedReadPercent, meanDepth: $0.meanDepth, coverageBreadth: $0.coverageBreadth, medianMAPQ: $0.medianMAPQ, meanIdentity: $0.meanIdentity)
@@ -1115,6 +1061,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         _ selectedContig: MappingContigSummary,
         appliesAlignmentIdentity: Bool = true
     ) {
+        if deferFirstViewerOpen({ [weak self] in
+            self?.displaySelectedContig(selectedContig, appliesAlignmentIdentity: appliesAlignmentIdentity)
+        }) { return }
         guard currentResult != nil else {
             showDetailPlaceholder("No mapping result loaded.")
             return
@@ -1158,6 +1107,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     private func displaySelectedSequence(_ row: ReferenceBundleRecordRow) {
+        if deferFirstViewerOpen({ [weak self] in self?.displaySelectedSequence(row) }) { return }
         if let alignmentTrackID = row.alignmentTrackID {
             let settings: [AnyHashable: Any] = [
                 NotificationUserInfoKey.visibleAlignmentTrackID: alignmentTrackID,
@@ -1205,7 +1155,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         detailPlaceholderLabel.isHidden = true
     }
 
-    private func showDetailPlaceholder(_ message: String) {
+    func showDetailPlaceholder(_ message: String) {
         clearAlignmentActionContext()
         detailPlaceholderLabel.stringValue = message
         detailPlaceholderLabel.isHidden = false
@@ -1311,6 +1261,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         alignmentTrackSummaryWarning = nil
         alignmentTrackSummaryRefreshID = UUID()
         let refreshID = alignmentTrackSummaryRefreshID
+        // A superseded refresh stops its samtools children, not only its output.
+        mappingRowsRefreshTask?.cancel()
 
         guard let trackID,
               !trackID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1319,67 +1271,41 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             return
         }
 
+        // The viewer manifest the open decoded once, never a second decode here.
         guard let bundleURL = currentInput?.renderedBundleURL,
-              let manifest = try? BundleManifest.load(from: bundleURL),
-              let track = manifest.alignments.first(where: { $0.id == trackID })
+              let track = currentInput?.viewerBundleManifest?.alignments.first(where: { $0.id == trackID })
         else {
             return
         }
 
         let bamURL = resolvedTrackURL(track.sourcePath, bundleURL: bundleURL)
-        let readCounts = alignmentReadCounts(for: track, bundleURL: bundleURL)
-        let mappedReads = readCounts.mapped
-        let totalReads = readCounts.total
+        let databaseURL = track.metadataDBPath.map { resolvedTrackURL($0, bundleURL: bundleURL) }
         let summaryBuilder = alignmentTrackSummaryBuilder
-        let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL)
-        let sampleReadGroups: [(sampleID: String?, readGroupIDs: Set<String>)]
-        if let resolution, !resolution.identityIndex.canonicalSampleIDs.isEmpty {
-            var resolvedSamples: [(sampleID: String?, readGroupIDs: Set<String>)] = resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
-                (sampleID, resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID))
+        mappingRowsRefreshTask = Task { @MainActor [weak self] in
+            // One open of the track's stats database for the whole refresh, off the main actor.
+            let stats = await AlignmentTrackStatsSnapshot.read(track: track, databaseURL: databaseURL)
+            let firstSample = stats.sampleReadGroups[0]
+            // Cached metadata is immediately usable for a single resolved sample
+            // and avoids an empty initial list while the expensive exact summary
+            // process is starting. The result below replaces these rows when it
+            // completes. Multiple samples are intentionally not expanded from
+            // aggregate track stats because that would fabricate per-sample reads.
+            let fallback = stats.canUseAggregateFallback ? stats.fallbackRows.map {
+                [(sampleID: firstSample.sampleID, readGroupIDs: firstSample.readGroupIDs, summaries: $0)]
+            } : nil
+            if let fallback, let self, self.alignmentTrackSummaryRefreshID == refreshID {
+                self.applyVisibleAlignmentRows(
+                    fallback, track: track, mappedReads: stats.mappedReads,
+                    totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName
+                )
             }
-            if !resolution.unmatchedReadGroupIDs.isEmpty {
-                resolvedSamples.append((nil, resolution.unmatchedReadGroupIDs))
-            }
-            sampleReadGroups = resolvedSamples
-        } else {
-            sampleReadGroups = [(nil, resolution?.unmatchedReadGroupIDs ?? [])]
-        }
-        let canUseAggregateFallback = sampleReadGroups.count == 1
-            && sampleReadGroups[0].sampleID != nil
-            && resolution?.unmatchedReadGroupIDs.isEmpty == true
-
-        // Cached metadata is immediately usable for a single resolved sample
-        // and avoids an empty initial list while the expensive exact summary
-        // process is starting. The async result below replaces these rows when
-        // it completes. Multiple samples are intentionally not expanded from
-        // aggregate track stats because that would fabricate per-sample reads.
-        if canUseAggregateFallback,
-           let fallbackRows = metadataFallbackRows(
-            for: track,
-            bundleURL: bundleURL,
-            totalReads: totalReads
-           ) {
-            applyVisibleAlignmentRows(
-                [(
-                    sampleID: sampleReadGroups[0].sampleID,
-                    readGroupIDs: sampleReadGroups[0].readGroupIDs,
-                    summaries: fallbackRows
-                )],
-                track: track,
-                mappedReads: mappedReads,
-                totalReads: totalReads,
-                preferredSelectionName: preferredSelectionName
-            )
-        }
-
-        Task { @MainActor [weak self] in
             do {
                 var sampleSummaries: [(sampleID: String?, readGroupIDs: Set<String>, summaries: [MappingContigSummary])] = []
-                for sample in sampleReadGroups {
+                for sample in stats.sampleReadGroups {
                     // A no-RG sample is valid only when persisted identity proved
                     // this is the explicit single-sample fallback; aggregate
                     // metrics are then truthful for that one sample.
-                    let summaries = try await summaryBuilder(bamURL, totalReads, sample.readGroupIDs)
+                    let summaries = try await summaryBuilder(bamURL, stats.totalReads, sample.readGroupIDs)
                     sampleSummaries.append((sample.sampleID, sample.readGroupIDs, summaries))
                 }
                 // Some managed samtools wrappers surface a failed streamed
@@ -1388,55 +1314,22 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 // a truthful initial sample × contig fallback; do not leave
                 // the default metadata-bearing track blank until a manual
                 // track toggle.
-                if sampleSummaries.allSatisfy({ sample in
+                if let fallback, sampleSummaries.allSatisfy({ sample in
                     sample.summaries.isEmpty || sample.summaries.allSatisfy { $0.mappedReads == 0 }
-                }),
-                   canUseAggregateFallback,
-                   let fallbackRows = self?.metadataFallbackRows(
-                    for: track,
-                    bundleURL: bundleURL,
-                    totalReads: totalReads
-                   ) {
-                    sampleSummaries = [(
-                        sampleID: sampleReadGroups[0].sampleID,
-                        readGroupIDs: sampleReadGroups[0].readGroupIDs,
-                        summaries: fallbackRows
-                    )]
+                }) {
+                    sampleSummaries = fallback
                 }
-                guard let self,
-                      self.alignmentTrackSummaryRefreshID == refreshID
-                else {
-                    return
-                }
+                guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
                 self.applyVisibleAlignmentRows(
-                    sampleSummaries,
-                    track: track,
-                    mappedReads: mappedReads,
-                    totalReads: totalReads,
-                    preferredSelectionName: preferredSelectionName
+                    sampleSummaries, track: track, mappedReads: stats.mappedReads,
+                    totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName
                 )
             } catch {
-                guard let self,
-                      self.alignmentTrackSummaryRefreshID == refreshID
-                else {
-                    return
-                }
-
-                if let fallbackRows = self.metadataFallbackRows(
-                    for: track,
-                    bundleURL: bundleURL,
-                   totalReads: totalReads
-                ), canUseAggregateFallback {
+                guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
+                if let fallback {
                     self.applyVisibleAlignmentRows(
-                        [(
-                            sampleID: sampleReadGroups[0].sampleID,
-                            readGroupIDs: sampleReadGroups[0].readGroupIDs,
-                            summaries: fallbackRows
-                        )],
-                        track: track,
-                        mappedReads: mappedReads,
-                        totalReads: totalReads,
-                        preferredSelectionName: preferredSelectionName
+                        fallback, track: track, mappedReads: stats.mappedReads,
+                        totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName
                     )
                 } else {
                     self.showDetailPlaceholder("Unable to compute alignment statistics for \(track.name).")
@@ -1489,7 +1382,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             (currentInput?.viewerBundleManifest?.alignments ?? []).map { ($0.id, $0.name) },
             uniquingKeysWith: { first, _ in first }
         )
+        contigTableView.fastaDescriptionsByContig = Self.fastaDescriptions(for: rows, in: currentInput?.viewerBundleManifest)
         contigTableView.configure(rows: rows)
+        announceReadyIfUsable()
     }
 
     private func clearMappingSelectionAfterAllRebuild() {
@@ -1517,82 +1412,6 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             explicitResultSampleID: explicitSampleID,
             trackSampleIDs: trackSampleIDs
         )
-    }
-
-    private func alignmentReadCounts(
-        for track: AlignmentTrackInfo,
-        bundleURL: URL
-    ) -> AlignmentReadCounts {
-        let manifestMapped = Int(clamping: track.mappedReadCount ?? 0)
-        let manifestTotal = manifestMapped + Int(clamping: track.unmappedReadCount ?? 0)
-        let fallback = AlignmentReadCounts(mapped: manifestMapped, total: manifestTotal)
-        guard let metadataDBPath = track.metadataDBPath,
-              let database = try? AlignmentMetadataDatabase(
-                url: resolvedTrackURL(metadataDBPath, bundleURL: bundleURL)
-              )
-        else {
-            return fallback
-        }
-
-        let flagStats = database.flagStats()
-        if let totalRecord = flagStats.first(where: { $0.category == "total" }),
-           let mappedRecord = flagStats.first(where: { $0.category == "mapped" }) {
-            let total = totalRecord.qcPass.addingReportingOverflow(totalRecord.qcFail)
-            let mapped = mappedRecord.qcPass.addingReportingOverflow(mappedRecord.qcFail)
-            if !total.overflow,
-               !mapped.overflow,
-               total.partialValue >= 0,
-               mapped.partialValue >= 0,
-               total.partialValue >= mapped.partialValue {
-                return AlignmentReadCounts(
-                    mapped: Int(clamping: mapped.partialValue),
-                    total: Int(clamping: total.partialValue)
-                )
-            }
-        }
-
-        let databaseMapped = database.totalMappedReads()
-        let databaseUnmapped = database.totalUnmappedReads()
-        let databaseTotal = databaseMapped.addingReportingOverflow(databaseUnmapped)
-        guard databaseMapped >= 0,
-              databaseUnmapped >= 0,
-              !databaseTotal.overflow,
-              databaseTotal.partialValue > 0 else {
-            return fallback
-        }
-        return AlignmentReadCounts(
-            mapped: Int(clamping: databaseMapped),
-            total: Int(clamping: databaseTotal.partialValue)
-        )
-    }
-
-    private func metadataFallbackRows(
-        for track: AlignmentTrackInfo,
-        bundleURL: URL,
-        totalReads: Int
-    ) -> [MappingContigSummary]? {
-        guard let metadataDBPath = track.metadataDBPath else { return nil }
-        let metadataDBURL = resolvedTrackURL(metadataDBPath, bundleURL: bundleURL)
-        guard let database = try? AlignmentMetadataDatabase(url: metadataDBURL) else { return nil }
-
-        let rows = database.chromosomeStats()
-            .filter { $0.mappedReads > 0 }
-            .map { stat in
-                MappingContigSummary(
-                    contigName: stat.chromosome,
-                    contigLength: Int(clamping: stat.length),
-                    mappedReads: Int(clamping: stat.mappedReads),
-                    mappedReadPercent: totalReads > 0
-                        ? Double(stat.mappedReads) / Double(totalReads) * 100
-                        : 0,
-                    meanDepth: 0,
-                    coverageBreadth: 0,
-                    medianMAPQ: 0,
-                    meanIdentity: 0
-                )
-            }
-
-        return rows.isEmpty ? nil : rows
     }
 
     private func resolvedTrackURL(_ path: String, bundleURL: URL) -> URL {

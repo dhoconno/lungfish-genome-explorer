@@ -534,7 +534,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.sampleID), ["S1"])
     }
 
-    func testRedisplayingSameMappingResultPreservesFocusSelectionAndRegion() throws {
+    func testRedisplayingSameMappingResultPreservesFocusSelectionAndRegion() async throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "Redisplay Keeps State",
             chromosomes: [.init(name: "chr1", length: 100)]
@@ -552,7 +552,13 @@ final class MappingViewportRoutingTests: XCTestCase {
 
         let split = MainSplitViewController(); split.loadViewIfNeeded()
         split.displayMappingAnalysisFromSidebar(at: resultURL)
-        let viewport = try MappingRoutingFixture.waitForInitialSampleRows(on: split)
+        await split.bundleOpenTask?.value
+        let rowsShown = await waitUntil(timeout: .seconds(20)) {
+            split.viewerController.referenceBundleViewportController?
+                .testContigTableView.displayedRows.contains { $0.sampleID == "S1" } == true
+        }
+        XCTAssertTrue(rowsShown, "the sample rows never showed")
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
         viewport.testSelectContig(named: "chr1")
         viewport.testEnterFocusedDetailMode()
         let viewer = viewport.testEmbeddedViewerController
@@ -564,6 +570,9 @@ final class MappingViewportRoutingTests: XCTestCase {
         // refresh, a repeated selection event, a window-level relayout that
         // re-routes the selection) must not rebuild the viewport.
         split.displayMappingAnalysisFromSidebar(at: resultURL)
+        // The repeated open decodes off the main actor, then finds the same
+        // document by identity and keeps the live viewport.
+        await split.bundleOpenTask?.value
 
         XCTAssertTrue(split.viewerController.referenceBundleViewportController === viewport)
         XCTAssertEqual(viewport.testPresentationMode, .focusedDetail)
@@ -620,7 +629,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let routeSource = String(mainWindowSource[routeStart.lowerBound..<routeEnd.lowerBound])
 
         let clearRange = try XCTUnwrap(routeSource.range(of: "self.inspectorController.clearSelection()"))
-        let manifestRange = try XCTUnwrap(routeSource.range(of: "let manifest = try BundleManifest.load(from: url)"))
+        let manifestRange = try XCTUnwrap(routeSource.range(of: "try self.viewerController.display(route)"))
 
         // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
         // displayReferenceBundleViewportFromSidebar(at:) is a real, directly-callable
@@ -631,7 +640,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         // are all covered by those tests' downstream assertions on inspectorController /
         // viewport state. What is NOT independently observable at runtime is the specific
         // internal *ordering* this test checks (clearSelection() called strictly before
-        // BundleManifest.load(from:)) -- there is no timing/ordering seam for that without
+        // the viewer displays the decoded manifest) -- there is no timing/ordering seam for that without
         // adding instrumentation to the production method.
         XCTAssertLessThan(clearRange.lowerBound, manifestRange.lowerBound)
         XCTAssertTrue(routeSource.contains("wireDirectReferenceViewportInspectorUpdates()"))
@@ -1482,7 +1491,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         let route = ViewerDisplayRouteFactory.mappingResult(
             result,
             resultDirectoryURL: resultDirectory,
-            provenance: nil
+            provenance: nil,
+            viewerBundleManifest: try BundleManifest.load(from: bundleURL)
         )
 
         guard case .referenceBundle(let input) = route else {
@@ -1535,7 +1545,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         try vc.display(ViewerDisplayRouteFactory.mappingResult(
             result,
             resultDirectoryURL: resultDirectory,
-            provenance: nil
+            provenance: nil,
+            viewerBundleManifest: try BundleManifest.load(from: bundleURL)
         ))
 
         XCTAssertEqual(vc.activeMappingViewportController?.currentInput?.kind, .mappingResult)
@@ -1753,9 +1764,10 @@ enum MappingRoutingFixture {
 
     static func makeReferenceBundle(
         name: String,
-        chromosomes: [Chromosome]
+        chromosomes: [Chromosome],
+        in parent: URL? = nil
     ) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = parent ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping-routing-\(UUID().uuidString)", isDirectory: true)
         let bundleURL = root.appendingPathComponent("\(name).lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
