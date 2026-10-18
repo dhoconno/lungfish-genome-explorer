@@ -14,18 +14,29 @@ final class BundleDecodeLog: Sendable {
     private let entries = Mutex<[(kind: BundleLoadProbe.Kind, path: String)]>([])
 
     /// Records each later decode. With `offMainOnly`, a decode on the main
-    /// thread stops the test process at that decode.
-    func install(offMainOnly: Bool) {
+    /// thread stops the test process at that decode. With `held`, the manifest
+    /// decode of that bundle waits on `gate` once it is recorded.
+    func install(offMainOnly: Bool, holding held: URL? = nil, on gate: BundleDecodeGate? = nil) {
+        let heldPath = held?.standardizedFileURL.path
         BundleLoadProbe.install { [self] kind, url in
             if offMainOnly {
                 dispatchPrecondition(condition: .notOnQueue(.main))
             }
-            entries.withLock { $0.append((kind, url.standardizedFileURL.path)) }
+            let path = url.standardizedFileURL.path
+            entries.withLock { $0.append((kind, path)) }
+            if kind == .bundleManifest, path == heldPath {
+                gate?.waitForRelease()
+            }
         }
     }
 
     func count(_ kind: BundleLoadProbe.Kind) -> Int {
         entries.withLock { $0.filter { $0.kind == kind }.count }
+    }
+
+    /// The bundle or result folders decoded as `kind`, in the order the decodes began.
+    func paths(_ kind: BundleLoadProbe.Kind) -> [String] {
+        entries.withLock { $0.filter { $0.kind == kind }.map(\.path) }
     }
 }
 
@@ -63,5 +74,81 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
         let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
         XCTAssertEqual(viewport.testDisplayedSequenceNames.sorted(), ["chr1", "chr2"])
         XCTAssertEqual(decodes.count(.bundleManifest), 1)
+    }
+
+    /// UX ruling Q-S1. The decode of a bundle the user has left still runs to
+    /// its end, and its late result must leave only the new selection's rows.
+    func testSupersededOpenCommitsOnlyTheNewSelection() async throws {
+        let root = try TestTempDirectory.make(prefix: "ReferenceOpenSuperseded")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleA = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle A", chromosomes: [.init(name: "chrA1", length: 100)], in: root
+        )
+        let bundleB = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle B", chromosomes: [.init(name: "chrB1", length: 100)], in: root
+        )
+        let gate = BundleDecodeGate()
+        defer { gate.release() }
+        let decodes = BundleDecodeLog()
+        decodes.install(offMainOnly: true, holding: bundleA, on: gate)
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleA)
+        let taskA = split.bundleOpenTask
+        await waitUntil(timeout: .seconds(30)) { decodes.count(.bundleManifest) == 1 }
+        split.displayReferenceBundleViewportFromSidebar(at: bundleB)
+
+        let showsB = await waitUntil(timeout: .seconds(30)) {
+            split.viewerController.referenceBundleViewportController?.testDisplayedSequenceNames == ["chrB1"]
+        }
+        XCTAssertTrue(showsB, "the newer selection never showed its rows")
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+
+        gate.release()
+        await taskA?.value
+
+        XCTAssertTrue(split.viewerController.referenceBundleViewportController === viewport)
+        XCTAssertEqual(viewport.testDisplayedSequenceNames, ["chrB1"])
+        XCTAssertEqual(viewport.currentInput?.renderedBundleURL, bundleB.standardizedFileURL)
+        let holdsB = await waitUntil(timeout: .seconds(30)) {
+            viewport.testEmbeddedViewerController.currentReferenceBundle?.url.standardizedFileURL
+                == bundleB.standardizedFileURL
+        }
+        XCTAssertTrue(holdsB, "the embedded viewer does not hold the newer selection")
+        XCTAssertEqual(
+            decodes.paths(.bundleManifest),
+            [bundleA, bundleB].map(\.standardizedFileURL.path)
+        )
+    }
+
+    /// A reference open left for an item of another kind takes its
+    /// "Loading …" toast down when its decode ends. No later load hides it.
+    func testOpenSupersededByAnotherItemHidesItsToast() async throws {
+        let root = try TestTempDirectory.make(prefix: "ReferenceOpenToast")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleA = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle A", chromosomes: [.init(name: "chrA1", length: 100)], in: root
+        )
+        let gate = BundleDecodeGate()
+        defer { gate.release() }
+        let decodes = BundleDecodeLog()
+        decodes.install(offMainOnly: true, holding: bundleA, on: gate)
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleA)
+        let taskA = split.bundleOpenTask
+        XCTAssertFalse(split.activityIndicator.isHidden, "the open shows no Loading toast")
+        await waitUntil(timeout: .seconds(30)) { decodes.count(.bundleManifest) == 1 }
+
+        _ = split.beginDisplayRequest(identity: split.contentSelectionIdentity(url: root, kind: "other"))
+        split.viewerController.clearViewport()
+        gate.release()
+        await taskA?.value
+
+        let hidden = await waitUntil(timeout: .seconds(30)) { split.activityIndicator.isHidden }
+        XCTAssertTrue(hidden, "the superseded open left its Loading toast on screen")
+        XCTAssertNil(split.viewerController.referenceBundleViewportController)
     }
 }

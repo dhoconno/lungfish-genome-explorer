@@ -807,9 +807,10 @@ extension MainSplitViewController {
         bundleOpenTask?.cancel()
         bundleOpenTask = Task { @MainActor [weak self] in
             let loaded = await Self.loadReferenceManifestOffMain(at: url)
-            guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+            guard let self else { return }
             self.activityIndicator.hide()
-            guard self.viewerAwaitsBundleOpen(at: url, kind: .directBundle) else { return }
+            guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity),
+                  self.viewerAwaitsBundleOpen(at: url, kind: .directBundle) else { return }
             do {
                 self.inspectorController.clearSelection()
                 let manifest = try loaded.get()
