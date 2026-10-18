@@ -140,6 +140,28 @@ final class TaxTriageBatchManifestUniqueReadsTests: XCTestCase {
         XCTAssertEqual(manifest.cachedRows.map(\.uniqueReads), [80, 3, 12, nil], "the last write wins")
     }
 
+    /// A write waits for the write before it. With that earlier write held open, the manifest on disk stays as it was
+    /// saved, and once the earlier write ends the later one lands. Without the wait the later write lands at once, so
+    /// this fails every time the chain breaks, where the test above can fail in only part of the runs.
+    func testAWriteWaitsForTheWriteBeforeIt() async throws {
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(Self.saved, to: root)
+        let viewer = TaxTriageResultViewController()
+        viewer.batchGroupURL = root
+        let (held, release) = AsyncStream<Void>.makeStream()
+        viewer.batchManifestWriteTask = Task { for await _ in held { break } }
+        viewer.batchFlatTableView.uniqueReadsByKey = ["S1\t\(Self.influenza)": 80]
+        let write = try XCTUnwrap(viewer.updateBatchManifestUniqueReads())
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let waiting = try XCTUnwrap(MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: root))
+        XCTAssertNil(waiting.cachedRows[0].uniqueReads, "the later write waits while the earlier one is held")
+
+        release.yield()
+        await write.value
+        let written = try XCTUnwrap(MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: root))
+        XCTAssertEqual(written.cachedRows[0].uniqueReads, 80, "the later write lands once the earlier one ends")
+    }
+
     func testAViewerWithNoBatchFolderWritesNothing() {
         XCTAssertNil(TaxTriageResultViewController().updateBatchManifestUniqueReads())
     }

@@ -466,7 +466,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private(set) var batchFlatTableView = BatchTaxTriageTableView()
 
     /// The last write of the batch manifest's unique reads, which the next write waits for.
-    private var batchManifestWriteTask: Task<Void, Never>?
+    var batchManifestWriteTask: Task<Void, Never>?
 
     /// Container for the right pane content (organism table, batch overview, or batch flat table).
     /// Stored as an instance property so `setupBatchFlatTableView()` can add to it.
