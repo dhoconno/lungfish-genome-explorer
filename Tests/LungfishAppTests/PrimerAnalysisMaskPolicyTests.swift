@@ -204,6 +204,13 @@ final class PrimerAnalysisMaskPolicyTests: XCTestCase {
             log("[13:12:21]", "[13:12:22]", amplicons: 3, pairs: 781, rate: "4295.93"),
             butNot: log("[13:11:20]", blank, amplicons: 4, pairs: 781, rate: "4305.26")
         )
+        // The last count of a progress bar is compared as written, so another final count still differs.
+        let count = try compare(
+            "logs/stdout.txt", log("[13:11:20]", blank, amplicons: 3, pairs: 781, rate: "4305.26"),
+            log("[13:11:20]", blank, amplicons: 3, pairs: 780, rate: "4305.26")
+        )
+        XCTAssertEqual(count.primer.count, 1, "\(count.primer)")
+        XCTAssertTrue(count.primer.first?.hasPrefix("differs: logs/stdout.txt") == true, "\(count.primer)")
         func record(_ time: String, exit: Int) -> String {
             let stderr = "\(time) INFO     Completed\\nPairs: 100%|##########| 781/781 [00:00<00:00, 4305.26it/s]\\n"
             return #"{"exitStatus":\#(exit),"stderr":"\#(stderr)"}"#
