@@ -5,7 +5,9 @@
 // Phase 2.12 lane 12.11 M1, freeze first (QA 1, X12, BIO 1 and 5, REVIEW.md:172). Before the taxa
 // collection leaves `TaxonomyExtractionPipeline.extractBatch` and `conda extract` retires, one fixture
 // selection of each of the five `ClassifierTool` cases goes through `ClassifierReadResolver`, and the
-// Kraken2 collection goes through `extractBatch`. What each writes is frozen as text: the read names in
+// Kraken2 collection goes through `extractBatch`, the old engine the freeze was captured on. Since lane
+// 12.11 M3 the leaf runs the collection through `ClassifierReadResolver.extractCollection`. What each
+// writes is frozen as text: the read names in
 // file order, their count, the unique count, how many fragments are pairs or single reads, and how many
 // mates sit next to each other. A later engine must give the same text.
 //

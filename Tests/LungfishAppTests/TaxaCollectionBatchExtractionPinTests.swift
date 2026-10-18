@@ -10,6 +10,9 @@
 // spaces as underscores and its tax ID. A result of two read files gives one file per taxon with each
 // pair's mates together. A taxon without reads is skipped and not counted. A cancel stops at the
 // next taxon and keeps the files already written.
+//
+// Since lane 12.11 M3 the leaf runs the collection through `ClassifierReadResolver.extractCollection`.
+// `extractBatch` is the old engine these pins were captured on, and they hold unchanged.
 
 import XCTest
 @testable import LungfishApp
