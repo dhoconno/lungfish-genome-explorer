@@ -338,4 +338,48 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(overridden.workConstructionCandidateAttempts, 2_048)
         XCTAssertEqual(overridden.workFamiliesPerRefresh, 16)
     }
+
+    // MARK: - A67-ANALYSES (2.12 lane 12.17)
+
+    /// A copied `primers design primer3` command reruns in a project whose `Analyses` folder is gone, since the leaf
+    /// creates the missing parent of `--output` before it builds the request (ruling 4 of the A67 review). Primer3 is a
+    /// stand-in that answers the version probe and returns no pair for each template.
+    func testPrimer3LeafCreatesAMissingAnalysesFolder() async throws {
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("primer3-analyses-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fasta = root.appendingPathComponent("templates.fasta")
+        try Data((">template-one\n" + String(repeating: "ACGTTGCAAC", count: 30) + "\n").utf8).write(to: fasta)
+        let primer3 = try Self.writeStandInPrimer3(in: root)
+        let analyses = root.appendingPathComponent("Analyses", isDirectory: true)
+        let output = analyses.appendingPathComponent("design.lungfishprimeranalysis", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: analyses.path))
+        let command = try PrimerDesignCommand.Primer3Subcommand.parse([
+            "--fasta-record", fasta.path + "@0", "--output", output.path, "--primer3-path", primer3.path,
+        ])
+        do {
+            try await command.run()
+        } catch {
+            return XCTFail("the leaf failed: \(PrimerDesignCommand.Primer3Subcommand.message(for: error))")
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: output.appendingPathComponent("results/primer3-normalized-v1.json").path),
+            "the leaf wrote the bundle into the Analyses folder it created"
+        )
+    }
+
+    /// A stand-in `primer3_core` that answers `--about` and writes a record with no pair for each template it reads.
+    static func writeStandInPrimer3(in folder: URL) throws -> URL {
+        let url = folder.appendingPathComponent("primer3_core")
+        let script = """
+        #!/bin/sh
+        if [ "$1" = "--about" ]; then echo "libprimer3 release 2.6.1"; exit 0; fi
+        out="${1#--output=}"
+        grep '^SEQUENCE_ID=' "$2" | while IFS= read -r line; do printf '%s\\nPRIMER_PAIR_NUM_RETURNED=0\\n=\\n' "$line"; done > "$out"
+        """
+        try Data((script + "\n").utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
+    }
 }

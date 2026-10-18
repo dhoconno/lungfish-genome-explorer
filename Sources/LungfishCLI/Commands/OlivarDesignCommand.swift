@@ -141,6 +141,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
         for input in inputs {
             checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256
         }
+        try PrimerDesignCommand.createOutputParent(outputPath)
         let invocation = PrimerAnalysisWrapperInvocation(
             argv: argv, callerVersion: LungfishAppVersion.cliToolVersion,
             explicitOptions: options.provenanceOptions,

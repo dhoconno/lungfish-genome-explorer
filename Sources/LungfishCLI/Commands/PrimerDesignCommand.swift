@@ -20,6 +20,15 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         return (URL(fileURLWithPath: String(value[..<separator])), index)
     }
 
+    /// Creates the missing parent of `--output`, as the dialog does before its row begins, so a copied command reruns in
+    /// a project whose `Analyses` folder is gone (Phase 2.12 lane 12.17, A67-ANALYSES). Each of the four leaves calls it
+    /// after its arguments pass and before it builds the request.
+    static func createOutputParent(_ outputPath: String) throws {
+        try FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: outputPath).deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+    }
+
     struct Primer3Subcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "primer3",
@@ -147,6 +156,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             for input in inputs { checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256 }
             let options = try makeOptions()
             let explicit = Self.explicitOptions(options, selections: selections)
+            try PrimerDesignCommand.createOutputParent(outputPath)
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
             return try await Primer3DesignPipeline().run(request: .init(inputURLs: inputs, selections: selections, destinationURL: URL(fileURLWithPath: outputPath), options: options, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
         }
@@ -357,6 +367,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             var checksums: [URL: String] = [:]
             for input in inputs { checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256 }
             let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
+            try PrimerDesignCommand.createOutputParent(outputPath)
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
             return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
         }

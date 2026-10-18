@@ -109,16 +109,14 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
         root.appendingPathComponent("Analyses/\(analysisName).lungfishprimeranalysis", isDirectory: true)
     }
 
-    /// One template of 600 bases from a fixed generator, about half G and C, so Primer3 finds pairs, and the project's
-    /// `Analyses` folder, which the dialog creates before a run and the command expects to exist. One template, because
+    /// One template of 600 bases from a fixed generator, about half G and C, so Primer3 finds pairs. One template, because
     /// the comparison numbers the UUIDs of files that tie on their blanked name and text (`annotations/<UUID>.bed` of two
     /// templates) in the order of their random raw names, so two runs of the same design would number them differently.
+    /// The project has no `Analyses` folder. The dialog creates it on sides A and C, and the command creates it on the
+    /// replay C', which pins A67-ANALYSES (2.12 lane 12.17).
     private static func writeFixture(_ root: URL) throws {
         let text = ">template-one\n" + wrapped(sequence(seed: 11, length: 600)) + "\n"
         try text.write(to: root.appendingPathComponent("templates.fasta"), atomically: true, encoding: .utf8)
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("Analyses", isDirectory: true), withIntermediateDirectories: true
-        )
     }
 
     static func sequence(seed: UInt64, length: Int) -> String {
