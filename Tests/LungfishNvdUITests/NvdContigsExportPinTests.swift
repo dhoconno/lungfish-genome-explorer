@@ -53,7 +53,8 @@ final class NvdContigsExportPinTests: XCTestCase {
     }
 
     /// The record facts lane 12.31 predicts will move (tool, kind, argv, workflow name), the `resolved` keys and
-    /// the inputs, which name the database, the result's manifest and the run folder.
+    /// the inputs, which name the database, the result's manifest and the sample metadata table the shown column
+    /// reads (BIO ruling on 12.31 M4).
     @MainActor func testRecordNamesTheAppWriterAndTheViewState() throws {
         let vc = try configuredController()
         let outputURL = folder.appendingPathComponent("contigs.tsv")
@@ -84,7 +85,24 @@ final class NvdContigsExportPinTests: XCTestCase {
         XCTAssertEqual(envelope.options.defaults["format"]?.stringValue, "tsv")
         XCTAssertEqual(
             envelope.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted(),
-            ["manifest.json", "nvd-run", "nvd.sqlite"]
+            ["hits.sqlite", "manifest.json", "sample_metadata.tsv"]
+        )
+    }
+
+    /// BIO ruling on 12.31 M4 (M4-3). The run folder the import read feeds no byte, so it is never an input, and with
+    /// no metadata column shown the sample metadata table is not one either. `metadataColumnController` is private to
+    /// the view, so the fixture opens with the store applied and no column shown.
+    @MainActor func testRunFolderIsNeverAnInput() throws {
+        let vc = try configuredController(showsMetadataColumn: false)
+        let outputURL = folder.appendingPathComponent("contigs.tsv")
+        try vc.writeContigsTSV(to: outputURL)
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        XCTAssertEqual(
+            envelope.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted(),
+            ["hits.sqlite", "manifest.json"]
         )
     }
 
@@ -109,7 +127,7 @@ final class NvdContigsExportPinTests: XCTestCase {
 
     // MARK: - Fixture
 
-    @MainActor private func configuredController() throws -> NvdResultViewController {
+    @MainActor private func configuredController(showsMetadataColumn: Bool = true) throws -> NvdResultViewController {
         let isolatedDefaults = makeTestDefaultsSuite(prefix: "NvdContigsExportPinTests").defaults
         NvdResultViewController.testMetadataUserDefaultsOverride = isolatedDefaults
         addTeardownBlock {
@@ -122,7 +140,7 @@ final class NvdContigsExportPinTests: XCTestCase {
         try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
         let samples = ["sample1", "sample2", "sample3"]
         let database = try NvdDatabase.create(
-            at: bundleURL.appendingPathComponent("nvd.sqlite"),
+            at: bundleURL.appendingPathComponent("hits.sqlite"),
             hits: [
                 Self.hit(sample: "sample1", contig: "contig_1", name: "Alpha virus", reads: 30),
                 Self.hit(sample: "sample1", contig: "contig_2", name: "Beta phage", reads: 50),
@@ -151,10 +169,16 @@ final class NvdContigsExportPinTests: XCTestCase {
         let vc = NvdResultViewController()
         _ = vc.view
         vc.configure(database: database, manifest: manifest, bundleURL: bundleURL)
-        vc.testShowMetadataColumn("Cohort", store: try SampleMetadataStore(
-            csvData: Data("Sample\tCohort\nsample1\tcase\nsample2\tcontrol\nsample3\tcase\n".utf8),
-            knownSampleIds: Set(samples)
-        ))
+        let metadataFolder = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataFolder, withIntermediateDirectories: true)
+        try Data("Sample\tCohort\nsample1\tcase\nsample2\tcontrol\nsample3\tcase\n".utf8)
+            .write(to: metadataFolder.appendingPathComponent("sample_metadata.tsv"))
+        let store = try XCTUnwrap(SampleMetadataStore.load(from: bundleURL, knownSampleIds: Set(samples)))
+        if showsMetadataColumn {
+            vc.testShowMetadataColumn("Cohort", store: store)
+        } else {
+            vc.applySampleMetadata(store)
+        }
         vc.testSearchField.stringValue = "virus"
         _ = vc.testSearchField.target?.perform(vc.testSearchField.action, with: vc.testSearchField)
         vc.testOutlineView.sortDescriptors = [NSSortDescriptor(key: "mappedReads", ascending: true)]

@@ -361,9 +361,8 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["searchQuery"]?.stringValue, "")
         XCTAssertEqual(envelope.options.resolvedDefaults["groupingMode"]?.stringValue, "bySample")
         XCTAssertTrue(envelope.files.contains { $0.path == fixture.database.databaseURL.path && $0.checksumSHA256 != nil })
-        let sourceDirectory = try XCTUnwrap(envelope.files.first { $0.path == fixture.rootURL.path && $0.role == .input })
-        XCTAssertNotNil(sourceDirectory.checksumSHA256)
-        XCTAssertNotNil(sourceDirectory.fileSize)
+        // BIO ruling on 12.31 M4 (M4-3). The run folder the import read feeds no byte, so it is not an input.
+        XCTAssertFalse(envelope.files.contains { $0.path == fixture.rootURL.path && $0.role == .input })
     }
 
     func testOutlineTypographyScalesReusedRolesAndLateMetadataWithoutReloading() throws {

@@ -2451,9 +2451,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
         if let bundleURL {
             urls.append(bundleURL.appendingPathComponent("manifest.json"))
-        }
-        if let sourceDirectoryPath = manifest?.sourceDirectoryPath, !sourceDirectoryPath.isEmpty {
-            urls.append(URL(fileURLWithPath: sourceDirectoryPath, isDirectory: true))
+            let writesMetadata = !metadataColumnController.exportHeaders.isEmpty
+            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: writesMetadata)
         }
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
