@@ -118,6 +118,24 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         XCTAssertNil(PrimerDesignOperation.cliCommand(state: unread, destination: destination))
     }
 
+    // MARK: - dialog words (2.12 lane 12.17, UX ruling)
+
+    /// The text of a dialog whose settings have no command (nothing ran) and the alert of a name taken between the check
+    /// and the launch are the UX ruling's words, so a rewording of either is a decision and not a drift. No test reaches
+    /// the presenter's branch for a missing command, since no dialog state lacks one
+    /// (`PrimerDesignCommandRoundTripTests.testEveryDialogAssayAndSchemeEngineHasACommand`), so this pin holds the words
+    /// themselves.
+    func testTheDialogWordsForNothingRanAndATakenNameAreTheRulingsWords() {
+        XCTAssertEqual(
+            PrimerDesignOperation.noCommandMessage,
+            "Lungfish could not build the lungfish-cli command for these settings, so nothing ran. Check the settings and try again."
+        )
+        XCTAssertEqual(
+            PrimerDesignOperation.existingDestinationMessage,
+            "An analysis with this name already exists in the project. Run the design again with a different name."
+        )
+    }
+
     // MARK: - start
 
     func testTheNativeToolArgvGoesToTheLogAndTheRowKeepsTheCommand() async throws {
