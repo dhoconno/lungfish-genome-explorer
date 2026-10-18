@@ -25,6 +25,26 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertTrue(names.contains("project"))
     }
 
+    /// The clock seam of `project copy-item` (BIO ruling on T5, S1) stays a seam. A debug build reads the time
+    /// from its variable and falls back to the clock for a text that does not parse, and a release build ignores
+    /// the variable. The environment is a parameter, so the test sets nothing in its own process.
+    func testCopiedAtReadsItsVariableOnlyInADebugBuild() {
+        let variable = "LUNGFISH_TEST_COPIED_AT"
+        let text = "2026-10-18T12:00:00Z"
+        #if DEBUG
+        XCTAssertEqual(
+            ProjectCopyItemSubcommand.copiedAt(environment: [variable: text]),
+            ISO8601DateFormatter().date(from: text)
+        )
+        let unparsed = ProjectCopyItemSubcommand.copiedAt(environment: [variable: "not a time"])
+        XCTAssertLessThan(abs(unparsed.timeIntervalSinceNow), 5, "a text that does not parse falls back to the clock")
+        #else
+        let ignored = ProjectCopyItemSubcommand.copiedAt(environment: [variable: text])
+        XCTAssertLessThan(abs(ignored.timeIntervalSinceNow), 5, "a release build ignores the variable")
+        #endif
+        XCTAssertEqual(ProjectCopyItemSubcommand.copiedAtVariable, variable)
+    }
+
     func testLockCreatesMachineReadableRecord() async throws {
         let projectURL = try makeProject()
 
