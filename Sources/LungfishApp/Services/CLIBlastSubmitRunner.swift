@@ -26,6 +26,9 @@ struct BlastSubmitRequest: Sendable, Equatable {
     var acceptedNames: [String] = []
     var relatedTaxIds: [Int] = []
     var relatedNames: [String] = []
+    /// The NCBI database, sent as `--database` only when set, so a request with none searches the leaf's
+    /// default `core_nt` (2.12 lane 12.10, BIO 3).
+    var database: String? = nil
 }
 
 /// The files a completed `blast submit` names, its record first.
@@ -88,6 +91,7 @@ struct CLIBlastSubmitRunner {
         for name in request.acceptedNames { arguments += ["--accepted-name", name] }
         for taxId in request.relatedTaxIds.sorted() { arguments += ["--related-taxid", String(taxId)] }
         for name in request.relatedNames { arguments += ["--related-name", name] }
+        if let database = request.database { arguments += ["--database", database] }
         return arguments + ["--format", "json", "--no-progress"]
     }
 
