@@ -5,8 +5,9 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 /// Lane 12.39 M1 pins of B11, the sample metadata template, at the base with no Sources edit (QA 1). The base
-/// writes the template inside the save panel's completion (`AnnotationTableDrawerView.swift:4453-4482`), which a
-/// test cannot reach, so `frozenTemplate` is that closure copied verbatim with the view's reads made values
+/// writes the template inside the save panel's completion (`AnnotationTableDrawerView.swift:4453-4488` at `79fdff006`,
+/// replaced by `beginVariantSampleTemplateExportOperation` in `89809c0da`), which a test cannot reach, so
+/// `frozenTemplate` is that closure copied verbatim with the view's reads made values
 /// (`searchIndex.variantDatabaseHandles`, `sampleMetadataFields` and the panel's URL). It writes with
 /// `String.write(atomically:)` and records nothing, and a failure only logs.
 final class VariantSampleTemplateExportPinTests: XCTestCase {
