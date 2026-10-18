@@ -56,6 +56,10 @@ extension ClassifierReadResolver {
                     progress: { fraction, message in progress?(min(base + step * fraction, base + step), message) }
                 ))
             } catch TaxonomyExtractionError.noMatchingReads, ClassifierExtractionError.zeroReadsExtracted {
+                // The resolver gives noMatchingReads unchanged for a taxon with no read under its scope, such as an
+                // exact taxon with none of its own (TaxonomyExtractionPipeline.extractEachSource), and
+                // zeroReadsExtracted when its files hold none. Both are the skip extractBatch gave the first. Any
+                // other error, an empty seqkit output included, fails the batch as it did.
                 collectionLogger.info("No matching reads for \(target.displayName, privacy: .public), skipping")
                 skipped += 1
                 progress?(base + step, "Skipped \(target.displayName) (no matching reads)")
