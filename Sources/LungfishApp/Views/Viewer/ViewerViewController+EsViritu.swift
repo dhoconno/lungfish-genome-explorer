@@ -249,12 +249,16 @@ extension ViewerViewController {
         esVirituLogger.info("displayEsVirituFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
     }
 
-    /// The EsViritu detection's search on `blast submit` (2.12 lane 12.08). With no project it shows the
-    /// `No Project Open` refusal and starts nothing. Otherwise the drawer shows the search starting while
-    /// the reads of `accessions` are extracted from the sample's BAM into the project's `.tmp`, and once
-    /// they are read the row begins with the command of the plan they make and runs it. The extraction
-    /// comes before the row because the row records the command it runs, and that command names the
-    /// count the subsample drew. An extraction that fails shows in the drawer.
+    /// The EsViritu detection's search on `blast submit` (2.12 lane 12.08, review fix 4). With no project it
+    /// shows the `No Project Open` refusal and begins no row. Otherwise the row begins at once with no
+    /// command and the stage word `Extracting reads for selected accessions…`, so Cancel reaches it while
+    /// the reads of `accessions` are extracted from the sample's BAM into the project's `.tmp`. Once they
+    /// are read, the plan they make gives the command, which names the count the subsample drew. The row
+    /// takes it through `setCommand` and the leaf starts at once. A Cancel during the extraction ends the
+    /// row cancelled and starts no search, and an extraction that fails fails the row and the drawer.
+    /// `drawer`, `runner` and `extractReads` are seams for tests. The result is the task that extracts
+    /// and launches, nil when no row began.
+    @discardableResult
     func launchEsVirituBlastSubmit(
         detection: ViralDetection,
         readCount: Int,
@@ -262,37 +266,56 @@ extension ViewerViewController {
         bamURL: URL,
         bamIndexURL: URL?,
         resultURL: URL,
-        controller: EsVirituResultViewController?
-    ) {
+        controller: EsVirituResultViewController?,
+        drawer: BlastSubmitDrawer? = nil,
+        runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner(),
+        extractReads: @escaping EsVirituBlastReads.Extractor = EsVirituBlastReads.extract
+    ) -> Task<Void, Never>? {
         let window = view.window
         guard let projectURL = blastSubmitProjectURL() ?? ProjectTempDirectory.findProjectRoot(resultURL) else {
-            return Self.refuseBlastWithoutProject(window: window)
+            Self.refuseBlastWithoutProject(window: window)
+            return nil
         }
-        controller?.showBlastLoading(phase: .submitting, requestId: nil)
-        Task { @MainActor in
-            let reads: [(id: String, sequence: String)]
-            do {
-                reads = try await EsVirituBlastReads.extract(
-                    bamURL: bamURL, indexURL: bamIndexURL, accessions: accessions, projectURL: projectURL
-                )
-            } catch {
-                controller?.showBlastFailure(error.localizedDescription)
-                return
+        let drawer = drawer ?? BlastSubmitDrawer(
+            loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+            results: { controller?.showBlastResults($0) },
+            failure: { controller?.showBlastFailure($0) }
+        )
+        var extraction: Task<Void, Never>?
+        // 1. The row begins with no command. 2. The reads are extracted. 3. The row takes the plan's command.
+        Self.beginEsVirituBlastVerificationOperation(taxonName: detection.name) { opID in
+            drawer.loading(.submitting)
+            OperationCenter.shared.update(id: opID, progress: 0.1, detail: "Extracting reads for selected accessions…")
+            let task = Task { @MainActor in
+                do {
+                    let reads = try await extractReads(bamURL, bamIndexURL, accessions, projectURL)
+                    // A Cancel moves the row to cancelling at once but stops this task a moment later, so the
+                    // row is asked as well as the task.
+                    try Task.checkCancellation()
+                    guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                        throw CancellationError()
+                    }
+                    let plan = try Self.esVirituBlastSubmitPlan(
+                        detection: detection, reads: reads, readCount: readCount, accessions: accessions,
+                        projectURL: projectURL, sourceResultURL: resultURL
+                    )
+                    OperationCenter.shared.setCommand(id: opID, command: plan.cliCommand)
+                    // No await sits between the checks above and the cancel callback this call replaces.
+                    Self.launchBlastSubmit(plan, operationID: opID, runner: runner, drawer: drawer) {
+                        "\($0.verifiedCount)/\($0.readResults.count) verified"
+                    }
+                } catch is CancellationError {
+                    OperationCenter.shared.acknowledgeCancellation(id: opID)
+                } catch {
+                    let words = error.localizedDescription
+                    guard OperationCenter.shared.fail(id: opID, detail: words, errorMessage: words) else { return }
+                    drawer.failure(words)
+                }
             }
-            guard let plan = Self.blastSubmitPlan(window: window, failure: { controller?.showBlastFailure($0) }, {
-                try Self.esVirituBlastSubmitPlan(
-                    detection: detection, reads: reads, readCount: readCount, accessions: accessions,
-                    projectURL: projectURL, sourceResultURL: resultURL
-                )
-            }) else { return }
-            Self.beginEsVirituBlastVerificationOperation(taxonName: detection.name, cliCommand: plan.cliCommand) { opID in
-                Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
-                    loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                    results: { controller?.showBlastResults($0) },
-                    failure: { controller?.showBlastFailure($0) }
-                )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
-            }
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            extraction = task
         }
+        return extraction
     }
 
     /// The search of an EsViritu detection's reads on `blast submit` (2.12 lane 12.08). From `reads`, the
@@ -374,6 +397,11 @@ extension ViewerViewController {
 
 /// The reads an EsViritu BLAST Verify sends, read off the main actor (2.12 lane 12.08).
 enum EsVirituBlastReads {
+    /// The extraction a BLAST Verify runs, ``extract`` or a test's stand-in.
+    typealias Extractor = @Sendable (
+        _ bamURL: URL, _ indexURL: URL?, _ accessions: [String], _ projectURL: URL
+    ) async throws -> [(id: String, sequence: String)]
+
     /// The reads of `accessions` in the sample's BAM, at most 5,000, as the in-process route reads them. The
     /// extraction runs through `classifierBlastExtractionConfig`, which carries the BAM's index (PF12,
     /// `d4bed54e0`), into a folder under the project's `.tmp` that is removed once the reads are read.

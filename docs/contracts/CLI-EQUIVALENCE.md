@@ -19,6 +19,8 @@ A command may be refined after `begin` with `setCommand`, only to a more specifi
 
 The FASTQ operations dialog row is the first to do this. Its output path is chosen during the run, so the row records `<derived>` as the output at `begin`. After a successful run, `FASTQOperationRowCommand` in `Sources/LungfishApp/Services/FASTQOperationRowCommand.swift` replaces it with the command each imported bundle's manifest records, one line per distinct command in import order. A Savont row takes its executed invocations instead, each naming the published FASTA in `--output`. The row is refined only when every imported bundle or published FASTA exists and every line starts with `lungfish-cli` and holds no `<derived>`. Otherwise the `begin` command stays and one log line says why. A grouped result, such as a demultiplex, keeps the placeholder until Phase 2. `FASTQOperationRowCommandTests` pins the rule, and `FASTQDialogRowCommandReplayTests` replays a refined command onto a second root and compares the payload files.
 
+The EsViritu BLAST Verify row begins with no command while the reads of the selected accessions are extracted from the BAM, and takes `plan.cliCommand` through `setCommand` once the plan exists and before the leaf starts.
+
 ## Same result
 
 The kind of output decides what "same" means. Every comparison applies the masks in the last row and nothing else. `OutputEquivalence.Kind` in `Tests/Support/LungfishTestSupport/OutputEquivalence.swift` names each kind.
