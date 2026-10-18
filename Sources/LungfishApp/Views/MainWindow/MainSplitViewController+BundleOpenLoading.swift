@@ -88,6 +88,8 @@ extension MainSplitViewController {
     nonisolated private static func decodeIndexedBundle(at url: URL) throws -> ReferenceBundle {
         let manifest = try BundleManifest.load(from: url)
         let bundle = ReferenceBundle(url: url.standardizedFileURL, manifest: manifest)
+        // A cancelled open cannot stop its decode, but it can skip the index builds, which would hold the lane for seconds more.
+        try Task.checkCancellation()
         // A genome that cannot be read is reported by the first fetch, as before the indexes were built here.
         try? bundle.prepareSequenceAccess()
         return bundle

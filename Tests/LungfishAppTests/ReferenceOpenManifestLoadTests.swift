@@ -143,6 +143,44 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
         )
     }
 
+    /// FIDX review fix 1. A cancelled open cannot stop its decode, but it skips the
+    /// name index and `.fai` builds, which would hold the decode lane for seconds
+    /// more before the commit guard drops the result. Only the newer selection builds.
+    func testSupersededOpenSkipsItsIndexBuilds() async throws {
+        let root = try TestTempDirectory.make(prefix: "ReferenceOpenSkipsIndexes")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleA = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle A", chromosomes: [.init(name: "chrA1", length: 100)], in: root
+        )
+        let bundleB = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle B", chromosomes: [.init(name: "chrB1", length: 100)], in: root
+        )
+        let gate = BundleDecodeGate()
+        defer { gate.release() }
+        let builds = SequenceIndexBuildLog()
+        builds.install()
+        let decodes = BundleDecodeLog()
+        decodes.install(offMainOnly: true, holding: bundleA, on: gate)
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleA)
+        let taskA = split.bundleOpenTask
+        await waitUntil(timeout: .seconds(30)) { decodes.count(.bundleManifest) == 1 }
+        split.displayReferenceBundleViewportFromSidebar(at: bundleB)
+
+        let showsB = await waitUntil(timeout: .seconds(30)) {
+            split.viewerController.referenceBundleViewportController?.testDisplayedSequenceNames == ["chrB1"]
+        }
+        XCTAssertTrue(showsB, "the newer selection never showed its rows")
+
+        gate.release()
+        await taskA?.value
+
+        XCTAssertEqual(builds.count(.nameIndex), 1, "the superseded open built its name index")
+        XCTAssertEqual(builds.count(.reader), 1, "the superseded open built its sequence reader")
+    }
+
     /// A reference open left for an item of another kind takes its
     /// "Loading …" toast down when its decode ends. No later load hides it.
     func testOpenSupersededByAnotherItemHidesItsToast() async throws {
