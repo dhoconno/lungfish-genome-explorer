@@ -1931,12 +1931,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             urls.append(databaseURL)
         }
         if let batchURL {
-            urls.append(batchURL.appendingPathComponent(EsVirituBatchAggregatedManifest.filename))
             let writesMetadata = !detectionTableView.metadataColumns.exportHeaders.isEmpty
             urls += EsVirituDetectionExport.metadataInputURLs(in: batchURL, writesMetadata: writesMetadata)
-        }
-        if let outputDirectory = esVirituConfig?.outputDirectory {
-            urls.append(outputDirectory.appendingPathComponent("esviritu-result.json"))
         }
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }

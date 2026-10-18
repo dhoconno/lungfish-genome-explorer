@@ -12,6 +12,7 @@ import XCTest
 import AppKit
 @testable import LungfishEsVirituUI
 import LungfishIO
+import struct LungfishWorkflow.EsVirituBatchAggregatedManifest
 import LungfishWorkflow
 import LungfishKit
 @testable import LungfishCore
@@ -110,6 +111,31 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
             "sample_metadata.tsv", "sample_metadata_edits.json",
         ])
         XCTAssertTrue(inputs.allSatisfy { $0.checksumSHA256 != nil })
+
+        vc.testDetectionTableView.metadataColumns.visibleColumns = []
+        let hidden = folder.appendingPathComponent("hidden.tsv")
+        try vc.writeDelimitedDetections(result: Self.result, separator: "\t", fileExtension: "tsv", to: hidden)
+        XCTAssertEqual(try Self.inputs(of: hidden).map(\.path), [])
+    }
+
+    /// The record never names the batch manifest, a display cache that no payload byte comes from (BIO ruling on
+    /// 12.31 G3, G3-1).
+    @MainActor func testBatchAggregatedManifestIsNotAnInput() throws {
+        let resultFolder = folder.appendingPathComponent("esviritu-batch", isDirectory: true)
+        let metadataFolder = resultFolder.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataFolder, withIntermediateDirectories: true)
+        try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
+            .write(to: metadataFolder.appendingPathComponent("sample_metadata.tsv"))
+        try Data("[]".utf8).write(to: metadataFolder.appendingPathComponent("sample_metadata_edits.json"))
+        try Data("{}".utf8).write(to: resultFolder.appendingPathComponent(EsVirituBatchAggregatedManifest.filename))
+        let vc = try Self.configuredController()
+        vc.batchURL = resultFolder
+
+        let shown = folder.appendingPathComponent("shown.tsv")
+        try vc.writeDelimitedDetections(result: Self.result, separator: "\t", fileExtension: "tsv", to: shown)
+        XCTAssertEqual(try Self.inputs(of: shown).map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted(), [
+            "sample_metadata.tsv", "sample_metadata_edits.json",
+        ])
 
         vc.testDetectionTableView.metadataColumns.visibleColumns = []
         let hidden = folder.appendingPathComponent("hidden.tsv")
