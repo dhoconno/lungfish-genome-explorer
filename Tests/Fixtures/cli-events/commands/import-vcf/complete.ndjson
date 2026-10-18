@@ -1,0 +1,16 @@
+{"event":"start","message":"Started variant import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Parsing VCF (Fast profile)...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Parsing variants (0)...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Parsing variants (9)...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Creating indexes...","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"Creating index 1 of 8...","progress":0.92,"schemaVersion":2}
+{"event":"progress","message":"Creating index 2 of 8...","progress":0.9287500000000001,"schemaVersion":2}
+{"event":"progress","message":"Creating index 3 of 8...","progress":0.9375,"schemaVersion":2}
+{"event":"progress","message":"Creating index 4 of 8...","progress":0.94625,"schemaVersion":2}
+{"event":"progress","message":"Creating index 5 of 8...","progress":0.9550000000000001,"schemaVersion":2}
+{"event":"progress","message":"Creating index 6 of 8...","progress":0.96375,"schemaVersion":2}
+{"event":"progress","message":"Creating index 7 of 8...","progress":0.9725,"schemaVersion":2}
+{"event":"progress","message":"Creating index 8 of 8...","progress":0.9812500000000001,"schemaVersion":2}
+{"event":"progress","message":"Building filter indexes...","progress":0.99,"schemaVersion":2}
+{"event":"progress","message":"Done (9 variants, 1 samples)","progress":1,"schemaVersion":2}
+{"event":"complete","message":"9 variants imported","output":"\/work\/Project.lungfish\/Reference.lungfishref","outputs":["\/work\/Project.lungfish\/Reference.lungfishref"],"progress":1,"schemaVersion":2}

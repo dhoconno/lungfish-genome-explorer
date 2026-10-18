@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.07 (A64) M1, QA 1. The app's Cancel sends SIGTERM to the command it runs and gives it
-// `operationGrace`. This is the pin at the base, where `import vcf` has no handler: the signal ends the command
-// at once, the private staging folder under `variants/` stays, no track is added and no cancelled record is
-// written. The command is held at work by a VCF of 400,000 records on the fixture's one chromosome.
+// `operationGrace`. `import vcf` turns the signal into a cancel of the attach, removes its private staging folder
+// under `variants/`, adds no track, records the run as cancelled in the project, tells the row with a `failed`
+// event and exits 125 (M1 (2)). At the base (commit of M1 (1)) the signal ended the command at once, the staging
+// folder stayed and no record was written. The command is held at work by a VCF of 400,000 records.
 
 import Darwin
 import Foundation
@@ -26,7 +27,7 @@ final class ImportVCFSIGTERMTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testSIGTERMWhileAttachingEndsTheCommandBySignalAndLeavesItsStaging() async throws {
+    func testSIGTERMWhileAttachingCancelsTheImportAndRemovesItsStaging() async throws {
         let (project, bundle) = try Self.makeProject(in: root)
         let vcf = try Self.largeVCF(in: root, records: 400_000)
         let run = try CLISIGTERMHarness.launchCLI(
@@ -40,11 +41,12 @@ final class ImportVCFSIGTERMTests: XCTestCase {
             !Self.stagingFolders(in: variants).isEmpty
         }
         XCTAssertTrue(started, "the command never began its staging folder")
-        let stop = await CLISIGTERMHarness.cancel(run)
-        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), stop.diagnostics)
-        XCTAssertEqual(Self.stagingFolders(in: variants).count, 1, "the staging folder stays at the base")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            run, record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(Self.stagingFolders(in: variants), [], "a cancelled import removes its staging folder")
         XCTAssertEqual(try BundleManifest.load(from: bundle).variants, [], "no track is added")
-        XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: project), "no cancelled record at the base")
     }
 
     // MARK: - Fixture

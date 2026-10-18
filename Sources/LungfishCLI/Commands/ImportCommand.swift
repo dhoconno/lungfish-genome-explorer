@@ -533,15 +533,31 @@ extension ImportCommand {
         )
         var replace: String?
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @Flag(name: .customLong("resume"), help: ArgumentHelp(
+            "Finish the import of the --replace track whose database stopped before its index build.",
+            discussion: "Builds the missing indexes of the track's database instead of reading the VCF again, "
+                + "then publishes the track as a fresh import does."))
+        var resume = false
+
+        @Flag(name: .customLong("materialize"), help: ArgumentHelp(
+            "Fill the INFO table of the --replace track whose INFO materialization was skipped or stopped.",
+            discussion: "Materializes the INFO fields of the track's finished database, then publishes the track."))
+        var materialize = false
+
+        @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
             let runClock = ProvenanceRunClock()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let inputURL = URL(fileURLWithPath: inputFile)
+            // `--format json` prints the events the Import Center's row shows (Phase 2.12 lane 12.07).
+            let eventsOn = globalOptions.outputFormat == .json
+            let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
+            emitter.emitStart(kind: "variant")
+            let fail = { (message: String) in reportVCFFailure(message, formatter: formatter, emitter: emitter, eventsOn: eventsOn) }
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
-                print(formatter.error("Input file not found: \(inputFile)"))
+                fail("Input file not found: \(inputFile)")
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -552,7 +568,7 @@ extension ImportCommand {
             }
             let ext = formatURL.pathExtension.lowercased()
             guard ["vcf", "bcf"].contains(ext) else {
-                print(formatter.error("Unsupported variant format: .\(ext). Expected .vcf, .vcf.gz, or .bcf"))
+                fail("Unsupported variant format: .\(ext). Expected .vcf, .vcf.gz, or .bcf")
                 throw CLIExitCode.formatError.exitCode
             }
 
@@ -565,35 +581,35 @@ extension ImportCommand {
                 guard FileManager.default.fileExists(
                     atPath: outputDirectory.appendingPathComponent(BundleManifest.filename).path
                 ) else {
-                    print(formatter.error(
-                        "\(outputDir ?? outputDirectory.path) looks like a .lungfishref bundle path, but no bundle exists there yet. "
-                            + "Create the reference bundle first, then attach the VCF to it."
-                    ))
+                    fail("\(outputDir ?? outputDirectory.path) looks like a .lungfishref bundle path, but no bundle exists there yet. "
+                        + "Create the reference bundle first, then attach the VCF to it.")
                     throw CLIExitCode.inputError.exitCode
                 }
                 guard ext == "vcf" else {
-                    print(formatter.error("Only .vcf or .vcf.gz files can be attached to a .lungfishref bundle."))
+                    fail("Only .vcf or .vcf.gz files can be attached to a .lungfishref bundle.")
                     throw CLIExitCode.formatError.exitCode
                 }
-                try runAttachToExistingBundle(
-                    inputURL: inputURL,
-                    bundleURL: outputDirectory,
-                    formatter: formatter,
-                    runClock: runClock
+                guard !(resume && materialize) else {
+                    fail("--resume and --materialize finish different steps. Name one of them.")
+                    throw CLIExitCode.inputError.exitCode
+                }
+                try await runAttachToExistingBundle(
+                    inputURL: inputURL, bundleURL: outputDirectory, formatter: formatter,
+                    emitter: emitter, eventsOn: eventsOn, runClock: runClock
                 )
                 return
             }
-            if name != nil || importProfile != nil || replace != nil {
-                print(formatter.error("--name, --import-profile and --replace apply only when --output-dir is an existing .lungfishref bundle."))
+            if name != nil || importProfile != nil || replace != nil || resume || materialize {
+                fail("--name, --import-profile, --replace, --resume and --materialize apply only when --output-dir is an existing .lungfishref bundle.")
                 throw CLIExitCode.inputError.exitCode
             }
 
-            print(formatter.header("VCF Import"))
-            print("")
+            printHumanLine(formatter.header("VCF Import"), eventsOn: eventsOn)
+            printHumanLine("", eventsOn: eventsOn)
 
             // Parse and summarize the VCF.
             if !globalOptions.quiet {
-                print(formatter.info("Reading VCF header and variants..."))
+                printHumanLine(formatter.info("Reading VCF header and variants..."), eventsOn: eventsOn)
             }
 
             let reader = VCFReader(validateRecords: false, parseGenotypes: false)
@@ -601,7 +617,7 @@ extension ImportCommand {
             do {
                 summary = try await reader.summarize(from: inputURL)
             } catch {
-                print(formatter.error("Failed to parse VCF: \(error.localizedDescription)"))
+                fail("Failed to parse VCF: \(error.localizedDescription)")
                 throw CLIExitCode.formatError.exitCode
             }
 
@@ -648,9 +664,9 @@ extension ImportCommand {
                     outputDirectory: outputDirectory
                 )
 
-                print("")
-                print(formatter.header("Summary"))
-                print("")
+                printHumanLine("", eventsOn: eventsOn)
+                printHumanLine(formatter.header("Summary"), eventsOn: eventsOn)
+                printHumanLine("", eventsOn: eventsOn)
 
                 // Format variant type breakdown.
                 let typeBreakdown = summary.variantTypes
@@ -658,133 +674,53 @@ extension ImportCommand {
                     .map { "\($0.key): \(formatNumber(Int64($0.value)))" }
                     .joined(separator: ", ")
 
-                print(formatter.keyValueTable([
+                printHumanLine(formatter.keyValueTable([
                     ("Format", summary.header.fileFormat),
                     ("Variants", formatNumber(Int64(summary.variantCount))),
                     ("Types", typeBreakdown.isEmpty ? "N/A" : typeBreakdown),
                     ("Samples", String(summary.header.sampleNames.count)),
                     ("Contigs", String(summary.chromosomes.count)),
-                ]))
+                ]), eventsOn: eventsOn)
 
                 if !summary.header.sampleNames.isEmpty {
                     let sampleList = summary.header.sampleNames.prefix(10)
                         .joined(separator: ", ")
                     let suffix = summary.header.sampleNames.count > 10
                         ? " (+\(summary.header.sampleNames.count - 10) more)" : ""
-                    print("")
-                    print("  Samples: \(sampleList)\(suffix)")
+                    printHumanLine("", eventsOn: eventsOn)
+                    printHumanLine("  Samples: \(sampleList)\(suffix)", eventsOn: eventsOn)
                 }
 
-                print("")
-                print(formatter.success("VCF import complete: \(destURL.lastPathComponent)"))
+                printHumanLine("", eventsOn: eventsOn)
+                printHumanLine(formatter.success("VCF import complete: \(destURL.lastPathComponent)"), eventsOn: eventsOn)
+                emitter.emitComplete(attachedTo: destURL, message: "VCF import complete: \(destURL.lastPathComponent)")
             } catch {
                 removeCreatedImportArtifacts(createdArtifacts)
-                throw error
-            }
-        }
-
-        /// Attaches `inputURL` to an existing bundle's variant database as
-        /// `variants/<track>.db`, updates the manifest's variant tracks and
-        /// writes `variants/<track>.lungfish-provenance.json`.
-        private func runAttachToExistingBundle(
-            inputURL: URL,
-            bundleURL: URL,
-            formatter: TerminalFormatter,
-            runClock: ProvenanceRunClock
-        ) throws {
-            let profile = importProfile ?? .auto
-            print(formatter.header("VCF Import"))
-            print("")
-            print(formatter.keyValueTable([
-                ("Input", inputURL.lastPathComponent),
-                ("Bundle", bundleURL.path),
-                ("Import profile", profile.rawValue),
-            ]))
-            print("")
-
-            let quiet = globalOptions.quiet
-            let command = vcfAttachCommand(inputURL: inputURL, bundleURL: bundleURL)
-            let request = VCFBundleVariantImport.Request(
-                vcfURL: inputURL,
-                bundleURL: bundleURL,
-                trackName: name,
-                importProfile: profile,
-                replaceTrackID: replace
-            )
-            let result: VCFBundleVariantImport.Result
-            do {
-                result = try VCFBundleVariantImport.attachInProcess(
-                    request,
-                    progressHandler: { _, message in
-                        guard !quiet else { return }
-                        print(formatter.info(message))
-                    },
-                    makeProvenance: { context in
-                        try Self.vcfAttachProvenance(context: context, command: command, runClock: runClock)
-                    }
-                )
-            } catch let error as VCFBundleVariantImport.Error {
-                // `--replace` named a track the bundle does not have: a usage
-                // error, not a failed import.
-                print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.inputError.exitCode
-            } catch {
-                print(formatter.error("VCF attach failed: \(error.localizedDescription)"))
+                guard eventsOn else { throw error }
+                fail(CLIFailureWords.describe(error))
                 throw CLIExitCode.failure.exitCode
             }
-            if let warning = result.cleanupWarning {
-                print(formatter.warning(warning))
-            }
-
-            print("")
-            print(formatter.header("Summary"))
-            print("")
-            print(formatter.keyValueTable([
-                ("Track ID", result.trackInfo.id),
-                ("Track name", result.trackInfo.name),
-                ("Variants", formatNumber(Int64(result.variantCount))),
-                ("Database", result.trackInfo.databasePath ?? ""),
-                ("Renamed chromosomes", String(result.chromosomeMapping.count)),
-            ]))
-            print("")
-            print(formatter.success("VCF import complete: attached '\(result.trackInfo.name)' to \(bundleURL.lastPathComponent)"))
         }
 
-        private func vcfAttachCommand(inputURL: URL, bundleURL: URL) -> [String] {
-            var command = [CLICommandIdentity.executableName, "import", "vcf", inputURL.path, "--output-dir", bundleURL.path]
-            if let name {
-                command += ["--name", name]
-            }
-            if let importProfile {
-                command += ["--import-profile", importProfile.rawValue]
-            }
-            if let replace {
-                command += ["--replace", replace]
-            }
-            if globalOptions.quiet {
-                command.append("--quiet")
-            }
-            if globalOptions.noColor {
-                command.append("--no-color")
-            }
-            return command
-        }
-
+        /// The record of one attach. `--resume` and `--materialize` name the track's prior database as a second input
+        /// and record the mode among the explicit options.
         static func vcfAttachProvenance(
-            context: VCFBundleVariantImport.ProvenanceContext,
+            facts context: VCFAttachFacts,
+            mode: AttachMode,
             command: [String],
             runClock: ProvenanceRunClock
         ) throws -> ProvenanceEnvelope {
             let request = context.request
             let toolVersion = "lungfish-cli \(LungfishCLI.configuration.version)"
             let input = try ProvenanceFileDescriptor.file(url: request.vcfURL, format: .vcf, role: .input)
+            let inputs = [input] + (context.priorDatabase.map { [$0] } ?? [])
             let output = try ProvenanceFileDescriptor.file(url: context.databaseURL, format: .unknown, role: .output)
             let startedAt = runClock.startedAt, completedAt = runClock.now
             let step = ProvenanceStep(
                 toolName: "lungfish import vcf",
                 toolVersion: toolVersion,
                 argv: command,
-                inputs: [input],
+                inputs: inputs,
                 outputs: [output],
                 exitStatus: 0,
                 wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
@@ -805,7 +741,8 @@ extension ImportCommand {
                         "bundlePath": .file(request.bundleURL),
                         "importProfile": .string(request.importProfile.rawValue),
                     ].merging(
-                        request.replaceTrackID.map { ["replaceTrackId": .string($0)] } ?? [:],
+                        (request.replaceTrackID.map { ["replaceTrackId": .string($0)] } ?? [:])
+                            .merging(mode == .fresh ? [:] : ["mode": .string(mode.rawValue)]) { _, new in new },
                         uniquingKeysWith: { _, new in new }
                     ),
                     defaults: [
@@ -855,7 +792,8 @@ extension ImportCommand {
                     if try copyImportArtifactIfNeeded(from: indexURL, to: destIndex) {
                         createdArtifacts.append(destIndex)
                         if !globalOptions.quiet {
-                            print(formatter.info("Copied index: \(indexURL.lastPathComponent)"))
+                            printHumanLine(formatter.info("Copied index: \(indexURL.lastPathComponent)"),
+                                           eventsOn: globalOptions.outputFormat == .json)
                         }
                     }
                     return (sourceURL: indexURL, destinationURL: destIndex)

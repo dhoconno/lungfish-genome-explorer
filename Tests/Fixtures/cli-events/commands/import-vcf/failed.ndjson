@@ -1,0 +1,2 @@
+{"event":"start","message":"Started variant import via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"Input file not found: \/work\/missing.vcf","event":"failed","schemaVersion":2}

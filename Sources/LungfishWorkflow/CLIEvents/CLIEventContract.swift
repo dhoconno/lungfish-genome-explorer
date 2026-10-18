@@ -318,7 +318,7 @@ package enum CLIEventContractTable {
         "import nao-mgs": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.05
         "import nvd": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.05
         "import taxtriage": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.04
-        "import vcf": .text(reason: humanTextOnly),
+        "import vcf": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.07
         "metadata export-biosample": .text(reason: humanTextOnly),
         "nao-mgs import": .text(reason: humanTextOnly),
         "nvd import": .text(reason: humanTextOnly),
