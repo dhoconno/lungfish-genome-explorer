@@ -170,6 +170,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("taxon"), help: "Taxonomy ID (repeatable, for --by-classifier --tool kraken2)")
     var classifierTaxonsRaw: [String] = []
 
+    @Option(name: .customLong("taxon-scope"), help: "Which reads of each --taxon to take, children for the taxon and its descendants (the default) or exact for reads classified to the taxon itself (for --tool kraken2)")
+    var classifierTaxonScope: String?
+
     // NOTE: Cannot use bare `--format` here — `GlobalOptions.outputFormat`
     // already declares `--format` for the report-output format (text/json/tsv).
     // The classifier strategy uses `--read-format` for the FASTQ vs FASTA
@@ -349,6 +352,14 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 }
                 if includeUnmappedMates {
                     throw CLIError.validationFailed(errors: ["--include-unmapped-mates is not supported with --tool kraken2"])
+                }
+            }
+            if let classifierTaxonScope {
+                guard tool == .kraken2 else {
+                    throw CLIError.validationFailed(errors: ["--taxon-scope is only supported with --tool kraken2"])
+                }
+                guard TaxonScope(rawValue: classifierTaxonScope) != nil else {
+                    throw CLIError.validationFailed(errors: ["--taxon-scope must be 'children' or 'exact' (got '\(classifierTaxonScope)')"])
                 }
             }
 
@@ -841,6 +852,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             values["selections"] = .array(
                 buildClassifierSelectors(rawArgs: rawArgs).map(parameterValue(for:))
             )
+            values.merge(classifierTaxonParameters(rawArgs: rawArgs)) { _, taxa in taxa }
         }
         return values
     }

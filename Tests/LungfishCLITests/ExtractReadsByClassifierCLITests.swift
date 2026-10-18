@@ -4,6 +4,9 @@
 
 import XCTest
 import ArgumentParser
+import LungfishCore
+import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishCLI
 
@@ -436,6 +439,83 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
 
         let selectionArgv = cmd.classifierSelectionReplayArguments(rawArgs: argv)
         XCTAssertEqual(selectionArgv, ["--sample", "A", "--accession=NC_001", "--sample=B", "--accession", "NC_002"])
+    }
+
+    // MARK: - --taxon-scope (BIO's ruling on Phase 2.12 lane 12.11, section 2)
+
+    /// Genus 10 holds g1 of its own beside a1 to a3 in its species. `--taxon-scope exact` takes g1 alone,
+    /// its record names the scope and replays it, and a tool other than kraken2 refuses the option.
+    func testKraken2TaxonScopeExactTakesOnlyTheTaxonsOwnReads() async throws {
+        do {
+            _ = try await NativeToolRunner.shared.findTool(.seqkit)
+        } catch {
+            try ToolAvailability.skipOrFail("Managed seqkit is required: \(error)")
+        }
+        let root = try TestTempDirectory.make(prefix: "kraken2-taxon-scope")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = try Self.writeGenusWithOwnReadResult(in: root)
+        let outputFolder = root.appendingPathComponent("Project.lungfish/out", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+        let output = outputFolder.appendingPathComponent("exact.fastq")
+        let argv = [
+            "--by-classifier", "--tool", "kraken2", "--result", result.path,
+            "--taxon", "10", "--taxon-scope", "exact", "-o", output.path,
+        ]
+        var command = try ExtractReadsSubcommand.parse(argv)
+        command.testingRawArgs = argv
+        try await command.run()
+
+        let lines = try String(contentsOf: output, encoding: .utf8).split(separator: "\n")
+        let names = lines.enumerated().filter { $0.offset % 4 == 0 }.map { String($0.element.dropFirst()) }
+        XCTAssertEqual(names, ["g1"], "exact takes the taxon's own read only")
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputFolder), "extract reads records its run")
+        XCTAssertEqual(record.options.explicit["includeChildren"], .boolean(false))
+        XCTAssertEqual(record.options.explicit["taxIds"], .array([.integer(10)]))
+        XCTAssertEqual(record.options.explicit["resolvedTaxIds"], .array([.integer(10)]))
+        let scope = try XCTUnwrap(record.argv.firstIndex(of: "--taxon-scope"), "the record replays the scope: \(record.argv)")
+        XCTAssertEqual(record.argv[scope + 1], "exact")
+
+        XCTAssertThrowsError(try ExtractReadsSubcommand.parse([
+            "--by-classifier", "--tool", "esviritu", "--result", result.path,
+            "--accession", "NC_1", "--taxon-scope", "exact", "-o", output.path,
+        ])) { error in
+            XCTAssertTrue(
+                ExtractReadsSubcommand.message(for: error).contains("--taxon-scope is only supported with --tool kraken2"),
+                ExtractReadsSubcommand.message(for: error)
+            )
+        }
+    }
+
+    /// A single-end Kraken2 result in `root`'s project whose reads a1 to a3 belong to the species of
+    /// genus 10 and g1 to the genus itself.
+    private static func writeGenusWithOwnReadResult(in root: URL) throws -> URL {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let directory = project.appendingPathComponent("Analyses/kraken2-own", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let reads = project.appendingPathComponent("own-reads.fastq")
+        try ["a1", "a2", "a3", "g1"].map { "@\($0)\nACGT\n+\nIIII\n" }.joined()
+            .write(to: reads, atomically: true, encoding: .utf8)
+        let kreport = directory.appendingPathComponent("classification.kreport")
+        try [
+            "100.00\t4\t0\tR\t1\troot", "100.00\t4\t1\tG\t10\t  Genus A",
+            " 50.00\t2\t2\tS\t11\t    Species A1", " 25.00\t1\t1\tS\t12\t    Species A2",
+        ].joined(separator: "\n").appending("\n").write(to: kreport, atomically: true, encoding: .utf8)
+        let kraken = directory.appendingPathComponent("classification.kraken")
+        try ["a1\t11", "a2\t11", "a3\t12", "g1\t10"].map { line -> String in
+            let parts = line.split(separator: "\t")
+            return "C\t\(parts[0])\t\(parts[1])\t10\t\(parts[1]):3\n"
+        }.joined().write(to: kraken, atomically: true, encoding: .utf8)
+        let inputs = [URL(string: "../../own-reads.fastq")!]
+        var config = ClassificationConfig(
+            inputFiles: inputs, isPairedEnd: false, databaseName: "Viral",
+            databasePath: URL(string: ".")!, outputDirectory: URL(string: ".")!
+        )
+        config.originalInputFiles = inputs
+        try ClassificationResult(
+            config: config, tree: try KreportParser.parse(url: kreport), reportURL: kreport, outputURL: kraken,
+            brackenURL: nil, runtime: 1, toolVersion: "2.17.1", provenanceId: nil
+        ).save(to: directory)
+        return directory
     }
 
     // MARK: - makeExtractionOptions flow-through

@@ -151,6 +151,39 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertEqual(estimate, ancestor.readsClade)
     }
 
+    /// BIO's ruling on Phase 2.12 lane 12.11, section 2. Genus 10 holds one read of its own and three in
+    /// its species, so the exact estimate is 1, the reads the run will take, and the children estimate 4.
+    func testAnExactSelectionEstimatesOnlyTheTaxonsOwnReads() async throws {
+        let directory = try TestTempDirectory.make(prefix: "exact-estimate")
+        defer { TestTempDirectory.cleanup(directory) }
+        let kreport = directory.appendingPathComponent("classification.kreport")
+        try [
+            "100.00\t4\t0\tR\t1\troot", "100.00\t4\t1\tG\t10\t  Genus A",
+            " 50.00\t2\t2\tS\t11\t    Species A1", " 25.00\t1\t1\tS\t12\t    Species A2",
+        ].joined(separator: "\n").appending("\n").write(to: kreport, atomically: true, encoding: .utf8)
+        let kraken = directory.appendingPathComponent("classification.kraken")
+        try "C\tg1\t10\t10\t10:3\n".write(to: kraken, atomically: true, encoding: .utf8)
+        try ClassificationResult(
+            config: ClassificationConfig(
+                inputFiles: [URL(string: "reads.fastq")!], isPairedEnd: false, databaseName: "Viral",
+                databasePath: URL(string: ".")!, outputDirectory: URL(string: ".")!
+            ),
+            tree: try KreportParser.parse(url: kreport), reportURL: kreport, outputURL: kraken,
+            brackenURL: nil, runtime: 1, toolVersion: "2.17.1", provenanceId: nil
+        ).save(to: directory)
+
+        var estimates: [TaxonScope: Int] = [:]
+        for scope in TaxonScope.allCases {
+            estimates[scope] = try await ClassifierReadResolver().estimateReadCount(
+                tool: .kraken2,
+                resultPath: directory,
+                selections: [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: [10])],
+                options: ExtractionOptions(taxonScope: scope)
+            )
+        }
+        XCTAssertEqual(estimates, [.exact: 1, .children: 4])
+    }
+
     // MARK: - resolveBAMURL (per-tool)
 
     /// Helper: creates a throwaway directory layout that looks like a real

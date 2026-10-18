@@ -161,11 +161,11 @@ extension ClassifierReadResolver {
 
             let config = TaxonomyExtractionConfig(
                 taxIds: job.taxIds,
-                includeChildren: true,
+                includeChildren: options.taxonScope.includesChildren,
                 sourceFiles: sourceFASTQs,
                 outputFiles: outputFiles,
                 classificationOutput: classResult.outputURL,
-                taxonomyReport: classResult.reportURL,
+                taxonomyReport: options.taxonScope.includesChildren ? classResult.reportURL : nil,
                 keepReadPairs: true
             )
 

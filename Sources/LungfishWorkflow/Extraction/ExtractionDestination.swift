@@ -156,20 +156,27 @@ public struct ExtractionOptions: Sendable, Hashable {
     /// next to the materialized FASTQ/FASTA.
     public let fileProvenance: ExtractionFileProvenance?
 
+    /// Which reads of each selected taxon a Kraken2 extraction takes, the taxon with its descendants
+    /// (the default) or the taxon's own reads. Ignored by the BAM-backed tools.
+    public let taxonScope: TaxonScope
+
     /// Creates extraction options.
     ///
     /// - Parameters:
     ///   - format: Output format (default: `.fastq`).
     ///   - includeUnmappedMates: Keep unmapped mates of mapped pairs (default: `false`).
     ///   - fileProvenance: Optional standalone file/share export provenance context.
+    ///   - taxonScope: Which reads of each Kraken2 taxon to take (default: `.children`).
     public init(
         format: CopyFormat = .fastq,
         includeUnmappedMates: Bool = false,
-        fileProvenance: ExtractionFileProvenance? = nil
+        fileProvenance: ExtractionFileProvenance? = nil,
+        taxonScope: TaxonScope = .children
     ) {
         self.format = format
         self.includeUnmappedMates = includeUnmappedMates
         self.fileProvenance = fileProvenance
+        self.taxonScope = taxonScope
     }
 
     /// Returns a copy that requests standalone file/share provenance sidecars.
@@ -177,7 +184,8 @@ public struct ExtractionOptions: Sendable, Hashable {
         ExtractionOptions(
             format: format,
             includeUnmappedMates: includeUnmappedMates,
-            fileProvenance: provenance
+            fileProvenance: provenance,
+            taxonScope: taxonScope
         )
     }
 

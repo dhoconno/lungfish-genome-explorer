@@ -125,8 +125,30 @@ extension ExtractReadsSubcommand {
         let format: CopyFormat = (classifierFormat == "fasta") ? .fasta : .fastq
         return ExtractionOptions(
             format: format,
-            includeUnmappedMates: includeUnmappedMates
+            includeUnmappedMates: includeUnmappedMates,
+            taxonScope: classifierTaxonScope.flatMap(TaxonScope.init(rawValue:)) ?? .children
         )
+    }
+
+    /// The taxa a Kraken2 extraction's record names, in the keys a taxa collection's per-file records
+    /// use (BIO's ruling on Phase 2.12 lane 12.11): the scope as `includeChildren`, the selected IDs as
+    /// `taxIds` and the IDs they match under the scope as `resolvedTaxIds`, from each sample's report.
+    func classifierTaxonParameters(rawArgs: [String]?) -> [String: ParameterValue] {
+        guard classifierTool == ClassifierTool.kraken2.rawValue, let classifierResult else { return [:] }
+        let scope = makeExtractionOptions().taxonScope
+        let resultURL = URL(fileURLWithPath: classifierResult)
+        var selected = Set<Int>()
+        var resolved = Set<Int>()
+        for selector in buildClassifierSelectors(rawArgs: rawArgs) where !selector.taxIds.isEmpty {
+            let sampleURL = selector.sampleId.map { resultURL.appendingPathComponent($0, isDirectory: true) } ?? resultURL
+            selected.formUnion(selector.taxIds)
+            resolved.formUnion(scope.resolvedTaxIds(Set(selector.taxIds), in: try? ClassificationResult.load(from: sampleURL).tree))
+        }
+        return [
+            "includeChildren": .boolean(scope.includesChildren),
+            "taxIds": .array(selected.sorted().map { .integer($0) }),
+            "resolvedTaxIds": .array(resolved.sorted().map { .integer($0) }),
+        ]
     }
 
     // MARK: - Classifier selection reconstruction
@@ -224,7 +246,7 @@ extension ExtractReadsSubcommand {
             let (key, inlineValue) = splitClassifierArgumentToken(token)
 
             switch key {
-            case "--sample", "--accession", "--taxon":
+            case "--sample", "--accession", "--taxon", "--taxon-scope":
                 if inlineValue != nil {
                     replay.append(token)
                     i += 1

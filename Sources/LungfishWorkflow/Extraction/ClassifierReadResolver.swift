@@ -36,8 +36,8 @@ private let logger = Logger(
 ///   `samtools view -F <flags> -b <bam> <regions...>` to a temp BAM, then
 ///   `samtools fastq` to a per-sample FASTQ, and concatenate per-sample
 ///   outputs before routing to the destination.
-/// - Kraken2 wraps the existing `TaxonomyExtractionPipeline.extract` with
-///   `includeChildren: true` always, then routes its output to the destination.
+/// - Kraken2 extracts with `TaxonomyExtractionPipeline`, each taxon with its descendants by default
+///   (`TaxonScope.children`) or its own reads by choice (`.exact`), then routes the output.
 ///
 /// ## Thread safety
 ///
@@ -211,10 +211,7 @@ public actor ClassifierReadResolver {
                 options: options
             )
         } else {
-            return try await estimateKraken2ReadCount(
-                resultPath: resultPath,
-                selections: nonEmpty
-            )
+            return try await estimateKraken2ReadCount(resultPath: resultPath, selections: nonEmpty, scope: options.taxonScope)
         }
     }
 
@@ -261,11 +258,12 @@ public actor ClassifierReadResolver {
         return total
     }
 
-    /// Kraken2 estimate: sum of `readsClade` across selected taxa, pulled from
-    /// the on-disk taxonomy tree rather than running samtools.
+    /// Kraken2 estimate: sum of `readsClade` across the topmost selected taxa for the children scope,
+    /// or of each selected taxon's `readsDirect` for exact, from the on-disk taxonomy tree.
     private func estimateKraken2ReadCount(
         resultPath: URL,
-        selections: [ClassifierRowSelector]
+        selections: [ClassifierRowSelector],
+        scope: TaxonScope
     ) async throws -> Int {
         var total = 0
         for (sampleId, group) in groupBySample(selections) {
@@ -292,6 +290,8 @@ public actor ClassifierReadResolver {
             }
             let selectedNodeIdentities = Set(selectedNodes.map(ObjectIdentifier.init))
             for node in selectedNodes {
+                // A taxon's own reads overlap no other taxon's, so exact sums them with no ancestor check.
+                guard scope.includesChildren else { total += node.readsDirect; continue }
                 var ancestor = node.parent
                 var hasSelectedAncestor = false
                 while let current = ancestor {
@@ -302,10 +302,8 @@ public actor ClassifierReadResolver {
                     ancestor = current.parent
                 }
                 guard !hasSelectedAncestor else { continue }
-
-                // clade count already includes descendant reads; spec says
-                // includeChildren is always true for Kraken2. Keeping only
-                // topmost selected clades makes this a read-union estimate.
+                // Children is the default. The clade count includes the descendants' reads, so keeping
+                // only the topmost selected clades makes this a read-union estimate.
                 total += node.readsClade
             }
         }
