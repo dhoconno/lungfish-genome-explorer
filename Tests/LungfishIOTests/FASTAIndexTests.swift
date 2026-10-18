@@ -75,6 +75,11 @@ final class FASTAIndexTests: XCTestCase {
         ("CRLF with six fields", Array("chr1\t1000\t6\t50\t51\t0\r\nchr2\t500\t1100\t50\t51\t0\r\n".utf8)),
         ("CR LF after a line feed", Array("chr1\t1000\t6\t50\t51\n\r\nchr2\t500\t1100\t50\t51\n".utf8)),
         ("lone CR", Array("chr1\t1000\t6\t50\t51\rchr2\t500\t1100\t50\t51\n".utf8)),
+        ("spaces in a name", Array("chr1 some words\t1000\t6\t50\t51\n chr2 \t500\t1100\t50\t51\n".utf8)),
+        ("trailing CR without a line feed", Array("chr1\t1000\t6\t50\t51\r".utf8)),
+        ("CRLF on the last line only", Array("chr1\t1000\t6\t50\t51\nchr2\t500\t1100\t50\t51\r\n".utf8)),
+        ("only a CRLF", Array("\r\n".utf8)),
+        ("CRLF inside a name", Array("chr\r\n1\t1000\t6\t50\t51\n".utf8)),
         ("UTF-8 names", Array("contig_\u{E9}\t10\t11\t10\t11\n\u{E9}\t10\t33\t10\t11\ne\u{301}\t10\t50\t10\t11\n".utf8)),
         ("byte order mark", [0xEF, 0xBB, 0xBF] + Array("chr1\t1000\t6\t50\t51\n".utf8)),
         ("invalid UTF-8", Array("chr".utf8) + [0xFF] + Array("1\t1000\t6\t50\t51\n".utf8)),
@@ -138,12 +143,17 @@ final class FASTAIndexTests: XCTestCase {
         XCTAssertEqual(try FASTAIndex(url: write("signed numbers")).entry(for: "chr1")?.offset, -6)
         XCTAssertEqual(try FASTAIndex(url: write("CRLF with six fields")).sequenceNames, ["chr1"], "CR LF is one character, so the file is one line.")
         XCTAssertEqual(try FASTAIndex(url: write("UTF-8 names")).entry(for: "\u{E9}")?.offset, 50, "Canonically equal names are one name.")
+        XCTAssertEqual(try FASTAIndex(url: write("spaces in a name")).sequenceNames, ["chr1 some words", " chr2 "], "Spaces stay in the name.")
+        XCTAssertEqual(try FASTAIndex(url: write("CRLF inside a name")).sequenceNames, ["chr\r\n1"], "CR LF is one character, so it does not end the line.")
 
         let invalid: [(label: String, message: String)] = [
             ("CRLF with five fields", "Line 1: invalid numeric values"),
             ("overflow", "Line 1: invalid numeric values"),
             ("bad line after a blank line", "Line 2: expected 5 tab-separated fields"),
             ("tabs only", "Line 1: expected 5 tab-separated fields"),
+            ("trailing CR without a line feed", "Line 1: invalid numeric values"),
+            ("CRLF on the last line only", "Line 2: invalid numeric values"),
+            ("only a CRLF", "Line 1: expected 5 tab-separated fields"),
         ]
         for (label, message) in invalid {
             XCTAssertThrowsError(try FASTAIndex(url: write(label)), label) { error in

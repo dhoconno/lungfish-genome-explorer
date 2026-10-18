@@ -35,7 +35,7 @@ final class ReferenceBundleSequenceAccessTests: XCTestCase {
 
     // MARK: - Name resolution
 
-    /// Eight records whose names and aliases collide in each way the lookup order decides.
+    /// Nine records whose names and aliases collide in each way the lookup order decides.
     /// Every length differs, so a length names the record a lookup returned.
     private static let lookupRecords: [ChromosomeInfo] = [
         ChromosomeInfo(name: "chr1", length: 101, offset: 6, lineBases: 60, lineWidth: 61, aliases: ["1"]),
@@ -49,6 +49,7 @@ final class ReferenceBundleSequenceAccessTests: XCTestCase {
         ChromosomeInfo(name: "contigA", length: 106, offset: 6, lineBases: 60, lineWidth: 61, aliases: ["shared"]),
         ChromosomeInfo(name: "contigB", length: 107, offset: 6, lineBases: 60, lineWidth: 61, aliases: ["shared"]),
         ChromosomeInfo(name: "contigA", length: 108, offset: 6, lineBases: 60, lineWidth: 61),
+        ChromosomeInfo(name: "chr3", length: 109, offset: 6, lineBases: 60, lineWidth: 61, aliases: ["chr1", "MN908947"]),
     ]
 
     /// Every name, every alias, and the names only the fallback resolves or nothing resolves.
@@ -88,6 +89,8 @@ final class ReferenceBundleSequenceAccessTests: XCTestCase {
 
         // The rules the oracle encodes, spelled out.
         XCTAssertEqual(bundle.chromosome(named: "chrX")?.length, 102, "An alias on an earlier record wins over a later name.")
+        XCTAssertEqual(bundle.chromosome(named: "chr1")?.length, 101, "A name on an earlier record wins over a later alias.")
+        XCTAssertEqual(bundle.chromosome(named: "MN908947")?.length, 104, "A name on an earlier record wins over a later alias.")
         XCTAssertEqual(bundle.chromosome(named: "X")?.length, 103, "The chr prefix fallback finds the record named chrX.")
         XCTAssertEqual(bundle.chromosome(named: "7")?.name, "NC_041754.1", "The description fallback finds chromosome 7.")
         XCTAssertEqual(bundle.chromosome(named: "MN908947.3")?.name, "MN908947", "The version fallback strips .3.")
@@ -303,6 +306,33 @@ final class ReferenceBundleSequenceAccessTests: XCTestCase {
         try fai.write(to: faiURL)
         XCTAssertEqual(try bundle.fetchSequenceSync(region: region), Self.bases(of: "chr1", 0..<10))
         XCTAssertEqual(bundle.sequenceCache.readerBuildCount, 1)
+    }
+
+    func testAReaderOutlivesTheFilesItWasBuiltFrom() async throws {
+        for compressed in [false, true] {
+            let bundleURL = try makeSequenceBundle(compressed: compressed)
+            let bundle = try await ReferenceBundle(url: bundleURL)
+            let fastaName = compressed ? "sequence.fa.gz" : "sequence.fa"
+            let fastaURL = bundleURL.appendingPathComponent("genome/\(fastaName)")
+            let faiURL = bundleURL.appendingPathComponent("genome/\(fastaName).fai")
+            let region = GenomicRegion(chromosome: "chr1", start: 0, end: 10)
+            let expected = Self.bases(of: "chr1", 0..<10)
+            XCTAssertEqual(try bundle.fetchSequenceSync(region: region), expected)
+
+            let original = try Data(contentsOf: fastaURL)
+            try FileManager.default.removeItem(at: fastaURL)
+            try FileManager.default.removeItem(at: faiURL)
+            for _ in 0..<2 {
+                XCTAssertThrowsError(try bundle.fetchSequenceSync(region: region), "compressed \(compressed)") { error in
+                    XCTAssertFalse(error is BgzipError || error is FASTAError, "The file system's error, not \(error)")
+                }
+            }
+            XCTAssertEqual(bundle.sequenceCache.readerBuildCount, 1, "A vanished file does not rebuild the reader.")
+
+            try original.write(to: fastaURL)
+            XCTAssertEqual(try bundle.fetchSequenceSync(region: region), expected, "The reader reads again when the file returns.")
+            XCTAssertEqual(bundle.sequenceCache.readerBuildCount, 1)
+        }
     }
 
     func testPrepareSequenceAccessBuildsTheIndexAndTheReaderOnce() async throws {
