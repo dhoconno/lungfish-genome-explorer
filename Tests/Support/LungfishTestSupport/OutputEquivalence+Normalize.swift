@@ -52,6 +52,9 @@ extension OutputEquivalence {
         if masks.comparesPNGByPresence, name.hasSuffix(".png"), data.starts(with: pngSignature) {
             return "png present"
         }
+        if masks.comparesPDFByPresence, name.hasSuffix(".pdf"), data.starts(with: pdfSignature) {
+            return "pdf present"
+        }
         var bytes = data
         if isGzip(data) {
             bytes = try run("/usr/bin/gzip", ["-dc", url.path]).stdout
@@ -91,6 +94,10 @@ extension OutputEquivalence {
     /// The eight bytes every PNG starts with. A policy with `comparesPNGByPresence` compares a `.png` that starts with
     /// them on its name and presence. Any other file under that name keeps its own compare.
     static let pngSignature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+
+    /// The five bytes every PDF starts with, `%PDF-`. A policy with `comparesPDFByPresence` compares a `.pdf` that
+    /// starts with them on its name and presence. Any other file under that name keeps its own compare.
+    static let pdfSignature: [UInt8] = [0x25, 0x50, 0x44, 0x46, 0x2D]
 
     /// An index records the byte offsets of the file it indexes, which a
     /// header line changes, so it is never compared byte for byte. A BAM

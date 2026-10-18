@@ -85,7 +85,146 @@ extension OutputEquivalence.MaskPolicy {
         // the plot's data stays compared in the bundle's BED, CSV and `work/plotdata.json.gz` files (the manager's grant
         // to lane 12.16, option 1 of its M1 ruling).
         policy.comparesPNGByPresence = true
+        // The Olivar and varVAMP bundles (lane 12.16 c4, the manager's grant of items (i) to (iii)). The adapter stages
+        // each run in a fresh folder, both engines log the seconds a step took, varVAMP ends its log with a random
+        // goodbye line, and its two plots are PDFs whose bytes hold the clock. Each mask hides only that.
+        let stage = OutputEquivalence.Masks.primerAnalysisAdapterStage
+        policy.provenance.append(contentsOf: [
+            stage, OutputEquivalence.Masks.primerAnalysisAdapterLogDigests,
+            OutputEquivalence.Masks.primerAnalysisContentComparedByteSizes,
+        ])
+        policy.payloads.append(contentsOf: [
+            stage, OutputEquivalence.Masks.primerAnalysisEngineTimings, OutputEquivalence.Masks.primerAnalysisVarVAMPGoodbye,
+        ])
+        // varVAMP's `amplicon_plot.pdf` and `per_base_mismatches.pdf` differ only in the seconds of their
+        // `/CreationDate`. Their data stays compared in varVAMP's BED and TSV files (item (iii)).
+        policy.comparesPDFByPresence = true
         return policy
+    }
+}
+
+extension OutputEquivalence.Masks {
+    /// The fresh folder the primer scheme adapter stages a run in, `.<output>.adapter-stage-` and the eight characters
+    /// Python's `tempfile.mkdtemp` draws (`run.py`, `stage = Path(tempfile.mkdtemp(prefix=...))`), which every path the
+    /// adapter, Olivar and varVAMP record holds. The eight characters become `<STAGE-ID>`, and the rest of each path is
+    /// compared as written.
+    public static let primerAnalysisAdapterStage = OutputEquivalence.Mask(name: "primerAnalysisAdapterStage") { text, _ in
+        adapterStagePattern.stringByReplacingMatches(
+            in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: "$1<STAGE-ID>"
+        )
+    }
+
+    static var adapterStagePattern: NSRegularExpression { try! NSRegularExpression(
+        pattern: #"(\.adapter-stage-)[a-z0-9_]{8}(?![A-Za-z0-9_])"#
+    ) }
+
+    /// The time a step took in the exact lines Olivar and varVAMP log it, Olivar's `| INFO     | Finished in 2.131s`,
+    /// `| INFO     | Finished in 0:00:00.004186` and `| INFO     | Primer dimer optimization finished in 10.748s`, and
+    /// varVAMP's `varVAMP 1.3.2 finished in 1.193925 sec!`. The time becomes `<ELAPSED>`. Each other line, and the
+    /// version and words of these, are compared as written.
+    public static let primerAnalysisEngineTimings = OutputEquivalence.Mask(name: "primerAnalysisEngineTimings") { text, _ in
+        let range = { (value: String) in NSRange(location: 0, length: (value as NSString).length) }
+        let olivar = olivarTimingPattern.stringByReplacingMatches(in: text, range: range(text), withTemplate: "$1<ELAPSED>")
+        return varVAMPTimingPattern.stringByReplacingMatches(in: olivar, range: range(olivar), withTemplate: "$1<ELAPSED>$2")
+    }
+
+    static var olivarTimingPattern: NSRegularExpression { try! NSRegularExpression(
+        pattern: #"(\| INFO +\| (?:Finished|Primer dimer optimization finished) in )(?:[0-9]+:[0-9]{2}:[0-9]{2}\.[0-9]+|[0-9]+\.[0-9]+s)$"#,
+        options: [.anchorsMatchLines]
+    ) }
+
+    static var varVAMPTimingPattern: NSRegularExpression { try! NSRegularExpression(
+        pattern: #"^(varVAMP [0-9][0-9.]* finished in )[0-9]+\.[0-9]+( sec!)$"#, options: [.anchorsMatchLines]
+    ) }
+
+    /// The goodbye varVAMP 1.3.2 picks at random and prints last (`goodbye_message` in `varvamp/scripts/logging.py`),
+    /// in the place varVAMP prints it, after its `finished in ... sec!` line, the clock line and a blank line. Only one
+    /// of these messages in that place becomes `<VARVAMP-GOODBYE>`. Any other line there, and a message anywhere else,
+    /// is compared as written.
+    public static let primerAnalysisVarVAMPGoodbye = OutputEquivalence.Mask(name: "primerAnalysisVarVAMPGoodbye") { text, _ in
+        guard text.contains("varVAMP ") else { return text }
+        return varVAMPGoodbyePattern.stringByReplacingMatches(
+            in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: "$1<VARVAMP-GOODBYE>"
+        )
+    }
+
+    static let varVAMPGoodbyes = [
+        "Thank you. Come again.", ">Placeholder for your advertisement<", "Ciao cacao!",
+        "And now lets pray to the PCR gods.", "**bibobibobop** task finished", "Thank you for traveling with varVAMP.",
+        "This message will self-destruct in 0 seconds.... PUFF!",
+        "What? Already finished? Errr I mean, thanks for using varVAMP!", "One primer design to rule them all.", "42",
+        "Hope to see you again!", "Wohooooo everything worked somehow!", "Reminder: Get yourself a cup of coffee!",
+        "Barba non facit philosophum.", "Task failed successfully.", "Never gonna give you up, never gonna let you down.",
+        "Have you tried turning it off and on again?", "Just try it. PCR is magic!",
+        "One goat was sacrificed for this primer design to work.", "You seem trustworthy. Here's a cookie!",
+        "Owwww yeah, primers done!", "These primers were designed without AI assistance.",
+        "Research is fun (if you ignore the pipetting).", "Balance your primers, balance your life.",
+        "Keep calm and PCR on.", "In silico we trust.", "May the primers be with you.", "Designing primers like a boss!",
+        "Primer design completed. Time for a break!", "Eureka! Your primers are ready.", "Look, I am your primer scheme.",
+        "Quod erat demonstrandum.", "Miau?", "This is an automated message informing you that you are awsome.",
+        "Why was the negative-sense virus angry at the positive-sense virus?\nBecause he was left stranded!",
+        "If you see this message twice, you are an experienced user.", "No one expects the spanish inquisition!",
+        "Primer design you must.",
+    ]
+
+    static var varVAMPGoodbyePattern: NSRegularExpression {
+        let messages = varVAMPGoodbyes.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        return try! NSRegularExpression(
+            pattern: #"(^varVAMP [0-9][0-9.]* finished in [^\n]* sec!\n[^\n]*\n\n)(?:"# + messages + #")(?=\n|\z)"#,
+            options: [.anchorsMatchLines]
+        )
+    }
+
+    /// The digest and size the adapter's own record (`native/adapter-output/provenance-v1.json`) states for each of its
+    /// console logs, an `outputs` entry whose `kind` is `log`, set to `<DIGEST>`. Each log holds the clock lines the
+    /// masks above and `primerAnalysisConsole` hide and is compared as text on its own. The path and kind of each entry,
+    /// and the digest and size of every other output, are compared as written.
+    public static let primerAnalysisAdapterLogDigests = OutputEquivalence.Mask(name: "primerAnalysisAdapterLogDigests") { text, _ in
+        guard text.contains("\"log\""), let data = text.data(using: .utf8),
+              var record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var outputs = record["outputs"] as? [[String: Any]]
+        else { return text }
+        var changed = false
+        for index in outputs.indices where outputs[index]["kind"] as? String == "log" {
+            for key in ["sha256", "byteSize"] where outputs[index][key] != nil {
+                outputs[index][key] = "<DIGEST>"
+                changed = true
+            }
+        }
+        record["outputs"] = outputs
+        guard changed, let encoded = try? JSONSerialization.data(
+            withJSONObject: record, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
+        ), let result = String(data: encoded, encoding: .utf8) else { return text }
+        return result
+    }
+
+    /// The `byteSize` the adapter's record states beside a `sha256` the standard record mask already set to
+    /// `<CONTENT-SHA256>`, for a file or folder both trees hold and compare on its own, set to `<CONTENT-SIZE>`. The
+    /// contract masks that size as well, and the standard mask does not spell `byteSize`. The replay's side folder
+    /// (`C-replay`) is one character longer than `C-route`, so a JSON file that holds its root, such as
+    /// `replay/request-v1.json`, is one byte longer per root. A size beside any other digest is compared as written.
+    public static let primerAnalysisContentComparedByteSizes = OutputEquivalence.Mask(
+        name: "primerAnalysisContentComparedByteSizes"
+    ) { text, _ in
+        guard text.contains("<CONTENT-SHA256>"), let data = text.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(with: data)
+        else { return text }
+        var changed = false
+        func sized(_ value: Any) -> Any {
+            if let array = value as? [Any] { return array.map(sized) }
+            guard var object = value as? [String: Any] else { return value }
+            for (key, item) in object { object[key] = sized(item) }
+            if object["sha256"] as? String == "<CONTENT-SHA256>", object["byteSize"] is NSNumber {
+                object["byteSize"] = "<CONTENT-SIZE>"
+                changed = true
+            }
+            return object
+        }
+        let masked = sized(value)
+        guard changed, let encoded = try? JSONSerialization.data(
+            withJSONObject: masked, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
+        ), let result = String(data: encoded, encoding: .utf8) else { return text }
+        return result
     }
 }
 

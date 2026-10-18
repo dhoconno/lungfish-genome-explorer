@@ -266,4 +266,140 @@ final class PrimerAnalysisMaskPolicyTests: XCTestCase {
         XCTAssertEqual(other.primer.count, 1, "a PNG under another name is compared by digest: \(other.primer)")
         XCTAssertTrue(other.primer.first?.hasPrefix("differs: plot.bin") == true, "\(other.primer)")
     }
+
+    // MARK: - The Olivar and varVAMP bundles (lane 12.16 c4, the manager's grant of items (i) to (iii))
+
+    /// The policy finds `textA` and `masked` the same where the standard policy does not.
+    private func assertHidden(
+        _ relative: String, _ textA: String, _ masked: String, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let hidden = try compare(relative, textA, masked)
+        XCTAssertEqual(hidden.primer, [], "the policy hides it", file: file, line: line)
+        XCTAssertFalse(hidden.standard.isEmpty, "the standard policy sees it, so the mask hides it", file: file, line: line)
+    }
+
+    /// The policy still reports `relative` when its text changes from `textA` to `changed`.
+    private func assertStillDiffers(
+        _ relative: String, _ textA: String, _ changed: String, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let control = try compare(relative, textA, changed)
+        XCTAssertFalse(control.primer.isEmpty, "the policy still reports it", file: file, line: line)
+        XCTAssertTrue(
+            control.primer.allSatisfy { $0.hasPrefix("differs: \(relative)") }, "\(control.primer)", file: file, line: line
+        )
+    }
+
+    func testTheAdapterStageIDIsHiddenAndAnotherFolderOrOptionStillDiffers() throws {
+        func result(_ stage: String, folder: String = "design", size: Int = 400) -> String {
+            #"{"amplicon_size":\#(size),"out_path":"/x/Analyses/.adapter-output.adapter-stage-\#(stage)/native/\#(folder)/a"}"#
+        }
+        let relative = "native/design/result.json"
+        try assertHidden(relative, result("u8xqtmh5"), result("c8z9n59z"))
+        try assertStillDiffers(relative, result("u8xqtmh5"), result("u8xqtmh5", size: 420))
+        try assertStillDiffers(relative, result("u8xqtmh5"), result("c8z9n59z", folder: "references"))
+        // The adapter's own record is a provenance envelope by its name and takes the mask too.
+        func record(_ stage: String, seed: Int) -> String {
+            #"{"command":{"environment":{"TMPDIR":"/x/.adapter-output.adapter-stage-\#(stage)/cache/tmp"}},"seed":\#(seed)}"#
+        }
+        let envelope = "native/adapter-output/provenance-v1.json"
+        try assertHidden(envelope, record("u8xqtmh5", seed: 10), record("led0tqhm", seed: 10))
+        try assertStillDiffers(envelope, record("u8xqtmh5", seed: 10), record("u8xqtmh5", seed: 11))
+    }
+
+    func testTheEngineTimingsAreHiddenAndALoggedCountOrVersionStillDiffers() throws {
+        func log(_ times: [String], amplicons: Int = 5, version: String = "1.3.2") -> String {
+            "<T> | INFO     | Finished in \(times[0])\n<T> | INFO     | Finished in \(times[1])\n"
+                + "<T> | INFO     | Primer dimer optimization finished in \(times[2])\n"
+                + "96.53 % total coverage with \(amplicons) amplicons\nvarVAMP \(version) finished in \(times[3]) sec!\n"
+        }
+        let first = ["0:00:00.004186", "2.131s", "10.748s", "1.193925"]
+        let second = ["0:00:00.003630", "1.872s", "10.504s", "1.196661"]
+        let relative = "native/adapter-output/logs/native-stdout.txt"
+        try assertHidden(relative, log(first), log(second))
+        try assertStillDiffers(relative, log(first), log(first, amplicons: 6))
+        try assertStillDiffers(relative, log(first), log(second, version: "1.3.3"))
+        // A time on any other line is compared as written.
+        try assertStillDiffers(relative, log(first) + "<T> | INFO     | Loss 2.131s\n", log(first) + "<T> | INFO     | Loss 1.872s\n")
+    }
+
+    func testTheVarVAMPGoodbyeIsHiddenInItsPlaceAndAnyOtherLastLineStillDiffers() throws {
+        func log(_ goodbye: String, seconds: String = "1.193925") -> String {
+            "Job:\t\t Finalizing output.\n\nvarVAMP 1.3.2 finished in \(seconds) sec!\n2026-10-18 14:59:14.718691\n\n\(goodbye)\n"
+        }
+        let relative = "native/adapter-output/logs/native-stdout.txt"
+        try assertHidden(relative, log(">Placeholder for your advertisement<"), log("Just try it. PCR is magic!", seconds: "1.196661"))
+        try assertHidden(
+            relative, log("Miau?"), log("Why was the negative-sense virus angry at the positive-sense virus?\nBecause he was left stranded!")
+        )
+        // A line that is no goodbye of varVAMP 1.3.2 is compared as written in that place, and a goodbye anywhere else.
+        try assertStillDiffers(relative, log("Miau?"), log("Miau!"))
+        try assertStillDiffers(relative, log("Miau?"), log("varVAMP_0_LEFT\t21\t39\tGCACGGGCTGTCGAATTAC"))
+        try assertStillDiffers(relative, "varVAMP 1.3.2 started\nMiau?\n", "varVAMP 1.3.2 started\n42\n")
+    }
+
+    func testTheAdapterLogDigestIsHiddenAndAnotherOutputDigestOrALogPathStillDiffers() throws {
+        func record(log: Character, size: Int, config: Character = "c", path: String = "logs/native-stdout.txt") -> String {
+            #"{"outputs":[{"byteSize":\#(size),"kind":"log","path":"\#(path)","sha256":"\#(Self.hex(log))"},"#
+                + #"{"byteSize":461,"kind":"configuration","path":"config/a/varvamp-config.py","sha256":"\#(Self.hex(config))"}]}"#
+        }
+        let relative = "native/adapter-output/provenance-v1.json"
+        try assertHidden(relative, record(log: "a", size: 1863), record(log: "b", size: 1853))
+        try assertStillDiffers(relative, record(log: "a", size: 1863), record(log: "a", size: 1863, config: "d"))
+        try assertStillDiffers(relative, record(log: "a", size: 1863), record(log: "a", size: 1863, path: "logs/native-stderr.txt"))
+    }
+
+    func testTheSizeBesideAContentComparedDigestIsHiddenAndASizeBesideAnyOtherDigestStillDiffers() throws {
+        func tree(snapshot: Int, other: Int, otherDigest: Character = "c") -> [String: String] {
+            let record = #"{"outputs":[{"byteSize":\#(snapshot),"kind":"requestSnapshot","path":"replay/request-v1.json","#
+                + #""sha256":"\#(Self.hex(snapshot == 2021 ? "a" : "b"))"},{"byteSize":\#(other),"kind":"configuration","#
+                + #""path":"config/elsewhere.py","sha256":"\#(Self.hex(otherDigest))"}]}"#
+            return ["native/adapter-output/provenance-v1.json": record, "native/adapter-output/replay/request-v1.json": #"{"a":1}"#]
+        }
+        // The snapshot is in both trees and compared on its own, so the standard mask hides its digest and this mask
+        // its size. The standard policy still sees the size.
+        let hidden = try compareTrees(tree(snapshot: 2021, other: 461), tree(snapshot: 2023, other: 461))
+        XCTAssertEqual(hidden.primer, [], "the policy hides it")
+        XCTAssertFalse(hidden.standard.isEmpty, "the standard policy sees it, so the mask hides it")
+        XCTAssertTrue(hidden.standard.allSatisfy { $0.contains("byteSize") }, "\(hidden.standard)")
+        // A file only the record names keeps its digest, so its size is compared as written.
+        let other = try compareTrees(tree(snapshot: 2021, other: 461), tree(snapshot: 2021, other: 462))
+        XCTAssertEqual(other.primer.count, 1, "\(other.primer)")
+        XCTAssertTrue(other.primer.first?.contains(#""byteSize" : 462"#) == true, "\(other.primer)")
+    }
+
+    // MARK: - A PDF (comparesPDFByPresence, item (iii) of the manager's grant to lane 12.16 c4)
+
+    /// `%PDF-1.4`, the binary comment line matplotlib writes after it, and `count` bytes of `fill`. The comment's bytes
+    /// are no UTF-8, so the standard compare reads the file as binary.
+    private static func pdf(_ fill: UInt8, count: Int = 16) -> Data {
+        Data(Array("%PDF-1.4\n%".utf8) + [0xAC, 0xDC, 0x20, 0xAB, 0xBA, 0x0A] + [UInt8](repeating: fill, count: count))
+    }
+
+    func testOnlyThePrimerAnalysisPolicyComparesAPDFByPresence() {
+        XCTAssertTrue(OutputEquivalence.MaskPolicy.primerAnalysis.comparesPDFByPresence)
+        XCTAssertFalse(OutputEquivalence.MaskPolicy.standard.comparesPDFByPresence)
+        XCTAssertFalse(OutputEquivalence.MaskPolicy.gatk.comparesPDFByPresence)
+    }
+
+    func testAPDFsBytesAreHiddenAndAPDFOnOneSideOrUnderAnotherNameStillDiffers() throws {
+        let plot = "native/run/amplicon_plot.pdf"
+        let bytes = try compareData([plot: Self.pdf(1)], [plot: Self.pdf(2)])
+        XCTAssertEqual(bytes.primer, [], "the policy compares the PDF by name and presence")
+        XCTAssertEqual(bytes.standard.count, 1, "\(bytes.standard)")
+        XCTAssertTrue(bytes.standard.first?.contains("binary sha256") == true, "the standard policy compares it by digest")
+        let oneSided = try compareData([plot: Self.pdf(1)], ["native/run/amplicons.bed": Data("row\t0\t10\n".utf8)])
+        XCTAssertTrue(oneSided.primer.contains("only in A: \(plot)"), "\(oneSided.primer)")
+        let renamed = try compareData([plot: Self.pdf(1)], ["native/run/per_base_mismatches.pdf": Self.pdf(1)])
+        XCTAssertTrue(renamed.primer.contains("only in A: \(plot)"), "\(renamed.primer)")
+        XCTAssertTrue(renamed.primer.contains("only in B: native/run/per_base_mismatches.pdf"), "\(renamed.primer)")
+    }
+
+    func testAFileThatIsNoPDFKeepsItsCompareUnderThePolicy() throws {
+        let fake = try compareData(["plot.pdf": Data([0xFF, 0xFE, 0x00, 0x01])], ["plot.pdf": Data([0xFF, 0xFE, 0x00, 0x02])])
+        XCTAssertEqual(fake.primer.count, 1, "a .pdf without the signature is compared by digest: \(fake.primer)")
+        XCTAssertTrue(fake.primer.first?.hasPrefix("differs: plot.pdf") == true, "\(fake.primer)")
+        let other = try compareData(["plot.bin": Self.pdf(1)], ["plot.bin": Self.pdf(2)])
+        XCTAssertEqual(other.primer.count, 1, "a PDF under another name is compared by digest: \(other.primer)")
+        XCTAssertTrue(other.primer.first?.hasPrefix("differs: plot.bin") == true, "\(other.primer)")
+    }
 }

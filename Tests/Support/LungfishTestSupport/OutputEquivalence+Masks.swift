@@ -102,6 +102,11 @@ extension OutputEquivalence {
         /// input ID, into its row plot. Every other policy compares a PNG by its sha256.
         public var comparesPNGByPresence = false
 
+        /// Whether a PDF, a file whose name ends in `.pdf` and that starts with `%PDF-`, is compared by its name and
+        /// presence alone. Only `primerAnalysis` sets it, since varVAMP's plots hold their creation time. Every other
+        /// policy compares a PDF by its content.
+        public var comparesPDFByPresence = false
+
         func masks(for role: TextRole) -> [Mask] {
             switch role {
             case .provenance: return provenance
