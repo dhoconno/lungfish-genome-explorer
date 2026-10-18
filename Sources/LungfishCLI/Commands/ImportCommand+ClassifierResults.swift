@@ -59,7 +59,7 @@ struct ClassifierResultImportRun {
         outputDirectory: URL,
         _ work: @escaping @Sendable (_ progress: @escaping @Sendable (Double, String) -> Void) throws -> Imported
     ) async throws -> Imported {
-        let foldersBefore = resultFolders(in: outputDirectory)
+        let ledgerStart = ImportResultFolderLedger.count
         let emitter = emitter
         let gate = ImportWorkerGate()
         let outcome = await ImportCancellation.run {
@@ -76,15 +76,16 @@ struct ClassifierResultImportRun {
             return imported
         case .failure(let error) where error is CancellationError:
             // The import's thread stops at its next progress report, or the wait ends after two seconds, so it
-            // writes nothing more while the run removes the folder it began. A folder that a write still holds
-            // open is removed again until it is gone, inside the app's grace.
+            // writes nothing more while the run removes the folder it began. That is the folder the service named
+            // to `ImportResultFolderLedger` after this run started, and no other, since another import of the same
+            // kind may be running or finished in the same Imports folder (review of lane 12.04, Fix 2). A folder
+            // that a write still holds open is removed again until it is gone, inside the app's grace.
             gate.cancel()
             gate.waitUntilStill(atMost: .seconds(2))
-            for folder in resultFolders(in: outputDirectory).subtracting(foldersBefore) {
-                let url = outputDirectory.appendingPathComponent(folder, isDirectory: true)
+            for url in ImportResultFolderLedger.createdSince(ledgerStart) {
                 for _ in 0..<20 where FileManager.default.fileExists(atPath: url.path) {
                     try? FileManager.default.removeItem(at: url)
-                    if FileManager.default.fileExists(atPath: url.path) { usleep(50_000) }
+                    if FileManager.default.fileExists(atPath: url.path) { try? await Task.sleep(for: .milliseconds(50)) }
                 }
             }
             throw await ImportCancellation.finish(
@@ -104,12 +105,6 @@ struct ClassifierResultImportRun {
     /// the same form as the completion of an alignment attached to a bundle, a path and a message.
     func complete(_ resultDirectory: URL, message: String) {
         emitter.emitComplete(attachedTo: resultDirectory, message: message)
-    }
-
-    /// The folders in `folder` whose name starts as this kind's result folders do.
-    private func resultFolders(in folder: URL) -> Set<String> {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        return Set(names.filter { $0.hasPrefix(kind.directoryPrefix) })
     }
 }
 

@@ -48,9 +48,11 @@ enum ClassifierResultImportFixtures {
         return output
     }
 
-    /// `S1.2024/`, the three tables of `esviritu-mini/SRR35517702` named for the dotted sample id.
-    static func esVirituResult(in root: URL) throws -> URL {
-        let folder = root.appendingPathComponent(sampleID, isDirectory: true)
+    /// `S1.2024/`, the three tables of `esviritu-mini/SRR35517702` named for the dotted sample id. A `folderName`
+    /// names the folder otherwise, such as a second import of the same kind into one Imports folder, whose
+    /// result folder takes its name from the folder's.
+    static func esVirituResult(in root: URL, folderName: String = sampleID) throws -> URL {
+        let folder = root.appendingPathComponent(folderName, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let source = fixturesFolder.appendingPathComponent("esviritu-mini/SRR35517702", isDirectory: true)
         for suffix in ["detected_virus.info.tsv", "detected_virus.assembly_summary.tsv", "virus_coverage_windows.tsv"] {

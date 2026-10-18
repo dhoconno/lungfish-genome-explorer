@@ -63,7 +63,7 @@ public enum MetagenomicsImportService {
         progress?(0.05, "Preparing output directory...")
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.kraken2.toolIdentifier, to: resultDirectory)
-        OperationMarker.markInProgress(resultDirectory, detail: "Importing Kraken2 results\u{2026}")
+        ImportResultFolderLedger.markInProgress(resultDirectory, detail: "Importing Kraken2 results\u{2026}")
         var importCompleted = false
         defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
 
@@ -199,7 +199,7 @@ public enum MetagenomicsImportService {
         )
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.esviritu.toolIdentifier, to: resultDirectory)
-        OperationMarker.markInProgress(resultDirectory, detail: "Importing EsViritu results\u{2026}")
+        ImportResultFolderLedger.markInProgress(resultDirectory, detail: "Importing EsViritu results\u{2026}")
         var importCompleted = false
         defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying EsViritu files...")
@@ -322,7 +322,7 @@ public enum MetagenomicsImportService {
         )
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.taxtriage.toolIdentifier, to: resultDirectory)
-        OperationMarker.markInProgress(resultDirectory, detail: "Importing TaxTriage results\u{2026}")
+        ImportResultFolderLedger.markInProgress(resultDirectory, detail: "Importing TaxTriage results\u{2026}")
         var importCompleted = false
         defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying TaxTriage files...")
