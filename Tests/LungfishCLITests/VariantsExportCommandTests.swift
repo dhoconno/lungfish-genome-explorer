@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.39 c2, ARCH ruling X-1 rows B6 and B11, X-3 and BIO 5 and 6. Each leaf writes the bytes the
-// drawer wrote, names only the variant databases it read, refuses before it writes, and parses the arguments the
-// drawer's begin helper builds.
+// drawer wrote, names what it read (the variant databases, and for the template the bundle's manifest that lists
+// them), refuses before it writes, and parses the arguments the drawer's begin helper builds.
 
 import ArgumentParser
 import XCTest
@@ -128,7 +128,16 @@ final class VariantsExportCommandTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "lungfish variants export sample-template")
         XCTAssertEqual(envelope.argv, ["lungfish-cli"] + arguments)
         XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
-        XCTAssertEqual(envelope.files.filter { $0.role == .input }.map(\.path), [fixture.databaseURL.standardizedFileURL.path])
+        let inputs = envelope.files.filter { $0.role == .input }
+        XCTAssertEqual(
+            inputs.map(\.path).sorted(),
+            [
+                fixture.bundleURL.appendingPathComponent("manifest.json").standardizedFileURL.path,
+                fixture.databaseURL.standardizedFileURL.path,
+            ].sorted(),
+            "the bundle's manifest and its variant database, each once (BIO 6)"
+        )
+        XCTAssertTrue(inputs.allSatisfy { $0.checksumSHA256 != nil }, "every input has a digest")
         XCTAssertEqual(envelope.options.resolvedDefaults["sampleCount"]?.integerValue, 2)
     }
 
@@ -140,6 +149,19 @@ final class VariantsExportCommandTests: XCTestCase {
             as: VariantsCommand.ExportSampleTemplateSubcommand.self
         ).export()) { XCTAssertTrue($0 is ViewerExportRefusal, "\($0)") }
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    /// The leaf reads the manifest to find the tracks, so the manifest is an input the output may not replace, even
+    /// with `--force` (BIO 6).
+    func testSampleTemplateLeafRefusesAnOutputThatIsTheBundleManifest() throws {
+        let manifest = fixture.bundleURL.appendingPathComponent("manifest.json")
+        let before = try Data(contentsOf: manifest)
+        XCTAssertThrowsError(try parse(
+            ["variants", "export", "sample-template", fixture.bundleURL.path, "--output-format", "tsv", "-o", manifest.path, "--force"],
+            as: VariantsCommand.ExportSampleTemplateSubcommand.self
+        ).export()) { XCTAssertTrue($0 is ViewerExportRefusal, "\($0)") }
+        XCTAssertEqual(try Data(contentsOf: manifest), before, "the manifest the leaf read is left as it was")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: manifest).path))
     }
 
     func testVariantsSampleTemplateLeafParsesTheGUIArguments() throws {

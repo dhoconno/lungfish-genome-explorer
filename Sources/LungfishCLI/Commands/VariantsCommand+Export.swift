@@ -128,8 +128,9 @@ extension VariantsCommand {
     ///
     /// The leaf reads every variant database the bundle's manifest lists, in the order the drawer opens them, and
     /// writes one row for each sample and source file with an empty cell for each `--metadata-column`, under the
-    /// `sample_name` and `source_file` headers `variants import-sample-metadata` reads back (BIO 5). It names only
-    /// those databases as inputs (BIO 6). The drawer's Download Template runs this leaf behind its Operations row.
+    /// `sample_name` and `source_file` headers `variants import-sample-metadata` reads back (BIO 5). It names the
+    /// bundle's manifest, which lists the tracks, and those databases as inputs (BIO 6). The drawer's Download
+    /// Template runs this leaf behind its Operations row.
     struct ExportSampleTemplateSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "sample-template",
@@ -182,7 +183,9 @@ extension VariantsCommand {
             }
             var seen = Set<String>()
             let databaseURLs = tracks.map(\.databaseURL).filter { seen.insert($0.standardizedFileURL.path).inserted }
-            try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: databaseURLs, force: invocation.force)
+            let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+            let inputURLs = [manifestURL] + databaseURLs
+            try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: inputURLs, force: invocation.force)
 
             var databases: [VariantDatabase] = []
             for databaseURL in tracks.map(\.databaseURL) {
@@ -213,7 +216,7 @@ extension VariantsCommand {
             try Task.checkCancellation()
             try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
                 workflowName: VariantSampleTemplateExport.workflowName,
-                sourceURLs: databaseURLs,
+                sourceURLs: inputURLs,
                 outputURL: outputURL,
                 outputFormat: .text,
                 argv: invocation.canonicalArgv(),

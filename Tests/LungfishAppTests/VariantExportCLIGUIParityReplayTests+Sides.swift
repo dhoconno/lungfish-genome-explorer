@@ -286,10 +286,19 @@ extension VariantExportCLIGUIParityReplayTests {
         let c = try Self.envelope(in: runs.c.root, for: parityCase)
         let databases = parityCase.sharesOneDatabase
             ? ["/\(Self.bundleName)/first.db"] : ["/\(Self.bundleName)/first.db", "/\(Self.bundleName)/second.db"]
-        XCTAssertEqual(
-            Self.inputs(of: c, under: runs.c.root).keys.sorted(), databases,
-            "each variant database the leaf read once, never the bundle folder, its manifest or a VCF (BIO 6)"
-        )
+        let namedInputs = Self.inputs(of: c, under: runs.c.root).keys.sorted()
+        if parityCase.isBookmarked {
+            XCTAssertEqual(
+                namedInputs, databases,
+                "each variant database the leaf read once, never the bundle folder, its manifest or a VCF (BIO 6)"
+            )
+        } else {
+            XCTAssertEqual(
+                namedInputs, (databases + ["/\(Self.bundleName)/manifest.json"]).sorted(),
+                "each variant database the leaf read once and the manifest that lists them, "
+                    + "never the bundle folder or a VCF (BIO 6)"
+            )
+        }
         guard parityCase.isBookmarked else {
             XCTAssertFalse(
                 FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputA).path),
