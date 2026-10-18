@@ -122,6 +122,47 @@ final class CLIViewerExportRunnerTests: XCTestCase {
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == id }?.state, .cancelled)
     }
 
+    /// Review 12.31-M3a Fix 6, ruled by the manager. A cancel that lands after the leaf committed, which traps TERM,
+    /// writes its file, prints `complete` and exits 0, completes the row with that file, since an export leaf writes
+    /// payload and record in one transaction. The five runners of FiveRunnersCancelReadingTests keep the other
+    /// reading. The file's path reaches the leaf through `environmentAdditions` (Fix 5).
+    func testACancelAfterTheLeafCommittedCompletesTheRowWithTheFile() async throws {
+        let result = folder.appendingPathComponent("committed.tsv")
+        let ready = folder.appendingPathComponent("leaf.ready")
+        let cli = try standInCLI("""
+        finish() {
+          echo finished > "$LUNGFISH_TEST_EXPORT_RESULT"
+          printf '%s\\n' '{"event":"complete","progress":1,"outputs":["\(result.path)"],"output":"\(result.path)"}'
+          exit 0
+        }
+        trap finish TERM
+        printf '%s\\n' '{"event":"start","progress":0,"message":"starting"}'
+        echo ready > "\(ready.path)"
+        while :; do sleep 0.1; done
+        """)
+        let id = try beginRow()
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let runner = CLIViewerExportRunner(cliURLOverride: cli)
+        let run = Task {
+            await runner.run(
+                arguments: [], outputURL: result, operationID: id, completionDetail: "Exported committed.tsv",
+                environmentAdditions: ["LUNGFISH_TEST_EXPORT_RESULT": result.path]
+            )
+        }
+
+        let deadline = Date().addingTimeInterval(30)
+        while !FileManager.default.fileExists(atPath: ready.path), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ready.path), "the stand-in leaf started")
+        runner.cancel()
+        let outcome = await run.value
+
+        XCTAssertEqual(outcome, .completed(result))
+        XCTAssertEqual(try String(contentsOf: result, encoding: .utf8), "finished\n")
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == id }?.state, .completed)
+    }
+
     // MARK: - Helpers
 
     private func beginRow() throws -> UUID {

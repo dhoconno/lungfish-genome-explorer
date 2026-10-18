@@ -6,6 +6,7 @@
 // begins an export row with no lock and a cancel callback, records the `esviritu export detections` command the
 // runner runs, and launches nothing when the row is refused. EsVirituExportCLIGUIParityReplayTests runs the command.
 
+import AppKit
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishEsVirituUI
@@ -49,6 +50,23 @@ final class EsVirituDetectionsExportRowTests: XCTestCase {
         XCTAssertEqual(command.output.path, "/tmp/lane 12.31/detections, all.csv")
         XCTAssertTrue(command.output.force)
         XCTAssertEqual(command.globalOptions.outputFormat, .json, "the runner reads the leaf's events")
+    }
+
+    /// Review 12.31-M3a Fix 7. The leaf reads no `--sample` as every sample, so an empty picker must begin no row. It
+    /// clears the result, and the Export action returns before the save panel.
+    func testAnEmptySampleSelectionBeginsNoRow() {
+        let view = EsVirituResultViewController()
+        let window = NSWindow(contentViewController: view)
+        window.isReleasedWhenClosed = false
+        view.isBatchMode = true
+        view.samplePickerState = ClassifierSamplePickerState(allSamples: ["sample-A", "sample-B"])
+        view.samplePickerState.selectedSamples = []
+        view.applyBatchSampleFilter()
+        XCTAssertNil(view.esVirituResult)
+        let rowsBefore = OperationCenter.shared.items.count
+        view.perform(NSSelectorFromString("exportTSVAction:"), with: nil)
+        XCTAssertEqual(OperationCenter.shared.items.count, rowsBefore, "no row began and no leaf ran")
+        XCTAssertNotNil(view.view.window)
     }
 
     func testARefusedRowLaunchesNothing() throws {

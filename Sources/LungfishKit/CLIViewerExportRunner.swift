@@ -66,12 +66,19 @@ public actor CLIViewerExportRunner {
     ///   - completionDetail: The row's detail once the leaf wrote the file.
     ///   - emitsEvents: False for an existing leaf whose contract row is not `.events`. It runs without
     ///     `--format json`, writes no `complete` line, and its row completes on exit 0.
+    ///   - environmentAdditions: Variables laid over the app's subprocess environment for this run only. No
+    ///     production caller passes any. A test passes the leaf's hold variable.
+    ///
+    /// A cancel that lands after the leaf committed, so that it exits 0 with a `complete` line naming its file,
+    /// completes the row with that file, since the leaf wrote payload and record in one transaction and the file
+    /// is on disk (review 12.31-M3a Fix 6, ruled by the manager).
     public func run(
         arguments: [String],
         outputURL: URL,
         operationID: UUID,
         completionDetail: String,
-        emitsEvents: Bool = true
+        emitsEvents: Bool = true,
+        environmentAdditions: [String: String] = [:]
     ) async -> Outcome {
         let written: URL
         do {
@@ -79,6 +86,8 @@ public actor CLIViewerExportRunner {
                 arguments: arguments,
                 terminationGracePeriod: Self.terminationGracePeriod,
                 drainGracePeriod: Self.drainGracePeriod,
+                environmentAdditions: environmentAdditions,
+                completionOutlivesCancel: true,
                 isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
                 onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
             )
