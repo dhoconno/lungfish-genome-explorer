@@ -1,16 +1,14 @@
-// VCFImportModesPinTests.swift - What the VCF helper's modes and import vcf write for the fixture VCF
+// VCFImportModesPinTests.swift - What import vcf and its two finishing modes write, against the in-process core
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.07 (A64) M1, QA 1, BIO 1, 3 and 7. Pins at the base, with no Sources edit.
-//
-// The Import Center builds a VCF track by launching the app executable in up to three helper modes on a private
-// copy of the track's database: `--vcf-import-helper` (the rows), `--vcf-resume-helper` (the index build of an
-// import left at `import_state = indexing`) and `--vcf-materialize-helper` (the INFO table of an import whose INFO
-// was skipped or whose materialization stopped). `lungfish-cli import vcf <vcf> --output-dir <bundle>` builds the
-// same track in process through `VCFBundleVariantImport.attachInProcess`. These cases pin, for the sarscov2
-// fixture, that each helper mode leaves the database the in-process core leaves, that the helper sequence the GUI
-// runs and `import vcf` give the same rows, and what `import vcf` records.
+// Phase 2.12 lane 12.07 (A64), QA 1, BIO 1, 3 and 7. Until M3 the Import Center built a VCF track by launching the
+// app executable in up to three helper modes on a private copy of the track's database, the rows, the index build of
+// an import left at `import_state = indexing` and the INFO table of an import whose INFO was skipped or whose
+// materialization stopped. M1 pinned each helper mode against the core it ran. Since M3 the Import Center runs
+// `lungfish-cli import vcf <vcf> --output-dir <bundle>` with `--resume` or `--materialize`, and these cases pin, for
+// the sarscov2 fixture, that the command builds the rows the in-process core builds, what it records, and the mode
+// the Import Center reads from a replaced track's database.
 
 import ArgumentParser
 import XCTest
@@ -22,50 +20,30 @@ import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 
-final class VCFImportModesPinTests: VCFImportHelperSubprocessTestCase {
-    // MARK: - The two modes, each against the core
+final class VCFImportModesPinTests: XCTestCase {
+    var tempDirectory: URL!
 
-    func testTheResumeModeLeavesTheDatabaseTheCoreResumeLeaves() throws {
-        let (viaHelper, inProcess) = try twoInterruptedDatabases()
-        XCTAssertEqual(VariantDatabase.importState(at: viaHelper), "indexing")
-        XCTAssertEqual(
-            try runHelperInProcess(arguments: ["Lungfish", "--vcf-resume-helper", "--output-db-path", viaHelper.path]), 0
-        )
-        XCTAssertEqual(try VariantDatabase.resumeImport(existingDBURL: inProcess), 9)
-        XCTAssertEqual(VariantDatabase.importState(at: viaHelper), "complete")
-        try assertSameDatabase(viaHelper, inProcess)
+    override func setUpWithError() throws {
+        tempDirectory = try TestTempDirectory.make(prefix: "vcf-import-modes")
     }
 
-    func testTheMaterializeModeLeavesTheDatabaseTheCoreMaterializeLeaves() throws {
-        let (viaHelper, inProcess) = try twoInterruptedDatabases()
-        _ = try VariantDatabase.resumeImport(existingDBURL: viaHelper)
-        _ = try VariantDatabase.resumeImport(existingDBURL: inProcess)
-        XCTAssertEqual(try metadataValue(viaHelper, key: "skip_variant_info"), "true")
-        XCTAssertEqual(
-            try runHelperInProcess(arguments: ["Lungfish", "--vcf-materialize-helper", "--output-db-path", viaHelper.path]), 0
-        )
-        _ = try VariantDatabase.materializeVariantInfo(existingDBURL: inProcess)
-        XCTAssertNotEqual(try Self.rows(viaHelper, "SELECT COUNT(*) FROM variant_info", quoted: false), ["0"])
-        try assertSameDatabase(viaHelper, inProcess)
+    override func tearDownWithError() throws {
+        TestTempDirectory.cleanup(tempDirectory)
     }
 
-    // MARK: - The GUI's helper sequence against import vcf
+    // MARK: - The core's sequence against import vcf
 
-    /// The fresh mode at the GUI's default profile (auto) takes the single pass for the fixture, then the GUI resumes
-    /// an import left at `indexing`. `import vcf` builds the same rows into the bundle and records one step that names
-    /// its own command.
+    /// The core at the GUI's default profile (auto) takes the single pass for the fixture, then resumes an import left
+    /// at `indexing`, as the helper did. `import vcf` builds the same rows into the bundle and records one step that
+    /// names its own command.
     @MainActor
-    func testTheHelperSequenceAndImportVCFBuildTheSameRows() async throws {
+    func testTheCoreSequenceAndImportVCFBuildTheSameRows() async throws {
         let vcf = try copyFixtureVCFWithoutIndex()
-        let viaHelper = tempDirectory.appendingPathComponent("helper.db")
-        XCTAssertEqual(try runHelperInProcess(arguments: [
-            "Lungfish", "--vcf-import-helper", "--vcf-path", vcf.path, "--output-db-path", viaHelper.path,
-            "--source-file", vcf.lastPathComponent, "--import-profile", "auto",
-        ]), 0)
+        let viaHelper = tempDirectory.appendingPathComponent("core.db")
+        _ = try VCFBundleVariantImport.createDatabase(
+            vcfURL: vcf, outputDBURL: viaHelper, sourceFile: vcf.lastPathComponent, importProfile: .auto)
         if VariantDatabase.importState(at: viaHelper) == "indexing" {
-            XCTAssertEqual(
-                try runHelperInProcess(arguments: ["Lungfish", "--vcf-resume-helper", "--output-db-path", viaHelper.path]), 0
-            )
+            _ = try VariantDatabase.resumeImport(existingDBURL: viaHelper)
         }
         XCTAssertEqual(try metadataValue(viaHelper, key: "import_partition_mode"), "single-pass", "the fixture takes the single pass")
 
@@ -88,8 +66,8 @@ final class VCFImportModesPinTests: VCFImportHelperSubprocessTestCase {
     }
 
     /// `import vcf` at the ultra-low-memory profile builds in one pass in its own process, with the INFO table
-    /// materialized and `import_partition_mode` = `single-pass`. The helper's fresh mode splits the same import by chromosome with
-    /// bcftools (`import_partition_mode` = `helper-subprocess-per-chromosome`, pinned by VCFImportHelperRealToolTests).
+    /// materialized and `import_partition_mode` = `single-pass`. The helper's fresh mode, gone since lane 12.07 M3, split the
+    /// same import by chromosome with bcftools (`import_partition_mode` = `helper-subprocess-per-chromosome`).
     @MainActor
     func testImportVCFBuildsAnUltraLowMemoryImportInOnePass() async throws {
         let vcf = try copyFixtureVCFWithoutIndex()
@@ -107,8 +85,8 @@ final class VCFImportModesPinTests: VCFImportHelperSubprocessTestCase {
 
     /// Ruling ARCH-12.07-partition, step 1. `import vcf` at the ultra-low-memory profile reads every record in one pass,
     /// the record on the 515th header contig and the record on a contig the header does not list included. The helper's
-    /// split, which the Import Center ran before, imported only the first 512 header contigs
-    /// (`VCFImportHelperRealToolTests`). This case stays after the helper goes.
+    /// split, which the Import Center ran before lane 12.07, imported only the first 512 header contigs, 6 of these 8
+    /// records (its real-tool case, run once in M2 and deleted with the helper in M3).
     @MainActor
     func testImportVCFImportsEveryRecordPastTheHeaderContigCap() async throws {
         let vcf = try Self.writeContigCapVCF(in: tempDirectory)
@@ -123,17 +101,17 @@ final class VCFImportModesPinTests: VCFImportHelperSubprocessTestCase {
         XCTAssertEqual(try metadataValue(published, key: "import_partition_mode"), "single-pass")
     }
 
-    // MARK: - The two modes of import vcf against the helper's (M1 (2))
+    // MARK: - The two modes of import vcf against the core's
 
     /// `import vcf --replace input --resume` on a track whose database stopped at `indexing` builds the database
-    /// the helper's resume mode builds, then the INFO the helper's materialize mode fills, as the GUI ran them.
+    /// the core's resume builds, then the INFO the core's materialize fills, as the helper modes ran them.
     @MainActor
-    func testImportVCFResumeLeavesTheDatabaseTheHelperModesLeave() async throws {
+    func testImportVCFResumeLeavesTheDatabaseTheCoreModesLeave() async throws {
         let (bundle, vcf, published) = try bundleWithTrack(resumed: false)
-        let viaHelper = tempDirectory.appendingPathComponent("helper.db")
+        let viaHelper = tempDirectory.appendingPathComponent("core.db")
         try FileManager.default.copyItem(at: published, to: viaHelper)
-        XCTAssertEqual(try runHelperInProcess(arguments: ["Lungfish", "--vcf-resume-helper", "--output-db-path", viaHelper.path]), 0)
-        XCTAssertEqual(try runHelperInProcess(arguments: ["Lungfish", "--vcf-materialize-helper", "--output-db-path", viaHelper.path]), 0)
+        XCTAssertEqual(try VariantDatabase.resumeImport(existingDBURL: viaHelper), 9)
+        _ = try VariantDatabase.materializeVariantInfo(existingDBURL: viaHelper)
 
         let run = try await ClassifierImportAppFixtures.runCLI(
             ["import", "vcf", vcf.path, "--output-dir", bundle.path, "--replace", "input", "--resume", "--format", "json"],
@@ -148,13 +126,13 @@ final class VCFImportModesPinTests: VCFImportHelperSubprocessTestCase {
     }
 
     /// `import vcf --replace input --materialize` on a finished track whose INFO was skipped fills the INFO table the
-    /// helper's materialize mode fills.
+    /// core's materialize fills.
     @MainActor
-    func testImportVCFMaterializeLeavesTheDatabaseTheHelperModeLeaves() async throws {
+    func testImportVCFMaterializeLeavesTheDatabaseTheCoreModeLeaves() async throws {
         let (bundle, vcf, published) = try bundleWithTrack(resumed: true)
-        let viaHelper = tempDirectory.appendingPathComponent("helper.db")
+        let viaHelper = tempDirectory.appendingPathComponent("core.db")
         try FileManager.default.copyItem(at: published, to: viaHelper)
-        XCTAssertEqual(try runHelperInProcess(arguments: ["Lungfish", "--vcf-materialize-helper", "--output-db-path", viaHelper.path]), 0)
+        _ = try VariantDatabase.materializeVariantInfo(existingDBURL: viaHelper)
 
         let run = try await ClassifierImportAppFixtures.runCLI(
             ["import", "vcf", vcf.path, "--output-dir", bundle.path, "--replace", "input", "--materialize"], in: tempDirectory
@@ -310,31 +288,52 @@ final class VCFImportModesPinTests: VCFImportHelperSubprocessTestCase {
         XCTAssertEqual(try Self.rows(lhs, indexes), try Self.rows(rhs, indexes), "indexes", file: file, line: line)
     }
 
-    /// Two databases of the fixture built at the ultra-low-memory profile, so each stops at `indexing` with its INFO
-    /// skipped, as an import whose index build or materialization never ran.
-    func twoInterruptedDatabases() throws -> (URL, URL) {
-        let vcf = fixtures.appendingPathComponent("test.vcf.gz")
-        let urls = [tempDirectory.appendingPathComponent("a.db"), tempDirectory.appendingPathComponent("b.db")]
-        for url in urls {
-            XCTAssertEqual(try VCFBundleVariantImport.createDatabase(
-                vcfURL: vcf, outputDBURL: url, sourceFile: "test.vcf.gz", importProfile: .ultraLowMemory
-            ), 9)
-        }
-        return (urls[0], urls[1])
+    var fixtures: URL {
+        CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            .appendingPathComponent("Tests/Fixtures/sarscov2", isDirectory: true)
     }
 
-    /// The rows, the index names and the metadata other than clocks are equal.
-    func assertSameDatabase(_ lhs: URL, _ rhs: URL, file: StaticString = #filePath, line: UInt = #line) throws {
-        XCTAssertEqual(try Self.dump(lhs), try Self.dump(rhs), "rows", file: file, line: line)
-        let indexes = "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name"
-        XCTAssertEqual(try Self.rows(lhs, indexes), try Self.rows(rhs, indexes), "indexes", file: file, line: line)
-        XCTAssertEqual(try Self.metadata(lhs), try Self.metadata(rhs), "metadata", file: file, line: line)
+    func copyFixtureVCFWithoutIndex() throws -> URL {
+        let input = tempDirectory.appendingPathComponent("input.vcf.gz")
+        try FileManager.default.copyItem(at: fixtures.appendingPathComponent("test.vcf.gz"), to: input)
+        return input
     }
 
-    static func metadata(_ url: URL) throws -> [String] {
-        try rows(url, "SELECT key, value FROM db_metadata ORDER BY key").filter {
-            !$0.contains("_at\"") && !$0.contains("time") && !$0.contains("date")
+    func metadataValue(_ url: URL, key: String) throws -> String? {
+        try Self.rows(url, "SELECT value FROM db_metadata WHERE key = '\(key)'", quoted: false).first
+    }
+
+    /// The rows an import writes, without the source path or timestamps.
+    static func dump(_ url: URL) throws -> String {
+        try [
+            "SELECT chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count FROM variants ORDER BY id",
+            "SELECT variant_id, sample_name, genotype, allele1, allele2, is_phased, depth, genotype_quality, allele_depths, raw_fields FROM genotypes ORDER BY variant_id, sample_name",
+            "SELECT name, display_name, metadata FROM samples ORDER BY name",
+            "SELECT key, type, number, description FROM variant_info_defs ORDER BY key",
+            "SELECT variant_id, key, value FROM variant_info ORDER BY variant_id, key",
+        ].map { try rows(url, $0).joined(separator: "\n") }.joined(separator: "\n--\n")
+    }
+
+    static func rows(_ url: URL, _ query: String, quoted: Bool = true) throws -> [String] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            throw VariantDatabaseError.createFailed("Could not open \(url.lastPathComponent)")
         }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            sqlite3_finalize(statement)
+            return ["! \(query)"]
+        }
+        defer { sqlite3_finalize(statement) }
+        var rows: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append((0..<sqlite3_column_count(statement)).map { column in
+                sqlite3_column_text(statement, column).map { quoted ? String(cString: $0).debugDescription : String(cString: $0) } ?? "NULL"
+            }.joined(separator: "|"))
+        }
+        return rows
     }
 
     func makeBundle() throws -> URL {
