@@ -4,6 +4,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -86,6 +87,56 @@ final class InspectorProvenanceTabTests: XCTestCase {
         vc.restoreSelectedTabIdentifier("provenance")
 
         XCTAssertEqual(vc.restorableSelectedTabIdentifier(), "provenance")
+    }
+
+    /// UX ruling Q-S1. VoiceOver hears "Lineage ready" only while the Provenance tab is the Inspector tab
+    /// on screen, and then once. The Inspector says it through `lineageReadyAnnouncer`, which this test
+    /// replaces with a recorder, since a process cannot read the announcements it posted. Each guard
+    /// holds the announcement back while the other conditions are met.
+    func testLineageReadyIsAnnouncedOnlyWhileTheProvenanceTabShows() async throws {
+        let dir = try TestTempDirectory.make(prefix: "inspector-lineage-ready")
+        defer { TestTempDirectory.cleanup(dir) }
+        let vc = InspectorViewController()
+        _ = vc.view
+        var spoken: [String] = []
+        vc.lineageReadyAnnouncer = { spoken.append($0) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 500),
+            styleMask: [.titled], backing: .buffered, defer: true
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 500))
+        window.contentView = host
+        vc.view.frame = host.bounds
+        host.addSubview(vc.view)
+        XCTAssertNotNil(vc.view.window, "the Inspector view sits in a window")
+
+        // A selection installs the ready callback, as every selection does. The folder holds no
+        // record, so its lookup finds no lineage and announces nothing by itself.
+        vc.viewModel.contentMode = .fastq
+        vc.updateProvenanceTarget(url: dir, sidebarType: .fastqBundle, displayName: "Reads")
+        try await waitUntilLoadCompletes(vc.viewModel.provenanceSectionViewModel)
+        let lineageReady = try XCTUnwrap(vc.viewModel.provenanceSectionViewModel.onLineageReady)
+        XCTAssertEqual(spoken, [])
+
+        vc.viewModel.selectedTab = .bundle
+        lineageReady()
+        XCTAssertEqual(spoken, [], "another Inspector tab is showing")
+
+        vc.viewModel.selectedTab = .provenance
+        vc.view.removeFromSuperview()
+        lineageReady()
+        XCTAssertEqual(spoken, [], "the Inspector view is outside a window")
+        host.addSubview(vc.view)
+
+        vc.view.isHidden = true
+        lineageReady()
+        XCTAssertEqual(spoken, [], "the Inspector view is hidden")
+        vc.view.isHidden = false
+
+        lineageReady()
+        XCTAssertEqual(spoken, ["Lineage ready"], "the Provenance tab shows in a window, so the Inspector says it once")
     }
 
     func testGenotypeAnnotationUpdateRetargetsProvenanceToAnnotationSidecar() throws {

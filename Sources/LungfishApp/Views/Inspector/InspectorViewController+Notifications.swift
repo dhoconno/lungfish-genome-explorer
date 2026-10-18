@@ -495,14 +495,7 @@ extension InspectorViewController {
     private func announceLineageReadyIfProvenanceShows() {
         guard viewModel.selectedTab == .provenance, let view = viewIfLoaded, view.window != nil,
               !view.isHiddenOrHasHiddenAncestor else { return }
-        NSAccessibility.post(
-            element: NSApp as Any,
-            notification: .announcementRequested,
-            userInfo: [
-                .announcement: "Lineage ready",
-                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
-            ]
-        )
+        lineageReadyAnnouncer("Lineage ready")
     }
 
     func presentProvenanceExport(format: ProvenanceExportFormat) {

@@ -130,6 +130,19 @@ public class InspectorViewController: NSViewController {
     /// alignment's load made, so the next selection update keeps the current tab.
     var holdsTabOnNextMSASelection = false
 
+    /// Says the text to VoiceOver as a medium priority announcement from the app. It is a stored
+    /// property because an extension cannot hold one, and so a test can replace it with a recorder.
+    var lineageReadyAnnouncer: (String) -> Void = { text in
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: text,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
     // MARK: - Lifecycle
 
     public override func loadView() {

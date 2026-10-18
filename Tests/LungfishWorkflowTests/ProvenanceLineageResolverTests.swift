@@ -306,6 +306,67 @@ final class ProvenanceLineageResolverTests: XCTestCase {
             "\(events.indexedSidecars.map(\.path))"
         )
     }
+
+    // MARK: - Cancelling before the walk starts, and with no closure
+
+    /// A caller that has already cancelled gets nothing back. The check before the first record ends
+    /// the walk, so no sidecar is read for the project index and the walk reports that it was cancelled.
+    func testWalkCancelledBeforeItStartsReadsNothing() throws {
+        let sidecar = try writeChain(createBAM: false)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let events = LineageEventLog()
+        let resolver = ProvenanceLineageResolver(sidecarIndex: ProvenanceSidecarIndex(), observer: { events.record($0) })
+
+        let runs = resolver.resolve(envelope: envelope, sidecarURL: sidecar, isCancelled: { true })
+
+        XCTAssertTrue(runs.isEmpty, "\(runs.map(\.envelope.workflowName))")
+        XCTAssertEqual(events.indexedSidecars, [], "a walk cancelled before it starts reads no sidecar")
+        XCTAssertEqual(events.walkEnds, [true])
+    }
+
+    /// The index looks for a cancel while it lists the project's files, even when every sidecar is
+    /// already cached and no read is left to check. A walk cancelled at its first record never gets as
+    /// far as the listing, so this asks the index itself.
+    func testCancelledIndexSnapshotReturnsNothingEvenWhenEverySidecarIsCached() throws {
+        _ = try writeChain(createBAM: false)
+        let index = ProvenanceSidecarIndex()
+        let warm = index.snapshot(projectURL: project, maximumFiles: 4_000, isCancelled: { false }, observer: nil)
+        XCTAssertNotNil(warm, "the uncancelled snapshot reads the three sidecars")
+        let events = LineageEventLog()
+
+        let cancelled = index.snapshot(
+            projectURL: project, maximumFiles: 4_000, isCancelled: { true }, observer: { events.record($0) }
+        )
+
+        XCTAssertNil(cancelled)
+        XCTAssertEqual(events.indexedSidecars, [])
+    }
+
+    /// With no closure given, a walk follows the task it runs in. The Inspector's lookup passes none, so
+    /// a newer selection that cancels the lookup's task stops its walk. Here the first sidecar the index
+    /// reads cancels the running task, and the walk reads no second one.
+    func testDefaultCancellationFollowsTheRunningTask() async throws {
+        let sidecar = try writeChain(createBAM: false)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let events = LineageEventLog()
+        let resolver = ProvenanceLineageResolver(
+            sidecarIndex: ProvenanceSidecarIndex(),
+            observer: { event in
+                events.record(event)
+                if case .indexedSidecar = event {
+                    _ = withUnsafeCurrentTask { $0?.cancel() }
+                }
+            }
+        )
+
+        let runs = await Task.detached {
+            resolver.resolve(envelope: envelope, sidecarURL: sidecar)
+        }.value
+
+        XCTAssertEqual(events.indexedSidecars.count, 1, "\(events.indexedSidecars.map(\.path))")
+        XCTAssertEqual(events.walkEnds, [true])
+        XCTAssertEqual(runs.map(\.envelope.workflowName), ["lungfish variants call"])
+    }
 }
 
 /// The events of the walks a test runs, in order. The resolver reports them from the walking thread.

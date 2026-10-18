@@ -1168,6 +1168,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         let item = ProvenanceInspectableItem(
             url: analysis, sidebarType: .analysisResult, contentMode: .empty, displayName: "minimap2-1"
         )
+        let before = try ProjectTreeSnapshot(of: dir)
         viewModel.load(item: item)
         viewModel.load(item: item)
         viewModel.load(item: item)
@@ -1177,6 +1178,10 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isLoading, "a finished lookup of the same item does not start again")
         XCTAssertEqual(lookups.value, 1)
         XCTAssertEqual(viewModel.lineageRuns.map(\.title), ["lungfish import fastq", "lungfish map"])
+        XCTAssertEqual(
+            try ProjectTreeSnapshot(of: dir).differences(from: before), [],
+            "Looking up a lineage walks the project through the index and must write nothing."
+        )
     }
 
     /// A newer selection cancels the walk of the one it replaced. The replaced lookup reads no
