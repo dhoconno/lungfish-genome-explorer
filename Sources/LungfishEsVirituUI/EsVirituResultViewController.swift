@@ -1735,11 +1735,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     }
 
     @objc private func exportCSVAction(_ sender: Any) {
-        exportDelimited(separator: ",", fileExtension: "csv", fileTypeName: "CSV")
+        exportDelimited(format: .csv, fileTypeName: "CSV")
     }
 
     @objc private func exportTSVAction(_ sender: Any) {
-        exportDelimited(separator: "\t", fileExtension: "tsv", fileTypeName: "TSV")
+        exportDelimited(format: .tsv, fileTypeName: "TSV")
     }
 
     @objc private func copySummaryAction(_ sender: Any) {
@@ -1755,10 +1755,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     // MARK: - Delimited Export
 
-    /// Exports the detection table as a delimited file via NSSavePanel.
+    /// Exports the detection table as a delimited file via NSSavePanel, by running `esviritu export detections`
+    /// behind an Operations row (`beginEsVirituDetectionsExportOperation`).
     ///
     /// Uses `beginSheetModal` (not `runModal`) per macOS 26 rules.
-    private func exportDelimited(separator: String, fileExtension: String, fileTypeName: String) {
+    private func exportDelimited(format: ViewerExportDelimitedFormat, fileTypeName: String) {
         guard let result = esVirituResult, let window = view.window else {
             logger.warning("Cannot export: no result or window")
             return
@@ -1767,25 +1768,44 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         let baseName = result.sampleId
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Detections as \(fileTypeName)",
-            suggestedName: "\(baseName)_detections.\(fileExtension)"
+            suggestedName: "\(baseName)_detections.\(format.rawValue)"
         )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
-
-            do {
-                try self.writeDelimitedDetections(result: result, separator: separator, fileExtension: fileExtension, to: url)
-                logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
-            } catch {
-                logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
+            guard let invocation = self.detectionsExportInvocation(result: result, format: format, outputURL: url) else {
+                logger.warning("Cannot export: the result has no folder")
+                return
+            }
+            Self.beginEsVirituDetectionsExportOperation(invocation: invocation) { [weak self] failure in
+                logger.error("Export failed: \(failure.message, privacy: .public)")
                 ResultExportCoordinator.reportFailure(
                     fileName: url.lastPathComponent,
-                    error: error,
+                    error: failure,
                     window: window,
-                    presenter: self.exportFailurePresenter
+                    presenter: self?.exportFailurePresenter ?? DefaultExportFailurePresenter()
                 )
             }
         }
+    }
+
+    /// The `esviritu export detections` invocation for the view's state, or nil when the result has no folder,
+    /// which the app's database route always sets (BIO ruling on 12.31 G3, G3-2). In batch mode it names the
+    /// picker's samples as the database records them (BIO ruling on 12.31 G1, G1-2).
+    func detectionsExportInvocation(
+        result: LungfishIO.EsVirituResult,
+        format: ViewerExportDelimitedFormat,
+        outputURL: URL
+    ) -> ViewerExportInvocation? {
+        guard let batchURL else { return nil }
+        return EsVirituDetectionExport.invocation(
+            resultURL: batchURL,
+            samples: exportSelectedSampleIds(for: result),
+            metadataColumns: detectionTableView.metadataColumns.exportHeaders,
+            format: format,
+            outputURL: outputURL,
+            force: FileManager.default.fileExists(atPath: outputURL.path)
+        )
     }
 
     func writeDelimitedDetections(
