@@ -58,6 +58,8 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         public let sourceAnnotations: [SourceAnnotationInput]
         public let fastqQualitySummaries: [FASTQQualitySummaryInput]
         public let extraCapabilities: [String]
+        /// The bundle path the record names when the import writes to a stage renamed onto it, nil for the path written.
+        public let recordedDestinationURL: URL?
 
         public init(
             name: String? = nil,
@@ -78,7 +80,8 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             sourceRowMetadata: [SourceRowMetadataInput] = [],
             sourceAnnotations: [SourceAnnotationInput] = [],
             fastqQualitySummaries: [FASTQQualitySummaryInput] = [],
-            extraCapabilities: [String] = []
+            extraCapabilities: [String] = [],
+            recordedDestinationURL: URL? = nil
         ) {
             self.name = name
             self.sourceFormat = sourceFormat
@@ -99,6 +102,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             self.sourceAnnotations = sourceAnnotations
             self.fastqQualitySummaries = fastqQualitySummaries
             self.extraCapabilities = extraCapabilities
+            self.recordedDestinationURL = recordedDestinationURL
         }
     }
 
@@ -567,17 +571,13 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             return try Self.readAnnotationSQLiteStore(from: annotationsSQLiteURL)
         }
         let annotationsURL = url.appendingPathComponent(Self.annotationJSONRelativePath)
-        guard FileManager.default.fileExists(atPath: annotationsURL.path) else {
-            return AnnotationStore()
-        }
+        guard FileManager.default.fileExists(atPath: annotationsURL.path) else { return AnnotationStore() }
         return try Self.decode(AnnotationStore.self, from: annotationsURL)
     }
 
     public func loadFASTQQualityStore() throws -> FASTQQualityStore {
         let qualityURL = url.appendingPathComponent("metadata/fastq-quality.json")
-        guard FileManager.default.fileExists(atPath: qualityURL.path) else {
-            return FASTQQualityStore()
-        }
+        guard FileManager.default.fileExists(atPath: qualityURL.path) else { return FASTQQualityStore() }
         return try Self.decode(FASTQQualityStore.self, from: qualityURL)
     }
 
@@ -1097,9 +1097,9 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         )
         try encode(manifest, to: manifestURL)
 
+        let recordedURL = options.recordedDestinationURL ?? bundleURL
         let allFileRecords = try fileRecords(
-            bundleURL: bundleURL,
-            relativePaths: ["manifest.json"] + bundleRelativePaths
+            bundleURL: bundleURL, relativePaths: ["manifest.json"] + bundleRelativePaths, recordedURL: recordedURL
         )
         let bundleChecksums = allFileRecords.mapValues(\.checksumSHA256)
         let provenanceInputFiles = options.inputFiles.isEmpty
@@ -1110,9 +1110,9 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
             workflowName: options.workflowName,
             toolName: options.toolName,
             toolVersion: options.toolVersion,
-            argv: options.argv ?? defaultArgv(inputURL: inputURL, bundleURL: bundleURL, name: manifest.name),
+            argv: options.argv ?? defaultArgv(inputURL: inputURL, bundleURL: recordedURL, name: manifest.name),
             reproducibleCommand: options.reproducibleCommand
-                ?? shellCommand(from: options.argv ?? defaultArgv(inputURL: inputURL, bundleURL: bundleURL, name: manifest.name)),
+                ?? shellCommand(from: options.argv ?? defaultArgv(inputURL: inputURL, bundleURL: recordedURL, name: manifest.name)),
             options: ProvenanceOptions(
                 name: options.name,
                 sourceFormat: options.sourceFormat?.rawValue ?? "auto",
@@ -1126,9 +1126,9 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
                 operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
                 processIdentifier: nil, condaEnvironment: nil, containerImage: nil
             ),
-            input: try fileRecord(for: sourceURL),
+            input: try fileRecord(for: sourceURL, recordedAs: recordedURL.appendingPathComponent("alignment/source.original")),
             output: FileRecord(
-                path: bundleURL.path, checksumSHA256: bundleDigest(checksums: bundleChecksums),
+                path: recordedURL.path, checksumSHA256: bundleDigest(checksums: bundleChecksums),
                 fileSize: try directorySize(at: bundleURL)
             ),
             files: allFileRecords,
@@ -1209,9 +1209,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         rows: [Row],
         coordinateMaps: [RowCoordinateMap]
     ) -> AnnotationStore {
-        guard !sourceAnnotations.isEmpty else {
-            return AnnotationStore()
-        }
+        guard !sourceAnnotations.isEmpty else { return AnnotationStore() }
         var rowsByName: [String: Row] = [:]
         for row in rows where rowsByName[row.displayName] == nil {
             rowsByName[row.displayName] = row
@@ -1439,17 +1437,18 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         return (attrs[.size] as? NSNumber)?.int64Value ?? 0
     }
 
-    private static func fileRecord(for url: URL) throws -> FileRecord {
+    /// The record of the file or folder at `url`, named `recordedURL` when the bundle is published elsewhere.
+    private static func fileRecord(for url: URL, recordedAs recordedURL: URL? = nil) throws -> FileRecord {
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
            isDirectory.boolValue {
             return FileRecord(
-                path: url.path,
+                path: (recordedURL ?? url).path,
                 checksumSHA256: try directoryChecksum(at: url),
                 fileSize: try directorySize(at: url)
             )
         }
-        return FileRecord(path: url.path, checksumSHA256: try checksum(at: url), fileSize: try fileSize(at: url))
+        return FileRecord(path: (recordedURL ?? url).path, checksumSHA256: try checksum(at: url), fileSize: try fileSize(at: url))
     }
 
     private static func directoryChecksum(at url: URL) throws -> String {
@@ -1475,10 +1474,11 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         return sha256Hex(for: Data(entries.joined(separator: "\n").utf8))
     }
 
-    private static func fileRecords(bundleURL: URL, relativePaths: [String]) throws -> [String: FileRecord] {
+    private static func fileRecords(bundleURL: URL, relativePaths: [String], recordedURL: URL) throws -> [String: FileRecord] {
         var result: [String: FileRecord] = [:]
         for relativePath in relativePaths {
-            result[relativePath] = try fileRecord(for: bundleURL.appendingPathComponent(relativePath))
+            let recordedPath = recordedURL.appendingPathComponent(relativePath)
+            result[relativePath] = try fileRecord(for: bundleURL.appendingPathComponent(relativePath), recordedAs: recordedPath)
         }
         return result
     }

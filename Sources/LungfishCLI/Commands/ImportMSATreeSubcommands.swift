@@ -45,8 +45,9 @@ extension ImportCommand {
             let outputPath = outputPath
             let startedAt = Date()
             let destination = ImportDestination()
-            // SIGTERM, the app's Cancel, cancels the import from here on (decision S7). The importer reads
-            // its input before it writes anything, so a cancel there leaves nothing behind.
+            // SIGTERM, the app's Cancel, cancels the import from here on (decision S7). The importer writes into a
+            // stage that one rename publishes after it returned, so a cancel leaves no part of a bundle at the
+            // destination (Phase 2.12 lane 12.06, SWIFT 4).
             let outcome = await ImportCancellation.run { () async throws -> ImportedBundle in
                 try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
@@ -66,7 +67,9 @@ extension ImportCommand {
                     displayName: displayName,
                     extensionName: MultipleSequenceAlignmentBundle.directoryExtension
                 )
-                destination.set(bundleURL)
+                guard !FileManager.default.fileExists(atPath: bundleURL.path) else {
+                    throw MultipleSequenceAlignmentBundle.ImportError.malformedInput("Output bundle already exists: \(bundleURL.path)")
+                }
                 let argv = canonicalArgv(
                     command: "msa",
                     sourceURL: sourceURL,
@@ -77,15 +80,16 @@ extension ImportCommand {
                 )
 
                 emitter.emitProgress(0.35, message: "Parsing and indexing \(sourceURL.lastPathComponent)...")
-                let summary = try await ImportCancellation.blocking {
+                let summary = try await publishStagedBundle(at: bundleURL, prefix: "import-msa-", guardedBy: destination) { stagedURL in
                     let bundle = try MultipleSequenceAlignmentBundle.importAlignment(
                         from: sourceURL,
-                        to: bundleURL,
+                        to: stagedURL,
                         options: .init(
                             name: displayName,
                             sourceFormat: sourceFormat.flatMap { MultipleSequenceAlignmentBundle.SourceFormat(rawValue: $0) },
                             argv: argv,
-                            reproducibleCommand: shellCommand(argv)
+                            reproducibleCommand: shellCommand(argv),
+                            recordedDestinationURL: bundleURL
                         )
                     )
                     return ImportedBundleSummary(
@@ -168,8 +172,9 @@ extension ImportCommand {
             let outputPath = outputPath
             let startedAt = Date()
             let destination = ImportDestination()
-            // SIGTERM, the app's Cancel, cancels the import from here on (decision S7). The importer reads
-            // its input before it writes anything, so a cancel there leaves nothing behind.
+            // SIGTERM, the app's Cancel, cancels the import from here on (decision S7). The importer writes into a
+            // stage that one rename publishes after it returned, so a cancel leaves no part of a bundle at the
+            // destination (Phase 2.12 lane 12.06, SWIFT 4).
             let outcome = await ImportCancellation.run { () async throws -> ImportedBundle in
                 try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
@@ -182,7 +187,9 @@ extension ImportCommand {
                     displayName: displayName,
                     extensionName: "lungfishtree"
                 )
-                destination.set(bundleURL)
+                guard !FileManager.default.fileExists(atPath: bundleURL.path) else {
+                    throw PhylogeneticTreeBundleError.destinationAlreadyExists(bundleURL.path)
+                }
                 let argv = canonicalArgv(
                     command: "tree",
                     sourceURL: sourceURL,
@@ -193,15 +200,16 @@ extension ImportCommand {
                 )
 
                 emitter.emitProgress(0.35, message: "Parsing and indexing \(sourceURL.lastPathComponent)...")
-                let summary = try await ImportCancellation.blocking {
+                let summary = try await publishStagedBundle(at: bundleURL, prefix: "import-tree-", guardedBy: destination) { stagedURL in
                     let bundle = try PhylogeneticTreeBundleImporter.importTree(
                         from: sourceURL,
-                        to: bundleURL,
+                        to: stagedURL,
                         options: .init(
                             name: displayName,
                             argv: argv,
                             command: shellCommand(argv),
-                            sourceFormat: sourceFormat
+                            sourceFormat: sourceFormat,
+                            recordedDestinationURL: bundleURL
                         )
                     )
                     return ImportedBundleSummary(
@@ -271,6 +279,33 @@ private func resolvedBundleURL(
         index += 1
     }
     return candidate
+}
+
+/// Runs `write` into a stage and publishes what it wrote at `bundleURL` with one exclusive rename once it returned
+/// and no cancel came in (Phase 2.12 lane 12.06, SWIFT 4). `write` gets the staged bundle's path and passes
+/// `bundleURL` to its importer as the path the record names. A cancel ends the wait at once
+/// (``ImportCancellation/blocking(_:)``) while the importer may still write, and that late write lands in the stage
+/// alone, which this call removes and `destination` guards for the cancel arm. The stage sits in the project's
+/// temporary folder, which the app sweeps after a kill, or outside a project in the replacement folder of the
+/// destination's volume, so the rename never crosses a volume. The rename refuses a bundle that appeared at the
+/// destination meanwhile and leaves it as it was.
+func publishStagedBundle<Summary: Sendable>(
+    at bundleURL: URL,
+    prefix: String,
+    guardedBy destination: ImportDestination,
+    write: @escaping @Sendable (_ stagedBundleURL: URL) throws -> Summary
+) async throws -> Summary {
+    let parent = bundleURL.deletingLastPathComponent()
+    let stageRoot = ProjectTempDirectory.findProjectRoot(parent) == nil
+        ? try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: parent, create: true)
+        : try ProjectTempDirectory.createFromContext(prefix: prefix, contextURL: parent)
+    defer { try? FileManager.default.removeItem(at: stageRoot) }
+    let stagedBundleURL = stageRoot.appendingPathComponent(bundleURL.lastPathComponent, isDirectory: true)
+    destination.set(stagedBundleURL)
+    let summary = try await ImportCancellation.blocking { try write(stagedBundleURL) }
+    try Task.checkCancellation()
+    try PortableRename.exclusive(stagedBundleURL, to: bundleURL)
+    return summary
 }
 
 private func sanitizedName(_ value: String) -> String {

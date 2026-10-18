@@ -303,6 +303,7 @@ public enum PhylogeneticTreeBundleImporter {
         let fm = FileManager.default
         let sourceURL = sourceURL.standardizedFileURL
         let destinationURL = destinationURL.standardizedFileURL
+        let recordedURL = options.recordedDestinationURL?.standardizedFileURL ?? destinationURL
         guard fm.fileExists(atPath: sourceURL.path) else {
             throw PhylogeneticTreeBundleError.sourceMissing(sourceURL.path)
         }
@@ -401,14 +402,14 @@ public enum PhylogeneticTreeBundleImporter {
                 toolName: options.toolName,
                 toolVersion: options.toolVersion,
                 createdAt: runClock.startedAt,
-                argv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
-                durableReplayArgv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL),
-                command: options.command ?? shellCommand(defaultArgv(sourceURL: sourceURL, destinationURL: destinationURL)),
+                argv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: recordedURL),
+                durableReplayArgv: options.argv ?? defaultArgv(sourceURL: sourceURL, destinationURL: recordedURL),
+                command: options.command ?? shellCommand(defaultArgv(sourceURL: sourceURL, destinationURL: recordedURL)),
                 options: provenanceOptions(options),
                 runtime: .current,
                 input: try provenanceFile(path: sourceURL.path, url: sourceURL),
                 output: PhylogeneticTreeProvenance.FileRecord(
-                    path: destinationURL.path,
+                    path: recordedURL.path,
                     sha256: bundleDigest(checksums: try checksumMap(paths: allPaths, bundleURL: destinationURL)),
                     fileSizeBytes: try directorySize(at: destinationURL)
                 ),

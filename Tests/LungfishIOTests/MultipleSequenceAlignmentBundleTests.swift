@@ -288,6 +288,31 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         XCTAssertFalse(provenanceText.contains("/tmp/"), "Provenance must not point at temporary staging paths")
     }
 
+    /// Phase 2.12 lane 12.06. An import into a stage names the path it is published at, `recordedDestinationURL`,
+    /// as its output, its input copy, every file record and its default command, and reads each checksum from the
+    /// stage. Nil names the path written to (`testManifestAndProvenanceUseFinalPathsAndChecksumsWithoutTmpPaths`).
+    func testARecordedDestinationNamesThePublishedPathInTheRecord() throws {
+        let inputURL = try writeInput(named: "staged.fasta", contents: ">a\nACGT\n>b\nACGA\n")
+        let stagedURL = workspace.appendingPathComponent("stage/Staged.lungfishmsa", isDirectory: true)
+        let publishedURL = workspace.appendingPathComponent("Published/Staged.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(
+            from: inputURL, to: stagedURL, options: .init(name: "Staged", recordedDestinationURL: publishedURL)
+        )
+
+        let recordURL = stagedURL.appendingPathComponent(".lungfish-provenance.json")
+        let provenance = try decode(MultipleSequenceAlignmentBundle.Provenance.self, from: recordURL)
+        XCTAssertEqual(provenance.output.path, publishedURL.path)
+        XCTAssertEqual(provenance.input.path, publishedURL.appendingPathComponent("alignment/source.original").path)
+        XCTAssertFalse(provenance.files.isEmpty)
+        for (relativePath, record) in provenance.files {
+            XCTAssertEqual(record.path, publishedURL.appendingPathComponent(relativePath).path)
+            XCTAssertEqual(record.checksumSHA256, try sha256(at: stagedURL.appendingPathComponent(relativePath)), relativePath)
+        }
+        XCTAssertTrue(provenance.argv.contains(publishedURL.path), "\(provenance.argv)")
+        let text = try String(contentsOf: recordURL, encoding: .utf8).replacingOccurrences(of: "\\/", with: "/")
+        XCTAssertFalse(text.contains(stagedURL.path), "the record names no staged path")
+    }
+
     func testImportWritesCoordinateMapsAndRehydratedAnnotations() throws {
         let inputURL = try writeInput(
             named: "annotated.fasta",

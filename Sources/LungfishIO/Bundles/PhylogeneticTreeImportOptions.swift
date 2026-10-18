@@ -18,6 +18,9 @@ public struct PhylogeneticTreeImportOptions: Sendable, Equatable {
     /// Raw tip label to final label, applied to tips before the bundle is written. Every key
     /// must name a tip in the tree. Tips without an entry keep their label.
     public let tipLabelMap: [String: String]?
+    /// The bundle path the record names when the import writes to a stage that is renamed onto it afterwards.
+    /// Nil names the path written to.
+    public let recordedDestinationURL: URL?
 
     public init(
         name: String? = nil,
@@ -29,7 +32,8 @@ public struct PhylogeneticTreeImportOptions: Sendable, Equatable {
         supportLabels: [String]? = nil,
         branchLengthUnit: String? = nil,
         inference: PhylogeneticTreeInferenceSummary? = nil,
-        tipLabelMap: [String: String]? = nil
+        tipLabelMap: [String: String]? = nil,
+        recordedDestinationURL: URL? = nil
     ) {
         self.name = name
         self.argv = argv
@@ -41,5 +45,6 @@ public struct PhylogeneticTreeImportOptions: Sendable, Equatable {
         self.branchLengthUnit = branchLengthUnit
         self.inference = inference
         self.tipLabelMap = tipLabelMap
+        self.recordedDestinationURL = recordedDestinationURL
     }
 }

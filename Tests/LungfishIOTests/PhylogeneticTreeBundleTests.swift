@@ -96,6 +96,26 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         )
     }
 
+    /// Phase 2.12 lane 12.06. An import into a stage names the path it is published at, `recordedDestinationURL`,
+    /// as its output and in its default command. Nil names the path written to (the test above).
+    func testARecordedDestinationNamesThePublishedPathInTheRecord() throws {
+        let sourceURL = try writeSource(name: "staged.nwk", contents: "((A:0.1,B:0.2):0.3,C:0.4);")
+        let stagedURL = workspaceURL.appendingPathComponent("stage/Staged.lungfishtree", isDirectory: true)
+        let publishedURL = workspaceURL.appendingPathComponent("Published/Staged.lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(
+            from: sourceURL, to: stagedURL, options: .init(recordedDestinationURL: publishedURL)
+        )
+
+        let recordURL = stagedURL.appendingPathComponent(".lungfish-provenance.json")
+        let provenanceJSON = try jsonObject(at: recordURL)
+        XCTAssertEqual((provenanceJSON["output"] as? [String: Any])?["path"] as? String, publishedURL.path)
+        XCTAssertEqual((provenanceJSON["argv"] as? [String])?.last, publishedURL.path)
+        XCTAssertEqual((provenanceJSON["durableReplayArgv"] as? [String])?.last, publishedURL.path)
+        XCTAssertTrue((provenanceJSON["command"] as? String)?.hasSuffix(publishedURL.path) == true, "\(provenanceJSON["command"] ?? "")")
+        let text = try String(contentsOf: recordURL, encoding: .utf8).replacingOccurrences(of: "\\/", with: "/")
+        XCTAssertFalse(text.contains(stagedURL.path), "the record names no staged path")
+    }
+
     func testNexusTranslateImportUsesTranslatedTipLabels() throws {
         let sourceURL = try writeSource(
             name: "translated.nex",

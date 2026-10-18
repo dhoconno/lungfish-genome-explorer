@@ -64,6 +64,7 @@ final class ImportMSATreeE2ETests: XCTestCase {
         XCTAssertTrue(normalizedProvenance.contains("lungfish import msa"))
         XCTAssertTrue(normalizedProvenance.contains(bundleURL.path))
         XCTAssertFalse(normalizedProvenance.contains("\"/tmp/"), "MSA provenance should point at final project paths, not /tmp")
+        try Self.assertTheRecordNamesThePublishedBundle(bundleURL)
     }
 
     func testImportTreeWritesNativeBundleProgressAndProvenance() throws {
@@ -104,6 +105,22 @@ final class ImportMSATreeE2ETests: XCTestCase {
         XCTAssertTrue(normalizedProvenance.contains("lungfish import tree"))
         XCTAssertTrue(normalizedProvenance.contains(bundleURL.path))
         XCTAssertFalse(normalizedProvenance.contains("\"/tmp/"), "Tree provenance should point at final project paths, not /tmp")
+        try Self.assertTheRecordNamesThePublishedBundle(bundleURL)
+    }
+
+    /// The record of a published bundle names the bundle as its output and each file under it, never the stage in
+    /// the project's temporary folder that the importer wrote to (Phase 2.12 lane 12.06, SWIFT 4).
+    private static func assertTheRecordNamesThePublishedBundle(
+        _ bundleURL: URL, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let data = try Data(contentsOf: bundleURL.appendingPathComponent(".lungfish-provenance.json"))
+        let record = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
+        XCTAssertEqual((record["output"] as? [String: Any])?["path"] as? String, bundleURL.path, file: file, line: line)
+        for (relativePath, entry) in (record["files"] as? [String: [String: Any]]) ?? [:] {
+            XCTAssertEqual(entry["path"] as? String, bundleURL.appendingPathComponent(relativePath).path, file: file, line: line)
+        }
+        let text = String(decoding: data, as: UTF8.self).replacingOccurrences(of: "\\/", with: "/")
+        XCTAssertFalse(text.contains("/.tmp/"), "the record names no stage", file: file, line: line)
     }
 
     /// Phase 2.6 lane C5. `import msa` and `import tree` print version 2 events, and each run reads like
