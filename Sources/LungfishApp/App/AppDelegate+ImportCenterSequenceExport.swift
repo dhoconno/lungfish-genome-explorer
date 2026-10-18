@@ -229,20 +229,8 @@ extension AppDelegate {
         return OperationCenter.buildCLICommand(subcommand: "convert", args: Array(arguments.dropFirst()))
     }
 
+    /// The bundle's annotations through the loader `bundle export-gff3` shares (Phase 2.12 lane 12.39).
     nonisolated func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> [SequenceAnnotation] {
-        var annotations: [SequenceAnnotation] = []
-        for track in manifest.annotations {
-            guard let dbPath = track.databasePath else { continue }
-            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
-                for: dbPath,
-                in: bundleURL,
-                field: "annotations[\(track.id)].databasePath"
-            ) else { continue }
-            guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
-            let db = try AnnotationDatabase(url: dbURL)
-            let records = db.query(limit: Int.max)
-            annotations.append(contentsOf: records.map { $0.toAnnotation() })
-        }
-        return annotations
+        try AnnotationGFF3Export.loadBundleAnnotations(bundleURL: bundleURL, manifest: manifest).annotations
     }
 }

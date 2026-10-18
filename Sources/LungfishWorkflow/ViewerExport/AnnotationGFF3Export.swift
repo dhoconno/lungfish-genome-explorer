@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 
 /// The GFF3 export of one source's annotations (Phase 2.12 lane 12.39, ARCH ruling on 12.39 R2).
 ///
@@ -17,6 +18,55 @@ public enum AnnotationGFF3Export {
     public static let workflowName = "lungfish bundle export-gff3"
     /// The GFF3 source column every exported feature carries.
     public static let featureSource = "Lungfish"
+
+    /// A bundle's annotations with the files read for them.
+    public struct BundleAnnotations: Sendable {
+        public let annotations: [SequenceAnnotation]
+        /// `manifest.json`, then each annotation database opened, in the manifest's track order.
+        public let inputURLs: [URL]
+    }
+
+    /// The annotation databases of a bundle's tracks that exist, in the manifest's track order. A track with no
+    /// database, or with a database path that leaves the bundle, is skipped, as the app's loader always skipped it.
+    public static func annotationDatabaseURLs(bundleURL: URL, manifest: BundleManifest) -> [URL] {
+        manifest.annotations.compactMap { track in
+            guard let dbPath = track.databasePath,
+                  let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                      for: dbPath,
+                      in: bundleURL,
+                      field: "annotations[\(track.id)].databasePath"
+                  ),
+                  FileManager.default.fileExists(atPath: dbURL.path) else { return nil }
+            return dbURL
+        }
+    }
+
+    /// The files an export of a bundle's annotations reads, `manifest.json` and the annotation databases.
+    public static func bundleInputURLs(bundleURL: URL) throws -> [URL] {
+        let manifest = try BundleManifest.load(from: bundleURL)
+        return [bundleURL.appendingPathComponent("manifest.json")]
+            + annotationDatabaseURLs(bundleURL: bundleURL, manifest: manifest)
+    }
+
+    /// Loads every annotation of a bundle's annotation databases, reading only the manifest and the databases, never
+    /// the genome (the app's GFF3 export and `bundle export-gff3` share it).
+    public static func loadBundleAnnotations(bundleURL: URL) throws -> BundleAnnotations {
+        try loadBundleAnnotations(bundleURL: bundleURL, manifest: BundleManifest.load(from: bundleURL))
+    }
+
+    public static func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> BundleAnnotations {
+        let databaseURLs = annotationDatabaseURLs(bundleURL: bundleURL, manifest: manifest)
+        var annotations: [SequenceAnnotation] = []
+        for dbURL in databaseURLs {
+            let db = try AnnotationDatabase(url: dbURL)
+            let records = db.query(limit: Int.max)
+            annotations.append(contentsOf: records.map { $0.toAnnotation() })
+        }
+        return BundleAnnotations(
+            annotations: annotations,
+            inputURLs: [bundleURL.appendingPathComponent("manifest.json")] + databaseURLs
+        )
+    }
 }
 
 /// An open document's annotations in the selection file (ARCH ruling on 12.39 R2 item 2). The leaf names the

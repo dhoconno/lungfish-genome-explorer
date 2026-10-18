@@ -27,6 +27,51 @@ final class AnnotationGFF3ExportPinTests: XCTestCase {
         let annotations: [SequenceAnnotation]
     }
 
+    /// A reference bundle with one annotation database, as `CapturedSequenceExportTests` builds it.
+    static func makeBundle(in root: URL) throws -> URL {
+        let bundle = root.appendingPathComponent("fixture.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle.appendingPathComponent("annotations"), withIntermediateDirectories: true)
+        let bed = root.appendingPathComponent("genes.bed")
+        try "chr1\t10\t20\tgene-a\t0\t+\t10\t20\t0,0,0\t1\t10\t0\tgene\ttag=value\n"
+            .write(to: bed, atomically: true, encoding: .utf8)
+        _ = try AnnotationDatabase.createFromBED(bedURL: bed, outputURL: bundle.appendingPathComponent("annotations/genes.db"))
+        try FileManager.default.removeItem(at: bed)
+        try BundleManifest(
+            name: "Annotation Export Fixture",
+            identifier: "org.lungfish.annotation-export-fixture",
+            source: SourceInfo(organism: "Test organism", assembly: "fixture"),
+            genome: nil,
+            annotations: [AnnotationTrackInfo(id: "genes", name: "Genes", path: "annotations/genes.bb", databasePath: "annotations/genes.db")],
+            recordStore: nil
+        ).save(to: bundle)
+        return bundle
+    }
+
+    /// Settled answers of 12.31 (G3, M4), commit 3 of the ARCH ruling on 12.39 section 7. A sidebar bundle's record
+    /// names the manifest and the annotation database the annotations were read from, with digests. At 37c824189 it
+    /// named only its retained copy and selection.json (`testBytesRecordAndSelectionOfOneSource` pins that), so this
+    /// fails there.
+    func testSidebarBundleRecordNamesTheManifestAndDatabaseItRead() async throws {
+        let bundle = try Self.makeBundle(in: root)
+        let output = root.appendingPathComponent("fixture.gff3")
+        try await AnnotationExportService.export(.init(
+            source: .init(kind: .sidebarBundle, urls: [bundle], name: "Fixture"),
+            annotations: [SequenceAnnotation(type: .gene, name: "gene-a", chromosome: "chr1", start: 10, end: 20)],
+            outputURL: output
+        ))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)
+        ))
+        let inputs = envelope.files.filter { $0.role == .input }
+        let named = inputs.map(\.path).filter { !$0.contains("/.lungfish-export-inputs/") }
+        XCTAssertEqual(
+            named.map { URL(fileURLWithPath: $0).standardizedFileURL.path },
+            [bundle.appendingPathComponent("manifest.json"), bundle.appendingPathComponent("annotations/genes.db")]
+                .map(\.standardizedFileURL.path)
+        )
+        XCTAssertTrue(inputs.allSatisfy { $0.checksumSHA256 != nil }, "every input with its digest")
+    }
+
     func testBytesRecordAndSelectionOfOneSource() async throws {
         let bundle = root.appendingPathComponent("reference.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)

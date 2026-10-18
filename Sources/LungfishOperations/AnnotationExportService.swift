@@ -47,15 +47,21 @@ package enum AnnotationExportService {
             var argv = ["Lungfish.app", "export-gff3", "--source-kind", request.source.kind.rawValue]
             for url in request.source.urls { argv += ["--source", url.path] }
             argv += ["--output", request.outputURL.path]
+            // A sidebar bundle's annotations were read from its manifest and annotation databases, so the record
+            // names those files (settled answers of 12.31, G3 and M4). An open document is read from memory.
+            let readURLs = request.source.kind == .sidebarBundle
+                ? request.source.urls.flatMap { (try? AnnotationGFF3Export.bundleInputURLs(bundleURL: $0)) ?? [] }
+                : []
             try snapshot.publish(.init(
-                workflowName: "lungfish app annotation export", sourceURLs: request.source.urls,
+                workflowName: "lungfish app annotation export", sourceURLs: readURLs,
                 outputURL: request.outputURL, outputFormat: .gff3, argv: argv,
                 explicitOptions: ["sourceKind": .string(request.source.kind.rawValue),
                     "sourceName": .string(request.source.name),
                     "sourcePaths": .array(request.source.urls.map { .file($0) }),
                     "outputPath": .file(request.outputURL)],
                 defaults: ["outputFormat": .string("gff3"), "featureSource": .string("Lungfish")],
-                resolved: ["annotationCount": .integer(request.annotations.count)], runClock: runClock))
+                resolved: ["annotationCount": .integer(request.annotations.count)], runClock: runClock),
+                preserveOriginalSources: true)
         } catch {
             snapshot.discardAfterFailure(error)
             throw error
