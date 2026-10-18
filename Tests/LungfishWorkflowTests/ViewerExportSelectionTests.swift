@@ -61,6 +61,56 @@ final class ViewerExportSelectionTests: XCTestCase {
         }
     }
 
+    /// ARCH ruling on 12.39 R2, the schema rule. A selection with no family field writes schema 1 and the bytes it
+    /// wrote at 37c824189, so no other lane's selection digest moves when the family fields arrive.
+    func testSelectionWithoutFamilyFieldsKeepsSchemaOneBytes() throws {
+        let selection = ViewerExportSelection(
+            identities: ["variant:7", "variant:3"],
+            state: ViewerTableExportState(sortKeys: [ViewerExportSortKey(column: "position", ascending: false)]),
+            editedValues: ["variant:7": ["displayName": "Sample 7"]]
+        )
+        XCTAssertEqual(selection.schemaVersion, 1)
+        XCTAssertEqual(String(decoding: try selection.encoded(), as: UTF8.self), Self.schemaOneLiteral)
+    }
+
+    private static let schemaOneLiteral = """
+    {
+      "editedValues" : {
+        "variant:7" : {
+          "displayName" : "Sample 7"
+        }
+      },
+      "identities" : [
+        "variant:7",
+        "variant:3"
+      ],
+      "schemaVersion" : 1,
+      "state" : {
+        "columns" : [
+
+        ],
+        "filters" : {
+          "composition" : "all",
+          "filters" : [
+
+          ]
+        },
+        "metadataColumns" : [
+
+        ],
+        "samples" : [
+
+        ],
+        "sortKeys" : [
+          {
+            "ascending" : false,
+            "column" : "position"
+          }
+        ]
+      }
+    }
+    """
+
     func testAFailedWriteLeavesNoInputsFolder() throws {
         let blocker = folder.appendingPathComponent(".lungfish-export-inputs")
         try Data("not a folder".utf8).write(to: blocker)
