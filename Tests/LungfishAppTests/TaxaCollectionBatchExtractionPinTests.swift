@@ -13,6 +13,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
 import LungfishCore
 import LungfishIO
 import LungfishKit
@@ -146,6 +147,64 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("Species_B_taxid20.fastq.gz").path))
         let scratch = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasPrefix(".kraken2-sources-") }
         XCTAssertEqual(scratch, [], "a cancel removes the scratch folder too")
+    }
+
+    // MARK: - A second run into the same folder (Phase 2.12 lane 12.11 M1, BIO 6)
+
+    /// Runs `extract taxa-collection` in process on the argv the Extract button hands it, over the
+    /// single-end result, and returns every entry of the folder, its gzip files and the outputs the
+    /// folder's root record names.
+    private func runLeaf(_ collection: TaxaCollection) async throws -> (entries: [String], files: [String], recorded: [String]) {
+        let result = try ClassificationResult.load(from: fixtures.singleEnd)
+        let folder = extractedFolder(of: result, collection)
+        let arguments = ViewerViewController.taxaCollectionExtractionArguments(
+            collection: collection, resultDirectory: fixtures.singleEnd, outputDirectory: folder
+        )
+        let command = try ExtractTaxaCollectionSubcommand.parse(Array(arguments.dropFirst(2)))
+        _ = try await command.extract(events: CLIEventEmitter(enabled: false, emit: { _ in }))
+        let entries = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), "the folder holds the leaf's root record")
+        let recorded = record.outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted()
+        return (entries, entries.filter { $0.hasSuffix(".fastq.gz") }, recorded)
+    }
+
+    func testASecondRunOfTheSameCollectionLeavesOnlyTheFilesItsRecordNames() async throws {
+        let first = try await runLeaf(TaxaCollectionFixtures.collection)
+        XCTAssertEqual(first.files, ["Genus_A_taxid10.fastq.gz", "Species_B_taxid20.fastq.gz"])
+        XCTAssertEqual(first.recorded, first.files)
+
+        let second = try await runLeaf(TaxaCollectionFixtures.collection)
+        XCTAssertEqual(second.entries, first.entries, "a second run rewrites the same entries")
+        XCTAssertEqual(second.recorded, second.files, "the second record names every file of the folder")
+        XCTAssertEqual(
+            second.entries,
+            [
+                ".lungfish-provenance.json",
+                "Genus_A_taxid10.fastq.gz", "Genus_A_taxid10.fastq.gz.lungfish-provenance.json",
+                "Species_B_taxid20.fastq.gz", "Species_B_taxid20.fastq.gz.lungfish-provenance.json",
+            ],
+            "the folder after a second run"
+        )
+    }
+
+    /// BIO 6 at the base. A person edits a collection, keeping its id, and runs it again into the same
+    /// `extracted-<id>` folder. The folder keeps the file and the sidecar of the taxon the edit removed,
+    /// and the new root record does not name that file.
+    func testASecondRunOfAnEditedCollectionKeepsAFileItsRecordDoesNotName() async throws {
+        let original = TaxaCollectionFixtures.collection
+        _ = try await runLeaf(original)
+        let edited = TaxaCollection(
+            id: original.id, name: original.name, description: "", sfSymbol: "circle",
+            taxa: [TaxonTarget(name: "Species B", taxId: TaxaCollectionFixtures.speciesB, includeChildren: false)]
+        )
+
+        let second = try await runLeaf(edited)
+        XCTAssertEqual(second.recorded, ["Species_B_taxid20.fastq.gz"], "the new record names the one file it wrote")
+        XCTAssertEqual(
+            Set(second.files).subtracting(second.recorded), ["Genus_A_taxid10.fastq.gz"],
+            "the removed taxon's file stays, which the new record does not name"
+        )
+        XCTAssertTrue(second.entries.contains("Genus_A_taxid10.fastq.gz.lungfish-provenance.json"), "its sidecar stays too")
     }
 }
 

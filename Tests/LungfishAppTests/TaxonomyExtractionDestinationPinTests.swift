@@ -171,6 +171,19 @@ final class TaxonomyExtractionDestinationPinTests: XCTestCase {
         }
     }
 
+    /// The refusal is words a person reads in the sheet (Phase 2.12 lane 12.11 M1, UX inv 47).
+    func testTheCapRefusalTellsThePersonTheCountTheCapAndTheOtherDestinations() async throws {
+        do {
+            _ = try await extract(.clipboard(format: .fastq, cap: 1))
+            XCTFail("a selection over the cap is refused")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Selection contains 2 reads, which exceeds the clipboard cap of 1. Choose Save to File, Save as Bundle, or Share instead."
+            )
+        }
+    }
+
     // MARK: - Share
 
     func testTheShareDestinationWritesTheSameBytesBelowTheScratchFolderAndRecordsNoCommand() async throws {
