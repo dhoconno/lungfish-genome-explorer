@@ -996,7 +996,6 @@ features:
     outputs: [alignment-track, bai]
     viewport_class: alignment
     sources:
-      - Sources/LungfishApp/App/BAMImportHelper.swift
       - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishWorkflow/Mapping/BAMImportService.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
@@ -1337,13 +1336,11 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift
-      - Sources/LungfishApp/App/AppDelegate+ClassificationOperationBegin.swift
       - Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift
       - Sources/LungfishCLI/Commands/TaxTriageCommand.swift
       - Sources/LungfishWorkflow/TaxTriage/TaxTriageReadSetPlanner.swift
       - Sources/LungfishWorkflow/TaxTriage/TaxTriageAnalysisRunTool+Finalize.swift
       - Sources/LungfishApp/App/AppDelegate+TaxTriageCLIRoute.swift
-      - Sources/LungfishApp/Services/TaxTriageLaunchRoute.swift
     module: [LungfishApp, LungfishTaxTriageUI, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli taxtriage run
@@ -1356,8 +1353,8 @@ features:
       - Tests/LungfishCLITests/TaxTriageRunTextOutputTests.swift
       - Tests/LungfishCLITests/BuildDbTaxTriageCleanupFreezeTests.swift
       - Tests/LungfishAppTests/TaxTriageCLIRouteRowTests.swift
-      - Tests/LungfishAppTests/TaxTriageLaunchRouteTests.swift
-      - Tests/LungfishAppTests/TaxTriageLaunchRouteRunTests.swift
+      - Tests/LungfishAppTests/TaxTriageCLIRouteLaunchTests.swift
+      - Tests/LungfishAppTests/TaxTriageCLIRouteLaunchRunTests.swift
     notes: >-
       Runs multi-level TaxTriage clinical triage and shows a confidence view,
       batch overview, and strain comparison across samples. A launch with no
