@@ -96,7 +96,18 @@ public final class ProvenanceSidecarIndex: Sendable {
         for candidate in unread {
             if isCancelled() { return nil }
             observer?(.indexedSidecar(candidate.url))
-            let record = Self.indexedRecord(at: candidate.url)
+            let record: IndexedRecord?
+            switch Self.indexedRecord(at: candidate.url) {
+            case .record(let read):
+                record = read
+            case .noRecord:
+                record = nil
+            case .unreadable:
+                // A read error says nothing about the record, and the size and date it leaves
+                // behind never change to cure it. Nothing is kept, so the snapshot lacks this
+                // sidecar, is not cached, and the next walk reads the file again.
+                continue
+            }
             state.withLock { state in
                 state.use(projectKey, keeping: maximumProjects)
                 state.projects[projectKey]?.store(record, for: candidate)
@@ -161,16 +172,27 @@ public final class ProvenanceSidecarIndex: Sendable {
 
     // MARK: - Reading a sidecar for the index
 
+    /// What one read of a sidecar found.
+    private enum SidecarRead {
+        /// A record, with what the index keeps of it.
+        case record(IndexedRecord)
+        /// A file that read and holds no record. The index keeps that until the file changes.
+        case noRecord
+        /// A file that could not be read. The index keeps nothing, so the next walk tries again.
+        case unreadable
+    }
+
     /// What the index keeps of a sidecar. A current record is read through `LightRecord`, without
     /// the path re-rooting. A typed mapping record and every other layout go through the full
     /// reader as before, and only the entry is kept.
-    private static func indexedRecord(at url: URL) -> IndexedRecord? {
+    private static func indexedRecord(at url: URL) -> SidecarRead {
+        guard let data = try? Data(contentsOf: url) else { return .unreadable }
         if url.lastPathComponent != MappingProvenance.filename,
-           let data = try? Data(contentsOf: url),
            let light = try? ProvenanceJSON.decoder.decode(LightRecord.self, from: data) {
-            return IndexedRecord(light, context: PortablePath.Context.forFile(at: url))
+            return .record(IndexedRecord(light, context: PortablePath.Context.forFile(at: url)))
         }
-        return readRecord(at: url).map(IndexedRecord.init(envelope:))
+        guard let envelope = readRecord(at: url) else { return .noRecord }
+        return .record(IndexedRecord(envelope: envelope))
     }
 
     /// The sidecars under `projectURL` with their size and date, canonical sidecars first so a

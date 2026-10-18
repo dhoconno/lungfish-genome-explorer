@@ -272,6 +272,37 @@ final class ProvenanceLineageResolverTests: XCTestCase {
         XCTAssertEqual(runs.first?.envelope.workflowName, "lungfish import fastq again")
         XCTAssertEqual(events.indexedSidecars.dropFirst(5).map(\.path), [importSidecar.standardizedFileURL.path])
     }
+
+    /// A sidecar that cannot be read is not a sidecar with no record. The error may be brief, such
+    /// as a volume that drops for a moment, and the size and date it leaves behind never change to
+    /// cure it, so the next walk reads that sidecar again and finds the run the first walk missed.
+    func testUnreadableSidecarIsReadAgainByTheNextWalk() throws {
+        let sidecar = try writeChain(createBAM: false)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let events = LineageEventLog()
+        let resolver = ProvenanceLineageResolver(sidecarIndex: ProvenanceSidecarIndex(), observer: { events.record($0) })
+        let importSidecar = project.appendingPathComponent("Imports/reads.lungfishfastq/.lungfish-provenance.json")
+        let files = FileManager.default
+        try files.setAttributes([.posixPermissions: 0], ofItemAtPath: importSidecar.path)
+        defer { try? files.setAttributes([.posixPermissions: 0o644], ofItemAtPath: importSidecar.path) }
+        try XCTSkipIf(files.isReadableFile(atPath: importSidecar.path), "this user reads a file whose mode is 000")
+
+        let withoutImport = resolver.resolve(envelope: envelope, sidecarURL: sidecar)
+        XCTAssertEqual(withoutImport.map(\.envelope.workflowName), ["lungfish map", "lungfish variants call"])
+
+        // The mode change keeps the size and the modification date the first walk saw.
+        try files.setAttributes([.posixPermissions: 0o644], ofItemAtPath: importSidecar.path)
+        let whole = resolver.resolve(envelope: envelope, sidecarURL: sidecar)
+        XCTAssertEqual(
+            whole.map(\.envelope.workflowName),
+            ["lungfish import fastq", "lungfish map", "lungfish variants call"]
+        )
+        XCTAssertEqual(
+            events.indexedSidecars.filter { $0.path == importSidecar.standardizedFileURL.path }.count,
+            2,
+            "\(events.indexedSidecars.map(\.path))"
+        )
+    }
 }
 
 /// The events of the walks a test runs, in order. The resolver reports them from the walking thread.
