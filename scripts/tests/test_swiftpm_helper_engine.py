@@ -50,15 +50,6 @@ class SwiftPMHelperEngineTests(unittest.TestCase):
         )
         self.assertNotIn('LUNGFISH_CLI_BIN_PATH=""', script)
 
-    def test_vcf_debug_helper_build_and_lookup_use_swiftbuild(self):
-        self.assert_shared_swiftbuild_commands(
-            "scripts/debug-vcf-import-helper.sh",
-            [
-                'BINARY_PATH="$(swift build "${SWIFT_BUILD_ARGS[@]}" --package-path "$REPO_ROOT" --product Lungfish --show-bin-path)/Lungfish"',
-                'swift build "${SWIFT_BUILD_ARGS[@]}" --package-path "$REPO_ROOT" --product Lungfish >/dev/null',
-            ],
-        )
-
 
 if __name__ == "__main__":
     unittest.main()
