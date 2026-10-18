@@ -202,6 +202,9 @@ features:
       - Sources/LungfishApp/Services/CLIReadsRunner.swift
       - Sources/LungfishApp/App/AppDelegate+ManagedMapping.swift
       - Sources/LungfishCLI/Commands/MapCommand+Events.swift
+      - Sources/LungfishWorkflow/Mapping/MappingSummaryBuilder.swift
+      - Sources/LungfishApp/Views/Results/Reference/MappingReferenceCountText.swift
+      - Sources/LungfishApp/Views/Results/Reference/MappingResultExportBuilder.swift
     module: [LungfishWorkflow, LungfishCLI, LungfishApp]
     cli:
       - lungfish-cli map
@@ -216,6 +219,8 @@ features:
       - Tests/LungfishAppTests/MappingRouteSigningReplayTests.swift
       - Tests/LungfishAppTests/MappingRoutePrivateProjectReplayTests.swift
       - Tests/LungfishAppTests/ReadsLaunchRouteTests.swift
+      - Tests/LungfishWorkflowTests/Mapping/MappingResultTests.swift
+      - Tests/LungfishAppViewTests/MappingReferenceCountTextTests.swift
     notes: >-
       Runs minimap2 or the selected mapper, normalizes the resulting BAM, writes
       a mapping-result sidecar, and can attach the mapping outputs to a
@@ -225,6 +230,11 @@ features:
       --format json the command prints CLIEvent lines in
       place of the r5-map-report document, so a script reads the complete
       line.
+      A new result lists only the reference sequences that have alignments and
+      records how many the reference holds and how many it left out. When it
+      left some out, the summary bar above the list says how many have
+      alignments, for example 94 of 905,628. Results made by earlier versions
+      show as before.
   variants.call:
     title: Call variants from a bundle alignment track
     entry_points:
