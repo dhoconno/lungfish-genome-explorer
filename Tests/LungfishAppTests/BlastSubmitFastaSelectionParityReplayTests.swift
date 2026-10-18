@@ -17,9 +17,6 @@ import LungfishTestSupport
 
 @MainActor
 final class BlastSubmitFastaSelectionParityReplayTests: XCTestCase {
-    /// The files only side C writes, the search under the project.
-    static let declared = BlastSubmitParity.declared(stageFiles: 2, resultFiles: 3, resultsParent: "Project.lungfish")
-
     private var scratch: URL!
     private var server: LoopbackHTTPStandIn!
     private var saved: ProcessEnvironmentOverride?
@@ -42,10 +39,11 @@ final class BlastSubmitFastaSelectionParityReplayTests: XCTestCase {
 
     func testTheSelectionSearchSendsWhatTheInProcessSearchSentAndKeepsItsResult() async throws {
         try await BlastSubmitParity.assertParity(
-            harness: harness, server: server, declared: Self.declared,
+            harness: harness, server: server,
             in: scratch.appendingPathComponent("parity", isDirectory: true),
+            resultsParent: { BlastSubmitParity.project(in: $0) },
             fixture: Self.makeProject,
-            sideA: { _ in await BlastSubmitParity.sideA(Self.inProcessRequest(), server: self.server) },
+            oracle: { await BlastSubmitParity.inProcessSearch(Self.inProcessRequest(), server: self.server) },
             sideC: { root in await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: Self.plan, begin: Self.begin) }
         )
     }
@@ -55,7 +53,6 @@ final class BlastSubmitFastaSelectionParityReplayTests: XCTestCase {
             harness: harness, in: scratch.appendingPathComponent("signed", isDirectory: true),
             resultsParent: { BlastSubmitParity.project(in: $0) },
             fixture: Self.makeProject,
-            sideA: { _ in await BlastSubmitParity.sideA(Self.inProcessRequest(), server: self.server) },
             sideC: { root in await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: Self.plan, begin: Self.begin) }
         )
     }

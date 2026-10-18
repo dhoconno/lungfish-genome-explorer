@@ -17,9 +17,7 @@ extension ViewerViewController {
     /// bundle.
     ///
     /// `cliCommand` is the `lungfish-cli blast submit` command the run
-    /// executes (``BlastSubmitPlan/cliCommand``, 2.11 A65 M2). The in-process
-    /// route the hidden key `BlastReadActionRoute` keeps for one release
-    /// passes nil.
+    /// executes (``BlastSubmitPlan/cliCommand``, 2.11 A65 M2).
     @discardableResult
     static func beginGenericBlastVerificationOperation(
         sourceLabel: String,

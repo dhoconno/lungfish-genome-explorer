@@ -17,9 +17,6 @@ import LungfishTestSupport
 
 @MainActor
 final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
-    /// The files only side C writes, under the project and never in the NAO-MGS result folder the search names.
-    static let declared = BlastSubmitParity.declared(stageFiles: 2, resultFiles: 3, resultsParent: "Project.lungfish")
-
     private var scratch: URL!
     private var server: LoopbackHTTPStandIn!
     private var saved: ProcessEnvironmentOverride?
@@ -42,10 +39,11 @@ final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
 
     func testTheTaxonSearchSendsWhatTheInProcessSearchSentAndKeepsItsResult() async throws {
         try await BlastSubmitParity.assertParity(
-            harness: harness, server: server, declared: Self.declared,
+            harness: harness, server: server,
             in: scratch.appendingPathComponent("parity", isDirectory: true),
+            resultsParent: { BlastSubmitParity.project(in: $0) },
             fixture: Self.makeProject,
-            sideA: { _ in await BlastSubmitParity.sideA(Self.inProcessRequest(), server: self.server) },
+            oracle: { await BlastSubmitParity.inProcessSearch(Self.inProcessRequest(), server: self.server) },
             sideC: { root in await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: Self.plan, begin: Self.begin) }
         )
     }
@@ -55,7 +53,6 @@ final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
             harness: harness, in: scratch.appendingPathComponent("signed", isDirectory: true),
             resultsParent: { BlastSubmitParity.project(in: $0) },
             fixture: Self.makeProject,
-            sideA: { _ in await BlastSubmitParity.sideA(Self.inProcessRequest(), server: self.server) },
             sideC: { root in await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: Self.plan, begin: Self.begin) }
         )
     }

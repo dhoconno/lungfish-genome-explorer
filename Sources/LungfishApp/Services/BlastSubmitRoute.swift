@@ -1,4 +1,4 @@
-// BlastSubmitRoute.swift - A viewer's BLAST action on `lungfish-cli blast submit`, and its hidden key
+// BlastSubmitRoute.swift - A viewer's BLAST action on `lungfish-cli blast submit`
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -8,46 +8,6 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
-
-/// The route of the viewers' BLAST read actions (Phase 2.11 lane A65 M2, plan decision C1, decisions C4
-/// and C5 of Phase 2.10).
-enum BlastReadActionRoute: String, Sendable, Equatable, CaseIterable {
-    /// The route before lane A65, `BlastService.verify` in this process, kept for one release as the
-    /// escape the hidden key names (C4), since the CLI route also saves the result and the query. It
-    /// leaves in 2.12 with its key (K3).
-    case legacy
-    /// `lungfish-cli blast submit` on `CLIBlastSubmitRunner`.
-    case cli
-}
-
-/// Reads the route from the defaults it is given, so a test passes its own suite and never touches the
-/// user's defaults.
-struct BlastReadActionRouteSettings {
-    /// The hidden key. It holds `cli` or `legacy`, or a Boolean that is true for the CLI route, for
-    /// example `defaults write <app id> BlastReadActionRoute legacy`.
-    static let defaultsKey = "BlastReadActionRoute"
-    /// The route of a key that is unset or holds a value this reader does not know. Lane A65 M2 set it
-    /// to `.cli` once side A against side C of each site's parity class held only declared differences.
-    static let defaultRoute: BlastReadActionRoute = .cli
-
-    let defaults: UserDefaults
-
-    var route: BlastReadActionRoute {
-        switch defaults.object(forKey: Self.defaultsKey) {
-        case let name as String:
-            return BlastReadActionRoute(rawValue: name.lowercased()) ?? Self.defaultRoute
-        case let usesCLI as Bool:
-            return usesCLI ? .cli : .legacy
-        default:
-            return Self.defaultRoute
-        }
-    }
-
-    /// The route a viewer's BLAST action takes now, read from the app's defaults.
-    static var currentRoute: BlastReadActionRoute {
-        BlastReadActionRouteSettings(defaults: .standard).route
-    }
-}
 
 /// One viewer BLAST action planned onto `blast submit` (plan decision C1). The query file the viewer
 /// writes under `<project>/.tmp/`, the result folder the leaf creates and the lineage the record

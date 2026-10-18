@@ -24,10 +24,10 @@ extension ViewerViewController {
         return session?.projectURL ?? split?.sidebarController?.currentProjectURL
     }
 
-    /// The FASTA selection's search on `blast submit`, or nil on the in-process route, which the hidden
-    /// key `BlastReadActionRoute` or a test's `fastaBlastVerificationRunner` picks.
+    /// The FASTA selection's search on `blast submit`, or nil while a test's `fastaBlastVerificationRunner`
+    /// stands in for it.
     func fastaBlastSubmitPlan(sourceLabel: String, sequences: [(id: String, sequence: String)]) throws -> BlastSubmitPlan? {
-        guard fastaBlastVerificationRunner == nil, BlastReadActionRouteSettings.currentRoute == .cli else { return nil }
+        guard fastaBlastVerificationRunner == nil else { return nil }
         let source = fastaExportSourceURLs().first
         return try Self.fastaSelectionBlastSubmitPlan(
             sourceLabel: sourceLabel, sequences: sequences, sourceURL: source,
@@ -51,8 +51,8 @@ extension ViewerViewController {
     }
 
     /// The search of the FASTA selection's row: a test's `override`, else `plan` on `blast submit` with
-    /// its events on the row through `OperationCenterCLIBridge` and its progress on the drawer, else the
-    /// in-process search the hidden key keeps for one release. Cancelling the row's task stops the leaf.
+    /// its events on the row through `OperationCenterCLIBridge` and its progress on the drawer. Cancelling
+    /// the row's task stops the leaf. `fastaBlastSubmitPlan` gives no plan only while an override stands in.
     static func fastaBlastRunner(
         plan: BlastSubmitPlan?,
         operationID: UUID,
@@ -60,7 +60,7 @@ extension ViewerViewController {
     ) -> FASTABlastVerificationRunner {
         if let override { return override }
         guard let plan else {
-            return { request, progress in try await BlastService.shared.verify(request: request, progress: progress) }
+            preconditionFailure("A FASTA BLAST search needs a plan or a test's runner")
         }
         let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
         return { _, progress in

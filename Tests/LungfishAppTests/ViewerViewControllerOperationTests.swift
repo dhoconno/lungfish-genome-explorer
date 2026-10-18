@@ -9,8 +9,7 @@
 // the exact lungfish-cli argv it runs, and the annotated reference import
 // records the `import fasta` command that covers its first step. Both must
 // parse with the values the run uses. Since 2.11 A65 M2 the FASTA collection
-// BLAST records the `lungfish-cli blast submit` command its run executes, and
-// the in-process route the hidden key keeps for one release records none.
+// BLAST records the `lungfish-cli blast submit` command its run executes.
 
 import XCTest
 @testable import LungfishApp
@@ -45,12 +44,20 @@ final class ViewerViewControllerOperationTests: XCTestCase {
             sourceURL: source, projectURL: project
         )
         let reporter = RecordingOperationReporter()
+        var launchedID: UUID?
 
         ViewerViewController.beginGenericBlastVerificationOperation(
             sourceLabel: "3 FASTA sequences", cliCommand: plan.cliCommand, reporter: reporter
-        ) { _ in }
+        ) { launchedID = $0 }
 
         let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(launchedID, item.id)
+        XCTAssertEqual(item.title, "BLAST 3 FASTA sequences")
+        XCTAssertEqual(item.initialDetail, "Preparing BLAST verification\u{2026}")
+        XCTAssertEqual(item.operationType, .blastVerification)
+        XCTAssertNil(item.targetBundleURL)
+        XCTAssertEqual(item.additionalLockedBundleURLs, [])
+        XCTAssertNil(item.routeContext)
         XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), plan.arguments)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.SubmitSubcommand.self)
         let query = URL(fileURLWithPath: command.queryPath)
@@ -68,28 +75,6 @@ final class ViewerViewControllerOperationTests: XCTestCase {
         XCTAssertNil(command.contig)
         XCTAssertNil(command.sample)
         XCTAssertEqual(command.globalOptions.outputFormat, .json)
-    }
-
-    func testGenericBlastVerificationRecordsItsRowAndNoCommandOnTheLegacyRoute() throws {
-        let reporter = RecordingOperationReporter()
-        var launchedID: UUID?
-
-        ViewerViewController.beginGenericBlastVerificationOperation(
-            sourceLabel: "3 FASTA sequences",
-            reporter: reporter
-        ) { launchedID = $0 }
-
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "BLAST 3 FASTA sequences")
-        XCTAssertEqual(item.initialDetail, "Preparing BLAST verification\u{2026}")
-        XCTAssertEqual(item.operationType, .blastVerification)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        XCTAssertNil(item.routeContext)
-        // The in-process route the hidden key `BlastReadActionRoute` keeps for
-        // one release passes no command.
-        XCTAssertNil(item.cliCommand)
     }
 
     // MARK: - Reference bundle created straight from selected FASTA sequences

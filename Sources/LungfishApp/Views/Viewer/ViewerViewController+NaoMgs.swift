@@ -50,122 +50,24 @@ extension ViewerViewController {
             naoMgsDisplayLogger.info(
                 "BLAST verification requested for \(taxonName, privacy: .public), readCount=\(selectedReadCount, privacy: .public), availableReads=\(reads.count, privacy: .public)"
             )
-            if BlastReadActionRouteSettings.currentRoute == .cli {
-                let plan: BlastSubmitPlan
-                do {
-                    plan = try Self.naoMgsBlastSubmitPlan(
-                        taxonName: taxonName, taxId: summary.taxId, readCount: selectedReadCount, reads: reads,
-                        projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
-                    )
-                } catch {
-                    controller?.showBlastFailure(error.localizedDescription)
-                    return
-                }
-                Self.beginNaoMgsBlastVerificationOperation(
-                    taxonName: taxonName, taxId: summary.taxId, cliCommand: plan.cliCommand
-                ) { opID in
-                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
-                        loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                        results: { controller?.showBlastResults($0) },
-                        failure: { controller?.showBlastFailure($0) }
-                    )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
-                }
+            let plan: BlastSubmitPlan
+            do {
+                plan = try Self.naoMgsBlastSubmitPlan(
+                    taxonName: taxonName, taxId: summary.taxId, readCount: selectedReadCount, reads: reads,
+                    projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
+                )
+            } catch {
+                controller?.showBlastFailure(error.localizedDescription)
                 return
             }
-
-            ViewerViewController.beginNaoMgsBlastVerificationOperation(
-                taxonName: taxonName,
-                taxId: summary.taxId
+            Self.beginNaoMgsBlastVerificationOperation(
+                taxonName: taxonName, taxId: summary.taxId, cliCommand: plan.cliCommand
             ) { opID in
-                let blastController = controller
-                let task = Task.detached {
-                    do {
-                        let blastService = BlastService.shared
-                        let allReads = reads.compactMap { hit -> (id: String, sequence: String)? in
-                            let sequence = hit.readSequence.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !sequence.isEmpty else { return nil }
-                            return (id: hit.seqId, sequence: sequence)
-                        }
-
-                        guard !allReads.isEmpty else {
-                            throw BlastServiceError.noSequences
-                        }
-
-                        let longestCount = min(5, selectedReadCount / 4)
-                        let strategy = SubsampleStrategy.mixed(
-                            longest: longestCount,
-                            random: selectedReadCount - longestCount
-                        )
-                        let subsampled = blastService.subsampleReads(from: allReads, strategy: strategy)
-
-                        guard !subsampled.isEmpty else {
-                            throw BlastServiceError.noSequences
-                        }
-
-                        let request = BlastVerificationRequest(
-                            taxonName: taxonName,
-                            taxId: summary.taxId,
-                            sequences: subsampled,
-                            database: BlastDatabaseID.coreNT.rawValue,
-                            entrezQuery: "txid\(summary.taxId)[Organism:exp]"
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: 0.1,
-                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                                ) else { return }
-                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
-                            }
-                        }
-
-                        let blastResult = try await blastService.verify(
-                            request: request,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        guard OperationCenter.shared.update(
-                                            id: opID,
-                                            progress: fraction,
-                                            detail: message
-                                        ) else { return }
-
-                                        let lower = message.lowercased()
-                                        if lower.contains("waiting") {
-                                            blastController?.showBlastLoading(phase: .waiting, requestId: nil)
-                                        } else if lower.contains("parsing") {
-                                            blastController?.showBlastLoading(phase: .parsing, requestId: nil)
-                                        } else {
-                                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
-                                        }
-                                    }
-                                }
-                            }
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
-                                ) else { return }
-                                blastController?.showBlastResults(blastResult)
-                            }
-                        }
-                    } catch {
-                        let errorDesc = error.localizedDescription
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                                blastController?.showBlastFailure(errorDesc)
-                            }
-                        }
-                    }
-                }
-
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                    loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+                    results: { controller?.showBlastResults($0) },
+                    failure: { controller?.showBlastFailure($0) }
+                )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
             }
         }
         controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
@@ -195,7 +97,7 @@ extension ViewerViewController {
     }
 
     /// The NAO-MGS taxon's search on `blast submit` (2.11 A65 M2). It draws the
-    /// subsample the in-process route draws, the mixed strategy with its seed
+    /// subsample the in-process route drew, the mixed strategy with its seed
     /// of 0, and records the taxon, the count, the seed and the samples of the
     /// reads it drew. `sourceResultURL` is the folder of the NAO-MGS result the reads came from, which the
     /// record names as its lineage. The search's folder still sits under `projectURL`, never in that result.
@@ -234,8 +136,7 @@ extension ViewerViewController {
     /// the result already holds and locks no bundle.
     ///
     /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
-    /// (``BlastSubmitPlan/cliCommand``). The in-process route the hidden key
-    /// `BlastReadActionRoute` keeps for one release passes nil.
+    /// (``BlastSubmitPlan/cliCommand``).
     @discardableResult
     static func beginNaoMgsBlastVerificationOperation(
         taxonName: String,

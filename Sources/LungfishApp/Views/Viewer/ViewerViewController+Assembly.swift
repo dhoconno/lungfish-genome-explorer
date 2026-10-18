@@ -37,94 +37,24 @@ extension ViewerViewController {
         controller.onBlastVerification = { [weak self] request in
             guard let self else { return }
             guard let blastController = self.assemblyResultController else { return }
-            if BlastReadActionRouteSettings.currentRoute == .cli {
-                let plan: BlastSubmitPlan
-                do {
-                    plan = try Self.assemblyBlastSubmitPlan(
-                        sourceLabel: request.sourceLabel, taxId: request.taxId, fastaRecords: request.sequences,
-                        resultURL: result.outputDirectory
-                    )
-                } catch {
-                    blastController.showBlastFailure(error.localizedDescription)
-                    return
-                }
-                Self.beginAssemblyContigBlastVerificationOperation(
-                    sourceLabel: request.sourceLabel, cliCommand: plan.cliCommand
-                ) { opID in
-                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
-                        loading: { blastController.showBlastLoading(phase: $0, requestId: nil) },
-                        results: { blastController.showBlastResults($0) },
-                        failure: { blastController.showBlastFailure($0) }
-                    )) { [count = request.readCount] _ in "Results ready for \(count) contig\(count == 1 ? "" : "s")" }
-                }
+            let plan: BlastSubmitPlan
+            do {
+                plan = try Self.assemblyBlastSubmitPlan(
+                    sourceLabel: request.sourceLabel, taxId: request.taxId, fastaRecords: request.sequences,
+                    resultURL: result.outputDirectory
+                )
+            } catch {
+                blastController.showBlastFailure(error.localizedDescription)
                 return
             }
-            ViewerViewController.beginAssemblyContigBlastVerificationOperation(
-                sourceLabel: request.sourceLabel
+            Self.beginAssemblyContigBlastVerificationOperation(
+                sourceLabel: request.sourceLabel, cliCommand: plan.cliCommand
             ) { opID in
-                blastController.showBlastLoading(phase: .submitting, requestId: nil)
-
-                let task = Task.detached {
-                    do {
-                        let sequences = Self.blastSequences(from: request.sequences)
-                        guard !sequences.isEmpty else {
-                            throw BlastServiceError.noSequences
-                        }
-
-                        let verificationRequest = BlastVerificationRequest(
-                            taxonName: request.sourceLabel,
-                            taxId: request.taxId ?? 0,
-                            sequences: sequences,
-                            database: BlastDatabaseID.coreNT.rawValue,
-                            entrezQuery: nil
-                        )
-
-                        let result = try await BlastService.shared.verify(
-                            request: verificationRequest,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        guard OperationCenter.shared.update(id: opID, progress: fraction, detail: message) else {
-                                            return
-                                        }
-                                        let lower = message.lowercased()
-                                        if lower.contains("waiting") {
-                                            blastController.showBlastLoading(phase: .waiting, requestId: nil)
-                                        } else if lower.contains("parsing") {
-                                            blastController.showBlastLoading(phase: .parsing, requestId: nil)
-                                        } else {
-                                            blastController.showBlastLoading(phase: .submitting, requestId: nil)
-                                        }
-                                    }
-                                }
-                            }
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: "Results ready for \(request.readCount) contig\(request.readCount == 1 ? "" : "s")"
-                                ) else { return }
-                                blastController.showBlastResults(result)
-                            }
-                        }
-                    } catch {
-                        let errorText = error.localizedDescription
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.fail(
-                                    id: opID,
-                                    detail: errorText,
-                                    errorMessage: errorText
-                                ) else { return }
-                                blastController.showBlastFailure(errorText)
-                            }
-                        }
-                    }
-                }
-
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                    loading: { blastController.showBlastLoading(phase: $0, requestId: nil) },
+                    results: { blastController.showBlastResults($0) },
+                    failure: { blastController.showBlastFailure($0) }
+                )) { [count = request.readCount] _ in "Results ready for \(count) contig\(count == 1 ? "" : "s")" }
             }
         }
         controller.onExtractSequenceRequested = { [weak self] fastaRecords, suggestedName in
@@ -200,8 +130,7 @@ extension ViewerViewController {
     /// starts, calls `launch` with the operation ID. The run locks no bundle.
     ///
     /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
-    /// (``BlastSubmitPlan/cliCommand``). The in-process route the hidden key
-    /// `BlastReadActionRoute` keeps for one release passes nil.
+    /// (``BlastSubmitPlan/cliCommand``).
     @discardableResult
     static func beginAssemblyContigBlastVerificationOperation(
         sourceLabel: String,
