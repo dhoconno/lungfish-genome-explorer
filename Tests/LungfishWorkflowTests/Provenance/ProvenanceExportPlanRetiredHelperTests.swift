@@ -44,6 +44,23 @@ final class ProvenanceExportPlanRetiredHelperTests: XCTestCase {
         XCTAssertEqual(plan.inAppSteps.first?.recordedArgv.dropFirst().first, "--bam-import-helper", "and keeps its spelling")
     }
 
+    /// The metagenomics import helper took the same path. Before 2026-07-04 its records named the helper process's
+    /// own argv (the app's executable, then `--metagenomics-import-helper`, then the kind and the paths), and the app
+    /// no longer offers the flag after lane 12.06, so such a step is history as well (review of M2, fix 5).
+    func testAnOldRecordOfTheMetagenomicsImportHelperIsHistoryAndIsNotReplayed() {
+        let plan = plan(commands: [[
+            "Lungfish", "--metagenomics-import-helper", "--kind", "kraken2",
+            "--input-path", "/p/a.kreport", "--output-dir", "/p/Project",
+        ]])
+        XCTAssertTrue(plan.replayableSteps.isEmpty, "the helper step is not replayed: \(plan.steps)")
+        XCTAssertEqual(plan.inAppSteps.count, 1, "it is named as an in-app step: \(plan.steps)")
+        XCTAssertEqual(
+            plan.inAppSteps.first?.recordedArgv.dropFirst().first,
+            "--metagenomics-import-helper",
+            "and keeps its spelling"
+        )
+    }
+
     func testANewRecordNamesTheImportBamLeafAndIsReplayed() {
         let plan = plan(commands: [[
             CLICommandIdentity.executableName, "import", "bam", "/p/sample.bam",

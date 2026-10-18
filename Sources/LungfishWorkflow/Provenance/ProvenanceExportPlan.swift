@@ -500,10 +500,12 @@ struct ProvenanceExportPlan {
         (step.durableReplayArgv ?? step.command).first == "lungfish-internal"
     }
 
-    /// The re-launch flag of the app's retired BAM import helper. Records written before Phase 2.12 name it after the
-    /// app's executable, and the app stops offering it in 2.12 (lane 12.06), so such a step is history, which the plan
-    /// names and does not replay (BIO 4). New records name `lungfish-cli import bam`.
-    static let retiredHelperFlags: Set<String> = ["--bam-import-helper"]
+    /// The re-launch flags of the app's retired import helpers, the BAM helper and the metagenomics helper. Records
+    /// written before Phase 2.12 name the BAM flag after the app's executable. Metagenomics records written before
+    /// 2026-07-04 do the same, and later ones name `lungfish-cli import <kind>`. The app stops offering both flags in
+    /// 2.12 (lane 12.06), so such a step is history, which the plan names and does not replay (BIO 4). New records
+    /// name `lungfish-cli import bam` and `lungfish-cli import <kind>`.
+    static let retiredHelperFlags: Set<String> = ["--bam-import-helper", "--metagenomics-import-helper"]
 
     /// The marker flags that a BAM import record appends to the argv of its two in-app steps, the clone of an already
     /// sorted BAM and the collection of alignment metadata (`BAMImportService+Provenance.swift`). No command accepts
