@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class ViralReconDocumentSectionTests: XCTestCase {
@@ -345,18 +346,33 @@ final class ViralReconInspectorCallSiteTests: XCTestCase {
         return ingested.bundleDirectory
     }
 
-    func testSelectingAnAnalysisPopulatesTheInspectorWithItsOutputs() throws {
+    /// Selects the analysis the way the sidebar does and waits until its own
+    /// `.lungfishref` is on screen.
+    ///
+    /// The reference open decodes the bundle off the main actor, so the bundle
+    /// reaches the viewer, and the Inspector its content, some turns after the
+    /// call returns rather than on the next one. The embedded viewer holds the
+    /// bundle once the open has committed, and the Inspector is filled in that
+    /// same commit, so the wait reads only the viewer and leaves the Inspector
+    /// to the assertions.
+    private func selectAndWaitForTheBundle(_ analysis: URL, in split: MainSplitViewController) async {
+        split.displayViralReconAnalysisFromSidebar(at: analysis)
+        let analysisPath = analysis.resolvingSymlinksInPath().path
+        let shown = await waitUntil(timeout: .seconds(30)) {
+            guard let bundle = split.viewerController.referenceBundleViewportController?
+                .testEmbeddedViewerController.currentReferenceBundle else { return false }
+            return bundle.url.pathExtension == "lungfishref"
+                && bundle.url.deletingLastPathComponent().resolvingSymlinksInPath().path == analysisPath
+        }
+        XCTAssertTrue(shown, "the analysis's reference bundle never reached the viewer")
+    }
+
+    func testSelectingAnAnalysisPopulatesTheInspectorWithItsOutputs() async throws {
         let analysis = try makeIngestedAnalysis()
         let split = MainSplitViewController()
         _ = split.view
 
-        split.displayViralReconAnalysisFromSidebar(at: analysis)
-
-        // The bundle is displayed on the next runloop, and the Inspector is
-        // populated from that completion.
-        let settled = expectation(description: "inspector populated")
-        DispatchQueue.main.async { settled.fulfill() }
-        wait(for: [settled], timeout: 5)
+        await selectAndWaitForTheBundle(analysis, in: split)
 
         let document = try XCTUnwrap(
             split.inspectorController.viewModel.documentSectionViewModel.viralReconDocument,
@@ -368,16 +384,12 @@ final class ViralReconInspectorCallSiteTests: XCTestCase {
         XCTAssertTrue(labels.contains("Full Run Report"))
     }
 
-    func testSelectingAnAnalysisLeavesTheProvenanceTargetOnTheAnalysis() throws {
+    func testSelectingAnAnalysisLeavesTheProvenanceTargetOnTheAnalysis() async throws {
         let analysis = try makeIngestedAnalysis()
         let split = MainSplitViewController()
         _ = split.view
 
-        split.displayViralReconAnalysisFromSidebar(at: analysis)
-
-        let settled = expectation(description: "inspector populated")
-        DispatchQueue.main.async { settled.fulfill() }
-        wait(for: [settled], timeout: 5)
+        await selectAndWaitForTheBundle(analysis, in: split)
 
         XCTAssertEqual(
             split.inspectorController.viewModel.provenanceSectionViewModel.currentItem?.url,
