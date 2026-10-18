@@ -11,9 +11,9 @@ import LungfishWorkflow
 /// C4, C5 and C6), so the command the row records is the command that runs, and the compression happens in the
 /// command, on ``SequenceExportCompressor``, not in the app.
 ///
-/// `convert` reads one or more files and writes one output, compressed when `--compress` is given. A selection
-/// that holds a captured document snapshot (sequences held in memory with no file) or a file `convert` cannot
-/// read stays on the app's own writer, which compresses on the same ``SequenceExportCompressor``.
+/// `convert` reads one or more files and writes one output, compressed when `--compress` is given. A captured
+/// document snapshot (sequences held in memory with no file) and a file `convert` cannot read are staged as
+/// files first by ``SequenceExportStaging`` (Phase 2.12 lane 12.13), so every selection runs here.
 ///
 /// A cancel of the calling task goes through ``CLIRunCancellation``. The command gets SIGTERM and
 /// ``CLIProcessLauncher/operationGrace`` before SIGKILL, and the route then removes the stage files a stopped

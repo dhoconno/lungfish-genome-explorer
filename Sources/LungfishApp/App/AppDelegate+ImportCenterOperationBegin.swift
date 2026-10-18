@@ -364,19 +364,13 @@ extension AppDelegate {
     /// locks no bundle.
     ///
     /// The row records the `lungfish-cli convert` command the export runs
-    /// (`sequenceExportCLICommand`), with every file source as an input, the
-    /// `--compress` option when compression is chosen, and
+    /// (`sequenceExportCLICommand`), with every input in the order of the
+    /// selection, the `--compress` option when compression is chosen, and
     /// `--include-annotations` for a GenBank export or a reference bundle.
-    /// `inputURLs` is empty when the selection holds a captured document
-    /// snapshot, which is sequences held in memory with no file for `convert`
-    /// to read, and the row then records no command.
-    ///
-    /// cli-parity-gap: sequence-export-in-app-writer. The closest command is
-    /// `lungfish-cli convert <file> --to <out>`, which reads files only. A
-    /// captured document snapshot has no file, and `convert` does not read a
-    /// `.seq`, `.txt` or extensionless file, so those selections stay on the
-    /// app's own writer and the row records no command until they have a
-    /// durable file for a command to read.
+    /// A captured document snapshot, which is sequences held in memory, and a
+    /// file `convert` does not read are staged as files before the row begins
+    /// (`SequenceExportStaging`), so `inputURLs` names the staged file in
+    /// their place and the row records the command that runs.
     @discardableResult
     static func beginSequenceExportOperation(
         outputURL: URL,

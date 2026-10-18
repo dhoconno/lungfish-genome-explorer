@@ -6,141 +6,148 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishKit
-import LungfishOperations
 import LungfishWorkflow
 
 /// The Import Center's sequence export lives here, moved out of
 /// AppDelegate+ImportCenter.swift, which is at its size baseline. It holds the
-/// single and batch export, the recorded `convert` commands and the in-app
-/// writer for a selection `convert` cannot read.
+/// single and batch export and the recorded `convert` commands. Every export
+/// runs `lungfish-cli convert`, on the files ``SequenceExportStaging`` writes
+/// for a captured document snapshot or a file `convert` does not read.
 extension AppDelegate {
 
-    /// Exports the sources to `outputURL` and returns the count of sequences written.
-    ///
-    /// A selection of files that `convert` reads, reference bundles included, runs as
-    /// `lungfish-cli convert` (``SequenceExportRoute``), the command the row records, and the command
-    /// compresses. A selection with a captured document snapshot, or a file `convert` does not read, is
-    /// written here and compressed on the same ``SequenceExportCompressor``.
-    nonisolated func performSequenceExport(
+    /// Stages the selection off the main actor, then registers the export row with the `convert` command the
+    /// run executes, and runs it (Phase 2.12 lane 12.13, A49-GAP). A staging failure shows an alert and
+    /// starts no row.
+    func startSequenceExport(
         sources: [SequenceExportSourceResolver.Source],
+        outputURL: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression,
+        window: NSWindow,
+        routeContext: OperationRouteContext?
+    ) {
+        Task.detached { [weak self] in
+            let staged: SequenceExportStaging.Staged
+            do {
+                staged = try SequenceExportStaging.stage(sources, format: format, outputURL: outputURL)
+            } catch {
+                let detail = error.localizedDescription
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Export Failed"
+                    alert.informativeText = detail
+                    alert.alertStyle = .critical
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window)
+                }
+                return
+            }
+            guard let self else { return staged.discard() }
+            await self.beginStagedSequenceExport(
+                staged, outputURL: outputURL, format: format, compression: compression,
+                window: window, routeContext: routeContext
+            )
+        }
+    }
+
+    /// Registers the export row for the staged inputs and runs the export once the row started. A refused row
+    /// and a failed or cancelled run discard the staging, since no record names it then.
+    private func beginStagedSequenceExport(
+        _ staged: SequenceExportStaging.Staged,
+        outputURL: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression,
+        window: NSWindow,
+        routeContext: OperationRouteContext?
+    ) {
+        let result = Self.beginSequenceExportOperation(
+            outputURL: outputURL,
+            inputURLs: staged.inputs,
+            format: format,
+            compression: compression,
+            routeContext: routeContext
+        ) { opID in
+            let task = Task.detached { [weak self] in
+                do {
+                    await appPerformOnMainRunLoop {
+                        OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
+                    }
+                    let count = try await self?.performSequenceExport(
+                        inputs: staged.inputs,
+                        outputURL: outputURL,
+                        format: format,
+                        compression: compression
+                    ) ?? 0
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)"
+                            ) else { return }
+                            let alert = NSAlert()
+                            alert.messageText = "Export Complete"
+                            alert.informativeText = "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)."
+                            alert.alertStyle = .informational
+                            alert.addButton(withTitle: "OK")
+                            alert.addButton(withTitle: "Show in Finder")
+                            alert.beginSheetModal(for: window) { response in
+                                if response == .alertSecondButtonReturn {
+                                    NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    staged.discard()
+                    debugLog("exportSequences: Failed - \(error)")
+                    let detail = error.localizedDescription
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard OperationCenter.shared.fail(
+                                id: opID,
+                                detail: detail,
+                                errorMessage: "Sequence export failed",
+                                errorDetail: detail
+                            ) else { return }
+                            let alert = NSAlert()
+                            alert.messageText = "Export Failed"
+                            alert.informativeText = detail
+                            alert.alertStyle = .critical
+                            alert.addButton(withTitle: "OK")
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+            }
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                task.cancel()
+            }
+        }
+        if case .refused = result { staged.discard() }
+    }
+
+    /// Runs `lungfish-cli convert` on `inputs`, the files of the selection after staging, and returns the count
+    /// of sequences written. The command is the one the row records (``SequenceExportRoute``), and it compresses.
+    nonisolated func performSequenceExport(
+        inputs: [URL],
         outputURL: URL,
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
-        let runClock = ProvenanceRunClock()
-        let containsCapturedDocuments = sources.contains { $0.document != nil }
-        if !containsCapturedDocuments, !sources.isEmpty,
-           sources.allSatisfy({ SequenceExportRoute.convertReads($0.metadata.url) }) {
-            try FileManager.default.createDirectory(
-                at: outputURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            return try await SequenceExportRoute.run(
-                arguments: SequenceExportRoute.arguments(
-                    inputs: sources.map { $0.metadata.url },
-                    outputURL: outputURL,
-                    format: format,
-                    compression: compression
-                ),
-                outputURL: outputURL
-            )
-        }
-
-        // Collect all sequences and annotations
-        var allSequences: [LungfishCore.Sequence] = []
-        var allAnnotations: [SequenceAnnotation] = []
-        var sourceRecords: [(LungfishCore.Sequence, [SequenceAnnotation])] = []
-
-        for source in sources {
-            try Task.checkCancellation()
-            let sequences: [LungfishCore.Sequence]
-            let annotations: [SequenceAnnotation]
-            if let document = source.document {
-                sequences = document.sequences
-                annotations = document.annotations
-            } else {
-                (sequences, annotations) = try await loadSequencesForExport(from: source.metadata.url)
-            }
-            allSequences.append(contentsOf: sequences)
-            allAnnotations.append(contentsOf: annotations)
-            sourceRecords.append(contentsOf: sequences.map { ($0, annotations) })
-        }
-
-        guard !allSequences.isEmpty else {
-            throw NSError(domain: "com.lungfish.browser", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "No sequences found in selected files."])
-        }
-
-        let exportTempDir = try ProjectTempDirectory.createFromContext(prefix: "export-", contextURL: outputURL)
-        defer { try? FileManager.default.removeItem(at: exportTempDir) }
-        let writeURL = exportTempDir.appendingPathComponent("export.\(format == .genbank ? "gb" : "fa")")
-
-        // Write the file
-        switch format {
-        case .fasta:
-            let writer = FASTAWriter(url: writeURL)
-            try writer.write(allSequences)
-
-        case .genbank:
-            var records: [GenBankRecord] = []
-            for (sequence, sourceAnnotations) in sourceRecords {
-                let seqAnnotations = sourceAnnotations.filter {
-                    $0.chromosome == nil || $0.chromosome == sequence.name
-                }
-                let moleculeType: MoleculeType
-                switch sequence.alphabet {
-                case .dna: moleculeType = .dna
-                case .rna: moleculeType = .rna
-                case .protein: moleculeType = .protein
-                }
-                let locus = LocusInfo(
-                    name: sequence.name,
-                    length: sequence.length,
-                    moleculeType: moleculeType,
-                    topology: .linear,
-                    division: nil,
-                    date: Self.currentDateString()
-                )
-                records.append(GenBankRecord(
-                    sequence: sequence,
-                    annotations: seqAnnotations,
-                    locus: locus,
-                    definition: sequence.description,
-                    accession: nil,
-                    version: nil
-                ))
-            }
-            let writer = GenBankWriter(url: writeURL)
-            try writer.write(records)
-        }
-
-        // Compress the written file before the record is written, so the writer below copies a finished payload.
-        let payloadURL: URL
-        if let kind = compression.compressorKind {
-            payloadURL = exportTempDir.appendingPathComponent(writeURL.lastPathComponent + "." + kind.fileExtension)
-            try await SequenceExportCompressor.compress(source: writeURL, to: payloadURL, kind: kind)
-        } else {
-            payloadURL = writeURL
-        }
-
-        let sourceURLs = sources.map { $0.metadata.url }
-        let selectionMetadata = try containsCapturedDocuments ? JSONEncoder().encode(sources.map(\.metadata)) : nil
-        try Self.writeSequenceExportProvenance(
-            sourceURLs: sourceURLs,
-            outputURL: outputURL,
-            format: format,
-            compression: compression,
-            sequenceCount: allSequences.count,
-            annotationCount: allAnnotations.count,
-            runClock: runClock,
-            selectionMetadata: selectionMetadata
-        ) { staged in
-            try Task.checkCancellation()
-            try FileManager.default.copyItem(at: payloadURL, to: staged)
-            try Task.checkCancellation()
-        }
-
-        return allSequences.count
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        return try await SequenceExportRoute.run(
+            arguments: SequenceExportRoute.arguments(
+                inputs: inputs,
+                outputURL: outputURL,
+                format: format,
+                compression: compression
+            ),
+            outputURL: outputURL
+        )
     }
 
     nonisolated static func batchSequenceExportTargets(
@@ -202,9 +209,9 @@ extension AppDelegate {
         }
     }
 
-    /// The `lungfish-cli convert` command the export runs, which the row records. It is nil when there is no
-    /// file for `convert` to read, which is a selection with a captured document snapshot, or when `convert`
-    /// cannot read one of the files.
+    /// The `lungfish-cli convert` command the export runs, which the row records. It is nil for an empty list
+    /// or a file `convert` cannot read, which ``SequenceExportStaging`` never hands it, since it stages such a
+    /// file and every captured document snapshot first.
     nonisolated static func sequenceExportCLICommand(
         inputURLs: [URL],
         outputURL: URL,
@@ -219,87 +226,6 @@ extension AppDelegate {
             compression: compression
         )
         return OperationCenter.buildCLICommand(subcommand: "convert", args: Array(arguments.dropFirst()))
-    }
-
-    @discardableResult
-    nonisolated private static func writeSequenceExportProvenance(
-        sourceURLs: [URL],
-        outputURL: URL,
-        format: SequenceExportFormat,
-        compression: SequenceExportCompression,
-        sequenceCount: Int,
-        annotationCount: Int,
-        runClock: ProvenanceRunClock,
-        selectionMetadata: Data? = nil,
-        writeOutput: (URL) throws -> Void
-    ) throws -> URL {
-        let request = ScientificFileExportProvenance.Request(
-            workflowName: "lungfish app sequence export",
-            sourceURLs: sourceURLs.map(\.standardizedFileURL),
-            outputURL: outputURL,
-            outputFormat: sequenceExportProvenanceFormat(for: format),
-            argv: sequenceExportProvenanceArgv(
-                sourceURLs: sourceURLs,
-                outputURL: outputURL,
-                format: format,
-                compression: compression
-            ),
-            explicitOptions: [
-                "outputPath": .file(outputURL),
-                "format": .string(format.cliFormat),
-                "compression": .string(compression.provenanceValue),
-            ],
-            defaults: [
-                "includeAnnotations": .boolean(true),
-            ],
-            resolved: [
-                "sourceCount": .integer(sourceURLs.count),
-                "sequenceCount": .integer(sequenceCount),
-                "annotationCount": .integer(annotationCount),
-                "format": .string(format.cliFormat),
-                "compression": .string(compression.provenanceValue),
-            ],
-            runClock: runClock
-        )
-        if let selectionMetadata {
-            let snapshot = try RetainedSelectionExportSnapshot(outputURL: outputURL, selectionMetadata: selectionMetadata)
-            do {
-                try writeOutput(snapshot.payloadURL)
-                try snapshot.publish(request)
-                return ProvenanceRecorder.fileSidecarURL(for: outputURL)
-            } catch {
-                snapshot.discardAfterFailure(error)
-                throw error
-            }
-        }
-        return try ScientificFileExportProvenance.writeAtomically(request, writeOutput: writeOutput)
-    }
-
-    nonisolated private static func sequenceExportProvenanceArgv(
-        sourceURLs: [URL],
-        outputURL: URL,
-        format: SequenceExportFormat,
-        compression: SequenceExportCompression
-    ) -> [String] {
-        var argv = ["Lungfish.app", "export-sequences"]
-        for url in sourceURLs {
-            argv.append(contentsOf: ["--input", url.path])
-        }
-        argv.append(contentsOf: [
-            "--output", outputURL.path,
-            "--format", format.cliFormat,
-            "--compression", compression.provenanceValue,
-        ])
-        return argv
-    }
-
-    nonisolated private static func sequenceExportProvenanceFormat(for format: SequenceExportFormat) -> FileFormat {
-        switch format {
-        case .fasta:
-            return .fasta
-        case .genbank:
-            return .genBank
-        }
     }
 
     nonisolated func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> [SequenceAnnotation] {

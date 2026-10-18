@@ -1873,72 +1873,14 @@ extension AppDelegate {
             guard response == .OK, let outputURL = panel.url else { return }
             guard let self else { return }
 
-            let format = panelController.selectedFormat
-            let compression = panelController.selectedCompression
-
-            let itemURLs = sources.filter { $0.document == nil }.map { $0.metadata.url }
-            Self.beginSequenceExportOperation(
+            self.startSequenceExport(
+                sources: sources,
                 outputURL: outputURL,
-                inputURLs: itemURLs.count == sources.count ? itemURLs : [],
-                format: format,
-                compression: compression,
+                format: panelController.selectedFormat,
+                compression: panelController.selectedCompression,
+                window: window,
                 routeContext: routeContext
-            ) { opID in
-                let task = Task.detached { [weak self] in
-                    do {
-                        await appPerformOnMainRunLoop {
-                            OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
-                        }
-                        let count = try await self?.performSequenceExport(
-                            sources: sources,
-                            outputURL: outputURL,
-                            format: format,
-                            compression: compression
-                        ) ?? 0
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)"
-                                ) else { return }
-                                let alert = NSAlert()
-                                alert.messageText = "Export Complete"
-                                alert.informativeText = "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)."
-                                alert.alertStyle = .informational
-                                alert.addButton(withTitle: "OK")
-                                alert.addButton(withTitle: "Show in Finder")
-                                alert.beginSheetModal(for: window) { response in
-                                    if response == .alertSecondButtonReturn {
-                                        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
-                                    }
-                                }
-                            }
-                        }
-                    } catch {
-                        debugLog("exportSequences: Failed - \(error)")
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.fail(
-                                    id: opID,
-                                    detail: error.localizedDescription,
-                                    errorMessage: "Sequence export failed",
-                                    errorDetail: error.localizedDescription
-                                ) else { return }
-                                let alert = NSAlert()
-                                alert.messageText = "Export Failed"
-                                alert.informativeText = error.localizedDescription
-                                alert.alertStyle = .critical
-                                alert.addButton(withTitle: "OK")
-                                alert.beginSheetModal(for: window)
-                            }
-                        }
-                    }
-                }
-                OperationCenter.shared.setCancelCallback(for: opID) {
-                    task.cancel()
-                }
-            }
+            )
         }
     }
 
@@ -1991,8 +1933,7 @@ extension AppDelegate {
                                 OperationCenter.shared.log(id: opID, level: .info, message: "\(detail) -> \(outputURL.lastPathComponent)")
                             }
                             count += try await self?.performSequenceExport(
-                                sources: [.init(metadata: .init(kind: .filesystem, url: bundleURL,
-                                    documentID: nil, nativeSequenceID: nil, projectURL: nil), document: nil)],
+                                inputs: [bundleURL],
                                 outputURL: outputURL,
                                 format: format,
                                 compression: compression

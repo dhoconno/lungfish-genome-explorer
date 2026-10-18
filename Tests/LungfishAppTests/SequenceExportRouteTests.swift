@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane A49 M3. `SequenceExportRoute` builds the `convert` arguments the row records and the run
-// executes, decides which files `convert` reads, and removes the stage files a stopped command leaves. A file
-// that `convert` does not read stays on the app's own writer, which compresses on `SequenceExportCompressor`.
+// executes, decides which files `convert` reads, and removes the stage files a stopped command leaves. Since
+// Phase 2.12 lane 12.13 a file that `convert` does not read is staged first (`SequenceExportStagingDurabilityTests`).
 // `SequenceExportPinConformanceTests` runs the route against the built command.
 
 import Foundation
@@ -59,10 +59,7 @@ final class SequenceExportRouteTests: XCTestCase {
         XCTAssertNil(AppDelegate.sequenceExportCLICommand(
             inputURLs: [URL(fileURLWithPath: "/tmp/a.fa"), URL(fileURLWithPath: "/tmp/a.seq")],
             outputURL: output, format: .fasta, compression: .none
-        ), "one file that convert cannot read leaves the row with no command")
-        XCTAssertNil(AppDelegate.sequenceExportCLICommand(
-            inputURLs: [], outputURL: output, format: .fasta, compression: .none
-        ), "a captured snapshot has no file")
+        ), "a file convert cannot read is staged before the row, so no command names it")
     }
 
     func testRemoveStagesRemovesOnlyTheHiddenConvertStagesOfThatOutput() throws {
@@ -83,32 +80,5 @@ final class SequenceExportRouteTests: XCTestCase {
 
         let remaining = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
         XCTAssertEqual(remaining, keep.sorted())
-    }
-
-    func testAFileConvertDoesNotReadStaysOnTheAppWriterAndCompressesWithGzip() async throws {
-        let input = root.appendingPathComponent("reads.seq")
-        try ">one\nACGT\n>two\nTTGGCC\n".write(to: input, atomically: true, encoding: .utf8)
-        let output = root.appendingPathComponent("out.fa.gz")
-
-        let count = try await makeAppDelegateWithTemporaryState().performSequenceExport(
-            sources: [.init(
-                metadata: .init(kind: .filesystem, url: input, documentID: nil, nativeSequenceID: nil, projectURL: nil),
-                document: nil
-            )],
-            outputURL: output, format: .fasta, compression: .gzip
-        )
-
-        XCTAssertEqual(count, 2)
-        XCTAssertEqual(Array(try Data(contentsOf: output).prefix(2)), [0x1f, 0x8b], "a gzip container")
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", output.path]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
-        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        process.waitUntilExit()
-        XCTAssertEqual(text, ">one\nACGT\n>two\nTTGGCC\n")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
     }
 }

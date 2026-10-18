@@ -25,12 +25,18 @@
 // Phase 2.12 lane 12.13 M1 (A49-PARITY, BIO 1, QA 1 and 3) adds four input kinds that 2.11 sent to `convert` and
 // never compared with the app's writer, and freezes the app writer's texts in `SequenceExportParityExpected.swift`
 // (`LUNGFISH_RECAPTURE_SEQUENCE_EXPORT_PARITY=1` wrote them at the base of 12.13, while the app's writer existed).
+//
+// Lane 12.13 M2 (A49-GAP) deletes the app's writer. A captured snapshot and a file `convert` does not read are
+// staged by `SequenceExportStaging` and `convert` runs on them, so every export here runs the command, and
+// the frozen texts are A. Each selection the writer took alone is also replayed from its record on a copy of
+// the folder (C against C'). The frozen texts cannot be captured again, since A no longer exists.
 
 import Foundation
 import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -39,6 +45,7 @@ import LungfishTestSupport
 final class SequenceExportPinConformanceTests: XCTestCase {
     private var root: URL!
     private var priorCLIPath: String?
+    private var stagedFolders: [URL] = []
 
     override func setUpWithError() throws {
         root = try TestTempDirectory.make(prefix: "sequence-export-pin")
@@ -52,6 +59,8 @@ final class SequenceExportPinConformanceTests: XCTestCase {
     override func tearDownWithError() throws {
         if let priorCLIPath { setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
         if let root { TestTempDirectory.cleanup(root) }
+        // A selection outside a project stages in the system temporary folder, which the test removes too.
+        for folder in stagedFolders { try? FileManager.default.removeItem(at: folder) }
     }
 
     func testEachExportPinsItsTextAfterDecompression() async throws {
@@ -112,9 +121,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             } else {
                 let output = root.appendingPathComponent("out/\(item.name).zst")
                 do {
-                    _ = try await makeAppDelegateWithTemporaryState().performSequenceExport(
-                        sources: item.sources, outputURL: output, format: item.format, compression: .zstd
-                    )
+                    try await runExport(item.sources, to: output, format: item.format, compression: .zstd)
                     XCTFail("\(item.name) with zstd should fail without /usr/bin/zstd")
                 } catch {
                     XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(item.name) publishes nothing")
@@ -127,12 +134,12 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         }
     }
 
-    /// A49-PARITY (lane 12.13 M1). A one-record GenBank file with a gene feature, a `.gz` wrapped FASTA, a FASTQ
-    /// file and a mixed selection (the `Alpha` bundle and `first.fa`) each export twice with gzip. A is the app's
-    /// writer on captured documents built from the reader output of the same files, C is `convert` on the files,
-    /// and the texts after decompression must be equal. A's texts are frozen, beside three selections that the
-    /// app's writer still takes at the base, a GenBank snapshot whose features name no chromosome, a `.seq` file
-    /// and a snapshot mixed with files. Lane 12.13 M2 sends those to `convert` and holds them to the frozen texts.
+    /// A49-PARITY (lane 12.13 M1) and A49-GAP (M2). A one-record GenBank file with a gene feature, a `.gz` wrapped
+    /// FASTA, a FASTQ file and a mixed selection (the `Alpha` bundle and `first.fa`) each export twice with gzip,
+    /// as captured documents built from the reader output of the same files, which are staged, and as the files.
+    /// Both run `convert` (C) and must write A, the app writer's text frozen in M1. So must the three selections
+    /// the app's writer took alone until M2, a GenBank snapshot whose features name no chromosome, a `.seq` file
+    /// and a snapshot mixed with files, and the replay of each one's record writes the same text (C').
     func testEachInputKindWritesTheAppWritersTextThroughConvert() async throws {
         try requireTools()
         let inputs = root.appendingPathComponent("inputs", isDirectory: true)
@@ -152,14 +159,14 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         for item in parity {
             var captured: [SequenceExportSourceResolver.Source] = []
             for file in item.files { captured.append(try await capturedSource(readFrom: file)) }
-            let app = try await export(captured, to: "\(item.name)-app.gz", format: item.format, compression: .gzip)
+            let staged = try await export(captured, to: "\(item.name)-staged.gz", format: item.format, compression: .gzip)
             let command = try await export(
                 item.files.map(Self.fileSource), to: "\(item.name)-convert.gz", format: item.format, compression: .gzip
             )
-            XCTAssertEqual(command, app, "\(item.name), convert on the files against the app's writer (A against C)")
-            XCTAssertEqual(Array(try recordedArgv(of: "\(item.name)-app.gz").prefix(2)), ["Lungfish.app", "export-sequences"])
+            XCTAssertEqual(staged, command, "\(item.name), convert on the staged documents against convert on the files")
+            XCTAssertEqual(try recordedArgv(of: "\(item.name)-staged.gz").dropFirst().first, "convert")
             XCTAssertEqual(try recordedArgv(of: "\(item.name)-convert.gz").dropFirst().first, "convert")
-            actual[item.name] = app
+            actual[item.name] = command
         }
         let geneQualifier = "/gene=\"geneB\""
         XCTAssertTrue(actual["genbank-file"]?.contains(geneQualifier) == true, "the gene feature is kept")
@@ -171,17 +178,11 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             ("snapshot-mixed", [snapshots[0], Self.fileSource(files.seq), Self.fileSource(files.first)], .genbank),
         ]
         for item in appOnly {
-            actual[item.name] = try await export(item.sources, to: "\(item.name).gz", format: item.format, compression: .gzip)
-        }
-        if ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_SEQUENCE_EXPORT_PARITY"] == "1" {
-            try Self.writeExpected(actual, typeName: "SequenceExportParityExpected",
-                title: "The app writer's text of each parity case after decompression",
-                variable: "LUNGFISH_RECAPTURE_SEQUENCE_EXPORT_PARITY")
-            return
+            actual[item.name] = try await exportAndReplay(item.sources, to: "\(item.name).gz", format: item.format)
         }
         XCTAssertEqual(Set(actual.keys), Set(SequenceExportParityExpected.cases.keys))
         for (name, text) in actual.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(text, SequenceExportParityExpected.cases[name], "\(name) against the app's writer frozen in 12.13 M1")
+            XCTAssertEqual(text, SequenceExportParityExpected.cases[name], "\(name) against the app's writer frozen in 12.13 M1 (A)")
         }
     }
 
@@ -346,6 +347,60 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a failed export publishes nothing")
     }
 
+    /// A cancel of a staged snapshot export (lane 12.13 M2), sent through the route's transport while every core
+    /// is busy, three times. Each stops `convert` inside the app's grace, keeps the export the run was asked to
+    /// overwrite, leaves no stage beside it and discards the staging, since no record names it.
+    func testACancelOfAStagedSnapshotStopsTheCommandWithEveryCoreBusy() async throws {
+        try requireTools()
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let folder = root.appendingPathComponent("out", isDirectory: true)
+        for directory in [project, folder] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let records = root.appendingPathComponent("records.fa")
+        try Self.writeFASTA(to: records)
+        let held = project.appendingPathComponent("held")
+        let snapshot = SequenceExportSourceResolver.Source(
+            metadata: .init(
+                kind: .nativeProjectSequence, url: held, documentID: UUID(), nativeSequenceID: UUID(), projectURL: project
+            ),
+            document: .init(
+                name: "held", url: held, sequences: try await FASTAReader(url: records).readAll(), annotations: []
+            )
+        )
+        let load = BusyCores()
+        load.start()
+        defer { load.stop() }
+        for attempt in 1...3 {
+            let output = folder.appendingPathComponent("held-\(attempt).fa.gz")
+            let earlier = Data("an earlier export \(UUID().uuidString)".utf8)
+            try earlier.write(to: output)
+            let task = Task { try await self.runExport([snapshot], to: output, format: .fasta, compression: .gzip) }
+            let atWork = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(2)) {
+                !Self.convertEntries(in: folder).isEmpty
+            }
+            XCTAssertTrue(atWork, "attempt \(attempt), the command never made its stage")
+            let clock = ContinuousClock()
+            let cancelled = clock.now
+            task.cancel()
+            do {
+                try await task.value
+                XCTFail("attempt \(attempt), a cancelled export must not publish")
+            } catch is CancellationError {
+            } catch {
+                XCTFail("attempt \(attempt), expected a cancel, got \(error)")
+            }
+            let elapsed = clock.now - cancelled
+            XCTAssertLessThan(elapsed, CLIProcessLauncher.operationGrace + .seconds(5), "attempt \(attempt) took \(elapsed)")
+            XCTAssertEqual(try Data(contentsOf: output), earlier, "attempt \(attempt) keeps the earlier export")
+            XCTAssertEqual(Self.convertEntries(in: folder), [], "attempt \(attempt) leaves no stage beside the output")
+        }
+        let temporary = ProjectTempDirectory.tempRoot(for: project).path
+        let staging = ((try? FileManager.default.contentsOfDirectory(atPath: temporary)) ?? [])
+            .filter { $0.hasPrefix("sequence-export-") }
+        XCTAssertEqual(staging, [], "a cancelled export discards its staging")
+    }
+
     // MARK: - Helpers
 
     /// The hidden stage entries of `convert` in `folder`, whose names start with a dot and hold `.convert.`.
@@ -428,9 +483,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         let folder = root.appendingPathComponent("out", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let output = folder.appendingPathComponent(name)
-        _ = try await makeAppDelegateWithTemporaryState().performSequenceExport(
-            sources: sources, outputURL: output, format: format, compression: compression
-        )
+        try await runExport(sources, to: output, format: format, compression: compression)
         let magic: [UInt8] = compression == .gzip ? [0x1f, 0x8b] : [0x28, 0xb5, 0x2f, 0xfd]
         XCTAssertEqual(Array(try Data(contentsOf: output).prefix(magic.count)), magic, "\(name) holds a \(compression) container")
         XCTAssertTrue(
@@ -449,6 +502,57 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             output, with: compression == .gzip ? "/usr/bin/gzip" : (SequenceExportCompressor.zstdExecutable()?.path ?? "zstd")
         )
         return text.replacingOccurrences(of: "[0-9]{2}-[A-Z]{3}-[0-9]{4}", with: "<DATE>", options: .regularExpression)
+    }
+
+    /// Stages `sources` and runs the export as the app does, which discards the staging when the run fails.
+    private func runExport(
+        _ sources: [SequenceExportSourceResolver.Source],
+        to output: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression
+    ) async throws {
+        let staged = try SequenceExportStaging.stage(sources, format: format, outputURL: output)
+        if let folder = staged.folder { stagedFolders.append(folder) }
+        do {
+            _ = try await makeAppDelegateWithTemporaryState().performSequenceExport(
+                inputs: staged.inputs, outputURL: output, format: format, compression: compression
+            )
+        } catch {
+            staged.discard()
+            throw error
+        }
+    }
+
+    /// Exports `sources` to `name` with gzip, then runs the command its record holds on a copy of the test folder
+    /// (C against C') and checks that the replay writes the same text, which it returns.
+    private func exportAndReplay(
+        _ sources: [SequenceExportSourceResolver.Source],
+        to name: String,
+        format: SequenceExportFormat
+    ) async throws -> String {
+        let text = try await export(sources, to: name, format: format, compression: .gzip)
+        let argv = Array(try recordedArgv(of: name).dropFirst())
+        XCTAssertEqual(argv.first, "convert", "\(name) runs convert")
+        let stagingFolder = "/sequence-export-"
+        let staging = argv.filter { $0.contains(stagingFolder) }
+        XCTAssertFalse(staging.isEmpty, "\(name) reads a staged file")
+        for path in staging {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path), "the record names a staged file that exists, \(path)")
+        }
+        let replayRoot = try TestTempDirectory.make(prefix: "sequence-export-parity-replay")
+        defer { TestTempDirectory.cleanup(replayRoot) }
+        let copy = replayRoot.appendingPathComponent("copy", isDirectory: true)
+        try FileManager.default.copyItem(at: root, to: copy)
+        let replayOutput = copy.appendingPathComponent("out").appendingPathComponent(name)
+        try FileManager.default.removeItem(at: replayOutput)
+        let prefix = root.path + "/"
+        let rebased = argv.map { $0.hasPrefix(prefix) ? copy.path + "/" + $0.dropFirst(prefix.count) : $0 }
+        let count = try await SequenceExportRoute.run(arguments: rebased, outputURL: replayOutput)
+        XCTAssertGreaterThan(count, 0, "replay count")
+        let replayed = try Self.decompress(replayOutput, with: "/usr/bin/gzip")
+            .replacingOccurrences(of: "[0-9]{2}-[A-Z]{3}-[0-9]{4}", with: "<DATE>", options: .regularExpression)
+        XCTAssertEqual(replayed, text, "\(name), the recorded command on a copy of the folder (C against C')")
+        return text
     }
 
     private static func decompress(_ url: URL, with tool: String) throws -> String {

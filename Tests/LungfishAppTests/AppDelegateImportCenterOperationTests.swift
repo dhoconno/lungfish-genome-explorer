@@ -789,25 +789,6 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
         XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), runArguments)
     }
 
-    func testSequenceExportOfACapturedSnapshotRecordsNoCommand() throws {
-        let reporter = RecordingOperationReporter()
-
-        AppDelegate.beginSequenceExportOperation(
-            outputURL: URL(fileURLWithPath: "/tmp/lane 1a2/Exports/exported_sequences.fa"),
-            inputURLs: [],
-            format: .fasta,
-            compression: .none,
-            routeContext: nil,
-            reporter: reporter
-        ) { _ in }
-
-        // A captured document snapshot is sequences held in memory with no file for `convert` to read.
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(item.operationType, .export)
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "sequence-export-in-app-writer")
-    }
-
     func testCompressedSequenceExportRecordsTheConvertCommandWithItsCompressor() throws {
         for (compression, word) in [(SequenceExportCompression.gzip, "gzip"), (.zstd, "zstd")] {
             let reporter = RecordingOperationReporter()
