@@ -152,6 +152,40 @@ final class PrimerSchemeSaveCommandTests: XCTestCase {
         )
     }
 
+    // MARK: - The Save as Primer Scheme row (lane 12.15, A67-P42)
+
+    /// `savePrimerScheme` in MainSplitViewController registers its row with `primerSchemeSaveCLICommand`, built
+    /// from the saved analysis, the chosen candidate's result ID, the name the user typed and the project. This
+    /// builds that command from the candidate a saved analysis offers, parses it with the real CLI parser and
+    /// runs it on a project. The scheme it writes has the typed name and sits in the project's Primer Schemes
+    /// folder, which is what the row promises to reproduce.
+    func testSavePrimerSchemeRowCommandParsesAndWritesTheNamedSchemeInTheProject() throws {
+        let root = try makeRoot()
+        let analysis = try makePrimalSchemeAnalysis(in: root)
+        let candidate = try XCTUnwrap(PrimerSchemeFromAnalysisService.candidates(analysisURL: analysis).first)
+        XCTAssertNil(candidate.refusalReason)
+        let project = root.appendingPathComponent("Row.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let name = "-Mamu A1 scheme"
+
+        let row = rowCommand(name: name, projectURL: project, analysisURL: analysis, resultID: candidate.resultID)
+        let command = try RecordedCLICommand.parse(row, as: PrimerCommand.SchemeFromAnalysisSubcommand.self)
+        XCTAssertEqual(command.analysisPath, analysis.path)
+        XCTAssertEqual(command.resultID, candidate.resultID.uuidString)
+        XCTAssertEqual(command.outputPath, name)
+        XCTAssertEqual(command.projectPath, project.path)
+
+        let written = try command.executeForTesting(
+            argv: [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row))
+        )
+        XCTAssertEqual(written.bundleURL.lastPathComponent, "\(name).lungfishprimers")
+        XCTAssertEqual(
+            written.bundleURL.deletingLastPathComponent().standardizedFileURL,
+            project.appendingPathComponent(PrimerSchemesFolder.folderName, isDirectory: true).standardizedFileURL
+        )
+        XCTAssertNoThrow(try PrimerSchemeBundle.load(from: written.bundleURL))
+    }
+
     // MARK: - Fixtures
 
     /// A provenance write and read returns a `/private/var` path as `/var`,
