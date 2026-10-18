@@ -83,6 +83,11 @@ extension NaoMgsCommand {
             guard state.sortKeys.count <= 1 else {
                 throw ViewerExportRefusal("The NAO-MGS table sorts by one column. Pass --sort once.")
             }
+            if let key = state.sortKeys.first, !NaoMgsSummaryExport.sortableColumns.contains(key.column) {
+                throw ViewerExportRefusal(
+                    "The NAO-MGS table sorts by sample, name, hits, unique or refs, not \(key.column)."
+                )
+            }
             guard FileManager.default.fileExists(atPath: databaseURL.path) else {
                 throw ViewerExportRefusal(
                     "No NAO-MGS database at \(databaseURL.path). Pass the NAO-MGS result folder the app opens."

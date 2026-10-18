@@ -162,6 +162,7 @@ final class NaoMgsExportTableCommandTests: XCTestCase {
 
         try assertRefusedBeforeWriting(extra: ["--sample", "sample-Z"])
         try assertRefusedBeforeWriting(extra: ["--sort", "hits:ascending", "--sort", "name:ascending"])
+        try assertRefusedBeforeWriting(extra: ["--sort", "metadata_Cohort:ascending"])
         try assertRefusedBeforeWriting(extra: ["--metadata-column", "Nope"])
         let database = resultFolder.appendingPathComponent("hits.sqlite")
         let before = try Data(contentsOf: database)

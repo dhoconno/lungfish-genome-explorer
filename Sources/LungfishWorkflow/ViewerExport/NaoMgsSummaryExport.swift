@@ -54,6 +54,10 @@ public enum NaoMgsSummaryExport {
 }
 
 extension NaoMgsSummaryExport {
+    /// The columns `shownRows` sorts by. A sort on any other column, such as a metadata column, keeps the
+    /// database's order, so a record names only these as the applied sort.
+    public static let sortableColumns: Set<String> = ["sample", "name", "hits", "unique", "refs"]
+
     /// The rows the view shows, in its order, after its search, column filters and first sort key. Sort columns
     /// other than `sample`, `name`, `hits`, `unique` and `refs` keep the rows' order.
     public static func shownRows(

@@ -2797,12 +2797,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         )
     }
 
-    /// The one sort key `displayedRows` applies, the first descriptor's key and direction, which the record names in
-    /// the `--sort` spelling of `nao-mgs export table` (manager's answer to Q1 of 12.31 c6).
+    /// The one sort key `displayedRows` applies, the first descriptor's key and direction when the table orders by
+    /// that column, which the record names in the `--sort` spelling of `nao-mgs export table` (manager's answer to
+    /// Q1 of 12.31 c6). A sort on a metadata column orders no row, so it names no key.
     private var exportSortKeys: [ViewerExportSortKey] {
-        taxonomyTableView.sortDescriptors.first.flatMap { descriptor in
-            descriptor.key.map { [ViewerExportSortKey(column: $0, ascending: descriptor.ascending)] }
-        } ?? []
+        guard let descriptor = taxonomyTableView.sortDescriptors.first, let key = descriptor.key,
+              NaoMgsSummaryExport.sortableColumns.contains(key) else { return [] }
+        return [ViewerExportSortKey(column: key, ascending: descriptor.ascending)]
     }
 }
 

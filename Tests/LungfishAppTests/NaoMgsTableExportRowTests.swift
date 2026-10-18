@@ -6,12 +6,14 @@
 // begins an export row with no lock and a cancel callback, records the `nao-mgs export table` command the runner
 // runs, and launches nothing when the row is refused.
 
+import AppKit
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishNaoMgsUI
 import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -31,6 +33,15 @@ final class NaoMgsTableExportRowTests: XCTestCase {
         outputURL: URL(fileURLWithPath: "/tmp/lane 12.31/summary, all.tsv"),
         force: true
     )
+
+    override func setUpWithError() throws {
+        NaoMgsResultViewController.testMetadataUserDefaultsOverride =
+            makeTestDefaultsSuite(prefix: "NaoMgsTableExportRowTests").defaults
+    }
+
+    override func tearDownWithError() throws {
+        NaoMgsResultViewController.testMetadataUserDefaultsOverride = nil
+    }
 
     func testTheRowRecordsTheLeafCommandItRuns() async throws {
         let reporter = RecordingOperationReporter()
@@ -87,6 +98,22 @@ final class NaoMgsTableExportRowTests: XCTestCase {
         let outcome = await begun.task.value
         guard case .failed(let failure) = outcome else { return XCTFail("the leaf failed, \(outcome)") }
         XCTAssertEqual(failures.messages, [failure.message])
+    }
+
+    /// Review 12.31-M4 Fix 1. A sort on a metadata column orders no row, so the invocation names no sort key.
+    func testASortOnAMetadataColumnIsNotNamedInTheInvocation() throws {
+        let root = try TestTempDirectory.make(prefix: "naomgs-export-row")
+        defer { TestTempDirectory.cleanup(root) }
+        try NaoMgsExportCLIGUIParityReplayTests.makeResult(root)
+        let view = try NaoMgsExportCLIGUIParityReplayTests.configuredView(root, .shownRowsWithMetadataColumn)
+        let output = root.appendingPathComponent("rows.tsv")
+        view.testTaxonomyTableView.sortDescriptors = [NSSortDescriptor(key: "metadata_Cohort", ascending: true)]
+        XCTAssertEqual(try XCTUnwrap(view.tableExportInvocation(outputURL: output)).state.sortKeys, [])
+        view.testTaxonomyTableView.sortDescriptors = [NSSortDescriptor(key: "hits", ascending: false)]
+        XCTAssertEqual(
+            try XCTUnwrap(view.tableExportInvocation(outputURL: output)).state.sortKeys,
+            [ViewerExportSortKey(column: "hits", ascending: false)]
+        )
     }
 }
 
