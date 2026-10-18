@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishGenotypeUI
 import LungfishOperations
 import os.log
+import LungfishWorkflow
 
 extension ThemeColor {
     /// Converts a ThemeColor to NSColor for use in AppKit table cells.
