@@ -134,7 +134,7 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
     /// collide (2.8 row 249). A teardown block stops any stand-in process the case left (QA
     /// checklist 2), and a waiting launch gives up after 60 seconds, which bounds a cancel that
     /// never arrives.
-    private func makeStandInEngine(in caseRoot: URL, for parityCase: TaxTriageParityCase) throws -> TaxTriageParityEngine {
+    func makeStandInEngine(in caseRoot: URL, for parityCase: TaxTriageParityCase) throws -> TaxTriageParityEngine {
         let database = caseRoot.appendingPathComponent("kraken2-db", isDirectory: true)
         try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
         let engine = try TaxTriageStandInEngine(
