@@ -19,9 +19,11 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeAIHaplotypingRunFixture {
-    /// A key no provider accepts, unique to this fixture, so a grep for it
-    /// finds only what this run wrote.
-    let throwawayKey = "sk-lane1219-throwaway-\(UUID().uuidString)"
+    /// A key no provider accepts. It is fixed so that X15 of the 2.12 plan can
+    /// grep gate logs, goldens and these runs' records for it, and the tests
+    /// never print it in a failure message.
+    nonisolated static let throwawayKey = "sk-lgeL11-throwaway-qs10-5e0c1d7a"
+    let throwawayKey = GenotypeAIHaplotypingRunFixture.throwawayKey
     let deployment = "lane-12-19-recorded-deployment"
     let root: URL
     let bundleURL: URL
@@ -131,8 +133,10 @@ final class GenotypeAIHaplotypingRunFixture {
         }
     }
 
-    /// The relative path of every file under the fixture root whose bytes hold `needle`.
-    func filesContaining(_ needle: String) throws -> [String] {
+    /// The relative path of every file under `directory`, the fixture root by
+    /// default, whose bytes hold `needle`.
+    func filesContaining(_ needle: String, under directory: URL? = nil) throws -> [String] {
+        let root = directory ?? root
         let needleData = Data(needle.utf8)
         var hits: [String] = []
         let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])

@@ -100,9 +100,33 @@ final class GenotypeAIHaplotypingCommandRecordTests: XCTestCase {
         XCTAssertFalse(fixture.rowTexts().contains { $0.contains(key) }, "the key reached the row or its log")
         XCTAssertEqual(try fixture.filesContaining(key), [], "the key reached a record")
         let request = try XCTUnwrap(fixture.server.requests.first)
-        XCTAssertEqual(request.headerLines.filter { $0.contains(key) }, ["api-key: \(key)"])
+        XCTAssertEqual(request.headerLines.filter { $0.contains(key) }.count, 1)
+        XCTAssertTrue(request.headerLines.contains("api-key: " + key))
         XCTAssertFalse(request.target.contains(key))
         XCTAssertNil(request.body.range(of: Data(key.utf8)))
+    }
+
+    /// Q-S10 (5 to 0). The throwaway key reaches no argument of the recorded
+    /// command or of the record, no row text, View Log line or failure sheet,
+    /// no record the run wrote and no golden.
+    func testThrowawayKeyReachesNoArgvRowLogSheetRecordOrGolden() async throws {
+        let fixture = try await GenotypeAIHaplotypingRunFixture(testCase: self)
+        let published = try await fixture.makeService().run(bundleURL: fixture.bundleURL, mode: .aiDiscovery)
+        let key = fixture.throwawayKey
+
+        let recorded = try RecordedCLICommand.arguments(of: fixture.operationCenter.items.first?.cliCommand)
+        XCTAssertFalse(recorded.isEmpty)
+        XCTAssertFalse(recorded.contains { $0.contains(key) }, "the key reached the recorded command")
+        let recordArgvs = try GenotypeAIHaplotypingRunFixture.argvArrays(inRecordAt: published.provenanceURL)
+        XCTAssertFalse(recordArgvs.joined().contains { $0.contains(key) }, "the key reached the record's argv")
+        XCTAssertFalse(fixture.rowTexts().contains { $0.contains(key) }, "the key reached the row or its log")
+        XCTAssertEqual(try fixture.filesContaining(key), [], "the key reached a record")
+
+        let golden = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/golden", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: golden.path))
+        XCTAssertEqual(try fixture.filesContaining(key, under: golden), [], "the key reached a golden")
     }
 
     func testRefusedProviderRequestShowsNoKeyInTheFailureSheet() async throws {
