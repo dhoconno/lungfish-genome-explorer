@@ -1,6 +1,4 @@
 import Foundation
-import LungfishOperations
-import LungfishWorkflow
 
 package enum AnnotationTableExportScope: String, Codable, Sendable {
     case allMatching
