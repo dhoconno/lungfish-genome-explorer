@@ -46,7 +46,7 @@ Selection > Tree Node is built by `makeTreeNodeMenuItem()` in App/MainMenu+TreeN
 
 ## Operation launch pattern for new code
 
-A standalone operation calls `OperationCenter.shared.begin` with operationType and cliCommand, then runs `lungfish-cli` through `CLISubprocessTransport` and maps events with `OperationCenterCLIBridge` (Services/OperationCenterCLIBridge.swift line 54). The reference pair is Services/MSADistanceMatrixExportCoordinator.swift (`run`) and Services/CLIMSAActionRunner.swift.
+A standalone operation calls `OperationCenter.shared.begin` with operationType and cliCommand, then runs `lungfish-cli` through `CLISubprocessTransport` and maps events with `OperationCenterCLIBridge` (`Sources/LungfishKit/OperationCenterCLIBridge.swift` line 54). The reference pair is Services/MSADistanceMatrixExportCoordinator.swift (`run`) and Services/CLIMSAActionRunner.swift.
 
 The bridge holds the bar, so a lower fraction after a higher one leaves it alone, logs a progress message once when it changes, and takes an optional overlay closure that runs only while the row runs. A runner that fits two phases into one bar clamps the fraction before it hands the event over, as `variantCallingEventHandler` does. The bridge logs plain standard error at info level, so that text never makes a row Completed with Warnings, and `OperationCenterCLIBridgeTests` pins the rule and the label a run ends on. A runner completes the row with paths from the transport's `outputs` only. When the CLI types its outputs, the runner reads each artifact by a role from `CLIEventArtifact.Role` and falls back to the path's place in `outputs` for an older CLI, as Services/CLIPrimerTrimRunner.swift does for `bam primer-trim`.
 

@@ -16,7 +16,7 @@ DispatchQueue.main.async {
 }
 ```
 
-The reference is `OperationCenterCLIBridge.onEvent(operationID:)` in `Sources/LungfishApp/Services/OperationCenterCLIBridge.swift`. Code already running in an `async` context awaits a `@MainActor` function instead, as `OperationCenterCLIBridge.completeOperation` does.
+The reference is `OperationCenterCLIBridge.onEvent(operationID:)` in `Sources/LungfishKit/OperationCenterCLIBridge.swift`. Code already running in an `async` context awaits a `@MainActor` function instead, as `OperationCenterCLIBridge.completeOperation` does.
 
 The project's hard-won runtime notes ban three forms:
 
