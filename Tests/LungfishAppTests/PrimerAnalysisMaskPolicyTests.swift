@@ -28,13 +28,20 @@ final class PrimerAnalysisMaskPolicyTests: XCTestCase {
     /// The differences of two trees that each hold `relative` with the given text, under the primer analysis policy and
     /// under the standard one.
     private func compare(_ relative: String, _ textA: String, _ textB: String) throws -> (primer: [String], standard: [String]) {
+        try compareTrees([relative: textA], [relative: textB])
+    }
+
+    /// The differences of two trees that hold the given files, under the primer analysis policy and the standard one.
+    private func compareTrees(_ filesA: [String: String], _ filesB: [String: String]) throws -> (primer: [String], standard: [String]) {
         pairs += 1
         let a = scratch.appendingPathComponent("\(pairs)/A", isDirectory: true)
         let b = scratch.appendingPathComponent("\(pairs)/B", isDirectory: true)
-        for (root, text) in [(a, textA), (b, textB)] {
-            let file = root.appendingPathComponent(relative)
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: file, atomically: true, encoding: .utf8)
+        for (root, files) in [(a, filesA), (b, filesB)] {
+            for (relative, text) in files {
+                let file = root.appendingPathComponent(relative)
+                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: file, atomically: true, encoding: .utf8)
+            }
         }
         return (
             try OutputEquivalence.differences(a, b, kind: .bundle, masks: .primerAnalysis),
@@ -139,5 +146,68 @@ final class PrimerAnalysisMaskPolicyTests: XCTestCase {
             "execution-provenance/step.json", run("/a/primer3_core", "galah", 11, 1.5, exit: 0),
             run("/b/primer3_core", "other", 22, 2.5, exit: 0), butNot: run("/a/primer3_core", "galah", 11, 1.5, exit: 1)
         )
+    }
+
+    // MARK: - The PrimalScheme3 bundle (lane 12.16 M1 (3))
+
+    func testAnUndashedInputUUIDIsNumberedAsItsDashedFormAndABaseOrAnMD5StillDiffers() throws {
+        func tree(_ id: UUID, base: Character = "T", md5: Character = "a") -> [String: String] {
+            let hex = id.uuidString.replacingOccurrences(of: "-", with: "")
+            return [
+                "inputs/\(id.uuidString).fasta": ">input_\(hex)_row_0\nACG\(base)\n",
+                "native/input_\(hex)_row_0.txt": "input_\(hex)_row_0\t2\t22\t\(String(repeating: md5, count: 32))\n",
+            ]
+        }
+        let one = UUID(), two = UUID()
+        let hidden = try compareTrees(tree(one), tree(two))
+        XCTAssertEqual(hidden.primer, [])
+        XCTAssertFalse(hidden.standard.isEmpty)
+        let base = try compareTrees(tree(one), tree(two, base: "A"))
+        XCTAssertEqual(base.primer.count, 1, "\(base.primer)")
+        XCTAssertTrue(base.primer.first?.hasPrefix("differs: inputs/<UUID-1>.fasta") == true, "\(base.primer)")
+        // A 32-digit value that is no UUID the side numbers, such as an MD5, is compared as written.
+        let md5 = try compareTrees(tree(one), tree(two, md5: "b"))
+        XCTAssertEqual(md5.primer.count, 1, "\(md5.primer)")
+        XCTAssertTrue(md5.primer.first?.hasPrefix("differs: native/input_<UUID-1>_row_0.txt") == true, "\(md5.primer)")
+    }
+
+    func testTheSchemeIDPrimalScheme3DrawsIsHiddenAndAnAmpliconNumberStillDiffers() throws {
+        func bed(_ id: String, amplicon: Int) -> String {
+            "row\t2\t22\t\(id)_\(amplicon)_LEFT_1\t1\t+\nrow\t22\t404\t\(id)_\(amplicon)\t1\n"
+                + #"{"hovertemplate":"%{y:.2f} <br>\#(id)_\#(amplicon)_RIGHT_1"}"# + "\n"
+        }
+        try assertHides("native/primer.bed", bed("5b5fa432", amplicon: 1), bed("c1124487", amplicon: 1), butNot: bed("5b5fa432", amplicon: 2))
+        func config(_ id: String, size: Int) -> String {
+            #"{"amplicon_size":\#(size),"msa_data":{"0":{"msa_uuid":{"type":"string","value":"\#(id)"}}}}"#
+        }
+        try assertHides("native/config.json", config("5b5fa432", size: 400), config("c1124487", size: 400), butNot: config("5b5fa432", size: 420))
+    }
+
+    func testANativeDigestIsHiddenAndANativeOptionStillDiffers() throws {
+        func execution(_ digest: Character, size: Int) -> String {
+            let md5 = String(repeating: digest, count: 32), sha = String(repeating: digest, count: 64)
+            return #"{"nativeConfiguration":{"amplicon.bed.md5":{"type":"string","value":"\#(md5)"},"amplicon_size":\#(size),"#
+                + #""msa_checksum":"\#(md5)"},"sourceInputs":[{"consumedSHA256":{"type":"string","value":"\#(sha)"}}]}"#
+        }
+        try assertHides("logs/execution.json", execution("a", size: 400), execution("b", size: 400), butNot: execution("a", size: 420))
+    }
+
+    func testTheConsoleClockAndProgressAreHiddenAndALoggedCountStillDiffers() throws {
+        func log(_ first: String, _ second: String, amplicons: Int, pairs: Int, rate: String) -> String {
+            "\(first) INFO     Read in MSA: row\n\(second) INFO     Generated \(amplicons) amplicons\n"
+                + "Pairs:   0%|          | 0/\(pairs) [00:00<?, ?it/s]\rPairs:  55%|#####     | 431/\(pairs) [00:00<00:00, \(rate)it/s]"
+                + "\rPairs: 100%|##########| \(pairs)/\(pairs) [00:00<00:00, \(rate)it/s]\n"
+        }
+        let blank = String(repeating: " ", count: 10)
+        try assertHides(
+            "logs/stdout.txt", log("[13:11:20]", blank, amplicons: 3, pairs: 781, rate: "4305.26"),
+            log("[13:12:21]", "[13:12:22]", amplicons: 3, pairs: 781, rate: "4295.93"),
+            butNot: log("[13:11:20]", blank, amplicons: 4, pairs: 781, rate: "4305.26")
+        )
+        func record(_ time: String, exit: Int) -> String {
+            let stderr = "\(time) INFO     Completed\\nPairs: 100%|##########| 781/781 [00:00<00:00, 4305.26it/s]\\n"
+            return #"{"exitStatus":\#(exit),"stderr":"\#(stderr)"}"#
+        }
+        try assertHides("logs/run.json", record("[13:11:20]", exit: 0), record("[13:12:21]", exit: 0), butNot: record("[13:11:20]", exit: 1))
     }
 }
