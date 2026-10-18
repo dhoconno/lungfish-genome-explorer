@@ -161,7 +161,13 @@ extension BuildDbCommand {
         }
         for output in envelope.outputs {
             let outputURL = URL(fileURLWithPath: output.path)
-            let focused = envelope.focusedOnOutput(output)
+            // A BAM or index of `build-db esviritu` keeps the steps of its own lineage and none of the probes and
+            // counts of the other BAMs, which made each of its sidecars as large as the database's. The database's
+            // sidecar keeps today's projection, with every step without outputs and so every read count (ARCH
+            // ruling Q-S2, pre-2.12).
+            let focused = tool == .esViritu && isEsVirituBAMFile(outputURL)
+                ? envelope.focusedOnLineage(of: output)
+                : envelope.focusedOnOutput(output)
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
                isDirectory.boolValue {
@@ -276,11 +282,7 @@ extension BuildDbCommand {
     ) -> [ProvenanceFileDescriptor] {
         var urls = [dbURL]
         if tool == .esViritu {
-            urls.append(contentsOf: buildDbFileURLs(in: resultURL) { url in
-                let name = url.lastPathComponent
-                return url.pathComponents.contains("bams")
-                    && (name.hasSuffix(".bam") || name.hasSuffix(".bam.bai") || name.hasSuffix(".bam.csi"))
-            })
+            urls.append(contentsOf: buildDbFileURLs(in: resultURL, matching: isEsVirituBAMFile))
         }
         let found = uniqueExistingFileURLs(urls).map { url in
             ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: url, role: role(for: url, tool: tool, output: true)))
@@ -290,6 +292,14 @@ extension BuildDbCommand {
             FileManager.default.fileExists(atPath: file.path)
                 && seen.insert(URL(fileURLWithPath: file.path).standardizedFileURL.path).inserted
         }
+    }
+
+    /// Whether `url` is a BAM or BAM index in a `bams/` folder, which `build-db esviritu` moved there and names
+    /// as an output of its run.
+    private static func isEsVirituBAMFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        return url.pathComponents.contains("bams")
+            && (name.hasSuffix(".bam") || name.hasSuffix(".bam.bai") || name.hasSuffix(".bam.csi"))
     }
 
     private static func buildDbSearchRoots(
