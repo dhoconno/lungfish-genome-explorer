@@ -1,7 +1,9 @@
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
+import Synchronization
 
 @MainActor
 final class ProvenanceInspectorViewModelTests: XCTestCase {
@@ -1145,6 +1147,174 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.copyableText.contains("Format: BAM index"), viewModel.copyableText)
     }
 
+    // MARK: - One lookup per item, and a superseded lookup that stops
+
+    /// One open calls `load(item:)` two to four times for the same item. They share one lookup,
+    /// while it runs and after it has finished.
+    @MainActor
+    func testRepeatedLoadOfSameItemRunsOneLookup() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let analysis = try writeChainedProject(in: dir)
+        let lookups = LookupCount()
+        ProvenanceInspectorViewModel.loadThreadingProbe = { lookups.increment() }
+        defer { ProvenanceInspectorViewModel.loadThreadingProbe = nil }
+
+        let viewModel = ProvenanceInspectorViewModel()
+        let item = ProvenanceInspectableItem(
+            url: analysis, sidebarType: .analysisResult, contentMode: .empty, displayName: "minimap2-1"
+        )
+        viewModel.load(item: item)
+        viewModel.load(item: item)
+        viewModel.load(item: item)
+        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        viewModel.load(item: item)
+
+        XCTAssertFalse(viewModel.isLoading, "a finished lookup of the same item does not start again")
+        XCTAssertEqual(lookups.value, 1)
+        XCTAssertEqual(viewModel.lineageRuns.map(\.title), ["lungfish import fastq", "lungfish map"])
+    }
+
+    /// A newer selection cancels the walk of the one it replaced. The replaced lookup reads no
+    /// sidecar for the project index, applies nothing and ends without a word.
+    @MainActor
+    func testSupersededLookupStopsWalking() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let analysis = try writeChainedProject(in: dir)
+        let notes = analysis.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Notes/readme.txt")
+        try FileManager.default.createDirectory(at: notes.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("notes\n".utf8).write(to: notes)
+        let gate = FirstLookupGate()
+        ProvenanceInspectorViewModel.loadFetchGate = { await gate.holdFirst() }
+        defer { ProvenanceInspectorViewModel.loadFetchGate = nil }
+        let events = WalkEventLog()
+        let viewModel = ProvenanceInspectorViewModel(
+            lineageResolver: ProvenanceLineageResolver(observer: { events.record($0) })
+        )
+        var readyCalls = 0
+        viewModel.onLineageReady = { readyCalls += 1 }
+
+        viewModel.load(item: ProvenanceInspectableItem(
+            url: analysis, sidebarType: .analysisResult, contentMode: .empty, displayName: "minimap2-1"
+        ))
+        let superseded = try XCTUnwrap(viewModel.lookupTask)
+        await gate.waitUntilHolding()
+        // Copy and Export stay off while the lineage loads: the pane disables Copy while loading
+        // and Export without a record.
+        XCTAssertTrue(viewModel.isLoading)
+        XCTAssertNil(viewModel.resolvedEnvelope)
+        XCTAssertTrue(viewModel.copyableText.isEmpty)
+        viewModel.load(item: ProvenanceInspectableItem(
+            url: notes, sidebarType: nil, contentMode: .empty, displayName: "readme.txt"
+        ))
+        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        await gate.release()
+        _ = await superseded.value
+
+        XCTAssertEqual(events.indexedSidecars, [], "the replaced walk read no sidecar for the index")
+        XCTAssertEqual(viewModel.currentItem?.url, notes)
+        XCTAssertTrue(viewModel.lineageRuns.isEmpty)
+        XCTAssertNil(viewModel.resolvedEnvelope)
+        XCTAssertEqual(readyCalls, 0, "a replaced lookup ends without a word")
+    }
+
+    /// The Inspector says "Lineage ready" from `onLineageReady`. A lookup that ends with a lineage
+    /// calls it once per opened item. Starting a lookup calls nothing, and loading the same item in
+    /// another content mode, which opens nothing new, does not call it again.
+    @MainActor
+    func testLineageReadyIsCalledOncePerOpenedItem() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let analysis = try writeChainedProject(in: dir)
+        var readyCalls = 0
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.onLineageReady = { readyCalls += 1 }
+        let item = ProvenanceInspectableItem(
+            url: analysis, sidebarType: .analysisResult, contentMode: .empty, displayName: "minimap2-1"
+        )
+
+        viewModel.load(item: item)
+        XCTAssertEqual(readyCalls, 0, "starting a lookup announces nothing")
+        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        XCTAssertEqual(readyCalls, 1)
+
+        var sameOpen = item
+        sameOpen.contentMode = .metagenomics
+        viewModel.load(item: sameOpen)
+        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        XCTAssertEqual(readyCalls, 1)
+        XCTAssertEqual(viewModel.lineageRuns.map(\.title), ["lungfish import fastq", "lungfish map"])
+    }
+
+    /// Once the watcher reports a sidecar change, a load of the item already shown looks it up
+    /// again, so the pane never keeps a record that changed on disk.
+    @MainActor
+    func testLoadAfterASidecarChangeLooksUpAgain() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let analysis = try writeChainedProject(in: dir)
+        let lookups = LookupCount()
+        ProvenanceInspectorViewModel.loadThreadingProbe = { lookups.increment() }
+        defer { ProvenanceInspectorViewModel.loadThreadingProbe = nil }
+        let index = ProvenanceSidecarIndex()
+        let viewModel = ProvenanceInspectorViewModel(lineageResolver: ProvenanceLineageResolver(sidecarIndex: index))
+        let item = ProvenanceInspectableItem(
+            url: analysis, sidebarType: .analysisResult, contentMode: .empty, displayName: "minimap2-1"
+        )
+
+        viewModel.load(item: item)
+        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        index.invalidate([analysis.appendingPathComponent(".lungfish-provenance.json")])
+        viewModel.load(item: item)
+        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+
+        XCTAssertEqual(lookups.value, 2)
+        XCTAssertEqual(viewModel.lineageRuns.map(\.title), ["lungfish import fastq", "lungfish map"])
+    }
+
+    /// A project whose map record read reads that are gone, so only the checksum index finds the
+    /// import that made them. Returns the analysis folder holding the map record.
+    private func writeChainedProject(in dir: URL) throws -> URL {
+        let project = dir.appendingPathComponent("Chained.lungfish", isDirectory: true)
+        let imports = project.appendingPathComponent("Imports/reads.lungfishfastq", isDirectory: true)
+        let analysis = project.appendingPathComponent("Analyses/minimap2-1", isDirectory: true)
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: analysis, withIntermediateDirectories: true)
+        let reads = imports.appendingPathComponent("reads.fastq.gz")
+        let bam = analysis.appendingPathComponent("reads.sorted.bam")
+        try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: reads)
+        try Data("bam".utf8).write(to: bam)
+        let readsOut = try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .output)
+        let readsIn = try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .input)
+        let bamOut = try ProvenanceFileDescriptor.file(url: bam, format: .bam, role: .output)
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "lungfish import fastq", toolName: "clumpify.sh", toolVersion: "40.02",
+                argv: ["clumpify.sh", "in=raw.fastq.gz", "out=\(reads.path)"],
+                runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+                files: [readsOut], output: readsOut, outputs: [readsOut],
+                steps: [ProvenanceStep(toolName: "clumpify.sh", toolVersion: "40.02", argv: ["clumpify.sh"], outputs: [readsOut], exitStatus: 0, wallTimeSeconds: 1)],
+                wallTimeSeconds: 1, exitStatus: 0, stderr: ""
+            ),
+            to: imports
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "lungfish map", toolName: "minimap2", toolVersion: "2.31",
+                argv: ["minimap2", "-a", reads.path],
+                runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+                files: [readsIn, bamOut], output: bamOut, outputs: [bamOut],
+                steps: [ProvenanceStep(toolName: "minimap2", toolVersion: "2.31", argv: ["minimap2", "-a", reads.path], inputs: [readsIn], outputs: [bamOut], exitStatus: 0, wallTimeSeconds: 2)],
+                wallTimeSeconds: 2, exitStatus: 0, stderr: ""
+            ),
+            to: analysis
+        )
+        try FileManager.default.removeItem(at: reads)
+        return analysis
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("provenance-inspector-\(UUID().uuidString)", isDirectory: true)
@@ -1168,5 +1338,59 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
             await Task.yield()
             try await Task.sleep(nanoseconds: 5_000_000)
         }
+    }
+}
+
+/// How many lookups reached `performLookup`, counted by the threading probe.
+private final class LookupCount: Sendable {
+    private let count = Mutex(0)
+
+    func increment() {
+        count.withLock { $0 += 1 }
+    }
+
+    var value: Int {
+        count.withLock { $0 }
+    }
+}
+
+/// The sidecars the lineage walks of one view model read for the project index.
+private final class WalkEventLog: Sendable {
+    private let urls = Mutex<[URL]>([])
+
+    func record(_ event: ProvenanceLineageResolver.Event) {
+        guard case .indexedSidecar(let url) = event else { return }
+        urls.withLock { $0.append(url) }
+    }
+
+    var indexedSidecars: [URL] {
+        urls.withLock { $0 }
+    }
+}
+
+/// Holds the first lookup at `loadFetchGate` until released and lets every later one through.
+private actor FirstLookupGate {
+    private var holding = false
+    private var held: CheckedContinuation<Void, Never>?
+    private var holdingWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func holdFirst() async {
+        guard !holding else { return }
+        holding = true
+        for waiter in holdingWaiters {
+            waiter.resume()
+        }
+        holdingWaiters.removeAll()
+        await withCheckedContinuation { held = $0 }
+    }
+
+    func waitUntilHolding() async {
+        if holding { return }
+        await withCheckedContinuation { holdingWaiters.append($0) }
+    }
+
+    func release() {
+        held?.resume()
+        held = nil
     }
 }

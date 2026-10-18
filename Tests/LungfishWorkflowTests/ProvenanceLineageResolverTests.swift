@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import Synchronization
 import XCTest
 @testable import LungfishWorkflow
 
@@ -187,5 +188,115 @@ final class ProvenanceLineageResolverTests: XCTestCase {
         XCTAssertNil(identity.user, "user")
         XCTAssertNil(identity.dependencySet, "dependencySet")
         XCTAssertNil(identity.managedToolLockSHA256, "managedToolLockSHA256")
+    }
+
+    // MARK: - One index per project, and a walk that stops
+
+    /// Two walks of one project share its sidecar index, so each sidecar is read for its checksums
+    /// once while it is unchanged, however many walks fall back to the index.
+    func testSidecarIndexReadsEachSidecarOncePerProject() throws {
+        let sidecar = try writeChain(createBAM: false)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let events = LineageEventLog()
+
+        let first = ProvenanceLineageResolver(observer: { events.record($0) })
+            .resolve(envelope: envelope, sidecarURL: sidecar)
+        let second = ProvenanceLineageResolver(observer: { events.record($0) })
+            .resolve(envelope: envelope, sidecarURL: sidecar)
+
+        let chain = ["lungfish import fastq", "lungfish map", "lungfish variants call"]
+        XCTAssertEqual(first.map(\.envelope.workflowName), chain)
+        XCTAssertEqual(second.map(\.envelope.workflowName), chain)
+        XCTAssertEqual(events.indexedSidecars.count, 3, "\(events.indexedSidecars.map(\.path))")
+        XCTAssertEqual(Set(events.indexedSidecars.map(\.path)).count, 3)
+        XCTAssertEqual(events.walkEnds, [false, false])
+    }
+
+    /// A caller that cancels while the index is being read stops the walk before its next sidecar
+    /// read. The walk returns what it gathered and visits nothing upstream.
+    func testCancelledWalkStopsReadingSidecars() throws {
+        let sidecar = try writeChain(createBAM: false)
+        for number in 1...3 {
+            try writeLegacy(
+                run("lungfish other \(number)", tool: "other", inputs: [],
+                    outputs: [record("\(foreign)/Analyses/other-\(number).txt", String(repeating: "\(number)", count: 64), .output)]),
+                to: "Analyses/other-\(number).lungfish-provenance.json"
+            )
+        }
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let events = LineageEventLog()
+
+        let runs = ProvenanceLineageResolver(observer: { events.record($0) }).resolve(
+            envelope: envelope,
+            sidecarURL: sidecar,
+            isCancelled: { !events.indexedSidecars.isEmpty }
+        )
+
+        XCTAssertEqual(events.indexedSidecars.count, 1, "\(events.indexedSidecars.map(\.path))")
+        XCTAssertEqual(events.walkEnds, [true])
+        XCTAssertEqual(runs.map(\.envelope.workflowName), ["lungfish variants call"])
+    }
+
+    /// The watcher's report of a changed sidecar, or of the folder holding it, drops that entry,
+    /// and a sidecar rewritten in place reads as changed by its size and date alone. Either way
+    /// the next walk reads that sidecar again and no other.
+    func testChangedSidecarIsReadAgainByTheNextWalk() throws {
+        let sidecar = try writeChain(createBAM: false)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let index = ProvenanceSidecarIndex()
+        let events = LineageEventLog()
+        let resolver = ProvenanceLineageResolver(sidecarIndex: index, observer: { events.record($0) })
+        let chain = ["lungfish import fastq", "lungfish map", "lungfish variants call"]
+        let mapSidecar = project.appendingPathComponent("Analyses/minimap2-1/.lungfish-provenance.json").standardizedFileURL
+        XCTAssertEqual(resolver.resolve(envelope: envelope, sidecarURL: sidecar).map(\.envelope.workflowName), chain)
+        XCTAssertEqual(events.indexedSidecars.count, 3)
+
+        let changesBefore = index.changeCount
+        index.invalidate([mapSidecar])
+        XCTAssertEqual(index.changeCount, changesBefore + 1)
+        XCTAssertEqual(resolver.resolve(envelope: envelope, sidecarURL: sidecar).map(\.envelope.workflowName), chain)
+        XCTAssertEqual(events.indexedSidecars.dropFirst(3).map(\.path), [mapSidecar.path])
+
+        // A volume that reports folders only names the folder that changed.
+        index.invalidate([mapSidecar.deletingLastPathComponent()])
+        XCTAssertEqual(resolver.resolve(envelope: envelope, sidecarURL: sidecar).map(\.envelope.workflowName), chain)
+        XCTAssertEqual(events.indexedSidecars.dropFirst(4).map(\.path), [mapSidecar.path])
+
+        let importSidecar = try writeLegacy(
+            run("lungfish import fastq again", tool: "clumpify.sh",
+                inputs: [record("/elsewhere/inputs/raw.fastq.gz", String(repeating: "9", count: 64), .input)],
+                outputs: [record("\(foreign)/Imports/reads.lungfishfastq/reads.fastq.gz", readsSHA, .output)]),
+            to: "Imports/reads.lungfishfastq/.lungfish-provenance.json"
+        )
+        let runs = resolver.resolve(envelope: envelope, sidecarURL: sidecar)
+        XCTAssertEqual(runs.first?.envelope.workflowName, "lungfish import fastq again")
+        XCTAssertEqual(events.indexedSidecars.dropFirst(5).map(\.path), [importSidecar.standardizedFileURL.path])
+    }
+}
+
+/// The events of the walks a test runs, in order. The resolver reports them from the walking thread.
+private final class LineageEventLog: Sendable {
+    private let events = Mutex<[ProvenanceLineageResolver.Event]>([])
+
+    func record(_ event: ProvenanceLineageResolver.Event) {
+        events.withLock { $0.append(event) }
+    }
+
+    var indexedSidecars: [URL] {
+        events.withLock { events in
+            events.compactMap { event in
+                if case .indexedSidecar(let url) = event { return url }
+                return nil
+            }
+        }
+    }
+
+    var walkEnds: [Bool] {
+        events.withLock { events in
+            events.compactMap { event in
+                if case .walkEnded(let cancelled) = event { return cancelled }
+                return nil
+            }
+        }
     }
 }

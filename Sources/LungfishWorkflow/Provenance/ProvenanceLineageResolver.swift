@@ -11,7 +11,9 @@
 // index of every sidecar in the enclosing project when the recorded path
 // resolves nothing. Cycles, duplicate records (the three copies of a
 // mapping record) and unreadable sidecars are all survived: what is known
-// is shown and nothing crashes.
+// is shown and nothing crashes. Every walk of a project shares one index
+// (`ProvenanceSidecarIndex`), and a caller that cancels stops the walk at
+// its next record, index entry or sidecar read.
 
 import Foundation
 import LungfishCore
@@ -27,29 +29,53 @@ public struct ProvenanceLineageResolver: Sendable {
         public let supportingURLs: [URL]
     }
 
+    /// What a walk did, reported as it happens.
+    public enum Event: Sendable, Equatable {
+        /// The project index read this sidecar for the checksums of what it produced.
+        case indexedSidecar(URL)
+        /// The walk ended, early when its caller cancelled it.
+        case walkEnded(cancelled: Bool)
+    }
+
+    /// The index of project sidecars a walk falls back to. Every walk shares one by default.
+    public let sidecarIndex: ProvenanceSidecarIndex
     /// The most records one chain is allowed to gather.
     private let maximumRuns: Int
     /// The most files the project index reads before giving up on checksums.
     private let maximumIndexedFiles: Int
+    private let observer: (@Sendable (Event) -> Void)?
 
-    public init(maximumRuns: Int = 64, maximumIndexedFiles: Int = 4_000) {
+    public init(
+        maximumRuns: Int = 64,
+        maximumIndexedFiles: Int = 4_000,
+        sidecarIndex: ProvenanceSidecarIndex = .shared,
+        observer: (@Sendable (Event) -> Void)? = nil
+    ) {
         self.maximumRuns = maximumRuns
         self.maximumIndexedFiles = maximumIndexedFiles
+        self.sidecarIndex = sidecarIndex
+        self.observer = observer
     }
 
     /// The records that fed `envelope`, upstream first, ending with
     /// `envelope` itself. `sourceRootURL` is the file or folder the caller
     /// selected, whose mapping record may name a source reference bundle.
+    /// The walk checks `isCancelled` before each record it visits, each file
+    /// the project index enumerates and each sidecar it reads. A cancelled
+    /// walk returns what it gathered by then.
     public func resolve(
         envelope: ProvenanceEnvelope,
         sidecarURL: URL?,
-        sourceRootURL: URL? = nil
+        sourceRootURL: URL? = nil,
+        isCancelled: @escaping () -> Bool = { Task.isCancelled }
     ) -> [ResolvedRun] {
         var walker = Walker(
             resolver: self,
-            projectURL: PortablePath.anchors(for: sidecarURL ?? sourceRootURL ?? URL(fileURLWithPath: "/")).project
+            projectURL: PortablePath.anchors(for: sidecarURL ?? sourceRootURL ?? URL(fileURLWithPath: "/")).project,
+            isCancelled: isCancelled
         )
         walker.visit(envelope: envelope, sidecarURL: sidecarURL, sourceRootURL: sourceRootURL)
+        observer?(.walkEnded(cancelled: walker.wasCancelled))
         return walker.ordered
     }
 
@@ -58,15 +84,28 @@ public struct ProvenanceLineageResolver: Sendable {
     private struct Walker {
         let resolver: ProvenanceLineageResolver
         let projectURL: URL?
+        let isCancelled: () -> Bool
         var ordered: [ResolvedRun] = []
+        /// Whether a check found the caller had cancelled. Every later step returns at once.
+        private(set) var wasCancelled = false
         private var visitedKeys = Set<String>()
         private var visitedSignatures = Set<String>()
         private var visitedReferenceBundles = Set<String>()
-        private var index: ProjectSidecarIndex?
+        /// The project index as this walk sees it, fetched on first need.
+        private var index: ProvenanceSidecarIndex.Snapshot?
 
-        init(resolver: ProvenanceLineageResolver, projectURL: URL?) {
+        init(resolver: ProvenanceLineageResolver, projectURL: URL?, isCancelled: @escaping () -> Bool) {
             self.resolver = resolver
             self.projectURL = projectURL
+            self.isCancelled = isCancelled
+        }
+
+        /// Asks the caller once more whether to stop, and remembers a yes.
+        private mutating func stopped() -> Bool {
+            if !wasCancelled, isCancelled() {
+                wasCancelled = true
+            }
+            return wasCancelled
         }
 
         mutating func visit(
@@ -75,7 +114,7 @@ public struct ProvenanceLineageResolver: Sendable {
             sourceRootURL: URL? = nil,
             syntheticKey: String? = nil
         ) {
-            guard ordered.count < resolver.maximumRuns else { return }
+            guard !stopped(), ordered.count < resolver.maximumRuns else { return }
             let key = syntheticKey
                 ?? sidecarURL?.standardizedFileURL.path
                 ?? "envelope:\(current.id.uuidString)"
@@ -83,14 +122,15 @@ public struct ProvenanceLineageResolver: Sendable {
             guard !visitedKeys.contains(key), !visitedKeys.contains(idKey) else { return }
             visitedKeys.insert(key)
             visitedKeys.insert(idKey)
-            let signature = Self.signature(of: current)
+            let signature = ProvenanceLineageResolver.signature(of: current)
             guard visitedSignatures.insert(signature).inserted else { return }
 
             var supporting: [URL] = []
             for dependency in Self.dependencyDescriptors(of: current) {
+                guard !stopped() else { break }
                 visitDependency(dependency, from: current, supporting: &supporting)
             }
-            if let sourceRootURL, Self.isDirectory(sourceRootURL),
+            if !stopped(), let sourceRootURL, Self.isDirectory(sourceRootURL),
                let mappingProvenance = MappingProvenance.load(from: sourceRootURL),
                let sourceReferenceBundlePath = mappingProvenance.sourceReferenceBundlePath {
                 visitReferenceBundle(URL(fileURLWithPath: sourceReferenceBundlePath), from: current, supporting: &supporting)
@@ -110,6 +150,7 @@ public struct ProvenanceLineageResolver: Sendable {
                 let candidate = URL(fileURLWithPath: descriptor.path).standardizedFileURL
                 if FileManager.default.fileExists(atPath: candidate.path) {
                     url = candidate
+                    guard !stopped() else { return }
                     if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: candidate),
                        resolved.envelope.id != current.id,
                        Self.produces(resolved.envelope, path: candidate.path, checksum: descriptor.checksumSHA256) {
@@ -119,26 +160,17 @@ public struct ProvenanceLineageResolver: Sendable {
                 }
             }
             // By checksum, against every sidecar in the project.
-            if let checksum = descriptor.checksumSHA256, !checksum.isEmpty, let projectURL {
-                if index == nil {
-                    index = ProjectSidecarIndex(projectURL: projectURL, maximumFiles: resolver.maximumIndexedFiles)
-                }
-                // A producer ran before its consumer: a later run that
-                // decompressed the same reference holds the same bytes but
-                // is not where this record got them.
-                let matches = (index?.producers(ofChecksum: checksum) ?? []).filter {
-                    $0.envelope.id != current.id && $0.envelope.createdAt <= current.createdAt
-                }
-                if !matches.isEmpty {
-                    for match in matches {
-                        visit(envelope: match.envelope, sidecarURL: match.sidecarURL)
-                    }
-                    return
-                }
+            // A producer ran before its consumer: a later run that
+            // decompressed the same reference holds the same bytes but
+            // is not where this record got them.
+            if let checksum = descriptor.checksumSHA256, !checksum.isEmpty,
+               let producers = producers(ofChecksum: checksum),
+               visitProducers(producers.filter { $0.recordID != current.id && $0.createdAt <= current.createdAt }) {
+                return
             }
             // A file inside a reference bundle with no record of its own:
             // the bundle's manifest says where the reference came from.
-            if let url, let referenceBundleURL = Self.enclosingReferenceBundleURL(for: url) {
+            if !stopped(), let url, let referenceBundleURL = Self.enclosingReferenceBundleURL(for: url) {
                 visitReferenceBundle(referenceBundleURL, from: current, supporting: &supporting)
             }
         }
@@ -156,6 +188,7 @@ public struct ProvenanceLineageResolver: Sendable {
             }
             // A record found for the bundle folder must be the record of the
             // bundle itself (its manifest or genome), not of a track inside it.
+            guard !stopped() else { return }
             if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: standardized),
                Self.produces(resolved.envelope, path: manifestURL.path, checksum: nil)
                 || Self.producesDescendant(resolved.envelope, of: standardized.appendingPathComponent("genome")) {
@@ -165,27 +198,54 @@ public struct ProvenanceLineageResolver: Sendable {
             // A copy of a reference inside an analysis has no record of its
             // own, but the import that made the original does: find it by
             // the genome's checksum before inventing a download step.
-            if let projectURL,
+            if projectURL != nil, !stopped(),
                let manifest = try? BundleManifest.load(from: standardized),
                let genomePath = manifest.genome?.path,
+               !stopped(),
                let genome = try? ProvenanceFileDescriptor.file(
                    url: standardized.appendingPathComponent(genomePath), format: .fasta, role: .reference
                ),
-               let checksum = genome.checksumSHA256 {
-                if index == nil {
-                    index = ProjectSidecarIndex(projectURL: projectURL, maximumFiles: resolver.maximumIndexedFiles)
-                }
-                let matches = (index?.producers(ofChecksum: checksum) ?? []).filter { $0.envelope.createdAt <= current.createdAt }
-                if !matches.isEmpty {
-                    for match in matches {
-                        visit(envelope: match.envelope, sidecarURL: match.sidecarURL)
-                    }
-                    return
-                }
+               let checksum = genome.checksumSHA256,
+               let producers = producers(ofChecksum: checksum),
+               visitProducers(producers.filter { $0.createdAt <= current.createdAt }) {
+                return
             }
+            guard !stopped() else { return }
             if let synthesized = Self.synthesizedReferenceProvenanceEnvelope(for: standardized) {
                 visit(envelope: synthesized, sidecarURL: nil, syntheticKey: "reference:\(standardized.path)")
             }
+        }
+
+        /// The producers of `checksum` in the project, from the shared index. Nil without a
+        /// project, or when the walk stopped before or while the index was read.
+        private mutating func producers(ofChecksum checksum: String) -> [ProvenanceSidecarIndex.Producer]? {
+            guard let projectURL, !stopped() else { return nil }
+            if index == nil {
+                index = resolver.sidecarIndex.snapshot(
+                    projectURL: projectURL,
+                    maximumFiles: resolver.maximumIndexedFiles,
+                    isCancelled: isCancelled,
+                    observer: resolver.observer
+                )
+                guard index != nil else {
+                    wasCancelled = true
+                    return nil
+                }
+            }
+            return index?.producers(ofChecksum: checksum)
+        }
+
+        /// Reads each producer in full and visits it, canonical sidecars first. True when one was
+        /// read, or when the walk stopped, so the caller looks no further.
+        private mutating func visitProducers(_ producers: [ProvenanceSidecarIndex.Producer]) -> Bool {
+            var visitedOne = false
+            for producer in producers {
+                guard !stopped() else { return true }
+                guard let envelope = ProvenanceSidecarIndex.readRecord(at: producer.sidecarURL) else { continue }
+                visitedOne = true
+                visit(envelope: envelope, sidecarURL: producer.sidecarURL)
+            }
+            return visitedOne
         }
 
         // MARK: Helpers
@@ -203,7 +263,7 @@ public struct ProvenanceLineageResolver: Sendable {
         /// file (or its checksum) among its outputs; a parent folder's
         /// unrelated record is not lineage.
         static func produces(_ envelope: ProvenanceEnvelope, path: String, checksum: String?) -> Bool {
-            allOutputs(of: envelope).contains { output in
+            ProvenanceLineageResolver.allOutputs(of: envelope).contains { output in
                 URL(fileURLWithPath: output.path).standardizedFileURL.path == path
                     || (checksum != nil && output.checksumSHA256 == checksum)
             }
@@ -211,28 +271,9 @@ public struct ProvenanceLineageResolver: Sendable {
 
         static func producesDescendant(_ envelope: ProvenanceEnvelope, of directory: URL) -> Bool {
             let prefix = directory.standardizedFileURL.path + "/"
-            return allOutputs(of: envelope).contains {
+            return ProvenanceLineageResolver.allOutputs(of: envelope).contains {
                 URL(fileURLWithPath: $0.path).standardizedFileURL.path.hasPrefix(prefix)
             }
-        }
-
-        static func allOutputs(of envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
-            envelope.outputs + (envelope.output.map { [$0] } ?? [])
-                + envelope.steps.flatMap(\.outputs) + envelope.files.filter { $0.role == .output }
-        }
-
-        /// Two records of one run (a mapping record and its copies) share
-        /// their steps' tools, commands and outputs.
-        static func signature(of envelope: ProvenanceEnvelope) -> String {
-            let steps = envelope.steps.map { step in
-                step.toolName + "\u{1}" + step.argv.joined(separator: "\u{2}") + "\u{1}"
-                    + step.outputs.map { $0.checksumSHA256 ?? $0.path }.joined(separator: "\u{2}")
-            }
-            if steps.isEmpty {
-                return envelope.workflowName + "\u{1}" + envelope.argv.joined(separator: "\u{2}") + "\u{1}"
-                    + envelope.outputs.map { $0.checksumSHA256 ?? $0.path }.joined(separator: "\u{2}")
-            }
-            return envelope.workflowName + "\u{1}" + steps.joined(separator: "\u{3}")
         }
 
         static func isDirectory(_ url: URL) -> Bool {
@@ -329,108 +370,39 @@ public struct ProvenanceLineageResolver: Sendable {
             )
         }
     }
+}
 
-    // MARK: - Project index
+// MARK: - Run identity, shared with the sidecar index
 
-    /// Every readable provenance sidecar under a project, keyed by the
-    /// checksums of the files it produced. Built once per resolution, only
-    /// when a recorded path resolves nothing.
-    private struct ProjectSidecarIndex {
-        struct Entry {
-            let sidecarURL: URL
-            let envelope: ProvenanceEnvelope
+extension ProvenanceLineageResolver {
+    static func allOutputs(of envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
+        envelope.outputs + (envelope.output.map { [$0] } ?? [])
+            + envelope.steps.flatMap(\.outputs) + envelope.files.filter { $0.role == .output }
+    }
+
+    /// Two records of one run (a mapping record and its copies) share
+    /// their steps' tools, commands and outputs.
+    static func signature(of envelope: ProvenanceEnvelope) -> String {
+        let steps = envelope.steps.map { step in
+            stepSignature(
+                toolName: step.toolName,
+                argv: step.argv,
+                outputs: step.outputs.map { $0.checksumSHA256 ?? $0.path }
+            )
         }
-
-        private var byChecksum: [String: [Entry]] = [:]
-
-        init(projectURL: URL, maximumFiles: Int) {
-            let fileManager = FileManager.default
-            // Bundles (`.lungfishref`, `.lungfishfastq`) are document packages
-            // in the app's process, so the enumerator must not skip package
-            // descendants: their sidecars are the records being indexed.
-            guard let enumerator = fileManager.enumerator(
-                at: projectURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
-                options: []
-            ) else { return }
-            var candidates: [URL] = []
-            var visited = 0
-            for case let url as URL in enumerator {
-                visited += 1
-                if visited > maximumFiles { break }
-                let name = url.lastPathComponent
-                if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-                    if name == ".tmp" || name == ".build" || name == "node_modules" {
-                        enumerator.skipDescendants()
-                    }
-                    continue
-                }
-                if Self.isSidecarName(name) {
-                    candidates.append(url.standardizedFileURL)
-                }
-            }
-            // Canonical sidecars first so a mapping record's copies never
-            // shadow the record they were copied from.
-            candidates.sort { lhs, rhs in
-                let l = Self.rank(lhs), r = Self.rank(rhs)
-                return l == r ? lhs.path < rhs.path : l < r
-            }
-            var seenIDs = Set<UUID>()
-            var seenSignatures = Set<String>()
-            for sidecarURL in candidates {
-                guard let envelope = Self.load(sidecarURL) else { continue }
-                guard seenIDs.insert(envelope.id).inserted,
-                      seenSignatures.insert(Walker.signature(of: envelope)).inserted else { continue }
-                let entry = Entry(sidecarURL: sidecarURL, envelope: envelope)
-                // A step that writes a byte copy of its own input (a staging
-                // symlink, an adopted BAM) did not make those bytes; the step
-                // that did is the producer. A later step in the same record
-                // reading the file (samtools faidx after bgzip) does not
-                // disqualify the record, so the rule is per step.
-                var checksums = Set<String>()
-                func index(_ outputs: [ProvenanceFileDescriptor], inputs: [ProvenanceFileDescriptor]) {
-                    let inputChecksums = Set(inputs.compactMap(\.checksumSHA256))
-                    for output in outputs {
-                        guard let checksum = output.checksumSHA256, !checksum.isEmpty,
-                              !inputChecksums.contains(checksum), checksums.insert(checksum).inserted else { continue }
-                        byChecksum[checksum, default: []].append(entry)
-                    }
-                }
-                if envelope.steps.isEmpty {
-                    index(Walker.allOutputs(of: envelope), inputs: envelope.files.filter { $0.role != .output })
-                } else {
-                    for step in envelope.steps {
-                        index(step.outputs, inputs: step.inputs)
-                    }
-                }
-            }
+        if steps.isEmpty {
+            return envelope.workflowName + "\u{1}" + envelope.argv.joined(separator: "\u{2}") + "\u{1}"
+                + envelope.outputs.map { $0.checksumSHA256 ?? $0.path }.joined(separator: "\u{2}")
         }
+        return runSignature(workflowName: envelope.workflowName, steps: steps)
+    }
 
-        func producers(ofChecksum checksum: String) -> [Entry] {
-            byChecksum[checksum] ?? []
-        }
+    /// One step of a signature. `outputs` holds each output's checksum, or its path without one.
+    static func stepSignature(toolName: String, argv: [String], outputs: [String]) -> String {
+        toolName + "\u{1}" + argv.joined(separator: "\u{2}") + "\u{1}" + outputs.joined(separator: "\u{2}")
+    }
 
-        private static func isSidecarName(_ name: String) -> Bool {
-            name == ProvenanceRecorder.provenanceFilename
-                || name == MappingProvenance.filename
-                || name.hasSuffix(".lungfish-provenance.json")
-                || name.hasSuffix("-provenance.json")
-        }
-
-        private static func rank(_ url: URL) -> Int {
-            let name = url.lastPathComponent
-            if name == ProvenanceRecorder.provenanceFilename { return 0 }
-            if name.hasSuffix(".lungfish-provenance.json") { return 1 }
-            if name == MappingProvenance.filename { return 3 }
-            return 2
-        }
-
-        private static func load(_ url: URL) -> ProvenanceEnvelope? {
-            if url.lastPathComponent == MappingProvenance.filename {
-                let directory = url.deletingLastPathComponent()
-                return MappingProvenance.load(from: directory)?.recordedEnvelope(sourceDirectory: directory)
-            }
-            return ProvenanceRecorder.loadEnvelope(fromSidecar: url)
-        }
+    static func runSignature(workflowName: String, steps: [String]) -> String {
+        workflowName + "\u{1}" + steps.joined(separator: "\u{3}")
     }
 }

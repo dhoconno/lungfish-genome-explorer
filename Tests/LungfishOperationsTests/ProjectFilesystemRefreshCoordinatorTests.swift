@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishOperations
+import LungfishWorkflow
 
 @MainActor
 final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
@@ -54,6 +55,27 @@ final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
 
         ProjectFilesystemRefreshCoordinator.shared.unregister(secondID)
         XCTAssertEqual(ProjectFilesystemRefreshCoordinator.shared.testingWatcherCount(for: projectURL), 0)
+    }
+
+    /// Every change the watcher delivers reaches the lineage index before any handler, so a
+    /// provenance lookup made before the change no longer stands.
+    func testDeliveredChangeInvalidatesTheLineageIndex() throws {
+        let projectURL = tempRoot.appendingPathComponent("Lineage.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        var changesSeenByHandler: Int?
+        _ = ProjectFilesystemRefreshCoordinator.shared.register(projectURL: projectURL) { _ in
+            changesSeenByHandler = ProvenanceSidecarIndex.shared.changeCount
+        }
+        let sidecar = projectURL.appendingPathComponent("Analyses/run/.lungfish-provenance.json")
+        let before = ProvenanceSidecarIndex.shared.changeCount
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(
+            projectURL: projectURL,
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [sidecar], all: [sidecar])
+        )
+
+        XCTAssertEqual(ProvenanceSidecarIndex.shared.changeCount, before + 1)
+        XCTAssertEqual(changesSeenByHandler, before + 1, "the index moved before the handler ran")
     }
 
     func testRootChangedStopsDeadWatcherButRetainsSubscriptionIntentForRecovery() throws {

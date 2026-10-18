@@ -10,25 +10,6 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
-struct ProvenanceInspectableItem {
-    var url: URL?
-    var sidebarType: SidebarItemType?
-    var contentMode: ViewportContentMode
-    var displayName: String?
-
-    init(
-        url: URL?,
-        sidebarType: SidebarItemType?,
-        contentMode: ViewportContentMode,
-        displayName: String?
-    ) {
-        self.url = url
-        self.sidebarType = sidebarType
-        self.contentMode = contentMode
-        self.displayName = displayName
-    }
-}
-
 enum ProvenanceRequirement: Equatable {
     case notRequired
     case required(String)
@@ -430,15 +411,28 @@ final class ProvenanceInspectorViewModel {
 
     private let monitor: ProvenanceCoverageMonitor
 
-    /// Bumped on every `load(item:)`/`clear()` call. Captured synchronously by `load(item:)`
-    /// before the background lookup starts; the detached lookup's result is only applied to
-    /// `@Published`-style state if this generation still matches when it completes, so a
-    /// superseded lookup from rapid sidebar navigation cannot overwrite a newer selection's
-    /// result. Idiom: `SequenceViewerView.fastaOperationFetchGeneration`.
+    /// Bumped on every `load(item:)`/`clear()` call. A lookup's result is applied only if the
+    /// generation it captured still matches, so a superseded lookup never overwrites a newer
+    /// selection. Idiom: `SequenceViewerView.fastaOperationFetchGeneration`.
     private var loadGeneration: Int = 0
+    private let lineageResolver: ProvenanceLineageResolver
+    /// The lookup of `currentItem`, running or finished, with the sidecar index's change count when
+    /// it started. A newer load or a clear cancels its detached task, which inherits no cancellation.
+    @ObservationIgnored private var lookup: (item: ProvenanceInspectableItem, sidecarChanges: Int, task: Task<LookupOutcome?, Never>)?
+    /// The detached task of the current lookup. Tests await it to see a cancelled walk end.
+    var lookupTask: Task<LookupOutcome?, Never>? { lookup?.task }
+    /// Called once when a lookup ends with a record and its lineage, never for a superseded one.
+    /// The Inspector says "Lineage ready" to VoiceOver from it while the Provenance tab shows.
+    @ObservationIgnored var onLineageReady: (() -> Void)?
+    /// The item the last ready call was for, so one open of an item makes one call.
+    @ObservationIgnored private var lineageReadyPath: String?
 
-    init(monitor: ProvenanceCoverageMonitor = ProvenanceCoverageMonitor()) {
+    init(
+        monitor: ProvenanceCoverageMonitor = ProvenanceCoverageMonitor(),
+        lineageResolver: ProvenanceLineageResolver = ProvenanceLineageResolver()
+    ) {
         self.monitor = monitor
+        self.lineageResolver = lineageResolver
     }
 
     var shouldShowTab: Bool {
@@ -447,6 +441,8 @@ final class ProvenanceInspectorViewModel {
 
     func clear() {
         loadGeneration += 1
+        lookup?.task.cancel()
+        lookup = nil
         isLoading = false
         currentItem = nil
         sources = []
@@ -466,61 +462,66 @@ final class ProvenanceInspectorViewModel {
         searchText = ""
     }
 
-    /// Updates the inspected item and asynchronously resolves its provenance state.
+    /// Updates the inspected item and resolves its provenance off the main actor.
     ///
-    /// Synchronous and non-`async` (called from many synchronous sidebar-selection call
-    /// sites -- `InspectorViewController+Notifications.swift`, `+PublicAPI.swift` -- with no
-    /// `async` entry point on the AppKit side). `currentItem` and `isLoading` update
-    /// immediately so the UI reflects the new selection without delay; the actual sidecar
-    /// lookup (up to 5 parent-directory levels, each trying several candidate sidecar paths
-    /// via `fileExists` + `Data(contentsOf:)` + `JSONDecoder`) and envelope presentation
-    /// build run inside `Task.detached`, off the main actor, matching
-    /// `ReferenceBundleAnnotationImportService.attachAnnotationTrack`'s structural hop: a
-    /// nonisolated `async` function with no suspension point before its synchronous work
-    /// inherits the caller's thread when awaited directly from `@MainActor` code, so
-    /// `Task.detached` -- not just removing `@MainActor` -- is what actually forces the work
-    /// off-main. The result is only applied back on the main actor if `loadGeneration` still
-    /// matches the generation captured when this call started, so a superseded lookup from
-    /// rapid arrow-key/click navigation cannot overwrite a newer selection's result.
+    /// `currentItem` and `isLoading` update at once. The sidecar lookup and the lineage walk run in
+    /// `Task.detached`, because a nonisolated async function with no suspension point would run on
+    /// the caller's thread. One open asks for the same item two to four times, so a load of the
+    /// item whose lookup is running, or finished with no sidecar changed since, returns at once.
+    /// Any other load cancels the running lookup, whose result the generation check then drops
+    /// without a word, as UX ruling Q-S1 sets for a lookup a selection change replaced.
     func load(item: ProvenanceInspectableItem, clearWhenUnavailable: Bool = false) {
+        if let lookup, lookup.item == item, currentItem == item,
+           lookup.sidecarChanges == lineageResolver.sidecarIndex.changeCount {
+            return
+        }
         // Clear the previous record before publishing the new target. Copy, raw JSON,
         // and visible lineage must all agree with the currently selected source.
         clear()
         let thisGeneration = loadGeneration
         currentItem = item
         isLoading = true
+        if item.url?.standardizedFileURL.path != lineageReadyPath { lineageReadyPath = nil }
 
         let monitor = self.monitor
+        let resolver = self.lineageResolver
+        let task = Task.detached(priority: .userInitiated) {
+            await Self.performLookup(item: item, monitor: monitor, resolver: resolver)
+        }
+        lookup = (item, resolver.sidecarIndex.changeCount, task)
         Task { @MainActor [weak self] in
-            let outcome = await Task.detached(priority: .userInitiated) {
-                await Self.performLookup(item: item, monitor: monitor)
-            }.value
-
-            guard let self, thisGeneration == self.loadGeneration else { return }
+            let outcome = await task.value
+            guard let self, thisGeneration == self.loadGeneration, let outcome else { return }
             self.isLoading = false
             if clearWhenUnavailable, outcome.resolvedEnvelope == nil {
                 self.clear()
             } else {
                 self.apply(outcome, item: item)
+                self.callLineageReady(for: item, found: outcome.resolvedEnvelope != nil)
             }
         }
     }
 
-    /// The heavy, off-main portion of `load(item:)`: the coverage audit (which only reads, so
-    /// selecting a result never writes to the project), the multi-level sidecar directory
-    /// walk (`ProvenanceRecorder.findProvenanceReading`), and JSON decode of the resolved
-    /// envelope. Pure with respect to `self` -- takes a value-type snapshot of `item` and
-    /// `monitor` and returns a value-type outcome -- so it is safe to run detached from the
-    /// cooperative thread pool. `nonisolated` so it carries no actor isolation of its own;
-    /// callers are responsible for the `Task.detached` hop (see `load(item:)`).
+    /// One ready call per opened item, and only for a lookup that found a record.
+    private func callLineageReady(for item: ProvenanceInspectableItem, found: Bool) {
+        guard found, let path = item.url?.standardizedFileURL.path, path != lineageReadyPath else { return }
+        lineageReadyPath = path
+        onLineageReady?()
+    }
+
+    /// The off-main part of `load(item:)`: the read-only coverage audit, the sidecar lookup and the
+    /// lineage walk. Pure with respect to `self`, so it is safe to run detached. Nil when the
+    /// lookup was cancelled, which only a newer load or a clear does.
     nonisolated private static func performLookup(
         item: ProvenanceInspectableItem,
-        monitor: ProvenanceCoverageMonitor
-    ) async -> LookupOutcome {
+        monitor: ProvenanceCoverageMonitor,
+        resolver: ProvenanceLineageResolver
+    ) async -> LookupOutcome? {
         #if DEBUG
         loadThreadingProbe?()
         await loadFetchGate?()
         #endif
+        guard !Task.isCancelled else { return nil }
         // One walk finds the record with the shape it decoded as, and the audit and the lookup share it.
         let resolved = item.url.flatMap { ProvenanceRecorder.findProvenanceReading(for: $0) }
         let audit = monitor.audit(item, resolved: resolved)
@@ -530,9 +531,11 @@ final class ProvenanceInspectorViewModel {
         let envelope = resolved.reading.envelope
         // The records that fed this one, upstream first, so the lineage
         // starts at the reads rather than at the selected result.
-        let upstream = ProvenanceLineageResolver()
+        let upstream = resolver
             .resolve(envelope: envelope, sidecarURL: resolved.sidecarURL, sourceRootURL: url)
             .dropLast()
+        // A walk that stopped part way holds part of a lineage, and nobody waits for it.
+        guard !Task.isCancelled else { return nil }
         return LookupOutcome(
             audit: audit,
             resolvedEnvelope: envelope,
@@ -548,7 +551,7 @@ final class ProvenanceInspectorViewModel {
         var sidecarURL: URL?
     }
 
-    private struct LookupOutcome: Sendable {
+    struct LookupOutcome: Sendable {
         var audit: ProvenanceAuditResult
         var resolvedEnvelope: ProvenanceEnvelope?
         var resolvedSidecarURL: URL?
@@ -584,22 +587,13 @@ final class ProvenanceInspectorViewModel {
     }
 
     #if DEBUG
-    /// Test-only threading probe. Invoked once at the start of `performLookup`, inside the
-    /// `Task.detached` body -- i.e. after the executor hop `load(item:)` relies on for
-    /// main-thread safety, and before `ProvenanceCoverageMonitor.audit`/
-    /// `ProvenanceRecorder.findProvenanceReading` run. Exists solely so
-    /// `ProvenanceInspectorViewModelOffMainTests` can assert `!Thread.isMainThread` from
-    /// inside the real call path when driven from a `@MainActor` caller. Idiom:
-    /// `ReferenceBundleAnnotationImportService.threadingProbe`. Not compiled into release
-    /// builds.
+    /// Test-only probe called once at the start of `performLookup`, inside the detached task, so a
+    /// test can see the lookup run off the main thread and count lookups. Idiom:
+    /// `ReferenceBundleAnnotationImportService.threadingProbe`. Not compiled into release builds.
     nonisolated(unsafe) static var loadThreadingProbe: (@Sendable () -> Void)?
 
-    /// Test seam: an optional async gate awaited inside `performLookup`, immediately after
-    /// `loadThreadingProbe` fires and before the real sidecar walk/decode runs. Lets a test
-    /// deterministically hold one in-flight lookup suspended while a second, superseding
-    /// `load(item:)` call completes first and bumps `loadGeneration` -- then release the first
-    /// lookup and assert its stale result is discarded by the generation guard. `nil` by
-    /// default (no-op). Idiom: `SequenceViewerView.fastaOperationFetchGate`. Debug-only.
+    /// Test seam awaited right after `loadThreadingProbe` and before the sidecar lookup, so a test
+    /// can hold one lookup while a newer load supersedes it. Idiom: `SequenceViewerView.fastaOperationFetchGate`.
     nonisolated(unsafe) static var loadFetchGate: (@Sendable () async -> Void)?
     #endif
 

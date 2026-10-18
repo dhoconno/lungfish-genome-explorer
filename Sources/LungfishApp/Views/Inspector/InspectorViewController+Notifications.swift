@@ -463,6 +463,9 @@ extension InspectorViewController {
             return
         }
         clearPrimerAnalysisDocument()
+        viewModel.provenanceSectionViewModel.onLineageReady = { [weak self] in
+            self?.announceLineageReadyIfProvenanceShows()
+        }
         viewModel.provenanceSectionViewModel.load(
             item: ProvenanceInspectableItem(
                 url: url,
@@ -484,6 +487,22 @@ extension InspectorViewController {
         let captured = model.sources
         updateProvenanceTarget(url: url, sidebarType: sidebarType, displayName: displayName)
         model.restoreSources(captured)
+    }
+
+    /// Says "Lineage ready" to VoiceOver when a lineage has loaded, only while the Provenance tab
+    /// is the Inspector tab showing (UX ruling Q-S1). Starting a lookup announces nothing, and a
+    /// lookup a newer selection replaced never calls this.
+    private func announceLineageReadyIfProvenanceShows() {
+        guard viewModel.selectedTab == .provenance, let view = viewIfLoaded, view.window != nil,
+              !view.isHiddenOrHasHiddenAncestor else { return }
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: "Lineage ready",
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
     }
 
     func presentProvenanceExport(format: ProvenanceExportFormat) {

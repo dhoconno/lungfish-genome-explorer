@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 
 @MainActor
 public final class ProjectFilesystemRefreshCoordinator {
@@ -183,6 +184,9 @@ public final class ProjectFilesystemRefreshCoordinator {
     private func fanOut(projectKey: String, callbackID: UUID? = nil, changedPaths: FileSystemWatcher.ChangedPaths) {
         guard callbackID == nil || callbackIDs[projectKey] == callbackID,
               let entry = watchersByProjectKey[projectKey], entry.unavailableReason == nil else { return }
+        // The lineage index drops what it holds of changed sidecars, which arrive among the
+        // sidecar paths inside bundles and the other paths beside files, before a handler reloads.
+        ProvenanceSidecarIndex.shared.invalidate(changedPaths.all)
         if changedPaths.nonSidecar.isEmpty && changedPaths.all.isEmpty {
             entry.pendingFullReloadTask?.cancel()
             let delay = fullReloadDebounce
