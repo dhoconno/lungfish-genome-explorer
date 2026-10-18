@@ -6,11 +6,14 @@
 // record each in-app writer leaves, so the conversion that follows can name what moved.
 //
 // - The sequence FASTA writer is called as its context menu calls it, so its bytes and its whole record are pinned.
-// - The FASTA records and FASTQ metadata writers sit inside a save panel completion, so no test reaches their record
-//   without driving the panel. A panel sheet answered from a test aborts the test process (malloc, "freed pointer was
-//   not the last allocation"), so these pins read the state each writer starts from and the bytes it writes. The
-//   FASTQ cases cover the Samples tab, the symmetric and the asymmetric Demux tab, each with and without a cell
-//   edited in the drawer and not saved. The record of each is pinned by the frozen writer of its parity class.
+// - The FASTQ metadata writer sits inside a save panel completion, so no test reaches its record without driving the
+//   panel. A panel sheet answered from a test aborts the test process (malloc, "freed pointer was not the last
+//   allocation"), so these pins read the state the writer starts from and the CSV text it writes. The cases cover the
+//   Samples tab, the symmetric and the asymmetric Demux tab, each with and without a cell edited in the drawer and not
+//   saved. The record is pinned by the frozen writer of its parity class.
+// - The FASTA records writer sits inside a save panel completion too. These pins reach only its source set
+//   (fastaExportSourceURLs). Its bytes, its record and the records each of the five callers hand it are not pinned
+//   here, and lane 12.34 pins them before it changes the writer.
 
 import AppKit
 import Foundation
@@ -88,8 +91,8 @@ final class ViewerFileExportPinTests: XCTestCase {
 
     // MARK: - FASTA records (A11)
 
-    /// The records are joined as given, and the record's sources are the viewer's (`fastaExportSourceURLs`), which
-    /// the leaf will have to name as its inputs.
+    /// The sources the FASTA records export names are the viewer's (`fastaExportSourceURLs`), which the leaf will have
+    /// to name as its inputs.
     func testFASTARecordsNameTheViewersBundleAsTheirSource() throws {
         let bundle = scratch.appendingPathComponent("assembly.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
