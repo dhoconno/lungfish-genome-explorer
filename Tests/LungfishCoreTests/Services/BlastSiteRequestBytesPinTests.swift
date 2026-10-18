@@ -52,20 +52,24 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
             Site(gapID: "blast-12s-unresolved", request: BlastVerificationRequest(
                 taxonName: "12S unresolved sequences", taxId: 0, sequences: reads, database: coreNT, entrezQuery: nil
             ), encodedEntrezQuery: nil),
-            // ViralDetection+BlastVerification.swift (LungfishIO), which the EsViritu viewer calls.
+            // ViralDetection+BlastVerification.swift (LungfishIO), which the EsViritu viewer calls. EsViritu names
+            // no tax ID, so the request judges by the detection's names and holds its genus as the relative
+            // (lane 12.08 added the relative, which the request sends no byte of).
             Site(gapID: "blast-esviritu", request: BlastVerificationRequest(
-                taxonName: "Influenza A virus", taxId: 11320, sequences: reads, database: coreNT, entrezQuery: nil,
-                acceptedTaxIds: clade, acceptedTaxonNames: ["Influenza A virus"]
+                taxonName: "Influenza A virus", taxId: 0, sequences: reads, database: coreNT, entrezQuery: nil,
+                acceptedTaxonNames: ["Influenza A virus", "Alphainfluenzavirus influenzae"],
+                relatedTaxonNames: ["Alphainfluenzavirus"]
             ), encodedEntrezQuery: nil),
             // TaxTriageOrganism+BlastVerification.swift (LungfishIO), which the TaxTriage viewer calls.
             Site(gapID: "blast-taxtriage", request: BlastVerificationRequest(
                 taxonName: "Influenza A virus", taxId: 11320, sequences: reads, database: coreNT, entrezQuery: nil,
                 acceptedTaxIds: clade, acceptedTaxonNames: ["Influenza A virus"]
             ), encodedEntrezQuery: nil),
-            // NvdBlastHit+BlastVerification.swift (LungfishIO), which the NVD viewer calls for a contig.
+            // NvdBlastHit+BlastVerification.swift (LungfishIO), which the NVD viewer calls for a contig. The label is
+            // the classification's name and the clade is its adjusted tax ID (lane 12.08 set both as the site does).
             Site(gapID: "blast-nvd", request: BlastVerificationRequest(
-                taxonName: "NODE_1_length_900", taxId: 11320, sequences: reads, database: coreNT, entrezQuery: nil,
-                acceptedTaxIds: clade, acceptedTaxonNames: ["Influenza A virus"]
+                taxonName: "Influenza A virus", taxId: 11320, sequences: reads, database: coreNT, entrezQuery: nil,
+                acceptedTaxIds: [11320], acceptedTaxonNames: ["Influenza A virus"]
             ), encodedEntrezQuery: nil),
         ]
     }
