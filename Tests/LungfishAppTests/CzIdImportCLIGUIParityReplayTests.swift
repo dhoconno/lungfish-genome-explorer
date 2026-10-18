@@ -43,31 +43,11 @@ final class CzIdImportCLIGUIParityReplayTests: XCTestCase {
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH, so no side can run"
         )
-        var masks = OutputEquivalence.MaskPolicy.standard
-        masks.payloads.append(Self.classificationResultClocks)
-        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: masks, replayTimeout: .seconds(120))
-    }
-
-    /// The two clock values of a classification result (`classification-result.json`), the seconds the conversion
-    /// took (`runtime`) and the time it saved the result (`savedAt`), which two runs of one command never share.
-    /// Ruling 1 of review 12.06-M1 puts them in the standard policy as `Masks.resultSidecarClocks`, a reviewed row of
-    /// `docs/contracts/CLI-EQUIVALENCE.md` that the 12.04 fix agent adds. Until that row lands this class masks them
-    /// by the row's own guard, the document's key set. It masks the top-level `runtime` and `savedAt` of an object
-    /// that holds `config`, `reportPath`, `outputPath`, `runtime`, `toolVersion` and `savedAt` and no key beyond
-    /// those and the optional `brackenPath`, `profileOutcome`, `provenanceId`, `fragmentComposition` and
-    /// `readPairingContract`. The same keys in any other document and every other value are compared as written.
-    /// The landing agent drops this mask and its append once the row is in `MaskPolicy.standard` (fix 5).
-    nonisolated static let classificationResultClocks = OutputEquivalence.Mask(name: "classificationResultClocks") { text, _ in
-        let required: Set<String> = ["config", "reportPath", "outputPath", "runtime", "toolVersion", "savedAt"]
-        let optional: Set<String> = ["brackenPath", "profileOutcome", "provenanceId", "fragmentComposition", "readPairingContract"]
-        guard let data = text.data(using: .utf8),
-              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              required.isSubset(of: Set(object.keys)), Set(object.keys).isSubset(of: required.union(optional))
-        else { return text }
-        object["runtime"] = "<DURATION>"
-        object["savedAt"] = "<TIMESTAMP>"
-        guard let masked = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return text }
-        return String(decoding: masked, as: UTF8.self)
+        // A classification result (`classification-result.json`) stamps the seconds the conversion took (`runtime`)
+        // and the time it saved the result (`savedAt`), which two runs of one command never share. The contract masks
+        // those keys by the document's key set (`Masks.resultSidecarClocks`, ruling 1 of the review of lane 12.06 M1),
+        // so the standard policy is the whole compare.
+        harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .standard, replayTimeout: .seconds(120))
     }
 
     override func tearDownWithError() throws {
