@@ -109,11 +109,11 @@ final class EsVirituExportCLIGUIParityReplayTests: XCTestCase {
             view.detectionsExportInvocation(result: try XCTUnwrap(view.esVirituResult), format: .tsv, outputURL: output)
         )
 
-        let saved = ProcessEnvironmentOverride(set: [Self.holdFileVariable: hold.path], unset: [])
-        defer { saved.restore() }
         let failures = EsVirituExportFailureCalls()
         let begun = try XCTUnwrap(EsVirituResultViewController.beginEsVirituDetectionsExportOperation(
-            invocation: invocation, runner: CLIViewerExportRunner(cliURLOverride: harness.cliBinary)
+            invocation: invocation,
+            runner: CLIViewerExportRunner(cliURLOverride: harness.cliBinary),
+            environmentAdditions: [Self.holdFileVariable: hold.path]
         ) { failure in failures.messages.append(failure.message) })
         let held = try await Self.waitForFile(hold)
         XCTAssertTrue(held, "the leaf reached its transaction")
