@@ -113,6 +113,26 @@ final class TaxTriageCLIRouteLaunchTests: XCTestCase {
         XCTAssertTrue(parsed.skipKrona)
     }
 
+    /// Host taxa that the extra arguments already remove are not recorded twice. The verbatim extra arguments win
+    /// over the host taxa field (`TaxTriageConfig.effectiveRemoveTaxids`), so the argv carries them alone and the
+    /// command hands Nextflow one removal. The in-process row pinned this until Phase 2.12 K1.
+    func testHostTaxaInTheExtraArgumentsAreNotRecordedTwice() throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let reads = root.appendingPathComponent("Reads", isDirectory: true)
+        var sampleConfig = config([TaxTriageSample(sampleId: "S1", fastq1: try write("S1.fastq", in: reads))])
+        sampleConfig.extraArguments = ["--remove_taxids", "2"]
+        sampleConfig.removeTaxids = "9606"
+        let launch = try XCTUnwrap(try ClassifierCLIRouteLaunch.taxTriage(config: sampleConfig, projectURL: project))
+
+        XCTAssertFalse(launch.arguments.contains("--remove-taxids"), launch.cliCommand)
+        let command = try TaxTriageCommand.RunSubcommand.parse(Array(launch.arguments.dropFirst()))
+        XCTAssertNil(command.normalizedRemoveTaxids)
+        XCTAssertEqual(command.extraArgs, "--remove_taxids 2")
+        let nextflow = try command.makeConfigForTesting().nextflowPipelineArguments()
+        XCTAssertEqual(nextflow.filter { $0 == "--remove_taxids" }.count, 1, "\(nextflow)")
+        XCTAssertFalse(nextflow.contains("9606"), "\(nextflow)")
+    }
+
     /// Several samples whose names the command keeps take one `--input` each and `--batch`. A pair takes
     /// its bundle, which the command plans as a pair, and each control takes `--negative-control` with its
     /// name. A request whose samples name two platforms carries the dialog's platform, which the command
