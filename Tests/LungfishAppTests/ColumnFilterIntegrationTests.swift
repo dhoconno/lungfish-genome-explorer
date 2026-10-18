@@ -529,7 +529,7 @@ struct EsVirituMetadataRegressionTests {
             contigs: [detection2]
         )
 
-        let result = EsVirituResult(
+        let result = LungfishIO.EsVirituResult(
             sampleId: "batch",
             detections: [detection1, detection2],
             assemblies: [assembly1, assembly2],

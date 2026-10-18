@@ -77,7 +77,7 @@ final class EsVirituMetadataSortSearchTests: XCTestCase {
             assembly(sample: "C", name: "Gamma virus", reads: 30),
             assembly(sample: "D", name: "Delta virus", reads: 20),
         ]
-        table.result = EsVirituResult(
+        table.result = LungfishIO.EsVirituResult(
             sampleId: "metadata-tests",
             detections: assemblies.flatMap(\.contigs),
             assemblies: assemblies,

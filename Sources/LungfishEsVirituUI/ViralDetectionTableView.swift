@@ -1,7 +1,6 @@
 // ViralDetectionTableView.swift - Hierarchical viral detection table with NSOutlineView
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
-
 import AppKit
 import LungfishCore
 import LungfishIO
@@ -81,7 +80,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// The EsViritu result to display.
     ///
     /// Setting this property rebuilds the item tree and reloads the outline view.
-    public var result: EsVirituResult? {
+    public var result: LungfishIO.EsVirituResult? {
         didSet {
             cancelPendingFilterApplication()
             rebuildItems()
