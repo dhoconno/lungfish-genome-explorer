@@ -46,6 +46,11 @@ public final class BundleDataProvider {
     /// The reference bundle reader, created lazily on first data access.
     private var referenceBundle: ReferenceBundle?
 
+    /// The position of the first chromosome with each name or alias, built on the first
+    /// lookup. A reference with hundreds of thousands of sequences otherwise scanned
+    /// them all on every lookup.
+    private var chromosomePositionsByNameOrAlias: [String: Int]?
+
     // MARK: - Initialization
 
     /// Creates a data provider for a reference genome bundle.
@@ -95,13 +100,34 @@ public final class BundleDataProvider {
     /// - Returns: The chromosome info, or `nil` if not found
     public func chromosomeInfo(named name: String) -> ChromosomeInfo? {
         guard let chromosomes = manifest.genome?.chromosomes else { return nil }
-        if let exact = chromosomes.first(where: { $0.name == name || $0.aliases.contains(name) }) {
-            return exact
+        let positions = chromosomePositions(chromosomes)
+        if let exact = positions[name] {
+            return chromosomes[exact]
         }
-        guard let mappedName = mapVCFChromosomes([name], toBundleChromosomes: chromosomes)[name] else {
+        guard let mappedName = mapVCFChromosomes([name], toBundleChromosomes: chromosomes)[name],
+              let position = positions[mappedName] else {
             return nil
         }
-        return chromosomes.first { $0.name == mappedName }
+        // The mapping names a chromosome. When an earlier chromosome lists that name
+        // as an alias, the first chromosome with the name comes later.
+        return chromosomes[position].name == mappedName
+            ? chromosomes[position]
+            : chromosomes.first { $0.name == mappedName }
+    }
+
+    private func chromosomePositions(_ chromosomes: [ChromosomeInfo]) -> [String: Int] {
+        if let positions = chromosomePositionsByNameOrAlias { return positions }
+        var positions: [String: Int] = [:]
+        positions.reserveCapacity(chromosomes.count)
+        // Walking backwards leaves each name and alias with its first chromosome.
+        for position in chromosomes.indices.reversed() {
+            positions[chromosomes[position].name] = position
+            for alias in chromosomes[position].aliases {
+                positions[alias] = position
+            }
+        }
+        chromosomePositionsByNameOrAlias = positions
+        return positions
     }
 
     /// Fetches sequence bases for a genomic region.

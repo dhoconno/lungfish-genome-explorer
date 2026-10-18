@@ -78,4 +78,22 @@ final class ReferenceBundleRecordTableTests: XCTestCase {
         table.setFilterText("NC_")
         XCTAssertEqual(displayedLabels(table), ["NC_041754.1", "NC_041754.2", "NC_041754.10", "NC_041755.1"])
     }
+
+    /// The sequence column's presort keys order distinct reference names as the
+    /// comparator does, so a large table needs about one comparator call per row.
+    /// Names that differ only in case or leading zeros are left out, the keys tie
+    /// them, and the frozen test above shows the comparator still orders them.
+    func testPresortKeysOrderReferenceNamesAsTheComparatorDoes() {
+        let names = [
+            "chr10", "HG374866.9.1343", "chr2", "NC_041754.1", "scaffold_10", "chrX", "contig.1",
+            "HG374866.10.1", "chr1", "NC_041754.10", "Scaffold_3", "contig_1", "chrM", "10",
+            "NW_021160018.1", "contig-1", "HG374866.9.200", "2", "chr1_KI270706v1_random", "NC_041755.1",
+            "contig1", "chrUn_GL000220v1", "scaffold_2", "MT", "1", "NC_041754.2", "chrY",
+            "seq|gi|1234|ref", "chr3:1-200", "contig 7", "Contig~2", "U00096.3",
+        ]
+        let keys = ReferenceSequenceSortKey.keys(for: names)
+        let byKey = names.indices.sorted { keys[$0] < keys[$1] }.map { names[$0] }
+        XCTAssertEqual(byKey, names.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
+        XCTAssertEqual(Set(keys).count, names.count, "Distinct names get distinct keys")
+    }
 }

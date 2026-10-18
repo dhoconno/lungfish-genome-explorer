@@ -171,6 +171,11 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// returns `false` for all keys.
     open func compareRows(_ lhs: Row, _ rhs: Row, by key: String, ascending: Bool) -> Bool { false }
 
+    /// Keys, one per row, that order `rows` by `columnId` close to ``compareRows(_:_:by:ascending:)``,
+    /// so a large table sorts with about one comparator call per row. The comparator still decides
+    /// the order, so a key that disagrees costs time, never order. The default, `nil`, means no keys.
+    open func presortKeys(for columnId: String, rows: [Row]) -> [String]? { nil }
+
     /// Returns the sample identifier for `row`, used for metadata column lookups.
     ///
     /// Return `nil` if the row has no associated sample. The default returns `nil`.
@@ -757,14 +762,8 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         }
 
         // Re-apply current sort order on top of the filtered set.
-        if let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
-            let ascending = descriptor.ascending
-            self.unsortedRows  = filtered
-            self.displayedRows = filtered.sorted { compareDisplayedRows($0, $1, by: key, ascending: ascending) }
-        } else {
-            self.unsortedRows  = filtered
-            self.displayedRows = filtered
-        }
+        self.unsortedRows  = filtered
+        self.displayedRows = sortedForDisplay(filtered)
         tableView.reloadData()
         ColumnFilter.updateColumnTitleIndicators(
             on: tableView,
@@ -823,6 +822,15 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
         return compareRows(lhs, rhs, by: key, ascending: ascending)
+    }
+
+    /// `rows` in the order of the current sort descriptor, see ``BatchTableDisplayOrder``.
+    private func sortedForDisplay(_ rows: [Row]) -> [Row] {
+        guard let descriptor = tableView.sortDescriptors.first, let key = descriptor.key else { return rows }
+        let ascending = descriptor.ascending
+        return BatchTableDisplayOrder.sorted(rows, ascending: ascending, presortKeys: { presortKeys(for: key, rows: rows) }) {
+            compareDisplayedRows($0, $1, by: key, ascending: ascending)
+        }
     }
 
     private func rebuildSearchScopeMenu() {
@@ -1027,15 +1035,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         _ tableView: NSTableView,
         sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]
     ) {
-        guard let descriptor = tableView.sortDescriptors.first,
-              let key = descriptor.key else {
-            displayedRows = unsortedRows
-            tableView.reloadData()
-            restoreSelectionByIdentityAfterDisplayedRowsChanged()
-            return
-        }
-        let ascending = descriptor.ascending
-        displayedRows = unsortedRows.sorted { compareDisplayedRows($0, $1, by: key, ascending: ascending) }
+        displayedRows = sortedForDisplay(unsortedRows)
         tableView.reloadData()
         restoreSelectionByIdentityAfterDisplayedRowsChanged()
     }

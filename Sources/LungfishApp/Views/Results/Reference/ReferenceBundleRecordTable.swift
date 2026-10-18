@@ -371,6 +371,13 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
         return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
     }
 
+    /// The sequence column's presort keys, see ``ReferenceSequenceSortKey``. Allele
+    /// names, shown for small MHC references, sort with the comparator alone.
+    override func presortKeys(for columnId: String, rows: [ReferenceBundleRecordRow]) -> [String]? {
+        guard columnId == "sequence", !displaysAlleles else { return nil }
+        return ReferenceSequenceSortKey.keys(for: rows.map(\.summary.name))
+    }
+
     override func rowIdentity(for row: ReferenceBundleRecordRow) -> String? {
         [row.sampleID ?? "unmatched", row.alignmentTrackID ?? "reference", row.summary.name]
             .joined(separator: "\u{1F}")
