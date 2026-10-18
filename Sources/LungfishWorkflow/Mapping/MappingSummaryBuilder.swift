@@ -23,6 +23,19 @@ public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
     }
 }
 
+/// The per-reference rows of one mapping summary, with how many reference
+/// sequences the coverage report listed and how many of them the rows leave
+/// out (BIO ruling Q-S3). `rows.count + unalignedReferenceCount` always
+/// equals `referenceCount`.
+public struct MappingContigSummaryTable: Sendable, Equatable {
+    /// The rows kept, in the order `samtools coverage` listed them.
+    public let rows: [MappingContigSummary]
+    /// Every reference sequence `samtools coverage` reported, one per `@SQ` line of the BAM.
+    public let referenceCount: Int
+    /// The reference sequences left out because no alignment record of any kind names them.
+    public let unalignedReferenceCount: Int
+}
+
 public enum MappingSummaryBuilder {
 
     /// Historical threshold retained for source compatibility with callers that use
@@ -46,6 +59,10 @@ public enum MappingSummaryBuilder {
     /// supplementary ones.
     static let primaryRecordExclusionFlags = "SECONDARY,SUPPLEMENTARY,QCFAIL,DUP"
 
+    /// Builds the rows of `sortedBAMURL`, one per reference sequence. With
+    /// `includeUnmappedReferenceRows` false, a reference that no alignment
+    /// record of any kind names is left out and counted, and one with only
+    /// secondary or supplementary records keeps its row with 0 primary reads.
     public static func build(
         sortedBAMURL: URL,
         totalReads: Int,
@@ -54,7 +71,7 @@ public enum MappingSummaryBuilder {
         timeout: TimeInterval = 3_600,
         includeUnmappedReferenceRows: Bool = true,
         reportWarning: (@Sendable (String) -> Void)? = nil
-    ) async throws -> [MappingContigSummary] {
+    ) async throws -> MappingContigSummaryTable {
         let effectiveTotalReads: Int
         let coverageOutput: String
         if readGroupIDs.isEmpty {
@@ -108,7 +125,7 @@ public enum MappingSummaryBuilder {
         viewOutput: String,
         totalReads: Int,
         includeUnmappedReferenceRows: Bool = true
-    ) throws -> [MappingContigSummary] {
+    ) throws -> MappingContigSummaryTable {
         let identities = accumulateViewMetrics(viewOutput)
         return try buildSummaries(
             coverageOutput: coverageOutput,
@@ -123,11 +140,16 @@ public enum MappingSummaryBuilder {
         identities: [String: ViewMetrics],
         totalReads: Int,
         includeUnmappedReferenceRows: Bool
-    ) throws -> [MappingContigSummary] {
+    ) throws -> MappingContigSummaryTable {
         let rows = parseCoverageRows(coverageOutput)
-        let displayedRows = includeUnmappedReferenceRows ? rows : rows.filter { $0.mappedReads > 0 }
+        // Only a reference that no alignment record names is left out. One with
+        // only secondary or supplementary records keeps its measured MAPQ and
+        // identity, which a filter on primary reads would drop (BIO 4).
+        let displayedRows = includeUnmappedReferenceRows
+            ? rows
+            : rows.filter { $0.mappedReads > 0 || identities[$0.name] != nil }
 
-        return displayedRows.map { row in
+        let summaries = displayedRows.map { row in
             let metrics = identities[row.name] ?? ViewMetrics()
             return MappingContigSummary(
                 contigName: row.name,
@@ -142,6 +164,11 @@ public enum MappingSummaryBuilder {
                 meanIdentity: metrics.meanIdentity
             )
         }
+        return MappingContigSummaryTable(
+            rows: summaries,
+            referenceCount: rows.count,
+            unalignedReferenceCount: rows.count - displayedRows.count
+        )
     }
 
     private static func parseCoverageRows(_ output: String) -> [CoverageRow] {

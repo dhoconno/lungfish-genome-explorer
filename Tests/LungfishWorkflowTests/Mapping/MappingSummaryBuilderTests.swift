@@ -49,7 +49,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
             // Not a test of the time limit. Two seconds timed out a loaded unit tier
             // on the Mac Studio, where two bash processes took that long to start.
             runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), timeout: 300
-        )
+        ).rows
         XCTAssertEqual(try XCTUnwrap(summaries.first).mappedReadPercent, 25, accuracy: 0.001)
         let invocationLog = try String(contentsOf: log, encoding: .utf8)
         XCTAssertTrue(invocationLog.contains("view -h -F"))
@@ -143,7 +143,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
             coverageOutput: coverageOutput,
             viewOutput: viewOutput,
             totalReads: 10
-        )
+        ).rows
 
         XCTAssertEqual(summaries.map(\.contigName), ["chr1", "chr2"])
         XCTAssertEqual(summaries[0].contigLength, 1000)
@@ -173,7 +173,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
                 coverageOutput: coverageOutput,
                 viewOutput: viewOutput,
                 totalReads: 4
-            ).first
+            ).rows.first
         )
 
         XCTAssertEqual(summary.coverageBreadth, 0.5, accuracy: 0.0001)
@@ -196,7 +196,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
             viewOutput: viewOutput,
             totalReads: 10,
             includeUnmappedReferenceRows: false
-        )
+        ).rows
 
         XCTAssertEqual(summaries.map(\.contigName), ["allele-with-support"])
     }
@@ -212,7 +212,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
             coverageOutput: coverageOutput,
             viewOutput: "",
             totalReads: 10
-        )
+        ).rows
 
         XCTAssertEqual(summaries.map(\.contigName), ["allele-with-support", "allele-without-support"])
         XCTAssertEqual(summaries[1].mappedReads, 0)
@@ -474,7 +474,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
             sortedBAMURL: oversizedBAM,
             totalReads: 10,
             runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
-        )
+        ).rows
 
         XCTAssertEqual(contigs.map(\.contigName), ["chr1"])
         XCTAssertEqual(contigs.first?.medianMAPQ, 60)
@@ -512,7 +512,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
             totalReads: 200_000,
             runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview),
             timeout: 30
-        )
+        ).rows
         let summary = try XCTUnwrap(summaries.first)
 
         XCTAssertEqual(summary.medianMAPQ, 40)
@@ -578,14 +578,37 @@ final class MappingSummaryBuilderTests: XCTestCase {
         let bam = root.appendingPathComponent("input.bam")
         try Data().write(to: bam)
 
-        let summaries = try await MappingSummaryBuilder.build(
+        let table = try await MappingSummaryBuilder.build(
             sortedBAMURL: bam,
             totalReads: 4,
             runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview),
             timeout: 300
         )
 
-        XCTAssertEqual(summaries, Self.threeReferenceRows)
+        XCTAssertEqual(table.rows, Self.threeReferenceRows)
+        XCTAssertEqual(table.referenceCount, 3)
+        XCTAssertEqual(table.unalignedReferenceCount, 0)
+    }
+
+    /// The mapping pipeline's flag leaves out only the reference with no
+    /// alignment record of any kind. A filter on primary reads alone would
+    /// also drop the supplementary-only reference with its measured MAPQ and
+    /// identity (BIO 4).
+    func testOmitsOnlyReferencesWithoutAnyAlignment() throws {
+        let table = try MappingSummaryBuilder.buildSummaries(
+            coverageOutput: Self.threeReferenceCoverage,
+            viewOutput: Self.threeReferenceView,
+            totalReads: 4,
+            includeUnmappedReferenceRows: false
+        )
+
+        XCTAssertEqual(table.rows.map(\.contigName), ["primary-ref", "supplementary-only-ref"])
+        let supplementaryOnly = try XCTUnwrap(table.rows.dropFirst().first)
+        XCTAssertEqual(supplementaryOnly.mappedReads, 0)
+        XCTAssertGreaterThan(supplementaryOnly.medianMAPQ, 0)
+        XCTAssertEqual(table.rows, Array(Self.threeReferenceRows.prefix(2)), "a kept row keeps every measured value")
+        XCTAssertEqual(table.referenceCount, 3)
+        XCTAssertEqual(table.unalignedReferenceCount, 1)
     }
 
     // MARK: - F36: concurrent stdout/stderr draining

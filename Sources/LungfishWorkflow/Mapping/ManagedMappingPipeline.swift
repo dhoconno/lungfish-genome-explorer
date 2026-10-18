@@ -141,7 +141,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         let normalized = mapped.normalized
 
         progress?(0.9, "Summarizing mapped contigs...")
-        let contigs = try await summarizeMappedContigs(
+        let summary = try await summarizeMappedContigs(
             sortedBAMURL: normalized.bamURL,
             totalReads: normalized.totalReads,
             progress: progress
@@ -157,7 +157,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             mappedReads: normalized.mappedReads,
             unmappedReads: normalized.unmappedReads,
             wallClockSeconds: runClock.elapsed,
-            contigs: contigs
+            contigs: summary.rows,
+            referenceCount: summary.referenceCount,
+            unalignedReferenceCount: summary.unalignedReferenceCount
         )
         try result.save(to: prepared.request.outputDirectory)
 
@@ -208,25 +210,22 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         return result
     }
 
-    /// Builds the per-contig mapping summary and, per MappingSummaryBuilder's
-    /// sortedBAMMemoryGuardBytes guard, forwards any skip-warning it reports
-    /// to the caller's progress closure (which every `run(request:progress:)`
-    /// caller routes to `OperationCenter.shared.log`) so the memory-guard
-    /// warning actually reaches a production sink instead of being
-    /// constructed and discarded (round-3 review fix). ProgressHandler is
-    /// `(Double, String) -> Void` with no severity channel, so a real
-    /// `.warning`-level log isn't reachable from here; this prefixes the
-    /// message with "WARNING:" instead, per the pipeline's convention for
-    /// surfacing non-fatal conditions through an .info-only channel.
+    /// Builds the per-contig mapping summary. A reference that no alignment
+    /// record of any kind names is left out and counted (BIO ruling Q-S3), so
+    /// a result against a large reference lists only the references with
+    /// alignments. A warning the builder reports reaches `progress`, which
+    /// every caller routes to `OperationCenter.shared.log`, prefixed
+    /// "WARNING:" because the closure has no severity channel.
     private func summarizeMappedContigs(
         sortedBAMURL: URL,
         totalReads: Int,
         progress: ProgressHandler?
-    ) async throws -> [MappingContigSummary] {
+    ) async throws -> MappingContigSummaryTable {
         try await MappingSummaryBuilder.build(
             sortedBAMURL: sortedBAMURL,
             totalReads: totalReads,
             runner: nativeToolRunner,
+            includeUnmappedReferenceRows: false,
             reportWarning: { warning in
                 progress?(0.9, "WARNING: \(warning)")
             }
@@ -237,7 +236,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         sortedBAMURL: URL,
         totalReads: Int,
         progress: ProgressHandler?
-    ) async throws -> [MappingContigSummary] {
+    ) async throws -> MappingContigSummaryTable {
         try await summarizeMappedContigs(
             sortedBAMURL: sortedBAMURL,
             totalReads: totalReads,

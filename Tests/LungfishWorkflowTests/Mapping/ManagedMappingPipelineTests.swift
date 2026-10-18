@@ -357,13 +357,16 @@ final class ManagedMappingPipelineTests: XCTestCase {
             nativeToolRunner: fixture.runner
         )
 
-        let contigs = try await pipeline.summarizeMappedContigsForTesting(
+        let summary = try await pipeline.summarizeMappedContigsForTesting(
             sortedBAMURL: oversizedBAM,
             totalReads: 10,
             progress: { _, _ in }
         )
 
-        XCTAssertEqual(contigs.map(\.contigName), ["chr1"])
+        // chr2 has no alignment record, so the mapping result leaves it out and counts it.
+        XCTAssertEqual(summary.rows.map(\.contigName), ["chr1"])
+        XCTAssertEqual(summary.referenceCount, 2)
+        XCTAssertEqual(summary.unalignedReferenceCount, 1)
         XCTAssertEqual(
             Array(try fixture.recordedSubcommands()),
             ["coverage", "view"],
@@ -1137,6 +1140,7 @@ private struct SamtoolsFixture {
           coverage)
             printf '#rname\\tstartpos\\tendpos\\tnumreads\\tcovbases\\tcoverage\\tmeandepth\\tmeanbaseq\\tmeanmapq\\n'
             printf 'chr1\\t1\\t1000\\t3\\t800\\t80.0\\t6.5\\t30.0\\t43.3\\n'
+            printf 'chr2\\t1\\t500\\t0\\t0\\t0.0\\t0.0\\t0.0\\t0.0\\n'
             ;;
         esac
 

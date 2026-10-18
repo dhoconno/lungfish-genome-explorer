@@ -54,7 +54,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     self.updateSummaryBar()
                 }}
             }
-        )
+        ).rows
     }
     private var alignmentTrackSummaryWarning: String?
     private var alignmentTrackSummaryRefreshID = UUID()

@@ -112,7 +112,16 @@ public struct MappingResult: Sendable, Codable, Equatable {
     public let mappedReads: Int
     public let unmappedReads: Int
     public let wallClockSeconds: Double
+    /// One row per reference sequence with an alignment record, or per
+    /// reference sequence in a schema-1 result, which lists them all.
     public let contigs: [MappingContigSummary]
+    /// How many reference sequences the BAM header lists. `nil` means
+    /// unknown, as in every schema-1 result, never that `contigs` lists them all.
+    public let referenceCount: Int?
+    /// How many reference sequences no alignment record names, which
+    /// `contigs` leaves out, or `nil` when unknown. When both counts are
+    /// known, `contigs.count + unalignedReferenceCount == referenceCount`.
+    public let unalignedReferenceCount: Int?
 
     public init(
         mapper: MappingTool,
@@ -125,7 +134,9 @@ public struct MappingResult: Sendable, Codable, Equatable {
         mappedReads: Int,
         unmappedReads: Int,
         wallClockSeconds: Double,
-        contigs: [MappingContigSummary]
+        contigs: [MappingContigSummary],
+        referenceCount: Int? = nil,
+        unalignedReferenceCount: Int? = nil
     ) {
         self.mapper = mapper
         self.modeID = modeID
@@ -138,6 +149,8 @@ public struct MappingResult: Sendable, Codable, Equatable {
         self.unmappedReads = unmappedReads
         self.wallClockSeconds = wallClockSeconds
         self.contigs = contigs
+        self.referenceCount = referenceCount
+        self.unalignedReferenceCount = unalignedReferenceCount
     }
 
     public func withViewerBundle(
@@ -155,7 +168,9 @@ public struct MappingResult: Sendable, Codable, Equatable {
             mappedReads: mappedReads,
             unmappedReads: unmappedReads,
             wallClockSeconds: wallClockSeconds,
-            contigs: contigs
+            contigs: contigs,
+            referenceCount: referenceCount,
+            unalignedReferenceCount: unalignedReferenceCount
         )
     }
 }
@@ -176,6 +191,9 @@ private struct PersistedMappingResult: Codable, Sendable {
     let unmappedReads: Int
     let wallClockSeconds: Double
     let contigs: [MappingContigSummary]
+    /// Schema 2 holds both counts and schema 1 neither. Older builds ignore them.
+    let referenceCount: Int?
+    let unalignedReferenceCount: Int?
 }
 
 private struct PersistedLegacyAlignmentResult: Codable, Sendable {
@@ -211,9 +229,12 @@ public extension MappingResult {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
+        // Schema 2 records both reference counts. A result that lacks either
+        // writes schema 1 with neither, byte for byte as earlier builds did.
+        let recordsCounts = referenceCount != nil && unalignedReferenceCount != nil
         let data = try encoder.encode(
             PersistedMappingResult(
-                schemaVersion: 1,
+                schemaVersion: recordsCounts ? 2 : 1,
                 mapper: mapper,
                 modeID: modeID,
                 sourceReferenceBundlePath: sourceReferenceBundleURL.map { Self.storedPath(for: $0, relativeTo: pathAnchor) },
@@ -224,13 +245,14 @@ public extension MappingResult {
                 mappedReads: mappedReads,
                 unmappedReads: unmappedReads,
                 wallClockSeconds: wallClockSeconds,
-                contigs: contigs
+                contigs: contigs,
+                referenceCount: recordsCounts ? referenceCount : nil,
+                unalignedReferenceCount: recordsCounts ? unalignedReferenceCount : nil
             )
         )
-        try data.write(
-            to: directory.appendingPathComponent(mappingResultSidecarFilename),
-            options: Data.WritingOptions.atomic
-        )
+        // Every save publishes a new file whole (SWIFT 4), so the viewport's
+        // identity compare, which reads its modification date, sees the change.
+        try DurableReplace.replace(data, named: mappingResultSidecarFilename, in: directory)
     }
 
     /// When the saved result in `directory` last changed, read from the file
@@ -280,7 +302,9 @@ public extension MappingResult {
                 mappedReads: persisted.mappedReads,
                 unmappedReads: persisted.unmappedReads,
                 wallClockSeconds: persisted.wallClockSeconds,
-                contigs: persisted.contigs
+                contigs: persisted.contigs,
+                referenceCount: persisted.referenceCount,
+                unalignedReferenceCount: persisted.unalignedReferenceCount
             )
         }
 

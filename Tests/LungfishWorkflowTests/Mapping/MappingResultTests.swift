@@ -33,6 +33,98 @@ final class MappingResultTests: XCTestCase {
         XCTAssertEqual(result.totalReads, 200)
         XCTAssertEqual(result.bamURL, root.appendingPathComponent("sarscov2-test.sorted.bam").standardizedFileURL)
         XCTAssertEqual(try Data(contentsOf: sidecar), Data(Self.schemaOneJSON.utf8), "loading rewrites nothing")
+        XCTAssertNil(result.referenceCount, "an absent count means unknown")
+        XCTAssertNil(result.unalignedReferenceCount, "an absent count means unknown")
+    }
+
+    func testSchemaTwoRoundTripsCounts() throws {
+        let result = makeResult(referenceCount: 5, unalignedReferenceCount: 3)
+
+        try result.save(to: root)
+
+        let object = try sidecarObject()
+        XCTAssertEqual(object["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(object["referenceCount"] as? Int, 5)
+        XCTAssertEqual(object["unalignedReferenceCount"] as? Int, 3)
+        let loaded = try MappingResult.load(from: root)
+        XCTAssertEqual(loaded.referenceCount, 5)
+        XCTAssertEqual(loaded.unalignedReferenceCount, 3)
+        XCTAssertEqual(loaded.contigs, result.contigs)
+    }
+
+    /// Schema 1 never holds a count, so a result that knows only one writes neither.
+    func testOneCountAloneWritesSchemaOneWithNoCounts() throws {
+        try makeResult(referenceCount: 5, unalignedReferenceCount: nil).save(to: root)
+
+        let object = try sidecarObject()
+        XCTAssertEqual(object["schemaVersion"] as? Int, 1)
+        XCTAssertNil(object["referenceCount"])
+        XCTAssertNil(object["unalignedReferenceCount"])
+    }
+
+    /// A later build may write a higher schema with keys this one does not
+    /// know. This build reads what it knows and never refuses the number.
+    func testLoadAcceptsAHigherSchemaWithKeysItDoesNotKnow() throws {
+        let later = Self.schemaOneJSON.replacingOccurrences(
+            of: "\"schemaVersion\" : 1,",
+            with: "\"laterKey\" : [1, 2], \"referenceCount\" : 9, \"schemaVersion\" : 3, \"unalignedReferenceCount\" : 6,"
+        )
+        try Data(later.utf8).write(to: root.appendingPathComponent("mapping-result.json"))
+
+        let loaded = try MappingResult.load(from: root)
+
+        XCTAssertEqual(loaded.contigs.count, 3)
+        XCTAssertEqual(loaded.referenceCount, 9)
+        XCTAssertEqual(loaded.unalignedReferenceCount, 6)
+    }
+
+    /// Publication saves the copy `withViewerBundle` makes, so the copy keeps
+    /// both counts and the published result stays schema 2 (ARCH ruling Q-B1).
+    func testWithViewerBundleKeepsCounts() throws {
+        let result = makeResult(referenceCount: 5, unalignedReferenceCount: 3)
+
+        let published = result.withViewerBundle(
+            viewerBundleURL: root.appendingPathComponent("viewer.lungfishref", isDirectory: true),
+            sourceReferenceBundleURL: nil
+        )
+
+        XCTAssertEqual(published.referenceCount, 5)
+        XCTAssertEqual(published.unalignedReferenceCount, 3)
+        try published.save(to: root)
+        XCTAssertEqual(try sidecarObject()["schemaVersion"] as? Int, 2, "the published result is schema 2")
+    }
+
+    // MARK: - Helpers
+
+    /// Two rows, one with primary reads and one with only a supplementary record.
+    private func makeResult(referenceCount: Int?, unalignedReferenceCount: Int?) -> MappingResult {
+        MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            bamURL: root.appendingPathComponent("sample.sorted.bam"),
+            baiURL: root.appendingPathComponent("sample.sorted.bam.bai"),
+            totalReads: 200,
+            mappedReads: 197,
+            unmappedReads: 3,
+            wallClockSeconds: 1.5,
+            contigs: [
+                MappingContigSummary(
+                    contigName: "MT192765.1", contigLength: 29_829, mappedReads: 197, mappedReadPercent: 98.5,
+                    meanDepth: 0.9, coverageBreadth: 0.43, medianMAPQ: 60, meanIdentity: 0.99
+                ),
+                MappingContigSummary(
+                    contigName: "supplementary-only", contigLength: 1_500, mappedReads: 0, mappedReadPercent: 0,
+                    meanDepth: 0, coverageBreadth: 0, medianMAPQ: 40, meanIdentity: 0.95
+                ),
+            ],
+            referenceCount: referenceCount,
+            unalignedReferenceCount: unalignedReferenceCount
+        )
+    }
+
+    private func sidecarObject() throws -> [String: Any] {
+        let data = try Data(contentsOf: root.appendingPathComponent("mapping-result.json"))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     /// A result that records no reference counts saves the schema-1 bytes it
