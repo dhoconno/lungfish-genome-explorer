@@ -33,7 +33,7 @@ struct TranslateCommand: AsyncParsableCommand {
 
     @Option(
         name: .shortAndLong,
-        help: "Reading frame: 1-3 (forward), 4-6 (reverse). Default: all 6 frames"
+        help: "Reading frame: 1-3 forward, 4-6 reverse complement, printed in the headers as -1 to -3 (frame -1 starts at the last base). Default: all 6 frames"
     )
     var frame: Int?
 
