@@ -9,6 +9,7 @@
 // command the row records and adds the parity test, which runs the recorded command through the real leaf
 // and compares its folder with the app's.
 
+import CryptoKit
 import Darwin
 import Foundation
 import LungfishCore
@@ -124,7 +125,7 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             XCTAssertEqual(command.kind.exportKind, item.kind, item.label)
             try await command.run()
 
-            let app = try facts(of: appFolder), cli = try facts(of: cliFolder)
+            let app = try facts(of: appFolder, analysis: fixture.bundle), cli = try facts(of: cliFolder, analysis: fixture.bundle)
             XCTAssertEqual(cli.entries, app.entries, item.label)
             XCTAssertEqual(Set(cli.files.keys), Set(app.files.keys), item.label)
             for (path, bytes) in app.files {
@@ -140,13 +141,96 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             XCTAssertEqual(cli.outputPaths, app.outputPaths, item.label)
             XCTAssertEqual(cli.outputChecksums, app.outputChecksums, item.label)
             XCTAssertEqual(cli.envelope.steps.count, app.envelope.steps.count, item.label)
+            XCTAssertFalse(app.inputs.isEmpty, item.label)
+            XCTAssertEqual(cli.inputs, app.inputs, item.label)
+            XCTAssertEqual(cli.inputOrigins, app.inputOrigins, item.label)
             // The declared difference. The leaf records the argv of the process that ran it.
             XCTAssertEqual(cli.envelope.argv, CommandLine.arguments, item.label)
             XCTAssertNotEqual(cli.envelope.argv, app.envelope.argv, item.label)
         }
     }
 
+    /// The record names what the selection read and every output the export wrote (BIO 6). The inputs are the
+    /// manifest and the files the selection needs, taken from the snapshot and not from the folder, and the
+    /// folder retains exactly those files, so nothing is kept and left unnamed. Each input carries the SHA-256
+    /// of the file it was read from in the saved analysis. Each output exists in the folder with the digest the
+    /// record names. The check runs on the folder the app wrote and on the folder the recorded command wrote.
+    func testTheRecordNamesExactlyTheFilesTheSelectionReadsAndEveryOutputItWrote() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        let cliParent = fixture.root.appendingPathComponent("cli", isDirectory: true)
+        try FileManager.default.createDirectory(at: cliParent, withIntermediateDirectories: true)
+        for item in try cases(snapshot) {
+            let prepared = try PrimerAnalysisSelectionExportService.prepare(
+                snapshot: snapshot, selection: item.selection, kind: item.kind)
+            let expected = Set((["manifest.json"] + prepared.sourcePaths).map { "source-analysis/" + $0 })
+            XCTAssertGreaterThan(expected.count, 1, "\(item.label): the selection reads more than the manifest")
+
+            let appFolder = try await exportAsTheAppDoes(fixture, item)
+            let cliFolder = cliParent.appendingPathComponent(appFolder.lastPathComponent, isDirectory: true)
+            let row = MainSplitViewController.primerSelectionExportCLICommand(
+                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: cliFolder)
+            try await RecordedCLICommand.parse(row, as: PrimerAnalysisExportSelectionCommand.self).run()
+
+            for (side, folder) in [("app", appFolder), ("leaf", cliFolder)] {
+                let label = "\(item.label), \(side) folder"
+                let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: folder), label)
+                let inputs = try selectionInputs(of: envelope)
+                let named = inputs.map { relativePath($0.path, in: folder) }
+                XCTAssertEqual(named.count, expected.count, "\(label): an input is named twice or not at all")
+                XCTAssertEqual(Set(named), expected, "\(label): the record names the files the selection reads")
+                XCTAssertEqual(
+                    try regularFilePaths(under: folder.appendingPathComponent("source-analysis"), in: folder),
+                    expected, "\(label): the retained evidence is exactly the named inputs")
+                for input in inputs {
+                    let origin = try XCTUnwrap(input.originPath, "\(label): \(input.path) names no origin")
+                    XCTAssertTrue(origin.hasPrefix(fixture.bundle.path + "/"), "\(label): \(origin)")
+                    XCTAssertEqual(
+                        input.checksumSHA256, try sha256Hex(of: URL(fileURLWithPath: origin)),
+                        "\(label): \(input.path) does not carry the digest of its origin")
+                }
+                XCTAssertFalse(envelope.outputs.isEmpty, label)
+                for output in envelope.outputs {
+                    XCTAssertTrue(output.path.hasPrefix(folder.path + "/"), "\(label): \(output.path)")
+                    let file = folder.appendingPathComponent(relativePath(output.path, in: folder))
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "\(label): \(output.path) is missing")
+                    XCTAssertEqual(
+                        output.checksumSHA256, try sha256Hex(of: file), "\(label): \(output.path) differs from its record")
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
+
+    /// The files the export itself read, which its own provenance step names. The envelope also carries the
+    /// native indexing steps, whose inputs name the staged genome, and those are not inputs of the selection.
+    private func selectionInputs(of envelope: ProvenanceEnvelope) throws -> [ProvenanceFileDescriptor] {
+        let steps = envelope.steps.filter { $0.toolName == envelope.workflowName }
+        XCTAssertEqual(steps.count, 1, "the export records one step of its own")
+        return steps.flatMap(\.inputs)
+    }
+
+    /// `path` relative to `folder`, or `path` itself when it lies elsewhere, so that a compare fails on it.
+    private func relativePath(_ path: String, in folder: URL) -> String {
+        path.hasPrefix(folder.path + "/") ? String(path.dropFirst(folder.path.count + 1)) : path
+    }
+
+    /// The regular files under `directory`, as paths relative to `folder`.
+    private func regularFilePaths(under directory: URL, in folder: URL) throws -> Set<String> {
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey]))
+        var paths: Set<String> = []
+        for case let url as URL in enumerator where try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+            paths.insert(relativePath(url.path, in: folder))
+        }
+        return paths
+    }
+
+    private func sha256Hex(of url: URL) throws -> String {
+        SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+    }
 
     /// What an export folder holds, apart from the fields that name the run.
     private struct Facts {
@@ -164,9 +248,13 @@ final class PrimerSelectionExportParityTests: XCTestCase {
         /// The provenance outputs by path in the folder, and the checksums of the files that hold no run identity.
         let outputPaths: Set<String>
         let outputChecksums: [String: String]
+        /// The provenance inputs by path in the folder, each with the SHA-256 the record names.
+        let inputs: [String: String]
+        /// Where each input was read from, as a path relative to the saved analysis folder.
+        let inputOrigins: [String: String]
     }
 
-    private func facts(of folder: URL) throws -> Facts {
+    private func facts(of folder: URL, analysis: URL) throws -> Facts {
         let manager = FileManager.default
         var files: [String: Data] = [:]
         let enumerator = try XCTUnwrap(manager.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey]))
@@ -197,11 +285,21 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             paths.insert(path)
             if files[path] != nil { checksums[path] = descriptor.checksumSHA256 }
         }
+        var inputs: [String: String] = [:]
+        var inputOrigins: [String: String] = [:]
+        for descriptor in try selectionInputs(of: envelope) {
+            XCTAssertTrue(descriptor.path.hasPrefix(folder.path + "/"), descriptor.path)
+            let path = String(descriptor.path.dropFirst(folder.path.count + 1))
+            inputs[path] = try XCTUnwrap(descriptor.checksumSHA256, "\(path) names no digest")
+            let origin = try XCTUnwrap(descriptor.originPath, "\(path) names no origin")
+            XCTAssertTrue(origin.hasPrefix(analysis.path + "/"), origin)
+            inputOrigins[path] = String(origin.dropFirst(analysis.path.count + 1))
+        }
         return Facts(
             entries: try manager.contentsOfDirectory(atPath: folder.path).sorted(), files: files,
             selection: document as NSDictionary, manifestName: manifest.name,
             chromosomes: manifest.genome?.chromosomes.map(\.name) ?? [], envelope: envelope, resolved: resolved,
-            outputPaths: paths, outputChecksums: checksums)
+            outputPaths: paths, outputChecksums: checksums, inputs: inputs, inputOrigins: inputOrigins)
     }
 
     /// The service call `exportPrimerAnalysisSelection` makes, with the argv the app builds for it. The
