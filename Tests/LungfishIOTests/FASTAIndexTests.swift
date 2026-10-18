@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 
 /// The body `FASTAIndex.init(url:)` had before the byte parser, kept as the oracle.
@@ -43,15 +44,11 @@ final class FASTAIndexTests: XCTestCase {
     private var tempDirectory: URL!
 
     override func setUp() async throws {
-        tempDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("FASTAIndexTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        tempDirectory = try TestTempDirectory.make(prefix: "FASTAIndexTests")
     }
 
     override func tearDown() async throws {
-        if let tempDirectory {
-            try? FileManager.default.removeItem(at: tempDirectory)
-        }
+        if let tempDirectory { TestTempDirectory.cleanup(tempDirectory) }
     }
 
     /// `.fai` files that reach each branch of the parse, with a label for the failure message.

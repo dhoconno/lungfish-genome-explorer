@@ -44,13 +44,15 @@ final class IndexedFASTAOutOfBoundsLogLevelTests: XCTestCase {
     // MARK: - The logs a reader writes
 
     /// The error-level messages of this process since `date` that mention `text`, read back from
-    /// the unified log, waiting for `expected` to show up so a slow flush cannot pass for silence.
+    /// the unified log, waiting for `expected` to show up so a slow flush cannot pass for silence. The store
+    /// can lag by 2 seconds on an idle machine and by 10 seconds or more on a busy one, so the wait gives it
+    /// 30 seconds and ends as soon as the line is there.
     private func errorMessages(containing text: String, since date: Date, waitingFor expected: String) throws -> [String] {
         let store = try OSLogStore(scope: .currentProcessIdentifier)
         // The bgzip reader logs under the IO subsystem and the reference bundle under the Core one.
         let subsystems = [LogSubsystem.io, LogSubsystem.core]
         var messages: [String] = []
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(30)
         repeat {
             messages = try store.getEntries(at: store.position(date: date))
                 .compactMap { $0 as? OSLogEntryLog }
@@ -107,6 +109,28 @@ final class IndexedFASTAOutOfBoundsLogLevelTests: XCTestCase {
             try bundle.fetchSequenceSync(region: GenomicRegion(chromosome: "chr1", start: 2, end: 6)), "GTAC",
             "A read inside the sequence is unchanged."
         )
+    }
+
+    func testAnAsyncReferenceBundleFetchLogsAnOverhangAtDebugAndARealOutOfBoundsReadAtError() async throws {
+        let bundle = try await ReferenceBundle(url: try makeBundle())
+        let since = Date().addingTimeInterval(-1)
+
+        for (start, end) in [(4, 11), (9, 13)] {
+            do {
+                _ = try await bundle.fetchSequence(region: GenomicRegion(chromosome: "chr1", start: start, end: end))
+                XCTFail("\(start)-\(end) throws regionOutOfBounds")
+            } catch ReferenceBundleError.regionOutOfBounds {
+                // Expected.
+            }
+        }
+
+        // The wait names the async caller. The synchronous test logs the same `end=13`, and its line could fall
+        // inside the one second window and end the wait before this test's own line is in the store.
+        let errors = try errorMessages(
+            containing: "Region out of bounds", since: since, waitingFor: "fetchSequence: Region out of bounds: end=13"
+        )
+        XCTAssertTrue(errors.contains { $0.hasPrefix("fetchSequence: ") && $0.contains("end=13") }, "A read that begins past the end keeps its error. \(errors)")
+        XCTAssertFalse(errors.contains { $0.contains("end=11") }, "A read that overhangs the end is not an error. \(errors)")
     }
 
     func testTheBgzipReaderLogsAnOverhangAtDebugAndARealOutOfBoundsReadAtError() throws {

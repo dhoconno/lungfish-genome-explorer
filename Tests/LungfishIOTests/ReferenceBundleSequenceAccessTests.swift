@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 import LungfishCore
 @testable import LungfishIO
 
@@ -22,15 +23,11 @@ final class ReferenceBundleSequenceAccessTests: XCTestCase {
     private var tempDirectory: URL!
 
     override func setUp() async throws {
-        tempDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ReferenceBundleSequenceAccessTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        tempDirectory = try TestTempDirectory.make(prefix: "ReferenceBundleSequenceAccessTests")
     }
 
     override func tearDown() async throws {
-        if let tempDirectory {
-            try? FileManager.default.removeItem(at: tempDirectory)
-        }
+        if let tempDirectory { TestTempDirectory.cleanup(tempDirectory) }
     }
 
     // MARK: - Name resolution
