@@ -99,6 +99,92 @@ final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
         try assertSnapshot(recordSnapshot(output), Self.cliRecord, "cli record")
     }
 
+    /// R-B3's record line (2.12 review of lane 12.12, Fix 1). A region bundle of a GenBank file keeps none of
+    /// the file's annotations, and the leaf's record says so in the resolved option `source_annotations`.
+    /// The words are a literal here, so a rewording is a deliberate change of this pin. A FASTA file and no
+    /// file give a record without the line. The feature case also shows that every option the in-process
+    /// record held is in the leaf's record with an equal value, except the output bundle (BIO 4).
+    func testTheRecordOfAGenBankDocumentsRegionSaysItsAnnotationsWereNotCarried() async throws {
+        try await requireTools()
+        let genBank = try writeGenBankDocument()
+        let fasta = try writeFASTADocument()
+        let genBankRecords = try await GenBankReader(url: genBank).readAll()
+        let genBankRecord = try XCTUnwrap(genBankRecords.first)
+        let staged = try await StagedSequenceInput.writeFASTA(
+            [.init(name: genBankRecord.sequence.name, bases: genBankRecord.sequence.asString())],
+            fileName: "sequence.fa", prefix: "extract-sequence-input-", projectURL: try project()
+        )
+
+        let fromGenBank = try await leafFeatureBundle(staged: staged, document: genBank, in: "leaf-genbank")
+        let fromFASTA = try await leafFeatureBundle(staged: staged, document: fasta, in: "leaf-fasta")
+        let fromNoFile = try await leafFeatureBundle(staged: staged, document: nil, in: "leaf-no-file")
+
+        let genBankOptions = try record(of: fromGenBank).options
+        XCTAssertEqual(
+            genBankOptions.resolvedDefaults["source_annotations"],
+            .string("not carried: a region bundle of a GenBank document keeps its sequence only")
+        )
+        XCTAssertEqual(Self.filePath(genBankOptions.explicit["source_document"]), URL(fileURLWithPath: genBank.path).standardizedFileURL.path)
+        XCTAssertEqual(try BundleManifest.load(from: fromGenBank).annotations.count, 0, "the bundle keeps no annotation of the file")
+        let fastaOptions = try record(of: fromFASTA).options
+        let noFileOptions = try record(of: fromNoFile).options
+        XCTAssertNil(fastaOptions.resolvedDefaults["source_annotations"], "a FASTA file has no annotation to leave out")
+        XCTAssertNil(noFileOptions.resolvedDefaults["source_annotations"], "no file, so no claim about one")
+        XCTAssertEqual(Self.filePath(fastaOptions.explicit["source_document"]), URL(fileURLWithPath: fasta.path).standardizedFileURL.path)
+        XCTAssertNil(noFileOptions.explicit["source_document"])
+        for options in [fastaOptions, noFileOptions] {
+            XCTAssertNil(options.explicit["source_annotations"])
+            XCTAssertNil(options.defaults["source_annotations"])
+        }
+
+        for name in ["a.gb", "a.gbk", "a.gbff", "a.genbank", "a.gb.gz", "A.GBK"] {
+            XCTAssertTrue(ExtractSequenceSubcommand.isGenBank(URL(fileURLWithPath: "/tmp/\(name)")), name)
+        }
+        for name in ["a.fasta", "a.fa.gz"] {
+            XCTAssertFalse(ExtractSequenceSubcommand.isGenBank(URL(fileURLWithPath: "/tmp/\(name)")), name)
+        }
+
+        let cds = try XCTUnwrap(genBankRecord.annotations.first { $0.type == .cds }, "\(genBankRecord.annotations)")
+        let result = try SequenceExtractor.extract(
+            request: ExtractionRequest(source: .annotation(cds), flank5Prime: 2, concatenateExons: true),
+            sequenceProvider: Self.viewerProvider(genBankRecord.sequence), chromosomeLength: genBankRecord.sequence.length
+        )
+        let inProcessBundleURL = try await inProcessBundle(result, bundleName: "cdsA", concatenateExons: true)
+        let inProcess = try record(of: inProcessBundleURL).options
+        let tables = [
+            ("explicit", inProcess.explicit, genBankOptions.explicit),
+            ("defaults", inProcess.defaults, genBankOptions.defaults),
+            ("resolvedDefaults", inProcess.resolvedDefaults, genBankOptions.resolvedDefaults),
+        ]
+        for (table, inProcessValues, leafValues) in tables {
+            for (key, value) in inProcessValues where key != "output_bundle" {
+                XCTAssertEqual(leafValues[key], value, "\(table) \(key) of the in-process record is in the leaf's record")
+            }
+        }
+    }
+
+    /// The bundle `extract sequence` builds of the GenBank fixture's CDS from the staged FASTA, in a
+    /// folder of its own, as the viewer's argv asks, with `--source-document` when a document is given.
+    private func leafFeatureBundle(staged: URL, document: URL?, in folder: String) async throws -> URL {
+        let parent = root.appendingPathComponent(folder, isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let output = parent.appendingPathComponent("cdsA.lungfishref", isDirectory: true)
+        var arguments = [
+            staged.path, "NC_TEST:3-6,11-14", "--feature-name=geneA", "--feature-type", "CDS", "--strand", "-",
+            "--concatenate-exons", "--flank-5", "2", "--name=cdsA",
+        ]
+        if let document { arguments += ["--source-document", document.path] }
+        arguments += ["-o", output.path, "--quiet"]
+        try await ExtractSequenceSubcommand.parse(arguments).run()
+        return output
+    }
+
+    /// The path a recorded file option names, or nil when the option is not a file.
+    private static func filePath(_ value: ParameterValue?) -> String? {
+        guard case .file(let url)? = value else { return nil }
+        return url.standardizedFileURL.path
+    }
+
     // MARK: - The route at the base
 
     /// The call `createExtractionBundleInProcess` makes, into the project's `Extractions` folder.
