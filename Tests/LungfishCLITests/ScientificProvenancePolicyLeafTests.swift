@@ -275,7 +275,6 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "conda db update": nil,
         "conda envs": nil,
         "conda export-pack": nil,
-        "conda extract": "cli.conda.extract",
         "conda install": "cli.conda.install",
         "conda list": nil,
         "conda lock": nil,

@@ -216,7 +216,6 @@ public enum ScientificProvenancePolicy {
             "cli.conda.db.download",
             writer: "CanonicalMetagenomicsDatabaseInstallProvenanceWriter"
         ),
-        "conda extract": dataWriting("cli.conda.extract", writer: "TaxonomyExtractionPipeline"),
         // `conda install --pack` writes no scientific data, but the environments it puts in place
         // are what a later result has to be traceable to, so each pack run it makes, an install
         // or a reinstall, records its own envelope (lane A52 of Phase 2.10). The other modes of

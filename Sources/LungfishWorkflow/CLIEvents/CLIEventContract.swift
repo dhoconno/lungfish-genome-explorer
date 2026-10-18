@@ -247,7 +247,6 @@ package enum CLIEventContractTable {
         "conda db remove": .text(reason: humanTextOnly),
         "conda envs": .text(reason: humanTextOnly),
         "conda export-pack": .text(reason: humanTextOnly),
-        "conda extract": .text(reason: humanTextOnly),
         "conda list": .text(reason: humanTextOnly),
         "conda lock": .text(reason: humanTextOnly),
         "conda offline-export": .text(reason: humanTextOnly),

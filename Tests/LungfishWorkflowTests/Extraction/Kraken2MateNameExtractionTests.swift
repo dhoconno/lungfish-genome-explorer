@@ -95,8 +95,8 @@ final class Kraken2MateNameExtractionTests: XCTestCase {
     // MARK: - x/1 merged reads in a staged run
 
     /// A merged read named m1/1, staged beside an empty mate, runs as m1. An
-    /// extraction of exact read IDs (`conda extract --no-read-pairs`) finds
-    /// it by that name, as it finds m1/1 in a single-end run.
+    /// extraction of exact read IDs finds it by that name, as it finds m1/1
+    /// in a single-end run.
     func testAStagedRunsMergedReadNamedWithSlashOneIsFoundByItsExactID() async throws {
         let (t, o) = (Kraken2ResultShapes.target, Kraken2ResultShapes.other)
         let pair = try loosePair(r1: ["q1/1"], r2: ["q1/2"], label: "staged")

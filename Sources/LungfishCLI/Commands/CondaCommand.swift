@@ -40,7 +40,6 @@ struct CondaCommand: AsyncParsableCommand {
                 OfflineInstallSubcommand.self,
                 ClassifyCommand.self,
                 DbCommand.self,
-                ExtractSubcommand.self,
             ]
         )
     }
