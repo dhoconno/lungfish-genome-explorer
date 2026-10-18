@@ -82,4 +82,80 @@ final class AnnotationSearchIndexTests: XCTestCase {
         XCTAssertTrue(index.queryAnnotationsInRegion(chromosome: "NC_000002.12", start: 0, end: 1_000).isEmpty)
         XCTAssertEqual(index.aliasMapBuildCount, 1, "Later lookups reuse the groups")
     }
+
+    // MARK: - Variant tracks
+
+    /// One chromosome under two names, the RefSeq accession the bundle calls it and the UCSC
+    /// name its variant track files the rows under, beside a chromosome with no variants.
+    private let variantBundleChromosomes = [
+        ChromosomeInfo(name: "NC_000001.11", length: 1_000, offset: 0, lineBases: 60, lineWidth: 61, aliases: ["chr1"]),
+        ChromosomeInfo(name: "NC_000002.12", length: 1_000, offset: 1_100, lineBases: 60, lineWidth: 61, aliases: ["chr2"]),
+    ]
+
+    /// A bundle with one variant track whose two rows sit on `chr1`, at 150 and 250.
+    private func makeVariantBundle() throws -> ReferenceBundle {
+        let vcfURL = root.appendingPathComponent("variants.vcf")
+        try """
+        ##fileformat=VCFv4.2
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t150\trs111\tA\tG\t50.0\tPASS\t.
+        chr1\t250\trs222\tAT\tA\t35.0\tPASS\t.
+        """.write(to: vcfURL, atomically: true, encoding: .utf8)
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: root.appendingPathComponent("variants.db"))
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Variant alias groups",
+            identifier: "test.variant-alias-groups",
+            source: SourceInfo(organism: "Test", assembly: "test"),
+            genome: GenomeInfo(path: "s.fa.gz", indexPath: "s.fa.gz.fai", totalLength: 2_000, chromosomes: variantBundleChromosomes),
+            annotations: [],
+            variants: [VariantTrackInfo(id: "v", name: "Variants", path: "v.bcf", indexPath: "v.csi", databasePath: "variants.db")]
+        )
+        return ReferenceBundle(url: root, manifest: manifest)
+    }
+
+    /// Variants filed under `chr1` answer to the bundle's `NC_000001.11` through the alias
+    /// groups, in the synchronous queries and in the off-main ones. Each kind of query is the
+    /// first to ask on an index of its own, so neither can lean on groups the other built.
+    @MainActor func testVariantQueriesFindVariantsFiledUnderAnAliasOfTheBundleName() async throws {
+        let bundle = try makeVariantBundle()
+
+        let syncIndex = AnnotationSearchIndex()
+        syncIndex.buildIndex(bundle: bundle, chromosomes: variantBundleChromosomes)
+        let syncResults = syncIndex.queryVariantsInRegion(chromosome: "NC_000001.11", start: 0, end: 1_000)
+        XCTAssertEqual(syncResults.map(\.name).sorted(), ["rs111", "rs222"], "The rows filed under chr1 answer to NC_000001.11")
+        XCTAssertEqual(syncIndex.queryVariantCountInRegion(chromosome: "NC_000001.11", start: 0, end: 1_000), 2)
+        XCTAssertTrue(
+            syncIndex.queryVariantsInRegion(chromosome: "NC_000002.12", start: 0, end: 1_000).isEmpty,
+            "A chromosome with another alias group finds none of them"
+        )
+
+        let offMainIndex = AnnotationSearchIndex()
+        offMainIndex.buildIndex(bundle: bundle, chromosomes: variantBundleChromosomes)
+        let offMainResults = await offMainIndex.queryVariantsInRegionOffMain(chromosome: "NC_000001.11", start: 0, end: 1_000)
+        let offMainCount = await offMainIndex.queryVariantCountInRegionOffMain(chromosome: "NC_000001.11", start: 0, end: 1_000)
+
+        XCTAssertEqual(offMainResults.count, 2)
+        XCTAssertEqual(offMainResults.map(\.name), syncResults.map(\.name))
+        XCTAssertEqual(offMainResults.map(\.start), syncResults.map(\.start))
+        XCTAssertEqual(offMainResults.map(\.end), syncResults.map(\.end))
+        XCTAssertEqual(offMainResults.map(\.ref), syncResults.map(\.ref))
+        XCTAssertEqual(offMainResults.map(\.alt), syncResults.map(\.alt))
+        XCTAssertEqual(offMainCount, 2)
+    }
+
+    /// A variant track's alias groups are built by the first lookup, once, whether that
+    /// lookup is the synchronous query or the off-main one.
+    @MainActor func testVariantAliasLookupBuildsTheGroupsOnce() async throws {
+        let index = AnnotationSearchIndex()
+        index.buildIndex(bundle: try makeVariantBundle(), chromosomes: variantBundleChromosomes)
+        XCTAssertEqual(index.aliasMapBuildCount, 0, "Opening the bundle builds no alias groups")
+
+        XCTAssertEqual(index.queryVariantsInRegion(chromosome: "NC_000001.11", start: 0, end: 1_000).count, 2)
+        XCTAssertEqual(index.aliasMapBuildCount, 1)
+
+        let offMainResults = await index.queryVariantsInRegionOffMain(chromosome: "NC_000001.11", start: 0, end: 1_000)
+        XCTAssertEqual(offMainResults.count, 2)
+        XCTAssertEqual(index.aliasMapBuildCount, 1, "The off-main query reuses the groups")
+    }
 }

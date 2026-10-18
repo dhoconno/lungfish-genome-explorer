@@ -7,6 +7,23 @@ import XCTest
 import LungfishCore
 @testable import LungfishApp
 
+/// SplitMix64, so the shuffled names of a failing run come back on any machine.
+private struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var mixed = state
+        mixed = (mixed ^ (mixed >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        mixed = (mixed ^ (mixed >> 27)) &* 0x94D0_49BB_1331_11EB
+        return mixed ^ (mixed >> 31)
+    }
+}
+
 @MainActor
 final class ReferenceBundleRecordTableTests: XCTestCase {
 
@@ -95,5 +112,79 @@ final class ReferenceBundleRecordTableTests: XCTestCase {
         let byKey = names.indices.sorted { keys[$0] < keys[$1] }.map { names[$0] }
         XCTAssertEqual(byKey, names.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
         XCTAssertEqual(Set(keys).count, names.count, "Distinct names get distinct keys")
+    }
+
+    /// Five alphabets that stress the keys: letters with digits and common punctuation, upper and
+    /// lower case with digit runs, chromosome-like names, spaces with heavy ASCII punctuation, and
+    /// a non-ASCII letter. Names drawn from them tie on case, on leading zeros and on repeats.
+    private static let alphabets: [[Character]] = [
+        Array("abcXYZ019_.-"),
+        Array("aAbB0123456789"),
+        Array("chrCHR0123_.|:-"),
+        Array("ab0 1/!$~`^+=<>{}[]()'\"@*\\&#%?;,"),
+        Array("ab01\u{E9}"),
+    ]
+
+    private static func randomName(from alphabet: [Character], using generator: inout SplitMix64) -> String {
+        let length = 1 + Int(generator.next() % 8)
+        return String((0..<length).map { _ in alphabet[Int(generator.next() % UInt64(alphabet.count))] })
+    }
+
+    /// One row per name, with the sample `S<position>` so rows of equal name stay apart.
+    private func makeRows(names: [String]) -> [ReferenceBundleRecordRow] {
+        names.enumerated().map { position, name in
+            ReferenceBundleRecordRow(
+                summary: BundleBrowserSequenceSummary(
+                    name: name,
+                    displayDescription: nil,
+                    length: Int64(100 + position),
+                    aliases: [],
+                    isPrimary: true,
+                    isMitochondrial: false,
+                    metrics: nil
+                ),
+                values: [:],
+                sampleID: "S\(position)"
+            )
+        }
+    }
+
+    /// The pairs `(summary.name, sampleID)` of `rows`, in order, as one string each.
+    private func pairs(_ rows: [ReferenceBundleRecordRow]) -> [String] {
+        rows.map { "\($0.summary.name)@\($0.sampleID ?? "")" }
+    }
+
+    /// The order the table shows, ascending and descending, is the order the plain stable sort by
+    /// the table's own comparator gives, on shuffled names with repeats. The expected rows come from
+    /// the comparator, so the test holds on any locale and pins no order by hand.
+    func testSequenceSortMatchesTheComparatorOnSeededNames() {
+        var generator = SplitMix64(seed: 42)
+
+        for (alphabetIndex, alphabet) in Self.alphabets.enumerated() {
+            for round in 0..<10 {
+                let count = 50 + Int(generator.next() % 151)
+                var names = (0..<count).map { _ in Self.randomName(from: alphabet, using: &generator) }
+                for _ in 0..<(count / 10) {
+                    names.append(names[Int(generator.next() % UInt64(names.count))])
+                }
+                names.shuffle(using: &generator)
+
+                let rows = makeRows(names: names)
+                let table = ReferenceBundleRecordTable(frame: NSRect(x: 0, y: 0, width: 700, height: 300))
+                table.configure(dynamicFields: [], rows: rows)
+                let ascendingRows = table.displayedRows
+                table.tableView.sortDescriptors = [NSSortDescriptor(key: "sequence", ascending: false)]
+                let descendingRows = table.displayedRows
+
+                for (ascending, displayed) in [(true, ascendingRows), (false, descendingRows)] {
+                    let expected = rows.sorted { table.compareRows($0, $1, by: "sequence", ascending: ascending) }
+                    XCTAssertEqual(
+                        pairs(displayed),
+                        pairs(expected),
+                        "alphabet \(alphabetIndex) round \(round) \(ascending ? "ascending" : "descending")"
+                    )
+                }
+            }
+        }
     }
 }
