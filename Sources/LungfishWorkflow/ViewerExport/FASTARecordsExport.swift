@@ -123,19 +123,25 @@ public enum FASTARecordsExport {
 
     /// The leaf's invocation, with absolute standardized paths. The begin helper passes its `arguments()` to the
     /// runner and to the row's command, and the leaf records its `canonicalArgv()`. `sequences` spell the names on the
-    /// command line, in the `--sequence=<name>` form so that a name may start with a dash.
+    /// command line, in the `--sequence=<name>` form so that a name may start with a dash. `lineWidth` asks the leaf
+    /// to wrap each record's bases, and a run that leaves it out writes the records as stored.
     public static func invocation(
         sourceURL: URL,
         sequences: [String] = [],
         selectionURL: URL? = nil,
+        lineWidth: Int? = nil,
         outputURL: URL,
         force: Bool,
         emitsEvents: Bool = true
     ) -> ViewerExportInvocation {
-        ViewerExportInvocation(
+        var leafArguments = sequences.map { "--sequence=\($0)" }
+        if let lineWidth {
+            leafArguments += ["--line-width", String(lineWidth)]
+        }
+        return ViewerExportInvocation(
             commandPath: commandPath,
             input: sourceURL.standardizedFileURL.path,
-            leafArguments: sequences.map { "--sequence=\($0)" },
+            leafArguments: leafArguments,
             selection: selectionURL?.standardizedFileURL.path,
             output: outputURL.standardizedFileURL.path,
             force: force,

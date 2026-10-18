@@ -60,7 +60,8 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             With no region, --sequence names a whole sequence to write as stored, and
             --selection names a file the app wrote that lists them. The input is a
             plain FASTA file, the records come in the order asked, -o is required, and
-            an existing -o file is refused without --force.
+            an existing -o file is refused without --force. With --line-width the
+            sequence lines are wrapped to that width.
 
             Examples:
               lungfish-cli extract sequence genome.fasta chr1:1000-2000
@@ -119,9 +120,15 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("line-width"),
-        help: "FASTA line width"
+        help: "FASTA line width (default: 70). With --sequence or --selection, a record is wrapped to this width only when it is given"
     )
-    var lineWidth: Int = 70
+    var lineWidthArgument: Int?
+
+    /// The width the FASTA and bundle runs wrap at.
+    var lineWidth: Int {
+        get { lineWidthArgument ?? 70 }
+        set { lineWidthArgument = newValue }
+    }
 
     @Flag(
         name: .customLong("bundle"),

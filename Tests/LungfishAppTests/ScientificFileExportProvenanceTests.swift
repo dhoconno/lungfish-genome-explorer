@@ -38,17 +38,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: marker), Data("old artifact".utf8))
     }
 
-    @MainActor
-    func testSequenceContextMenuFailurePreservesPreviousUserExport() throws {
-        let output = tempDir.appendingPathComponent("previous.fasta")
-        let previous = Data("previous user export".utf8)
-        try previous.write(to: output)
-        try FileManager.default.createDirectory(at: ProvenanceRecorder.fileSidecarURL(for: output), withIntermediateDirectories: true)
-        let sequence = try Sequence(name: "fixture", alphabet: .dna, bases: "ACGT")
-        XCTAssertThrowsError(try SequenceViewerView.writeSequenceFASTAExport(sequence, sourceURLs: [], to: output))
-        XCTAssertEqual(try Data(contentsOf: output), previous)
-    }
-
     func testPublicationRollbackPreservesReplacementAndReportsRecoverableOldBytes() throws {
         let output = tempDir.appendingPathComponent("owned.txt")
         let staged = tempDir.appendingPathComponent("staged.txt")
@@ -326,118 +315,9 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
     }
 
-    @MainActor
-    func testSequenceContextMenuFASTAExportWritesScientificProvenanceSidecar() throws {
-        let sourceURL = tempDir.appendingPathComponent("source.lungfishref", isDirectory: true)
-        let outputURL = tempDir.appendingPathComponent("selected-sequence.fasta")
-        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
-        try ">source\nACGT\n".write(
-            to: sourceURL.appendingPathComponent("reference.fasta"),
-            atomically: true,
-            encoding: .utf8
-        )
-        let sequence = try Sequence(
-            name: "chr1",
-            description: "visible track",
-            alphabet: .dna,
-            bases: String(repeating: "ACGT", count: 25)
-        )
-
-        let sidecarURL = try SequenceViewerView.writeSequenceFASTAExport(
-            sequence,
-            sourceURLs: [sourceURL],
-            to: outputURL,
-            runClock: ProvenanceRunClock()
-        )
-
-        XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        let fasta = try readRepositorySource(outputURL)
-        XCTAssertTrue(fasta.hasPrefix(">chr1 visible track\n"))
-        XCTAssertTrue(fasta.contains(String(repeating: "ACGT", count: 20)))
-
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
-        XCTAssertEqual(envelope.workflowName, "lungfish app sequence fasta export")
-        XCTAssertEqual(envelope.output?.path, outputURL.path)
-        XCTAssertEqual(envelope.output?.format, .fasta)
-        XCTAssertNotNil(envelope.output?.checksumSHA256)
-        XCTAssertEqual(envelope.options.explicit["sequenceName"]?.stringValue, "chr1")
-        XCTAssertEqual(envelope.options.defaults["lineWidth"]?.integerValue, 80)
-        XCTAssertEqual(envelope.options.resolvedDefaults["sequenceLength"]?.integerValue, sequence.length)
-        XCTAssertEqual(envelope.options.resolvedDefaults["sourceCount"]?.integerValue, 1)
-        XCTAssertTrue(envelope.argv.contains("--sequence"))
-        XCTAssertTrue(envelope.files.contains { $0.path == sourceURL.path && $0.role == .input })
-    }
-
-    @MainActor
-    func testSequenceContextMenuFASTAExportRemovesPayloadWhenProvenanceSidecarFails() throws {
-        let outputURL = tempDir.appendingPathComponent("blocked-sidecar.fasta")
-        try FileManager.default.createDirectory(
-            at: ProvenanceRecorder.fileSidecarURL(for: outputURL),
-            withIntermediateDirectories: true
-        )
-        let sequence = try Sequence(name: "chr1", alphabet: .dna, bases: "ACGT")
-
-        XCTAssertThrowsError(
-            try SequenceViewerView.writeSequenceFASTAExport(
-                sequence,
-                sourceURLs: [],
-                to: outputURL,
-                runClock: ProvenanceRunClock()
-            )
-        )
-        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
-    }
-
-    @MainActor
-    func testSequenceContextMenuSourceURLsUseSingleDocumentOnlyWhenUnambiguous() throws {
-        let sourceURL = tempDir.appendingPathComponent("single.fasta")
-        try ">seq1\nACGT\n>seq2\nACGA\n".write(to: sourceURL, atomically: true, encoding: .utf8)
-        let seq1 = try Sequence(name: "seq1", alphabet: .dna, bases: "ACGT")
-        let seq2 = try Sequence(name: "seq2", alphabet: .dna, bases: "ACGA")
-        let document = LoadedDocument(url: sourceURL, type: .fasta)
-        document.sequences = [seq1, seq2]
-
-        let viewController = ViewerViewController()
-        _ = viewController.view
-        viewController.displayDocuments([document])
-
-        let state = try XCTUnwrap(viewController.viewerView.multiSequenceState)
-        let secondInfo = try XCTUnwrap(state.stackedSequences.last)
-        XCTAssertEqual(
-            viewController.viewerView.sequenceFASTAExportSourceURLs(for: secondInfo),
-            [sourceURL.standardizedFileURL]
-        )
-    }
-
-    @MainActor
-    func testSequenceContextMenuSourceURLsUseSelectedDocumentInMultiDocumentStack() throws {
-        let firstURL = tempDir.appendingPathComponent("first.fasta")
-        let secondURL = tempDir.appendingPathComponent("second.fasta")
-        try ">first\nACGT\n".write(to: firstURL, atomically: true, encoding: .utf8)
-        try ">second\nTTTT\n".write(to: secondURL, atomically: true, encoding: .utf8)
-        let firstSequence = try Sequence(name: "first", alphabet: .dna, bases: "ACGT")
-        let secondSequence = try Sequence(name: "second", alphabet: .dna, bases: "TTTT")
-        let firstDocument = LoadedDocument(url: firstURL, type: .fasta)
-        firstDocument.sequences = [firstSequence]
-        let secondDocument = LoadedDocument(url: secondURL, type: .fasta)
-        secondDocument.sequences = [secondSequence]
-
-        let viewController = ViewerViewController()
-        _ = viewController.view
-        viewController.displayDocuments([firstDocument, secondDocument])
-
-        let state = try XCTUnwrap(viewController.viewerView.multiSequenceState)
-        let secondInfo = try XCTUnwrap(state.stackedSequences.last)
-        XCTAssertEqual(
-            viewController.viewerView.sequenceFASTAExportSourceURLs(for: secondInfo),
-            [secondURL.standardizedFileURL]
-        )
-    }
-
     func testStandaloneScientificExportersWriteScientificProvenanceSidecars() throws {
         let root = repositoryRoot()
         let files = [
-            ("Sources/LungfishApp/Views/Viewer/SequenceViewerView+Drawing.swift", "lungfish app sequence fasta export"),
             ("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift", "lungfish app taxonomy result export"),
             ("Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift", "lungfish app phylogenetic subtree export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage results export"),

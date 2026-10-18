@@ -5,15 +5,13 @@
 // Phase 2.12 lane 12.34 M1 (QA 1). These pins pass at the base, with no Sources edit, and show the bytes and the
 // record each in-app writer leaves, so the conversion that follows can name what moved.
 //
-// - The sequence FASTA writer is called as its context menu calls it, so its bytes and its whole record are pinned.
-// - The FASTQ metadata writer sits inside a save panel completion, so no test reaches its record without driving the
-//   panel. A panel sheet answered from a test aborts the test process (malloc, "freed pointer was not the last
-//   allocation"), so these pins read the state the writer starts from and the CSV text it writes. The cases cover the
-//   Samples tab, the symmetric and the asymmetric Demux tab, each with and without a cell edited in the drawer and not
-//   saved. The record is pinned by the frozen writer of its parity class.
-// - The FASTA records writer sits inside a save panel completion too. These pins reach only its source set
-//   (fastaExportSourceURLs). Its bytes, its record and the records each of the five callers hand it are not pinned
-//   here, and lane 12.34 pins them before it changes the writer.
+// - The sequence FASTA writer's pins ended with the writer (A12). Its bytes and its record are frozen in
+//   SequenceFASTAExportCLIGUIParityReplayTests.
+// - The FASTA records and FASTQ metadata writers sit inside a save panel completion, so no test reaches their record
+//   without driving the panel. A panel sheet answered from a test aborts the test process (malloc, "freed pointer was
+//   not the last allocation"), so these pins read the state each writer starts from and the bytes it writes. The
+//   FASTQ cases cover the Samples tab, the symmetric and the asymmetric Demux tab, each with and without a cell
+//   edited in the drawer and not saved. The record of each is pinned by the frozen writer of its parity class.
 
 import AppKit
 import Foundation
@@ -35,58 +33,6 @@ final class ViewerFileExportPinTests: XCTestCase {
 
     override func tearDownWithError() throws {
         TestTempDirectory.cleanup(scratch)
-    }
-
-    // MARK: - Sequence FASTA (A12)
-
-    func testSequenceFASTAWrapsAt80ColumnsAndNamesTheDescription() throws {
-        let source = scratch.appendingPathComponent("source.fasta")
-        try Data(">chr1\nACGT\n".utf8).write(to: source)
-        let output = scratch.appendingPathComponent("selected.fasta")
-        let sequence = try Sequence(name: "chr1", description: "visible track", alphabet: .dna, bases: String(repeating: "ACGT", count: 50))
-
-        try SequenceViewerView.writeSequenceFASTAExport(sequence, sourceURLs: [source], to: output)
-
-        let eighty = String(repeating: "ACGT", count: 20)
-        XCTAssertEqual(
-            try String(contentsOf: output, encoding: .utf8),
-            ">chr1 visible track\n\(eighty)\n\(eighty)\n\(String(repeating: "ACGT", count: 10))\n"
-        )
-        let record = try envelope(for: output)
-        XCTAssertEqual(record.toolName, "Lungfish.app")
-        XCTAssertEqual(record.tool.kind, "gui")
-        XCTAssertEqual(record.workflowName, "lungfish app sequence fasta export")
-        XCTAssertEqual(
-            record.argv,
-            ["Lungfish Genome Explorer", "export-sequence-fasta", "--source", source.path,
-             "--sequence", "chr1", "--output", output.path]
-        )
-        XCTAssertEqual(record.durableReplayArgv, record.argv)
-        XCTAssertEqual(record.output?.format, .fasta)
-        XCTAssertEqual(record.options.explicit.keys.sorted(), ["outputPath", "sequenceDescription", "sequenceName", "sourcePaths"])
-        XCTAssertEqual(record.options.explicit["sequenceName"], .string("chr1"))
-        XCTAssertEqual(record.options.explicit["sequenceDescription"], .string("visible track"))
-        XCTAssertEqual(record.options.defaults.keys.sorted(), ["lineWidth", "outputFormat"])
-        XCTAssertEqual(record.options.defaults["lineWidth"], .integer(80))
-        XCTAssertEqual(record.options.defaults["outputFormat"], .string("fasta"))
-        XCTAssertEqual(record.options.resolvedDefaults.keys.sorted(), ["outputByteCount", "sequenceLength", "sourceCount"])
-        XCTAssertEqual(record.options.resolvedDefaults["sequenceLength"], .integer(200))
-        XCTAssertEqual(record.options.resolvedDefaults["outputByteCount"], .integer(20 + 81 + 81 + 41))
-        XCTAssertEqual(record.options.resolvedDefaults["sourceCount"], .integer(1))
-        XCTAssertEqual(inputPaths(of: record), [normalized(source)])
-    }
-
-    func testSequenceFASTAOfOneFullLineEndsWithoutABlankLine() throws {
-        let output = scratch.appendingPathComponent("one-line.fasta")
-        let sequence = try Sequence(name: "s", alphabet: .dna, bases: String(repeating: "A", count: 80))
-
-        try SequenceViewerView.writeSequenceFASTAExport(sequence, sourceURLs: [], to: output)
-
-        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), ">s\n\(String(repeating: "A", count: 80))\n")
-        let record = try envelope(for: output)
-        XCTAssertEqual(record.options.explicit.keys.sorted(), ["outputPath", "sequenceName", "sourcePaths"])
-        XCTAssertEqual(record.argv, ["Lungfish Genome Explorer", "export-sequence-fasta", "--sequence", "s", "--output", output.path])
-        XCTAssertEqual(inputPaths(of: record), [])
     }
 
     // MARK: - FASTA records (A11)

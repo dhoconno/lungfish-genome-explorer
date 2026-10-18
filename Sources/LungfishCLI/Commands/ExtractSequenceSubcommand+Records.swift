@@ -31,6 +31,9 @@ extension ExtractSequenceSubcommand {
         if reverseComplement || flank != 0 || flank5 != nil || flank3 != nil {
             problems.append("--reverse-complement and --flank describe a region. A run that names sequences writes them as stored.")
         }
+        if let lineWidthArgument, lineWidthArgument < 1 {
+            problems.append("--line-width must be at least 1.")
+        }
         if output == nil {
             problems.append("-o is required when sequences are named.")
         }
@@ -54,6 +57,7 @@ extension ExtractSequenceSubcommand {
             sourceURL: URL(fileURLWithPath: input),
             sequences: sequenceNames,
             selectionURL: selection.map { URL(fileURLWithPath: $0) },
+            lineWidth: lineWidthArgument,
             outputURL: URL(fileURLWithPath: output ?? ""),
             force: force,
             emitsEvents: globalOptions.outputFormat == .json
@@ -107,10 +111,14 @@ extension ExtractSequenceSubcommand {
         }
         var payload = Data()
         for record in records {
-            payload.append(document.bytes(of: record))
+            let stored = document.bytes(of: record)
+            payload.append(lineWidthArgument.map { FASTARecordsExport.rewrapped(stored, lineWidth: $0) } ?? stored)
         }
 
         var explicitOptions: [String: ParameterValue] = ["outputPath": .file(outputURL)]
+        if let lineWidthArgument {
+            explicitOptions["lineWidth"] = .integer(lineWidthArgument)
+        }
         if let selectionURL {
             explicitOptions["selection"] = .file(selectionURL)
         } else {

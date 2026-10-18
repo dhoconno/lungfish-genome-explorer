@@ -21,7 +21,8 @@ failed line. The text goes to standard error, and -o is required.
 With no region, --sequence names a whole sequence to write as stored, and
 --selection names a file the app wrote that lists them. The input is a
 plain FASTA file, the records come in the order asked, -o is required, and
-an existing -o file is refused without --force.
+an existing -o file is refused without --force. With --line-width the
+sequence lines are wrapped to that width.
 
 Examples:
   lungfish-cli extract sequence genome.fasta chr1:1000-2000
@@ -51,7 +52,9 @@ OPTIONS:
   -o, --output <output>   Output file path (default: stdout). Required with
                           --format json
   --line-width <line-width>
-                          FASTA line width (default: 70)
+                          FASTA line width (default: 70). With --sequence or
+                          --selection, a record is wrapped to this width only
+                          when it is given
   --bundle                Build a reference bundle of the region from a
                           .lungfishref input, keeping its annotation and
                           variant tracks in the region. Needs -o

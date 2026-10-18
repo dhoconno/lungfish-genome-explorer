@@ -8,14 +8,19 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
-/// Writes the records a viewer holds as one FASTA file beside the export, off the main actor.
-private enum FASTARecordsStaging {
-    /// Writes `data` as the staged records in `folder` through one `DurableReplace.replace`, so the name holds the
+/// Writes the FASTA text a viewer holds as one file beside the export, off the main actor. The sequence view's export
+/// (A12) stages its sequence the same way.
+enum FASTARecordsStaging {
+    /// Writes `data` as the staged file `name` in `folder` through one `DurableReplace.replace`, so the name holds the
     /// whole file or nothing, on APFS and ExFAT alike (the contract of `StagedSequenceInput`).
     @concurrent
-    static func write(_ data: Data, in folder: URL) async throws -> URL {
-        _ = try DurableReplace.replace(data, named: FASTARecordsExport.stagedFileName, in: folder)
-        return folder.appendingPathComponent(FASTARecordsExport.stagedFileName)
+    static func write(
+        _ data: Data,
+        named name: String = FASTARecordsExport.stagedFileName,
+        in folder: URL
+    ) async throws -> URL {
+        _ = try DurableReplace.replace(data, named: name, in: folder)
+        return folder.appendingPathComponent(name)
     }
 }
 
@@ -132,6 +137,17 @@ extension ViewerViewController {
             try? FileManager.default.removeItem(at: folder)
             return nil
         }
+        return settleStagedExport(begun, outputURL: outputURL, folder: folder)
+    }
+
+    /// Settles the staged inputs once the row's task ends. A run that published goes on keeping them, since the record
+    /// names them. A run that failed, was cancelled or was refused removes them when it left no output, since no
+    /// record names them and the staged text can be large.
+    static func settleStagedExport(
+        _ begun: (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>),
+        outputURL: URL,
+        folder: URL
+    ) -> (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>) {
         let settled = Task { @MainActor in
             let outcome = await begun.task.value
             if case .completed = outcome {
