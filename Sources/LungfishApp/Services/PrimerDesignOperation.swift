@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 
@@ -40,27 +41,37 @@ enum PrimerDesignOperation {
   /// The `lungfish-cli primers design <engine>` command that reproduces a run of the dialog's
   /// current settings into `destination`, or nil when the settings are invalid or name an
   /// option the command cannot say (see ``PrimerDesignCLIArguments``). The command names every
-  /// value the dialog controls, so it replays the parameters the run used.
+  /// value the dialog controls, so it replays the parameters the run used. It is ``cliArgv(state:destination:)``
+  /// with each word shell-escaped.
   static func cliCommand(state: PrimerDesignDialogState, destination: URL) -> String? {
+    guard let argv = cliArgv(state: state, destination: destination) else { return nil }
+    return OperationCenter.buildCLICommand(subcommand: "", args: Array(argv.dropFirst()))
+  }
+
+  /// The words of ``cliCommand(state:destination:)``, the executable name, the subcommand words and the
+  /// arguments, or nil when the dialog has no command. A design run records them as its provenance argv
+  /// (`docs/contracts/CLI-EQUIVALENCE.md`), so the Provenance tab names the command Copy CLI Command gives
+  /// and not the app's launch arguments (Phase 2.12 lane 12.17, A67-ARGV).
+  static func cliArgv(state: PrimerDesignDialogState, destination: URL) -> [String]? {
     do {
-      let subcommand: String
+      let engine: String
       let arguments: [String]?
       switch state.engine {
       case .primer3:
-        subcommand = "primers design primer3"
+        engine = "primer3"
         arguments = PrimerDesignCLIArguments.primer3(
           selections: try state.primer3Selections(), output: destination, options: try state.primer3Options())
       case .primalScheme:
-        subcommand = "primers design primalscheme3"
+        engine = "primalscheme3"
         arguments = PrimerDesignCLIArguments.primalScheme3(
           inputs: state.inputURLs, output: destination, grouping: state.grouping,
           options: try state.primalSchemeOptions(), executableURL: state.primalschemeExecutableURL)
       case .olivar, .varVAMP:
-        subcommand = state.engine == .olivar ? "primers design olivar" : "primers design varvamp"
+        engine = state.engine == .olivar ? "olivar" : "varvamp"
         arguments = PrimerDesignCLIArguments.primerScheme(
           inputs: state.inputURLs, output: destination, options: try state.primerSchemeOptions())
       }
-      return arguments.map { OperationCenter.buildCLICommand(subcommand: subcommand, args: $0) }
+      return arguments.map { [CLICommandIdentity.executableName, "primers", "design", engine] + $0 }
     } catch {
       return nil
     }

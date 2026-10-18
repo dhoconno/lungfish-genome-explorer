@@ -178,7 +178,8 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
                 "probeMinTmOffsetOverPrimers": options.probeMinTmOffsetOverPrimers.map(ParameterValue.number) ?? .null,
             ]
             let invocation = PrimerAnalysisWrapperInvocation(
-                argv: CommandLine.arguments, callerVersion: runtime.appVersion ?? WorkflowRun.currentAppVersion,
+                argv: PrimerDesignOperation.cliArgv(state: state, destination: destination) ?? CommandLine.arguments,
+                callerVersion: runtime.appVersion ?? WorkflowRun.currentAppVersion,
                 explicitOptions: visibleOptions, runtimeIdentity: runtime
             )
             let request = Primer3DesignRequest(
@@ -231,5 +232,29 @@ extension PrimerDesignCLIGUIParityReplayTests {
         let argv = try XCTUnwrap(json["argv"] as? [String], "side \(run.side) records its argv", file: file, line: line)
         XCTAssertEqual(argv.first.map { URL(fileURLWithPath: $0).lastPathComponent }, cli.lastPathComponent, file: file, line: line)
         XCTAssertEqual(Array(argv.dropFirst()), arguments, "side \(run.side): the CLI ran the recorded command", file: file, line: line)
+    }
+}
+
+extension PrimerDesignCLIGUIParityReplayTests {
+    /// A67-ARGV (2.12 lane 12.17, `CLI-EQUIVALENCE.md` line 16). The in-process run records the row's command as its
+    /// provenance argv, the words Copy CLI Command gives, and not the app's launch arguments. Side A builds its request
+    /// as `PrimerDesignDialogPresenter.run` does, so this reads side A's `provenance/wrapper.json`.
+    func testTheDesignRunRecordsTheRecordedCommandAsItsProvenanceArgv() async throws {
+        do {
+            _ = try await CondaManager.shared.toolPath(name: "primer3_core", environment: "primer3")
+        } catch {
+            try ToolAvailability.skipOrFail("primer3 is not installed in the managed environment: \(error)")
+        }
+        let root = scratch.appendingPathComponent("argv", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Self.writeFixture(root)
+        let outcome = await sideA(root)
+        XCTAssertEqual(outcome.end, .completed, outcome.detail)
+        let row = PrimerDesignOperation.cliCommand(state: await Self.dialog(in: root), destination: Self.bundleURL(in: root))
+        let wrapper = Self.bundleURL(in: root).appendingPathComponent("provenance/wrapper.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: wrapper)) as? [String: Any])
+        XCTAssertEqual(
+            json["argv"] as? [String], [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row))
+        )
     }
 }

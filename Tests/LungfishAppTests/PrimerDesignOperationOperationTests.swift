@@ -10,6 +10,7 @@
 // row's log, since it is not a lungfish-cli command.
 
 import XCTest
+import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
@@ -89,6 +90,32 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         let command = try RecordedCLICommand.parse(item.cliCommand, as: PrimerDesignCommand.PrimalScheme3Subcommand.self)
         XCTAssertEqual(command.msaPaths, ["/input/mhc 1.fasta"])
         XCTAssertEqual(command.outputPath, destination.path)
+    }
+
+    // MARK: - argv (2.12 lane 12.17, A67-ARGV)
+
+    /// The argv a design run records as its provenance is the row's command word for word, so the Provenance tab and
+    /// Copy CLI Command name one command. A dialog with no command has no argv either, and the presenter then keeps
+    /// the app's launch arguments. The live class shows the Primer3 run's record
+    /// (`PrimerDesignCLIGUIParityReplayTests.testTheDesignRunRecordsTheRecordedCommandAsItsProvenanceArgv`).
+    func testTheArgvIsTheRowsCommandWordForWordForEachEngine() throws {
+        for engine in [PrimerDesignEngine.primalScheme, .olivar, .varVAMP] {
+            let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
+            state.engine = engine
+            state.addInputs([URL(fileURLWithPath: "/input/mhc 1.fasta")])
+            let argv = try XCTUnwrap(PrimerDesignOperation.cliArgv(state: state, destination: destination), "\(engine)")
+            let command = PrimerDesignOperation.cliCommand(state: state, destination: destination)
+            XCTAssertEqual(
+                argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: command)), "\(engine)"
+            )
+            XCTAssertEqual(Array(argv.prefix(3)), [CLICommandIdentity.executableName, "primers", "design"], "\(engine)")
+        }
+        // A Primer3 dialog that has read no template selects no record, so it has no command.
+        let unread = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
+        unread.engine = .primer3
+        unread.addInputs([URL(fileURLWithPath: "/input/mhc 1.fasta")])
+        XCTAssertNil(PrimerDesignOperation.cliArgv(state: unread, destination: destination))
+        XCTAssertNil(PrimerDesignOperation.cliCommand(state: unread, destination: destination))
     }
 
     // MARK: - start

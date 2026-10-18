@@ -116,8 +116,11 @@ final class PrimerDesignDialogPresenter {
           state.engine == .varVAMP && state.schemeMode != .tiled
             ? "unpooled unless native output assigns a pool" : "native fixed two-pool tiled workflow")
       }
+      // The run records the command its row records (A67-ARGV). A dialog the command cannot
+      // say keeps the app's launch arguments until each such rule has a command (2.12 lane 12.17).
       let invocation = PrimerAnalysisWrapperInvocation(
-        argv: CommandLine.arguments, callerVersion: runtime.appVersion ?? WorkflowRun.currentAppVersion,
+        argv: PrimerDesignOperation.cliArgv(state: state, destination: destination) ?? CommandLine.arguments,
+        callerVersion: runtime.appVersion ?? WorkflowRun.currentAppVersion,
         explicitOptions: visibleOptions, runtimeIdentity: runtime)
       let checksums = state.inputSummaries.mapValues(\.checksumSHA256)
       let executable: URL? = state.engine == .primalScheme ? state.primalschemeExecutableURL : nil

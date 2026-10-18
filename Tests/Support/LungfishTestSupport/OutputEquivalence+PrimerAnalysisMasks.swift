@@ -22,9 +22,11 @@ extension OutputEquivalence.MaskPolicy {
     /// provenance envelope masks. It hides every sha256, checksumSHA256, byteSize and fileSize value in every record and
     /// payload of the bundle, not only those of files that hold the run's own UUIDs. Each file is still compared as
     /// text, so a changed pair, template, option or flag still differs. argv and reproducibleCommand are hidden because
-    /// PrimerDesignDialogPresenter.swift:120 still records the app's launch arguments and not the recorded command
-    /// (CLI-EQUIVALENCE.md line 16), and they leave hostKeys when that is fixed. explicit is hidden because the app
-    /// names its dialog controls and the CLI its flags.
+    /// their first word differs by design. The app records the row's command, which starts with the executable name
+    /// (PrimerDesignOperation.cliArgv, 2.12 lane 12.17), and the CLI records the path it ran from. With both keys in the
+    /// compare, A against C differed only there, at argv[0] and reproducibleCommand of provenance/wrapper.json and
+    /// execution-provenance/normalization.json (measured by lane 12.17). The Primer3 class pins each side's vector
+    /// apart. explicit is hidden because the app names its dialog controls and the CLI its flags.
     public static var primerAnalysis: OutputEquivalence.MaskPolicy {
         var policy = OutputEquivalence.MaskPolicy.standard
         let digests = OutputEquivalence.Mask(name: "primerAnalysisDigests") { text, _ in
