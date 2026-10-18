@@ -54,11 +54,13 @@ struct ReferenceBundleViewportInput: Equatable {
         return lhs.mappingResult == rhs.mappingResult
     }
 
-    /// A manifest's version without its per-sequence arrays: its identifier,
-    /// modification date, sequence count and track declarations.
+    /// A manifest's version without its per-sequence arrays: its name, which
+    /// titles the document and the table, identifier, modification date,
+    /// sequence count and track declarations.
     private static func sameVersion(_ lhs: BundleManifest?, _ rhs: BundleManifest?) -> Bool {
         guard let lhs, let rhs else { return lhs == nil && rhs == nil }
-        return lhs.identifier == rhs.identifier
+        return lhs.name == rhs.name
+            && lhs.identifier == rhs.identifier
             && lhs.modifiedDate == rhs.modifiedDate
             && lhs.genome?.chromosomes.count == rhs.genome?.chromosomes.count
             && lhs.alignments == rhs.alignments

@@ -34,12 +34,14 @@ extension MainSplitViewController {
     ) async -> Result<MappingAnalysisOpenPayload, Error> {
         await Task.detached(priority: .userInitiated) {
             Result {
+                // Read before the decode, so a rewrite during it makes the next compare unequal.
+                let stamp = MappingResult.savedResultModificationDate(in: url)
                 let result = try MappingResult.load(from: url)
                 return MappingAnalysisOpenPayload(
                     result: result,
                     provenance: MappingProvenance.load(from: url),
                     viewerBundleManifest: result.viewerBundleURL.flatMap { try? BundleManifest.load(from: $0) },
-                    resultModificationDate: MappingResult.savedResultModificationDate(in: url)
+                    resultModificationDate: stamp
                 )
             }
         }.value

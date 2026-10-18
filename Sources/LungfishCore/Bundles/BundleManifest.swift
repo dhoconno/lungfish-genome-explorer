@@ -579,7 +579,8 @@ extension BundleManifest {
     /// - Throws: If the manifest cannot be read or decoded
     public static func load(from bundleURL: URL) throws -> BundleManifest {
         BundleLoadProbe.willDecode(.bundleManifest, at: bundleURL)
-        let data = try Data(contentsOf: bundleURL.appendingPathComponent(filename))
+        // Mapped, so a manifest of hundreds of megabytes keeps no second resident copy.
+        let data = try Data(contentsOf: bundleURL.appendingPathComponent(filename), options: .mappedIfSafe)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(BundleManifest.self, from: data)
