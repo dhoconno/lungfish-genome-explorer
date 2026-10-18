@@ -109,6 +109,58 @@ final class ImportMSATreeE2ETests: XCTestCase {
         try Self.assertTheRecordNamesThePublishedBundle(bundleURL)
     }
 
+    /// Phase 2.12 lane 12.06 (review of M2, fix 7). An importer that fails after the stage exists removes the stage
+    /// and publishes nothing. The only other runs of the stage through the built command are the cancels of
+    /// `ImportCommandsSIGTERMTests`.
+    func testImportMsaOfAnUnparsableFileLeavesNoBundleAndNoStage() throws {
+        // The alignment importer reads the text `not an alignment` as a one-row alignment, so the file holds bytes
+        // that are not UTF-8 text, which it refuses once its stage exists.
+        try assertAnUnparsableImportLeavesNothing(
+            leaf: "msa", content: Data([0xFF, 0xFE, 0xFD, 0x0A]), sourceName: "broken.aln",
+            folderName: "Multiple Sequence Alignments", bundleExtension: "lungfishmsa", stagePrefix: "import-msa-"
+        )
+    }
+
+    func testImportTreeOfAnUnparsableFileLeavesNoBundleAndNoStage() throws {
+        try assertAnUnparsableImportLeavesNothing(
+            leaf: "tree", content: Data("not a tree\n".utf8), sourceName: "broken.nwk",
+            folderName: "Phylogenetic Trees", bundleExtension: "lungfishtree", stagePrefix: "import-tree-"
+        )
+    }
+
+    /// Runs `import <leaf>` on a file the importer cannot read. The run ends with a format error and a `failed`
+    /// event, the destination folder holds no bundle, and the project's temporary folder holds no stage of the leaf,
+    /// although the leaf made its stage first, which the temporary folder itself shows.
+    private func assertAnUnparsableImportLeavesNothing(
+        leaf: String, content: Data, sourceName: String, folderName: String, bundleExtension: String, stagePrefix: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let workspace = try makeWorkspace()
+        let projectURL = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let sourceURL = workspace.appendingPathComponent(sourceName)
+        try content.write(to: sourceURL)
+
+        let result = try runCLI(["import", leaf, sourceURL.path, "--project", projectURL.path, "--format", "json"])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.formatError.rawValue, "stderr: \(result.stderr)", file: file, line: line)
+        let events = try result.stdout.split(separator: "\n").map { row in
+            try XCTUnwrap(
+                try JSONSerialization.jsonObject(with: Data(row.utf8)) as? [String: Any],
+                "standard output holds only events, not \(row)", file: file, line: line
+            )
+        }
+        XCTAssertEqual(events.last?["event"] as? String, "failed", "\(events)", file: file, line: line)
+        XCTAssertFalse((events.last?["error"] as? String ?? "").isEmpty, "the failure has words: \(events)", file: file, line: line)
+        let destinationFolder = projectURL.appendingPathComponent(folderName, isDirectory: true)
+        let published = (try? fileManager.contentsOfDirectory(atPath: destinationFolder.path)) ?? []
+        XCTAssertEqual(published.filter { $0.hasSuffix(".\(bundleExtension)") }, [], "the destination holds no bundle", file: file, line: line)
+        let temporaryFolder = projectURL.appendingPathComponent(".tmp", isDirectory: true)
+        XCTAssertTrue(fileManager.fileExists(atPath: temporaryFolder.path), "the leaf made its stage before the importer failed", file: file, line: line)
+        let stages = (try? fileManager.contentsOfDirectory(atPath: temporaryFolder.path)) ?? []
+        XCTAssertEqual(stages.filter { $0.hasPrefix(stagePrefix) }, [], "no stage is left in the temporary folder", file: file, line: line)
+    }
+
     /// The record of a published bundle names the bundle as its output and each file under it, never the stage in
     /// the project's temporary folder that the importer wrote to (Phase 2.12 lane 12.06, SWIFT 4). The files it lists
     /// exist at the published paths with the digests it records, which shows through the real command that the
