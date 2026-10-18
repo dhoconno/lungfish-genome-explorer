@@ -40,6 +40,7 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
     enum Case: String, Sendable {
         case primer3
         case primalScheme3
+        case varvamp
     }
 
     /// The differences of A against C.
