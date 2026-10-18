@@ -25,7 +25,8 @@ struct ReferenceBundleViewportInput: Equatable {
     /// When the saved mapping result last changed on disk, the version of
     /// `mappingResult` that identity compares instead of its contigs.
     let mappingResultModificationDate: Date?
-    /// The bundle an open built from `manifest` off the main actor, with its
+    /// The bundle an open built off the main actor from `manifest` (a direct
+    /// bundle) or from `viewerBundleManifest` (a mapping result), with its
     /// chromosome name index and sequence reader already built. The embedded
     /// viewer shows it, so it builds neither on the main actor. It follows from
     /// the files that `==` compares, so it takes no part there.
@@ -97,7 +98,8 @@ struct ReferenceBundleViewportInput: Equatable {
         resultDirectoryURL: URL?,
         provenance: MappingProvenance?,
         viewerBundleManifest: BundleManifest? = nil,
-        resultModificationDate: Date? = nil
+        resultModificationDate: Date? = nil,
+        preparedBundle: ReferenceBundle? = nil
     ) -> ReferenceBundleViewportInput {
         ReferenceBundleViewportInput(
             kind: .mappingResult,
@@ -108,7 +110,7 @@ struct ReferenceBundleViewportInput: Equatable {
             mappingProvenance: provenance,
             viewerBundleManifest: viewerBundleManifest,
             mappingResultModificationDate: resultModificationDate,
-            preparedBundle: nil
+            preparedBundle: preparedBundle
         )
     }
 }

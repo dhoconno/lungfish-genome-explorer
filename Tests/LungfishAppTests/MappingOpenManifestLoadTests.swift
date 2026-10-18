@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
@@ -18,6 +19,7 @@ import LungfishTestSupport
 final class MappingOpenManifestLoadTests: XCTestCase {
     override func tearDown() async throws {
         BundleLoadProbe.install(nil)
+        ReferenceBundleSequenceCache.installBuildObserver(nil)
         try await super.tearDown()
     }
 
@@ -52,5 +54,52 @@ final class MappingOpenManifestLoadTests: XCTestCase {
         XCTAssertTrue(opened, "the mapping viewport never showed its sample rows and its viewer")
         XCTAssertEqual(decodes.count(.mappingResult), 1)
         XCTAssertEqual(decodes.count(.bundleManifest), 1)
+    }
+
+    /// SWIFT-fai 4.7 item 1, for the mapping open. A mapping onto a large reference
+    /// (SILVA, 905,628 sequences) made the embedded viewer build the viewer bundle's
+    /// chromosome name index (250 ms) and the `.fai` of its sequences (seconds) on the
+    /// main actor, at its first lookup and first fetch, and the UI locked. The open
+    /// builds both beside the viewer manifest decode, off the main actor, and the
+    /// embedded viewer shows that same bundle.
+    func testMappingOpenBuildsSequenceIndexesOffMain() async throws {
+        let root = try TestTempDirectory.make(prefix: "MappingOpenIndexes")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Mapped Indexes",
+            chromosomes: [.init(name: "chr1", length: 100)],
+            in: root
+        )
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true
+        )
+        let resultURL = root.appendingPathComponent("mapping-result", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
+        try MappingRoutingFixture.makeMappingResult(
+            resultDirectory: resultURL, viewerBundleURL: bundleURL
+        ).save(to: resultURL)
+        let builds = SequenceIndexBuildLog()
+        builds.install()
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayMappingAnalysisFromSidebar(at: resultURL)
+
+        let opened = await waitUntil(timeout: .seconds(30)) {
+            guard let viewport = split.viewerController.referenceBundleViewportController else { return false }
+            return viewport.testContigTableView.displayedRows.contains { $0.sampleID == "S1" }
+                && viewport.testEmbeddedViewerController.currentReferenceBundle != nil
+        }
+        XCTAssertTrue(opened, "the mapping viewport never showed its sample rows and its viewer")
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+        // Selecting a contig looks it up in the shown bundle's name index and fetches its sequence.
+        let sampleRow = try XCTUnwrap(viewport.testContigTableView.displayedRows.first { $0.sampleID == "S1" })
+        viewport.testSelectContig(named: sampleRow.contigName)
+        let shown = try XCTUnwrap(viewport.testEmbeddedViewerController.currentReferenceBundle)
+        XCTAssertEqual(shown.url.standardizedFileURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(shown.sequenceCache.nameIndexBuildCount, 1)
+        XCTAssertEqual(shown.sequenceCache.readerBuildCount, 1)
+        XCTAssertEqual(builds.count(.nameIndex), 1, "a second bundle built its name index")
+        XCTAssertEqual(builds.count(.reader), 1, "a second bundle built its sequence reader")
     }
 }

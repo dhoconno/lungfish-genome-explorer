@@ -22,10 +22,16 @@ struct ReferenceBundleOpenPayload: Sendable {
 struct MappingAnalysisOpenPayload: Sendable {
     let result: MappingResult
     let provenance: MappingProvenance?
-    /// `nil` when the viewer bundle cannot be read, which stays a valid
-    /// legacy mapping route with no track-derived rows.
-    let viewerBundleManifest: BundleManifest?
+    /// The viewer bundle, made from its decoded manifest with its chromosome name
+    /// index and sequence reader already built, as for a reference open. The
+    /// embedded viewer shows it, so it builds neither on the main actor. `nil`
+    /// when the viewer bundle cannot be read, which stays a valid legacy mapping
+    /// route with no track-derived rows.
+    let viewerBundle: ReferenceBundle?
     let resultModificationDate: Date?
+
+    /// The manifest the viewer bundle was made from.
+    var viewerBundleManifest: BundleManifest? { viewerBundle?.manifest }
 }
 
 extension MainSplitViewController {
@@ -40,18 +46,16 @@ extension MainSplitViewController {
     ) async -> Result<ReferenceBundleOpenPayload, Error> {
         await BundleDecodeLane.offMain {
             try await BundleDecodeLane.decode(reading: [url.appendingPathComponent(BundleManifest.filename)]) {
-                let manifest = try BundleManifest.load(from: url)
-                let bundle = ReferenceBundle(url: url.standardizedFileURL, manifest: manifest)
-                // A genome that cannot be read is reported by the first fetch, as before the indexes were built here.
-                try? bundle.prepareSequenceAccess()
-                return ReferenceBundleOpenPayload(manifest: manifest, bundle: bundle)
+                let bundle = try decodeIndexedBundle(at: url)
+                return ReferenceBundleOpenPayload(manifest: bundle.manifest, bundle: bundle)
             }
         }
     }
 
-    /// Decodes a mapping result, its provenance and its viewer bundle's
-    /// manifest on a background thread, each once. A large result or manifest
-    /// waits for ``BundleDecodeLane``.
+    /// Decodes a mapping result, its provenance and its viewer bundle on a
+    /// background thread, each once. The viewer bundle's manifest is decoded and
+    /// its indexes built in the same turn, as for a reference open. A large
+    /// result or manifest waits for ``BundleDecodeLane``.
     nonisolated static func loadMappingAnalysisOffMain(
         at url: URL
     ) async -> Result<MappingAnalysisOpenPayload, Error> {
@@ -62,19 +66,31 @@ extension MainSplitViewController {
                 try MappingResult.load(from: url)
             }
             let provenance = MappingProvenance.load(from: url)
-            var viewerBundleManifest: BundleManifest?
+            var viewerBundle: ReferenceBundle?
             if let viewerURL = result.viewerBundleURL {
-                viewerBundleManifest = try? await BundleDecodeLane.decode(
+                viewerBundle = try? await BundleDecodeLane.decode(
                     reading: [viewerURL.appendingPathComponent(BundleManifest.filename)]
-                ) { try BundleManifest.load(from: viewerURL) }
+                ) { try decodeIndexedBundle(at: viewerURL) }
             }
             return MappingAnalysisOpenPayload(
                 result: result,
                 provenance: provenance,
-                viewerBundleManifest: viewerBundleManifest,
+                viewerBundle: viewerBundle,
                 resultModificationDate: stamp
             )
         }
+    }
+
+    /// Decodes the manifest of the bundle at `url` and makes the bundle from it, with
+    /// its chromosome name index and sequence reader built. It runs inside a
+    /// ``BundleDecodeLane`` turn, so a large reference's decode and index builds are
+    /// one large open.
+    nonisolated private static func decodeIndexedBundle(at url: URL) throws -> ReferenceBundle {
+        let manifest = try BundleManifest.load(from: url)
+        let bundle = ReferenceBundle(url: url.standardizedFileURL, manifest: manifest)
+        // A genome that cannot be read is reported by the first fetch, as before the indexes were built here.
+        try? bundle.prepareSequenceAccess()
+        return bundle
     }
 
     /// The saved result files of a mapping folder, in the order

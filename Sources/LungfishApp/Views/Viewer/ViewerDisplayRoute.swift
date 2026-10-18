@@ -48,19 +48,23 @@ enum ViewerDisplayRouteFactory {
         resultDirectoryURL: URL?,
         provenance: MappingProvenance?,
         viewerBundleManifest: BundleManifest?,
-        resultModificationDate: Date? = nil
+        resultModificationDate: Date? = nil,
+        preparedBundle: ReferenceBundle? = nil
     ) -> ViewerDisplayRoute {
         // Mapping rows need the embedded alignment declarations during their
         // initial configuration, not after a later Inspector refresh. The
         // caller passes the manifest it decoded off the main actor, so a large
-        // reference is never decoded here. A nil manifest (an unreadable
-        // bundle) remains a valid legacy mapping route with no track rows.
+        // reference is never decoded here, and the viewer bundle it made from
+        // that manifest with its sequence indexes, so none is built here. A nil
+        // manifest (an unreadable bundle) remains a valid legacy mapping route
+        // with no track rows.
         .referenceBundle(.mappingResult(
             result: result,
             resultDirectoryURL: resultDirectoryURL,
             provenance: provenance,
             viewerBundleManifest: viewerBundleManifest,
-            resultModificationDate: resultModificationDate
+            resultModificationDate: resultModificationDate,
+            preparedBundle: preparedBundle
         ))
     }
 

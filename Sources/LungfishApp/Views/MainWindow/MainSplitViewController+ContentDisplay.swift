@@ -929,7 +929,8 @@ extension MainSplitViewController {
                     resultDirectoryURL: url,
                     provenance: provenance,
                     viewerBundleManifest: open.viewerBundleManifest,
-                    resultModificationDate: open.resultModificationDate
+                    resultModificationDate: open.resultModificationDate,
+                    preparedBundle: open.viewerBundle
                 )
                 // A re-announced analysis that is already on screen with nothing changed on disk
                 // keeps its focus mode, selected contig, region and drawer tab.
