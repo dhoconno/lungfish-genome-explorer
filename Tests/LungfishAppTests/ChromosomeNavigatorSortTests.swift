@@ -29,4 +29,17 @@ final class ChromosomeNavigatorSortTests: XCTestCase {
             "chrM", "MT", "NC_041754.1", "chr1_KI270706v1_random", "chrUn_KI270302v1", "scaffold_2",
         ])
     }
+
+    /// A reference with 905,628 sequences spent 12 seconds building two keys per
+    /// comparison. The sort builds one key per chromosome and keeps the same order.
+    func testNaturalSortBuildsEachKeyOnce() {
+        let input = chromosomes()
+        var keyBuilds = 0
+        let sorted = naturalChromosomeSort(input) { name in
+            keyBuilds += 1
+            return chromosomeSortKey(name)
+        }
+        XCTAssertEqual(keyBuilds, input.count)
+        XCTAssertEqual(sorted.map(\.name), naturalChromosomeSort(input).map(\.name))
+    }
 }
