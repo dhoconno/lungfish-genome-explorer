@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Both variant-calling launches lock the bundle (R4). A held lock must refuse
-// the row and launch nothing, and the recorded row must carry its type, its
-// lock and its command. The GATK row records the `variants call --caller
-// gatk` command since Phase 2.11 lane A50 M3 closed gap gatk-variant-calling.
+// The variant-calling launch locks the bundle (R4), the GATK row's too. A held
+// lock must refuse the row and launch nothing, and the recorded row must carry
+// its type, its lock and its command. The GATK row records the `variants call
+// --caller gatk` command since Phase 2.11 lane A50 M3 closed gap
+// gatk-variant-calling, and it has had no other route since Phase 2.12.
 
 import XCTest
 @testable import LungfishApp
@@ -126,11 +127,10 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         let center = try centerHoldingBundleLock()
         var launched = false
 
-        let result = InspectorViewController.beginGATKVariantCallingOperation(
+        let result = InspectorViewController.beginVariantCallingOperation(
             title: "Calling variants with GATK HaplotypeCaller",
             detail: "Running GATK HaplotypeCaller...",
             bundleURL: bundleURL,
-            request: gatkRequest(),
             cliArguments: [],
             routeContext: nil,
             reporter: center
@@ -142,18 +142,17 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertFalse(launched, "a refused row must start no GATK pipeline and attach nothing")
     }
 
-    func testGATKVariantCallingRecordsTheVariantsCallCommandAndLogsTheGATKCommands() throws {
+    func testGATKVariantCallingRecordsTheVariantsCallCommand() throws {
         let reporter = RecordingOperationReporter()
         let request = gatkRequest()
         let arguments = CLIVariantCallingRunner.buildGATKCLIArguments(
             request: request, bundleURL: bundleURL, alignmentTrackID: "aln-1", outputTrackName: "Sample 1 \u{2022} GATK HaplotypeCaller"
         )
 
-        InspectorViewController.beginGATKVariantCallingOperation(
+        InspectorViewController.beginVariantCallingOperation(
             title: "Calling variants with GATK HaplotypeCaller",
             detail: "Running GATK HaplotypeCaller...",
             bundleURL: bundleURL,
-            request: request,
             cliArguments: arguments,
             routeContext: nil,
             reporter: reporter
@@ -163,8 +162,8 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertEqual(item.operationType, .variantCalling)
         XCTAssertEqual(item.targetBundleURL, bundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        // Both routes of the row record the `variants call --caller gatk` command that runs the
-        // dialog's call, each value an option of its own and only the free text in --extra-args.
+        // The row records the `variants call --caller gatk` command that runs the dialog's call, each
+        // value an option of its own and only the free text in --extra-args.
         let command = try RecordedCLICommand.parse(item.cliCommand, as: VariantsCommand.CallSubcommand.self)
         XCTAssertEqual(command.bundlePath, bundleURL.path)
         XCTAssertEqual(command.alignmentTrackID, "aln-1")
@@ -178,10 +177,6 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
         XCTAssertEqual(command.gatkOptions.pairHMMThreads, 4)
         XCTAssertNil(command.gatkOptions.intervals)
         XCTAssertEqual(command.advancedOptions, "--min-base-quality-score 20")
-        XCTAssertEqual(
-            item.logs.map(\.message),
-            request.commands.map { "GATK command: \($0.shellCommand)" }
-        )
     }
 
     /// Review A50 M3 A1. The manual sends people to Extra arguments for an interval list, so a -L typed there

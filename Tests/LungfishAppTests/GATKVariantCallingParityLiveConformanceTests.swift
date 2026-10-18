@@ -1,25 +1,24 @@
-// GATKVariantCallingParityLiveConformanceTests.swift - The GATK row's parity on real GATK
+// GATKVariantCallingParityLiveConformanceTests.swift - The GATK row's replay on real GATK
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane A50 M3 (2.9 O5, live tests first). `GATKVariantCallingCLIGUIParityReplayTests` shows the
-// GATK row's parity on a stand-in GATK and stays the default. This class runs its sides A, C and C' on the
+// GATK row's replay on a stand-in GATK and stays the default. This class runs its sides C and C' on the
 // managed gatk-core environment, with the tiny reference and the forty-read BAM of
-// `GATKVariantCallPinConformanceTests` (one heterozygous SNP), built here with samtools from SAM text.
+// `GATKVariantCallPinConformanceTests` (one heterozygous SNP), built here with samtools from SAM text. The
+// in-process route and its side A left in Phase 2.12 (lane 12.02, K3).
 //
-// - Side A is the `legacy` route in process with `ManagedGATKCommandRunner`, on the dialog's request with the
-//   version the installed GATK answers and the gatk-core environment of this process's conda root.
-// - Side C is the `cli` route, the built `lungfish-cli variants call --caller gatk` with the same conda root.
+// - Side C is the row's route, the built `lungfish-cli variants call --caller gatk` with this process's conda root.
 // - Side C' is the replay of the command side C's row recorded.
 //
-// Both routes record the same version and environment here, so A against C declares only the commands. The VCF
-// is the bundle's bgzip `.vcf.gz`, compared under `MaskPolicy.gatk`, so the G5 rule (the `##GATKCommandLine`
-// line stays in the compare, its `Date=` is masked and the track's ID in its `--output` path is numbered as a
-// file name numbers it) runs on real GATK output. Real GATK adds one difference that any two runs show, C against
-// C' included, and no route causes. GATK's log in the execution record holds the clock, and the contract masks
-// it nowhere, so the class pins it apart (`isRunToRun`). Only the log is run to run. The class also checks that,
-// with the bundle's path, the track's ID and the date set aside, every side's `##GATKCommandLine` line is the
-// same, which shows that all three sides ran one command.
+// C against C' declares nothing. The VCF is the bundle's bgzip `.vcf.gz`, compared under `MaskPolicy.gatk`, so
+// the G5 rule (the `##GATKCommandLine` line stays in the compare, its `Date=` is masked and the track's ID in
+// its `--output` path is numbered as a file name numbers it) runs on real GATK output. Real GATK adds one
+// difference that any two runs show, C against C' included, and no route causes. GATK's log in the execution
+// record holds the clock, and the contract masks it nowhere, so the class pins it apart (`isRunToRun`). Only
+// the log is run to run. The class also checks that, with the bundle's path, the track's ID and the date set
+// aside, both sides' `##GATKCommandLine` line is the same, which shows that the replay ran the command the row
+// ran.
 //
 // The class name holds Conformance, so the unit tier never runs it. Without gatk-core or samtools it skips, and
 // under `LUNGFISH_REQUIRE_TOOLS=1` it fails. Run it with `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_CONDA_ROOT=<root>
@@ -55,7 +54,7 @@ final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
         TestTempDirectory.cleanup(scratch)
     }
 
-    func testRealGATKWritesTheSameTrackOnBothRoutes() async throws {
+    func testRealGATKReplaysToTheSameTrackAndRecords() async throws {
         let conda = CondaManager.shared
         do {
             _ = try await conda.toolPath(name: "gatk", environment: "gatk-core")
@@ -65,7 +64,6 @@ final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
         }
         let probed = await GATKInstalledToolVersion.probe(condaManager: conda)
         let version = try XCTUnwrap(probed, "the installed GATK answers --version")
-        let condaEnvironment = conda.rootPrefix.appendingPathComponent("envs/gatk-core", isDirectory: true).path
         let inputs = try await makeInputs(conda)
         let environment = ["LUNGFISH_CONDA_ROOT": conda.rootPrefix.path]
         let wrapper = scratch.appendingPathComponent("lungfish-cli-live")
@@ -75,28 +73,24 @@ final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
         let harness = RouteParityHarness(
             cliBinary: cli, kind: .bundle, masks: .gatk, replayTimeout: .seconds(600), environment: { _ in environment }
         )
-        let runs = try await harness.run(
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("call", isDirectory: true),
             fixture: { try StandIn.writeFixture($0, from: inputs) },
-            sideA: {
-                await StandIn.sideA(
-                    $0, runner: ManagedGATKCommandRunner(), toolVersion: version, condaEnvironment: condaEnvironment
-                )
-            },
             sideC: { await StandIn.sideC($0, cli: wrapper) }
         )
-        // A against C declares the commands. Each pair also shows the run-to-run difference in GATK's log, which the
+        // C against C' declares nothing. The pair still shows the run-to-run difference in GATK's log, which the
         // contract masks nowhere, so the class checks it apart and pins how many there are. The `##GATKCommandLine`
         // line of a VCF agrees across the sides under the policy, so it is not among them.
-        let result = try harness.evaluate(StandIn.Case.haplotypeCaller, declared: Self.declared, runs: runs)
-        XCTAssertEqual(result.failures.filter { !Self.isRunToRun($0) }, [], "only the declared commands and the run-to-run differences")
+        let result = try harness.evaluate(StandIn.Case.haplotypeCaller, declared: [], runs: runs)
+        XCTAssertEqual(result.failures.filter { !Self.isRunToRun($0) }, [], "only the run-to-run differences")
         XCTAssertEqual(
-            result.failures.filter(Self.isRunToRun).count, 4,
-            "each pair differs in the execution record's two stderr keys, where GATK's log holds the clock"
+            result.failures.filter(Self.isRunToRun).count, 2,
+            "the pair differs in the execution record's two stderr keys, where GATK's log holds the clock"
         )
 
         var commandLines: [String] = []
-        for run in [runs.a, runs.c, runs.cPrime] {
+        for run in [runs.c, runs.cPrime] {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
             let bundle = StandIn.bundleURL(in: run.root)
             let track = try XCTUnwrap(BundleManifest.load(from: bundle).variants.first, "side \(run.side) attaches a track")
@@ -117,14 +111,10 @@ final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
         }
         XCTAssertEqual(
             Set(commandLines).count, 1,
-            "with the bundle's path, the track's ID and the date set aside, every side ran one GATK command:\n"
+            "with the bundle's path, the track's ID and the date set aside, both sides ran one GATK command:\n"
                 + commandLines.joined(separator: "\n")
         )
     }
-
-    /// Every A against C difference on real GATK that a route causes. Only the commands differ, as on the
-    /// stand-in, since both routes record the same version and environment here.
-    nonisolated static let declared: [RouteParityDeclaredDifference<StandIn.Case>] = StandIn.commandDifferences
 
     /// A difference that any two runs of real GATK show, whatever their routes. Only GATK's log is run to run. It
     /// sits in the execution record's `stderr` and `steps[0].stderr` and holds the clock, and the contract masks it

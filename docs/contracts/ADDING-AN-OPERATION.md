@@ -280,7 +280,6 @@ Run `python3 scripts/ratchets/unchecked-operation-start.sh`, which stays as a gu
 |---|---|---|
 | `lungfish-cli` runner with a bundle lock | `beginPrimerTrimOperation` in a sibling file, `beginVariantCallingOperation` beside its launch site | `Sources/LungfishApp/Views/Inspector/InspectorViewController+OperationBegin.swift` and `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` |
 | In-process service with a bundle lock and a new command builder | `beginFilteredAlignmentWorkflowOperation` and `beginMappedReadsAnnotationWorkflowOperation` | `Sources/LungfishApp/Views/Inspector/InspectorViewController+OperationBegin.swift` |
-| Bundle lock, in-process route kept behind a hidden key for one release | `beginGATKVariantCallingOperation` | `Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift` |
 | No lock, and the old command missed a flag the run used | `beginKraken2BlastVerificationOperation` | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift` |
 | No lock and no CLI equivalent | `beginTaxaCollectionExtractionOperation` | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift` |
 | Async service entry point that returns a value | `ReferenceBundleMergeRoute.merge` with `requireStarted()` | `Sources/LungfishApp/Services/ReferenceBundleMergeRoute.swift` |

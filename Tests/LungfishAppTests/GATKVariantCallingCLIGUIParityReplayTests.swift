@@ -1,23 +1,20 @@
-// GATKVariantCallingCLIGUIParityReplayTests.swift - The GATK row in process against `variants call --caller gatk`
+// GATKVariantCallingCLIGUIParityReplayTests.swift - The GATK row's run against the replay of its recorded command
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane A50 M3, decisions C4, C5, C14 and G1 of Phase 2.10 and S7 of Phase 2.11, on lane Q30's
-// harness. The Call Variants dialog's GATK row runs one of two routes, which the hidden key
-// `GATKVariantCallingRoute` picks. The three sides start as copies of one bundle (the SARS-CoV-2 fixture
-// reference and BAM).
+// harness. The Call Variants dialog's GATK row runs `lungfish-cli variants call --caller gatk`. Its in-process
+// route and its hidden key left in Phase 2.12 (lane 12.02, K3), so the class has no side A. The two sides
+// start as copies of one bundle (the SARS-CoV-2 fixture reference and BAM).
 //
-// - Side A is the `legacy` route, `InspectorViewController.runGATKVariantCallingInProcess` on the
-//   dialog's request, with a stand-in runner that writes the fixture's bgzip VCF and `.tbi` at `-O`.
-// - Side C is the `cli` route, the row's begin helper and `CLIVariantCallingRunner` on the argv
-//   `buildGATKCLIArguments` builds, which launches the built `lungfish-cli variants call --caller gatk`.
-//   Its GATK is a stand-in micromamba that answers `gatk --version` with its own version and copies the
-//   same two files to `-O`.
+// - Side C is the row's begin helper and `CLIVariantCallingRunner` on the argv `buildGATKCLIArguments` builds,
+//   which launches the built `lungfish-cli variants call --caller gatk`. Its GATK is a stand-in micromamba that
+//   answers `gatk --version` with its own version and copies the fixture's bgzip VCF and `.tbi` to `-O`.
 // - Side C' is the harness's replay of the command side C's row recorded.
 //
-// A against C declares each difference with `<ANY>` and BIO's reason (review A50 R1). C against C' declares
-// none. The VCF compare is `MaskPolicy.gatk`. The cancel case runs with every core busy (SWIFT 3, SC4).
-// It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the integration tier.
+// C against C' declares nothing. The VCF compare is `MaskPolicy.gatk`. The cancel case runs with every core
+// busy (SWIFT 3, SC4). It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the
+// integration tier.
 
 import CryptoKit
 import Foundation
@@ -170,10 +167,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
     /// The request the dialog builds for the bundle in `root` (`BAMVariantCallingDialogState.makeGATKRequest`),
     /// reference confidence NONE, the configuration's defaults, the free text of the Extra arguments field and
     /// the lock's pinned version.
-    /// The live class passes the version the installed GATK answers and its conda root's environment.
-    nonisolated static func dialogRequest(
-        in root: URL, trackID: String, toolVersion: String = dialogVersion, condaEnvironment: String = standInCondaEnvironment
-    ) -> GATKPipelineExecutionRequest {
+    nonisolated static func dialogRequest(in root: URL, trackID: String) -> GATKPipelineExecutionRequest {
         let bundle = bundleURL(in: root)
         return .haplotypeCaller(
             configuration: GATKHaplotypeCallerConfiguration(
@@ -183,8 +177,8 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
                 emitReferenceConfidence: .none,
                 extraArguments: ["--min-base-quality-score", "20"]
             ),
-            toolVersion: toolVersion,
-            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: condaEnvironment)
+            toolVersion: dialogVersion,
+            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: standInCondaEnvironment)
         )
     }
 
@@ -200,31 +194,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         )
     }
 
-    /// Side A. The `legacy` route's in-process run on the dialog's request with `runner`, a stand-in that
-    /// writes what the stand-in GATK of side C writes, or the managed GATK in the live class.
-    static func sideA(
-        _ root: URL,
-        runner: some GATKCommandRunning,
-        toolVersion: String = dialogVersion,
-        condaEnvironment: String = standInCondaEnvironment
-    ) async -> RouteParitySideOutcome {
-        let trackID = "vc-\(UUID().uuidString.lowercased())"
-        do {
-            let attachment = try await InspectorViewController.runGATKVariantCallingInProcess(
-                request: dialogRequest(in: root, trackID: trackID, toolVersion: toolVersion, condaEnvironment: condaEnvironment),
-                runner: runner,
-                bundleURL: Self.bundleURL(in: root),
-                alignmentTrackID: "aln-1",
-                outputTrackID: trackID,
-                outputTrackName: Self.trackName
-            )
-            return RouteParitySideOutcome(end: .completed, detail: "Created variant track \(attachment.trackInfo.name)")
-        } catch {
-            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
-        }
-    }
-
-    /// Side C. The row's begin helper on the argv the `cli` route builds, then `CLIVariantCallingRunner`
+    /// Side C. The row's begin helper on the argv `buildGATKCLIArguments` builds, then `CLIVariantCallingRunner`
     /// on the built CLI. It returns the row's command, which side C' replays.
     static func sideC(_ root: URL, cli wrapper: URL) async -> RouteParitySideOutcome {
         let reporter = RecordingOperationReporter()
@@ -249,28 +219,29 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
 
     // MARK: - Cases
 
-    func testTheCLIRouteWritesWhatTheInProcessRouteWrote() async throws {
+    /// The row's run and the replay of the command it recorded write one track and the same records. C against C'
+    /// declares nothing.
+    func testTheRecordedCommandReplaysToTheSameTrackAndRecords() async throws {
         let environment = try standInEnvironment(.writes)
         let wrapper = try wrappedCLI(environment, name: "lungfish-cli-writes")
         let harness = RouteParityHarness(
             cliBinary: cli, kind: .bundle, masks: .gatk, replayTimeout: .seconds(120), environment: { _ in environment }
         )
-        let result = try await harness.assertParity(
-            Case.haplotypeCaller,
-            declared: Self.declared,
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("call", isDirectory: true),
             fixture: { try Self.writeFixture($0) },
-            sideA: { await Self.sideA($0, runner: FixtureGATKRunner(vcf: Self.fixtures.appendingPathComponent("test.vcf.gz"))) },
             sideC: { await Self.sideC($0, cli: wrapper) }
         )
-        XCTAssertEqual(result.runs.a.outcome.end, .completed, result.runs.a.outcome.detail)
-        XCTAssertEqual(result.runs.c.outcome.end, .completed, result.runs.c.outcome.detail)
-        XCTAssertEqual(result.runs.c.outcome.detail, "Created variant track \(Self.trackName)", "the row ends on the words it ended on before")
-        XCTAssertEqual(result.runs.cPrime.outcome.end, .completed, result.runs.cPrime.outcome.detail)
+        let result = try harness.evaluate(Case.haplotypeCaller, declared: [], runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: "\(Case.haplotypeCaller)")
+        XCTAssertEqual(runs.c.outcome.end, .completed, runs.c.outcome.detail)
+        XCTAssertEqual(runs.c.outcome.detail, "Created variant track \(Self.trackName)", "the row ends on the words it ended on before")
+        XCTAssertEqual(runs.cPrime.outcome.end, .completed, runs.cPrime.outcome.detail)
 
         // The stand-in GATK's answer to --version reaches side C's records, database and track (BIO 3,
         // review A50 R1 and amendment 5).
-        let bundleC = Self.bundleURL(in: result.runs.c.root)
+        let bundleC = Self.bundleURL(in: runs.c.root)
         let track = try XCTUnwrap(BundleManifest.load(from: bundleC).variants.first)
         XCTAssertEqual(track.version, Self.standInVersion)
         let executionURL = bundleC.appendingPathComponent("variants/gatk/\(ProvenanceRecorder.provenanceFilename)")
@@ -353,11 +324,11 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         )
         let cli = cli!
         for repetition in 1...3 {
-            let runs = try await harness.run(
+            let runs = try await runCancelled(
+                harness,
                 in: scratch.appendingPathComponent("cancel-\(repetition)", isDirectory: true),
                 cancel: cancel,
-                fixture: { try Self.writeFixture($0, firstRunRecord: firstRun) },
-                sideA: { _ in RouteParitySideOutcome(end: .cancelled, detail: "not run, the in-process route writes no cancelled record") },
+                firstRun: firstRun,
                 sideC: { root in
                     let reporter = RecordingOperationReporter()
                     let arguments = Self.rowArguments(in: root)
@@ -399,69 +370,30 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         return try ProvenanceEnvelopeReader.load(fromSidecar: folder.appendingPathComponent(name))?.status.rawValue
     }
 
-    /// Every A against C difference, with BIO's reason (review A50 R1). Each closes in 2.12, when the
-    /// in-process route leaves with its key (K3).
-    nonisolated static let declared: [RouteParityDeclaredDifference<Case>] = commandDifferences + {
-        let version = "The dialog records the lock's pinned GATK version, the leaf the version the installed GATK "
-            + "answers to --version (BIO 3). Here the pin is 4.6.2.0 and the stand-in answers 4.6.1.0."
-        let environment = "Each route names the gatk-core environment of its own conda root, the app's for the dialog "
-            + "and the one LUNGFISH_CONDA_ROOT names for the leaf, a stand-in here."
-        return [
-            declaredEntry(2, executionRecord + "<ANY>toolVersion", version),
-            declaredEntry(1, executionRecord + "tool.version", version),
-            declaredEntry(1, attachRecord + "options.explicit.variantCallerVersion.value", version),
-            declaredEntry(2, "differs: Sample.lungfishref/variants/gatk/vc-<UUID-1>.db: only in <ANY>: variant_caller_version<ANY>", version),
-            declaredEntry(1, "differs: Sample.lungfishref/manifest.json at variants[0].version", version),
-            declaredEntry(2, "differs: Sample.lungfishref/variants/gatk/<ANY>.lungfish-provenance.json at options.explicit.condaEnvironment.value", environment),
-        ]
-    }()
-
-    /// The differences of the two routes' commands. They hold on real GATK too, so the live class declares them.
-    nonisolated static let commandDifferences: [RouteParityDeclaredDifference<Case>] = {
-        let command = "The in-process route passes no command, so its execution record names the first GATK command. "
-            + "The leaf names the lungfish-cli variants call --caller gatk command it ran, which replays the run."
-        let attachCommand = "The in-process attach names lungfish-app gatk-attach, which no binary runs. "
-            + "The leaf's attach record names the leaf's command (review A50 F1)."
-        return [
-            declaredEntry(28, executionRecord + "argv[<ANY>]", command),
-            declaredEntry(1, executionRecord + "reproducibleCommand", command),
-            declaredEntry(28, attachRecord + "argv[<ANY>]", attachCommand),
-            declaredEntry(28, attachRecord + "steps[0].argv[<ANY>]", attachCommand),
-            declaredEntry(1, attachRecord + "reproducibleCommand", attachCommand),
-            declaredEntry(1, attachRecord + "steps[0].reproducibleCommand", attachCommand),
-        ]
-    }()
-
-    nonisolated static let executionRecord = "differs: Sample.lungfishref/variants/gatk/.lungfish-provenance.json at "
-    nonisolated static let attachRecord = "differs: Sample.lungfishref/variants/gatk/vc-<UUID-1>.lungfish-provenance.json at "
-
-    nonisolated static func declaredEntry(_ count: Int, _ id: String, _ reason: String) -> RouteParityDeclaredDifference<Case> {
-        RouteParityDeclaredDifference(
-            [.haplotypeCaller: count], id, reason: reason, closedBy: "2.12, the in-process GATK route leaves with its key (K3)"
-        )
+    /// The two sides of a cancelled case, with no side A. Root C holds the fixture and the record a first run left,
+    /// root C' starts as a copy of it, `sideC` runs on root C, and the harness replays the command side C recorded
+    /// on root C', cancelled at the same point.
+    private func runCancelled(
+        _ harness: RouteParityHarness,
+        in caseRoot: URL,
+        cancel: RouteParityCancel,
+        firstRun: Data,
+        sideC: (URL) async throws -> RouteParitySideOutcome
+    ) async throws -> (c: RouteParitySideRun, cPrime: RouteParitySideRun) {
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: caseRoot)
+        let rootC = RouteParityHarness.root(of: .c, in: caseRoot)
+        let rootCPrime = RouteParityHarness.root(of: .cPrime, in: caseRoot)
+        try fileManager.createDirectory(at: rootC, withIntermediateDirectories: true)
+        try Self.writeFixture(rootC, firstRunRecord: firstRun)
+        try fileManager.copyItem(at: rootC, to: rootCPrime)
+        let runC = RouteParitySideRun(side: .c, root: rootC, outcome: try await sideC(rootC))
+        return (runC, await harness.replay(of: runC, in: rootCPrime, cancel: cancel))
     }
 
     nonisolated static func writeExecutable(_ text: String, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-    }
-}
-
-/// Answers the GATK command as the stand-in GATK of side C does. It copies the fixture's bgzip VCF and its
-/// `.tbi` to `-O`.
-private struct FixtureGATKRunner: GATKCommandRunning {
-    let vcf: URL
-
-    func run(_ command: GATKCommand) async throws -> GATKCommandExecutionResult {
-        guard let flag = command.arguments.firstIndex(of: "-O"), command.arguments.indices.contains(flag + 1) else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let output = URL(fileURLWithPath: command.arguments[flag + 1])
-        try FileManager.default.copyItem(at: vcf, to: output)
-        try FileManager.default.copyItem(
-            at: URL(fileURLWithPath: vcf.path + ".tbi"), to: URL(fileURLWithPath: output.path + ".tbi")
-        )
-        return GATKCommandExecutionResult(exitCode: 0, stdout: "", stderr: "", wallTime: 0)
     }
 }
