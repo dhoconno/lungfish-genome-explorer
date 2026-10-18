@@ -49,15 +49,20 @@ final class CzIdImportCLIGUIParityReplayTests: XCTestCase {
     }
 
     /// The two clock values of a classification result (`classification-result.json`), the seconds the conversion
-    /// took (`runtime`) and the time it saved the result (`savedAt`). Two runs of one command never share them, as C
-    /// against C' shows at the lane head. `docs/contracts/CLI-EQUIVALENCE.md` masks wall-clock times, and its table
-    /// names no mask for this file yet, so this class adds it to the payload masks alone until a reviewed row of
-    /// that table puts it in the standard policy. Every other value of the result is compared as written.
+    /// took (`runtime`) and the time it saved the result (`savedAt`), which two runs of one command never share.
+    /// Ruling 1 of review 12.06-M1 puts them in the standard policy as `Masks.resultSidecarClocks`, a reviewed row of
+    /// `docs/contracts/CLI-EQUIVALENCE.md` that the 12.04 fix agent adds. Until that row lands this class masks them
+    /// by the row's own guard, the document's key set. It masks the top-level `runtime` and `savedAt` of an object
+    /// that holds `config`, `reportPath`, `outputPath`, `runtime`, `toolVersion` and `savedAt` and no key beyond
+    /// those and the optional `brackenPath`, `profileOutcome`, `provenanceId`, `fragmentComposition` and
+    /// `readPairingContract`. The same keys in any other document and every other value are compared as written.
+    /// The landing agent drops this mask and its append once the row is in `MaskPolicy.standard` (fix 5).
     nonisolated static let classificationResultClocks = OutputEquivalence.Mask(name: "classificationResultClocks") { text, _ in
+        let required: Set<String> = ["config", "reportPath", "outputPath", "runtime", "toolVersion", "savedAt"]
+        let optional: Set<String> = ["brackenPath", "profileOutcome", "provenanceId", "fragmentComposition", "readPairingContract"]
         guard let data = text.data(using: .utf8),
               var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              object["runtime"] != nil, object["savedAt"] != nil,
-              object["tree"] != nil || object["config"] != nil
+              required.isSubset(of: Set(object.keys)), Set(object.keys).isSubset(of: required.union(optional))
         else { return text }
         object["runtime"] = "<DURATION>"
         object["savedAt"] = "<TIMESTAMP>"
