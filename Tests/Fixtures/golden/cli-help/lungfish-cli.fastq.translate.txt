@@ -1,12 +1,21 @@
 OVERVIEW: Translate FASTQ reads to protein FASTA
 
+When the two mates of an interleaved pair share one read ID, the protein names
+add .1 for mate 1 and .2 for mate 2 right after the ID, so a pair named A1
+gives >A1.1_frame+1 and >A1.2_frame+1. Every other read keeps its name,
+including single-end reads, mates already named apart such as A1/1 and A1/2,
+Nanopore and PacBio reads, and the pairs in a bundle that also holds merged or
+unpaired reads.
+
 USAGE: lungfish-cli fastq translate <input> [--frame <frame>] [--table <table>] --output <output> [--force] [--compress]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
-  --frame <frame>         Reading frame: 1-3 forward, 4-6 reverse (default: 1)
+  --frame <frame>         Reading frame: 1-3 forward, 4-6 reverse complement,
+                          printed in the headers as -1 to -3 (frame -1 starts
+                          at the last base) (default: 1)
   --table <table>         Genetic code table ID (default: 1)
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file

@@ -18,8 +18,9 @@ ARGUMENTS:
   <input>                 Input file (FASTA format)
 
 OPTIONS:
-  -f, --frame <frame>     Reading frame: 1-3 (forward), 4-6 (reverse). Default:
-                          all 6 frames
+  -f, --frame <frame>     Reading frame: 1-3 forward, 4-6 reverse complement,
+                          printed in the headers as -1 to -3 (frame -1 starts
+                          at the last base). Default: all 6 frames
   --table <table>         Genetic code table ID (1=standard, 2=vertebrate mito,
                           3=yeast mito, 11=bacterial) (default: 1)
   -o, --output <output>   Output file path (default: stdout). Required with
