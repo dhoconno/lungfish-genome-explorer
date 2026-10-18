@@ -19,8 +19,10 @@
   "mappedReads" : 197,
   "mapper" : "minimap2",
   "modeID" : "short-read-default",
-  "schemaVersion" : 1,
+  "referenceCount" : 1,
+  "schemaVersion" : 2,
   "totalReads" : 200,
+  "unalignedReferenceCount" : 0,
   "unmappedReads" : 3,
   "wallClockSeconds" : "<DURATION>"
 }
