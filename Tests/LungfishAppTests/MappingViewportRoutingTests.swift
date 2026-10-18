@@ -618,7 +618,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertTrue(context.sampleMetadataStore?.unmatchedRecords.isEmpty ?? false)
     }
 
-    func testReferenceBundleRouteClearsInspectorBeforeManifestLoadAndWiresDirectInspectorState() throws {
+    func testReferenceBundleRouteClearsInspectorBeforeDisplayAndWiresDirectInspectorState() throws {
         let mainWindowSource = combinedMainSplitViewControllerSource()
         let routeStart = try XCTUnwrap(
             mainWindowSource.range(of: "func displayReferenceBundleViewportFromSidebar")
