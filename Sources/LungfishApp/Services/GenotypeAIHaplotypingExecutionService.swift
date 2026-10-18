@@ -336,10 +336,13 @@ final class GenotypeAIHaplotypingExecutionService {
         }
         let reread = try await prepare(bundle: bundle, mode: mode)
         if reread.argv != prepared.argv {
+            // The row began with the first read's command, so it takes the
+            // command this run uses, and the revision's argv equals it.
+            operationCenter.setCommand(id: operationID, command: reread.cliCommand)
             operationCenter.log(
                 id: operationID,
                 level: .warning,
-                message: "The bundle changed before the run started. The revision's provenance names the command this run used: \(reread.cliCommand)"
+                message: "The bundle changed before the run started, so the row now records the command this run used."
             )
         }
         return reread
