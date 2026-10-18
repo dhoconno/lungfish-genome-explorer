@@ -13,6 +13,7 @@
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
@@ -100,6 +101,57 @@ final class PrimerDesignDefaultsPinTests: XCTestCase {
             XCTAssertTrue(overrides(dialogValues).keys.contains("PRIMER_TMP"), "mode \(mode.rawValue)")
             XCTAssertTrue(overrides(dialogValues).keys.contains("PRIMER_SIZES"), "mode \(mode.rawValue)")
         }
+    }
+
+    /// The installed varVAMP's own defaults (`varvamp/scripts/default_config.py` of the managed environment) equal the
+    /// 25 config overrides an untouched qPCR dialog sends, so an engine update that moves a default fails here and does
+    /// not split a no-flag run from the dialog in silence (ruling 6 of the A67 review, lane 12.16 M2 (2)). It reads the
+    /// file and runs no tool, and it skips through ToolAvailability when the environment is not installed.
+    func testVarVAMPDialogDefaultsEqualTheInstalledEnginesConfig() throws {
+        let lib = CondaManager.shared.rootPrefix.appendingPathComponent("envs/varvamp/lib", isDirectory: true)
+        let pythons = (try? FileManager.default.contentsOfDirectory(atPath: lib.path)) ?? []
+        guard let python = pythons.filter({ $0.hasPrefix("python3") }).sorted().last else {
+            try ToolAvailability.skipOrFail("varVAMP is not installed in the managed environment at \(lib.path)")
+        }
+        let config = lib.appendingPathComponent("\(python)/site-packages/varvamp/scripts/default_config.py")
+        guard let text = try? String(contentsOf: config, encoding: .utf8) else {
+            try ToolAvailability.skipOrFail("The managed varVAMP has no default config at \(config.path)")
+        }
+        let installed = Self.configNumbers(text)
+        let state = dialog(.varVAMP)
+        state.schemeMode = .qpcr
+        state.varVAMPConsensusThreshold = "0.95"
+        let sent = try overrides(resolved(try state.primerSchemeOptions())).mapValues(Self.numbers)
+        XCTAssertEqual(sent.count, 25, "\(sent.keys.sorted())")
+        for (name, values) in sent.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(installed[name], values, "\(name) in \(config.path)")
+        }
+    }
+
+    /// The numbers of each `NAME = number` or `NAME = (number, ...)` line of a varVAMP config, in the file's order.
+    private static func configNumbers(_ text: String) -> [String: [Double]] {
+        let pattern = try! NSRegularExpression(
+            pattern: #"^([A-Z0-9_]+)\s*=\s*(\([^)]*\)|-?[0-9.]+)"#, options: .anchorsMatchLines
+        )
+        var result: [String: [Double]] = [:]
+        for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let name = Range(match.range(at: 1), in: text), let value = Range(match.range(at: 2), in: text) else { continue }
+            result[String(text[name])] = text[value].trimmingCharacters(in: CharacterSet(charactersIn: "()"))
+                .split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        }
+        return result
+    }
+
+    /// The numbers a resolved override holds, in its order, read through its JSON form.
+    private static func numbers(_ value: ParameterValue) throws -> [Double] {
+        func leaves(_ item: Any) -> [Double] {
+            if let array = item as? [Any] { return array.flatMap(leaves) }
+            if let object = item as? [String: Any] { return object.keys.sorted().flatMap { leaves(object[$0]!) } }
+            if let number = item as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() { return [number.doubleValue] }
+            return []
+        }
+        let data = try JSONEncoder().encode(value)
+        return leaves(try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
     }
 
     private func overrides(_ values: [String: ParameterValue]) -> [String: ParameterValue] {
