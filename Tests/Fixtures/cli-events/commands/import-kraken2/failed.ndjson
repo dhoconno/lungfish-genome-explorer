@@ -1,0 +1,2 @@
+{"event":"start","message":"Started kraken2-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"Kreport file not found: \/work\/missing.kreport","event":"failed","schemaVersion":2}

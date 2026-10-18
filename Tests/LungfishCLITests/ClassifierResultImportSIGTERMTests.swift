@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.04 (A63-M2a), decision S7. The app's Cancel sends SIGTERM to the command and gives it
-// `operationGrace`. These cases pin what the three classifier result imports do today, at the lane's base:
-// the signal ends the command at once, it writes no `cancelled` record in the project, and the result folder
-// it had begun stays in the project's Imports folder.
+// `operationGrace`. The three classifier result imports turn the signal into a cancel of the import, remove
+// the result folder they began, record the run as cancelled in the project, tell the row with a `failed`
+// event, exit 125 and leave no process behind. These cases were pins at the base (commit 47d6b7f7f), where
+// the signal ended each command at once, no `cancelled` record was written and the result folder stayed.
 //
 // Each command is held at work on a dotted sample id under a non-English locale (BIO 5, X12). The Kraken2
 // import compacts a large per-read output, and the EsViritu and TaxTriage imports hash a large sparse file of
@@ -29,29 +30,29 @@ final class ClassifierResultImportSIGTERMTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testImportKraken2EndsOnSIGTERMWithoutARecordAndLeavesItsFolder() async throws {
+    func testImportKraken2TurnsSIGTERMIntoACancelAndRemovesItsFolder() async throws {
         let input = try ClassifierResultImportFixtures.kraken2Report(in: root)
         let perRead = try ClassifierResultImportFixtures.largeKraken2Output(in: root, lines: 1_500_000)
-        try await assertTodaysSIGTERM(kind: "kraken2", arguments: [input.path, "--output", perRead.path])
+        try await assertSIGTERMCancelsTheImport(kind: "kraken2", arguments: [input.path, "--output", perRead.path])
     }
 
-    func testImportEsVirituEndsOnSIGTERMWithoutARecordAndLeavesItsFolder() async throws {
+    func testImportEsVirituTurnsSIGTERMIntoACancelAndRemovesItsFolder() async throws {
         let input = try ClassifierResultImportFixtures.esVirituResult(in: root)
         try ClassifierResultImportFixtures.addLargeSparseFile(to: input)
-        try await assertTodaysSIGTERM(kind: "esviritu", arguments: [input.path])
+        try await assertSIGTERMCancelsTheImport(kind: "esviritu", arguments: [input.path])
     }
 
-    func testImportTaxTriageEndsOnSIGTERMWithoutARecordAndLeavesItsFolder() async throws {
+    func testImportTaxTriageTurnsSIGTERMIntoACancelAndRemovesItsFolder() async throws {
         let input = try ClassifierResultImportFixtures.taxTriageResult(in: root)
         try ClassifierResultImportFixtures.addLargeSparseFile(to: input)
-        try await assertTodaysSIGTERM(kind: "taxtriage", arguments: [input.path])
+        try await assertSIGTERMCancelsTheImport(kind: "taxtriage", arguments: [input.path])
     }
 
     // MARK: - Running one import
 
     /// Starts `import <kind>` into the project's Imports folder, waits until its result folder exists, sends one
-    /// SIGTERM and checks what the command does today.
-    private func assertTodaysSIGTERM(kind: String, arguments: [String], file: StaticString = #filePath, line: UInt = #line) async throws {
+    /// SIGTERM and checks that the command cancels.
+    private func assertSIGTERMCancelsTheImport(kind: String, arguments: [String], file: StaticString = #filePath, line: UInt = #line) async throws {
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         let imports = project.appendingPathComponent("Imports", isDirectory: true)
         try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
@@ -66,13 +67,16 @@ final class ClassifierResultImportSIGTERMTests: XCTestCase {
             !ClassifierResultImportFixtures.resultFolders(in: imports).isEmpty
         }
         XCTAssertTrue(started, "the command never made its result folder", file: file, line: line)
-        let stop = await CLISIGTERMHarness.cancel(run)
-        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), "today the signal ends the command", file: file, line: line)
-        XCTAssertEqual(stop.left, [], "no process of the tree is left", file: file, line: line)
-        XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: project), "today no cancelled record", file: file, line: line)
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            run,
+            record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue },
+            file: file,
+            line: line
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput, file: file, line: line)
         XCTAssertEqual(
-            ClassifierResultImportFixtures.resultFolders(in: imports).count, 1,
-            "today the folder the command began stays", file: file, line: line
+            ClassifierResultImportFixtures.resultFolders(in: imports), [],
+            "a cancelled import removes the folder it began", file: file, line: line
         )
     }
 }

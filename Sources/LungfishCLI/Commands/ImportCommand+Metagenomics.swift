@@ -43,71 +43,75 @@ extension ImportCommand {
         )
         var outputDir: String?
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @OptionGroup var globalOptions: GlobalOptions
 
+        /// With `--format json` the run prints the events the Import Center's row shows, and SIGTERM cancels it
+        /// with exit 125 (`ClassifierResultImportRun`, Phase 2.12 lane 12.04).
         func run() async throws {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let importRun = ClassifierResultImportRun(kind: .kraken2, globalOptions: globalOptions)
+            let formatter = importRun.formatter
             let kreportURL = URL(fileURLWithPath: kreportFile)
 
             guard FileManager.default.fileExists(atPath: kreportURL.path) else {
-                print(formatter.error("Kreport file not found: \(kreportFile)"))
+                importRun.refuse("Kreport file not found: \(kreportFile)")
                 throw CLIExitCode.inputError.exitCode
             }
 
             if let outputPath = outputFile {
                 guard FileManager.default.fileExists(atPath: outputPath) else {
-                    print(formatter.error("Output file not found: \(outputPath)"))
+                    importRun.refuse("Output file not found: \(outputPath)")
                     throw CLIExitCode.inputError.exitCode
                 }
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
 
-            print(formatter.header("Kraken2 Import"))
-            print("")
+            importRun.say(formatter.header("Kraken2 Import"))
+            importRun.say("")
 
             let kreportData: Data
             do {
                 kreportData = try Data(contentsOf: kreportURL)
             } catch {
-                print(formatter.error("Failed to parse kreport: \(error.localizedDescription)"))
+                importRun.refuse("Failed to parse kreport: \(error.localizedDescription)")
                 throw CLIExitCode.formatError.exitCode
             }
             guard let kreportContent = String(data: kreportData, encoding: .utf8) else {
-                print(formatter.error("Cannot read kreport file as text"))
+                importRun.refuse("Cannot read kreport file as text")
                 throw CLIExitCode.formatError.exitCode
             }
             let parsed = parseKreport(kreportContent)
 
             let imported: Kraken2ImportResult
             do {
-                var provenanceCommand = [
+                let outputFileURL = outputFile.map { URL(fileURLWithPath: $0) }
+                let preferredName = name
+                let provenanceCommand = [
                     CLICommandIdentity.executableName,
                     "import",
                     "kraken2",
                     kreportURL.path,
                     "--output-dir",
                     outputDirectory.path,
-                ]
-                if let outputFile {
-                    provenanceCommand += ["--output", URL(fileURLWithPath: outputFile).path]
+                ] + (outputFileURL.map { ["--output", $0.path] } ?? []) + (name.map { ["--name", $0] } ?? [])
+                imported = try await importRun.perform(input: kreportURL, outputDirectory: outputDirectory) { progress in
+                    try MetagenomicsImportService.importKraken2(
+                        kreportURL: kreportURL,
+                        outputDirectory: outputDirectory,
+                        outputFileURL: outputFileURL,
+                        preferredName: preferredName,
+                        provenanceCommand: provenanceCommand,
+                        progress: progress
+                    )
                 }
-                if let name {
-                    provenanceCommand += ["--name", name]
-                }
-                imported = try MetagenomicsImportService.importKraken2(
-                    kreportURL: kreportURL,
-                    outputDirectory: outputDirectory,
-                    outputFileURL: outputFile.map { URL(fileURLWithPath: $0) },
-                    preferredName: name,
-                    provenanceCommand: provenanceCommand
-                )
+            } catch let exitCode as ExitCode {
+                throw exitCode
             } catch {
-                print(formatter.error(error.localizedDescription))
                 throw metagenomicsImportExitCode(for: error).exitCode
             }
+            importRun.complete(imported.resultDirectory, message: ClassifierResultImportWords.kraken2(imported))
 
-            print(formatter.keyValueTable([
+            importRun.say(formatter.keyValueTable([
                 ("Kreport", kreportURL.lastPathComponent),
                 ("Output", imported.resultDirectory.lastPathComponent),
                 ("Total reads", formatNumber(Int64(imported.totalReads))),
@@ -115,11 +119,11 @@ extension ImportCommand {
                 ("Unclassified", formatNumber(Int64(parsed.unclassifiedReads))),
                 ("Species", String(imported.speciesCount)),
             ]))
-            print("")
+            importRun.say("")
 
             if !parsed.speciesEntries.isEmpty {
-                print(formatter.header("Top Species"))
-                print("")
+                importRun.say(formatter.header("Top Species"))
+                importRun.say("")
 
                 let topSpecies = parsed.speciesEntries
                     .sorted { $0.reads > $1.reads }
@@ -133,14 +137,14 @@ extension ImportCommand {
                     ]
                 }
 
-                print(formatter.table(
+                importRun.say(formatter.table(
                     headers: ["Species", "Reads", "Fraction"],
                     rows: Array(rows)
                 ))
-                print("")
+                importRun.say("")
             }
 
-            print(formatter.success("Kraken2 import complete: \(imported.resultDirectory.lastPathComponent)"))
+            importRun.say(formatter.success("Kraken2 import complete: \(imported.resultDirectory.lastPathComponent)"))
         }
     }
 }
@@ -173,55 +177,61 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @OptionGroup var globalOptions: GlobalOptions
 
+        /// With `--format json` the run prints the events the Import Center's row shows, and SIGTERM cancels it
+        /// with exit 125 (`ClassifierResultImportRun`, Phase 2.12 lane 12.04).
         func run() async throws {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let importRun = ClassifierResultImportRun(kind: .esviritu, globalOptions: globalOptions)
+            let formatter = importRun.formatter
             let inputURL = URL(fileURLWithPath: inputPath)
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
-                print(formatter.error("Input path not found: \(inputPath)"))
+                importRun.refuse("Input path not found: \(inputPath)")
                 throw CLIExitCode.inputError.exitCode
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
 
-            print(formatter.header("EsViritu Import"))
-            print("")
+            importRun.say(formatter.header("EsViritu Import"))
+            importRun.say("")
 
             let imported: EsVirituImportResult
             do {
-                var provenanceCommand = [
+                let preferredName = name
+                let provenanceCommand = [
                     CLICommandIdentity.executableName,
                     "import",
                     "esviritu",
                     inputURL.path,
                     "--output-dir",
                     outputDirectory.path,
-                ]
-                if let name {
-                    provenanceCommand += ["--name", name]
+                ] + (name.map { ["--name", $0] } ?? [])
+                imported = try await importRun.perform(input: inputURL, outputDirectory: outputDirectory) { progress in
+                    try MetagenomicsImportService.importEsViritu(
+                        inputURL: inputURL,
+                        outputDirectory: outputDirectory,
+                        preferredName: preferredName,
+                        provenanceCommand: provenanceCommand,
+                        progress: progress
+                    )
                 }
-                imported = try MetagenomicsImportService.importEsViritu(
-                    inputURL: inputURL,
-                    outputDirectory: outputDirectory,
-                    preferredName: name,
-                    provenanceCommand: provenanceCommand
-                )
+            } catch let exitCode as ExitCode {
+                throw exitCode
             } catch {
-                print(formatter.error(error.localizedDescription))
                 throw metagenomicsImportExitCode(for: error).exitCode
             }
+            importRun.complete(imported.resultDirectory, message: ClassifierResultImportWords.esViritu(imported))
 
-            print(formatter.keyValueTable([
+            importRun.say(formatter.keyValueTable([
                 ("Source", inputURL.lastPathComponent),
                 ("Files imported", String(imported.importedFileCount)),
                 ("Detections", String(imported.virusCount)),
                 ("Output", imported.resultDirectory.lastPathComponent),
             ]))
-            print("")
+            importRun.say("")
 
-            print(formatter.success("EsViritu import complete: \(imported.importedFileCount) file(s)"))
+            importRun.say(formatter.success("EsViritu import complete: \(imported.importedFileCount) file(s)"))
         }
     }
 }
@@ -254,68 +264,74 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @OptionGroup var globalOptions: GlobalOptions
 
+        /// With `--format json` the run prints the events the Import Center's row shows, and SIGTERM cancels it
+        /// with exit 125 (`ClassifierResultImportRun`, Phase 2.12 lane 12.04).
         func run() async throws {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let importRun = ClassifierResultImportRun(kind: .taxtriage, globalOptions: globalOptions)
+            let formatter = importRun.formatter
             let inputURL = URL(fileURLWithPath: inputPath)
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
-                print(formatter.error("Input path not found: \(inputPath)"))
+                importRun.refuse("Input path not found: \(inputPath)")
                 throw CLIExitCode.inputError.exitCode
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
 
-            print(formatter.header("TaxTriage Import"))
-            print("")
+            importRun.say(formatter.header("TaxTriage Import"))
+            importRun.say("")
 
             let imported: TaxTriageImportResult
             do {
-                var provenanceCommand = [
+                let preferredName = name
+                let provenanceCommand = [
                     CLICommandIdentity.executableName,
                     "import",
                     "taxtriage",
                     inputURL.path,
                     "--output-dir",
                     outputDirectory.path,
-                ]
-                if let name {
-                    provenanceCommand += ["--name", name]
+                ] + (name.map { ["--name", $0] } ?? [])
+                imported = try await importRun.perform(input: inputURL, outputDirectory: outputDirectory) { progress in
+                    try MetagenomicsImportService.importTaxTriage(
+                        inputURL: inputURL,
+                        outputDirectory: outputDirectory,
+                        preferredName: preferredName,
+                        provenanceCommand: provenanceCommand,
+                        progress: progress
+                    )
                 }
-                imported = try MetagenomicsImportService.importTaxTriage(
-                    inputURL: inputURL,
-                    outputDirectory: outputDirectory,
-                    preferredName: name,
-                    provenanceCommand: provenanceCommand
-                )
+            } catch let exitCode as ExitCode {
+                throw exitCode
             } catch {
-                print(formatter.error(error.localizedDescription))
                 throw metagenomicsImportExitCode(for: error).exitCode
             }
+            importRun.complete(imported.resultDirectory, message: ClassifierResultImportWords.taxTriage(imported))
 
-            print(formatter.keyValueTable([
+            importRun.say(formatter.keyValueTable([
                 ("Source", inputURL.lastPathComponent),
                 ("Files imported", String(imported.importedFileCount)),
                 ("Report entries", imported.reportEntryCount > 0 ? String(imported.reportEntryCount) : "N/A"),
                 ("Output", imported.resultDirectory.lastPathComponent),
             ]))
-            print("")
+            importRun.say("")
 
             // List imported files.
             let importedFiles = scanRegularFilesRecursively(in: imported.resultDirectory)
             if !globalOptions.quiet && !importedFiles.isEmpty {
-                print(formatter.header("Imported Files"))
+                importRun.say(formatter.header("Imported Files"))
                 for file in importedFiles.prefix(20) {
-                    print("  \(formatter.path(file.lastPathComponent))")
+                    importRun.say("  \(formatter.path(file.lastPathComponent))")
                 }
                 if importedFiles.count > 20 {
-                    print("  (+\(importedFiles.count - 20) more)")
+                    importRun.say("  (+\(importedFiles.count - 20) more)")
                 }
-                print("")
+                importRun.say("")
             }
 
-            print(formatter.success("TaxTriage import complete: \(imported.importedFileCount) file(s)"))
+            importRun.say(formatter.success("TaxTriage import complete: \(imported.importedFileCount) file(s)"))
         }
     }
 }

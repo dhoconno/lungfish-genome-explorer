@@ -1,0 +1,2 @@
+{"event":"start","message":"Started esviritu-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"Input path not found: \/work\/missing-esviritu","event":"failed","schemaVersion":2}

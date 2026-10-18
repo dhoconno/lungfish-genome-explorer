@@ -311,12 +311,13 @@ package enum CLIEventContractTable {
         "genotype replay-matrix-annotation": .text(reason: humanTextOnly),
         "help": .text(reason: helpCommand),
         "import cz-id": .text(reason: humanTextOnly),
-        "import esviritu": .text(reason: humanTextOnly),
-        "import kraken2": .text(reason: humanTextOnly),
+        // Events since 2.12 lane 12.04, the three classifier result imports the Import Center runs. Text only before.
+        "import esviritu": .events(flag: formatJSON, channel: .standardOutput),
+        "import kraken2": .events(flag: formatJSON, channel: .standardOutput),
         "import metadata": .text(reason: humanTextOnly),
         "import nao-mgs": .text(reason: humanTextOnly),
         "import nvd": .text(reason: humanTextOnly),
-        "import taxtriage": .text(reason: humanTextOnly),
+        "import taxtriage": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.04
         "import vcf": .text(reason: humanTextOnly),
         "metadata export-biosample": .text(reason: humanTextOnly),
         "nao-mgs import": .text(reason: humanTextOnly),

@@ -1,0 +1,6 @@
+{"event":"start","message":"Started taxtriage-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Copying TaxTriage files...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Detecting report files...","progress":0.55,"schemaVersion":2}
+{"event":"progress","message":"Writing sidecar...","progress":0.85,"schemaVersion":2}
+{"event":"progress","message":"TaxTriage import complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Imported TaxTriage result: 6 files","output":"\/work\/Project.lungfish\/Imports\/taxtriage-run","outputs":["\/work\/Project.lungfish\/Imports\/taxtriage-run"],"progress":1,"schemaVersion":2}

@@ -1,0 +1,8 @@
+{"event":"start","message":"Started kraken2-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Preparing output directory...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Copying report...","progress":0.25,"schemaVersion":2}
+{"event":"progress","message":"Copying read classifications...","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Parsing kreport...","progress":0.65,"schemaVersion":2}
+{"event":"progress","message":"Writing sidecar...","progress":0.85,"schemaVersion":2}
+{"event":"progress","message":"Kraken2 import complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Imported Kraken2 result: 2,504,263 reads, 738 species","output":"\/work\/Project.lungfish\/Imports\/classification-S1_2024","outputs":["\/work\/Project.lungfish\/Imports\/classification-S1_2024"],"progress":1,"schemaVersion":2}

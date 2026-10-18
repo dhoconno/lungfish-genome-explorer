@@ -103,6 +103,9 @@ A failed run is kept only when Lungfish wrote its message. A Foundation message 
 | `build-db-kraken2` | `complete`, `complete-existing`, `failed` | `build-db kraken2` on a copy of `Tests/Fixtures/kraken2-mini`, then a second run that finds the database the first one built, then a run whose `--sample-dir` names a folder with no `classification.kreport` |
 | `build-db-esviritu` | `complete` | `build-db esviritu` on a copy of `Tests/Fixtures/esviritu-mini` without the `_temp` folders that hold its BAMs, so no samtools runs |
 | `build-db-taxtriage` | `complete` | `build-db taxtriage` on a copy of `Tests/Fixtures/taxtriage-mini` without `minimap2`, the folder that holds its BAMs |
+| `import-kraken2` | `complete`, `failed` | `import kraken2 --output-dir /work/Project.lungfish/Imports --format json` of `S1.2024.kreport`, the kreport of `kraken2-mini/SRR35517702`, then of a kreport that does not exist (Phase 2.12 lane 12.04) |
+| `import-esviritu` | `complete`, `failed` | `import esviritu --output-dir /work/Project.lungfish/Imports --format json` of the folder `S1.2024` with the three tables of `esviritu-mini/SRR35517702` named for that sample id, then of a folder that does not exist |
+| `import-taxtriage` | `complete`, `failed` | `import taxtriage --output-dir /work/Project.lungfish/Imports --format json` of the folder `run.2024`, a copy of `taxtriage-mini` without `minimap2` whose top report is named for `S1.2024`, then of a folder that does not exist |
 
 ### Captured from the built CLI
 

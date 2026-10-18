@@ -1,0 +1,7 @@
+{"event":"start","message":"Started esviritu-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Copying EsViritu files...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Discovering detection files...","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Parsing detections...","progress":0.65,"schemaVersion":2}
+{"event":"progress","message":"Writing sidecar...","progress":0.85,"schemaVersion":2}
+{"event":"progress","message":"EsViritu import complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Imported EsViritu result: 3 files, 3 detections","output":"\/work\/Project.lungfish\/Imports\/esviritu-S1","outputs":["\/work\/Project.lungfish\/Imports\/esviritu-S1"],"progress":1,"schemaVersion":2}
