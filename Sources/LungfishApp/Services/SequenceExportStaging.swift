@@ -60,7 +60,10 @@ enum SequenceExportStaging {
 
     /// Writes what `convert` cannot read of `sources` into a new staging folder and returns the inputs of the run.
     ///
-    /// - Throws: `CancellationError` when the calling task is cancelled, or the error of a write, after the
+    /// - Throws: "No sequences found in selected files." when every source is a captured document with no
+    ///   sequence, as the app's own writer refused it, before any folder is made. A file counts as non-empty,
+    ///   since only `convert` can tell, and one empty document beside a non-empty file still exports.
+    ///   `CancellationError` when the calling task is cancelled, or the error of a write, after the
     ///   staging folder is removed.
     static func stage(
         _ sources: [SequenceExportSourceResolver.Source],
@@ -70,6 +73,12 @@ enum SequenceExportStaging {
     ) throws -> Staged {
         guard sources.contains(where: needsStaging) else {
             return Staged(inputs: sources.map(\.metadata.url), folder: nil)
+        }
+        guard sources.contains(where: { $0.document.map { !$0.sequences.isEmpty } ?? true }) else {
+            throw NSError(
+                domain: "com.lungfish.browser", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No sequences found in selected files."]
+            )
         }
         let folder = try ProjectTempDirectory.create(
             prefix: "sequence-export-", in: projectURL(for: sources, outputURL: outputURL), keepIntermediates: true

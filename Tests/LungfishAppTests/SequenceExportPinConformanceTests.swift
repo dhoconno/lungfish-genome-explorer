@@ -410,6 +410,40 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         XCTAssertEqual(staging, [], "a cancelled export discards its staging")
     }
 
+    /// What the export does with a `.seq` file that holds no sequence (review 12.13 fix 5), measured through the
+    /// command on a file of no bytes and on a file of white space. The app's writer refused an export of no
+    /// sequences. Staging copies a file as it is, since only `convert` can tell, and `convert` has no such
+    /// refusal, so the export completes with an empty output and reports 0 sequences. A `convert` that refuses
+    /// an input with no sequence (row CONVERT-EMPTY-INPUT of 2.13) changes this pin. A captured snapshot of no
+    /// sequences keeps the old message in `SequenceExportStagingDurabilityTests`.
+    func testAnEmptySeqFileExportsAnEmptyFileAndReportsNoSequences() async throws {
+        try requireTools()
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let folder = root.appendingPathComponent("out", isDirectory: true)
+        for directory in [project, folder] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        for (name, text) in [("empty.seq", ""), ("blank.seq", " \n\t\n \n")] {
+            let seq = project.appendingPathComponent(name)
+            try text.write(to: seq, atomically: true, encoding: .utf8)
+            let output = folder.appendingPathComponent("\(name).fa")
+            let source = SequenceExportSourceResolver.Source(
+                metadata: .init(kind: .filesystem, url: seq, documentID: nil, nativeSequenceID: nil, projectURL: nil),
+                document: nil
+            )
+            let staged = try SequenceExportStaging.stage([source], format: .fasta, outputURL: output)
+            if let stagedFolder = staged.folder { stagedFolders.append(stagedFolder) }
+            let count = try await SequenceExportRoute.run(
+                arguments: SequenceExportRoute.arguments(
+                    inputs: staged.inputs, outputURL: output, format: .fasta, compression: .none
+                ),
+                outputURL: output
+            )
+            XCTAssertEqual(count, 0, "\(name) reports no sequence")
+            XCTAssertEqual(try Data(contentsOf: output), Data(), "\(name) exports an empty file")
+        }
+    }
+
     // MARK: - Helpers
 
     /// The hidden stage entries of `convert` in `folder`, whose names start with a dot and hold `.convert.`.

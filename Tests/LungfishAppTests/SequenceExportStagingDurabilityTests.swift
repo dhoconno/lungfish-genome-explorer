@@ -141,6 +141,31 @@ final class SequenceExportStagingDurabilityTests: XCTestCase {
         XCTAssertEqual(entries.filter { $0.hasPrefix("sequence-export-") }, [])
     }
 
+    func testAnEmptySnapshotKeepsTheNoSequencesMessage() throws {
+        let empty = capturedSource("empty native", sequences: [], annotations: [])
+
+        XCTAssertThrowsError(try SequenceExportStaging.stage(
+            [empty], format: .fasta, outputURL: root.appendingPathComponent("out.fa")
+        )) { error in
+            XCTAssertEqual(error.localizedDescription, "No sequences found in selected files.")
+        }
+
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: ProjectTempDirectory.tempRoot(for: project).path)) ?? []
+        XCTAssertEqual(entries.filter { $0.hasPrefix("sequence-export-") }, [], "a refused selection leaves no staging folder")
+    }
+
+    func testAnEmptySnapshotBesideAFileStillStages() throws {
+        let empty = capturedSource("empty native", sequences: [], annotations: [])
+        let disk = project.appendingPathComponent("disk.fa")
+        try ">disk\nTTTT\n".write(to: disk, atomically: true, encoding: .utf8)
+
+        let staged = try SequenceExportStaging.stage(
+            [empty, Self.fileSource(disk)], format: .fasta, outputURL: root.appendingPathComponent("out.fa")
+        )
+
+        XCTAssertEqual(staged.inputs.map(\.lastPathComponent), ["1-empty-native.fa", "disk.fa"], "one empty document beside a file still exports")
+    }
+
     func testRunDiscardsTheStagingWhenTheBodyThrows() async throws {
         let seq = try writeSeqFile()
         let staged = try SequenceExportStaging.stage(
