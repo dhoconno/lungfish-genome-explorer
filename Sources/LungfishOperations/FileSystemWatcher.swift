@@ -6,6 +6,7 @@ import Foundation
 import CoreServices
 import os.log
 import LungfishCore
+import LungfishIO
 
 /// Logger for file system watcher operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "FileSystemWatcher")
@@ -596,6 +597,7 @@ public final class FileSystemWatcher {
             let canonical = $0.standardizedFileURL
             return canonical.path != watchedRootPath
                 && !FileSystemWatcher.isUniversalSearchInternalPath(canonical)
+                && !BundleKindRegistry.isAppStateFile(at: canonical)
         }
         guard !sourceURLs.isEmpty else { return .none }
         let nonSidecar = sourceURLs.filter { !FileSystemWatcher.isSidecarPath($0) }

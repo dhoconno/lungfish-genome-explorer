@@ -5,6 +5,7 @@
 import XCTest
 import Foundation
 import CoreServices
+import LungfishCore
 @testable import LungfishOperations
 
 /// Tests for the FileSystemWatcher class.
@@ -738,6 +739,32 @@ final class FileSystemWatcherTests: XCTestCase {
             remainedSilent,
             "Search-index output must not trigger another search update; received \(receivedPaths)"
         )
+    }
+
+    /// The viewer saves a bundle's view state after every pan or zoom pause, as an atomic write that
+    /// puts a temporary file beside the target. Neither path is a change the sidebar or the index can use.
+    func testBundleViewStateSaveDeliversNoPaths() async throws {
+        let tempDir = try createTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+        let bundle = tempDir.appendingPathComponent("Ref.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        // Let fseventsd record the new folder first, as in an already-open project. A stream that starts
+        // within milliseconds of the creation is sent the creation as well.
+        try await Task.sleep(for: .seconds(1))
+
+        var received: [String] = []
+        let watcher = FileSystemWatcher { changes in
+            received.append(contentsOf: changes.all.map(\.lastPathComponent))
+        }
+        watcher.startWatching(directory: tempDir)
+        try await settleWatcherRegistration(watcher)
+
+        BundleViewState.default.save(to: bundle)
+        BundleViewState.default.save(to: bundle)
+        let silent = try await remainsTrue { received.isEmpty }
+
+        watcher.stopWatching()
+        XCTAssertTrue(silent, "A view state save reached the project consumers: \(received)")
     }
 
     func testSidecarFilterIdentifiesMetadataCSV() {
