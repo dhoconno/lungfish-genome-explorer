@@ -37,6 +37,9 @@ final class RegionExtractionWithoutBundleParityReplayTests: XCTestCase {
         case fastaRegion
         /// A reverse CDS of two parts of a GenBank document, joined, with a 5' flank and a blank name.
         case genBankFeature
+        /// A region of a FASTA document with both flanks, reverse complemented, as the viewer sends it
+        /// (2.12 review of lane 12.12, Fix 3).
+        case reverseFlankedRegion
     }
 
     private static let projectPath = "Project.lungfish"
@@ -71,6 +74,11 @@ final class RegionExtractionWithoutBundleParityReplayTests: XCTestCase {
         try await assertCase(.genBankFeature)
     }
 
+    func testAReverseFlankedRegionBuildsWhatTheInProcessRouteBuilt() async throws {
+        try await requireTools()
+        try await assertCase(.reverseFlankedRegion)
+    }
+
     private func assertCase(_ parityCase: Case) async throws {
         let result = try await harness.assertParity(
             parityCase,
@@ -89,13 +97,14 @@ final class RegionExtractionWithoutBundleParityReplayTests: XCTestCase {
     /// What A against C differs in, each with `<ANY>` and an exact count for each case.
     static let declared: [RouteParityDeclaredDifference<Case>] = [
         RouteParityDeclaredDifference(
-            [.fastaRegion: 2, .genBankFeature: 2], "only in C: Project.lungfish/.tmp/extract-sequence-input-<ANY>",
+            [.fastaRegion: 2, .genBankFeature: 2, .reverseFlankedRegion: 2], "only in C: Project.lungfish/.tmp/extract-sequence-input-<ANY>",
             reason: "The CLI route stages the viewer's sequence as a FASTA and keeps it with its folder marker, so the "
                 + "record names an input that exists (ARCH 5, BIO 6). The in-process route read it from memory.",
             closedBy: "13.03 (DEL-REST), which deletes the in-process route with its hidden key RegionExtractionWithoutBundleRoute"
         ),
         RouteParityDeclaredDifference(
-            [.fastaRegion: 405, .genBankFeature: 513], "differs: Project.lungfish/Extractions/<ANY>.lungfish-provenance.json at <ANY>",
+            [.fastaRegion: 405, .genBankFeature: 513, .reverseFlankedRegion: 465],
+            "differs: Project.lungfish/Extractions/<ANY>.lungfish-provenance.json at <ANY>",
             reason: "Each record states the command its route ran, the in-process lungfish-gui argv against the leaf's, "
                 + "and the leaf's names the staged FASTA and the document as inputs with digests, adds input and "
                 + "source_document, and for a GenBank document source_annotations (R-B3). The bundle's payload, "
@@ -136,6 +145,14 @@ final class RegionExtractionWithoutBundleParityReplayTests: XCTestCase {
             let cds = try XCTUnwrap(record.annotations.first { $0.type == .cds })
             request = ExtractionRequest(source: .annotation(cds), flank5Prime: 2, concatenateExons: true)
             bundleName = "  "
+        case .reverseFlankedRegion:
+            document = root.appendingPathComponent(Self.fastaPath)
+            sequence = try await RegionExtractionWithoutBundlePinConformanceTests.readFASTADocument(document)
+            request = ExtractionRequest(
+                source: .region(chromosome: sequence.name, start: 10, end: 40),
+                flank5Prime: 3, flank3Prime: 4, reverseComplement: true
+            )
+            bundleName = "Region 2"
         }
         let result = try SequenceExtractor.extract(
             request: request,
