@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.31, review 12.31-M3a Fix 4 (QA 4). `ViewerExportLeaf.run` exits 3 on a refusal and 64 on a
-// failure. EsVirituExportCLIGUIParityReplayTests runs its cancel, exit 125, through the real transport.
+// Phase 2.12 lane 12.31, review 12.31-M3a Fix 4 (QA 4) and review 12.31-c5 Fix 3. `ViewerExportLeaf.run` exits 3 on a
+// refusal, 64 on a failure and 125 on a cancel. EsVirituExportCLIGUIParityReplayTests also runs the cancel through
+// the real transport.
 
 import ArgumentParser
 import XCTest
@@ -31,6 +32,18 @@ final class ViewerExportLeafTests: XCTestCase {
             XCTFail("a failure ends the leaf with an exit")
         } catch let exit as ExitCode {
             XCTAssertEqual(exit, CLIExitCode.workflowError.exitCode)
+        }
+    }
+
+    func testACancelExitsOneHundredTwentyFive() async throws {
+        let options = try GlobalOptions.parse([])
+        do {
+            try await ViewerExportLeaf.run(globalOptions: options, startMessage: "Testing a cancel.") { _ in
+                throw CancellationError()
+            }
+            XCTFail("a cancel ends the leaf with an exit")
+        } catch let exit as ExitCode {
+            XCTAssertEqual(exit, CLIExitCode.cancelled.exitCode)
         }
     }
 }
