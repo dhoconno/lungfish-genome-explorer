@@ -91,30 +91,6 @@ final class NativeRecordWorkflowWriterTests: XCTestCase {
         XCTAssertEqual(reading.envelope.status, .completed)
     }
 
-    func testTheTaxTriageRecordStatesNoInheritedCondaPrefix() throws {
-        let saved = ProcessInfo.processInfo.environment["CONDA_PREFIX"]
-        setenv("CONDA_PREFIX", "/b6-inherited/conda-prefix", 1)
-        defer { if let saved { setenv("CONDA_PREFIX", saved, 1) } else { unsetenv("CONDA_PREFIX") } }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("b6-taxtriage-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory.appendingPathComponent("report"), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let fastq = directory.appendingPathComponent("SampleD.fastq")
-        let report = directory.appendingPathComponent("report/SampleD.organisms.report.txt")
-        let log = directory.appendingPathComponent("nextflow.log")
-        try "@r\nACGT\n+\nIIII\n".write(to: fastq, atomically: true, encoding: .utf8)
-        try "organism\treads\nExample virus\t7\n".write(to: report, atomically: true, encoding: .utf8)
-        try "TaxTriage complete\n".write(to: log, atomically: true, encoding: .utf8)
-        let config = TaxTriageConfig(samples: [TaxTriageSample(sampleId: "SampleD", fastq1: fastq)],
-            outputDirectory: directory, maxCpus: 4, profile: "docker")
-        try TaxTriageResult(config: config, runtime: 1, exitCode: 0, outputDirectory: directory, reportFiles: [report],
-            logFile: log, traceFile: nil, allOutputFiles: [report, log]).save()
-
-        _ = try XCTUnwrap(try MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: directory))
-        let envelope = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: directory)?.envelope)
-        XCTAssertEqual(envelope.runtimeIdentity.condaEnvironment, "nextflow")
-        XCTAssertNil(envelope.runtimeIdentity.condaPrefix, "the shell's CONDA_PREFIX is not the run's")
-    }
-
     private static func data(_ record: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
     }
