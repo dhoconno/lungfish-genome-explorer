@@ -106,9 +106,9 @@ final class PrimerSelectionExportParityTests: XCTestCase {
     }
 
     /// The command the row records, parsed with the real leaf and run on a second folder, writes what the app
-    /// wrote for the same selection. The folders differ only in the fields that name the run: the identifiers,
-    /// the dates, the destination path and the provenance argv, which the app records as the row's command and
-    /// the leaf records as the argv of the process that ran it.
+    /// wrote for the same selection. The folders differ only in the identifiers, the dates and the destination
+    /// path, which the Masks row allows, and in the provenance argv. The argv is a prediction row of the lane
+    /// report (ARCH export-shape ruling X-5), not a Masks-row mask.
     func testTheRecordedCommandWritesTheFolderTheAppWrote() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -132,8 +132,7 @@ final class PrimerSelectionExportParityTests: XCTestCase {
                 XCTAssertEqual(cli.files[path], bytes, "\(item.label): \(path) differs")
             }
             XCTAssertEqual(cli.selection, app.selection, item.label)
-            XCTAssertEqual(cli.manifestName, app.manifestName, item.label)
-            XCTAssertEqual(cli.chromosomes, app.chromosomes, item.label)
+            XCTAssertEqual(cli.manifest, app.manifest, item.label)
             XCTAssertEqual(cli.envelope.workflowName, app.envelope.workflowName, item.label)
             XCTAssertEqual(cli.envelope.exitStatus, app.envelope.exitStatus, item.label)
             XCTAssertEqual(cli.envelope.options.explicit, app.envelope.options.explicit, item.label)
@@ -144,9 +143,10 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             XCTAssertFalse(app.inputs.isEmpty, item.label)
             XCTAssertEqual(cli.inputs, app.inputs, item.label)
             XCTAssertEqual(cli.inputOrigins, app.inputOrigins, item.label)
-            // The declared difference. The leaf records the argv of the process that ran it.
+            // The provenance argv is a prediction row of the lane report (ARCH export-shape ruling X-5), not a
+            // Masks-row mask. This class runs the leaf in the test process, so it cannot show the argv of the
+            // shipped binary.
             XCTAssertEqual(cli.envelope.argv, CommandLine.arguments, item.label)
-            XCTAssertNotEqual(cli.envelope.argv, app.envelope.argv, item.label)
         }
     }
 
@@ -240,8 +240,8 @@ final class PrimerSelectionExportParityTests: XCTestCase {
         let files: [String: Data]
         /// selection.json without the destination path.
         let selection: NSDictionary
-        let manifestName: String
-        let chromosomes: [String]
+        /// manifest.json without the bundle identifier, the dates and the source download date.
+        let manifest: NSDictionary
         let envelope: ProvenanceEnvelope
         /// The resolved options without the destination path.
         let resolved: [String: ParameterValue]
@@ -273,7 +273,17 @@ final class PrimerSelectionExportParityTests: XCTestCase {
         var options = try XCTUnwrap(document["options"] as? [String: Any])
         options.removeValue(forKey: "outputBundle")
         document["options"] = options
-        let manifest = try BundleManifest.load(from: folder)
+        // The manifest is compared as a dictionary. Its identifier derives from a UUID and its dates are
+        // wall-clock times, so those are the only fields removed (Masks row).
+        var manifest = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: folder.appendingPathComponent("manifest.json"))) as? [String: Any])
+        for key in ["identifier", "created_date", "modified_date"] { manifest.removeValue(forKey: key) }
+        var source = try XCTUnwrap(manifest["source"] as? [String: Any])
+        source.removeValue(forKey: "download_date")
+        // The app records the analysis URL with a trailing slash and the leaf without. Fix 5 found this and it is
+        // reported as a difference the lane brief did not predict. Only that one slash is dropped here.
+        if let url = source["source_url"] as? String, url.hasSuffix("/") { source["source_url"] = String(url.dropLast()) }
+        manifest["source"] = source
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: folder))
         var resolved = envelope.options.resolvedDefaults
         resolved.removeValue(forKey: "outputBundle")
@@ -297,8 +307,8 @@ final class PrimerSelectionExportParityTests: XCTestCase {
         }
         return Facts(
             entries: try manager.contentsOfDirectory(atPath: folder.path).sorted(), files: files,
-            selection: document as NSDictionary, manifestName: manifest.name,
-            chromosomes: manifest.genome?.chromosomes.map(\.name) ?? [], envelope: envelope, resolved: resolved,
+            selection: document as NSDictionary, manifest: manifest as NSDictionary,
+            envelope: envelope, resolved: resolved,
             outputPaths: paths, outputChecksums: checksums, inputs: inputs, inputOrigins: inputOrigins)
     }
 
