@@ -353,7 +353,12 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         if derivedWorkflowsSource.contains("OperationCenter.shared.update(") {
             violations.append("\(derivedWorkflowsPath): a progress handler calls OperationCenter.update() with no log")
         }
-        let bridgePath = "Sources/LungfishApp/Services/OperationCenterCLIBridge.swift"
+        // Phase 2.12 lane 12.31 moves the bridge into LungfishKit (ARCH ruling X-4), so either home is read.
+        let bridgePath = [
+            "Sources/LungfishKit/OperationCenterCLIBridge.swift",
+            "Sources/LungfishApp/Services/OperationCenterCLIBridge.swift",
+        ].first { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
+            ?? "Sources/LungfishKit/OperationCenterCLIBridge.swift"
         assertLogged(
             path: bridgePath,
             marker: "case let .progress(",
