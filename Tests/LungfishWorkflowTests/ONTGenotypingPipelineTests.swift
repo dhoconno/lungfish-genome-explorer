@@ -49,7 +49,9 @@ final class ONTGenotypingPipelineTests: XCTestCase {
                         medianMAPQ: 0,
                         meanIdentity: 0
                     )
-                ]
+                ],
+                referenceCount: 4,
+                unalignedReferenceCount: 3
             )
         }
         let filterRunner = StubONTFilterRunner { request in
@@ -128,6 +130,16 @@ final class ONTGenotypingPipelineTests: XCTestCase {
                     .path
             )
         )
+        let sampleFolder = output.appendingPathComponent("FLD0001", isDirectory: true)
+        XCTAssertNil(filteredMapping.referenceCount, "genotype rows are not the references with alignments")
+        XCTAssertNil(filteredMapping.unalignedReferenceCount)
+        func sidecar(_ name: String) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: sampleFolder.appendingPathComponent(name))) as? [String: Any])
+        }
+        XCTAssertEqual(try sidecar("mapping-result.json")["schemaVersion"] as? Int, 1)
+        XCTAssertNil(try sidecar("mapping-result.json")["referenceCount"])
+        XCTAssertEqual(try sidecar("raw-mapping-result.json")["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(try sidecar("raw-mapping-result.json")["unalignedReferenceCount"] as? Int, 3)
 
         let sampleEnvelope = try XCTUnwrap(
             ProvenanceRecorder.loadEnvelope(from: output.appendingPathComponent("FLD0001", isDirectory: true))
