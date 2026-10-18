@@ -225,7 +225,7 @@ extension OutputEquivalence.MaskPolicy {
     /// PrimerDesignDialogPresenter.swift:120 still records the app's launch arguments and not the recorded command
     /// (CLI-EQUIVALENCE.md line 16), and they leave hostKeys when that is fixed. explicit is hidden because the app
     /// names its dialog controls and the CLI its flags.
-    fileprivate static var primerAnalysis: OutputEquivalence.MaskPolicy {
+    public static var primerAnalysis: OutputEquivalence.MaskPolicy {
         var policy = OutputEquivalence.MaskPolicy.standard
         let digests = OutputEquivalence.Mask(name: "primerAnalysisDigests") { text, _ in
             let pattern = try! NSRegularExpression(
