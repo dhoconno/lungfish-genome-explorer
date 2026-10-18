@@ -380,6 +380,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         annotationCaptures() + exportCaptures() + derivedCaptures() + treeCaptures() + platformCaptures()
             + importCaptures() + ontSplitCaptures() + sequenceCaptures() + variantsCaptures() + importONTCaptures()
             + managedToolCaptures() + classifierImportCaptures() + naoMgsNvdImportCaptures() + importVCFCaptures()
+            + projectCopyItemCaptures()
     }
 
     /// The four import commands and the three `build-db` leaves (`BuildDbStreamCapture`), run by `ImportStreamCapture`,

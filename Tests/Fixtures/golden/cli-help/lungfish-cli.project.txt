@@ -15,5 +15,6 @@ SUBCOMMANDS:
   unlock                  Remove a project-local lock record
   migrate                 Migrate project bundles when a safe transformer is
                           available
+  copy-item               Copy a project item into another project
 
   See 'lungfish-cli help project <subcommand>' for detailed help.

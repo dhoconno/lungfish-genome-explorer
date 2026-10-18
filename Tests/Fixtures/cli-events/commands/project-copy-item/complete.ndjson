@@ -1,0 +1,3 @@
+{"event":"start","message":"Copying NC_045512.lungfishref","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Copying NC_045512.lungfishref into Project.lungfish…","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Copied NC_045512.lungfishref","output":"\/work\/Project.lungfish\/Reference Sequences\/NC_045512.lungfishref","outputs":["\/work\/Project.lungfish\/Reference Sequences\/NC_045512.lungfishref"],"progress":1,"schemaVersion":2}

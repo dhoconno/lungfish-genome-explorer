@@ -1,0 +1,54 @@
+OVERVIEW: Copy a project item into another project
+
+Copies one Lungfish bundle or analysis result folder into a project, as
+dropping it onto
+the sidebar of another project window does. The item keeps its folder from the
+source
+project, or goes to the folder its kind uses, or to --folder. A name the
+project already
+holds gets a counter, such as NC_045512-2.lungfishref. The copy is built in the
+project's
+.tmp folder, where its links into the source project are rewritten and its
+record names
+the source item by its path inside the source project and the SHA-256 of every
+file the
+copy read. It is then published with one rename, so no reader sees a part of
+it. SIGTERM
+stops the copy before it publishes, records it as cancelled and exits 125. A
+refusal
+exits 3.
+
+Examples:
+  lungfish-cli project copy-item "Reference Sequences/NC_045512.lungfishref"
+--source-project A.lungfish --project B.lungfish
+  lungfish-cli project copy-item Imports/HG002.lungfishfastq --source-project
+A.lungfish --project B.lungfish --folder Imports/Reviewed --format json
+
+USAGE: lungfish-cli project copy-item [<options>] <item> --project <project>
+
+ARGUMENTS:
+  <item>                  The item to copy, as its path inside
+                          --source-project, or an absolute path for an item in
+                          no project
+
+OPTIONS:
+  --source-project <source-project>
+                          The project that holds the item. Defaults to the
+                          project the item's path is inside
+  --project <project>     The project to copy the item into
+  --folder <folder>       The folder to copy into, as a path inside --project.
+                          Defaults to the item's folder in its project, or the
+                          folder its kind uses
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

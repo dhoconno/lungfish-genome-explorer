@@ -110,6 +110,7 @@ A failed run is kept only when Lungfish wrote its message. A Foundation message 
 | `import-nao-mgs` | `complete`, `failed` | `import nao-mgs --no-fetch-references --output-dir /work/Project.lungfish/Imports --format json` of the folder `S1.2024` with the table `virus_hits_final.tsv` of five hits for the dotted sample ids `S1.2024` and `S2.2024`, then of a folder that does not exist (Phase 2.12 lane 12.05) |
 | `import-vcf` | `complete`, `failed` | `import vcf --output-dir /work/Project.lungfish/Reference.lungfishref --format json` of `calls.vcf`, a copy of `Tests/Fixtures/sarscov2/test.vcf`, into a manifest-only bundle, then of a VCF that does not exist (in process, `CLIEventTranscriptCoverageTests+ImportVCF.swift`, Phase 2.12 lane 12.07) |
 | `import-nvd` | `complete`, `failed` | `import nvd --output-dir /work/Project.lungfish/Imports --format json` of the run `nvd.2024` with the `05_labkey_bundling` table of experiment `EXP001` and three hits for the sample ids `S1.2024` and `S2.2024`, then of a folder that does not exist |
+| `project-copy-item` | `complete`, `failed` | `project copy-item "Reference Sequences/NC_045512.lungfishref" --source-project /work/Source.lungfish --project /work/Project.lungfish --format json` of a reference bundle that holds one FASTA file, then of `Reference Sequences/Missing.lungfishref`, which is not there (Phase 2.12 lane 12.18) |
 
 ### Captured from the built CLI
 

@@ -1,0 +1,2 @@
+{"event":"start","message":"Copying Missing.lungfishref","progress":0,"schemaVersion":2}
+{"error":"No Lungfish bundle or analysis result at \/work\/Source.lungfish\/Reference Sequences\/Missing.lungfishref. project copy-item copies one of those.","event":"failed","schemaVersion":2}

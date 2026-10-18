@@ -452,6 +452,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "primers design varvamp": "cli.primers",
         "primers import": "cli.primers",
         "primers scheme-from-analysis": "cli.primers",
+        "project copy-item": "cli.project.copy-item",
         "project lock": "cli.project",
         "project migrate": "cli.project",
         "project unlock": "cli.project",

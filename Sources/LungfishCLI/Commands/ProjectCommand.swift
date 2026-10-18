@@ -23,6 +23,7 @@ struct ProjectCommand: AsyncParsableCommand {
             LockSubcommand.self,
             UnlockSubcommand.self,
             MigrateSubcommand.self,
+            ProjectCopyItemSubcommand.self,
         ],
         defaultSubcommand: nil
     )
