@@ -39,14 +39,15 @@ import LungfishWorkflow
 final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
     enum Case: String, Sendable {
         case primer3
+        case primalScheme3
     }
 
     /// The differences of A against C.
     static let declared: [RouteParityDeclaredDifference<Case>] = []
 
     private static let analysisName = "primer-parity"
-    private var scratch: URL!
-    private var cli: URL!
+    var scratch: URL!
+    var cli: URL!
 
     override func setUpWithError() throws {
         scratch = try TestTempDirectory.make(prefix: "primer-design-parity").resolvingSymlinksInPath().standardizedFileURL
@@ -103,7 +104,7 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
 
     // MARK: - The fixture and the dialog
 
-    private static func bundleURL(in root: URL) -> URL {
+    static func bundleURL(in root: URL) -> URL {
         root.appendingPathComponent("Analyses/\(analysisName).lungfishprimeranalysis", isDirectory: true)
     }
 
@@ -119,7 +120,7 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
         )
     }
 
-    private static func sequence(seed: UInt64, length: Int) -> String {
+    static func sequence(seed: UInt64, length: Int) -> String {
         let bases = Array("ACGT")
         var state = seed
         var result = ""
@@ -130,19 +131,22 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
         return result
     }
 
-    private static func wrapped(_ sequence: String) -> String {
+    static func wrapped(_ sequence: String) -> String {
         let letters = Array(sequence)
         return stride(from: 0, to: letters.count, by: 70)
             .map { String(letters[$0..<min($0 + 70, letters.count)]) }
             .joined(separator: "\n")
     }
 
-    /// The dialog of the side's project folder with its two templates read and every record selected.
-    private static func dialog(in root: URL) async -> PrimerDesignDialogState {
+    /// The dialog of the side's project folder for `engine`, with its input read and, for a FASTA of templates, every
+    /// record selected.
+    static func dialog(
+        in root: URL, engine: PrimerDesignEngine = .primer3, input: String = "templates.fasta"
+    ) async -> PrimerDesignDialogState {
         let state = PrimerDesignDialogState(projectURL: root)
-        state.engine = .primer3
+        state.engine = engine
         state.analysisName = analysisName
-        state.addInputs([root.appendingPathComponent("templates.fasta")])
+        state.addInputs([root.appendingPathComponent(input)])
         await state.inspectInputs()
         return state
     }
@@ -190,10 +194,12 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
 
     /// Side C. The row the dialog begins, which records the command, and the built CLI on the recorded command's
     /// arguments with the same managed environment as side A. It returns the row's command, which side C' replays.
-    private func sideC(_ root: URL, harness: RouteParityHarness) async -> RouteParitySideOutcome {
+    func sideC(
+        _ root: URL, harness: RouteParityHarness, engine: PrimerDesignEngine = .primer3, input: String = "templates.fasta"
+    ) async -> RouteParitySideOutcome {
         let reporter = RecordingOperationReporter()
         do {
-            let state = await Self.dialog(in: root)
+            let state = await Self.dialog(in: root, engine: engine, input: input)
             let destination = try state.validatedDestinationURL(createParent: true)
             PrimerDesignOperation.beginPrimerDesignOperation(
                 title: "\(state.engine.rawValue) · \(state.analysisName)", destination: destination, routeContext: nil,
@@ -214,7 +220,7 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
 extension PrimerDesignCLIGUIParityReplayTests {
     /// The CLI's own record of its call, `provenance/wrapper.json`, holds the program that ran and the recorded command's
     /// arguments, on side C and on the replay. The policy hides the vector from the compare, so this pins it.
-    fileprivate static func assertRecordedArgv(
+    static func assertRecordedArgv(
         of run: RouteParitySideRun, is arguments: [String], cli: URL, file: StaticString = #filePath, line: UInt = #line
     ) throws {
         let wrapper = bundleURL(in: run.root).appendingPathComponent("provenance/wrapper.json")
