@@ -12,7 +12,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishOperations
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 @MainActor
 final class AnnotationTableSelectedRowsResolverTests: XCTestCase {

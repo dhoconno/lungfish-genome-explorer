@@ -8,6 +8,7 @@ import LungfishTestSupport
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 /// Phase 2.8 lane B6, decision G1.
 ///

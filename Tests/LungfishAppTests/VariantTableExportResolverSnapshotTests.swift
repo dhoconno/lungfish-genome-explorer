@@ -1,7 +1,7 @@
 import XCTest
 import LungfishCore
 @testable import LungfishOperations
-import LungfishWorkflow
+@testable import LungfishWorkflow
 @testable import LungfishApp
 
 final class VariantTableExportResolverSnapshotTests: XCTestCase {
