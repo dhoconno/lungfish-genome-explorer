@@ -45,9 +45,9 @@ extension ImportCommand {
             let inputURL = URL(fileURLWithPath: inputFile)
             let outputDirectory = resolveOutputDirectory(outputDir)
             let attachesToBundle = outputDirectory.pathExtension.lowercased() == "lungfishref"
-            // `--format json` makes the attach to a bundle print the events the app's row shows (Phase 2.11
-            // lane A63). An output folder that is a plain directory keeps its text output.
-            let eventsOn = globalOptions.outputFormat == .json && attachesToBundle
+            // `--format json` prints the events the app's row shows, for the attach to a bundle since Phase 2.11
+            // lane A63 and for a plain output folder since 2.12 lane 12.06 (A63 review note 4).
+            let eventsOn = globalOptions.outputFormat == .json
             let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
             emitter.emitStart(kind: "alignment")
 
@@ -100,14 +100,14 @@ extension ImportCommand {
                 return
             }
 
-            print(formatter.header("BAM/CRAM Import"))
-            print("")
-            print(formatter.keyValueTable([
+            printHumanLine(formatter.header("BAM/CRAM Import"), eventsOn: eventsOn)
+            printHumanLine("", eventsOn: eventsOn)
+            printHumanLine(formatter.keyValueTable([
                 ("Input", inputURL.lastPathComponent),
                 ("Format", ext.uppercased()),
                 ("Output", outputDirectory.path),
-            ]))
-            print("")
+            ]), eventsOn: eventsOn)
+            printHumanLine("", eventsOn: eventsOn)
 
             // Create output directory.
             try FileManager.default.createDirectory(
@@ -119,11 +119,12 @@ extension ImportCommand {
             var createdArtifacts: [URL] = []
             do {
                 // Copy alignment file.
+                emitter.emitProgress(0.1, message: "Copying \(inputURL.lastPathComponent)...")
                 let destURL = outputDirectory.appendingPathComponent(inputURL.lastPathComponent)
                 if try copyImportArtifactIfNeeded(from: inputURL, to: destURL) {
                     createdArtifacts.append(destURL)
                     if !globalOptions.quiet {
-                        print(formatter.info("Copied alignment file"))
+                        printHumanLine(formatter.info("Copied alignment file"), eventsOn: eventsOn)
                     }
                 }
 
@@ -132,6 +133,7 @@ extension ImportCommand {
                     for: inputURL,
                     to: outputDirectory,
                     formatter: formatter,
+                    eventsOn: eventsOn,
                     createdArtifacts: &createdArtifacts
                 )
 
@@ -145,6 +147,7 @@ extension ImportCommand {
                 var provenanceSteps: [ProvenanceStep] = []
                 let samtoolsVersion = await detectNativeToolVersion(.samtools)
 
+                emitter.emitProgress(0.3, message: "Collecting alignment statistics...")
                 do {
                     let runner = NativeToolRunner.shared
                     let idxstatsClock = ProvenanceRunClock()
@@ -194,7 +197,7 @@ extension ImportCommand {
                     // samtools not available - skip stats.
                     provenanceMessages.append("samtools idxstats unavailable: \(error.localizedDescription)")
                     if !globalOptions.quiet {
-                        print(formatter.warning("samtools not available; skipping statistics collection"))
+                        warn("samtools not available; skipping statistics collection", formatter: formatter, emitter: emitter, eventsOn: eventsOn)
                     }
                 }
 
@@ -208,8 +211,9 @@ extension ImportCommand {
                 if indexArtifact == nil {
                     do {
                         let runner = NativeToolRunner.shared
+                        emitter.emitProgress(0.6, message: "Creating index...")
                         if !globalOptions.quiet {
-                            print(formatter.info("Creating index..."))
+                            printHumanLine(formatter.info("Creating index..."), eventsOn: eventsOn)
                         }
                         let indexClock = ProvenanceRunClock()
                         let indexResult = try await runner.run(
@@ -232,15 +236,13 @@ extension ImportCommand {
                                 ]
                             }
                             if !globalOptions.quiet {
-                                print(formatter.success("Index created"))
+                                printHumanLine(formatter.success("Index created"), eventsOn: eventsOn)
                             }
                         } else {
                             provenanceMessages.append(
                                 "samtools index exited \(indexResult.exitCode): \(indexResult.stderr)"
                             )
-                            print(formatter.warning(
-                                "Failed to create index. The file may need sorting first."
-                            ))
+                            warn("Failed to create index. The file may need sorting first.", formatter: formatter, emitter: emitter, eventsOn: eventsOn)
                         }
                         provenanceSteps.append(try nativeToolProvenanceStep(
                             toolName: "samtools",
@@ -259,10 +261,11 @@ extension ImportCommand {
                         }
                     } catch {
                         provenanceMessages.append("samtools index unavailable: \(error.localizedDescription)")
-                        print(formatter.warning("samtools not available; could not create index"))
+                        warn("samtools not available; could not create index", formatter: formatter, emitter: emitter, eventsOn: eventsOn)
                     }
                 }
 
+                emitter.emitProgress(0.9, message: "Writing provenance...")
                 let inputRecords = bamInputRecords(inputURL: inputURL, format: alignmentFormat, indexArtifact: indexArtifact)
                 let outputRecords = bamOutputRecords(destURL: destURL, format: alignmentFormat, indexArtifact: indexArtifact)
                 try await CLIProvenanceSupport.recordSingleStepRun(
@@ -292,32 +295,37 @@ extension ImportCommand {
                     outputDirectory: outputDirectory
                 )
 
-                print("")
-                print(formatter.header("Summary"))
-                print("")
+                printHumanLine("", eventsOn: eventsOn)
+                printHumanLine(formatter.header("Summary"), eventsOn: eventsOn)
+                printHumanLine("", eventsOn: eventsOn)
 
                 if statsCollected {
                     let mappedPct = totalReads > 0
                         ? String(format: "%.2f%%", Double(mappedReads) / Double(totalReads) * 100)
                         : "N/A"
-                    print(formatter.keyValueTable([
+                    printHumanLine(formatter.keyValueTable([
                         ("Total reads", formatNumber(totalReads)),
                         ("Mapped reads", "\(formatNumber(mappedReads)) (\(mappedPct))"),
                         ("Unmapped reads", formatNumber(unmappedReads)),
                         ("Reference contigs", String(refContigs)),
-                    ]))
+                    ]), eventsOn: eventsOn)
                 } else {
-                    print(formatter.keyValueTable([
+                    printHumanLine(formatter.keyValueTable([
                         ("File", destURL.lastPathComponent),
                         ("Index", indexArtifact == nil ? "not found" : "found"),
-                    ]))
+                    ]), eventsOn: eventsOn)
                 }
 
-                print("")
-                print(formatter.success("BAM import complete: \(destURL.lastPathComponent)"))
+                printHumanLine("", eventsOn: eventsOn)
+                printHumanLine(formatter.success("BAM import complete: \(destURL.lastPathComponent)"), eventsOn: eventsOn)
+                // The copy is what a plain folder import makes, so the completion names it in `outputs`.
+                emitter.emitComplete(attachedTo: destURL, message: "BAM import complete: \(destURL.lastPathComponent)")
             } catch {
                 removeCreatedImportArtifacts(createdArtifacts)
-                throw error
+                // With events on, the row reads the failure from the `failed` event and the exit is 1, as for the attach.
+                guard eventsOn else { throw error }
+                emitter.emitFailed(CLIFailureWords.describe(error))
+                throw CLIExitCode.failure.exitCode
             }
         }
 
@@ -415,6 +423,15 @@ extension ImportCommand {
             }
         }
 
+        /// Tells the person a warning as the text output always did, or the app's row as a `log` event.
+        private func warn(_ message: String, formatter: TerminalFormatter, emitter: ImportCLIEventEmitter, eventsOn: Bool) {
+            if eventsOn {
+                emitter.emitWarning(message)
+            } else {
+                print(formatter.warning(message))
+            }
+        }
+
         /// Removes what a cancelled run added to `folder`, the entries it did not hold before the run.
         private func removeNewEntries(in folder: URL, notIn before: Set<String>) {
             let now = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
@@ -428,6 +445,7 @@ extension ImportCommand {
             for inputURL: URL,
             to outputDirectory: URL,
             formatter: TerminalFormatter,
+            eventsOn: Bool,
             createdArtifacts: inout [URL]
         ) throws -> (sourceURL: URL?, destinationURL: URL)? {
             let fm = FileManager.default
@@ -448,7 +466,7 @@ extension ImportCommand {
                     if try copyImportArtifactIfNeeded(from: indexURL, to: destIndex) {
                         createdArtifacts.append(destIndex)
                         if !globalOptions.quiet {
-                            print(formatter.info("Copied index: \(indexURL.lastPathComponent)"))
+                            printHumanLine(formatter.info("Copied index: \(indexURL.lastPathComponent)"), eventsOn: eventsOn)
                         }
                     }
                     return (sourceURL: indexURL, destinationURL: destIndex)

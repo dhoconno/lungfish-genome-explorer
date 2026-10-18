@@ -105,7 +105,7 @@ package enum CLIEventContractTable {
         // Events since 2.11 A48 M3, which builds through ReferenceBundleImportService. It printed text only before.
         "import fasta": .events(flag: formatJSON, channel: .standardOutput),
         // Events since 2.11 A63 M1, for an output that is an existing .lungfishref bundle, the attach the Import
-        // Center runs. A plain output directory still prints text only. It printed text only before.
+        // Center runs, and since 2.12 lane 12.06 for a plain output directory too. It printed text only before.
         "import bam": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ont-fluidigm-samples": .events(flag: alwaysOn, channel: .standardError),
         "fastq ont-pacbio-barcode-demux": .events(flag: alwaysOn, channel: .standardError),
