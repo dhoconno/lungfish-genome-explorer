@@ -621,69 +621,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 coverageDepth: avgDepth
             ))
 
-            // Build a ViralAssembly for the detail pane by converting each
-            // DB row into a ``ViralDetection`` contig, then aggregating them
-            // the same way ``EsVirituDetectionParser/groupByAssembly`` does
-            // for single-sample mode. Without this the detail pane stays
-            // blank when a row is clicked (``batchAssemblyLookup`` lookup
-            // misses and ``showAssemblyDetail`` is never called).
-            let contigs: [ViralDetection] = group.map { row in
-                ViralDetection(
-                    sampleId: row.sample,
-                    name: row.virusName,
-                    description: row.description ?? "",
-                    length: row.contigLength ?? 0,
-                    segment: row.segment,
-                    accession: row.accession,
-                    assembly: row.assembly,
-                    assemblyLength: row.assemblyLength ?? 0,
-                    kingdom: row.kingdom,
-                    phylum: row.phylum,
-                    tclass: row.tclass,
-                    order: row.torder,
-                    family: row.family,
-                    genus: row.genus,
-                    species: row.species,
-                    subspecies: row.subspecies,
-                    rpkmf: row.rpkmf ?? 0,
-                    readCount: row.readCount,
-                    coveredBases: row.coveredBases ?? 0,
-                    meanCoverage: row.meanCoverage ?? 0,
-                    avgReadIdentity: row.avgReadIdentity ?? 0,
-                    pi: row.pi ?? 0,
-                    filteredReadsInSample: row.filteredReadsInSample ?? 0
-                )
-            }
-
-            // Assembly-level weighted averages (matches EsVirituDetectionParser.groupByAssembly).
-            let weightedCoverage: Double
-            let weightedIdentity: Double
-            if totalReads > 0 {
-                weightedCoverage = contigs.reduce(0.0) {
-                    $0 + $1.meanCoverage * Double($1.readCount)
-                } / Double(totalReads)
-                weightedIdentity = contigs.reduce(0.0) {
-                    $0 + $1.avgReadIdentity * Double($1.readCount)
-                } / Double(totalReads)
-            } else {
-                weightedCoverage = 0
-                weightedIdentity = 0
-            }
-
-            let assembly = ViralAssembly(
-                assembly: first.assembly,
-                assemblyLength: first.assemblyLength ?? 0,
-                name: first.virusName,
-                family: first.family,
-                genus: first.genus,
-                species: first.species,
-                totalReads: totalReads,
-                rpkmf: first.rpkmf ?? 0,
-                meanCoverage: weightedCoverage,
-                avgReadIdentity: weightedIdentity,
-                contigs: contigs
-            )
-            batchAssemblyLookup[key] = assembly
+            // Build a ViralAssembly for the detail pane from the DB rows, as the
+            // export does. Without this the detail pane stays blank when a row
+            // is clicked (``batchAssemblyLookup`` lookup misses and
+            // ``showAssemblyDetail`` is never called).
+            batchAssemblyLookup[key] = EsVirituDetectionExport.assembly(from: group)
         }
 
         // Resolve BAM paths from DB columns.
@@ -825,13 +767,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// samples while still sourcing data from the batch SQLite database.
     private func showBatchSamplesView(sampleIds: [String]) {
         let selectedSet = Set(sampleIds)
-        let assemblies: [ViralAssembly] = batchAssemblyLookup
-            .compactMap { key, value in
-                guard let sampleId = key.split(separator: "\t", maxSplits: 1).first.map(String.init),
-                      selectedSet.contains(sampleId) else { return nil }
-                return value
-            }
-            .sorted(by: EsVirituDetectionExport.assemblyPrecedes)
+        let assemblies = EsVirituDetectionExport.assemblies(in: batchAssemblyLookup, selectedSamples: selectedSet)
 
         let detections = assemblies.flatMap(\.contigs)
         let familyCount = Set(detections.compactMap(\.family)).count
@@ -863,7 +799,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
 
         let result = EsVirituResult(
-            sampleId: sampleIds.count == 1 ? (sampleIds.first ?? "batch") : "batch",
+            sampleId: EsVirituDetectionExport.resultSampleId(selectedSamples: sampleIds),
             detections: detections,
             assemblies: assemblies,
             taxProfile: [],
