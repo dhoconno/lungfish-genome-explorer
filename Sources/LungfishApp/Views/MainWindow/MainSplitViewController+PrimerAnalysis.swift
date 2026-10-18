@@ -437,7 +437,11 @@ extension MainSplitViewController {
         case .nativePool(let sourceResultID, let pool):
             selectionArguments = ["--source-result-id=\(sourceResultID)", "--native-pool=\(pool)"]
         }
-        let kindName = kind == .primerFASTA ? "primer-fasta" : "reference-amplicon"
+        let kindName: String
+        switch kind {
+        case .primerFASTA: kindName = "primer-fasta"
+        case .referenceAmplicon: kindName = "reference-amplicon"
+        }
         return [analysisURL.path, "--kind", kindName] + selectionArguments + ["--output", destinationURL.path]
     }
 
