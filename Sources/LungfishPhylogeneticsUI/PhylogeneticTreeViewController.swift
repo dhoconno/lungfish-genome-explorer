@@ -1153,11 +1153,11 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                 ],
                 resolved: [
                     "descendantTipCount": .integer(export.descendantTipCount),
-                    "outputByteCount": .integer(export.newick.utf8.count),
+                    "outputByteCount": .integer(export.newick.utf8.count + 1),
                 ],
                 runClock: runClock
             )) { staged in
-                try Data(export.newick.utf8).write(to: staged, options: .atomic)
+                try Data((export.newick + "\n").utf8).write(to: staged, options: .atomic)
             }
         } catch {
             throw error

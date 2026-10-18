@@ -321,7 +321,7 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
         )
 
         XCTAssertEqual(sidecarURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        XCTAssertEqual(try readRepositorySource(outputURL), export.newick)
+        XCTAssertEqual(try readRepositorySource(outputURL), export.newick + "\n", "the leaf's bytes, ARCH ruling on 12.35 M3")
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.workflowName, "lungfish app phylogenetic subtree export")
@@ -366,6 +366,36 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
             )
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    /// ARCH ruling on lane 12.35, M3. The subtree file ends with one newline, as `tree export subtree` writes it,
+    /// and its record counts that byte. It fails at 898cbd050, where the view wrote the Newick with no newline.
+    func testSubtreeExportEndsWithOneNewline() throws {
+        let tempDir = try TestTempDirectory.make(prefix: "LungfishPhylogeneticsSubtreeNewline")
+        defer { TestTempDirectory.cleanup(tempDir) }
+        let outputURL = tempDir.appendingPathComponent("subtree.nwk")
+        let export = PhylogeneticTreeSubtreeExport(
+            selectedNodeID: "node-1",
+            selectedLabel: "Reviewed Clade",
+            newick: "(A:1,B:1);",
+            descendantTipCount: 2
+        )
+
+        let sidecarURL = try PhylogeneticTreeViewController.writeSubtreeExport(
+            export,
+            sourceBundleURL: nil,
+            to: outputURL,
+            runClock: ProvenanceRunClock()
+        )
+
+        let bytes = try Data(contentsOf: outputURL)
+        XCTAssertEqual(bytes.last, 0x0A, "the file ends with a newline")
+        XCTAssertEqual(bytes.dropLast().last, UInt8(ascii: ";"), "one newline after the Newick terminator")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.options.resolvedDefaults["outputByteCount"]?.integerValue, bytes.count)
+        XCTAssertEqual(envelope.output?.fileSize, UInt64(bytes.count))
+        let reimported = tempDir.appendingPathComponent("reimported.lungfishtree", isDirectory: true)
+        XCTAssertNoThrow(try PhylogeneticTreeBundleImporter.importTree(from: outputURL, to: reimported))
     }
 }
 
