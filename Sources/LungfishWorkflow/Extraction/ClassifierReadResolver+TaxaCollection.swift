@@ -35,6 +35,9 @@ extension ClassifierReadResolver {
         progress?(0.0, "Starting batch extraction: \(collection.name) (\(targets.count) taxa)")
         let scratch = try ProjectTempDirectory.create(prefix: "taxa-collection-", in: Self.resolveProjectRoot(from: resultPath))
         defer { try? FileManager.default.removeItem(at: scratch) }
+        // The result's read files, resolved once for every taxon as extractBatch did, so a trimmed or
+        // oriented subset is materialized once into the scratch folder (the review of lane 12.11 c4, fix 5).
+        let sources = try await collectionSources(of: classification, targets: targets, scratch: scratch)
 
         var outputs: [URL] = []
         var skipped = 0
@@ -52,7 +55,7 @@ extension ClassifierReadResolver {
             do {
                 outputs.append(try await extractCollectionTaxon(
                     target, of: collection, resultPath: resultPath, classification: classification,
-                    outputDirectory: outputDirectory, scratch: scratch,
+                    outputDirectory: outputDirectory, scratch: scratch, sources: sources,
                     progress: { fraction, message in progress?(min(base + step * fraction, base + step), message) }
                 ))
             } catch TaxonomyExtractionError.noMatchingReads, ClassifierExtractionError.zeroReadsExtracted {
@@ -72,6 +75,31 @@ extension ClassifierReadResolver {
         progress?(1.0, "Batch complete: \(outputs.count) of \(targets.count) taxa extracted (\(skipped) skipped)")
         collectionLogger.info("Batch extraction complete: \(outputs.count) extracted, \(skipped) skipped from \(collection.name, privacy: .public)")
         return outputs
+    }
+
+    /// The read files of the collection's result, resolved once before its taxa into
+    /// `scratch/materialized`, which goes with `scratch`. Nothing is resolved when no taxon holds reads in
+    /// the report, since every taxon is then skipped. Files that cannot be resolved fail the collection
+    /// in the words of the missing source, as a resolve for each taxon did through `allSamplesSkipped`.
+    private func collectionSources(
+        of classification: ClassificationResult, targets: [TaxonTarget], scratch: URL
+    ) async throws -> KrakenResultReadSources? {
+        guard targets.contains(where: { (classification.tree.node(taxId: $0.taxId)?.readsClade ?? 0) > 0 }) else {
+            return nil
+        }
+        do {
+            return try await KrakenResultReadSources.resolve(
+                result: classification,
+                materializationDirectory: scratch.appendingPathComponent("materialized", isDirectory: true)
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            collectionLogger.warning(
+                "Source FASTQ not found: \(error.localizedDescription, privacy: .private(mask: .hash))"
+            )
+            throw ClassifierExtractionError.kraken2SourceMissing
+        }
     }
 
     /// The command a collection file's record names, `extract taxa-collection` for that one taxon into
@@ -99,6 +127,7 @@ extension ClassifierReadResolver {
         classification: ClassificationResult,
         outputDirectory: URL,
         scratch: URL,
+        sources: KrakenResultReadSources?,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> URL {
         let runClock = ProvenanceRunClock()
@@ -115,6 +144,7 @@ extension ClassifierReadResolver {
             options: ExtractionOptions(format: .fastq, taxonScope: scope),
             destination: .file(plain),
             runClock: runClock,
+            resolvedSources: sources,
             progress: progress
         )
         try Task.checkCancellation()

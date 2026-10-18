@@ -41,12 +41,16 @@ public struct ClassifierExtractionLayout: Sendable, Equatable {
 extension ClassifierReadResolver {
     // MARK: - Kraken2 dispatch
 
+    /// The Kraken2 extraction of `selections`. A job with no sample reads `resolvedSources` when the
+    /// caller gives them, the read files a taxa collection resolves once for all its taxa (the review of
+    /// lane 12.11 c4, fix 5), and resolves the files its result records otherwise.
     func extractViaKraken2(
         selections: [ClassifierRowSelector],
         resultPath: URL,
         options: ExtractionOptions,
         destination: ExtractionDestination,
         runClock: ProvenanceRunClock,
+        resolvedSources: KrakenResultReadSources? = nil,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout, sourceFiles: [URL]) {
         let hasSingleSampleSelectors = selections.contains { $0.sampleId == nil }
@@ -126,13 +130,18 @@ extension ClassifierReadResolver {
             provenanceSourceURLs.append(classResult.outputURL)
 
             // Every read file of this sample (D7a, D7b). A trimmed or
-            // oriented subset is materialized into the temp folder.
+            // oriented subset is materialized into the temp folder, unless
+            // the caller resolved the files of a single result already.
             let sources: KrakenResultReadSources
             do {
-                sources = try await KrakenResultReadSources.resolve(
-                    result: classResult,
-                    materializationDirectory: tempDir.appendingPathComponent("sources-\(jobIndex)", isDirectory: true)
-                )
+                if job.sampleId == nil, let resolvedSources {
+                    sources = resolvedSources
+                } else {
+                    sources = try await KrakenResultReadSources.resolve(
+                        result: classResult,
+                        materializationDirectory: tempDir.appendingPathComponent("sources-\(jobIndex)", isDirectory: true)
+                    )
+                }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
