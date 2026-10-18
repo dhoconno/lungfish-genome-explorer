@@ -170,7 +170,9 @@ extension BAMImportService {
     /// the same bundle (Phase 2.12 lane 12.06, BIO 4). Records written before 2.12 name the app's retired
     /// `--bam-import-helper` re-launch instead. They keep it as history, and the export plan does not replay it.
     /// A caller that imports into a staging bundle has the staged path remapped at publication, as the mapping
-    /// viewer does (`MappingViewerBundlePublicationService.remappedEnvelope`).
+    /// viewer does (`MappingViewerBundlePublicationService.remappedEnvelope`). The record's two in-app steps append
+    /// marker flags to this argv (`--clone-sorted-alignment` and `--collect-alignment-metadata`), which no command
+    /// accepts, and `ProvenanceExportPlan.inAppMarkerFlags` reads them so that no export replays those steps.
     private static func importProvenanceArgv(bamURL: URL, bundleURL: URL, name: String?) -> [String] {
         var argv = [CLICommandIdentity.executableName, "import", "bam", bamURL.path, "--output-dir", bundleURL.path]
         if let name {

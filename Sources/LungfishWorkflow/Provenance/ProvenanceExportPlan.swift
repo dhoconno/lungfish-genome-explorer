@@ -505,8 +505,14 @@ struct ProvenanceExportPlan {
     /// names and does not replay (BIO 4). New records name `lungfish-cli import bam`.
     static let retiredHelperFlags: Set<String> = ["--bam-import-helper"]
 
+    /// The marker flags that a BAM import record appends to the argv of its two in-app steps, the clone of an already
+    /// sorted BAM and the collection of alignment metadata (`BAMImportService+Provenance.swift`). No command accepts
+    /// them, so a step that carries one is an in-app step whatever executable it names. Records that the `import bam`
+    /// leaf or a default caller wrote name `lungfish-cli` there and older records name the retired helper.
+    static let inAppMarkerFlags: Set<String> = ["--clone-sorted-alignment", "--collect-alignment-metadata"]
+
     static func namesRetiredHelper(_ argv: [String]) -> Bool {
-        argv.count >= 2 && retiredHelperFlags.contains(argv[1])
+        (argv.count >= 2 && retiredHelperFlags.contains(argv[1])) || argv.contains(where: inAppMarkerFlags.contains)
     }
 
     static func isCLI(_ argv: [String]) -> Bool {
