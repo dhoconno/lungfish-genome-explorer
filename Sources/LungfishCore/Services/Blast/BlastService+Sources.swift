@@ -150,6 +150,9 @@ extension BlastService {
            FileManager.default.fileExists(atPath: classificationOutputURL.path) {
             do {
                 hitStrings = try lookupKrakenHitStrings(classificationOutputURL, fragmentIds: sampledSet)
+            } catch let cancel as CancellationError {
+                // A cancel during the lookup ends the run, never a submission of mate 1 (S38, 2.12 lane 12.10).
+                throw cancel
             } catch {
                 logger.warning("extractSequencesAndBuild: could not read Kraken hit strings: \(error.localizedDescription, privacy: .public); submitting mate 1")
             }
