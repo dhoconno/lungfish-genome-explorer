@@ -20,7 +20,8 @@ import LungfishWorkflow
 public actor CLIViewerExportRunner {
     /// How a run ended. The row is already settled when the caller reads it.
     public enum Outcome: Sendable, Equatable {
-        /// The leaf wrote this file and its record. The row reads Completed.
+        /// The leaf wrote this file and its record. The row reads Completed, except that a user's cancel from the row
+        /// after the commit settles it Cancelled by user (see `run`).
         case completed(URL)
         /// The run was cancelled. The row reads Cancelled.
         case cancelled
@@ -70,8 +71,9 @@ public actor CLIViewerExportRunner {
     ///     production caller passes any. A test passes the leaf's hold variable.
     ///
     /// A cancel that lands after the leaf committed, so that it exits 0 with a `complete` line naming its file,
-    /// completes the row with that file, since the leaf wrote payload and record in one transaction and the file
-    /// is on disk (review 12.31-M3a Fix 6, ruled by the manager).
+    /// returns `.completed(file)` (review 12.31-M3a Fix 6, ruled by the manager). The file and its record are on disk.
+    /// The row reads Completed when the cancel did not come through the row. When the user cancels from the row,
+    /// `OperationCenter` has already set it to cancelling and settles it as Cancelled by user with no output links.
     public func run(
         arguments: [String],
         outputURL: URL,

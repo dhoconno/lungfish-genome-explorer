@@ -125,7 +125,9 @@ final class CLIViewerExportRunnerTests: XCTestCase {
     /// Review 12.31-M3a Fix 6, ruled by the manager. A cancel that lands after the leaf committed, which traps TERM,
     /// writes its file, prints `complete` and exits 0, completes the row with that file, since an export leaf writes
     /// payload and record in one transaction. The five runners of FiveRunnersCancelReadingTests keep the other
-    /// reading. The file's path reaches the leaf through `environmentAdditions` (Fix 5).
+    /// reading. The file's path reaches the leaf through `environmentAdditions` (Fix 5). The cancel goes to the
+    /// runner alone, so the row is never cancelling.
+    /// testARowCancelAfterTheLeafCommittedReturnsTheFileAndTheRowReadsCancelled covers the Cancel button.
     func testACancelAfterTheLeafCommittedCompletesTheRowWithTheFile() async throws {
         let result = folder.appendingPathComponent("committed.tsv")
         let ready = folder.appendingPathComponent("leaf.ready")
@@ -163,12 +165,54 @@ final class CLIViewerExportRunnerTests: XCTestCase {
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == id }?.state, .completed)
     }
 
+    /// Review 12.31-c5 Fix 1. The user's Cancel reaches the row first, so the row is cancelling when the commit
+    /// arrives. The run returns the file, the row reads Cancelled by user with no output links, and the file stays.
+    func testARowCancelAfterTheLeafCommittedReturnsTheFileAndTheRowReadsCancelled() async throws {
+        let result = folder.appendingPathComponent("row-cancel.tsv")
+        let ready = folder.appendingPathComponent("row-cancel.ready")
+        let cli = try standInCLI("""
+        finish() {
+          echo finished > "$LUNGFISH_TEST_EXPORT_RESULT"
+          printf '%s\\n' '{"event":"complete","progress":1,"outputs":["\(result.path)"],"output":"\(result.path)"}'
+          exit 0
+        }
+        trap finish TERM
+        printf '%s\\n' '{"event":"start","progress":0,"message":"starting"}'
+        echo ready > "\(ready.path)"
+        while :; do sleep 0.1; done
+        """)
+        let runner = CLIViewerExportRunner(cliURLOverride: cli)
+        let id = try beginRow(onCancel: { runner.cancel() })
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let run = Task {
+            await runner.run(
+                arguments: [], outputURL: result, operationID: id, completionDetail: "Exported row-cancel.tsv",
+                environmentAdditions: ["LUNGFISH_TEST_EXPORT_RESULT": result.path]
+            )
+        }
+
+        let deadline = Date().addingTimeInterval(30)
+        while !FileManager.default.fileExists(atPath: ready.path), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ready.path), "the stand-in leaf started")
+        OperationCenter.shared.cancel(id: id)
+        let outcome = await run.value
+
+        XCTAssertEqual(outcome, .completed(result))
+        XCTAssertEqual(try String(contentsOf: result, encoding: .utf8), "finished\n")
+        let item = OperationCenter.shared.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .cancelled)
+        XCTAssertEqual(item?.outputURLs, [])
+    }
+
     // MARK: - Helpers
 
-    private func beginRow() throws -> UUID {
+    private func beginRow(onCancel: (@Sendable () -> Void)? = nil) throws -> UUID {
         let result = OperationCenter.shared.begin(
             title: "Export Table", detail: "Exporting table...", operationType: .export,
-            cliCommand: "lungfish-cli test export table"
+            cliCommand: "lungfish-cli test export table",
+            onCancel: onCancel
         )
         guard case .started(let id) = result else {
             throw XCTSkip("the operation center refused the row")
