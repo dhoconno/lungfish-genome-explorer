@@ -287,12 +287,14 @@ public enum FASTQInputLayoutResolver {
         let scanURL = scansABundle
             ? (FASTQBundle.resolvePrimaryFASTQURL(for: standardized) ?? standardized)
             : standardized
-        let scan = (try? FASTQReadLayoutClassifier.readHeaders(from: scanURL, limit: recordLimit))
-            ?? (headers: [], scannedWholeFile: true)
+        let scan = (try? FASTQReadLayoutClassifier.countMates(in: scanURL, limit: recordLimit))
+            ?? (scannedRecords: 0, matePairs: 0, unpairedRecords: 0, scannedWholeFile: true)
         // A scan of the whole of the file read counts it. The primary file
         // of a bundle counts the bundle only when it holds every read.
         let classification = FASTQReadLayoutClassifier.classify(
-            headers: scan.headers,
+            scannedRecords: scan.scannedRecords,
+            matePairs: scan.matePairs,
+            unpairedRecords: scan.unpairedRecords,
             scannedWholeFile: scan.scannedWholeFile,
             metadata: hints,
             wholeFileScanOutranksTheMerge: evidence.wholeFileScanOutranksTheMerge

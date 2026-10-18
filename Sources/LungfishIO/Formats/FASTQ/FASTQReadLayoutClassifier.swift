@@ -195,11 +195,44 @@ public enum FASTQReadLayoutClassifier {
             index += 1
         }
 
+        return classify(
+            scannedRecords: headers.count,
+            matePairs: pairs,
+            unpairedRecords: unpaired,
+            scannedWholeFile: scannedWholeFile,
+            metadata: metadata,
+            wholeFileScanOutranksTheMerge: wholeFileScanOutranksTheMerge
+        )
+    }
+
+    /// Classifies a scan from its counts, the decision
+    /// ``classify(headers:scannedWholeFile:metadata:wholeFileScanOutranksTheMerge:)`` takes once it has paired the
+    /// headers.
+    ///
+    /// ``countMates(in:limit:)`` gives the counts while it streams a file, so a scan of a whole file holds no
+    /// header. The result is the one `classify(headers:...)` gives for the same file, the reason included.
+    ///
+    /// - Parameters:
+    ///   - scannedRecords: Number of records scanned.
+    ///   - matePairs: Number of adjacent mate pairs among them.
+    ///   - unpairedRecords: Number of scanned records without an adjacent mate. A scan that stopped at the limit
+    ///     does not count a final record that may be half a pair.
+    ///   - scannedWholeFile: Whether the scan covers the whole file.
+    ///   - metadata: Bundle and sidecar evidence.
+    ///   - wholeFileScanOutranksTheMerge: As in `classify(headers:...)`.
+    static func classify(
+        scannedRecords: Int,
+        matePairs pairs: Int,
+        unpairedRecords unpaired: Int,
+        scannedWholeFile: Bool,
+        metadata: FASTQPairingMetadataHints = FASTQPairingMetadataHints(),
+        wholeFileScanOutranksTheMerge: Bool = false
+    ) -> FASTQReadLayoutClassification {
         let layout: FASTQReadLayout
         let reason: String
         let scope = scannedWholeFile
-            ? "all \(headers.count) records"
-            : "the first \(headers.count) records"
+            ? "all \(scannedRecords) records"
+            : "the first \(scannedRecords) records"
 
         if pairs > 0, unpaired == 0 {
             if metadata.hasMergedOrUnpairedReads, scannedWholeFile, wholeFileScanOutranksTheMerge {
@@ -223,14 +256,14 @@ public enum FASTQReadLayoutClassifier {
             reason = "The dataset metadata says it holds paired\(metadata.hasMergedOrUnpairedReads ? " and merged" : "") reads, but no adjacent mates were found in \(scope)."
         } else {
             layout = .singleEnd
-            reason = headers.isEmpty
+            reason = scannedRecords == 0
                 ? "No FASTQ records could be read."
                 : "No record in \(scope) is followed by its mate."
         }
 
         return FASTQReadLayoutClassification(
             layout: layout,
-            scannedRecords: headers.count,
+            scannedRecords: scannedRecords,
             matePairs: pairs,
             unpairedRecords: unpaired,
             scannedWholeFile: scannedWholeFile,
@@ -271,6 +304,47 @@ public enum FASTQReadLayoutClassifier {
         return (headers, !reachedLimit)
     }
 
+    /// Counts the adjacent mates of up to `limit` records of a 4-line FASTQ file (plain or gzip), holding one
+    /// header at a time. The counts and stops are those `classify(headers:...)` gets from `readHeaders`, so a
+    /// scan of a whole file costs no memory per record.
+    static func countMates(
+        in fastqURL: URL,
+        limit: Int = defaultRecordLimit
+    ) throws -> (scannedRecords: Int, matePairs: Int, unpairedRecords: Int, scannedWholeFile: Bool) {
+        var scanned = 0
+        var pairs = 0
+        var unpaired = 0
+        var held: String?
+        var lineIndex = 0
+        var reachedLimit = false
+        do {
+            try fastqURL.forEachLineAutoDecompressing { line in
+                defer { lineIndex += 1 }
+                guard lineIndex % 4 == 0 else { return }
+                if line.isEmpty { return }
+                guard line.hasPrefix("@") else { throw StopScan() }
+                if scanned >= limit {
+                    reachedLimit = true
+                    throw StopScan()
+                }
+                scanned += 1
+                let header = String(line.dropFirst())
+                if let first = held, areMates(first, header) {
+                    pairs += 1
+                    held = nil
+                } else {
+                    if held != nil { unpaired += 1 }
+                    held = header
+                }
+            }
+        } catch is StopScan {
+            // Bounded early exit, as in readHeaders.
+        }
+        // A scan that stopped at the limit may end halfway through a pair, as in classify(headers:).
+        if held != nil, !reachedLimit { unpaired += 1 }
+        return (scanned, pairs, unpaired, !reachedLimit)
+    }
+
     /// Classifies a FASTQ file or `.lungfishfastq` bundle.
     ///
     /// For a bundle, metadata comes from `derived.manifest.json`,
@@ -283,14 +357,22 @@ public enum FASTQReadLayoutClassifier {
         let evidence = metadataEvidence(for: inputURL)
         let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL)
         guard let fastqURL,
-              let scan = try? readHeaders(from: fastqURL, limit: limit) else {
-            return classify(headers: [], scannedWholeFile: true, metadata: evidence.hints)
+              let scan = try? countMates(in: fastqURL, limit: limit) else {
+            return classify(
+                scannedRecords: 0,
+                matePairs: 0,
+                unpairedRecords: 0,
+                scannedWholeFile: true,
+                metadata: evidence.hints
+            )
         }
         // Only a file that holds every read of its input is counted by a
         // scan of it. A virtual bundle's preview and a chunked root's first
         // chunk are not.
         return classify(
-            headers: scan.headers,
+            scannedRecords: scan.scannedRecords,
+            matePairs: scan.matePairs,
+            unpairedRecords: scan.unpairedRecords,
             scannedWholeFile: scan.scannedWholeFile,
             metadata: evidence.hints,
             wholeFileScanOutranksTheMerge: evidence.wholeFileScanOutranksTheMerge
