@@ -11,8 +11,8 @@
 //   `lungfish-cli import bam`. Its row records the command.
 // - Side C' is the harness's replay of that command.
 //
-// A against C declares nothing. Side A passes the command the leaf records, since the helper's own record, which
-// names the helper flag, is pinned by BAMImportHelperRouteConformanceTests.
+// A against C declares nothing. Side A passes the command the leaf records. A caller that passes no command records
+// the same `import bam` leaf since 2.12 lane 12.06, which BAMImportCallerRecordSpellingTests pins.
 //
 // It runs the managed samtools and launches the built lungfish-cli, so its name ends in ReplayTests, which sends it
 // to the integration tier, and it skips without samtools unless `LUNGFISH_REQUIRE_TOOLS=1`.

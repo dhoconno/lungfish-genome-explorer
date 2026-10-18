@@ -659,22 +659,6 @@ final class OperationRoutingTests: XCTestCase {
         )
     }
 
-    func testMetagenomicsHelperCancellationTerminatesSubprocessTree() throws {
-        let serviceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishOperations/MetagenomicsImportHelperClient.swift")
-        let source = try readRepositorySource(serviceURL)
-
-        XCTAssertTrue(source.contains("NativeProcessCancellationHandle"))
-        XCTAssertTrue(source.contains("withTaskCancellationHandler"))
-        XCTAssertTrue(source.contains("requestProcessTreeTermination"))
-        XCTAssertTrue(source.contains("cancellationHandle.store(process)"))
-        XCTAssertTrue(source.contains("cancellationHandle.clear(process)"))
-        XCTAssertTrue(source.contains("throw CancellationError()"))
-    }
-
     func testFASTQImportSlotPreventsIdleSystemSleepWhileProcessing() throws {
         let serviceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

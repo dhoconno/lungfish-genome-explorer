@@ -50,12 +50,6 @@ private final class SparkleUpdaterBridge {
 if let helperExitCode = VCFImportHelper.runIfRequested(arguments: CommandLine.arguments) {
     exit(helperExitCode)
 }
-if let helperExitCode = BAMImportHelper.runIfRequested(arguments: CommandLine.arguments) {
-    exit(helperExitCode)
-}
-if let helperExitCode = MetagenomicsImportHelper.runIfRequested(arguments: CommandLine.arguments) {
-    exit(helperExitCode)
-}
 
 let dependencySharingStatus = DebugDependencySharing.bootstrap()
 if let output = DebugDependencySharing.diagnosticOutput(arguments: CommandLine.arguments, status: dependencySharingStatus) {

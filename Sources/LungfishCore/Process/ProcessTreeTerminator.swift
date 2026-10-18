@@ -326,8 +326,8 @@ public enum ProcessTreeTerminator {
 /// descendant tool processes alive when cancelled.
 ///
 /// The previous pattern used across several helper-subprocess call sites
-/// (`AppDelegate+ImportCenter.swift`'s VCF helper runners,
-/// `BAMImportHelperClient`) polled `process.isRunning` on a 100 ms
+/// (`AppDelegate+ImportCenter.swift`'s VCF helper runners and the BAM
+/// import helper client, removed in Phase 2.12) polled `process.isRunning` on a 100 ms
 /// `Thread.sleep` loop and called `process.terminate()` on cancellation,
 /// which signals only the helper root — descendant tool processes such as
 /// `bcftools` or `samtools` were left running. This utility
