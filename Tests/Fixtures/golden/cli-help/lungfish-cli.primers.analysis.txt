@@ -16,5 +16,7 @@ SUBCOMMANDS:
                           from a saved Primer3 result
   export-order            Export a primer order (workbooks, CSV and order.json)
                           from a saved analysis
+  export-selection        Export a primer FASTA bundle or a reference amplicon
+                          for one saved selection
 
   See 'lungfish-cli help primers analysis <subcommand>' for detailed help.

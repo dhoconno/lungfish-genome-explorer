@@ -1,0 +1,45 @@
+OVERVIEW: Export a primer FASTA bundle or a reference amplicon for one saved
+selection
+
+Writes the same new .lungfishref bundle that the saved primer analysis view
+writes for Save Primer FASTA Bundle and Extract Reference Amplicon, with its
+provenance and a copy of the evidence it came from. Name exactly one selection,
+which is one primer (--target-id and --primer-id), one amplicon (--target-id
+and --amplicon-id), one numbered pool (--source-result-id and --pool) or one
+native pool (--source-result-id and --native-pool). --kind primer-fasta saves
+the selected primers as primers.fasta, in the 5' to 3' orientation they were
+stored in, and for an amplicon it saves the primers of that amplicon. --kind
+reference-amplicon extracts the saved reference span of one amplicon, with its
+primer sites as an annotation track, so it needs an amplicon. The IDs are the
+ones the saved analysis stores, and Copy CLI Command on an export made in the
+app records them. The saved analysis is never changed, and an existing --output
+is never replaced.
+
+USAGE: lungfish-cli primers analysis export-selection <bundle-path> --kind <kind> [--target-id <target-id>] [--primer-id <primer-id>] [--amplicon-id <amplicon-id>] [--source-result-id <source-result-id>] [--pool <pool>] [--native-pool <native-pool>] --output <output>
+
+ARGUMENTS:
+  <bundle-path>           Path to the saved .lungfishprimeranalysis bundle.
+
+OPTIONS:
+  --kind <kind>           What to write. The value primer-fasta saves the
+                          selected primers and reference-amplicon extracts one
+                          amplicon's reference span. (values: primer-fasta,
+                          reference-amplicon)
+  --target-id <target-id> Target ID of the primer or amplicon, with --primer-id
+                          or --amplicon-id.
+  --primer-id <primer-id> Primer ID, with --target-id.
+  --amplicon-id <amplicon-id>
+                          Amplicon ID, with --target-id.
+  --source-result-id <source-result-id>
+                          ID of the saved result a pool belongs to, with --pool
+                          or --native-pool.
+  --pool <pool>           Numbered pool to export, 1 or higher, with
+                          --source-result-id.
+  --native-pool <native-pool>
+                          Pool name exactly as the design tool saved it, with
+                          --source-result-id.
+  --output <output>       New .lungfishref bundle to write. It must not exist,
+                          and its parent folder must.
+  --version               Show the version.
+  -h, --help              Show help information.
+

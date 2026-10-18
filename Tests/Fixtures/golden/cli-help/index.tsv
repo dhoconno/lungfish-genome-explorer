@@ -272,6 +272,7 @@ lungfish-cli primers analysis history	shown	0	lungfish-cli.primers.analysis.hist
 lungfish-cli primers analysis audit	shown	0	lungfish-cli.primers.analysis.audit.txt
 lungfish-cli primers analysis annotated-reference	shown	0	lungfish-cli.primers.analysis.annotated-reference.txt
 lungfish-cli primers analysis export-order	shown	0	lungfish-cli.primers.analysis.export-order.txt
+lungfish-cli primers analysis export-selection	shown	0	lungfish-cli.primers.analysis.export-selection.txt
 lungfish-cli genotype	shown	0	lungfish-cli.genotype.txt
 lungfish-cli genotype list-samples	shown	0	lungfish-cli.genotype.list-samples.txt
 lungfish-cli genotype list-cohorts	shown	0	lungfish-cli.genotype.list-cohorts.txt
