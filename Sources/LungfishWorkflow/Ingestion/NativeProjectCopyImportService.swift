@@ -1,13 +1,67 @@
 import Foundation
 import LungfishCore
 
+/// The command a native copy's receipt names (Phase 2.12 lane 12.18, BIO ruling on F4). Without one the receipt
+/// names the app's `Lungfish.app import-native`, which side A of the cross-project copy and the FASTQ import's
+/// native path keep.
+package struct NativeCopyReceiptIdentity: Sendable, Equatable {
+    package var workflowName: String
+    package var toolName: String
+    package var argv: [String]
+    package var durableReplayArgv: [String]?
+    package var explicitOptions: [String: ParameterValue]
+    package var defaultOptions: [String: ParameterValue]
+    /// The resolved options. The service adds `destination`, `replaceExisting` and `copyMode` to a supplied receipt.
+    package var resolvedOptions: [String: ParameterValue]
+
+    package init(
+        workflowName: String,
+        toolName: String,
+        argv: [String],
+        durableReplayArgv: [String]?,
+        explicitOptions: [String: ParameterValue],
+        defaultOptions: [String: ParameterValue],
+        resolvedOptions: [String: ParameterValue]
+    ) {
+        self.workflowName = workflowName
+        self.toolName = toolName
+        self.argv = argv
+        self.durableReplayArgv = durableReplayArgv
+        self.explicitOptions = explicitOptions
+        self.defaultOptions = defaultOptions
+        self.resolvedOptions = resolvedOptions
+    }
+
+    /// The app's receipt, `Lungfish.app import-native` with tool `lungfish-app` and no replay words.
+    static func appImportNative(
+        source: URL, destination: URL, replaceExisting: Bool, copyMode: ParameterValue, sourceProjectURL: URL?
+    ) -> NativeCopyReceiptIdentity {
+        var argv = ["Lungfish.app", "import-native", source.path, "--output", destination.path]
+        var resolved: [String: ParameterValue] = ["source": .file(source), "destination": .file(destination),
+            "replaceExisting": .boolean(replaceExisting), "copyMode": copyMode]
+        if let sourceProjectURL {
+            argv += ["--source-project", sourceProjectURL.path]
+            resolved["sourceProject"] = .file(sourceProjectURL)
+        }
+        return NativeCopyReceiptIdentity(
+            workflowName: "Native document import", toolName: "lungfish-app", argv: argv, durableReplayArgv: nil,
+            explicitOptions: ["source": .file(source), "destination": .file(destination)],
+            defaultOptions: ["replaceExisting": .boolean(false)], resolvedOptions: resolved
+        )
+    }
+}
+
 /// Publishes opaque native documents with a receipt for the bytes actually copied.
 /// Archives remain archives; directory payloads keep their existing layout.
 package enum NativeProjectCopyImportService {
     /// - Parameter sourceProjectURL: the project the item is being copied out
     ///   of, when known. It is recorded in the copy receipt so a copied item
     ///   remembers where it came from.
-    package static func copy(from source: URL, to destination: URL, replaceExisting: Bool = false, sourceProjectURL: URL? = nil) throws -> URL {
+    /// - Parameter receipt: the command the receipt names. Nil names the app's `import-native`.
+    package static func copy(
+        from source: URL, to destination: URL, replaceExisting: Bool = false, sourceProjectURL: URL? = nil,
+        receipt: NativeCopyReceiptIdentity? = nil
+    ) throws -> URL {
         let fm = FileManager.default
         let source = source.standardizedFileURL
         let destination = destination.standardizedFileURL
@@ -52,15 +106,17 @@ package enum NativeProjectCopyImportService {
             try publication.publish(stagedURL: staged, to: destination, replacingExisting: replaceExisting)
             if writesReceipt {
                 let completedAt = runClock.now
-                var argv = ["Lungfish.app", "import-native", source.path, "--output", destination.path]
-                var resolved: [String: ParameterValue] = ["source": .file(source), "destination": .file(destination),
-                    "replaceExisting": .boolean(replaceExisting), "copyMode": .string(isDirectory ? "directory-copy" : "opaque-file-copy")]
-                if let sourceProjectURL {
-                    argv += ["--source-project", sourceProjectURL.path]
-                    resolved["sourceProject"] = .file(sourceProjectURL)
+                let copyMode = ParameterValue.string(isDirectory ? "directory-copy" : "opaque-file-copy")
+                var identity = receipt ?? .appImportNative(source: source, destination: destination,
+                    replaceExisting: replaceExisting, copyMode: copyMode, sourceProjectURL: sourceProjectURL)
+                if receipt != nil {
+                    identity.resolvedOptions["destination"] = .file(destination)
+                    identity.resolvedOptions["replaceExisting"] = .boolean(replaceExisting)
+                    identity.resolvedOptions["copyMode"] = copyMode
                 }
-                let step = ProvenanceStep(toolName: "lungfish-app", toolVersion: WorkflowRun.currentAppVersion,
-                    argv: argv, resolvedOptions: resolved, runtimeIdentity: ProvenanceRuntimeIdentity(),
+                let step = ProvenanceStep(toolName: identity.toolName, toolVersion: WorkflowRun.currentAppVersion,
+                    argv: identity.argv, durableReplayArgv: identity.durableReplayArgv,
+                    resolvedOptions: identity.resolvedOptions, runtimeIdentity: ProvenanceRuntimeIdentity(),
                     inputs: inputs, outputs: outputs, exitStatus: 0, wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
                     startedAt: startedAt, completedAt: completedAt)
                 let writer = ProvenanceWriter(publicationMutationDidOccur: { try publication.observe($0) }, signingProvider: nil)
@@ -73,10 +129,11 @@ package enum NativeProjectCopyImportService {
                             provenanceWriter: writer, requireCLIProvenance: false, importStep: step)
                     }
                 } else {
-                    let receipt = ProvenanceEnvelope(createdAt: startedAt, workflowName: "Native document import",
-                        toolName: "lungfish-app", toolVersion: WorkflowRun.currentAppVersion, argv: argv,
-                        options: ProvenanceOptions(explicit: ["source": .file(source), "destination": .file(destination)],
-                            defaults: ["replaceExisting": .boolean(false)], resolvedDefaults: resolved),
+                    let receipt = ProvenanceEnvelope(createdAt: startedAt, workflowName: identity.workflowName,
+                        toolName: identity.toolName, toolVersion: WorkflowRun.currentAppVersion, argv: identity.argv,
+                        durableReplayArgv: identity.durableReplayArgv,
+                        options: ProvenanceOptions(explicit: identity.explicitOptions,
+                            defaults: identity.defaultOptions, resolvedDefaults: identity.resolvedOptions),
                         files: inputs + outputs, output: outputs.first, outputs: outputs, steps: [step],
                         wallTimeSeconds: completedAt.timeIntervalSince(startedAt), exitStatus: 0)
                     if isDirectory { try writer.write(receipt, to: destination) }

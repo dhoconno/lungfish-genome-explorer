@@ -150,8 +150,8 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
             fromSidecar: destination.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         ))
-        // The context names the source bundle as the input, but the written record names the copy in its
-        // place, since the workflow relocates every path of the source bundle to the destination.
+        // The context names the source bundle as the input. The reader re-roots that path onto the copy, which has
+        // the same path inside the target project (PortablePath rerootSinglePath), so the record reads back as the copy.
         let argv = [CLICommandIdentity.executableName, "fastq", "import-ont", destination.path, "--output", destination.path]
         XCTAssertEqual(envelope.argv, argv)
         XCTAssertEqual(envelope.durableReplayArgv, argv)
@@ -193,7 +193,7 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         ))
         XCTAssertEqual(receipt.workflowName, "Native document import")
         XCTAssertEqual(receipt.toolName, "lungfish-app")
-        // As for a read bundle, the written receipt names the copy where the step named the source item.
+        // As for a read bundle, the reader re-roots the source item onto the copy.
         XCTAssertEqual(receipt.argv, [
             "Lungfish.app", "import-native", outcome.destinationURL.standardizedFileURL.path,
             "--output", outcome.destinationURL.standardizedFileURL.path,

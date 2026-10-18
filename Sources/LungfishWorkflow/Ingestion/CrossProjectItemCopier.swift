@@ -227,12 +227,14 @@ package enum CrossProjectItemCopier {
     // MARK: - Copy
 
     /// Copies one item into the target project and returns where it landed
-    /// together with its missing-source record.
+    /// together with its missing-source record. `identity` is the command the
+    /// item's records name, today's app records unless a CLI run passes its own.
     package static func copy(
         itemAt sourceURL: URL,
         intoProject targetProjectURL: URL,
         requestedFolder: URL? = nil,
         now: Date = Date(),
+        identity: ProjectCopyRecordIdentity = .appLegacy,
         checkCancellation: () throws -> Void = {}
     ) throws -> Outcome {
         let fileManager = FileManager.default
@@ -259,7 +261,10 @@ package enum CrossProjectItemCopier {
         let stage = try ProjectTempDirectory.create(prefix: "project-copy-", in: targetProjectURL)
         defer { try? fileManager.removeItem(at: stage) }
         let staged = stage.appendingPathComponent(destination.lastPathComponent, isDirectory: true)
-        try copyBytes(kind: kind, from: source, to: staged, recordedAs: destination, sourceProjectURL: sourceProjectURL)
+        try copyBytes(
+            kind: kind, from: source, to: staged, recordedAs: destination,
+            sourceProjectURL: sourceProjectURL, identity: identity
+        )
         try checkCancellation()
 
         let links = try ProjectItemLinkRewriter.rewrite(context: .init(
@@ -313,20 +318,31 @@ package enum CrossProjectItemCopier {
     ///
     /// The bytes land at `staged`, and the read bundle's command names the
     /// final place, `destination`, which the stage rewrite gives every path.
-    private static func copyBytes(kind: ItemKind, from source: URL, to staged: URL, recordedAs destination: URL, sourceProjectURL: URL?) throws {
+    /// Both branches name the command of `identity`.
+    private static func copyBytes(
+        kind: ItemKind, from source: URL, to staged: URL, recordedAs destination: URL,
+        sourceProjectURL: URL?, identity: ProjectCopyRecordIdentity
+    ) throws {
         if kind == .fastqBundle {
+            let context: FASTQBundleCopyImportWorkflow.CommandContext
+            switch identity {
+            case .appLegacy:
+                context = fastqCopyContext(source: source, destination: destination, sourceProjectURL: sourceProjectURL)
+            case .command(let command):
+                context = command.fastqContext(destination: destination)
+            }
             do {
-                _ = try FASTQBundleCopyImportWorkflow().importBundle(
-                    sourceBundleURL: source,
-                    outputURL: staged,
-                    context: fastqCopyContext(source: source, destination: destination, sourceProjectURL: sourceProjectURL)
-                )
+                _ = try FASTQBundleCopyImportWorkflow().importBundle(sourceBundleURL: source, outputURL: staged, context: context)
                 return
             } catch FASTQBundleCopyImportError.sourceProvenanceMissing {
                 copierLogger.info("Read bundle \(source.lastPathComponent, privacy: .public) has no provenance; using native copy")
             }
         }
-        _ = try NativeProjectCopyImportService.copy(from: source, to: staged, sourceProjectURL: sourceProjectURL)
+        var receipt: NativeCopyReceiptIdentity?
+        if case .command(let command) = identity {
+            receipt = command.nativeReceipt
+        }
+        _ = try NativeProjectCopyImportService.copy(from: source, to: staged, sourceProjectURL: sourceProjectURL, receipt: receipt)
     }
 
     private static func fastqCopyContext(source: URL, destination: URL, sourceProjectURL: URL?) -> FASTQBundleCopyImportWorkflow.CommandContext {
