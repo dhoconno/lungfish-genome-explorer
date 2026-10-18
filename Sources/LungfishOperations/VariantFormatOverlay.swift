@@ -14,12 +14,12 @@ private let variantFormatOverlayLogger = Logger(
 )
 
 package struct VariantFormatKey: Hashable, Sendable {
-    let trackID: String
-    let chromosome: String
-    let position: Int
-    let ref: String
-    let alt: String
-    let sample: String
+    package let trackID: String
+    package let chromosome: String
+    package let position: Int
+    package let ref: String
+    package let alt: String
+    package let sample: String
 }
 
 package struct VariantFormatSourceIdentity: Hashable, Sendable {
@@ -30,8 +30,8 @@ package struct VariantFormatSourceIdentity: Hashable, Sendable {
 }
 
 package struct VariantFormatOverlaySnapshot: Sendable {
-    var fields: [VariantFormatKey: [String: String]] = [:]
-    var singleSampleByTrack: [String: String] = [:]
+    package var fields: [VariantFormatKey: [String: String]] = [:]
+    package var singleSampleByTrack: [String: String] = [:]
     package var projectedKeysByTrack: [String: Set<String>] = [:]
     package var sourceIdentities: Set<VariantFormatSourceIdentity> = []
 
@@ -98,7 +98,7 @@ package struct VariantFormatOverlaySnapshot: Sendable {
         )] ?? [:]
     }
 
-    func trackNeedsInMemoryEvaluation(trackID: String, infoFilters: [VariantDatabase.InfoFilter], sortKey: String?) -> Bool {
+    package func trackNeedsInMemoryEvaluation(trackID: String, infoFilters: [VariantDatabase.InfoFilter], sortKey: String?) -> Bool {
         let keys = projectedKeysByTrack[trackID] ?? []
         if infoFilters.contains(where: { keys.contains($0.key) }) { return true }
         guard let sortKey else { return false }
@@ -213,7 +213,7 @@ package struct VariantFormatOverlaySnapshot: Sendable {
         }
     }
 
-    static func definition(for key: String) -> (type: String, number: String, description: String)? {
+    package static func definition(for key: String) -> (type: String, number: String, description: String)? {
         switch key {
         case "AF":
             return ("Float", "1", "Within-sample frequency from iVar FORMAT/ALT_FREQ")
@@ -236,17 +236,33 @@ package struct VariantFormatOverlaySnapshot: Sendable {
     }
 }
 
-struct VariantFormatOverlaySource: Sendable {
+package struct VariantFormatOverlaySource: Sendable {
     let trackID: String
     let database: VariantDatabase
     let vcfURL: URL?
     let isIVar: Bool
     let aliasesByExactToken: [String: Set<String>]
     let aliasesByCanonicalToken: [String: Set<String>]
+
+    package init(
+        trackID: String,
+        database: VariantDatabase,
+        vcfURL: URL?,
+        isIVar: Bool,
+        aliasesByExactToken: [String: Set<String>],
+        aliasesByCanonicalToken: [String: Set<String>]
+    ) {
+        self.trackID = trackID
+        self.database = database
+        self.vcfURL = vcfURL
+        self.isIVar = isIVar
+        self.aliasesByExactToken = aliasesByExactToken
+        self.aliasesByCanonicalToken = aliasesByCanonicalToken
+    }
 }
 
-enum VariantFormatOverlayLoader {
-    static func load(sources: [VariantFormatOverlaySource]) async -> VariantFormatOverlaySnapshot {
+package enum VariantFormatOverlayLoader {
+    package static func load(sources: [VariantFormatOverlaySource]) async -> VariantFormatOverlaySnapshot {
         var snapshot = VariantFormatOverlaySnapshot()
         for source in sources {
             if Task.isCancelled { return snapshot }
