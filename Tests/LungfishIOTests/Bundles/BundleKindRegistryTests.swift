@@ -204,9 +204,21 @@ final class BundleKindRegistryTests: XCTestCase {
                     BundleKindRegistry.isAppStateFile(at: folder.appendingPathComponent("nested").appendingPathComponent(name)),
                     "\(descriptor.id) \(name) below the root is not app state"
                 )
+                // The temporary file of an atomic write of the state file counts too, because the watcher
+                // reports it before the rename. A longer name that is not that temporary file does not.
+                XCTAssertTrue(
+                    BundleKindRegistry.isAppStateFile(at: folder.appendingPathComponent("\(name).sb-e7881877-TeusD9")),
+                    "\(descriptor.id) \(name) temporary file of an atomic write"
+                )
+                XCTAssertFalse(
+                    BundleKindRegistry.isAppStateFile(at: folder.appendingPathComponent("\(name)x")),
+                    "\(descriptor.id) \(name)x is a different file"
+                )
             }
             XCTAssertFalse(BundleKindRegistry.isAppStateFile(at: folder.appendingPathComponent("manifest.json")), "\(descriptor.id)")
         }
+        // The temporary file of a write of any other file stays a real change.
+        XCTAssertFalse(BundleKindRegistry.isAppStateFile(at: root.appendingPathComponent("Item.lungfishref/manifest.json.sb-e7881877-TeusD9")))
         // The alignment's .viewstate.json sits inside the manifest checksums, so it is not app state (S11).
         XCTAssertFalse(BundleKindRegistry.isAppStateFile(at: root.appendingPathComponent("Aln.lungfishmsa/.viewstate.json")))
         // A folder of no kind declares none.

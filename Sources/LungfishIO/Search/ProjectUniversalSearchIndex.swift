@@ -38,7 +38,7 @@ public final class ProjectUniversalSearchIndex {
 
     var db: OpaquePointer?
 
-    /// Test seam. Called with the URL of each folder `upsertArtifact(at:)` hands to an indexer, so a test
+    /// Test seam. Called with the URL of each folder `upsertArtifact(at:)` reads, so a test
     /// can count how often a bundle is read again. Nothing in the app sets it.
     var onFolderIndexed: ((URL) -> Void)?
 

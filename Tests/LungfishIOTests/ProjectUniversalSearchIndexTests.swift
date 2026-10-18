@@ -46,9 +46,15 @@ final class ProjectUniversalSearchIndexTests: XCTestCase {
         var indexed: [String] = []
         index.onFolderIndexed = { indexed.append($0.lastPathComponent) }
         let viewState = bundleURL.appendingPathComponent(BundleViewState.filename)
+        // The save is an atomic write, which puts a temporary file beside the target first. The watcher
+        // reports that name as well, so a save delivers both paths.
+        let viewStateTemp = bundleURL.appendingPathComponent("\(BundleViewState.filename).sb-e7881877-TeusD9")
 
         try index.update(changedPaths: [viewState])
         XCTAssertEqual(indexed, [], "A view state write sent the bundle back through the indexer.")
+
+        try index.update(changedPaths: [viewState, viewStateTemp])
+        XCTAssertEqual(indexed, [], "The temporary file of a view state write sent the bundle back through the indexer.")
 
         // The seam does count. A change to the manifest indexes the bundle once, with or without the
         // view state beside it.

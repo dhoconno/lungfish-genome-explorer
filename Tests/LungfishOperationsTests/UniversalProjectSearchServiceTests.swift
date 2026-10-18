@@ -208,6 +208,8 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         let referenceBundle = projectURL.appendingPathComponent("Ref.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: referenceBundle, withIntermediateDirectories: true)
         let viewState = referenceBundle.appendingPathComponent(".viewstate.json")
+        // The save is an atomic write, so the watcher also reports the temporary file beside the target.
+        let viewStateTemp = referenceBundle.appendingPathComponent(".viewstate.json.sb-e7881877-TeusD9")
         try Data("{}".utf8).write(to: viewState)
         let fastqBundle = try makeFASTQBundle(
             in: projectURL,
@@ -218,8 +220,8 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         let service = UniversalProjectSearchService()
         let batches = BatchLog()
         await service.setOnUpdate { _, paths in batches.append(paths) }
-        await service.scheduleUpdate(projectURL: projectURL, changedPaths: [viewState], delaySeconds: 0)
-        await service.scheduleUpdate(projectURL: projectURL, changedPaths: [viewState, fastqBundle], delaySeconds: 0)
+        await service.scheduleUpdate(projectURL: projectURL, changedPaths: [viewState, viewStateTemp], delaySeconds: 0)
+        await service.scheduleUpdate(projectURL: projectURL, changedPaths: [viewState, viewStateTemp, fastqBundle], delaySeconds: 0)
 
         let flushed = await waitUntil(timeout: .seconds(30)) { batches.count >= 1 }
         XCTAssertTrue(flushed, "The update never ran.")
@@ -235,6 +237,7 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         let project = URL(fileURLWithPath: "/Projects/Fixture.lungfish", isDirectory: true)
         let bundle = project.appendingPathComponent("Ref.lungfishref", isDirectory: true)
         XCTAssertTrue(UniversalProjectSearchService.ignoresChange(at: bundle.appendingPathComponent(".viewstate.json")))
+        XCTAssertTrue(UniversalProjectSearchService.ignoresChange(at: bundle.appendingPathComponent(".viewstate.json.sb-e7881877-TeusD9")))
         XCTAssertTrue(UniversalProjectSearchService.ignoresChange(at: project.appendingPathComponent(".universal-search.db-wal")))
         XCTAssertFalse(UniversalProjectSearchService.ignoresChange(at: bundle.appendingPathComponent("manifest.json")))
         XCTAssertFalse(UniversalProjectSearchService.ignoresChange(at: bundle))

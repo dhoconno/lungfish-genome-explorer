@@ -277,10 +277,13 @@ extension BundleKindRegistry {
     ///
     /// App state is what the viewer rewrites as the user pans and zooms. No result takes it as an input
     /// and no listing or index stores anything from it, so code that reacts to file changes can skip it.
+    /// The temporary file of an atomic write of that file counts too, such as `.viewstate.json.sb-e7881877-TeusD9`,
+    /// because the watcher reports it before the rename.
     /// The kind comes from the extension of the folder, ignoring case, and no file is touched.
     public static func isAppStateFile(at url: URL) -> Bool {
         let folderURL = url.deletingLastPathComponent()
         guard let descriptor = descriptor(forLowercasedExtensionOf: folderURL) else { return false }
-        return descriptor.appStateFileNames.contains(url.lastPathComponent)
+        let name = url.lastPathComponent
+        return descriptor.appStateFileNames.contains { name == $0 || name.hasPrefix($0 + ".") }
     }
 }
