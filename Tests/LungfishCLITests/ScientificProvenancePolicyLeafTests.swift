@@ -258,6 +258,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "bundle create": "cli.bundle",
         "bundle deduplicate-alignments": "cli.bundle",
         "bundle export": "cli.bundle",
+        "bundle export-gff3": "cli.bundle",
         "bundle extract-annotations": "cli.bundle",
         "bundle info": "cli.bundle",
         "bundle list": "cli.bundle",

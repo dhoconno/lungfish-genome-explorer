@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting annotations as GFF3.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 1 annotation from fixture to fixture.gff3","output":"\/work\/fixture.gff3","outputs":["\/work\/fixture.gff3"],"progress":1,"schemaVersion":2}

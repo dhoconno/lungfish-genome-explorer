@@ -96,6 +96,7 @@ lungfish-cli bundle deduplicate-alignments	shown	0	lungfish-cli.bundle.deduplica
 lungfish-cli bundle mark-duplicates	shown	0	lungfish-cli.bundle.mark-duplicates.txt
 lungfish-cli bundle merge	shown	0	lungfish-cli.bundle.merge.txt
 lungfish-cli bundle export	shown	0	lungfish-cli.bundle.export.txt
+lungfish-cli bundle export-gff3	shown	0	lungfish-cli.bundle.export-gff3.txt
 lungfish-cli bundle validate	shown	0	lungfish-cli.bundle.validate.txt
 lungfish-cli bundle list	shown	0	lungfish-cli.bundle.list.txt
 lungfish-cli project	shown	0	lungfish-cli.project.txt
