@@ -465,6 +465,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Hidden in normal mode; shown exclusively when `isBatchGroupMode` is true.
     private(set) var batchFlatTableView = BatchTaxTriageTableView()
 
+    /// The last write of the batch manifest's unique reads, which the next write waits for.
+    private var batchManifestWriteTask: Task<Void, Never>?
+
     /// Container for the right pane content (organism table, batch overview, or batch flat table).
     /// Stored as an instance property so `setupBatchFlatTableView()` can add to it.
     private let rightPaneContainer = SplitPaneFillContainerView()
@@ -2861,37 +2864,35 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         ])
     }
 
-    /// Updates the persisted `TaxTriageBatchManifest` with newly computed unique reads values.
-    ///
-    /// Called from background unique-reads computation completion so that future opens
-    /// get the fully-populated manifest including exact BAM-derived counts.
-    private func updateBatchManifestUniqueReads() {
-        guard let batchURL = batchGroupURL,
-              var manifest = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: batchURL)
-        else { return }
+    /// Updates the persisted `TaxTriageBatchManifest` with newly computed unique reads values, so future opens get
+    /// the exact BAM-derived counts. The main actor takes the table's values, and the load, merge and save run in a
+    /// detached task after the previous write (S31 note 1, as EsViritu's), which is returned for tests.
+    @discardableResult
+    func updateBatchManifestUniqueReads() -> Task<Void, Never>? {
+        guard let batchURL = batchGroupURL else { return nil }
+        let uniqueReadsByKey = batchFlatTableView.uniqueReadsByKey
+        let previous = batchManifestWriteTask
+        let write = Task.detached(priority: .utility) {
+            await previous?.value
+            Self.writeUpdatedBatchManifestUniqueReads(batchURL: batchURL, uniqueReadsByKey: uniqueReadsByKey)
+        }
+        batchManifestWriteTask = write
+        return write
+    }
 
+    /// The load, merge and save of the batch manifest, off the main actor, on files and `Sendable` values only.
+    nonisolated private static func writeUpdatedBatchManifestUniqueReads(batchURL: URL, uniqueReadsByKey: [String: Int]) {
+        guard var manifest = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: batchURL) else { return }
         for i in manifest.cachedRows.indices {
             let row = manifest.cachedRows[i]
-            let key = "\(row.sample)\t\(row.organism)"
-            if let uniqueReads = batchFlatTableView.uniqueReadsByKey[key] {
-                let safeUnique = ClassifierUniqueReads.normalizedOrFloor(
-                    stored: uniqueReads,
-                    readCount: row.reads
-                )
-                manifest.cachedRows[i] = TaxTriageBatchManifest.CachedRow(
-                    sample: row.sample,
-                    organism: row.organism,
-                    tassScore: row.tassScore,
-                    reads: row.reads,
-                    uniqueReads: safeUnique,
-                    confidence: row.confidence,
-                    coverageBreadth: row.coverageBreadth,
-                    coverageDepth: row.coverageDepth,
-                    abundance: row.abundance
-                )
-            }
+            guard let uniqueReads = uniqueReadsByKey["\(row.sample)\t\(row.organism)"] else { continue }
+            manifest.cachedRows[i] = TaxTriageBatchManifest.CachedRow(
+                sample: row.sample, organism: row.organism, tassScore: row.tassScore, reads: row.reads,
+                uniqueReads: ClassifierUniqueReads.normalizedOrFloor(stored: uniqueReads, readCount: row.reads),
+                confidence: row.confidence, coverageBreadth: row.coverageBreadth, coverageDepth: row.coverageDepth,
+                abundance: row.abundance
+            )
         }
-
         do {
             try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: batchURL)
             logger.info("Updated TaxTriage batch manifest with unique reads")

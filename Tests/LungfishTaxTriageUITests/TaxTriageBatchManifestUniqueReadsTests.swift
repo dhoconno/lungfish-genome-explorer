@@ -4,7 +4,7 @@
 //
 // Phase 2.12 lane 12.01 M3 (DEC Q-B9, S31 note 1). The viewer merges the unique reads of its flat table into
 // `taxtriage-batch-manifest.json`, so the next open shows them without a BAM pass. These tests pin the bytes of
-// that write before its load, merge and save move off the main actor.
+// that write, whose load, merge and save run off the main actor since M3, and the order of writes in a row.
 
 import XCTest
 import LungfishKit
@@ -103,23 +103,13 @@ final class TaxTriageBatchManifestUniqueReadsTests: XCTestCase {
         }
         """
 
-    /// The load, merge and save of `updateBatchManifestUniqueReads`, which is private and runs on the main actor at
-    /// the base of M3, written out as it reads there.
+    /// The viewer's write, awaited through the task it returns.
     private func writeAsTheViewerDoes(_ uniqueReadsByKey: [String: Int], batchURL: URL) async throws {
-        var manifest = try XCTUnwrap(MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: batchURL))
-        for i in manifest.cachedRows.indices {
-            let row = manifest.cachedRows[i]
-            let key = "\(row.sample)\t\(row.organism)"
-            if let uniqueReads = uniqueReadsByKey[key] {
-                let safeUnique = ClassifierUniqueReads.normalizedOrFloor(stored: uniqueReads, readCount: row.reads)
-                manifest.cachedRows[i] = TaxTriageBatchManifest.CachedRow(
-                    sample: row.sample, organism: row.organism, tassScore: row.tassScore, reads: row.reads,
-                    uniqueReads: safeUnique, confidence: row.confidence, coverageBreadth: row.coverageBreadth,
-                    coverageDepth: row.coverageDepth, abundance: row.abundance
-                )
-            }
-        }
-        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: batchURL)
+        let viewer = TaxTriageResultViewController()
+        viewer.batchGroupURL = batchURL
+        viewer.batchFlatTableView.uniqueReadsByKey = uniqueReadsByKey
+        let write = try XCTUnwrap(viewer.updateBatchManifestUniqueReads())
+        await write.value
     }
 
     func testTheUniqueReadsWriteKeepsTheManifestBytes() async throws {
@@ -130,5 +120,27 @@ final class TaxTriageBatchManifestUniqueReadsTests: XCTestCase {
         let url = root.appendingPathComponent(TaxTriageBatchManifest.filename)
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), Self.expected)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [TaxTriageBatchManifest.filename])
+    }
+
+    /// Each write waits for the one before it, so the table's last values are the ones on disk.
+    func testWritesInARowLandInTheirOrder() async throws {
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(Self.saved, to: root)
+        let viewer = TaxTriageResultViewController()
+        viewer.batchGroupURL = root
+        var writes: [Task<Void, Never>] = []
+        for uniqueReads in [5, 6, 7, 80] {
+            viewer.batchFlatTableView.uniqueReadsByKey = ["S1\t\(Self.influenza)": uniqueReads]
+            writes.append(try XCTUnwrap(viewer.updateBatchManifestUniqueReads()))
+        }
+        for write in writes {
+            await write.value
+        }
+
+        let manifest = try XCTUnwrap(MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: root))
+        XCTAssertEqual(manifest.cachedRows.map(\.uniqueReads), [80, 3, 12, nil], "the last write wins")
+    }
+
+    func testAViewerWithNoBatchFolderWritesNothing() {
+        XCTAssertNil(TaxTriageResultViewController().updateBatchManifestUniqueReads())
     }
 }
