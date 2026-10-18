@@ -20,31 +20,48 @@ struct MappingAnalysisOpenPayload: Sendable {
 
 extension MainSplitViewController {
     /// Decodes a bundle manifest on a background thread. The manifest of a
-    /// large reference is hundreds of megabytes and takes seconds to decode.
+    /// large reference is hundreds of megabytes and takes seconds to decode,
+    /// so a large one waits for ``BundleDecodeLane``.
     nonisolated static func loadReferenceManifestOffMain(at url: URL) async -> Result<BundleManifest, Error> {
-        await Task.detached(priority: .userInitiated) {
-            Result { try BundleManifest.load(from: url) }
-        }.value
+        await BundleDecodeLane.offMain {
+            try await BundleDecodeLane.decode(reading: [url.appendingPathComponent(BundleManifest.filename)]) {
+                try BundleManifest.load(from: url)
+            }
+        }
     }
 
     /// Decodes a mapping result, its provenance and its viewer bundle's
-    /// manifest on a background thread, each once.
+    /// manifest on a background thread, each once. A large result or manifest
+    /// waits for ``BundleDecodeLane``.
     nonisolated static func loadMappingAnalysisOffMain(
         at url: URL
     ) async -> Result<MappingAnalysisOpenPayload, Error> {
-        await Task.detached(priority: .userInitiated) {
-            Result {
-                // Read before the decode, so a rewrite during it makes the next compare unequal.
-                let stamp = MappingResult.savedResultModificationDate(in: url)
-                let result = try MappingResult.load(from: url)
-                return MappingAnalysisOpenPayload(
-                    result: result,
-                    provenance: MappingProvenance.load(from: url),
-                    viewerBundleManifest: result.viewerBundleURL.flatMap { try? BundleManifest.load(from: $0) },
-                    resultModificationDate: stamp
-                )
+        await BundleDecodeLane.offMain { () async throws -> MappingAnalysisOpenPayload in
+            // Read before the decode, so a rewrite during it makes the next compare unequal.
+            let stamp = MappingResult.savedResultModificationDate(in: url)
+            let result = try await BundleDecodeLane.decode(reading: savedMappingResultFiles(in: url)) {
+                try MappingResult.load(from: url)
             }
-        }.value
+            let provenance = MappingProvenance.load(from: url)
+            var viewerBundleManifest: BundleManifest?
+            if let viewerURL = result.viewerBundleURL {
+                viewerBundleManifest = try? await BundleDecodeLane.decode(
+                    reading: [viewerURL.appendingPathComponent(BundleManifest.filename)]
+                ) { try BundleManifest.load(from: viewerURL) }
+            }
+            return MappingAnalysisOpenPayload(
+                result: result,
+                provenance: provenance,
+                viewerBundleManifest: viewerBundleManifest,
+                resultModificationDate: stamp
+            )
+        }
+    }
+
+    /// The saved result files of a mapping folder, in the order
+    /// `MappingResult.load(from:)` reads them.
+    nonisolated private static func savedMappingResultFiles(in directory: URL) -> [URL] {
+        ["mapping-result.json", "alignment-result.json"].map { directory.appendingPathComponent($0) }
     }
 
     /// Shows the reference viewport's loading state while an open decodes its
