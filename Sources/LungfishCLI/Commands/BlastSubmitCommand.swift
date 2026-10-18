@@ -145,6 +145,7 @@ extension BlastCommand {
                 throw CLIExitCode.cancelled.exitCode
             case .failure(let error):
                 let message = "BLAST search failed: \(error.localizedDescription)"
+                writeFailedRecord(in: output, query: query, startedAt: runClock.startedAt, message: message)
                 events.emitFailed(message)
                 FileHandle.standardError.write(Data("Error: \(message)\n".utf8))
                 throw CLIExitCode.failure.exitCode

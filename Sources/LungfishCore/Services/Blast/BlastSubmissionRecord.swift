@@ -43,7 +43,10 @@ public struct BlastSubmissionRecord: Codable, Sendable {
 
     /// Where the sequences came from, as the caller named it. Each field is nil when not given.
     public struct Lineage: Codable, Sendable, Equatable {
-        /// The classifier or assembly result folder the sequences were read from.
+        /// The classifier or assembly result folder the sequences were read from. A record in a project
+        /// writes a folder of that project as `@/<path in the project>` (Phase 2.12), and a record
+        /// written before, or outside a project, holds the path as given. Read it with
+        /// ``sourceResultURL(recordAt:)``.
         public var sourceResult: String?
         public var sample: String?
         public var taxId: Int?
@@ -66,6 +69,15 @@ public struct BlastSubmissionRecord: Codable, Sendable {
             self.contig = contig
             self.subsampleCount = subsampleCount
             self.subsampleSeed = subsampleSeed
+        }
+
+        /// The source result of a record stored at `recordURL`, its `@/` path resolved in the project
+        /// that holds the record now. An absolute path, as a record before Phase 2.12 holds it, reads as
+        /// written. Nil when the record names no source result.
+        public func sourceResultURL(recordAt recordURL: URL) -> URL? {
+            guard let sourceResult else { return nil }
+            let path = PortablePath.resolve(path: sourceResult, context: .forFile(at: recordURL))
+            return URL(fileURLWithPath: path)
         }
     }
 

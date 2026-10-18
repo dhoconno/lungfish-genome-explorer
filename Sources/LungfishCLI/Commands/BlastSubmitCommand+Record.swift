@@ -94,10 +94,16 @@ extension BlastCommand.SubmitSubcommand {
         )
     }
 
-    /// The lineage the options name.
-    var lineage: BlastSubmissionRecord.Lineage {
-        BlastSubmissionRecord.Lineage(
-            sourceResult: sourceResult, sample: sample, taxId: taxId, contig: contig,
+    /// The lineage the options name, as a record at `recordURL` keeps it. A source result in the record's
+    /// project becomes `@/<path in the project>` through `PortablePath`, so the lineage survives a move of
+    /// the project and names no account (BIO 6, 2.12 lane 12.08). A record outside any project keeps the
+    /// path as given, the way `PortablePath.Context.forWriting` leaves such records.
+    func lineage(recordAt recordURL: URL) -> BlastSubmissionRecord.Lineage {
+        let portableSource = sourceResult.map { path in
+            PortablePath.Context.forWriting(at: recordURL).map { PortablePath.sanitize(path: path, context: $0) } ?? path
+        }
+        return BlastSubmissionRecord.Lineage(
+            sourceResult: portableSource, sample: sample, taxId: taxId, contig: contig,
             subsampleCount: subsampleCount, subsampleSeed: subsampleSeed
         )
     }
@@ -131,15 +137,15 @@ extension BlastCommand.SubmitSubcommand {
         in output: URL,
         runClock: ProvenanceRunClock
     ) throws -> URL {
+        let recordURL = output.appendingPathComponent(BlastSubmissionRecord.recordFileName)
         let record = BlastSubmissionRecord(
             savedAt: Date(),
             query: .init(fileName: BlastSubmissionRecord.queryFileName, sha256: query.sha256, sequenceCount: query.sequences.count),
-            lineage: lineage,
+            lineage: lineage(recordAt: recordURL),
             search: .init(request),
             result: result
         )
         let data = try BlastSubmissionRecord.encoder.encode(record)
-        let recordURL = output.appendingPathComponent(BlastSubmissionRecord.recordFileName)
         var explicit = explicitOptions(query: query)
         explicit["outputPath"] = .file(recordURL)
         let provenance = ScientificFileExportProvenance.Request(
@@ -193,6 +199,35 @@ extension BlastCommand.SubmitSubcommand {
             try record.write()
         } catch {
             FileHandle.standardError.write(Data("Warning: could not write the cancelled record: \(error.localizedDescription)\n".utf8))
+        }
+    }
+
+    /// The record of a search that failed, in the result folder beside the query copy (BIO 4, 2.12 lane
+    /// 12.08), so a person who opens the folder sees why it holds no result. Its status is `failed`, its
+    /// exit status that of the leaf, and its standard error the leaf's `message`. The record is the one a
+    /// cancel writes in the same place, with that status in place of `cancelled`.
+    func writeFailedRecord(in output: URL, query: StagedQuery, startedAt: Date, message: String) {
+        let argv = recordedCommandLine()
+        let explicit = explicitOptions(query: query)
+        let builder = ProvenanceRunBuilder(
+            workflowName: Self.workflowName,
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: Self.workflowName,
+            toolVersion: WorkflowRun.currentAppVersion
+        )
+        .argv(argv)
+        .durableReplayArgv(argv)
+        .options(explicit: explicit, defaults: [:], resolved: explicit)
+        .runtime(ProvenanceRuntimeIdentity())
+        do {
+            let envelope = try builder.complete(
+                exitStatus: Int(CLIExitCode.failure.rawValue), status: .failed, stderr: message,
+                startedAt: startedAt, endedAt: Date()
+            )
+            let url = CancelledAlignmentWorkflowRecord.newURL(in: output, workflow: Self.workflowName)
+            try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: url)
+        } catch {
+            FileHandle.standardError.write(Data("Warning: could not write the failed record: \(error.localizedDescription)\n".utf8))
         }
     }
 
