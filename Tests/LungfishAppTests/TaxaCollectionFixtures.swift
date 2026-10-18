@@ -121,6 +121,30 @@ struct TaxaCollectionFixtures {
         )
     }
 
+    /// The report of ``writePairedGenusWithOwnPair()``. Genus A holds one pair of its own between the
+    /// pairs of its two species.
+    static let ownPairKreport = [
+        "100.00\t3\t0\tR\t1\troot",
+        "100.00\t3\t1\tG\t10\t  Genus A",
+        " 33.33\t1\t1\tS\t11\t    Species A1",
+        " 33.33\t1\t1\tS\t12\t    Species A2",
+    ].joined(separator: "\n") + "\n"
+
+    /// Writes a fourth, paired result, `kraken2-own-paired`, over two loose read files. Pair p1 belongs
+    /// to Species A1, g1 to Genus A itself and p3 to Species A2, in that file order (lane 12.11, the
+    /// review's fix 6, the paired form of the exact scope).
+    func writePairedGenusWithOwnPair() throws -> URL {
+        let r1 = projectURL.appendingPathComponent("own-pairs_R1.fastq")
+        let r2 = projectURL.appendingPathComponent("own-pairs_R2.fastq")
+        try ReadSetFixtures.fastq(["p1/1", "g1/1", "p3/1"]).write(to: r1, atomically: true, encoding: .utf8)
+        try ReadSetFixtures.fastq(["p1/2", "g1/2", "p3/2"]).write(to: r2, atomically: true, encoding: .utf8)
+        return try Self.writeResult(
+            named: "own-paired", in: projectURL.appendingPathComponent("Analyses", isDirectory: true), inputs: [r1, r2], paired: true,
+            lines: [Self.pair("p1", Self.speciesA1), Self.pair("g1", Self.genus), Self.pair("p3", Self.speciesA2)],
+            kreport: Self.ownPairKreport
+        )
+    }
+
     static func single(_ read: String, _ taxId: Int) -> String {
         "C\t\(read)\t\(taxId)\t10\t\(taxId):3"
     }

@@ -97,16 +97,20 @@ final class ClassifierExtractionReadIDConformanceTests: XCTestCase {
     /// BIO's ruling on lane 12.11, Q2. A target marked exact takes only the reads classified to the taxon
     /// itself, and one with children the whole clade. Genus A exact has no reads of its own in the
     /// single-end and paired results, so it is skipped there, and the third result's own read g1 is all
-    /// it gives. Frozen on `extractBatch` before the collection moves onto the resolver.
+    /// it gives. The fourth result is paired, and its exact line holds only the genus's own pair, mates
+    /// together (the review's fix 6). Frozen on `extractBatch` before the collection moves onto the resolver.
     func testTheKraken2CollectionWithExactTargetsWritesTheFrozenReads() async throws {
         try await requireTool(.seqkit)
         let fixtures = try TaxaCollectionFixtures(in: root.appendingPathComponent("exact", isDirectory: true))
         let own = try fixtures.writeGenusWithOwnRead()
+        let ownPaired = try fixtures.writePairedGenusWithOwnPair()
         let runs: [(String, URL, TaxaCollection)] = [
             ("single", fixtures.singleEnd, TaxaCollectionFixtures.skippingCollection),
             ("paired", fixtures.paired, TaxaCollectionFixtures.skippingCollection),
             ("own exact", own, TaxaCollectionFixtures.genusOnly(includeChildren: false)),
             ("own children", own, TaxaCollectionFixtures.genusOnly(includeChildren: true)),
+            ("paired own exact", ownPaired, TaxaCollectionFixtures.genusOnly(includeChildren: false)),
+            ("paired own children", ownPaired, TaxaCollectionFixtures.genusOnly(includeChildren: true)),
         ]
         var lines: [String] = []
         for (label, folder, collection) in runs {
@@ -182,12 +186,15 @@ final class ClassifierExtractionReadIDConformanceTests: XCTestCase {
         collection paired Species_B_taxid20.fastq.gz records=2 unique=2 fragments=1 pairs=1 singles=0 adjacentMates=1 suffixed=2 names=p2/1,p2/2
         """
 
-    /// Captured on `extractBatch` at fd7d8ee06 (lane 12.11 M3, BIO's ruling Q2).
+    /// Captured on `extractBatch` at fd7d8ee06 (lane 12.11 M3, BIO's ruling Q2), the two paired own
+    /// lines at 2d5f630c9 (the review's fix 6).
     static let frozenExactCollection = """
         collection single Species_B_taxid20.fastq.gz records=2 unique=2 fragments=2 pairs=0 singles=2 adjacentMates=0 suffixed=0 names=b1,b2
         collection paired Species_B_taxid20.fastq.gz records=2 unique=2 fragments=1 pairs=1 singles=0 adjacentMates=1 suffixed=2 names=p2/1,p2/2
         collection own exact Genus_A_taxid10.fastq.gz records=1 unique=1 fragments=1 pairs=0 singles=1 adjacentMates=0 suffixed=0 names=g1
         collection own children Genus_A_taxid10.fastq.gz records=4 unique=4 fragments=4 pairs=0 singles=4 adjacentMates=0 suffixed=0 names=a1,a2,a3,g1
+        collection paired own exact Genus_A_taxid10.fastq.gz records=2 unique=2 fragments=1 pairs=1 singles=0 adjacentMates=1 suffixed=2 names=g1/1,g1/2
+        collection paired own children Genus_A_taxid10.fastq.gz records=6 unique=6 fragments=3 pairs=3 singles=0 adjacentMates=3 suffixed=6 names=p1/1,p1/2,g1/1,g1/2,p3/1,p3/2
         """
 
     /// The same reads as one sample, in another order, the three samples' regions one after another.

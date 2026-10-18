@@ -116,6 +116,24 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         XCTAssertEqual(log.messages.last, "Batch complete: 1 of 3 taxa extracted (2 skipped)")
     }
 
+    /// The review of lane 12.11, fix 8b. A result whose read file is gone fails the batch with the words
+    /// of the missing source, never as skipped taxa, and writes no taxon file.
+    func testAResultWhoseReadFileIsGoneFailsWithTheMissingSourceWords() async throws {
+        try FileManager.default.removeItem(at: fixtures.singleEndReads)
+        do {
+            let run = try await runBatch(resultFolder: fixtures.singleEnd)
+            XCTFail("a missing read file fails the batch, it wrote \(run.outputs.map(\.lastPathComponent))")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Kraken2 source FASTQ could not be located. The source file may have been moved or deleted."
+            )
+        }
+        let folder = extractedFolder(of: try ClassificationResult.load(from: fixtures.singleEnd), TaxaCollectionFixtures.collection)
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".fastq.gz") } ?? []
+        XCTAssertEqual(files, [], "no taxon file is written")
+    }
+
     func testACancelBetweenTaxaStopsTheBatchAndKeepsTheFilesAlreadyWritten() async throws {
         let collection = TaxaCollectionFixtures.collection
         let result = try ClassificationResult.load(from: fixtures.singleEnd)
