@@ -2,22 +2,22 @@ import Foundation
 import LungfishOperations
 import LungfishWorkflow
 
-enum AnnotationTableExportScope: String, Codable, Sendable {
+package enum AnnotationTableExportScope: String, Codable, Sendable {
     case allMatching
     case selected
 }
 
-struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
-    let table: ScientificTableData
-    let tab: String
-    let scope: AnnotationTableExportScope
-    let rowIdentities: [String]
-    let sourceURLs: [URL]
-    let queryDescription: [String: String]
-    let coordinateConventions: [String: String]
+package struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
+    package let table: ScientificTableData
+    package let tab: String
+    package let scope: AnnotationTableExportScope
+    package let rowIdentities: [String]
+    package let sourceURLs: [URL]
+    package let queryDescription: [String: String]
+    package let coordinateConventions: [String: String]
 
-    static func captureAnnotations(
-        _ rows: [AnnotationSearchIndex.SearchResult],
+    package static func captureAnnotations(
+        _ rows: [AnnotationSearchResult],
         columns: [ScientificTableColumn],
         scope: AnnotationTableExportScope,
         sourceURLs: [URL],
@@ -49,8 +49,8 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
         )
     }
 
-    static func captureVariants(
-        _ rows: [AnnotationSearchIndex.SearchResult],
+    package static func captureVariants(
+        _ rows: [AnnotationSearchResult],
         columns: [ScientificTableColumn],
         scope: AnnotationTableExportScope,
         numericInfoColumnIDs: Set<String>,
@@ -83,8 +83,8 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
         )
     }
 
-    static func captureSamples(
-        _ rows: [AnnotationTableDrawerView.SampleDisplayRow],
+    package static func captureSamples(
+        _ rows: [AnnotationTableSampleRow],
         columns: [ScientificTableColumn],
         scope: AnnotationTableExportScope,
         sourceURLs: [URL],
@@ -103,8 +103,8 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
         )
     }
 
-    static func captureGenotypes(
-        _ rows: [AnnotationTableDrawerView.GenotypeDisplayRow],
+    package static func captureGenotypes(
+        _ rows: [AnnotationTableGenotypeRow],
         columns: [ScientificTableColumn],
         scope: AnnotationTableExportScope,
         numericInfoColumnIDs: Set<String>,
@@ -132,16 +132,16 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
         )
     }
 
-    private static func annotationIdentity(_ row: AnnotationSearchIndex.SearchResult) -> String {
+    private static func annotationIdentity(_ row: AnnotationSearchResult) -> String {
         "\(row.trackId):\(row.annotationRowId.map(String.init) ?? row.id.uuidString)"
     }
 
-    private static func variantIdentity(_ row: AnnotationSearchIndex.SearchResult) -> String {
+    private static func variantIdentity(_ row: AnnotationSearchResult) -> String {
         "\(row.trackId):\(row.variantRowId.map(String.init) ?? row.id.uuidString)"
     }
 
     private static func annotationCell(
-        _ row: AnnotationSearchIndex.SearchResult,
+        _ row: AnnotationSearchResult,
         columnID: String,
         resolvedText: [String: String]
     ) -> ScientificTableCell {
@@ -164,7 +164,7 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
     }
 
     private static func variantCell(
-        _ row: AnnotationSearchIndex.SearchResult,
+        _ row: AnnotationSearchResult,
         columnID: String,
         numericInfoColumnIDs: Set<String>,
         integerInfoColumnIDs: Set<String>,
@@ -199,7 +199,7 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
     }
 
     private static func sampleCell(
-        _ row: AnnotationTableDrawerView.SampleDisplayRow,
+        _ row: AnnotationTableSampleRow,
         columnID: String
     ) -> ScientificTableCell {
         switch columnID {
@@ -214,7 +214,7 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
     }
 
     private static func genotypeCell(
-        _ row: AnnotationTableDrawerView.GenotypeDisplayRow,
+        _ row: AnnotationTableGenotypeRow,
         columnID: String,
         numericInfoColumnIDs: Set<String>,
         integerInfoColumnIDs: Set<String>
@@ -249,5 +249,51 @@ struct AnnotationTableExportSnapshot: Codable, Sendable, Equatable {
     private static func text(_ value: String?) -> ScientificTableCell {
         guard let value, !value.isEmpty, value != "." else { return .empty }
         return .text(value)
+    }
+}
+
+/// The record fields of an annotation table export, shared by the app's writer and `bundle export-annotation-table`
+/// so that both records write one set (ARCH ruling on 12.39 R1 and R4).
+extension AnnotationTableExportSnapshot {
+    /// The writer's policies, which the record names as its defaults.
+    package static var recordDefaults: [String: ParameterValue] {
+        [
+            "encoding": .string("UTF-8"),
+            "headerRow": .boolean(true),
+            "formulaTextPolicy": .string(ScientificTableWriter.formulaTextPolicy),
+            "numericPolicy": .string(ScientificTableWriter.numericPolicy),
+            "missingValuePolicy": .string(ScientificTableWriter.missingValuePolicy),
+        ]
+    }
+
+    /// The record's resolved values for this snapshot as the writer wrote it, `writerReport` naming the XLSX archive.
+    package func recordResolved(writerReport: ScientificTableWriteReport) -> [String: ParameterValue] {
+        let query = queryDescription.keys.sorted().map { key in
+            ParameterValue.string("\(key)=\(queryDescription[key] ?? "")")
+        }
+        let coordinates = coordinateConventions.keys.sorted().map { key in
+            ParameterValue.string("\(key)=\(coordinateConventions[key] ?? "")")
+        }
+        return [
+            "rowCount": .integer(table.rows.count),
+            "columnCount": .integer(table.columns.count),
+            "columnIDs": .array(table.columns.map { ParameterValue.string($0.id) }),
+            "columnTitles": .array(table.columns.map { ParameterValue.string($0.title) }),
+            "rowIdentities": .array(rowIdentities.map(ParameterValue.string)),
+            "query": .array(query),
+            "coordinateConventions": .array(coordinates),
+            "xlsxArchiveTool": .string(writerReport.archiveToolPath ?? "not applicable"),
+            "xlsxArchiveArgv": .array((writerReport.archiveArgv ?? []).map(ParameterValue.string)),
+            "xlsxArchiveToolVersion": .string(writerReport.archiveToolVersion ?? "not applicable"),
+        ]
+    }
+
+    /// The record's file format for a table format.
+    package static func provenanceFormat(_ format: ScientificTableFormat) -> FileFormat {
+        switch format {
+        case .json: return .json
+        case .csv, .tsv: return .text
+        case .xlsx: return .unknown
+        }
     }
 }
