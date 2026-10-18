@@ -125,6 +125,34 @@ final class ClassifierResultImportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertTrue(noneLeft, "no process of the command is left")
     }
 
+    /// A failed import through the real transport (QA 4, UX 4, finding 3 of the review of lane 12.04). The input is
+    /// missing, so the command prints `failed` with its words and exits with the input error. The route returns
+    /// those words with the alert, the row fails with the same words, no result folder is left and the project
+    /// holds no cancelled record.
+    func testAFailedImportFailsTheRowWithTheCommandsWordsAndShowsTheAlert() async throws {
+        let root = scratch.appendingPathComponent("failed", isDirectory: true)
+        let (_, imports, project) = try Self.writeFixture(.kraken2, in: root)
+        let missing = project.appendingPathComponent("Incoming/missing.kreport")
+        let runner = CLIBundleBuildRunner(cliURLOverride: harness.cliBinary)
+        let operationID = try XCTUnwrap(AppDelegate.beginClassifierResultImportOperation(
+            kind: .kraken2, operationTitle: "Kraken2 Import", inputURL: missing, outputDirectory: imports,
+            preferredName: nil, naoMgsOptions: nil, routeContext: nil, onCancel: { runner.cancel() }, launch: { _ in }
+        ).startedID)
+        let outcome = await ClassifierResultImportCLIRoute.run(
+            runner,
+            arguments: ClassifierResultImportCLIRoute.arguments(kind: .kraken2, inputURL: missing, outputDirectory: imports, preferredName: nil),
+            operationID: operationID,
+            operationTitle: "Kraken2 Import"
+        )
+        let words = "Kreport file not found: \(missing.path)"
+        XCTAssertEqual(outcome, .failed(words, alert: true), "a failure shows its alert")
+        let row = OperationCenter.shared.items.first { $0.id == operationID }
+        XCTAssertEqual(row?.state, .failed)
+        XCTAssertEqual(row?.detail, words, "the row fails with the command's words")
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: imports.path)) ?? [], [], "no folder is left")
+        XCTAssertNotEqual(ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue, "cancelled", "a failure is no cancel")
+    }
+
     // MARK: - The sides
 
     private func assertParity(_ kind: MetagenomicsImportKind, file: StaticString = #filePath, line: UInt = #line) async throws {
