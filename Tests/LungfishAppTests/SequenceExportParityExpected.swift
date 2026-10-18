@@ -18,8 +18,6 @@ LOCUS       geneB                    30 bp    DNA  linear <DATE>
 DEFINITION  Synthetic record with one gene.
 FEATURES             Location/Qualifiers
      gene            4..21
-                     /_lf_raw_feature_type="gene"
-                     /_lf_raw_genbank_location="4..21"
                      /gene="geneB"
 ORIGIN      
         1 acgtacgtac ggttaaccgg ttaaccggtt

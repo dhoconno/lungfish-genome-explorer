@@ -101,4 +101,56 @@ final class GenBankWriterTests: XCTestCase {
             "",
         ].joined(separator: "\n"))
     }
+
+    /// The reader's internal `_lf_` qualifiers never reach a written file (BIO ruling on lane 12.13, option A),
+    /// and the reader sets them again from each feature line of that file.
+    func testTheWriterOmitsInternalQualifiersAndTheReaderRestoresThem() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genbank-writer-internal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let sourceURL = folder.appendingPathComponent("source.gb")
+        let source = """
+        LOCUS       segA                      40 bp    DNA     linear   SYN 01-JAN-2026
+        DEFINITION  Synthetic record with a gene and a split reverse CDS.
+        FEATURES             Location/Qualifiers
+             gene            3..14
+                             /gene="geneA"
+             CDS             complement(join(16..21,25..36))
+                             /gene="geneA"
+                             /product="split protein"
+        ORIGIN
+                1 acgtacgtac ggttaaccgg ttaaccggtt acgtacgtac
+        //
+
+        """
+        try source.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let read = try GenBankReader(url: sourceURL).readAllSync()
+        XCTAssertEqual(read.first?.annotations.count, 2)
+        XCTAssertEqual(
+            read.first?.annotations.compactMap { $0.qualifier(GenBankReader.rawFeatureTypeQualifierKey) },
+            ["gene", "CDS"],
+            "The reader marks each feature it reads"
+        )
+
+        let writtenURL = folder.appendingPathComponent("written.gb")
+        try GenBankWriter(url: writtenURL).write(read)
+        let text = try String(contentsOf: writtenURL, encoding: .utf8)
+        XCTAssertFalse(text.contains("/_lf_"), text)
+
+        let featureLines = text.split(separator: "\n").map(String.init).filter { line in
+            line.hasPrefix("     ") && !line.hasPrefix("      ")
+        }
+        let written = featureLines.map { line in
+            line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        }
+        XCTAssertEqual(written.count, 2, text)
+        let reread = try XCTUnwrap(GenBankReader(url: writtenURL).readAllSync().first)
+        XCTAssertEqual(reread.annotations.count, written.count)
+        for (annotation, fields) in zip(reread.annotations, written) {
+            XCTAssertEqual(annotation.qualifier(GenBankReader.rawFeatureTypeQualifierKey), fields.first)
+            XCTAssertEqual(annotation.qualifier(GenBankReader.rawLocationQualifierKey), fields.last)
+            XCTAssertEqual(annotation.qualifier("gene"), "geneA")
+        }
+    }
 }
