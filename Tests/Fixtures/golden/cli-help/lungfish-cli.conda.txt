@@ -33,7 +33,5 @@ SUBCOMMANDS:
   classify                Run Kraken2 taxonomic classification on FASTQ or
                           FASTA inputs
   db                      Manage metagenomics reference databases
-  extract                 Extract reads by taxonomy from Kraken2 classification
-                          output
 
   See 'lungfish-cli help conda <subcommand>' for detailed help.

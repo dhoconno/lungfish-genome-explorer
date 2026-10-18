@@ -77,6 +77,11 @@ OPTIONS:
                           --by-classifier)
   --taxon <taxon>         Taxonomy ID (repeatable, for --by-classifier --tool
                           kraken2)
+  --taxon-scope <taxon-scope>
+                          Which reads of each --taxon to take, children for the
+                          taxon and its descendants (the default) or exact for
+                          reads classified to the taxon itself (for --tool
+                          kraken2)
   --read-format <read-format>
                           Output read format: fastq or fasta (for
                           --by-classifier) (default: fastq)
