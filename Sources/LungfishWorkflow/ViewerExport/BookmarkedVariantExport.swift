@@ -36,3 +36,49 @@ public enum BookmarkedVariantExport {
         )
     }
 }
+
+extension BookmarkedVariantExport {
+    /// One bookmarked variant as the export writes it, from a database's `bookmarkedVariants()`.
+    package struct Row: Sendable, Equatable {
+        let name: String
+        let type: String
+        let chromosome: String
+        let start: Int
+        let ref: String?
+        let alt: String?
+        let quality: Double?
+        let filter: String?
+
+        package init(
+            name: String,
+            type: String,
+            chromosome: String,
+            start: Int,
+            ref: String?,
+            alt: String?,
+            quality: Double?,
+            filter: String?
+        ) {
+            self.name = name
+            self.type = type
+            self.chromosome = chromosome
+            self.start = start
+            self.ref = ref
+            self.alt = alt
+            self.quality = quality
+            self.filter = filter
+        }
+    }
+
+    /// The eight-column TSV of the rows in their order. `Pos` is the stored 0-based start plus one, a negative or
+    /// missing quality prints `.` and so does a missing ref, alt or filter.
+    package static func tsv(rows: [Row]) -> String {
+        var lines = [["ID", "Type", "Chrom", "Pos", "Ref", "Alt", "Quality", "Filter"].joined(separator: "\t")]
+        for row in rows {
+            let quality = row.quality.map { $0 < 0 ? "." : String(format: "%.1f", $0) } ?? "."
+            lines.append([row.name, row.type, row.chromosome, "\(row.start + 1)",
+                row.ref ?? ".", row.alt ?? ".", quality, row.filter ?? "."].joined(separator: "\t"))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+}
