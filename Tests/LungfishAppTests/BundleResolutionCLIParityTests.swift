@@ -7,13 +7,14 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 @testable import LungfishIO
+import LungfishOperations
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
 /// For every bundle shape, the `kraken2 classify` command the Workflow builder
 /// makes for the wizard's config reads the same files, paired the same way, as
 /// that config resolved and planned directly (R3, lane 1n). The direct side is
-/// `AppDelegate.resolveInputFiles`, `ResolvedSequenceInputs` and `ClassifierLaunchReference`.
+/// `ResolvedSequenceInputs` and `ClassifierLaunchReference`.
 @MainActor
 final class BundleResolutionCLIParityTests: XCTestCase {
 
@@ -29,15 +30,22 @@ final class BundleResolutionCLIParityTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    /// `AppDelegate.resolveInputFiles`, which no launch calls since Phase 2.9
-    /// (E14), resolves each sample's inputs, and the wizard's read plan pairs
-    /// them. `lungfish-cli conda classify` must hand kraken2 the same files.
+    /// `ResolvedSequenceInputs`, with the derivative service's tool runner as
+    /// the materializer, resolves each sample's inputs as the app's in-process
+    /// launches did until Phase 2.9 (E14, and `AppDelegate.resolveInputFiles`
+    /// until 2.12 K1), and the wizard's read plan pairs them.
+    /// `lungfish-cli conda classify` must hand kraken2 the same files.
     func testCondaClassifyHandsKraken2TheFilesTheAppsClassificationLaunchDoes() async throws {
         for (shape, bundle) in shapes.all {
             let appTemp = root.appendingPathComponent("app-\(UUID().uuidString)", isDirectory: true)
             let cliTemp = root.appendingPathComponent("cli-\(UUID().uuidString)/.lungfish-classify-inputs", isDirectory: true)
 
-            let appFiles = try await AppDelegate().resolveInputFiles([bundle], tempDirectory: appTemp)
+            let appFiles = try await ResolvedSequenceInputs.resolve(
+                inputURLs: [bundle],
+                materializationDirectory: appTemp,
+                materializer: FASTQCLIMaterializer(runner: FASTQDerivativeService.shared.runner),
+                progress: nil
+            ).executionInputURLs
             let samples = MetagenomicsSampleGrouper.group([bundle])
             XCTAssertEqual(samples.count, 1, shape)
             let appPlan = ClassificationSampleReadPlan.plan(for: try XCTUnwrap(samples.first))

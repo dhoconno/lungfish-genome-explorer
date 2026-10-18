@@ -10,7 +10,7 @@ import LungfishIO
 /// with the input it came from.
 ///
 /// This is the resolution the Map Reads window applies to every input, and
-/// the one `AppDelegate.resolveInputFiles` applies for the classifiers. A
+/// the one `BundleResolutionCLIParityTests` holds the classifiers' CLI to. A
 /// bundle contributes every FASTQ file it holds, through
 /// ``FASTQSourceResolver``, and a virtual bundle (subset, trim,
 /// demultiplexed or oriented reads) is materialized into

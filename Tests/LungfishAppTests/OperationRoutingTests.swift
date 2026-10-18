@@ -1117,7 +1117,7 @@ final class OperationRoutingTests: XCTestCase {
     /// every persisted manifest entry claim `isPairedEnd: false` regardless
     /// of the actual run. The fix must:
     ///  1. Still build `capturedRequest` (used by `findSourceBundle`) from
-    ///     the ORIGINAL `request`, since `resolveInputFiles` can materialize
+    ///     the ORIGINAL `request`, since `ResolvedSequenceInputs` can materialize
     ///     a virtual bundle's reads into a scratch temp directory that has
     ///     no enclosing `.lungfishfastq` bundle of its own.
     ///  2. Build the manifest `parameters` field from `resolvedRequest`

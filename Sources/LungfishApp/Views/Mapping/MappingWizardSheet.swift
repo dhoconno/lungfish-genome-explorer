@@ -263,7 +263,7 @@ struct MappingWizardSheet: View {
     /// name never collide on @RG ID). `.combined` yields a single pooled
     /// request whose `inputFASTQURLs` are still the raw bundle URLs (still
     /// unresolved -- resolution and pooling of the underlying files happens
-    /// later, in `AppDelegate.resolveInputFiles`), with an explicit
+    /// later, in `ResolvedSequenceInputs`), with an explicit
     /// `"pooled-<n>-bundles-<runToken>"` sample name (unique per run to
     /// avoid collisions across repeated combined runs) and a non-nil warning
     /// describing the pooling for the operation history.

@@ -32,24 +32,6 @@ extension AppDelegate {
         showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .taxTriage)
     }
 
-    /// Resolves `inputFiles` to the files a classifier reads, materializing a virtual FASTQ bundle into `tempDirectory`.
-    /// `BundleResolutionCLIParityTests` compares its files with the command's. The in-process launches
-    /// that called it at the start of a run went in Phase 2.9 (E14), and the Kraken2 resolver after them
-    /// in Phase 2.10 (A32). The resolution itself is ``ResolvedSequenceInputs``, shared with the
-    /// Map Reads window, with the derivative service's tool runner as the materializer.
-    internal func resolveInputFiles(
-        _ inputFiles: [URL],
-        tempDirectory: URL,
-        progress: (@Sendable (String) -> Void)? = nil
-    ) async throws -> [URL] {
-        try await ResolvedSequenceInputs.resolve(
-            inputURLs: inputFiles,
-            materializationDirectory: tempDirectory,
-            materializer: FASTQCLIMaterializer(runner: FASTQDerivativeService.shared.runner),
-            progress: progress
-        ).executionInputURLs
-    }
-
     /// Runs the TaxTriage Nextflow pipeline.
     ///
     /// Registers the operation with ``OperationCenter`` and displays the
