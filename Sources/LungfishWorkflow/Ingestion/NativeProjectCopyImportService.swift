@@ -1,6 +1,5 @@
 import Foundation
 import LungfishCore
-import LungfishWorkflow
 
 /// Publishes opaque native documents with a receipt for the bytes actually copied.
 /// Archives remain archives; directory payloads keep their existing layout.
