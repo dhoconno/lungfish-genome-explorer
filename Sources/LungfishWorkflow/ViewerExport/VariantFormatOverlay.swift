@@ -6,7 +6,6 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import os.log
-import LungfishWorkflow
 
 private let variantFormatOverlayLogger = Logger(
     subsystem: LogSubsystem.app,
