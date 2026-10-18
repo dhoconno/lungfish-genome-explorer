@@ -332,7 +332,6 @@ final class RouteParityHarnessReplayTests: XCTestCase {
             try RecordedCLICommand.rebased(script, from: rootA, to: rootB)
         )
         let refused = [
-            OperationCenter.buildCLICommand(subcommand: "translate", args: ["--input=\(rootA.path)/input.fasta"]),
             OperationCenter.buildCLICommand(subcommand: "translate", args: ["/tmp/elsewhere/input.fasta"]),
             "samtools view \(rootA.path)/x.bam",
         ]
@@ -340,6 +339,14 @@ final class RouteParityHarnessReplayTests: XCTestCase {
             XCTAssertThrowsError(try RouteParityHarness.rebased(command, from: rootA, to: rootB), command)
             XCTAssertThrowsError(try RecordedCLICommand.rebased(command, from: rootA, to: rootB), command)
         }
+        // The harness also moves the path of a `--name=<path>` word, which the contract rebase refuses (lane 12.16,
+        // ruling 3 of the A67 review). RouteParityHarnessRebaseTests pins the split.
+        let joined = OperationCenter.buildCLICommand(subcommand: "translate", args: ["--input=\(rootA.path)/input.fasta"])
+        XCTAssertEqual(
+            try RouteParityHarness.rebased(joined, from: rootA, to: rootB),
+            OperationCenter.buildCLICommand(subcommand: "translate", args: ["--input=\(rootB.standardizedFileURL.path)/input.fasta"])
+        )
+        XCTAssertThrowsError(try RecordedCLICommand.rebased(joined, from: rootA, to: rootB), joined)
     }
 
     // MARK: - The sides

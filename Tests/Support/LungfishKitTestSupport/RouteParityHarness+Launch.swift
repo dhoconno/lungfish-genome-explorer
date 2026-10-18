@@ -9,7 +9,9 @@
 //   the way the app's Cancel does when asked (RouteParityHarness+Cancel.swift). Side C' runs each
 //   line of the recorded command this way, and a family's side C may too.
 // - `rebased` is the rebase of docs/contracts/CLI-EQUIVALENCE.md, the same rule as
-//   `RecordedCLICommand.rebased` in LungfishAppTests, which RouteParityHarnessReplayTests pins.
+//   `RecordedCLICommand.rebased` in LungfishAppTests, which RouteParityHarnessReplayTests pins,
+//   and it also moves the path of a `--name=<path>` word, which RouteParityHarnessRebaseTests
+//   pins (lane 12.16, ruling 3 of the A67 review). The contract rebase refuses that word.
 // - `capturingStandardOutput` runs a command in this process with its standard output in a file,
 //   as the Kraken2 executor case of ClassifierReadSetParityTests reads the events a
 //   `kraken2 classify --format json` prints (lane F3, moved here by Q30).
@@ -128,19 +130,28 @@ extension RouteParityHarness {
     }
 
     /// Rewrites every argument of `command` that starts with `rootA` so it starts with `rootB`,
-    /// line by line, and quotes the result as `OperationCenter.buildCLICommand` does. An argument
-    /// that names `rootA` anywhere but at its start throws, because the replay would then read or
+    /// line by line, and quotes the result as `OperationCenter.buildCLICommand` does. A long
+    /// option written with its value in one word, `--name=<path>`, is split at its first `=`, and
+    /// its value moves when it starts with `rootA` (lane 12.16, ruling 3 of the A67 review). An
+    /// argument that names `rootA` anywhere else throws, because the replay would then read or
     /// write the first run's files, and so does a command with no argument under `rootA`, whose
     /// replay would compare a run with itself.
     public static func rebased(_ command: String, from rootA: URL, to rootB: URL) throws -> String {
         let spellingsA = rootSpellings(rootA)
         let pathB = rootB.standardizedFileURL.path
         var replaced = 0
+        /// `path` moved onto `rootB`, or nil when it does not start with `rootA`.
+        func moved(_ path: Substring) -> String? {
+            guard let spelling = spellingsA.first(where: { path == $0 || path.hasPrefix($0 + "/") }) else { return nil }
+            replaced += 1
+            return pathB + path.dropFirst(spelling.count)
+        }
         let lines = try command.components(separatedBy: "\n").map { line -> String in
             let rebasedWords = try arguments(ofLine: line).map { word -> String in
-                if let spelling = spellingsA.first(where: { word == $0 || word.hasPrefix($0 + "/") }) {
-                    replaced += 1
-                    return pathB + word.dropFirst(spelling.count)
+                if let path = moved(word[...]) { return path }
+                if word.hasPrefix("--"), let equals = word.firstIndex(of: "="),
+                   let path = moved(word[word.index(after: equals)...]) {
+                    return String(word[...equals]) + path
                 }
                 if let spelling = spellingsA.first(where: { word.contains($0 + "/") || word.hasSuffix($0) }) {
                     throw ReplayError.argumentOutsideRoot(argument: word, root: spelling)
