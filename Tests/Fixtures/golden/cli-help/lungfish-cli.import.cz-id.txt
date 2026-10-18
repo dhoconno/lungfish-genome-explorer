@@ -26,3 +26,4 @@ OPTIONS:
   -t, --threads <threads> Number of threads to use (default: auto)
   --version               Show the version.
   -h, --help              Show help information.
+
