@@ -690,7 +690,7 @@ public class SidebarViewController: NSViewController {
     private func updateSearchIndex(changedPaths: [URL]) {
         guard let projectURL else { return }
         let sourcePaths = changedPaths.filter {
-            !FileSystemWatcher.isUniversalSearchInternalPath($0)
+            !UniversalProjectSearchService.ignoresChange(at: $0)
         }
         guard !sourcePaths.isEmpty else { return }
         Task {

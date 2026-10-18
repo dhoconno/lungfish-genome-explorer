@@ -191,6 +191,28 @@ final class BundleKindRegistryTests: XCTestCase {
         XCTAssertNotEqual(GenotypeResultViewState.filename, BundleViewState.filename, "the reference viewer must never decode it")
     }
 
+    func testIsAppStateFileNamesOnlyTheDeclaredFileDirectlyInsideItsKind() {
+        let root = URL(fileURLWithPath: "/Projects/Fixture.lungfish", isDirectory: true)
+        for descriptor in BundleKindRegistry.all {
+            guard let ext = descriptor.folderExtensions.first else { continue }
+            let folder = root.appendingPathComponent("Item.\(ext)", isDirectory: true)
+            let shouted = root.appendingPathComponent("Item.\(ext.uppercased())", isDirectory: true)
+            for name in descriptor.appStateFileNames {
+                XCTAssertTrue(BundleKindRegistry.isAppStateFile(at: folder.appendingPathComponent(name)), "\(descriptor.id) \(name)")
+                XCTAssertTrue(BundleKindRegistry.isAppStateFile(at: shouted.appendingPathComponent(name)), "\(descriptor.id) \(name) in \(shouted.lastPathComponent)")
+                XCTAssertFalse(
+                    BundleKindRegistry.isAppStateFile(at: folder.appendingPathComponent("nested").appendingPathComponent(name)),
+                    "\(descriptor.id) \(name) below the root is not app state"
+                )
+            }
+            XCTAssertFalse(BundleKindRegistry.isAppStateFile(at: folder.appendingPathComponent("manifest.json")), "\(descriptor.id)")
+        }
+        // The alignment's .viewstate.json sits inside the manifest checksums, so it is not app state (S11).
+        XCTAssertFalse(BundleKindRegistry.isAppStateFile(at: root.appendingPathComponent("Aln.lungfishmsa/.viewstate.json")))
+        // A folder of no kind declares none.
+        XCTAssertFalse(BundleKindRegistry.isAppStateFile(at: root.appendingPathComponent("Plain/.viewstate.json")))
+    }
+
     func testOnlyTheAlignmentTreePrimerAndPrimerAnalysisFormatsKeepTheirOwnRecordNames() {
         let exceptions = BundleKindRegistry.all.filter {
             if case .frozenException = $0.sidecarNaming { return true }

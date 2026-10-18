@@ -201,6 +201,45 @@ final class UniversalProjectSearchServiceTests: XCTestCase {
         XCTAssertEqual(results.count, 2)
     }
 
+    /// A reference bundle's `.viewstate.json` is rewritten after every pan or zoom pause and the
+    /// index stores nothing from it, so a change to it starts no update, alone or beside a real one.
+    func testScheduledUpdateDropsAppStateChanges() async throws {
+        let projectURL = try makeProject(named: "project-app-state.lungfish")
+        let referenceBundle = projectURL.appendingPathComponent("Ref.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceBundle, withIntermediateDirectories: true)
+        let viewState = referenceBundle.appendingPathComponent(".viewstate.json")
+        try Data("{}".utf8).write(to: viewState)
+        let fastqBundle = try makeFASTQBundle(
+            in: projectURL,
+            name: "Sample",
+            metadataRows: [("sample_name", "Sample")]
+        )
+
+        let service = UniversalProjectSearchService()
+        let batches = BatchLog()
+        await service.setOnUpdate { _, paths in batches.append(paths) }
+        await service.scheduleUpdate(projectURL: projectURL, changedPaths: [viewState], delaySeconds: 0)
+        await service.scheduleUpdate(projectURL: projectURL, changedPaths: [viewState, fastqBundle], delaySeconds: 0)
+
+        let flushed = await waitUntil(timeout: .seconds(30)) { batches.count >= 1 }
+        XCTAssertTrue(flushed, "The update never ran.")
+        XCTAssertEqual(
+            batches.snapshot.flatMap { $0 }.map { $0.standardizedFileURL.path },
+            [fastqBundle.standardizedFileURL.path],
+            "Only the real change reaches the index."
+        )
+    }
+
+    /// The sidebar asks this before it sends a change to the service, so both agree on what is ignored.
+    func testIgnoresChangeNamesTheIndexFilesAndAppStateOnly() {
+        let project = URL(fileURLWithPath: "/Projects/Fixture.lungfish", isDirectory: true)
+        let bundle = project.appendingPathComponent("Ref.lungfishref", isDirectory: true)
+        XCTAssertTrue(UniversalProjectSearchService.ignoresChange(at: bundle.appendingPathComponent(".viewstate.json")))
+        XCTAssertTrue(UniversalProjectSearchService.ignoresChange(at: project.appendingPathComponent(".universal-search.db-wal")))
+        XCTAssertFalse(UniversalProjectSearchService.ignoresChange(at: bundle.appendingPathComponent("manifest.json")))
+        XCTAssertFalse(UniversalProjectSearchService.ignoresChange(at: bundle))
+    }
+
     // MARK: - Fixtures
 
     private func makeProject(named name: String) throws -> URL {

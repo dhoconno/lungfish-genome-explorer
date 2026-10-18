@@ -270,4 +270,17 @@ extension BundleKindRegistry {
         }
         return components.count == 1 && (descriptor?.appStateFileNames.contains(fileName) ?? false)
     }
+
+    /// True when `url` is an app state file of the folder that holds it. The file sits directly in the
+    /// folder, and its name is one that the kind of that folder declares in
+    /// ``BundleKindDescriptor/appStateFileNames``, such as `.viewstate.json` in a reference bundle.
+    ///
+    /// App state is what the viewer rewrites as the user pans and zooms. No result takes it as an input
+    /// and no listing or index stores anything from it, so code that reacts to file changes can skip it.
+    /// The kind comes from the extension of the folder, ignoring case, and no file is touched.
+    public static func isAppStateFile(at url: URL) -> Bool {
+        let folderURL = url.deletingLastPathComponent()
+        guard let descriptor = descriptor(forLowercasedExtensionOf: folderURL) else { return false }
+        return descriptor.appStateFileNames.contains(url.lastPathComponent)
+    }
 }

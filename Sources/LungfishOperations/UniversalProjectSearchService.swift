@@ -124,6 +124,16 @@ public actor UniversalProjectSearchService {
         }
     }
 
+    /// True when a change at `url` cannot alter what the index stores, so it should start no update.
+    ///
+    /// Two kinds of file qualify. The index writes its own database files, which must never feed back
+    /// into it. A bundle's app state file, such as the `.viewstate.json` that the viewer rewrites after
+    /// every pan or zoom pause, holds nothing the index stores, and indexing a reference bundle decodes
+    /// its whole manifest.
+    public static func ignoresChange(at url: URL) -> Bool {
+        FileSystemWatcher.isUniversalSearchInternalPath(url) || BundleKindRegistry.isAppStateFile(at: url)
+    }
+
     /// Coalesces a burst of filesystem changes into one incremental update.
     public func scheduleUpdate(
         projectURL: URL,
@@ -134,7 +144,7 @@ public actor UniversalProjectSearchService {
         let sourcePaths = changedPaths
             .map(\.standardizedFileURL)
             .filter {
-                $0 != canonical && !FileSystemWatcher.isUniversalSearchInternalPath($0)
+                $0 != canonical && !Self.ignoresChange(at: $0)
             }
         guard !sourcePaths.isEmpty else { return }
 

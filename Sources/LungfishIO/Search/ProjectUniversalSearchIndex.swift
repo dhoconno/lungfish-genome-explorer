@@ -38,6 +38,10 @@ public final class ProjectUniversalSearchIndex {
 
     var db: OpaquePointer?
 
+    /// Test seam. Called with the URL of each folder `upsertArtifact(at:)` hands to an indexer, so a test
+    /// can count how often a bundle is read again. Nothing in the app sets it.
+    var onFolderIndexed: ((URL) -> Void)?
+
     private static let logger = Logger(
         subsystem: LogSubsystem.io,
         category: "ProjectUniversalSearch"
@@ -511,6 +515,7 @@ public final class ProjectUniversalSearchIndex {
             )
 
             if isDir.boolValue {
+                onFolderIndexed?(url)
                 if url.pathExtension == FASTQBundle.directoryExtension {
                     try indexFASTQBundle(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
                 } else if url.pathExtension == "lungfishref" {
@@ -534,15 +539,20 @@ public final class ProjectUniversalSearchIndex {
 
     /// Incrementally updates the index for specific changed paths.
     /// For files inside bundles, finds the parent bundle and re-indexes it.
+    ///
+    /// A bundle whose changed paths are all app state is left alone. The viewer rewrites a reference
+    /// bundle's `.viewstate.json` after every pan or zoom pause, the index stores nothing from it, and
+    /// indexing the bundle decodes its whole manifest.
     public func update(changedPaths: [URL]) throws {
-        guard !changedPaths.isEmpty else { return }
+        let sourcePaths = changedPaths.filter { !BundleKindRegistry.isAppStateFile(at: $0) }
+        guard !sourcePaths.isEmpty else { return }
 
-        Self.logger.debug("update(changedPaths:): Processing \(changedPaths.count) changed paths")
+        Self.logger.debug("update(changedPaths:): Processing \(sourcePaths.count) changed paths")
 
         var bundlesToUpsert: Set<String> = []
         var pathsToProcess: [URL] = []
 
-        for url in changedPaths {
+        for url in sourcePaths {
             let pathString = url.standardizedFileURL.path
 
             if let bundlePath = extractBundlePath(from: pathString) {
