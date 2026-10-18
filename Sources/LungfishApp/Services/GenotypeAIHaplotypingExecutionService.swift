@@ -281,10 +281,13 @@ final class GenotypeAIHaplotypingExecutionService {
     /// provider, model and prompt pins this run uses.
     private func prepare(bundle: URL, mode: AIHaplotypingPromptMode) async throws -> PreparedRun {
         let provider = try await resolveProvider()
-        let bundleState = try Self.bundleState(of: bundle)
-        let result = try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)
+        // The state is read before anything it describes, and the sidecar is
+        // loaded once for both its revision and its content, so a write that
+        // lands after these reads shows in `currentRun`'s comparison.
+        let manifest = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: bundle))
         let sidecarSnapshot = try ONTGenotypeResultBundleData
             .loadAnnotationSidecarSnapshot(forBundleAt: bundle)
+        let result = try await ONTGenotypeResultBundle.loadResultAsync(from: bundle)
         let activeResult = GenotypeHaplotypeAnalysisResolver.resultByResolvingActiveAnalysis(
             for: result,
             bundleURL: bundle,
@@ -307,7 +310,7 @@ final class GenotypeAIHaplotypingExecutionService {
         )
         return PreparedRun(
             provider: provider,
-            bundleState: bundleState,
+            bundleState: PreparedRun.BundleState(manifest: manifest, sidecar: sidecarSnapshot.revision),
             activeResult: activeResult,
             sidecarURL: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundle),
             sidecarSnapshot: sidecarSnapshot,
