@@ -1696,6 +1696,79 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
     }
 
+    /// Phase 2.12 lane 12.06 (review of M2, fix 2). The mapping layout is the one default caller that imports into a
+    /// staging bundle, and a new BAM record names `lungfish-cli import bam <bam> --output-dir <staging bundle>`. That
+    /// record reaches the final viewer bundle only through the generic remap of this service, so the new default
+    /// shape is pinned here. The mapper's own BAM lies outside the bundle and stays as it was.
+    func testTheDefaultImportBamCommandOfAStagedBundleIsRemappedToTheFinalBundle() throws {
+        let finalBundle = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
+        let candidateBundle = tempDirectory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
+        let candidateAlignments = candidateBundle.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: candidateAlignments, withIntermediateDirectories: true)
+        let mapperBAM = tempDirectory.appendingPathComponent("mapping/sample.sorted.bam")
+        try FileManager.default.createDirectory(at: mapperBAM.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("mapper-bam".utf8).write(to: mapperBAM)
+        let candidateBAM = candidateAlignments.appendingPathComponent("viewer.bam")
+        try Data("viewer-bam".utf8).write(to: candidateBAM)
+        let descriptor = try ProvenanceFileDescriptor.file(url: candidateBAM, format: .bam, role: .output)
+        let argv = [
+            CLICommandIdentity.executableName, "import", "bam", mapperBAM.path,
+            "--output-dir", candidateBundle.path, "--name", "viewer.bam",
+        ]
+        let envelope = ProvenanceEnvelope(
+            workflowName: "BAM import",
+            toolName: "Lungfish.app",
+            argv: argv,
+            durableReplayArgv: argv,
+            options: ProvenanceOptions(
+                explicit: ["bundle": .file(candidateBundle)],
+                resolvedDefaults: ["bam": .string(mapperBAM.path)]
+            ),
+            files: [descriptor],
+            output: descriptor,
+            outputs: [descriptor],
+            steps: [
+                ProvenanceStep(
+                    toolName: "Lungfish.app",
+                    argv: argv,
+                    durableReplayArgv: argv,
+                    resolvedOptions: ["bundle": .file(candidateBundle)],
+                    outputs: [descriptor],
+                    exitStatus: 0
+                )
+            ],
+            exitStatus: 0
+        )
+        let sidecar = candidateAlignments.appendingPathComponent("viewer.import.lungfish-provenance.json")
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecar)
+
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: finalBundle
+        ) { publishedBundle in
+            let publishedSidecar = publishedBundle
+                .appendingPathComponent("alignments/viewer.import.lungfish-provenance.json")
+            let published = try ProvenanceJSON.decoder.decode(
+                ProvenanceEnvelope.self,
+                from: Data(contentsOf: publishedSidecar)
+            )
+            let expected = [
+                CLICommandIdentity.executableName, "import", "bam", mapperBAM.path,
+                "--output-dir", publishedBundle.path, "--name", "viewer.bam",
+            ]
+            XCTAssertEqual(published.argv, expected)
+            XCTAssertEqual(published.durableReplayArgv, expected)
+            XCTAssertEqual(published.steps.first?.argv, expected)
+            XCTAssertTrue(published.reproducibleCommand.contains(publishedBundle.path), published.reproducibleCommand)
+            XCTAssertFalse(published.reproducibleCommand.contains(candidateBundle.path), published.reproducibleCommand)
+            XCTAssertEqual(published.options.resolvedDefaults["bam"], .string(mapperBAM.path), "the mapper's BAM stays")
+            XCTAssertEqual(published.options.explicit["bundle"], .file(publishedBundle))
+            XCTAssertFalse(String(decoding: try Data(contentsOf: publishedSidecar), as: UTF8.self).contains(candidateBundle.path))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+    }
+
     func testPlanAwarePublicationNeverTraversesFinalRootReplacedAfterRename() throws {
         let fixture = try makeFixture()
         let candidateBundle = fixture.resultDirectory.appendingPathComponent(
