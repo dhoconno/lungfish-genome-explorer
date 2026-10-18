@@ -12,6 +12,11 @@
 // point. Each ends cancelled inside the grace, publishes nothing, leaves no stage in the project's `.tmp`,
 // leaves a record that reads `cancelled` with exit status 125, and leaves no process of its tree.
 //
+// Phase 2.12 lane 12.12 (A48-GAP). A viewer whose document has no reference bundle stages the sequence it
+// shows with `StagedSequenceInput` and runs `extract sequence <staged FASTA> <region> -o <name>.lungfishref`
+// on the same runner. The second test cancels that route the same way. Its staged input stays in both
+// roots, since the cancelled record names it, and side C copies it to root C' before the replay.
+//
 // The in-process route has no cancelled record, so side A is not run. The class launches the built
 // lungfish-cli, so its name ends in ReplayTests and it runs in the integration tier. It needs no real tool.
 
@@ -33,6 +38,9 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
     nonisolated private static let projectPath = "Project.lungfish"
     nonisolated private static let sourcePath = "Project.lungfish/Source.lungfishref"
     nonisolated private static let extractionsPath = "Project.lungfish/Extractions"
+    /// The FASTA document a viewer with no reference bundle shows.
+    nonisolated private static let documentPath = "Project.lungfish/Downloads/test virus.fasta"
+    nonisolated private static let stagedInputPrefix = "extract-sequence-input-"
     /// How many times the extraction cancels in one busy window. Whether the leaf's handler runs before
     /// its tool's death is noticed is a race a busy machine decides, so one run proves little.
     private static let repetitions = 5
@@ -74,7 +82,24 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
         if let scratch { TestTempDirectory.cleanup(scratch) }
     }
 
+    /// Which command side C runs.
+    private enum Route {
+        /// A viewer with a reference bundle, `extract sequence <bundle> <region> --bundle`.
+        case bundle
+        /// A viewer with no reference bundle, `extract sequence <staged FASTA> <region> -o <name>.lungfishref`.
+        case document
+    }
+
     func testRegionExtractionCancelsThroughTheTransportWithEveryCoreBusy() async throws {
+        try await assertCancelsWithEveryCoreBusy(.bundle)
+    }
+
+    /// Phase 2.12 lane 12.12 (A48-GAP), the route `RegionExtractionWithoutBundleRoute` defaults to.
+    func testRegionExtractionWithoutABundleCancelsThroughTheTransportWithEveryCoreBusy() async throws {
+        try await assertCancelsWithEveryCoreBusy(.document)
+    }
+
+    private func assertCancelsWithEveryCoreBusy(_ route: Route) async throws {
         let load = BusyCores()
         load.start()
         defer { load.stop() }
@@ -97,9 +122,13 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
                 sideA: { _ in
                     RouteParitySideOutcome(end: .cancelled, detail: "not run, the in-process route has no cancelled record to compare")
                 },
-                sideC: { root in await self.sideC(root) }
+                sideC: { root in await self.sideC(root, route) }
             )
 
+            XCTAssertEqual(
+                runs.cPrime.replayedArguments.first?.contains("--bundle"), route == .bundle,
+                "run \(repetition), side C': the replay runs the command of the route side C took"
+            )
             let observed = try XCTUnwrap(transportCancel, "run \(repetition): side C did not run")
             let elapsed = try XCTUnwrap(observed.elapsed, "run \(repetition), side C: bgzip never ran, so nothing was cancelled")
             XCTAssertLessThanOrEqual(
@@ -120,9 +149,16 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
                     "\(label): a cancelled extraction publishes no bundle"
                 )
                 let temp = run.root.appendingPathComponent("\(Self.projectPath)/.tmp", isDirectory: true)
-                let stages = ((try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? [])
-                    .filter { $0.hasPrefix("extract-bundle-") }
-                XCTAssertEqual(stages, [], "\(label): the stage is removed")
+                let entries = (try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? []
+                XCTAssertEqual(entries.filter { $0.hasPrefix("extract-bundle-") }, [], "\(label): the stage is removed")
+                let inputs = entries.filter { $0.hasPrefix(Self.stagedInputPrefix) }
+                XCTAssertEqual(inputs.count, route == .document ? 1 : 0, "\(label): the staged inputs, \(inputs)")
+                for input in inputs {
+                    XCTAssertTrue(
+                        FileManager.default.fileExists(atPath: temp.appendingPathComponent("\(input)/sequence.fa").path),
+                        "\(label): the staged FASTA the record names stays after the cancel"
+                    )
+                }
                 let pidText = try String(contentsOf: Self.bgzipPIDFile(in: run.root), encoding: .utf8)
                 let bgzip = try XCTUnwrap(Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)), label)
                 await CLISIGTERMHarness.assertNoProcessLeft([bgzip])
@@ -133,21 +169,45 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
     // MARK: - Side C
 
     /// The begin helper the site calls and the runner it launches, cancelled through the runner once the
-    /// stand-in bgzip runs. It keeps what its watch saw in `transportCancel`.
-    private func sideC(_ root: URL) async -> RouteParitySideOutcome {
+    /// stand-in bgzip runs. It keeps what its watch saw in `transportCancel`. The document route stages
+    /// its FASTA before the row begins, as the site does, and copies the stage to root C' once the run ends.
+    private func sideC(_ root: URL, _ route: Route) async -> RouteParitySideOutcome {
         let reporter = RecordingOperationReporter()
         let runner = CLIBundleBuildRunner(cliURLOverride: cli)
-        let arguments = SequenceExtractionPipeline.cliArguments(
-            source: .region(chromosome: "chr1", start: 10, end: 40),
-            flank5Prime: 0,
-            flank3Prime: 0,
-            reverseComplement: false,
-            concatenateExons: false,
-            sourceBundleURL: root.appendingPathComponent(Self.sourcePath, isDirectory: true),
-            bundleName: "Region",
-            sampleFilter: nil,
-            outputBundleURL: Self.outputURL(in: root)
-        )
+        let source = ExtractionRequest.Source.region(chromosome: "chr1", start: 10, end: 40)
+        let arguments: [String]
+        var stage: URL?
+        switch route {
+        case .bundle:
+            arguments = SequenceExtractionPipeline.cliArguments(
+                source: source,
+                flank5Prime: 0,
+                flank3Prime: 0,
+                reverseComplement: false,
+                concatenateExons: false,
+                sourceBundleURL: root.appendingPathComponent(Self.sourcePath, isDirectory: true),
+                bundleName: "Region",
+                sampleFilter: nil,
+                outputBundleURL: Self.outputURL(in: root)
+            )
+        case .document:
+            let staged: URL
+            do {
+                staged = try await StagedSequenceInput.writeFASTA(
+                    [.init(name: "chr1", bases: Self.sequence)], fileName: "sequence.fa", prefix: Self.stagedInputPrefix,
+                    projectURL: root.appendingPathComponent(Self.projectPath, isDirectory: true)
+                )
+            } catch {
+                return RouteParitySideOutcome(end: .failed, detail: "the input was not staged: \(error)")
+            }
+            stage = staged.deletingLastPathComponent()
+            arguments = SequenceExtractionPipeline.cliFASTAArguments(
+                source: source, flank5Prime: 0, flank3Prime: 0, reverseComplement: false, concatenateExons: false,
+                inputURL: staged, sequenceName: "chr1",
+                sourceDocumentURL: root.appendingPathComponent(Self.documentPath), bundleName: "Region",
+                outputBundleURL: Self.outputURL(in: root)
+            )
+        }
         var operationID: UUID?
         SequenceViewerView.beginExtractionBundleOperation(
             sourceName: "chr1:11-40", arguments: arguments, routeContext: nil, reporter: reporter
@@ -189,7 +249,17 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
         ended.set()
         let sent = await watch.value
         transportCancel = TransportCancel(elapsed: sent.map { endedAt - $0.sent }, tree: sent?.tree ?? [])
-        return RouteParitySideOutcome(end: end, detail: detail, recordedCommand: reporter.items.first?.cliCommand)
+        let recordedCommand = reporter.items.first?.cliCommand
+        if let stage {
+            do {
+                try RegionExtractionWithoutBundleParityReplayTests.copyStage(stage, from: root)
+            } catch {
+                return RouteParitySideOutcome(
+                    end: .failed, detail: "the stage was not copied to root C': \(error)", recordedCommand: recordedCommand
+                )
+            }
+        }
+        return RouteParitySideOutcome(end: end, detail: detail, recordedCommand: recordedCommand)
     }
 
     // MARK: - Fixture
@@ -212,7 +282,7 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
     }
 
     /// A project with a source bundle that holds a plain FASTA with its index, so reading it needs no
-    /// tool, and a conda root whose bgzip and samtools answer a version probe and whose bgzip sleeps on
+    /// tool, a FASTA document of the same sequence for the route with no reference bundle, and a conda root whose bgzip and samtools answer a version probe and whose bgzip sleeps on
     /// any other call after it wrote `$$` beside itself. The leaf reads the root from
     /// `LUNGFISH_CONDA_ROOT`, so the stand-ins win over a real tool.
     nonisolated private static func makeFixture(in root: URL) throws {
@@ -224,6 +294,9 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
             at: root.appendingPathComponent(extractionsPath, isDirectory: true), withIntermediateDirectories: true
         )
         try ">chr1\n\(sequence)\n".write(to: genome.appendingPathComponent("sequence.fa"), atomically: true, encoding: .utf8)
+        let document = root.appendingPathComponent(documentPath)
+        try fileManager.createDirectory(at: document.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try ">chr1\n\(sequence)\n".write(to: document, atomically: true, encoding: .utf8)
         try "chr1\t\(sequence.count)\t6\t\(sequence.count)\t\(sequence.count + 1)\n"
             .write(to: genome.appendingPathComponent("sequence.fa.fai"), atomically: true, encoding: .utf8)
         try BundleManifest(

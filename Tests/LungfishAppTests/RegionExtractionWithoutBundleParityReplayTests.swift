@@ -200,7 +200,8 @@ final class RegionExtractionWithoutBundleParityReplayTests: XCTestCase {
 
     /// Copies side C's staged folder to the same place under root C', with each spelling of root C in its
     /// files rewritten to root C', so side C' reads the FASTA its command names.
-    private static func copyStage(_ stage: URL, from rootC: URL) throws {
+    /// `RegionBundleExtractionSIGTERMReplayTests` copies its stage the same way.
+    static func copyStage(_ stage: URL, from rootC: URL) throws {
         let stagePath = stage.standardizedFileURL.path
         let rootPath = rootC.standardizedFileURL.path
         guard stagePath.hasPrefix(rootPath + "/") else { throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: stagePath]) }
