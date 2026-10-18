@@ -1,0 +1,2 @@
+{"event":"start","message":"Started nvd-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"Input directory not found: \/work\/missing-nvd","event":"failed","schemaVersion":2}

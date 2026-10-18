@@ -1,0 +1,18 @@
+{"event":"start","message":"Started nvd-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Parsing NVD CSV...","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Preparing NVD bundle...","progress":0.35,"schemaVersion":2}
+{"event":"progress","message":"Creating NVD database...","progress":0.45,"schemaVersion":2}
+{"event":"progress","message":"Schema created","progress":0.4575,"schemaVersion":2}
+{"event":"progress","message":"Inserting hits 1\/3...","progress":0.49,"schemaVersion":2}
+{"event":"progress","message":"Inserting hits 2\/3...","progress":0.5225,"schemaVersion":2}
+{"event":"progress","message":"Inserting hits 3\/3...","progress":0.555,"schemaVersion":2}
+{"event":"progress","message":"Inserting sample metadata...","progress":0.555,"schemaVersion":2}
+{"event":"progress","message":"Building indices...","progress":0.5700000000000001,"schemaVersion":2}
+{"event":"progress","message":"Finalizing...","progress":0.5925,"schemaVersion":2}
+{"event":"progress","message":"Complete","progress":0.6,"schemaVersion":2}
+{"event":"progress","message":"Copying NVD BAM files...","progress":0.62,"schemaVersion":2}
+{"event":"progress","message":"Copying NVD FASTA files...","progress":0.82,"schemaVersion":2}
+{"event":"progress","message":"Writing NVD manifest...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Writing NVD provenance...","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"NVD import complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Imported NVD result: 3 hits, 2 samples","output":"\/work\/Project.lungfish\/Imports\/nvd-EXP001","outputs":["\/work\/Project.lungfish\/Imports\/nvd-EXP001"],"progress":1,"schemaVersion":2}

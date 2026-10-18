@@ -487,7 +487,7 @@ public enum MetagenomicsImportService {
             progress?(0.35, "Preparing NVD bundle...")
             try ensureDirectoryExists(stagingDirectory)
             writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.nvd.toolIdentifier, to: stagingDirectory)
-            OperationMarker.markInProgress(stagingDirectory, detail: "Importing NVD results...")
+            ImportResultFolderLedger.markInProgress(stagingDirectory, detail: "Importing NVD results...")
             defer { OperationMarker.clearInProgress(stagingDirectory) }
 
             let bamDirectory = stagingDirectory.appendingPathComponent("bam", isDirectory: true)
@@ -683,7 +683,7 @@ public enum MetagenomicsImportService {
         )
         try ensureDirectoryExists(resultDirectory)
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.naomgs.toolIdentifier, to: resultDirectory)
-        OperationMarker.markInProgress(resultDirectory, detail: "Importing NAO-MGS results\u{2026}")
+        ImportResultFolderLedger.markInProgress(resultDirectory, detail: "Importing NAO-MGS results\u{2026}")
         var importCompleted = false
         defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
 

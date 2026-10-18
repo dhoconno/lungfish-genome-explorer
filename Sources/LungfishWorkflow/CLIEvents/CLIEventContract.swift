@@ -315,8 +315,8 @@ package enum CLIEventContractTable {
         "import esviritu": .events(flag: formatJSON, channel: .standardOutput),
         "import kraken2": .events(flag: formatJSON, channel: .standardOutput),
         "import metadata": .text(reason: humanTextOnly),
-        "import nao-mgs": .text(reason: humanTextOnly),
-        "import nvd": .text(reason: humanTextOnly),
+        "import nao-mgs": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.05
+        "import nvd": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.05
         "import taxtriage": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.04
         "import vcf": .text(reason: humanTextOnly),
         "metadata export-biosample": .text(reason: humanTextOnly),

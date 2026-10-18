@@ -1,0 +1,8 @@
+{"event":"start","message":"Started nao-mgs-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Partitioning input by sample…","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Importing sample 1\/2: S1.2024…","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Importing sample 2\/2: S2.2024…","progress":0.325,"schemaVersion":2}
+{"event":"progress","message":"Merging sample databases…","progress":0.62,"schemaVersion":2}
+{"event":"progress","message":"Resolving taxon names…","progress":0.7,"schemaVersion":2}
+{"event":"progress","message":"NAO-MGS import complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Imported NAO-MGS result: 5 reads, 1 taxa","output":"\/work\/Project.lungfish\/Imports\/naomgs-S1","outputs":["\/work\/Project.lungfish\/Imports\/naomgs-S1"],"progress":1,"schemaVersion":2}

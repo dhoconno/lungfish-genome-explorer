@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import Foundation
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -46,8 +47,8 @@ enum NaoMgsNvdImportFixtures {
     }
 
     /// `S1.2024/virus_hits_final.tsv`, three hits of sample `S1.2024` and two of `S2.2024`.
-    static func naoMgsResult(in root: URL) throws -> URL {
-        let folder = root.appendingPathComponent("S1.2024", isDirectory: true)
+    static func naoMgsResult(in root: URL, folderName: String = "S1.2024") throws -> URL {
+        let folder = root.appendingPathComponent(folderName, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let rows = (1...3).map { naoMgsRow(read: $0, sample: "S1.2024") } + (4...5).map { naoMgsRow(read: $0, sample: "S2.2024") }
         try ([naoMgsHeader.joined(separator: "\t")] + rows).joined(separator: "\n").appending("\n")
@@ -57,8 +58,8 @@ enum NaoMgsNvdImportFixtures {
 
     /// `nvd.2024/`, a run with the `05_labkey_bundling` table of experiment `EXP001`, two hits for sample `S1.2024`
     /// and one for `S2.2024`. It has no BAM, so no samtools runs.
-    static func nvdRun(in root: URL) throws -> URL {
-        let run = root.appendingPathComponent("nvd.2024", isDirectory: true)
+    static func nvdRun(in root: URL, folderName: String = "nvd.2024") throws -> URL {
+        let run = root.appendingPathComponent(folderName, isDirectory: true)
         let labkey = run.appendingPathComponent("05_labkey_bundling", isDirectory: true)
         try FileManager.default.createDirectory(at: labkey, withIntermediateDirectories: true)
         let header = "experiment,blast_task,sample_id,qseqid,qlen,sseqid,stitle,tax_rank,length,pident,evalue,"
@@ -114,6 +115,22 @@ enum NaoMgsNvdImportFixtures {
         ((try? FileManager.default.contentsOfDirectory(atPath: imports.path)) ?? [])
             .filter { $0.hasPrefix(".lungfish-nvd-import-") }
             .sorted()
+    }
+
+    /// Every entry of `imports`, hidden ones included.
+    static func entries(in imports: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: imports.path)) ?? []).sorted()
+    }
+
+    /// Points this process, and so every command it starts, at `storage`. Returns what to give back to ``restoreStorage(_:)``.
+    static func useStorage(_ storage: URL) -> String? {
+        let before = ProcessInfo.processInfo.environment["LUNGFISH_STORAGE_ROOT"]
+        setenv("LUNGFISH_STORAGE_ROOT", storage.path, 1)
+        return before
+    }
+
+    static func restoreStorage(_ before: String?) {
+        if let before { setenv("LUNGFISH_STORAGE_ROOT", before, 1) } else { unsetenv("LUNGFISH_STORAGE_ROOT") }
     }
 
     /// The published `nvd-*` folders in `imports`.

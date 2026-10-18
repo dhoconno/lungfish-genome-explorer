@@ -1,0 +1,2 @@
+{"event":"start","message":"Started nao-mgs-result import via lungfish-cli","progress":0,"schemaVersion":2}
+{"error":"Input not found: \/work\/missing-naomgs","event":"failed","schemaVersion":2}

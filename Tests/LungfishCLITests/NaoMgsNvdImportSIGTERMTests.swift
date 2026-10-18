@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.05 (A63-M2b), decision S7. The app's Cancel sends SIGTERM to the command and gives it
-// `operationGrace`. These cases pin what the two imports do today, at the lane's base: the signal ends the command
-// at once, it writes no `cancelled` record in the project, and the folder it had begun stays in the project's
-// Imports folder (the `naomgs-*` result folder, or the hidden staging folder of the NVD bundle).
+// `operationGrace`. The two imports turn the signal into a cancel of the import, remove the folder their own run
+// began (the `naomgs-*` result folder, or the hidden staging folder of the NVD bundle) and no other, record the run
+// as cancelled in the project, tell the row with a `failed` event, exit 125 and leave no process behind. These cases
+// were pins at the base (commit 754d060bc), where the signal ended each command at once, no `cancelled` record was
+// written and the folder stayed.
 //
 // Each command is held at work on dotted sample ids under a non-English locale (BIO 5, X12). The record of an import
 // hashes every file of its source folder, and the folder holds a large sparse file, which takes seconds. No real tool
@@ -31,7 +33,7 @@ final class NaoMgsNvdImportSIGTERMTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testImportNaoMgsEndsOnSIGTERMWithoutARecordAndLeavesItsFolder() async throws {
+    func testImportNaoMgsTurnsSIGTERMIntoACancelAndRemovesItsFolder() async throws {
         let input = try NaoMgsNvdImportFixtures.naoMgsResult(in: root)
         try NaoMgsNvdImportFixtures.addLargeSparseFile(to: input)
         let (project, imports, run) = try launch(kind: "nao-mgs", arguments: [input.path, "--no-fetch-references"])
@@ -40,14 +42,14 @@ final class NaoMgsNvdImportSIGTERMTests: XCTestCase {
             !NaoMgsNvdImportFixtures.naoMgsFolders(in: imports).isEmpty
         }
         XCTAssertTrue(started, "the command never made its result folder")
-        let stop = await CLISIGTERMHarness.cancel(run)
-        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), "today the signal ends the command")
-        XCTAssertEqual(stop.left, [], "no process of the tree is left")
-        XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: project), "today no cancelled record")
-        XCTAssertEqual(NaoMgsNvdImportFixtures.naoMgsFolders(in: imports).count, 1, "today the folder the command began stays")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            run, record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(NaoMgsNvdImportFixtures.entries(in: imports), [], "a cancelled import removes the folder it began")
     }
 
-    func testImportNvdEndsOnSIGTERMWithoutARecordAndLeavesItsStagingFolder() async throws {
+    func testImportNvdTurnsSIGTERMIntoACancelAndRemovesItsStagingFolder() async throws {
         let input = try NaoMgsNvdImportFixtures.nvdRun(in: root)
         try NaoMgsNvdImportFixtures.addLargeSparseFile(to: input)
         let (project, imports, run) = try launch(kind: "nvd", arguments: [input.path])
@@ -56,12 +58,64 @@ final class NaoMgsNvdImportSIGTERMTests: XCTestCase {
             !NaoMgsNvdImportFixtures.nvdStagingFolders(in: imports).isEmpty
         }
         XCTAssertTrue(started, "the command never made its staging folder")
-        let stop = await CLISIGTERMHarness.cancel(run)
-        XCTAssertEqual(stop.termination, .signaled(signal: SIGTERM), "today the signal ends the command")
-        XCTAssertEqual(stop.left, [], "no process of the tree is left")
-        XCTAssertNil(ProvenanceRecorder.loadEnvelope(from: project), "today no cancelled record")
-        XCTAssertEqual(NaoMgsNvdImportFixtures.nvdStagingFolders(in: imports).count, 1, "today the staging folder the command began stays")
-        XCTAssertEqual(NaoMgsNvdImportFixtures.nvdFolders(in: imports), [], "the bundle was never published")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            run, record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(NaoMgsNvdImportFixtures.entries(in: imports), [], "a cancelled import removes the staging folder it began")
+    }
+
+    /// Finding 2 of the review of lane 12.04. A cancel removes the folder its own run began and no other. Import B
+    /// of the same kind starts after import A and finishes while A still runs, in the same Imports folder. The
+    /// cancel of A leaves B's finished folder and its record.
+    func testCancellingOneNaoMgsImportKeepsAnotherFinishedImport() async throws {
+        let first = try NaoMgsNvdImportFixtures.naoMgsResult(in: root)
+        try NaoMgsNvdImportFixtures.addLargeSparseFile(to: first, gigabytes: 16)
+        let second = try NaoMgsNvdImportFixtures.naoMgsResult(in: root, folderName: "B.2024")
+        let (project, imports, runA) = try launch(kind: "nao-mgs", arguments: [first.path, "--no-fetch-references"])
+        defer { runA.stop() }
+        let started = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(10)) {
+            NaoMgsNvdImportFixtures.naoMgsFolders(in: imports).contains("naomgs-S1")
+        }
+        XCTAssertTrue(started, "import A never made its result folder")
+        let (_, _, runB) = try launch(kind: "nao-mgs", arguments: [second.path, "--no-fetch-references"])
+        defer { runB.stop() }
+        let finished = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(50)) { !runB.isRunning }
+        XCTAssertTrue(finished, "import B never ended")
+        XCTAssertTrue(runA.isRunning, "import A still runs while B is done")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            runA, record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        let folderB = imports.appendingPathComponent("naomgs-B", isDirectory: true)
+        XCTAssertEqual(NaoMgsNvdImportFixtures.entries(in: imports), ["naomgs-B"], "only B's folder is left")
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(from: folderB), "B's record is still there")
+        XCTAssertFalse(OperationMarker.isInProgress(folderB), "B's folder is finished")
+    }
+
+    func testCancellingOneNvdImportKeepsAnotherFinishedImport() async throws {
+        let first = try NaoMgsNvdImportFixtures.nvdRun(in: root)
+        try NaoMgsNvdImportFixtures.addLargeSparseFile(to: first, gigabytes: 16)
+        let second = try NaoMgsNvdImportFixtures.nvdRun(in: root, folderName: "nvd-b.2024")
+        let (project, imports, runA) = try launch(kind: "nvd", arguments: [first.path])
+        defer { runA.stop() }
+        let started = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(10)) {
+            !NaoMgsNvdImportFixtures.nvdStagingFolders(in: imports).isEmpty
+        }
+        XCTAssertTrue(started, "import A never made its staging folder")
+        let (_, _, runB) = try launch(kind: "nvd", arguments: [second.path, "--name", "nvd-other"])
+        defer { runB.stop() }
+        let finished = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(50)) { !runB.isRunning }
+        XCTAssertTrue(finished, "import B never ended")
+        XCTAssertTrue(runA.isRunning, "import A still runs while B is done")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            runA, record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        let folderB = imports.appendingPathComponent("nvd-other", isDirectory: true)
+        XCTAssertEqual(NaoMgsNvdImportFixtures.entries(in: imports), ["nvd-other"], "only B's bundle is left")
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(from: folderB), "B's record is still there")
+        XCTAssertFalse(OperationMarker.isInProgress(folderB), "B's bundle is finished")
     }
 
     // MARK: - Running one import

@@ -369,14 +369,17 @@ extension ImportCommand {
         )
         var fetchReferences: Bool = true
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @OptionGroup var globalOptions: GlobalOptions
 
+        /// With `--format json` the run prints the events the Import Center's row shows, and SIGTERM cancels it
+        /// with exit 125 (`ClassifierResultImportRun.performAsync`, Phase 2.12 lane 12.05).
         func run() async throws {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let importRun = ClassifierResultImportRun(kind: .naomgs, globalOptions: globalOptions)
+            let formatter = importRun.formatter
 
             let inputURL = URL(fileURLWithPath: inputPath)
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
-                print(formatter.error("Input not found: \(inputPath)"))
+                importRun.refuse("Input not found: \(inputPath)")
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -389,7 +392,7 @@ extension ImportCommand {
 
             let imported: NaoMgsImportResult
             do {
-                var provenanceCommand = [
+                var command = [
                     CLICommandIdentity.executableName,
                     "import",
                     "nao-mgs",
@@ -398,38 +401,48 @@ extension ImportCommand {
                     outputDirectory.path,
                 ]
                 if let sampleName {
-                    provenanceCommand += ["--sample-name", sampleName]
+                    command += ["--sample-name", sampleName]
                 }
                 if !fetchReferences {
-                    provenanceCommand.append("--no-fetch-references")
+                    command.append("--no-fetch-references")
                 }
-                imported = try await MetagenomicsImportService.importNaoMgs(
-                    inputURL: inputURL,
-                    outputDirectory: outputDirectory,
-                    sampleName: sampleName,
-                    fetchReferences: fetchReferences,
-                    preferredName: sampleName,
-                    provenanceCommand: provenanceCommand
-                ) { progress, message in
-                    guard !globalOptions.quiet else { return }
-                    print(String(format: "[%3.0f%%] %@", progress * 100, message))
+                let provenanceCommand = command
+                let sampleName = sampleName
+                let fetchReferences = fetchReferences
+                let textProgress = !importRun.eventsOn && !globalOptions.quiet
+                imported = try await importRun.performAsync(input: inputURL, outputDirectory: outputDirectory) { progress in
+                    try await MetagenomicsImportService.importNaoMgs(
+                        inputURL: inputURL,
+                        outputDirectory: outputDirectory,
+                        sampleName: sampleName,
+                        fetchReferences: fetchReferences,
+                        preferredName: sampleName,
+                        provenanceCommand: provenanceCommand
+                    ) { fraction, message in
+                        progress(fraction, message)
+                        if textProgress {
+                            print(String(format: "[%3.0f%%] %@", fraction * 100, message))
+                        }
+                    }
                 }
+            } catch let exitCode as ExitCode {
+                throw exitCode
             } catch {
-                print(formatter.error(error.localizedDescription))
                 throw metagenomicsImportExitCode(for: error).exitCode
             }
+            importRun.complete(imported.resultDirectory, message: NaoMgsNvdImportWords.naoMgs(imported))
 
-            print(formatter.header("NAO-MGS Import"))
-            print("")
-            print(formatter.keyValueTable([
+            importRun.say(formatter.header("NAO-MGS Import"))
+            importRun.say("")
+            importRun.say(formatter.keyValueTable([
                 ("Sample", imported.sampleName),
                 ("Total hits", formatNumber(Int64(imported.totalHitReads))),
                 ("Distinct taxa", String(imported.taxonCount)),
                 ("References fetched", String(imported.fetchedReferenceCount)),
                 ("Output", imported.resultDirectory.lastPathComponent),
             ]))
-            print("")
-            print(formatter.success("NAO-MGS import complete: \(imported.resultDirectory.lastPathComponent)"))
+            importRun.say("")
+            importRun.say(formatter.success("NAO-MGS import complete: \(imported.resultDirectory.lastPathComponent)"))
         }
     }
 
@@ -461,20 +474,23 @@ extension ImportCommand {
         )
         var name: String?
 
-        @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
+        @OptionGroup var globalOptions: GlobalOptions
 
+        /// With `--format json` the run prints the events the Import Center's row shows, and SIGTERM cancels it
+        /// with exit 125 (`ClassifierResultImportRun.performAsync`, Phase 2.12 lane 12.05).
         func run() async throws {
-            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let importRun = ClassifierResultImportRun(kind: .nvd, globalOptions: globalOptions)
+            let formatter = importRun.formatter
             let inputURL = URL(fileURLWithPath: inputPath)
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
-                print(formatter.error("Input directory not found: \(inputPath)"))
+                importRun.refuse("Input directory not found: \(inputPath)")
                 throw CLIExitCode.inputError.exitCode
             }
 
             if !globalOptions.quiet {
-                print(formatter.header("NVD Import"))
-                print("")
+                importRun.say(formatter.header("NVD Import"))
+                importRun.say("")
             }
 
             let outputDirectory: URL
@@ -484,7 +500,7 @@ extension ImportCommand {
                 outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             }
 
-            var provenanceCommand = [
+            var command = [
                 CLICommandIdentity.executableName,
                 "import",
                 "nvd",
@@ -493,35 +509,46 @@ extension ImportCommand {
                 outputDirectory.path,
             ]
             if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                provenanceCommand += ["--name", name]
+                command += ["--name", name]
             }
 
+            let imported: NvdImportResult
             do {
-                let imported = try await MetagenomicsImportService.importNvd(
-                    inputURL: inputURL,
-                    outputDirectory: outputDirectory,
-                    preferredName: name,
-                    samtoolsPath: MetagenomicsImportService.managedSamtoolsPath(),
-                    provenanceCommand: provenanceCommand
-                ) { progress, message in
-                    if !globalOptions.quiet, progress < 1.0 {
-                        print(formatter.info(message))
+                let provenanceCommand = command
+                let preferredName = name
+                let samtoolsPath = MetagenomicsImportService.managedSamtoolsPath()
+                let useColors = globalOptions.useColors
+                let textProgress = !importRun.eventsOn && !globalOptions.quiet
+                imported = try await importRun.performAsync(input: inputURL, outputDirectory: outputDirectory) { progress in
+                    try await MetagenomicsImportService.importNvd(
+                        inputURL: inputURL,
+                        outputDirectory: outputDirectory,
+                        preferredName: preferredName,
+                        samtoolsPath: samtoolsPath,
+                        provenanceCommand: provenanceCommand
+                    ) { fraction, message in
+                        progress(fraction, message)
+                        if textProgress, fraction < 1.0 {
+                            print(TerminalFormatter(useColors: useColors).info(message))
+                        }
                     }
                 }
-
-                if !globalOptions.quiet {
-                    print(formatter.keyValueTable([
-                        ("Total hits", String(imported.hitCount)),
-                        ("Samples", String(imported.sampleCount)),
-                        ("Contigs", String(imported.contigCount)),
-                        ("Output", imported.resultDirectory.lastPathComponent),
-                    ]))
-                    print("")
-                    print(formatter.success("NVD import complete: \(imported.resultDirectory.lastPathComponent)"))
-                }
+            } catch let exitCode as ExitCode {
+                throw exitCode
             } catch {
-                print(formatter.error(error.localizedDescription))
                 throw metagenomicsImportExitCode(for: error).exitCode
+            }
+            importRun.complete(imported.resultDirectory, message: NaoMgsNvdImportWords.nvd(imported))
+
+            if !globalOptions.quiet {
+                importRun.say(formatter.keyValueTable([
+                    ("Total hits", String(imported.hitCount)),
+                    ("Samples", String(imported.sampleCount)),
+                    ("Contigs", String(imported.contigCount)),
+                    ("Output", imported.resultDirectory.lastPathComponent),
+                ]))
+                importRun.say("")
+                importRun.say(formatter.success("NVD import complete: \(imported.resultDirectory.lastPathComponent)"))
             }
         }
     }
