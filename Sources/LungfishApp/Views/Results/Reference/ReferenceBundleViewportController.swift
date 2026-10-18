@@ -612,7 +612,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private func copyReferenceSequences(_ rows: [ReferenceBundleRecordRow], asFASTA: Bool) {
         guard let input = currentInput, let bundleURL = input.renderedBundleURL,
               let manifest = input.manifest else { return }
-        let provider = BundleDataProvider(bundleURL: bundleURL, manifest: manifest)
+        let provider = BundleDataProvider(bundleURL: bundleURL, manifest: manifest, referenceBundle: input.preparedBundle)
         Task { [weak self] in
             do {
                 var sequences: [String] = []
