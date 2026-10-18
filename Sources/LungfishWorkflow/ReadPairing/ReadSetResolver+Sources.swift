@@ -149,7 +149,7 @@ extension ReadSetResolver {
 
     /// The sequencing platform a bundle records, from its primary file's
     /// sidecar, its own sidecar, or the bundle it derives from.
-    static func recordedPlatform(of bundleURL: URL) -> SequencingPlatform? {
+    public static func recordedPlatform(of bundleURL: URL) -> SequencingPlatform? {
         for candidate in [bundleURL] + ancestors(of: bundleURL) {
             if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: candidate),
                let platform = FASTQMetadataStore.load(for: fastqURL)?.sequencingPlatform {

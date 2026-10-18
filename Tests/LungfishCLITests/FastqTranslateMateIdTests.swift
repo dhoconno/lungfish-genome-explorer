@@ -167,6 +167,52 @@ final class FastqTranslateMateIdTests: XCTestCase {
         ].joined(separator: "\n") + "\n")
     }
 
+    /// A derived bundle whose own sidecar records no platform keeps its bytes when the bundle it derives from
+    /// records Oxford Nanopore. This reaches the ancestor walk of `ReadSetResolver.recordedPlatform(of:)`, which
+    /// the bundle test above does not (UX ruling 3, BIO answer 3).
+    func testLongReadDerivativeWithRepeatedIdsKeepsItsBytes() async throws {
+        let id = "8f2e0c7a-0001-4f7a-9d1a-0123456789ab"
+        let text = Self.fastq([("@\(id) runid=abc", Self.read1), ("@\(id) runid=abc", Self.read2)])
+        let imports = folder.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
+        let parent = imports.appendingPathComponent("ont.lungfishfastq", isDirectory: true)
+        let child = imports.appendingPathComponent("ont-subset.lungfishfastq", isDirectory: true)
+        for bundle in [parent, child] {
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: bundle.appendingPathComponent("reads.fastq"))
+        }
+        // Only the parent's sidecar records the platform.
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(sequencingPlatform: .oxfordNanopore),
+            for: parent.appendingPathComponent("reads.fastq")
+        )
+        let operation = FASTQDerivativeOperation(kind: .deduplicate)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "ont-subset",
+                parentBundleRelativePath: "@/Imports/ont.lungfishfastq",
+                rootBundleRelativePath: "@/Imports/ont.lungfishfastq",
+                rootFASTQFilename: "reads.fastq",
+                payload: .full(fastqFilename: "reads.fastq"),
+                lineage: [operation],
+                operation: operation,
+                cachedStatistics: .placeholder(readCount: 2, baseCount: 33),
+                pairingMode: .singleEnd,
+                sequenceFormat: .fastq
+            ),
+            in: child
+        )
+        XCTAssertNil(FASTQMetadataStore.load(for: child.appendingPathComponent("reads.fastq")))
+        // The resolver alone reads repeated ids as mates, so only the parent's platform keeps these bytes.
+        XCTAssertEqual(resolvedLayoutPin(child), .strictlyInterleaved)
+
+        let frame1 = try await translated(child, to: "ont-derived.fa")
+
+        XCTAssertEqual(frame1, [
+            ">\(id)_frame+1 [Standard] [6 aa]", "MASKGE",
+            ">\(id)_frame+1 [Standard] [5 aa]", "MKPGF",
+        ].joined(separator: "\n") + "\n")
+    }
+
     /// A mixed file recorded `single_end`, with counts that show its merged read, keeps its bytes.
     func testMixedFileRecordedSingleEndKeepsItsBytes() async throws {
         let text = Self.fastq([

@@ -158,26 +158,11 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         return resolution.layout == .strictlyInterleaved || resolution.layout == .mixedMergedAndPairs
     }
 
-    /// Whether the input, or a bundle it derives from, records a long-read platform. Such reads are never
-    /// paired, by name or by content (`docs/contracts/READ-PAIRING.md`). This follows the platform lookup of
-    /// the read set resolver, which is not public.
+    /// Whether the input, or a bundle it derives from, records a long-read platform, read by the read set
+    /// resolver's own lookup. Such reads are never paired (`docs/contracts/READ-PAIRING.md`).
     private static func recordsLongReads(_ input: FASTQSubcommandInput) -> Bool {
-        var current = (input.bundleURL ?? input.originalURL).standardizedFileURL
-        var seen: Set<String> = [current.path]
-        for _ in 0..<32 {
-            let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: current) ?? current
-            if let platform = FASTQMetadataStore.load(for: fastqURL)?.sequencingPlatform
-                ?? FASTQMetadataStore.load(for: current)?.sequencingPlatform {
-                return platform == .oxfordNanopore || platform == .pacbio
-            }
-            guard let manifest = FASTQBundle.loadDerivedManifest(in: current) else { return false }
-            let parent = FASTQBundle.resolveBundle(relativePath: manifest.parentBundleRelativePath, from: current)
-                .standardizedFileURL
-            guard seen.insert(parent.path).inserted, FASTQBundle.isBundleURL(parent),
-                  FileManager.default.fileExists(atPath: parent.path) else { return false }
-            current = parent
-        }
-        return false
+        let platform = ReadSetResolver.recordedPlatform(of: (input.bundleURL ?? input.originalURL).standardizedFileURL)
+        return platform == .oxfordNanopore || platform == .pacbio
     }
 
     /// Two adjacent records are the mates of one fragment when their identifiers are byte-equal and the
