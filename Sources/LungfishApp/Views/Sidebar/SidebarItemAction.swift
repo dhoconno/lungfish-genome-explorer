@@ -30,6 +30,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     case moveToTrash
     case selectSiblings
     case showInFinder
+    case copyName
     case copyPath
     case showInInspector
     case exportSequences
@@ -59,6 +60,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         case .moveToTrash: return "Move to Trash"
         case .selectSiblings: return "Select Siblings"
         case .showInFinder: return "Show in Finder"
+        case .copyName: return "Copy Name"
         case .copyPath: return "Copy Path"
         case .showInInspector: return "Show in Inspector"
         case .exportSequences: return "Export Sequences\u{2026}"
@@ -82,11 +84,14 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     /// Finder counts the items it is about to trash, and the two bundle
     /// exports count the bundles they will write, so those three read
     /// "Move 3 Items to Trash", "Export 3 Sequences…" and "Export 3 as
-    /// FASTQ…" for more than one item. Every other command keeps ``title``.
+    /// FASTQ…" for more than one item. Copy Name counts the names it copies
+    /// and reads "Copy 3 Names", while the menu bar keeps "Copy Name" as it
+    /// keeps "Move to Trash". Every other command keeps ``title``.
     func contextTitle(selectionCount: Int) -> String {
         guard selectionCount > 1 else { return title }
         switch self {
         case .moveToTrash: return "Move \(selectionCount) Items to Trash"
+        case .copyName: return "Copy \(selectionCount) Names"
         case .exportSequences: return "Export \(selectionCount) Sequences\u{2026}"
         case .exportAsFASTQ: return "Export \(selectionCount) as FASTQ\u{2026}"
         default: return title
@@ -106,6 +111,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         case .moveToTrash: return "move-to-trash"
         case .selectSiblings: return "select-siblings"
         case .showInFinder: return "show-in-finder"
+        case .copyName: return "copy-name"
         case .copyPath: return "copy-path"
         case .showInInspector: return "show-in-inspector"
         case .exportSequences: return "export-sequences"
@@ -131,6 +137,10 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     /// stays with Select Siblings, which the sidebar handled in its own
     /// key monitor before it became a menu item (View > AI Assistant moved
     /// to Cmd-Opt-A for it).
+    ///
+    /// Copy Name has no chord of its own. Edit > Copy (Cmd-C) runs it while
+    /// the outline has keyboard focus, and the app binds each chord once, so
+    /// showing Cmd-C on the Selection item too would bind it twice.
     var keyEquivalent: RowCommandKeyEquivalent? {
         switch self {
         case .newFolder: return RowCommandKeyEquivalent("n", [.command, .shift])
@@ -155,6 +165,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         case .moveToTrash: return #selector(SidebarItemMenuActions.moveSelectedSidebarItemsToTrash(_:))
         case .selectSiblings: return #selector(SidebarItemMenuActions.selectSiblingSidebarItems(_:))
         case .showInFinder: return #selector(SidebarItemMenuActions.showSelectedSidebarItemInFinder(_:))
+        case .copyName: return #selector(SidebarItemMenuActions.copySelectedSidebarItemName(_:))
         case .copyPath: return #selector(SidebarItemMenuActions.copySelectedSidebarItemPath(_:))
         case .showInInspector: return #selector(ResultRowMenuActions.showSelectedRowInInspector(_:))
         case .exportSequences: return #selector(FileMenuActions.exportFASTA(_:))
@@ -184,7 +195,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
         [.open, .openBundle, .showPackageContents, .getBundleInfo],
         [.newFolder, .rename, .duplicate, .moveToTrash],
         [.selectSiblings],
-        [.showInFinder, .copyPath],
+        [.showInFinder, .copyName, .copyPath],
         [.exportAlignment, .exportAsFASTQ, .mergeIntoNewBundle, .reassemble, .deleteVariantTracks],
         [.importSampleMetadata, .cloneMetadataFrom, .copyClassificationCommand],
         [.editFolderMetadata, .exportFolderMetadata, .importFolderMetadata],
@@ -209,6 +220,7 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     func moveSelectedSidebarItemsToTrash(_ sender: Any?)
     func selectSiblingSidebarItems(_ sender: Any?)
     func showSelectedSidebarItemInFinder(_ sender: Any?)
+    func copySelectedSidebarItemName(_ sender: Any?)
     func copySelectedSidebarItemPath(_ sender: Any?)
     func exportSelectedSidebarAlignment(_ sender: Any?)
     func exportSelectedSidebarItemsAsFASTQ(_ sender: Any?)

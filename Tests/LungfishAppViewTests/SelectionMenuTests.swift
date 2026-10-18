@@ -105,6 +105,23 @@ final class SelectionMenuTests: XCTestCase {
         XCTAssertEqual(Set(chorded), [.newFolder, .duplicate, .moveToTrash, .selectSiblings, .showInInspector])
     }
 
+    func testSidebarItemSubmenuOffersCopyNameBetweenShowInFinderAndCopyPathWithNoChord() throws {
+        let menu = try submenu("Selection", in: mainMenu())
+        let sub = try XCTUnwrap(try item(identifier: MainMenuAccessibilityID.selectionSidebarItem, in: menu).submenu)
+
+        let titles = sub.items.filter { !$0.isSeparatorItem }.map(\.title)
+        let locate = try XCTUnwrap(titles.firstIndex(of: "Show in Finder"))
+        XCTAssertEqual(Array(titles[locate...].prefix(3)), ["Show in Finder", "Copy Name", "Copy Path"])
+
+        XCTAssertEqual(MainMenuAccessibilityID.selectionSidebarItemAction(.copyName), "selection-menu-sidebar-item-copy-name")
+        let copyName = try item(identifier: MainMenuAccessibilityID.selectionSidebarItemAction(.copyName), in: sub)
+        XCTAssertEqual(copyName.title, "Copy Name", "the menu bar keeps the singular title")
+        XCTAssertEqual(copyName.action, #selector(SidebarItemMenuActions.copySelectedSidebarItemName(_:)))
+        XCTAssertNil(copyName.target, "Copy Name goes to the first responder")
+        XCTAssertEqual(copyName.keyEquivalent, "", "Command-C stays with Edit > Copy, since the app binds each chord once")
+        XCTAssertNil(SidebarItemAction.copyName.keyEquivalent)
+    }
+
     // MARK: - Genotype Sample and Genotype Call
 
     /// U2. The genotype review commands act on the selected sample or call, so

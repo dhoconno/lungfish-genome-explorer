@@ -2528,6 +2528,27 @@ features:
       the project id and --dest, and with --force for a replace. This route
       has no hidden key. A fetch that gets SIGTERM prints Fetch cancelled,
       exits 125 and leaves no hidden .lge-demo-staging- folder.
+  sidebar.copy-name:
+    title: Copy the names of sidebar items
+    entry_points:
+      - "Sidebar context menu > Copy Name"
+      - "Selection > Sidebar Item > Copy Name"
+    inputs: [bundle, folder, file]
+    outputs: [clipboard-text]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Sidebar/SidebarItemAction.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+ItemActions.swift
+    module: [LungfishApp]
+    tests:
+      - Tests/LungfishAppTests/SidebarItemActionAccessibilityTests.swift
+      - Tests/LungfishAppViewTests/SelectionMenuTests.swift
+    notes: >-
+      Copy Name puts the name each selected row shows on the clipboard as plain
+      text, one name per line in sidebar order. A bundle's name has no package
+      extension. Section headers offer no Copy Name. Command-C does the same
+      while the sidebar has keyboard focus, and each row offers Copy Name as a
+      VoiceOver action.
   tools.provision:
     title: Provision managed tools
     entry_points:

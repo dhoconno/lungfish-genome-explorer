@@ -166,18 +166,24 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         XCTAssertFalse(titles.contains("Rename\u{2026}"), "titles: \(titles)")
     }
 
-    func testBundleContextMenuKeepsTheBaselineCommandsInAppleTitleCase() {
+    func testBundleContextMenuKeepsTheBaselineCommandsInAppleTitleCase() throws {
         let (sidebar, _) = makeSidebar()
         defer { sidebar.closeProject() }
         select(bundleURL, in: sidebar)
         let titles = commandTitles(contextMenu(sidebar, for: sidebar.selectedItems()))
         for expected in [
             "Export Sequences\u{2026}", "Open Bundle", "Show Package Contents", "Get Bundle Info",
-            "Import Sample Metadata\u{2026}", "New Folder\u{2026}", "Show in Finder", "Copy Path",
+            "Import Sample Metadata\u{2026}", "New Folder\u{2026}", "Show in Finder", "Copy Name", "Copy Path",
             "Show in Inspector", "Rename\u{2026}", "Move to Trash",
         ] {
             XCTAssertTrue(titles.contains(expected), "missing \(expected) in \(titles)")
         }
+        // The locate section reads Show in Finder, Copy Name, Copy Path, Show in Inspector.
+        let locate = try XCTUnwrap(titles.firstIndex(of: "Show in Finder"))
+        XCTAssertEqual(
+            Array(titles[locate...].prefix(4)),
+            ["Show in Finder", "Copy Name", "Copy Path", "Show in Inspector"]
+        )
         XCTAssertFalse(titles.contains("Rename..."), "three dots are not an ellipsis")
         XCTAssertFalse(titles.contains("Open"), "a bundle opens with Open Bundle, not Open")
         XCTAssertTrue(titles.allSatisfy { !$0.contains("...") }, "titles: \(titles)")
@@ -228,6 +234,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         select(bundleURL, in: sidebar)
 
         let moveToTrash = try selectionMenuItem(.moveToTrash, in: mainMenu)
+        let copyName = try selectionMenuItem(.copyName, in: mainMenu)
         let copyPath = try selectionMenuItem(.copyPath, in: mainMenu)
         let showInInspector = try selectionMenuItem(.showInInspector, in: mainMenu)
         let openBundle = try selectionMenuItem(.openBundle, in: mainMenu)
@@ -236,6 +243,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(textField))
         XCTAssertFalse(sidebar.sidebarOutlineHasKeyboardFocus)
         XCTAssertFalse(sidebar.validateMenuItem(moveToTrash))
+        XCTAssertFalse(sidebar.validateMenuItem(copyName))
         XCTAssertFalse(sidebar.validateMenuItem(copyPath))
         XCTAssertFalse(sidebar.validateMenuItem(showInInspector))
 
@@ -243,18 +251,21 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(sidebar.outlineView))
         XCTAssertTrue(sidebar.sidebarOutlineHasKeyboardFocus)
         XCTAssertTrue(sidebar.validateMenuItem(moveToTrash))
+        XCTAssertTrue(sidebar.validateMenuItem(copyName))
         XCTAssertTrue(sidebar.validateMenuItem(copyPath))
         XCTAssertTrue(sidebar.validateMenuItem(showInInspector))
         XCTAssertTrue(sidebar.validateMenuItem(openBundle))
 
-        // A folder: Open Bundle no longer applies, Move to Trash still does.
+        // A folder: Open Bundle no longer applies, Move to Trash and Copy Name still do.
         select(folderURL, in: sidebar)
         XCTAssertFalse(sidebar.validateMenuItem(openBundle))
         XCTAssertTrue(sidebar.validateMenuItem(moveToTrash))
+        XCTAssertTrue(sidebar.validateMenuItem(copyName))
 
         // Nothing selected: nothing to act on.
         sidebar.outlineView.deselectAll(nil)
         XCTAssertFalse(sidebar.validateMenuItem(moveToTrash))
+        XCTAssertFalse(sidebar.validateMenuItem(copyName))
         XCTAssertFalse(sidebar.validateMenuItem(copyPath))
     }
 
@@ -334,7 +345,157 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         pasteboard.string(forType: .string).map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
     }
 
+    // MARK: - Copy Name
+
+    func testCopyNameCopiesTheBundleTitleWithoutItsExtension() throws {
+        let (sidebar, _) = makeSidebar()
+        defer { sidebar.closeProject() }
+        select(bundleURL, in: sidebar)
+        let row = try XCTUnwrap(sidebar.selectedItems().first)
+
+        pasteboard.clearContents()
+        sidebar.copySelectedSidebarItemName(nil)
+
+        XCTAssertEqual(pasteboard.string(forType: .string), row.title)
+        XCTAssertEqual(pasteboard.string(forType: .string), bundleURL.deletingPathExtension().lastPathComponent)
+        XCTAssertFalse(pasteboard.types?.contains(.fileURL) ?? false, "a paste in the Finder must copy no bundle")
+    }
+
+    func testCopyNameKeepsAPlainFilesExtension() {
+        let (sidebar, _) = makeSidebar()
+        defer { sidebar.closeProject() }
+        select(fastaURL, in: sidebar)
+
+        pasteboard.clearContents()
+        sidebar.copySelectedSidebarItemName(nil)
+
+        XCTAssertEqual(pasteboard.string(forType: .string), fastaURL.lastPathComponent)
+    }
+
+    func testCopyNameOnTwoRowsWritesOneNamePerLineInOutlineOrder() throws {
+        let (sidebar, _) = makeSidebar()
+        defer { sidebar.closeProject() }
+        select(fastaURL, in: sidebar)
+        let rowA = sidebar.outlineView.selectedRow
+        select(secondFastaURL, in: sidebar)
+        let rowB = sidebar.outlineView.selectedRow
+        XCTAssertLessThan(rowA, rowB, "a.fasta is listed above b.fasta")
+        sidebar.outlineView.selectRowIndexes(IndexSet([rowB, rowA]), byExtendingSelection: false)
+        let two = sidebar.selectedItems()
+        XCTAssertEqual(two.map(\.title), [fastaURL.lastPathComponent, secondFastaURL.lastPathComponent])
+
+        pasteboard.clearContents()
+        sidebar.copySelectedSidebarItemName(nil)
+
+        let expected = two.map(\.title).joined(separator: "\n")
+        XCTAssertEqual(pasteboard.string(forType: .string), expected)
+        XCTAssertFalse(expected.hasSuffix("\n"), "no trailing newline")
+        let titles = commandTitles(contextMenu(sidebar, for: two))
+        XCTAssertTrue(titles.contains("Copy 2 Names"), "titles: \(titles)")
+        XCTAssertFalse(titles.contains("Copy Name"), "titles: \(titles)")
+    }
+
+    func testCopyNameOnAFolderAndItsChildGivesALineEach() {
+        let (sidebar, _) = makeSidebar()
+        defer { sidebar.closeProject() }
+        select(folderURL, in: sidebar)
+        let folderRow = sidebar.outlineView.selectedRow
+        select(fastaURL, in: sidebar)
+        let childRow = sidebar.outlineView.selectedRow
+        sidebar.outlineView.selectRowIndexes(IndexSet([folderRow, childRow]), byExtendingSelection: false)
+
+        pasteboard.clearContents()
+        sidebar.copySelectedSidebarItemName(nil)
+
+        XCTAssertEqual(
+            pasteboard.string(forType: .string),
+            [folderURL.lastPathComponent, fastaURL.lastPathComponent].joined(separator: "\n")
+        )
+    }
+
+    func testSectionHeadersOfferNoCopyName() throws {
+        let (sidebar, _) = makeSidebar()
+        defer { sidebar.closeProject() }
+        select(fastaURL, in: sidebar)
+        let file = try XCTUnwrap(sidebar.selectedItems().first)
+        let header = SidebarItem(title: "PROJECT SEQUENCES", type: .group)
+
+        XCTAssertTrue(
+            sidebar.availableSidebarItemActions(for: [file]).flatMap { $0 }.contains(.copyName),
+            "a file row offers Copy Name"
+        )
+        for items in [[header], [header, file]] {
+            let offered = sidebar.availableSidebarItemActions(for: items).flatMap { $0 }
+            XCTAssertFalse(offered.contains(.copyName), "a section header offers no Copy Name: \(offered)")
+            let titles = commandTitles(contextMenu(sidebar, for: items))
+            XCTAssertFalse(titles.contains { $0.hasPrefix("Copy") }, "titles: \(titles)")
+        }
+    }
+
+    /// Cmd-C is Edit > Copy. It reaches the sidebar only through the responder
+    /// chain, so the test asks the chain from the first responder, as a key
+    /// press does, and keeps the validation to the focus test and the rule.
+    func testEditCopyCopiesNamesOnlyWhileTheOutlineHasFocus() throws {
+        let (sidebar, textField) = makeSidebar(hosted: true)
+        defer { sidebar.closeProject() }
+        let window = try XCTUnwrap(sidebar.view.window)
+        let editCopy = try XCTUnwrap(Self.editCopyItem(in: MainMenu.createMainMenu()), "no Edit > Copy item")
+        select(bundleURL, in: sidebar)
+
+        // A text field has focus: Copy stays the field's own.
+        XCTAssertTrue(window.makeFirstResponder(textField))
+        XCTAssertFalse(sidebar.validateMenuItem(editCopy))
+
+        // The outline has focus: Edit > Copy is enabled, and the chain from
+        // the outline reaches the sidebar, which writes the name.
+        XCTAssertTrue(window.makeFirstResponder(sidebar.outlineView))
+        XCTAssertTrue(sidebar.validateMenuItem(editCopy))
+        pasteboard.clearContents()
+        XCTAssertTrue(
+            sidebar.outlineView.tryToPerform(#selector(NSText.copy(_:)), with: nil),
+            "no responder in the chain from the outline answers copy:"
+        )
+        XCTAssertEqual(pasteboard.string(forType: .string), bundleURL.deletingPathExtension().lastPathComponent)
+
+        // Nothing selected: nothing to copy.
+        sidebar.outlineView.deselectAll(nil)
+        XCTAssertFalse(sidebar.validateMenuItem(editCopy))
+    }
+
+    private static func editCopyItem(in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if item.action == #selector(NSText.copy(_:)) { return item }
+            if let submenu = item.submenu, let found = editCopyItem(in: submenu) { return found }
+        }
+        return nil
+    }
+
     // MARK: - The outline probe (go/no-go for every NSOutlineView surface)
+
+    func testOutlineRowCopyNamePerformsThroughAX() throws {
+        let (sidebar, _) = makeSidebar(hosted: true)
+        defer { sidebar.closeProject() }
+        select(bundleURL, in: sidebar)
+        let bundleItem = try XCTUnwrap(sidebar.selectedItems().first)
+        let row = sidebar.outlineView.row(forItem: bundleItem)
+        XCTAssertGreaterThanOrEqual(row, 0)
+        let rowProxy = AccessibilityRowProbe.outlineRowProxies(of: sidebar.outlineView)[row]
+
+        let served = AccessibilityRowProbe.servedCellActionNames(rowProxy)
+        XCTAssertFalse(served.isEmpty, "the row has no cell proxies")
+        for names in served {
+            let copyName = try XCTUnwrap(names.firstIndex(of: "Copy Name"), "no Copy Name action in \(names)")
+            XCTAssertEqual(names.firstIndex(of: "Copy Path"), copyName + 1, "Copy Name sits right before Copy Path: \(names)")
+        }
+
+        // Perform through the proxy, as an AX client would, with another row
+        // selected first: the action resolves its own row.
+        select(fastaURL, in: sidebar)
+        pasteboard.clearContents()
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rowProxy))
+        XCTAssertEqual(pasteboard.string(forType: .string), bundleItem.title)
+        XCTAssertEqual(pasteboard.string(forType: .string), bundleURL.deletingPathExtension().lastPathComponent)
+    }
 
     func testOutlineRowCellsListEachCommandOnceAndCopyPathPerformsThroughAX() throws {
         let (sidebar, _) = makeSidebar(hosted: true)

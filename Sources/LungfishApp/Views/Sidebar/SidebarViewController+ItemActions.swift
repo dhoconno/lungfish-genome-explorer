@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishKit
+import os.log
 
 // MARK: - Availability
 
@@ -115,6 +116,7 @@ extension SidebarViewController {
 
         var locateSection: [SidebarItemAction] = []
         if !hasGroups { locateSection.append(.showInFinder) }
+        if !hasGroups { locateSection.append(.copyName) }
         if !hasGroups, soleItem != nil { locateSection.append(.copyPath) }
         if let soleItem, soleItem.type.bundleCapabilities.canShowInInspector {
             locateSection.append(.showInInspector)
@@ -138,8 +140,14 @@ extension SidebarViewController {
     }
 
     /// True when `action` applies to the current selection.
+    ///
+    /// Only Delete Variant Tracks and Reassemble read a bundle's manifest to
+    /// decide. Every other command is decided from the rows alone, so asking
+    /// about it from a menu on the main thread never touches the disk.
     func canPerformSidebarItemAction(_ action: SidebarItemAction) -> Bool {
-        availableSidebarItemActions(for: selectedItems()).contains { $0.contains(action) }
+        let readsManifest = action == .deleteVariantTracks || action == .reassemble
+        return availableSidebarItemActions(for: selectedItems(), includingManifestChecks: readsManifest)
+            .contains { $0.contains(action) }
     }
 
     /// True while the sidebar outline is the key window's first responder,
@@ -161,7 +169,14 @@ extension SidebarViewController: NSMenuItemValidation {
     /// command. The context menu's own items are tied to the outline by
     /// construction and follow the selection alone. Anything else the
     /// sidebar answers (find, the Move to destinations) is always enabled.
+    ///
+    /// Edit > Copy reaches the sidebar through ``copy(_:)``, which is Copy
+    /// Name, so it follows the same focus test and the same availability
+    /// rule. An unknown action would otherwise validate true.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(NSText.copy(_:)) {
+            return sidebarOutlineHasKeyboardFocus && canPerformSidebarItemAction(.copyName)
+        }
         guard let action = menuItem.action,
               let command = SidebarItemAction.command(for: action) else { return true }
         let isContextMenuItem = menuItem.menu?.delegate === self || menuItem.menu === outlineView?.menu
@@ -180,6 +195,30 @@ extension SidebarViewController: SidebarItemMenuActions {
 
     @objc public func selectSiblingSidebarItems(_ sender: Any?) {
         selectAllSiblings()
+    }
+
+    /// Puts the title of each selected row on the pasteboard as plain text,
+    /// one per line in outline order, as the rows show them. A bundle reads
+    /// without its package extension, a file with its extension and a folder
+    /// by its name. No file URL goes with it, so a paste in the Finder copies
+    /// no bundle.
+    @objc public func copySelectedSidebarItemName(_ sender: Any?) {
+        guard canPerformSidebarItemAction(.copyName) else { return }
+        let names = selectedItems().map(\.title)
+
+        let pasteboard = copyPasteboard
+        pasteboard.clearContents()
+        pasteboard.setString(names.joined(separator: "\n"), forType: .string)
+
+        sidebarLogger.info("copySelectedSidebarItemName: Copied \(names.count, privacy: .public) names")
+    }
+
+    /// Edit > Copy (Cmd-C) while the sidebar outline has keyboard focus. Copy
+    /// Name has no chord of its own because the app binds each chord once, so
+    /// the standard Copy runs it. ``validateMenuItem(_:)`` keeps Edit > Copy
+    /// disabled unless the outline has focus and the selection has a name to copy.
+    @objc public func copy(_ sender: Any?) {
+        copySelectedSidebarItemName(sender)
     }
 }
 

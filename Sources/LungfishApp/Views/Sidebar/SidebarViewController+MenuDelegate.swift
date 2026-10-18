@@ -83,8 +83,8 @@ extension SidebarViewController: NSMenuDelegate {
     }
 
     /// The context-menu item for `action` on `items`: the shared title, with
-    /// the selection count for the commands Finder also counts, sent to
-    /// the same handler the menu bar reaches through the responder chain.
+    /// the selection count for the commands that count it (Copy Name among
+    /// them), sent to the handler the menu bar reaches through the responder chain.
     private func contextMenuItem(for action: SidebarItemAction, items: [SidebarItem]) -> NSMenuItem {
         switch action {
         case .manageProjectStorage:
@@ -104,12 +104,10 @@ extension SidebarViewController: NSMenuDelegate {
             let item = action.makeContextMenuItem(target: self, action: action.menuSelector)
             item.title = action.contextTitle(selectionCount: items.filter { $0.type == .fastqBundle }.count)
             return item
-        case .moveToTrash:
+        default:
             let item = action.makeContextMenuItem(target: self, action: action.menuSelector)
             item.title = action.contextTitle(selectionCount: items.count)
             return item
-        default:
-            return action.makeContextMenuItem(target: self, action: action.menuSelector)
         }
     }
 
