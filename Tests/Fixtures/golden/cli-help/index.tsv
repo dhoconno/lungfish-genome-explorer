@@ -230,6 +230,8 @@ lungfish-cli freyja demix	shown	0	lungfish-cli.freyja.demix.txt
 lungfish-cli nvd	shown	0	lungfish-cli.nvd.txt
 lungfish-cli nvd import	shown	0	lungfish-cli.nvd.import.txt
 lungfish-cli nvd summary	shown	0	lungfish-cli.nvd.summary.txt
+lungfish-cli nvd export	shown	0	lungfish-cli.nvd.export.txt
+lungfish-cli nvd export contigs	shown	0	lungfish-cli.nvd.export.contigs.txt
 lungfish-cli cz-id	shown	0	lungfish-cli.cz-id.txt
 lungfish-cli cz-id import	shown	0	lungfish-cli.cz-id.import.txt
 lungfish-cli cz-id summary	shown	0	lungfish-cli.cz-id.summary.txt

@@ -2424,24 +2424,13 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     private func contigsTSVContent() -> String {
-        var lines: [String] = []
-        var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion"
-        let metaHeaders = metadataColumnController.exportHeaders
-        if !metaHeaders.isEmpty {
-            header += "\t" + metaHeaders.joined(separator: "\t")
-        }
-        lines.append(header)
-
-        for hit in displayedContigs {
-            var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
-            let metaValues = metadataColumnController.exportValues(for: hit.sampleId)
-            if !metaValues.isEmpty {
-                line += "\t" + metaValues.joined(separator: "\t")
-            }
-            lines.append(line)
-        }
-
-        return lines.joined(separator: "\n") + "\n"
+        NvdContigsExport.contigsTSV(
+            hits: displayedContigs,
+            metadataHeaders: metadataColumnController.exportHeaders,
+            metadataValuesBySample: Dictionary(uniqueKeysWithValues: Set(displayedContigs.map(\.sampleId)).map {
+                ($0, metadataColumnController.exportValues(for: $0))
+            })
+        )
     }
 
     private func exportProvenanceSourceURLs() -> [URL] {

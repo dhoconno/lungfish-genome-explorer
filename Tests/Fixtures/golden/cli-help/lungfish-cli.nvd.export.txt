@@ -1,0 +1,13 @@
+OVERVIEW: Export NVD result tables with provenance
+
+USAGE: lungfish-cli nvd export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  contigs                 Write the contigs table of an NVD result as TSV with
+                          provenance
+
+  See 'lungfish-cli help nvd export <subcommand>' for detailed help.

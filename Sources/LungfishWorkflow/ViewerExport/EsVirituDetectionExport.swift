@@ -8,8 +8,9 @@ import LungfishIO
 
 /// The EsViritu detections export (Phase 2.12 lane 12.31, ARCH ruling 1.1 row A1, BIO ruling on 12.31 G1).
 ///
-/// The view and `esviritu export detections` order the batch's assemblies and name the metadata files with these
-/// functions, so the view and the leaf agree on the rows and on the record's inputs.
+/// The view and `esviritu export detections` order the batch's assemblies with these functions, and the viewer
+/// exports' leaves name the metadata files with them, so the view and each leaf agree on the rows and on the
+/// record's inputs.
 public enum EsVirituDetectionExport {
     /// The leaf's path under `lungfish-cli` (ARCH ruling 1.1, row A1).
     public static let commandPath = ["esviritu", "export", "detections"]

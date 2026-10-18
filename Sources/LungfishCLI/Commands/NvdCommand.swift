@@ -37,7 +37,7 @@ struct NvdCommand: AsyncParsableCommand {
         Parses *_blast_concatenated.csv(.gz) files containing BLAST hit rankings and
         per-contig mapped read counts for wastewater viral surveillance.
         """,
-        subcommands: [ImportSubcommand.self, SummarySubcommand.self],
+        subcommands: [ImportSubcommand.self, SummarySubcommand.self, ExportSubcommand.self],
         defaultSubcommand: SummarySubcommand.self
     )
 

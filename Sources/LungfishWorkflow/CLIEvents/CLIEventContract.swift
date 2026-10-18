@@ -98,6 +98,7 @@ package enum CLIEventContractTable {
         "esviritu detect": .events(flag: formatJSON, channel: .standardOutput),
         "esviritu export detections": .events(flag: formatJSON, channel: .standardOutput),
         "nao-mgs export table": .events(flag: formatJSON, channel: .standardOutput),
+        "nvd export contigs": .events(flag: formatJSON, channel: .standardOutput),
         "extract reads": .events(flag: formatJSON, channel: .standardOutput),
         "extract taxa-collection": .events(flag: formatJSON, channel: .standardOutput),
         // Events since 2.11 A48 M2, with and without --bundle. It printed one `extract-sequence` document before.

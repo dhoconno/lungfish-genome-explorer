@@ -434,6 +434,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "nao-mgs import": "cli.nao-mgs",
         "nao-mgs export table": "cli.nao-mgs",
         "nao-mgs summary": "cli.nao-mgs",
+        "nvd export contigs": "cli.nvd",
         "nvd import": "cli.nvd",
         "nvd summary": "cli.nvd",
         "ops stats": "cli.ops",
