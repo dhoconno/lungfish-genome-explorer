@@ -17,14 +17,21 @@
 //
 // C against C' declares nothing. Every search sends the stand-in the same bytes, the oracle's included. The
 // harness compares on the contract's standard masks.
+//
+// The classifier sites Phase 2.12 moves (lane 12.08 NVD and EsViritu, 12.09 TaxTriage and 12S, 12.10 Kraken2)
+// keep their in-process search behind `ClassifierBlastRoute` for one release. Their classes run
+// `inProcessSearch` as side A on the harness, with the two `only in C` entries of `declared(...)`, which 2.13
+// deletes with the key.
 
 import Foundation
 import XCTest
 @testable import LungfishApp
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+import LungfishWorkflow
 
 enum BlastSubmitParity {
     /// The variable that points a debug build's BLAST service at a stand-in origin.
@@ -216,5 +223,136 @@ enum BlastSubmitParity {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)", file: file, line: line)
         }
         await harness.assertSignaturesVerify(runs, opening: { record(under: resultsParent($0)) }, file: file, line: line)
+    }
+
+    // MARK: - Side A, for the sites `ClassifierBlastRoute` keeps in process for one release (2.12 lane 12.08)
+
+    /// The files only side C writes. The query stage under `.tmp`, and the search's folder under
+    /// `blast-verifications/` of `resultsParent`, a path relative to the side root.
+    static func declared(stageFiles: Int, resultFiles: Int, resultsParent: String) -> [RouteParityDeclaredDifference<Case>] {
+        [
+            RouteParityDeclaredDifference(
+                [.oneSelection: stageFiles], "only in C: Project.lungfish/.tmp/blast-submit-<ANY>",
+                reason: "The CLI route writes the query to the project's .tmp, where the leaf reads it and the sweep "
+                    + "removes it (C1). The in-process route sent it from memory.",
+                closedBy: "2.13, which deletes the in-process route with the ClassifierBlastRoute key (C4, R-A1, U-R1)"
+            ),
+            RouteParityDeclaredDifference(
+                [.oneSelection: resultFiles], "only in C: \(resultsParent)/blast-verifications/<ANY>",
+                reason: "The CLI route keeps the search, a copy of its query and the record that names the query's "
+                    + "digest and lineage (C1, BIO 3, 4 and 6). The in-process route kept nothing.",
+                closedBy: "2.13, which deletes the in-process route with the ClassifierBlastRoute key (C4, R-A1, U-R1)"
+            ),
+        ]
+    }
+
+    /// Runs the case on sides A, C and C' and fails on each difference `declared` does not hold. Every side
+    /// must complete, A and C with the same verdicts, C and C' must keep the search under `blast-verifications/`
+    /// of `resultsParent`, and every side must send the stand-in the same bytes.
+    @MainActor
+    static func assertParity(
+        harness: RouteParityHarness,
+        server: LoopbackHTTPStandIn,
+        declared: [RouteParityDeclaredDifference<Case>],
+        in caseRoot: URL,
+        resultsParent: (URL) -> URL,
+        fixture: (URL) throws -> Void,
+        sideA: (URL) async throws -> RouteParitySideOutcome,
+        sideC: (URL) async throws -> RouteParitySideOutcome,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let result = try await harness.assertParity(
+            Case.oneSelection, declared: declared, in: caseRoot, fixture: fixture, sideA: sideA, sideC: sideC, file: file, line: line
+        )
+        for run in result.runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)", file: file, line: line)
+        }
+        for run in [result.runs.c, result.runs.cPrime] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: record(under: resultsParent(run.root)).path),
+                "side \(run.side) keeps the search under blast-verifications/ of \(resultsParent(run.root).path)",
+                file: file, line: line
+            )
+        }
+        XCTAssertEqual(result.runs.c.outcome.detail, result.runs.a.outcome.detail, "the row's verdicts", file: file, line: line)
+        let bodies = submissions(server)
+        XCTAssertEqual(bodies.count, 3, "one submission a side", file: file, line: line)
+        XCTAssertEqual(Set(bodies).count, 1, "every side sends the same bytes: \(bodies)", file: file, line: line)
+    }
+
+    /// Runs the case on sides A, C and C' with a throwaway signing key, then checks with `provenance verify`
+    /// that the record sides C and C' write is signed and verifies, and that an edited copy does not (ARCH 3).
+    @MainActor
+    static func assertSignedRecordVerifies(
+        harness: RouteParityHarness,
+        in caseRoot: URL,
+        resultsParent: @escaping @Sendable (URL) -> URL,
+        fixture: (URL) throws -> Void,
+        sideA: (URL) async throws -> RouteParitySideOutcome,
+        sideC: (URL) async throws -> RouteParitySideOutcome,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let runs = try await harness.runSigned(in: caseRoot, fixture: fixture, sideA: sideA, sideC: sideC)
+        for run in runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)", file: file, line: line)
+        }
+        await harness.assertSignaturesVerify(runs, opening: { record(under: resultsParent($0)) }, file: file, line: line)
+    }
+
+    /// The cancel of a site's search on `CLISIGTERMHarness` (SWIFT 3, X14). The leaf the plan's argv names
+    /// starts against the stand-in, and SIGTERM reaches it once its submission arrives. It exits 125 inside
+    /// the grace with a cancelled record beside the query copy, no result, no `failed` line and no process left.
+    @MainActor
+    static func assertSIGTERMCancels(
+        _ plan: BlastSubmitPlan,
+        server: LoopbackHTTPStandIn,
+        testClass: AnyClass,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let stage = plan.request.queryURL.deletingLastPathComponent()
+        try DurableReplace.replace(plan.queryData, named: plan.request.queryURL.lastPathComponent, in: stage)
+        let run = try CLISIGTERMHarness.launchCLI(
+            plan.arguments, environment: [standInVariable: server.baseURL.absoluteString], testClass: testClass
+        )
+        defer { run.stop() }
+        let deadline = ContinuousClock.now + CLISIGTERMHarness.processWait
+        while !server.requests.contains(where: { $0.method == "POST" }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(server.requests.contains { $0.method == "POST" }, "the leaf never submitted", file: file, line: line)
+        let output = plan.request.outputURL
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: {
+            let names = try FileManager.default.contentsOfDirectory(atPath: output.path)
+                .filter { $0.hasPrefix("lungfish-blast-submit-") && $0.hasSuffix(".lungfish-provenance.json") }
+            XCTAssertEqual(names.count, 1, "one cancelled record, found \(names)", file: file, line: line)
+            return try names.first.flatMap {
+                try ProvenanceEnvelopeReader.load(fromSidecar: output.appendingPathComponent($0))?.status.rawValue
+            }
+        }, file: file, line: line)
+        let fileManager = FileManager.default
+        XCTAssertFalse(fileManager.fileExists(atPath: output.appendingPathComponent("blast-result.json").path), file: file, line: line)
+        XCTAssertTrue(fileManager.fileExists(atPath: output.appendingPathComponent("query.fasta").path), file: file, line: line)
+        XCTAssertFalse(stop.standardOutput.contains(#""event":"failed""#), "a cancel reports no failed event", file: file, line: line)
+    }
+
+    // MARK: - Fixtures of the classifier sites
+
+    /// An NVD contig hit of `qseqid` from sample S1, assigned to `taxId` named `name`, whose own subject is that
+    /// taxon under `scientificName` (the shape of `NvdBlastVerificationRequestTests`).
+    static func nvdHit(qseqid: String, taxId: Int, name: String, scientificName: String) -> NvdBlastHit {
+        NvdBlastHit(
+            experiment: "100", blastTask: "megablast", sampleId: "S1",
+            qseqid: qseqid, qlen: 20,
+            sseqid: "MN908947.3", stitle: "\(scientificName) isolate X",
+            taxRank: "species:\(name)", length: 20, pident: 100, evalue: 0, bitscore: 40,
+            sscinames: scientificName, staxids: String(taxId),
+            blastDbVersion: "core_nt", snakemakeRunId: "run", mappedReads: 10, totalReads: 1000,
+            statDbVersion: "1", adjustedTaxid: String(taxId), adjustmentMethod: "dominant",
+            adjustedTaxidName: name, adjustedTaxidRank: "species", hitRank: 1,
+            readsPerBillion: 1
+        )
     }
 }

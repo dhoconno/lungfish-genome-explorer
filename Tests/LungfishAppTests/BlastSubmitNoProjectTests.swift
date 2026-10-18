@@ -65,6 +65,15 @@ final class BlastSubmitNoProjectTests: XCTestCase {
         }
     }
 
+    func testAnNvdContigSearchWithNoProjectRefusesAndStartsNothing() throws {
+        let hit = BlastSubmitParity.nvdHit(qseqid: "NODE_1", taxId: 11320, name: "Influenza A virus", scientificName: "Influenza A virus")
+        assertRefused {
+            try ViewerViewController.nvdBlastSubmitPlan(
+                hit: hit, sequence: "ACGTACGTACGTACGTACGT", classificationName: "Influenza A virus", projectURL: nil
+            )
+        }
+    }
+
     // MARK: - Helpers
 
     /// A folder under the scratch folder, standing in for the result a search starts from.

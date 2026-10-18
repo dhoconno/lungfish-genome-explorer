@@ -3,14 +3,16 @@
 // SPDX-License-Identifier: MIT
 //
 // The NVD viewer registers one row, the BLAST verification of a contig (R4).
-// It locks no bundle. No lungfish-cli command BLASTs an NVD contig, so the
-// recorded command is a CLI parity gap and the test pins it.
+// It locks no bundle. Since Phase 2.12 (lane 12.08) the row records the
+// `lungfish-cli blast submit` command its search runs, and a test parses it.
 
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 @MainActor
 final class ViewerNvdOperationTests: XCTestCase {
@@ -42,21 +44,48 @@ final class ViewerNvdOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testContigBlastRowRecordsNoCommandAsAParityGap() throws {
+    func testContigBlastRowRecordsTheBlastSubmitCommandItRuns() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nvd-blast-begin")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let source = project.appendingPathComponent("Analyses/nvd-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let hit = BlastSubmitParity.nvdHit(
+            qseqid: "NODE_12", taxId: 2_697_049, name: "SARS-CoV-2", scientificName: classificationName
+        )
+        let plan = try ViewerViewController.nvdBlastSubmitPlan(
+            hit: hit, sequence: " ACGTACGTAC\n", classificationName: classificationName, projectURL: project,
+            sourceResultURL: source
+        )
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginNvdBlastVerificationOperation(
             contigName: contigName,
             classificationName: classificationName,
             taxId: 2_697_049,
+            cliCommand: plan.cliCommand,
             reporter: reporter
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // No lungfish-cli command BLASTs an NVD contig, so the row records no
-        // command.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "blast-nvd")
+        XCTAssertEqual(item.cliCommand, plan.cliCommand)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.SubmitSubcommand.self)
+        let stage = URL(fileURLWithPath: command.queryPath).deletingLastPathComponent()
+        XCTAssertTrue(stage.lastPathComponent.hasPrefix("blast-submit-"), command.queryPath)
+        XCTAssertEqual(stage.deletingLastPathComponent().lastPathComponent, ".tmp", "the query file sits in the project's .tmp")
+        let output = URL(fileURLWithPath: command.outputPath).deletingLastPathComponent()
+        XCTAssertEqual(output.lastPathComponent, "blast-verifications")
+        XCTAssertEqual(output.deletingLastPathComponent().path, project.path, "the search sits under the project")
+        XCTAssertEqual(command.label, classificationName)
+        XCTAssertEqual(command.taxId, 2_697_049)
+        XCTAssertEqual(command.contig, "NODE_12")
+        XCTAssertEqual(command.sample, "S1")
+        XCTAssertEqual(command.sourceResult, source.path)
+        XCTAssertEqual(command.acceptedTaxIds, [2_697_049], "hits are judged against the adjusted tax ID")
+        XCTAssertEqual(command.acceptedNames, ["SARS-CoV-2", classificationName])
+        XCTAssertNil(command.subsampleCount, "one contig, no subsample")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        XCTAssertEqual(String(decoding: plan.queryData, as: UTF8.self), ">NODE_12\nACGTACGTAC\n", "the contig reaches BLAST as a file")
     }
 
     func testContigBlastLaunchesNothingWhenTheBeginIsRefused() {

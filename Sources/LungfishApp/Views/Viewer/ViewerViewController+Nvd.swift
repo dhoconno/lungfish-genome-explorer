@@ -64,7 +64,7 @@ extension ViewerViewController {
 
         // Wire BLAST verification callback.
         // NVD submits a single contig sequence rather than multiple reads.
-        controller.onBlastVerification = { [weak controller] hit, sequence in
+        controller.onBlastVerification = { [weak self, weak controller] hit, sequence in
             let contigName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
             // Use the classification name for concordance checking, not the contig name
             let classificationName = hit.adjustedTaxidName.isEmpty ? contigName : hit.adjustedTaxidName
@@ -72,6 +72,26 @@ extension ViewerViewController {
             nvdDisplayLogger.info(
                 "BLAST verification requested for \(contigName, privacy: .public) (\(classificationName, privacy: .public)), taxId=\(taxIdInt, privacy: .public)"
             )
+            if ClassifierBlastRouteSettings.currentRoute == .cli {
+                guard let plan = Self.blastSubmitPlan(window: self?.view.window, failure: { controller?.showBlastFailure($0) }, {
+                    try Self.nvdBlastSubmitPlan(
+                        hit: hit, sequence: sequence, classificationName: classificationName, projectURL: self?.blastSubmitProjectURL()
+                    )
+                }) else { return }
+                Self.beginNvdBlastVerificationOperation(
+                    contigName: contigName, classificationName: classificationName, taxId: taxIdInt, cliCommand: plan.cliCommand
+                ) { opID in
+                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                        loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+                        results: { controller?.showBlastResults($0) },
+                        failure: { controller?.showBlastFailure($0) }
+                    )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+                }
+                return
+            }
+
+            // The in-process search, the route before Phase 2.12, kept behind `ClassifierBlastRoute` for one
+            // release (C4, U-R1). Its row records no command. Phase 2.13 deletes it with the key.
 
             ViewerViewController.beginNvdBlastVerificationOperation(
                 contigName: contigName,
@@ -200,19 +220,41 @@ extension ViewerViewController {
         ])
     }
 
+    /// The NVD contig's search on `blast submit` (2.12 lane 12.08). It sends the one contig, trimmed, and
+    /// judges hits on the request `NvdBlastHit.blastVerificationRequest` builds, the classification's name
+    /// and its adjusted tax ID with that taxon's names. The record names the sample, the contig, the taxon
+    /// and `sourceResultURL`, the NVD result, when the viewer has it. The search's folder sits under the
+    /// project's `blast-verifications/`, never in the NVD result.
+    nonisolated static func nvdBlastSubmitPlan(
+        hit: NvdBlastHit,
+        sequence: String,
+        classificationName: String,
+        projectURL: URL?,
+        sourceResultURL: URL? = nil,
+        date: Date = Date()
+    ) throws -> BlastSubmitPlan {
+        let trimmed = sequence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw BlastServiceError.noSequences }
+        return try BlastSubmitPlan.make(
+            request: hit.blastVerificationRequest(taxonName: classificationName, sequence: trimmed),
+            projectURL: projectURL, sourceResultURL: sourceResultURL, outputParentURL: projectURL,
+            contig: hit.qseqid, sample: hit.sampleId, date: date
+        )
+    }
+
     /// Registers the BLAST verification row for an NVD contig and, only when it
     /// starts, calls `launch` with the operation ID. The run submits the one
     /// contig sequence and locks no bundle.
     ///
-    /// cli-parity-gap: blast-nvd. No `lungfish-cli` command BLASTs an NVD
-    /// contig. The closest is `lungfish-cli blast verify`, which covers a
-    /// Kraken2 classification only. The row records no command until a CLI
-    /// command covers NVD verification.
+    /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
+    /// (``BlastSubmitPlan/cliCommand``), nil on the in-process route that
+    /// ``ClassifierBlastRouteSettings`` keeps for one release.
     @discardableResult
     static func beginNvdBlastVerificationOperation(
         contigName: String,
         classificationName: String,
         taxId: Int,
+        cliCommand: String? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -220,7 +262,7 @@ extension ViewerViewController {
             title: "BLAST \(contigName) \u{2014} \(classificationName)",
             detail: "Preparing BLAST verification\u{2026}",
             operationType: .blastVerification,
-            cliCommand: nil
+            cliCommand: cliCommand
         )
         switch result {
         case .started(let operationID):

@@ -67,6 +67,10 @@ struct BlastSubmitPlan: Sendable {
         subsampleCount: Int? = nil,
         subsampleSeed: UInt64? = nil,
         entrezQuery: String? = nil,
+        acceptedTaxIds: [Int] = [],
+        acceptedNames: [String] = [],
+        relatedTaxIds: [Int] = [],
+        relatedNames: [String] = [],
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         guard !sequences.isEmpty else { throw BlastServiceError.noSequences }
@@ -88,9 +92,37 @@ struct BlastSubmitPlan: Sendable {
             sample: sample,
             subsampleCount: subsampleCount,
             subsampleSeed: subsampleSeed,
-            entrezQuery: entrezQuery
+            entrezQuery: entrezQuery,
+            acceptedTaxIds: acceptedTaxIds,
+            acceptedNames: acceptedNames,
+            relatedTaxIds: relatedTaxIds,
+            relatedNames: relatedNames
         )
         return BlastSubmitPlan(request: request, queryData: Data((multiFASTA + "\n").utf8))
+    }
+
+    /// Plans the search the in-process route sent as `search`, with its sequences, label, taxon, Entrez
+    /// filter and the clade and relatives its verdicts are judged against, so the leaf searches and judges
+    /// as the site did (2.12 lane 12.08). The request's tax ID of 0, its "none", records no taxon.
+    static func make(
+        request search: BlastVerificationRequest,
+        projectURL: URL?,
+        sourceResultURL: URL? = nil,
+        outputParentURL: URL? = nil,
+        contig: String? = nil,
+        sample: String? = nil,
+        subsampleCount: Int? = nil,
+        subsampleSeed: UInt64? = nil,
+        date: Date = Date()
+    ) throws -> BlastSubmitPlan {
+        try make(
+            sequences: search.sequences, label: search.taxonName, projectURL: projectURL,
+            sourceResultURL: sourceResultURL, outputParentURL: outputParentURL,
+            taxId: search.taxId == 0 ? nil : search.taxId, contig: contig, sample: sample,
+            subsampleCount: subsampleCount, subsampleSeed: subsampleSeed, entrezQuery: search.entrezQuery,
+            acceptedTaxIds: search.acceptedTaxIds.sorted(), acceptedNames: search.acceptedTaxonNames,
+            relatedTaxIds: search.relatedTaxIds.sorted(), relatedNames: search.relatedTaxonNames, date: date
+        )
     }
 
     /// Writes the query through `DurableReplace`, hashing its bytes once (SWIFT 4, 5), runs the leaf
