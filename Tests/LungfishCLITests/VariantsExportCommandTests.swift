@@ -86,6 +86,33 @@ final class VariantsExportCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
     }
 
+    /// The drawer passes `--force` when the user chose to replace an existing file (B6).
+    func testBookmarkedLeafReplacesAnExistingOutputWithForce() throws {
+        try bookmarkFirstTwo()
+        let output = folder.appendingPathComponent("bookmarks.tsv")
+        try Data("stale".utf8).write(to: output)
+        let before = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path))
+        let arguments = ["variants", "export", "bookmarked", fixture.databaseURL.path, "--output", output.path, "--force"]
+        _ = try parse(arguments, as: VariantsCommand.ExportBookmarkedSubcommand.self).export()
+        let lines = try String(contentsOf: output, encoding: .utf8).components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 4, "\(lines)")
+        XCTAssertEqual(lines.first, "ID\tType\tChrom\tPos\tRef\tAlt\tQuality\tFilter")
+        XCTAssertTrue(lines.count == 4 && lines[1].hasSuffix("\tSNP\tchr1\t100\tA\tG\t50.0\tPASS"), "\(lines)")
+        XCTAssertTrue(lines.count == 4 && lines[2].hasSuffix("\tSNP\tchr1\t200\tC\tT\t50.0\tPASS"), "\(lines)")
+        XCTAssertEqual(lines.last, "")
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        let added = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)).subtracting(before)
+        XCTAssertEqual(added, [sidecar.lastPathComponent], "one record beside the output and no staged file left")
+        let envelope = try Self.envelope(of: output)
+        XCTAssertEqual(envelope.argv, ["lungfish-cli"] + arguments)
+        XCTAssertEqual(envelope.argv.last, "--force")
+        XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+        XCTAssertNotNil(envelope.options.explicit["force"])
+        let inputs = envelope.files.filter { $0.role == .input }
+        XCTAssertEqual(inputs.map(\.path), [fixture.databaseURL.standardizedFileURL.path])
+        XCTAssertNotNil(inputs.first?.checksumSHA256)
+    }
+
     func testVariantsBookmarkedLeafParsesTheGUIArguments() throws {
         let second = folder.appendingPathComponent("second.db")
         try FileManager.default.copyItem(at: fixture.databaseURL, to: second)
@@ -162,6 +189,43 @@ final class VariantsExportCommandTests: XCTestCase {
         ).export()) { XCTAssertTrue($0 is ViewerExportRefusal, "\($0)") }
         XCTAssertEqual(try Data(contentsOf: manifest), before, "the manifest the leaf read is left as it was")
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: manifest).path))
+    }
+
+    /// The drawer passes `--force` when the user chose to replace an existing file (B11).
+    func testSampleTemplateLeafReplacesAnExistingOutputWithForce() throws {
+        let output = folder.appendingPathComponent("template.csv")
+        try Data("stale".utf8).write(to: output)
+        let before = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path))
+        let arguments = [
+            "variants", "export", "sample-template", fixture.bundleURL.path,
+            "--metadata-column", "cohort", "--metadata-column", "collection_date", "--output-format", "csv",
+            "--output", output.path, "--force",
+        ]
+        _ = try parse(arguments, as: VariantsCommand.ExportSampleTemplateSubcommand.self).export()
+        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), """
+        sample_name,source_file,cohort,collection_date
+        SAMPLE_A,reference.vcf,,
+        SAMPLE_B,reference.vcf,,
+
+        """)
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        let added = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)).subtracting(before)
+        XCTAssertEqual(added, [sidecar.lastPathComponent], "one record beside the output and no staged file left")
+        let envelope = try Self.envelope(of: output)
+        XCTAssertEqual(envelope.argv, ["lungfish-cli"] + arguments)
+        XCTAssertEqual(envelope.argv.last, "--force")
+        XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+        XCTAssertNotNil(envelope.options.explicit["force"])
+        let inputs = envelope.files.filter { $0.role == .input }
+        XCTAssertEqual(
+            inputs.map(\.path).sorted(),
+            [
+                fixture.bundleURL.appendingPathComponent("manifest.json").standardizedFileURL.path,
+                fixture.databaseURL.standardizedFileURL.path,
+            ].sorted(),
+            "the bundle's manifest and its variant database, each once (BIO 6)"
+        )
+        XCTAssertTrue(inputs.allSatisfy { $0.checksumSHA256 != nil }, "every input has a digest")
     }
 
     func testVariantsSampleTemplateLeafParsesTheGUIArguments() throws {
