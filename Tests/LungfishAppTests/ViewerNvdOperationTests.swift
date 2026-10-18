@@ -12,6 +12,7 @@ import XCTest
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishNvdUI
 import LungfishTestSupport
 
 @MainActor
@@ -106,5 +107,48 @@ final class ViewerNvdOperationTests: XCTestCase {
         XCTAssertFalse(launched, "a refused row must launch nothing")
         XCTAssertEqual(reporter.items.count, 1)
         XCTAssertEqual(reporter.items.first?.state, .refused)
+    }
+
+    /// Review 12.08 fix 1 (BIO 6). The site passes the folder of the NVD result its controller shows as the
+    /// search's source result, so the record names the result the contig came from. The folder is the
+    /// controller's `bundleURL`, which the controller now lets the viewer read. This has the depth of
+    /// `NaoMgsBlastLineageTests`, the plan and not the closure that passes it.
+    func testTheNvdPlanNamesTheResultFolderTheViewerHolds() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nvd-blast-lineage")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let result = project.appendingPathComponent("Analyses/nvd-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        let controller = NvdResultViewController()
+        _ = controller.view
+        controller.configureWithCachedRows([], manifest: Self.manifest(), bundleURL: result)
+        XCTAssertEqual(controller.bundleURL, result, "the controller holds the folder it was configured with")
+        let hit = BlastSubmitParity.nvdHit(
+            qseqid: "NODE_12", taxId: 2_697_049, name: "SARS-CoV-2", scientificName: classificationName
+        )
+
+        let plan = try ViewerViewController.nvdBlastSubmitPlan(
+            hit: hit, sequence: "ACGTACGTAC", classificationName: classificationName, projectURL: project,
+            sourceResultURL: controller.bundleURL
+        )
+
+        XCTAssertEqual(plan.request.sourceResultURL, result)
+        let flag = try XCTUnwrap(plan.arguments.firstIndex(of: "--source-result"), "the leaf is told the result")
+        XCTAssertEqual(plan.arguments[flag + 1], result.path)
+    }
+
+    /// A manifest of one sample, enough to configure the controller with no rows.
+    private static func manifest() -> NvdManifest {
+        NvdManifest(
+            experiment: "exp-1", sampleCount: 1, contigCount: 1, hitCount: 1, blastDbVersion: nil,
+            snakemakeRunId: nil, sourceDirectoryPath: "/tmp/nvd",
+            samples: [
+                NvdSampleSummary(
+                    sampleId: "S1", contigCount: 1, hitCount: 1, totalReads: 100,
+                    bamRelativePath: "S1.sorted.bam", fastaRelativePath: "S1.fasta"
+                )
+            ],
+            cachedTopContigs: nil
+        )
     }
 }

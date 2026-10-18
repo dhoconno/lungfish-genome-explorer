@@ -75,7 +75,8 @@ extension ViewerViewController {
             if ClassifierBlastRouteSettings.currentRoute == .cli {
                 guard let plan = Self.blastSubmitPlan(window: self?.view.window, failure: { controller?.showBlastFailure($0) }, {
                     try Self.nvdBlastSubmitPlan(
-                        hit: hit, sequence: sequence, classificationName: classificationName, projectURL: self?.blastSubmitProjectURL()
+                        hit: hit, sequence: sequence, classificationName: classificationName,
+                        projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
                     )
                 }) else { return }
                 Self.beginNvdBlastVerificationOperation(
