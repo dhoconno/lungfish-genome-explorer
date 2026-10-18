@@ -258,13 +258,26 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         sampleMetadataStore = store
     }
 
+#if DEBUG
+    /// Test-only override for the `UserDefaults` backing `metadataColumnController`'s persisted column layout, so a
+    /// test that opens a result folder writes nothing to the real `.standard` domain.
+    static var testMetadataUserDefaultsOverride: UserDefaults?
+#endif
+
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
     ///
     /// This viewport owns the one AppKit typography observer for both standard
     /// and metadata cells, so the embedded controller must not observe the same
     /// preference independently.
     let metadataColumnController = MetadataColumnController(
-        contentTypographyOwnership: .embedded
+        contentTypographyOwnership: .embedded,
+        userDefaults: {
+            #if DEBUG
+            return NaoMgsResultViewController.testMetadataUserDefaultsOverride ?? .standard
+            #else
+            return .standard
+            #endif
+        }()
     )
 
     // MARK: - Content Typography

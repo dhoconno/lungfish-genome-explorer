@@ -62,8 +62,13 @@ final class NaoMgsExportCLIGUIParityReplayTests: XCTestCase {
 
     private var scratch: URL!
     private var harness: RouteParityHarness!
+    /// The NAO-MGS column layout keys the standard defaults held when the case began (review 12.31-M4 Fix 2).
+    private var layoutKeysBefore: Set<String> = []
 
     override func setUpWithError() throws {
+        layoutKeysBefore = Self.standardLayoutKeys()
+        NaoMgsResultViewController.testMetadataUserDefaultsOverride =
+            makeTestDefaultsSuite(prefix: "NaoMgsExportCLIGUIParityReplayTests").defaults
         scratch = try TestTempDirectory.make(prefix: "naomgs-export-parity")
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(
@@ -74,7 +79,20 @@ final class NaoMgsExportCLIGUIParityReplayTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        NaoMgsResultViewController.testMetadataUserDefaultsOverride = nil
         TestTempDirectory.cleanup(scratch)
+        XCTAssertEqual(
+            Self.standardLayoutKeys(), layoutKeysBefore,
+            "the case left a NAO-MGS column layout in the standard defaults"
+        )
+    }
+
+    /// The NAO-MGS column layout keys in `UserDefaults.standard`. A view opened on a result folder persists its
+    /// layout under a key built from the folder's path, so a case that does not override the defaults leaves one.
+    private static func standardLayoutKeys() -> Set<String> {
+        Set(UserDefaults.standard.dictionaryRepresentation().keys.filter {
+            $0.hasPrefix("org.lungfish.metadata-column-layout.naomgs")
+        })
     }
 
     /// The view's search, filter, sort, selection and metadata column reach the bytes on both sides.
