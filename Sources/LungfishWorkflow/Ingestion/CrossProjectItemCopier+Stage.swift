@@ -35,7 +35,7 @@ extension CrossProjectItemCopier {
     /// Every regular file the copy reads from the source item, with its path
     /// inside the item, its size and its SHA-256, sorted by the bytes of the
     /// path. A symlinked file is read through its target. `checkCancellation`
-    /// runs before each file.
+    /// runs before each file and between the chunks of its hash.
     static func readSourceFiles(
         of item: URL,
         checkCancellation: () throws -> Void
@@ -59,7 +59,7 @@ extension CrossProjectItemCopier {
             files.append(ProjectItemCopyRecord.SourceFile(
                 path: components.dropFirst(rootComponents.count).joined(separator: "/"),
                 size: try ProvenanceFileHasher.fileSize(of: target),
-                sha256: try ProvenanceFileHasher.sha256(of: target)
+                sha256: try ProvenanceFileHasher.sha256(of: target, cancellationCheck: checkCancellation)
             ))
         }
         return files.sorted { Array($0.path.utf8).lexicographicallyPrecedes(Array($1.path.utf8)) }
