@@ -14,7 +14,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import os.log
 
 private let copierLogger = Logger(subsystem: "com.lungfish.app", category: "CrossProjectItemCopier")
