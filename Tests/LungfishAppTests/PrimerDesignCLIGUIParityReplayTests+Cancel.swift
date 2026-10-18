@@ -7,6 +7,10 @@
 // its pid and sleeps, named with `--primer3-path`, so the case needs no managed tool. Primer3 publishes its bundle in one
 // move from a scratch folder beside it, and a cancel removes the scratch, so the design leaves no record, and the case
 // asserts that no bundle and no scratch are left in place of a record that reads cancelled.
+//
+// The failure case answers fix 1 of the lane 12.17 review. A design that fails exits 64 after its failed event
+// (`docs/contracts/ADDING-AN-OPERATION.md:184`), where the leaves first rethrew the pipeline's error and exited 1. A
+// stand-in `primer3_core` that exits 1 makes the design fail.
 
 import Foundation
 import XCTest
@@ -73,14 +77,43 @@ extension PrimerDesignCLIGUIParityReplayTests {
         try assertNothingLeft(at: destination)
     }
 
+    /// A design whose Primer3 run fails ends with its failed event and exit 64, the exit of a failure
+    /// (`docs/contracts/ADDING-AN-OPERATION.md:184`, ruling 1 of the lane 12.17 review). The first form of the leaves
+    /// rethrew the pipeline's error, which ArgumentParser ends with status 1. The stand-in `primer3_core` answers
+    /// `--about`, then writes a line to standard error and exits 1, so the design fails once Primer3 runs. The refusal
+    /// keeps its exit 3 (`PrimerDesignExistingOutputTests`) and the cancel its 125 (the case above).
+    func testAFailedPrimer3DesignExitsSixtyFourAfterItsFailedEvent() async throws {
+        let root = scratch.appendingPathComponent("failure", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Self.writeFixture(root)
+        let primer3 = try Self.writeFailingPrimer3(in: scratch)
+        let state = await Self.dialog(in: root)
+        let destination = try state.validatedDestinationURL(createParent: false)
+        let argv = try XCTUnwrap(PrimerDesignOperation.cliArgv(state: state, destination: destination))
+            + ["--primer3-path", primer3.path]
+
+        let run = await RouteParityHarness.runCLI(
+            cli, arguments: CLIPrimerDesignRunner.arguments(argv: argv), timeout: .seconds(60), environment: [:]
+        )
+        XCTAssertEqual(run.status, 64, "a failed design exits 64: \(run.detail)\n\(run.stderr)")
+        let lastLine = run.stdout.split(separator: "\n").last.map(String.init) ?? ""
+        let last = try XCTUnwrap(
+            try? JSONSerialization.jsonObject(with: Data(lastLine.utf8)) as? [String: Any],
+            "the last standard output line is an event: \(run.stdout)"
+        )
+        XCTAssertEqual(last["event"] as? String, "failed", "the last event is the failed event: \(run.stdout)")
+        XCTAssertFalse((last["error"] as? String ?? "").isEmpty, "the failed event says why: \(lastLine)")
+        try assertNothingLeft(at: destination)
+    }
+
     /// No bundle at `destination` and no Primer3 scratch folder beside it.
     private func assertNothingLeft(at destination: URL, file: StaticString = #filePath, line: UInt = #line) throws {
-        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "a cancelled design publishes no bundle",
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "a cancelled or failed design publishes no bundle",
                        file: file, line: line)
         let parent = destination.deletingLastPathComponent()
         let scratchFolders = ((try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? [])
             .filter { $0.hasPrefix(".lungfish-primer3-") }
-        XCTAssertEqual(scratchFolders, [], "the cancel removes the design's scratch", file: file, line: line)
+        XCTAssertEqual(scratchFolders, [], "the cancel or the failure removes the design's scratch", file: file, line: line)
     }
 
     /// A stand-in `primer3_core` that answers `--about` and otherwise writes its pid to `pidFile` and sleeps a minute.
@@ -92,6 +125,21 @@ extension PrimerDesignCLIGUIParityReplayTests {
         if [ "$1" = "--about" ]; then echo "libprimer3 release 2.6.1"; exit 0; fi
         echo $$ > '\(pidFile.path)'
         exec sleep 60
+        """
+        try Data((script + "\n").utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
+    }
+
+    /// A stand-in `primer3_core` that answers `--about` and otherwise writes a line to standard error and exits 1.
+    static func writeFailingPrimer3(in folder: URL) throws -> URL {
+        let url = folder.appendingPathComponent("failing-primer3/primer3_core")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let script = """
+        #!/bin/sh
+        if [ "$1" = "--about" ]; then echo "libprimer3 release 2.6.1"; exit 0; fi
+        echo "stand-in primer3_core failed on purpose" >&2
+        exit 1
         """
         try Data((script + "\n").utf8).write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)

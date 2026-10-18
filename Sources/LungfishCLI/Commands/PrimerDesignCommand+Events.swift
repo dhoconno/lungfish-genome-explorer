@@ -14,8 +14,9 @@ import LungfishWorkflow
 /// human text on standard error. A start event repeats the row's first detail, each progress message of the pipeline
 /// is a progress event with the words the in-process row showed, and each line a native tool writes, with the tool's
 /// own command, is an info log event, as the in-process row logged them. SIGTERM, the app's Cancel, cancels the design
-/// and exits 125, and a second SIGTERM ends the command at once. An existing `--output` is refused with exit 3 before
-/// any folder exists. `olivar` keeps text only and the dialog keeps running it in process until its bundle replay
+/// and exits 125, and a second SIGTERM ends the command at once. A design that fails ends with its failed event and
+/// exits 64, or 126 when a tool is missing (`docs/contracts/ADDING-AN-OPERATION.md:184`). An existing `--output` is
+/// refused with exit 3 before any folder exists. `olivar` keeps text only and the dialog keeps running it in process until its bundle replay
 /// (2.13 row A67-OLIVAR).
 extension PrimerDesignCommand {
     /// The first detail of the dialog's row, which the start event repeats so the row keeps its words.
@@ -87,7 +88,9 @@ extension PrimerDesignCommand {
             throw CLIExitCode.cancelled.exitCode
         case .failure(let error):
             events.emitFailed(CLIFailureWords.describe(error))
-            throw error
+            // ADDING-AN-OPERATION.md:184. A failure exits 64 and a missing tool 126. The refusal's exit 3 and a usage error pass through.
+            if error is ExitCode || error is ValidationError { throw error }
+            throw CLIError.wrapping(error)
         }
     }
 
