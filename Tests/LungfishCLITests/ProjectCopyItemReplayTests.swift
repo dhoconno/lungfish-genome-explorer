@@ -58,6 +58,17 @@ final class ProjectCopyItemReplayTests: XCTestCase {
             XCTAssertEqual(envelope.workflowName, "lungfish project copy-item")
             XCTAssertEqual(envelope.toolName, "lungfish project copy-item")
             XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("cli"), relative)
+            XCTAssertEqual(envelope.options.explicit["item"], .string(relative), relative)
+            XCTAssertEqual(envelope.options.resolvedDefaults["item"], .string(relative), relative)
+            let fileOptions: [(String, ParameterValue?, URL)] = [
+                ("sourceProject", envelope.options.explicit["sourceProject"], sourceProject),
+                ("project", envelope.options.explicit["project"], targetProject),
+                ("destination", envelope.options.resolvedDefaults["destination"], copy),
+            ]
+            for (key, value, expected) in fileOptions {
+                guard case .file(let url)? = value else { XCTFail("\(relative): \(key) is not a file option"); continue }
+                XCTAssertEqual(url.resolvingSymlinksInPath().path, expected.resolvingSymlinksInPath().path, "\(relative): \(key)")
+            }
 
             let resolved = try PortablePath.resolveJSON(Data(contentsOf: sidecar), context: .forFile(at: sidecar))
             let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: resolved) as? [String: Any])
