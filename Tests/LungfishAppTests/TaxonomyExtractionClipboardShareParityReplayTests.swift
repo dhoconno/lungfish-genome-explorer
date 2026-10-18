@@ -73,6 +73,33 @@ final class TaxonomyExtractionClipboardShareParityReplayTests: XCTestCase {
         try await assertCase(.share)
     }
 
+    /// A clipboard copy over the cap is refused after the command wrote its file, and the route removes
+    /// its scratch folder on that exit, as it does after a copy and after a cancel (SWIFT 4). Taxon 20
+    /// holds 2 reads and the cap is 1.
+    func testTheClipboardRouteRefusesOverTheCapAndLeavesNoScratchFolder() async throws {
+        try await requireSeqkit()
+        let root = scratch.appendingPathComponent("over-cap", isDirectory: true)
+        _ = try TaxaCollectionFixtures(in: root)
+        let route = try XCTUnwrap(try ClassifierExtractionCopyRoute.make(
+            destination: .clipboard(format: .fastq, cap: 1), context: Self.context(root), options: Self.options
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: route.scratchDirectory.path), "the route made its scratch folder")
+        do {
+            let outcome = try await route.run(operationID: UUID(), cliURLOverride: cli)
+            XCTFail("2 reads over a cap of 1 were delivered, \(outcome)")
+        } catch let error as ClassifierExtractionError {
+            guard case .clipboardCapExceeded(let requested, let cap) = error else {
+                return XCTFail("the refusal is the cap, \(error)")
+            }
+            XCTAssertEqual(requested, 2, "taxon 20 holds 2 reads")
+            XCTAssertEqual(cap, 1)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: route.scratchDirectory.path), "the refusal leaves no scratch folder")
+        let tempRoot = ProjectTempDirectory.tempRoot(for: Self.project(root))
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: tempRoot.path)) ?? []
+        XCTAssertEqual(leftovers.filter { $0.hasPrefix("classifier-clipboard-") }, [], "the project's .tmp holds no clipboard folder")
+    }
+
     /// Side A, the resolver's `.clipboard` and `.share` branches, retired in lane 12.11 M3. The harness
     /// still runs a side A, so it is this outcome, and the class compares C against C' alone.
     private static let retiredSideA = RouteParitySideOutcome(
