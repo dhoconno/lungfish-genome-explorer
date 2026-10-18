@@ -147,6 +147,44 @@ final class Kraken2BlastSubmitRowTests: XCTestCase {
         XCTAssertEqual(spy.results.count, 0)
     }
 
+    /// `OperationCenter.cancel(id:)` moves the row to cancelling at once and stops the task through a global
+    /// dispatch a moment later. The callback is replaced with one that does nothing, which keeps that gap open for
+    /// good, so only the row's state can stop the search (12.08 fix recipe, step 5).
+    func testARowCancelledJustBeforeTheLookupEndsStartsNoSearch() async throws {
+        let (project, result) = try makeProject()
+        let marker = folder.appendingPathComponent("leaf-ran")
+        let cli = try standInCLI("/usr/bin/touch '\(marker.path)'\nexit 1\n")
+        let gate = LookupGate()
+        let spy = RowDrawerSpy()
+        var rowID: UUID?
+
+        let task = try XCTUnwrap(ViewerViewController.launchKraken2BlastSubmit(
+            taxonName: "Escherichia coli", projectURL: project, resultDirectory: result,
+            runner: CLIBlastSubmitRunner(cliURLOverride: cli),
+            lookup: { [request = Self.request] in try await gate.pass(); return request }
+        ) { id in
+            rowID = id
+            return spy.drawer
+        })
+        let id = try XCTUnwrap(rowID)
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        OperationCenter.shared.setCancelCallback(for: id) {}
+        OperationCenter.shared.cancel(id: id)
+        XCTAssertEqual(item(id)?.state, .cancelling)
+        await gate.open()
+        await task.value
+
+        let ended = try XCTUnwrap(item(id))
+        XCTAssertEqual(ended.state, .cancelled)
+        XCTAssertNil(ended.cliCommand, "no search was planned")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "no leaf started")
+        let staged = (try? FileManager.default.contentsOfDirectory(atPath: project.appendingPathComponent(".tmp").path)) ?? []
+        XCTAssertEqual(staged.filter { $0.hasPrefix("blast-submit-") }, [], "no query was staged")
+        XCTAssertEqual(spy.failures, [])
+        XCTAssertEqual(spy.results.count, 0)
+    }
+
     // MARK: - Fixtures
 
     private static let request = BlastVerificationRequest(

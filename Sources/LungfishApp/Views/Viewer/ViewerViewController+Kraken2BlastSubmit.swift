@@ -77,6 +77,11 @@ extension ViewerViewController {
                 do {
                     let request = try await lookup()
                     try Task.checkCancellation()
+                    // A Cancel moves the row to cancelling at once but stops this task a moment later, so the
+                    // row is asked as well as the task (12.08 fix recipe, step 5).
+                    guard OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else {
+                        throw CancellationError()
+                    }
                     let plan = try kraken2BlastSubmitPlan(
                         request: request, projectURL: projectURL, resultDirectory: resultDirectory, sample: sample
                     )
