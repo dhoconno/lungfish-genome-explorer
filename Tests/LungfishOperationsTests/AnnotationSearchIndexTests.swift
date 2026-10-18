@@ -8,7 +8,6 @@ import LungfishTestSupport
 @testable import LungfishIO
 @testable import LungfishOperations
 
-@MainActor
 final class AnnotationSearchIndexTests: XCTestCase {
 
     private var root: URL!
@@ -47,7 +46,7 @@ final class AnnotationSearchIndexTests: XCTestCase {
     /// A reference without annotation or variant tracks, like the 905,628-sequence
     /// bundle that spent 5.5 seconds and 1,264 MB on alias groups nothing read,
     /// builds none, even when the viewer runs the lookups that would read them.
-    func testNoAliasMapsWithoutAnnotationOrVariantTracks() async {
+    @MainActor func testNoAliasMapsWithoutAnnotationOrVariantTracks() async {
         let index = AnnotationSearchIndex()
         index.buildIndex(bundle: makeBundle(annotations: []), chromosomes: chromosomes)
 
@@ -63,7 +62,7 @@ final class AnnotationSearchIndexTests: XCTestCase {
 
     /// With an annotation track the groups are built on the first lookup, once, and
     /// still find a feature the track files under an alias of the bundle's name.
-    func testAliasMapsBuildOnFirstLookupWithAnnotationTrack() throws {
+    @MainActor func testAliasMapsBuildOnFirstLookupWithAnnotationTrack() throws {
         let bedURL = root.appendingPathComponent("annotations.bed")
         try "chr1\t100\t500\tBRCA1\t0\t+\t100\t500\t0,0,0\t1\t400\t0\tgene\t.".write(
             to: bedURL, atomically: true, encoding: .utf8
