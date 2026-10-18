@@ -6,8 +6,8 @@ import CryptoKit
 import Foundation
 import LungfishIO
 
-/// What the record of a Kraken2, EsViritu or TaxTriage result import names about its source (Phase 2.12 lane
-/// 12.04, BIO 5 and 6), merged into the record's resolved defaults.
+/// What the record of a classifier result import (Kraken2, EsViritu, TaxTriage, NAO-MGS or NVD) names about its
+/// source (Phase 2.12 lane 12.04, BIO 5 and 6), merged into the record's resolved defaults.
 ///
 /// - `sampleNames`, the sample ids as the result's own file names spell them, dots kept: the kreport's name
 ///   without its extension, the `<sample>.detected_virus.info.tsv` files of EsViritu, and the per-sample reports
