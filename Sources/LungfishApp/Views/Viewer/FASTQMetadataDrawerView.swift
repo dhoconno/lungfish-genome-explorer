@@ -7,14 +7,6 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
-private enum FASTQMetadataExportError: LocalizedError {
-    case noSourceInput
-
-    var errorDescription: String? {
-        "Cannot export FASTQ metadata because no durable source FASTQ or bundle is available for provenance."
-    }
-}
-
 @MainActor
 public protocol FASTQMetadataDrawerViewDelegate: AnyObject {
     func fastqMetadataDrawerViewDidSave(
@@ -120,15 +112,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         case demux = 1
         case primerTrim = 2
         case dedup = 3
-
-        var provenanceName: String {
-            switch self {
-            case .samples: return "samples"
-            case .demux: return "demux"
-            case .primerTrim: return "primer-trim"
-            case .dedup: return "dedup"
-            }
-        }
     }
 
     // Tag constants for distinguishing table views in data source/delegate
@@ -1924,89 +1907,40 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         }
     }
 
+    /// Freezes the rows and the demux step's symmetry at the click, asks for the file, and runs
+    /// `lungfish-cli fastq export sample-barcodes` behind an Operations row (Phase 2.12 lane 12.34, row A13). The rows
+    /// may hold edits that are not saved, so they go to the leaf in a selection file and never as rendered output.
     @objc private func exportClicked(_ sender: NSButton) {
         guard let window else { return }
-
+        let tab: FASTQSampleBarcodeTab
         let suggestedName: String
         switch activeTab {
         case .samples:
+            tab = .samples
             suggestedName = "fastq-sample-metadata.csv"
         case .demux:
+            tab = .demux
             suggestedName = "demux-pattern.csv"
         case .primerTrim, .dedup:
             statusLabel.stringValue = "Export is not available for this tab."
             return
         }
-
+        ensureSingleDemuxStep()
+        let selection = FASTQSampleBarcodeExport.selection(
+            assignments: sampleAssignments,
+            asymmetric: demuxSteps[0].symmetryMode == .asymmetric
+        )
+        let sourceURL = fastqURL
         let panel = ViewerFilePanelFactory.fastqMetadataExportPanel(suggestedName: suggestedName)
 
         panel.beginSheetModal(for: window) { [weak self] response in
             MainActor.assumeIsolated {
                 guard let self, response == .OK, let outputURL = panel.url else { return }
-                do {
-                    let runClock = ProvenanceRunClock()
-                    self.ensureSingleDemuxStep()
-                    let isAsymmetric = self.demuxSteps[0].symmetryMode == .asymmetric
-                    let sourceURLs = try self.fastqMetadataExportSourceURLs()
-                    let content: String
-                    if isAsymmetric && self.activeTab == .demux {
-                        content = FASTQSampleBarcodeCSV.exportAsymmetricCSV(self.sampleAssignments)
-                    } else {
-                        content = FASTQSampleBarcodeCSV.exportCSV(self.sampleAssignments)
-                    }
-                    try ScientificFileExportProvenance.writeAtomically(.init(
-                        workflowName: "lungfish app fastq metadata export",
-                        sourceURLs: sourceURLs,
-                        outputURL: outputURL,
-                        outputFormat: .text,
-                        argv: self.fastqMetadataExportArgv(outputURL: outputURL, sourceURLs: sourceURLs),
-                        explicitOptions: [
-                            "sourcePaths": .array(sourceURLs.map { .file($0) }),
-                            "outputPath": .file(outputURL),
-                            "activeTab": .string(self.activeTab.provenanceName),
-                        ],
-                        defaults: [
-                            "outputFormat": .string("csv"),
-                        ],
-                        resolved: [
-                            "assignmentCount": .integer(self.sampleAssignments.count),
-                            "asymmetricDemux": .boolean(isAsymmetric),
-                        ],
-                        runClock: runClock
-                    )) { tempURL in
-                        try content.write(to: tempURL, atomically: true, encoding: .utf8)
-                    }
-                    self.statusLabel.stringValue = "Exported \(outputURL.lastPathComponent)."
-                } catch {
-                    self.statusLabel.stringValue = "Export failed: \(error.localizedDescription)"
-                }
+                self.runSampleBarcodeExport(
+                    sourceURL: sourceURL, tab: tab, selection: selection, outputURL: outputURL
+                ) { [weak self] message in self?.statusLabel.stringValue = message }
             }
         }
-    }
-
-    private func fastqMetadataExportSourceURLs() throws -> [URL] {
-        guard let fastqURL else {
-            throw FASTQMetadataExportError.noSourceInput
-        }
-        let standardized = fastqURL.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: standardized.path) else {
-            throw FASTQMetadataExportError.noSourceInput
-        }
-        return [standardized]
-    }
-
-    private func fastqMetadataExportArgv(outputURL: URL, sourceURLs: [URL]) -> [String] {
-        var argv = [
-            "Lungfish.app",
-            "export-fastq-metadata",
-            "--tab", activeTab.provenanceName,
-            "--format", "csv",
-            "--output", outputURL.path,
-        ]
-        for sourceURL in sourceURLs {
-            argv.append(contentsOf: ["--source", sourceURL.path])
-        }
-        return argv
     }
 
     @objc private func importCustomKitClicked(_ sender: NSButton) {

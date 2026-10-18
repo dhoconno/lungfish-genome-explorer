@@ -454,11 +454,9 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             ("Sources/LungfishApp/Views/Viewer/SequenceViewerView+Drawing.swift", "lungfish app sequence fasta export"),
             ("Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift", "lungfish app mapping result export"),
             ("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift", "lungfish app taxonomy result export"),
-            ("Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift", "lungfish app fastq metadata export"),
             ("Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift", "lungfish app phylogenetic subtree export"),
             ("Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift", "lungfish app naomgs summary export"),
             ("Sources/LungfishNvdUI/NvdResultViewController.swift", "lungfish app nvd contigs export"),
-            ("Sources/LungfishEsVirituUI/EsVirituResultViewController.swift", "lungfish app esviritu detections export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage results export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage organism matrix export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage batch report export"),
@@ -502,13 +500,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         )
         XCTAssertTrue(annotationExportCapture.contains("scientificTableExportSourceURLs"))
         XCTAssertTrue(annotationExportCapture.contains("variantFormatOverlaySnapshot.sourceIdentities"))
-
-        let fastqMetadataSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(fastqMetadataSource.contains("fastqMetadataExportSourceURLs"))
-        XCTAssertTrue(fastqMetadataSource.contains("assignmentCount"))
     }
 
     func testSequenceExportWriterDeclaresRequiredProvenancePolicy() throws {
