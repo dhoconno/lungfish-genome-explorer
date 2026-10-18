@@ -105,15 +105,27 @@ extension AnnotationTableDrawerView {
             return pending(snapshot, runClock: runClock)
 
         case (.variants, .calls, .selected):
+            // The derived columns come from the resolver, as on All Matching, so one variant writes one value in
+            // either scope and never the drawer's placeholder (ARCH ruling on 12.39 R1, "Selected Rows").
             let rows = selected.compactMap { displayedAnnotations.indices.contains($0) ? displayedAnnotations[$0] : nil }
-            let snapshot = AnnotationTableExportSnapshot.captureVariants(
-                rows, columns: columns, scope: scope, numericInfoColumnIDs: numericInfoIDs,
-                integerInfoColumnIDs: integerInfoIDs,
-                sourceURLs: try sources.urls(tab: "variants", trackIDs: Set(rows.map(\.trackId))),
-                queryDescription: variantExportQueryDescription(sortKey: sortKey, ascending: sortAscending),
-                resolvedText: resolvedVariantExportText(rows: rows, columns: columns)
-            )
-            return pending(snapshot, runClock: runClock)
+            let sourceURLs = try sources.urls(tab: "variants", trackIDs: Set(rows.map(\.trackId)))
+            let description = variantExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
+            let resolverSnapshot = delegate?.annotationDrawerVariantExportResolverSnapshot(self) ?? .empty
+            let callerSettingsByTrack = Dictionary(uniqueKeysWithValues: Set(rows.map(\.trackId)).map { trackID in
+                (trackID, searchIndex?.variantCallerSettings(for: trackID) ?? "Not recorded")
+            })
+            return AnnotationTablePendingExport(runClock: runClock, tab: "variants", scope: scope) { shouldCancel in
+                if shouldCancel() { throw AnnotationTableExportQueryError.cancelled }
+                let resolver = try resolverSnapshot.preparingForBackgroundExport(shouldCancel: shouldCancel)
+                return AnnotationTableExportSnapshot.captureVariants(
+                    rows, columns: columns, scope: scope, numericInfoColumnIDs: numericInfoIDs,
+                    integerInfoColumnIDs: integerInfoIDs, sourceURLs: sourceURLs, queryDescription: description,
+                    resolvedText: Self.backgroundVariantResolvedText(
+                        rows: rows, columns: columns, callerSettingsByTrack: callerSettingsByTrack,
+                        resolverSnapshot: resolver
+                    )
+                )
+            }
 
         case (.variants, .calls, .allMatching):
             let request = try captureVariantAllMatchingRequest(sortKey: sortKey, ascending: sortAscending)
@@ -314,29 +326,6 @@ extension AnnotationTableDrawerView {
     private func resolvedAnnotationExportText(
         rows: [AnnotationSearchIndex.SearchResult], columns: [ScientificTableColumn]
     ) -> [String: [String: String]] { [:] }
-
-    private func resolvedVariantExportText(
-        rows: [AnnotationSearchIndex.SearchResult], columns: [ScientificTableColumn]
-    ) -> [String: [String: String]] {
-        Dictionary(uniqueKeysWithValues: rows.map { row in
-            let identity = "\(row.trackId):\(row.variantRowId.map(String.init) ?? row.id.uuidString)"
-            return (identity, Dictionary(uniqueKeysWithValues: columns.map { column in
-                (column.id, cellValueForScientificVariantColumn(column.id, row: row))
-            }))
-        })
-    }
-
-    private func cellValueForScientificVariantColumn(
-        _ columnID: String, row: AnnotationSearchIndex.SearchResult
-    ) -> String {
-        switch columnID {
-        case Self.callerSettingsColumn.rawValue: return searchIndex?.variantCallerSettings(for: row.trackId) ?? "Not recorded"
-        case Self.codingFeatureColumn.rawValue: return variantCodingFeatureText(for: row)
-        case Self.consequenceColumn.rawValue: return variantConsequenceText(for: row)
-        case Self.aaChangeColumn.rawValue: return variantAAChangeText(for: row)
-        default: return ""
-        }
-    }
 
     nonisolated static func backgroundVariantResolvedText(
         rows: [AnnotationSearchIndex.SearchResult], columns: [ScientificTableColumn],
