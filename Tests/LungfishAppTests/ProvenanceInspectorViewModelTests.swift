@@ -1160,7 +1160,11 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         ProvenanceInspectorViewModel.loadThreadingProbe = { lookups.increment() }
         defer { ProvenanceInspectorViewModel.loadThreadingProbe = nil }
 
-        let viewModel = ProvenanceInspectorViewModel()
+        // A private index. The fold compares the lookup's change count with the index's, and a
+        // watcher delivery in this process would move the shared index's count mid-test.
+        let viewModel = ProvenanceInspectorViewModel(
+            lineageResolver: ProvenanceLineageResolver(sidecarIndex: ProvenanceSidecarIndex())
+        )
         let item = ProvenanceInspectableItem(
             url: analysis, sidebarType: .analysisResult, contentMode: .empty, displayName: "minimap2-1"
         )
@@ -1191,7 +1195,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         defer { ProvenanceInspectorViewModel.loadFetchGate = nil }
         let events = WalkEventLog()
         let viewModel = ProvenanceInspectorViewModel(
-            lineageResolver: ProvenanceLineageResolver(observer: { events.record($0) })
+            lineageResolver: ProvenanceLineageResolver(sidecarIndex: ProvenanceSidecarIndex(), observer: { events.record($0) })
         )
         var readyCalls = 0
         viewModel.onLineageReady = { readyCalls += 1 }
@@ -1229,7 +1233,9 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let analysis = try writeChainedProject(in: dir)
         var readyCalls = 0
-        let viewModel = ProvenanceInspectorViewModel()
+        let viewModel = ProvenanceInspectorViewModel(
+            lineageResolver: ProvenanceLineageResolver(sidecarIndex: ProvenanceSidecarIndex())
+        )
         viewModel.onLineageReady = { readyCalls += 1 }
         let item = ProvenanceInspectableItem(
             url: analysis, sidebarType: .analysisResult, contentMode: .empty, displayName: "minimap2-1"
@@ -1316,10 +1322,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
     }
 
     private func makeTempDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("provenance-inspector-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        try TestTempDirectory.make(prefix: "provenance-inspector")
     }
 
     /// `load(item:)` is synchronous but resolves the sidecar lookup on a detached background

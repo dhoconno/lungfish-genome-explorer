@@ -198,10 +198,12 @@ final class ProvenanceLineageResolverTests: XCTestCase {
         let sidecar = try writeChain(createBAM: false)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
         let events = LineageEventLog()
+        // One private index for both walks, so the count never depends on an earlier test's cache.
+        let index = ProvenanceSidecarIndex()
 
-        let first = ProvenanceLineageResolver(observer: { events.record($0) })
+        let first = ProvenanceLineageResolver(sidecarIndex: index, observer: { events.record($0) })
             .resolve(envelope: envelope, sidecarURL: sidecar)
-        let second = ProvenanceLineageResolver(observer: { events.record($0) })
+        let second = ProvenanceLineageResolver(sidecarIndex: index, observer: { events.record($0) })
             .resolve(envelope: envelope, sidecarURL: sidecar)
 
         let chain = ["lungfish import fastq", "lungfish map", "lungfish variants call"]
@@ -226,7 +228,8 @@ final class ProvenanceLineageResolverTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
         let events = LineageEventLog()
 
-        let runs = ProvenanceLineageResolver(observer: { events.record($0) }).resolve(
+        let resolver = ProvenanceLineageResolver(sidecarIndex: ProvenanceSidecarIndex(), observer: { events.record($0) })
+        let runs = resolver.resolve(
             envelope: envelope,
             sidecarURL: sidecar,
             isCancelled: { !events.indexedSidecars.isEmpty }

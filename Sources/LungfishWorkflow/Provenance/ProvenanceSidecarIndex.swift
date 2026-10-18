@@ -67,8 +67,8 @@ public final class ProvenanceSidecarIndex: Sendable {
             state.changeCount &+= 1
             guard !changed.isEmpty else { return }
             for key in Array(state.projects.keys) {
-                state.projects[key]?.dropSidecars { path in
-                    changed.contains(path) || changed.contains((path as NSString).deletingLastPathComponent)
+                state.projects[key]?.dropSidecars { path, entry in
+                    changed.contains(path) || changed.contains(entry.folder)
                 }
             }
         }
@@ -283,6 +283,9 @@ public final class ProvenanceSidecarIndex: Sendable {
     private struct SidecarEntry {
         let size: Int
         let modificationDate: Date
+        /// The folder holding the sidecar, kept so a report of a changed folder finds the sidecars
+        /// in it without taking every path apart on the main actor.
+        let folder: String
         /// Nil for a sidecar that read as no record, kept so it is not read again until it changes.
         let record: IndexedRecord?
 
@@ -322,16 +325,21 @@ public final class ProvenanceSidecarIndex: Sendable {
             sidecars[candidate.url.path] = SidecarEntry(
                 size: candidate.size,
                 modificationDate: candidate.modificationDate,
+                folder: candidate.url.deletingLastPathComponent().path,
                 record: pooled
             )
             version += 1
             lastSnapshot = nil
         }
 
-        mutating func dropSidecars(where shouldDrop: (String) -> Bool) {
-            let kept = sidecars.filter { !shouldDrop($0.key) }
-            guard kept.count != sidecars.count else { return }
-            sidecars = kept
+        /// Drops the entries `shouldDrop` names. Only the dropped entries are collected, so a
+        /// delivery that names none costs a pass over the keys and no copy of the dictionary.
+        mutating func dropSidecars(where shouldDrop: (String, SidecarEntry) -> Bool) {
+            let dropped = sidecars.filter { shouldDrop($0.key, $0.value) }
+            guard !dropped.isEmpty else { return }
+            for path in dropped.keys {
+                sidecars[path] = nil
+            }
             version += 1
             lastSnapshot = nil
         }
@@ -397,9 +405,18 @@ extension IndexedRecord {
     /// is resolved as the full reader resolves it, so a record and its copies compare the way they
     /// do when read in full. Checksums, ids and dates hold no path and are read as written.
     init(_ light: LightRecord, context: PortablePath.Context) {
+        // A sidecar repeats a few strings many times, such as one tool path in thousands of argv
+        // entries, and resolving a path outside the project asks the file system. Each distinct
+        // string is resolved once. The memo lives for this one sidecar and goes with its entry.
+        var known: [String: String] = [:]
         func resolved(_ text: String) -> String {
-            let text = PortablePath.resolve(text: text, context: context)
-            return context.projectURL == nil ? text : PortablePath.rerootForeignProjectPaths(text: text, context: context)
+            if let hit = known[text] { return hit }
+            let value = PortablePath.resolve(text: text, context: context)
+            let result = context.projectURL == nil
+                ? value
+                : PortablePath.rerootForeignProjectPaths(text: value, context: context)
+            known[text] = result
+            return result
         }
         let workflowName = ProvenanceName.required(
             light.workflowName.map(resolved),
