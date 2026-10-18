@@ -10,6 +10,10 @@ import os.log
 
 extension SidebarViewController {
 
+    /// Test seam. Called with the URL of each bundle whose manifest checks the availability rule runs, so a
+    /// test can prove that validating a menu reads no manifest. Nothing in the app sets it.
+    static var onManifestCheck: ((URL) -> Void)?
+
     /// The commands that apply to `items`, in context-menu order, grouped
     /// into the sections a separator divides.
     ///
@@ -83,6 +87,7 @@ extension SidebarViewController {
             sections.append(bundleSection)
 
             if includingManifestChecks, let url = soleItem.url {
+                Self.onManifestCheck?(url)
                 var manifestSection: [SidebarItemAction] = []
                 if bundleHasVariantTracks(url) { manifestSection.append(.deleteVariantTracks) }
                 if bundleHasAssemblyProvenance(url) { manifestSection.append(.reassemble) }
@@ -141,9 +146,11 @@ extension SidebarViewController {
 
     /// True when `action` applies to the current selection.
     ///
-    /// Only Delete Variant Tracks and Reassemble read a bundle's manifest to
-    /// decide. Every other command is decided from the rows alone, so asking
-    /// about it from a menu on the main thread never touches the disk.
+    /// Only Delete Variant Tracks decodes a bundle's manifest, and Reassemble
+    /// looks for `assembly/provenance.json`. Both probes run under the one
+    /// `includingManifestChecks` flag, so validating Reassemble still pays the
+    /// manifest decode. Every other command is decided from the rows alone, so
+    /// asking about it from a menu on the main thread never touches the disk.
     func canPerformSidebarItemAction(_ action: SidebarItemAction) -> Bool {
         let readsManifest = action == .deleteVariantTracks || action == .reassemble
         return availableSidebarItemActions(for: selectedItems(), includingManifestChecks: readsManifest)

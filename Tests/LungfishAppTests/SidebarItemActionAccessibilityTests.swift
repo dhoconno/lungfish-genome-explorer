@@ -269,6 +269,38 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         XCTAssertFalse(sidebar.validateMenuItem(copyPath))
     }
 
+    /// Menu validation runs on the main thread each time a menu opens, and
+    /// the manifest of a large bundle runs to hundreds of megabytes. Only
+    /// Delete Variant Tracks decodes it, so no other item may read it.
+    func testMenuValidationReadsNoManifestExceptForDeleteVariantTracksAndReassemble() throws {
+        let (sidebar, _) = makeSidebar(hosted: true)
+        defer { sidebar.closeProject() }
+        let window = try XCTUnwrap(sidebar.view.window)
+        let mainMenu = MainMenu.createMainMenu()
+        let editCopy = try XCTUnwrap(Self.editCopyItem(in: mainMenu), "no Edit > Copy item")
+        select(bundleURL, in: sidebar)
+        XCTAssertTrue(window.makeFirstResponder(sidebar.outlineView))
+
+        var manifestChecks: [URL] = []
+        SidebarViewController.onManifestCheck = { manifestChecks.append($0) }
+        defer { SidebarViewController.onManifestCheck = nil }
+
+        _ = sidebar.validateMenuItem(editCopy)
+        let others = (SidebarItemAction.menuSections.flatMap { $0 } + [.showInInspector])
+            .filter { $0 != .reassemble && $0 != .deleteVariantTracks }
+        for action in others {
+            _ = sidebar.validateMenuItem(try selectionMenuItem(action, in: mainMenu))
+        }
+        XCTAssertEqual(
+            manifestChecks.map(\.lastPathComponent), [],
+            "Validating Edit > Copy and \(others.count) Selection menu items read a bundle manifest"
+        )
+
+        manifestChecks.removeAll()
+        _ = sidebar.canPerformSidebarItemAction(.deleteVariantTracks)
+        XCTAssertEqual(manifestChecks.count, 1, "Delete Variant Tracks is the one item that reads the manifest")
+    }
+
     /// Cmd-Delete in a text field is the field's own (delete to the start of
     /// the line). A real key event goes through the application's key
     /// handling, the menu bar first, and must neither move an item to the
