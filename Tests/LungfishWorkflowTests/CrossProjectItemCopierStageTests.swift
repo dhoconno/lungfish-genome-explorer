@@ -48,7 +48,12 @@ final class CrossProjectItemCopierStageTests: XCTestCase {
 
     func testACancelAtAnyFileLeavesNoItemAndNoStage() throws {
         let reference = try makeReference()
-        for cancelAt in 1...4 {
+        var total = 0
+        let counting = root.appendingPathComponent("Counting.lungfish", isDirectory: true)
+        try fm.createDirectory(at: counting, withIntermediateDirectories: true)
+        _ = try CrossProjectItemCopier.copy(itemAt: reference, intoProject: counting) { total += 1 }
+        XCTAssertGreaterThanOrEqual(total, 5, "three files, the bytes and the gate before the rename")
+        for cancelAt in 1...total {
             var checks = 0
             XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: reference, intoProject: targetProject) {
                 checks += 1
