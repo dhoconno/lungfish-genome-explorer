@@ -402,6 +402,8 @@ final class TaxTriageExportPinTests: XCTestCase {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             encoder.dateEncodingStrategy = .iso8601
             try encoder.encode(result).write(to: root.appendingPathComponent("taxtriage-result.json"))
+            // A manifest beside the database. No export reads it, so no record names it.
+            try Data("{}".utf8).write(to: root.appendingPathComponent(TaxTriageBatchManifest.filename))
         }
 
         var rowCount: Int { samples.reduce(0) { $0 + ($1 == "sample-1" ? 3 : 2) } }
@@ -530,15 +532,17 @@ final class TaxTriageExportPinTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults.keys.sorted(), resolvedKeys, file: file, line: line)
         XCTAssertEqual(envelope.output?.path, outputURL.path, file: file, line: line)
         XCTAssertEqual(envelope.output?.checksumSHA256, try ProvenanceFileHasher.sha256(of: outputURL), file: file, line: line)
-        // Inputs at the base. The database, the manifest when the folder holds one, and the whole result folder (a
-        // directory with no digest). BIO 6 asks the leaf to name what it reads, so the folder is a defect of side A.
-        let manifest = fixture.root.appendingPathComponent(TaxTriageBatchManifest.filename).path
-        var expectedInputs: Set<String> = [fixture.databasePath, fixture.root.path]
-        if FileManager.default.fileExists(atPath: manifest) { expectedInputs.insert(manifest) }
+        // Inputs (BIO 6). The files the export reads and nothing else, which are the result database and the run's
+        // sidecar (the negative controls and the report's run facts). Neither the batch manifest nor the result
+        // folder is read. The base recorded the manifest and the whole folder (a directory with no digest) and not
+        // the sidecar, so this pin fails at the base and the fix goes on the writer in its own commit.
+        let sidecar = fixture.root.appendingPathComponent("taxtriage-result.json").path
         let paths = Set(envelope.files.map(\.path)).subtracting([outputURL.path])
-        XCTAssertEqual(paths, expectedInputs, file: file, line: line)
-        let database = envelope.files.first { $0.path == fixture.databasePath }
-        XCTAssertEqual(database?.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: fixture.databasePath)), file: file, line: line)
+        XCTAssertEqual(paths, [fixture.databasePath, sidecar], file: file, line: line)
+        for input in [fixture.databasePath, sidecar] {
+            let digest = envelope.files.first { $0.path == input }?.checksumSHA256
+            XCTAssertEqual(digest, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: input)), file: file, line: line)
+        }
         return envelope.options.resolvedDefaults
     }
 }

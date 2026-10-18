@@ -4494,22 +4494,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
+    /// The files an export reads (BIO 6): the result database and, when the view loaded it, the run's sidecar,
+    /// which holds the negative controls and the run facts. The batch manifest and the result folder are not read.
     private func exportProvenanceSourceURLs() -> [URL] {
         var urls: [URL] = []
         if let databaseURL = taxTriageDatabase?.databaseURL {
             urls.append(databaseURL)
         }
-        if let batchGroupURL {
-            urls.append(batchGroupURL.appendingPathComponent(TaxTriageBatchManifest.filename))
-        }
-        // In database mode the config's output folder is where the run was
-        // written, which is stale once the result is copied or moved. The
-        // relocated result folder below is the one this view reads.
-        if !isBatchGroupMode, let outputDirectory = taxTriageConfig?.outputDirectory {
-            urls.append(outputDirectory)
-        }
-        if let resultDirectory = taxTriageResult?.outputDirectory {
-            urls.append(resultDirectory)
+        if taxTriageResult != nil, let batchGroupURL {
+            urls.append(batchGroupURL.appendingPathComponent("taxtriage-result.json"))
         }
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
