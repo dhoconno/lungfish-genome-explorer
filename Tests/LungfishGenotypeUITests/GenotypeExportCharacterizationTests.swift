@@ -5,8 +5,8 @@
 // Byte-level characterization of the genotype export coordinator before its
 // extraction from GenotypeResultViewController (Phase 2.3, REVIEW.md R6).
 // The frozen Excel capture of six scenarios is compared with committed files
-// under Tests/Fixtures/golden/genotype-gui. The panel flow, the manual
-// definitions provenance, the scoped export request, the panel's window, the
+// under Tests/Fixtures/golden/genotype-gui. The panel flow, the scoped
+// export request, the panel's window, the
 // one roster the matrix and the workbook count prevalence over and the exact
 // threshold values of the filter context are pinned inline. Every test pins
 // current behaviour, including behaviour the design experts flagged as
@@ -285,98 +285,6 @@ final class GenotypeExportCharacterizationTests: GenotypeResultViewportTestCase 
         controller.presentExcelExportPanel(expectedDisplayState: state, settleDisplayState: { throw SettleFailure() })
         XCTAssertNil(save)
         XCTAssertEqual(recorder.events, ["failed The Inspector state could not be settled."])
-    }
-
-    // MARK: E4, manual definitions provenance
-
-    func testManualDefinitionsExportRecordsItsProvenance() throws {
-        let scenario = try makeGenotypeOnlyManualScenario()
-        defer { scenario.cleanup() }
-        let store = try GenotypeAnnotationStore(bundleURL: scenario.bundleURL, author: GenotypeCharacterizationFixture.author)
-        scenario.controller.testingInstallEffectiveHaplotypeAnnotationStore(store)
-        // The payload is the test's own input, the raw sidecar assignments
-        // (five, the validator-rejected label included), not the current
-        // assignments the production button encodes. The test pins the write
-        // half, the bytes on disk and the provenance, not the payload builder.
-        let assignments = store.sidecar.manualHaplotypeAssignments
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let payload = try encoder.encode(assignments)
-        let outputURL = scenario.root.appendingPathComponent("manual-haplotype-definitions.json")
-        let source = SteppedTimeSource(startingAt: Date(timeIntervalSince1970: 1_800_000_000))
-        let clock = ProvenanceRunClock(source: source.source)
-        source.advance(by: 3)
-
-        try scenario.controller.testingWriteManualDefinitionsExport(
-            data: payload, outputURL: outputURL, assignmentCount: assignments.count, runClock: clock
-        )
-
-        XCTAssertEqual(try Data(contentsOf: outputURL), payload)
-        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
-        let masker = GenotypeCharacterizationCanonicalizer(root: scenario.root)
-        let iso = GenotypeCharacterizationCanonicalizer.iso8601
-        func describe(_ value: ParameterValue) -> String {
-            switch value {
-            case .string(let text): return text
-            case .integer(let number): return "\(number)"
-            case .file(let url): return "file " + masker.maskRoot(in: url.path)
-            default: return String(describing: value)
-            }
-        }
-        func describe(_ options: [String: ParameterValue], as kind: String) -> [String] {
-            options.keys.sorted().map { "\(kind) \($0) = " + describe(options[$0]!) }
-        }
-        let step = try XCTUnwrap(envelope.steps.first)
-        var projection = [
-            "workflow " + envelope.workflowName,
-            "tool " + envelope.toolName,
-            "steps \(envelope.steps.count)",
-            "step tool " + step.toolName,
-            "argv " + masker.maskRoot(in: step.argv.joined(separator: " ")),
-            "durable " + masker.maskRoot(in: (step.durableReplayArgv ?? []).joined(separator: " ")),
-        ]
-        projection += describe(envelope.options.explicit, as: "explicit")
-        projection += describe(envelope.options.defaults, as: "default")
-        projection += describe(envelope.options.resolvedDefaults, as: "resolved")
-        projection += describe(step.resolvedOptions, as: "step resolved")
-        projection += envelope.files.map { file in
-            "file \(file.role.rawValue) " + masker.maskRoot(in: file.path) + " sha256 " + (file.checksumSHA256 ?? "none")
-        }
-        projection += [
-            "output " + masker.maskRoot(in: envelope.output?.path ?? "none"),
-            "started " + iso.string(from: envelope.createdAt),
-            "step started " + (step.startedAt.map(iso.string) ?? "none"),
-            "step completed " + (step.completedAt.map(iso.string) ?? "none"),
-            "wall seconds " + String(format: "%.1f", envelope.wallTimeSeconds ?? -1),
-            "exit \(envelope.exitStatus ?? -1)",
-        ]
-        let bundle = "<ROOT>/Project/Analyses/run/manual.lungfishgenotype"
-        let sidecarDigest = GenotypeCharacterizationCanonicalizer.sha256Hex(
-            try Data(contentsOf: scenario.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
-        )
-        XCTAssertEqual(sidecarDigest, "4fce2a215405419f50f4eafdeb2dc16585a35eeb0885a7ff1dbb8c11830e24d4", "The pre-written sidecar must be the bytes the export read")
-        XCTAssertEqual(projection, [
-            "workflow lungfish app manual haplotype definition export",
-            "tool Lungfish Genome Explorer",
-            "steps 1",
-            "step tool Lungfish Genome Explorer",
-            "argv Lungfish Genome Explorer export-manual-haplotype-definitions --bundle \(bundle) --output <ROOT>/manual-haplotype-definitions.json",
-            "durable Lungfish Genome Explorer export-manual-haplotype-definitions --bundle \(bundle) --output <ROOT>/manual-haplotype-definitions.json",
-            "explicit bundle = file \(bundle)",
-            "explicit output = file <ROOT>/manual-haplotype-definitions.json",
-            "default format = json",
-            "resolved assignmentCount = 5",
-            "step resolved assignmentCount = 5",
-            "file input \(bundle)/annotations.json sha256 4fce2a215405419f50f4eafdeb2dc16585a35eeb0885a7ff1dbb8c11830e24d4",
-            "file output <ROOT>/manual-haplotype-definitions.json sha256 0ec3211c0efef9500f2d53e7e625db173c5adf28b2b8aa6e50dcec896a40b675",
-            "output <ROOT>/manual-haplotype-definitions.json",
-            "started 2027-01-15T08:00:00Z",
-            "step started 2027-01-15T08:00:00Z",
-            "step completed 2027-01-15T08:00:03Z",
-            "wall seconds 3.0",
-            "exit 0",
-        ])
     }
 
     // MARK: E5, the scoped export request

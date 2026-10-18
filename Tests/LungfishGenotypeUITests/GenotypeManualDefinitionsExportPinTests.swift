@@ -12,22 +12,23 @@ import XCTest
 
 /// Pins of the manual haplotype definitions export (Phase 2.12 lane 12.35 M1, QA 1, ARCH question Q-A3).
 ///
-/// The export writes the current assignments of the open store's sidecar, pretty printed with sorted keys. The record
-/// of the write is pinned by `GenotypeExportCharacterizationTests.testManualDefinitionsExportRecordsItsProvenance`.
+/// The export writes the current assignments of the open store's sidecar, pretty printed with sorted keys. Since lane
+/// 12.35 M2 the leaf `genotype export-manual-definitions` writes them with the Workflow builder, and its record is
+/// pinned by `GenotypeManualDefinitionsExportCLIGUIParityReplayTests.assertPredictedRecordChanges`, which also pins
+/// the record the deleted in-app writer wrote.
 @MainActor
 final class GenotypeManualDefinitionsExportPinTests: GenotypeResultViewportTestCase {
-    /// The bytes the export button writes for scenario B, the current assignments of the store's sidecar. The raw
-    /// sidecar holds five assignments, and the index keeps the ones it resolves.
+    /// The bytes the export button writes for scenario B, the current assignments of the store's sidecar, built by
+    /// `GenotypeManualDefinitionsExport`. The raw sidecar holds five assignments, and the index keeps the ones it
+    /// resolves.
     func testThePayloadIsTheCurrentAssignmentsPrettyPrintedWithSortedKeys() throws {
         let scenario = try makeGenotypeOnlyManualScenario()
         defer { scenario.cleanup() }
         let store = try GenotypeAnnotationStore(bundleURL: scenario.bundleURL, author: GenotypeCharacterizationFixture.author)
 
         let raw = store.sidecar.manualHaplotypeAssignments
-        let current = GenotypeManualHaplotypeAssignmentIndex(assignments: raw).currentAssignments
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let payload = try encoder.encode(current)
+        let current = GenotypeManualDefinitionsExport.currentAssignments(raw)
+        let payload = try GenotypeManualDefinitionsExport.payload(currentAssignments: current)
 
         XCTAssertEqual(raw.count, 5)
         XCTAssertEqual(current.count, 5, "the index keeps every assignment of scenario B")
