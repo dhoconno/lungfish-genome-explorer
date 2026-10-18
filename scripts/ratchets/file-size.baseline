@@ -3,7 +3,7 @@ Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 2433
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1023
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 812
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 1061
-Sources/LungfishApp/App/AppDelegate.swift 2690
+Sources/LungfishApp/App/AppDelegate.swift 2660
 Sources/LungfishApp/App/MainMenu.swift 1364
 Sources/LungfishApp/App/VCFImportHelper.swift 1134
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 843
@@ -20,14 +20,14 @@ Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 1025
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1062
-Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 992
+Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 991
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1330
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1905
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1358
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1050
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1048
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1026
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1149
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
@@ -44,7 +44,7 @@ Sources/LungfishApp/Views/Operations/OperationsPanelViewController.swift 1059
 Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1059
 Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift 1049
-Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 2155
+Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 1935
 Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1081
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift 1213
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift 1123
@@ -68,7 +68,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1235
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 939
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2843
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 902
-Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 872
+Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 871
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4094
 Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1827
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2042
@@ -82,7 +82,7 @@ Sources/LungfishCLI/Commands/ImportCommand.swift 1082
 Sources/LungfishCLI/Commands/MSACommand.swift 2761
 Sources/LungfishCLI/Commands/MarkdupCommand.swift 1103
 Sources/LungfishCLI/Commands/VariantsCommand.swift 1424
-Sources/LungfishCore/Bundles/BundleManifest.swift 823
+Sources/LungfishCore/Bundles/BundleManifest.swift 822
 Sources/LungfishCore/Bundles/Converters/AnnotationConverter.swift 866
 Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift 1361
 Sources/LungfishCore/Models/AppSettings.swift 827
@@ -159,7 +159,7 @@ Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2681
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 1468
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
-Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1211
+Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1210
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 912
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1747
 Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2480
