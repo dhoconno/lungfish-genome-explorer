@@ -166,3 +166,4 @@ enum ViewerExportOptions {
 extension ViewerExportSortKey: ExpressibleByArgument {}
 extension ColumnFilterComposition: ExpressibleByArgument {}
 extension ViewerExportDelimitedFormat: ViewerExportChoice {}
+extension FASTQSampleBarcodeTab: ViewerExportChoice {}

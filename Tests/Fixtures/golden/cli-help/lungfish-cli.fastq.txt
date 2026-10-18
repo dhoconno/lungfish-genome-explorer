@@ -76,6 +76,7 @@ SUBCOMMANDS:
                           or Excel
   12s-export-unresolved   Export unresolved 12S sequence clusters above a read
                           threshold to FASTA
+  export                  Export FASTQ views and tables with provenance
   search-text             Search FASTQ reads by ID or description field
   search-motif            Search FASTQ reads by sequence motif
   orient                  Orient reads against a reference sequence

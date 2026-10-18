@@ -103,6 +103,8 @@ package enum CLIEventContractTable {
         "extract taxa-collection": .events(flag: formatJSON, channel: .standardOutput),
         // Events since 2.11 A48 M2, with and without --bundle. It printed one `extract-sequence` document before.
         "extract sequence": .events(flag: formatJSON, channel: .standardOutput),
+        // Events since 2.12 lane 12.34 M2, the FASTQ metadata drawer's sample sheet export.
+        "fastq export sample-barcodes": .events(flag: formatJSON, channel: .standardOutput),
         "fastq import-ont": .events(flag: formatJSON, channel: .standardOutput),
         "fastq ingest": .events(flag: formatJSON, channel: .standardOutput),
         // Events since 2.11 A48 M3, which builds through ReferenceBundleImportService. It printed text only before.

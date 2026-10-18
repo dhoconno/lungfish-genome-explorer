@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the FASTQ sample sheet.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 2 samples to demux-pattern.csv","output":"\/work\/demux-pattern.csv","outputs":["\/work\/demux-pattern.csv"],"progress":1,"schemaVersion":2}

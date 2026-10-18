@@ -316,6 +316,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "fastq demultiplex": "cli.fastq",
         "fastq entropy-filter": "cli.fastq",
         "fastq error-correct": "cli.fastq",
+        "fastq export sample-barcodes": "cli.fastq",
         "fastq fixed-trim": "cli.fastq",
         "fastq full-length-ont-mhc-genotype": "cli.fastq",
         "fastq genotype": "cli.fastq",

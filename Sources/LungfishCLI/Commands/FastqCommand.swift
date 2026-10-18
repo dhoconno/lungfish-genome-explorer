@@ -69,6 +69,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqTwelveSMatchSubcommand.self,
             FastqTwelveSExportSubcommand.self,
             FastqTwelveSExportUnresolvedSubcommand.self,
+            FastqExportSubcommand.self,
             FastqSearchTextSubcommand.self,
             FastqSearchMotifSubcommand.self,
             FastqOrientSubcommand.self,

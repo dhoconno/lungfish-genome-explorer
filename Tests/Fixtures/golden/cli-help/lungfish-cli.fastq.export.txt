@@ -1,0 +1,13 @@
+OVERVIEW: Export FASTQ views and tables with provenance
+
+USAGE: lungfish-cli fastq export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  sample-barcodes         Write the sample barcode sheet of the FASTQ metadata
+                          drawer as CSV with provenance
+
+  See 'lungfish-cli help fastq export <subcommand>' for detailed help.
