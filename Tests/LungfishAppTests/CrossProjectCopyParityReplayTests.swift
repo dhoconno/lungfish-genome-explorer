@@ -54,7 +54,7 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
         }
     }
 
-    /// The differences of A against C, exactly the BIO ruling on `caller` (answer 2) for the read bundle and the
+    /// The differences of A against C, the BIO ruling on `caller` (answer 2) for the read bundle and the
     /// BIO ruling on F4 (section 2) for the reference bundle. Each matches the bundle's envelope and the two
     /// copies of it under `provenance/`, three files a case. Lane 13.03 deletes side A, the key and every entry.
     ///
