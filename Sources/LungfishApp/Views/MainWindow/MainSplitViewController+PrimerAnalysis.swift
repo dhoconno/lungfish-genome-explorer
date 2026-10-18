@@ -175,6 +175,8 @@ extension MainSplitViewController {
             let route = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
             let center = OperationCenter.shared
             Self.beginPrimerAnalysisSelectionExportOperation(title: title, destinationURL: destination.url,
+                cliCommand: Self.primerSelectionExportCLICommand(analysisURL: analysisURL, selection: selection,
+                    kind: kind, destinationURL: destination.url),
                 routeContext: route) { id in
                 let task = Task { @MainActor [weak self] in
                     guard center.items.first(where: { $0.id == id })?.state.isActive == true else { return }
@@ -397,13 +399,28 @@ extension MainSplitViewController {
         )
     }
 
-    /// The argv the provenance of a primer FASTA bundle or reference amplicon
-    /// export records (findings R3 and R8). No `lungfish-cli` command exports
-    /// a selection, so the argv names the app, as the app's other exports do
-    /// with `Lungfish.app <action>`, and lists the analysis, the export kind,
-    /// the selected primer, amplicon or pool and the output bundle. It used to
-    /// be the app process's own launch arguments.
-    static func primerSelectionExportProvenanceArgv(
+    /// The `lungfish-cli primers analysis export-selection` command that reproduces a primer FASTA bundle or
+    /// a reference amplicon export (lane 12.15, A67-M3). The row records it and the export's provenance argv
+    /// is its words. The app keeps its in-process writer, which is the service the command calls.
+    static func primerSelectionExportCLICommand(
+        analysisURL: URL,
+        selection: PrimerAnalysisExportSelection,
+        kind: PrimerAnalysisExportKind,
+        destinationURL: URL
+    ) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "primers analysis export-selection",
+            args: primerSelectionExportCLIArguments(
+                analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
+            )
+        )
+    }
+
+    /// The arguments after `lungfish-cli primers analysis export-selection` for a primer FASTA bundle or a
+    /// reference amplicon export. The row command and the provenance argv are both built from this list.
+    /// The values the saved analysis supplies (the IDs and a native pool name) join their option with `=`,
+    /// so the parser reads one that starts with a hyphen as a value.
+    static func primerSelectionExportCLIArguments(
         analysisURL: URL,
         selection: PrimerAnalysisExportSelection,
         kind: PrimerAnalysisExportKind,
@@ -412,33 +429,43 @@ extension MainSplitViewController {
         let selectionArguments: [String]
         switch selection {
         case .primer(let targetID, let primerID):
-            selectionArguments = ["--target-id", targetID, "--primer-id", primerID]
+            selectionArguments = ["--target-id=\(targetID)", "--primer-id=\(primerID)"]
         case .amplicon(let targetID, let ampliconID):
-            selectionArguments = ["--target-id", targetID, "--amplicon-id", ampliconID]
+            selectionArguments = ["--target-id=\(targetID)", "--amplicon-id=\(ampliconID)"]
         case .pool(let sourceResultID, let pool):
-            selectionArguments = ["--source-result-id", sourceResultID, "--pool", String(pool)]
+            selectionArguments = ["--source-result-id=\(sourceResultID)", "--pool", String(pool)]
         case .nativePool(let sourceResultID, let pool):
-            selectionArguments = ["--source-result-id", sourceResultID, "--native-pool", pool]
+            selectionArguments = ["--source-result-id=\(sourceResultID)", "--native-pool=\(pool)"]
         }
-        return ["Lungfish.app", "export-primer-selection", analysisURL.path, "--kind", kind.rawValue]
-            + selectionArguments + ["--output", destinationURL.path]
+        let kindName = kind == .primerFASTA ? "primer-fasta" : "reference-amplicon"
+        return [analysisURL.path, "--kind", kindName] + selectionArguments + ["--output", destinationURL.path]
     }
 
-    /// Registers the primer selection export row ("Save Primer FASTA Bundle"
-    /// or "Extract Reference Amplicon") and, only when it starts, calls
-    /// `launch` with the operation ID. The row locks the new export folder,
-    /// `destinationURL`, and records no command.
-    ///
-    /// cli-parity-gap: primer-selection-export. No lungfish-cli command writes
-    /// a primer FASTA bundle or extracts the reference amplicon for a selected
-    /// primer, amplicon or pool. The closest is `primers analysis annotated-reference`, which
-    /// writes the whole Primer3 template of one result as an annotated
-    /// reference bundle. The row keeps recording no command until a selection
-    /// export command exists.
+    /// The argv the provenance of a primer FASTA bundle or reference amplicon export records (findings R3
+    /// and R8). It is the `lungfish-cli primers analysis export-selection` command the row records, as
+    /// words. It used to name `Lungfish.app export-primer-selection`, a command that no binary has.
+    static func primerSelectionExportProvenanceArgv(
+        analysisURL: URL,
+        selection: PrimerAnalysisExportSelection,
+        kind: PrimerAnalysisExportKind,
+        destinationURL: URL
+    ) -> [String] {
+        [CLICommandIdentity.executableName, "primers", "analysis", "export-selection"]
+            + primerSelectionExportCLIArguments(
+                analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
+            )
+    }
+
+    /// Registers the primer selection export row ("Save Primer FASTA Bundle" or "Extract Reference
+    /// Amplicon") and, only when it starts, calls `launch` with the operation ID. The row locks the new
+    /// export folder, `destinationURL`, and records `cliCommand`, which
+    /// ``primerSelectionExportCLICommand(analysisURL:selection:kind:destinationURL:)`` builds. `cliCommand`
+    /// has no default, so a caller cannot leave the row without one.
     @discardableResult
     static func beginPrimerAnalysisSelectionExportOperation(
         title: String,
         destinationURL: URL,
+        cliCommand: String,
         routeContext: OperationRouteContext,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
@@ -448,7 +475,7 @@ extension MainSplitViewController {
             detail: "Verifying saved primer analysis…",
             operationType: .workflow,
             targetBundleURL: destinationURL,
-            cliCommand: nil,
+            cliCommand: cliCommand,
             routeContext: routeContext
         )
         switch result {

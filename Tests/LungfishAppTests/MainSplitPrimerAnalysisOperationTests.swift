@@ -7,10 +7,9 @@
 // refuse the row and launch nothing. The primer order export has a
 // lungfish-cli equivalent, `primers analysis export-order`, and its recorded
 // command must parse with the run's values. The primer FASTA and reference
-// amplicon exports have none yet, and a PrimalScheme order from a filtered
-// view has none either. Their tests pin the missing command and fail when one
-// is added. The provenance argv of every export is the row's command as words,
-// or for an export with no command an argv that names the app (R3, R8).
+// amplicon exports have `primers analysis export-selection` (lane 12.15), and
+// its recorded command must parse with the selection the run exported. The
+// provenance argv of every export is the row's command as words (R3, R8).
 
 import XCTest
 @testable import LungfishApp
@@ -29,6 +28,11 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
     )
     private let destinationURL = URL(
         fileURLWithPath: "/tmp/lane 1a2/Project.lungfish/Analyses/Primer order-1A2B3C4D",
+        isDirectory: true
+    )
+    /// The folder a primer FASTA bundle or reference amplicon export writes, a new .lungfishref bundle.
+    private let selectionDestinationURL = URL(
+        fileURLWithPath: "/tmp/lane 1a2/Project.lungfish/Analyses/Saved design primers-1A2B3C4D.lungfishref",
         isDirectory: true
     )
     private let routeContext = OperationRouteContext(
@@ -245,7 +249,28 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         XCTAssertNotNil(assays.cliCommand, "view filters never change which assays an order names")
     }
 
-    // MARK: - Primer FASTA and reference amplicon exports, CLI parity gaps
+    // MARK: - Primer FASTA and reference amplicon exports
+
+    /// Every selection the viewer offers, with the kind its row exports. Two IDs are written to catch a
+    /// command that does not carry them through, one starts with a hyphen and one holds a space.
+    private var selectionExports: [(PrimerAnalysisExportSelection, PrimerAnalysisExportKind)] {
+        [
+            (.primer(targetID: "target-1", primerID: "-primer 3"), .primerFASTA),
+            (.amplicon(targetID: "target-1", ampliconID: "amplicon-2"), .referenceAmplicon),
+            (.amplicon(targetID: "target-1", ampliconID: "amplicon-2"), .primerFASTA),
+            (.pool(sourceResultID: "native/primer.bed", pool: 2), .primerFASTA),
+            (.nativePool(sourceResultID: "result-1", pool: "-B pool"), .primerFASTA),
+        ]
+    }
+
+    private func selectionExportCommand(
+        _ selection: PrimerAnalysisExportSelection,
+        _ kind: PrimerAnalysisExportKind
+    ) -> String {
+        MainSplitViewController.primerSelectionExportCLICommand(
+            analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: selectionDestinationURL
+        )
+    }
 
     func testPrimerSelectionExportRefusedByAHeldLockLaunchesNothing() throws {
         let center = try centerHoldingDestinationLock()
@@ -254,6 +279,7 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         let result = MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
             title: "Save Primer FASTA Bundle",
             destinationURL: destinationURL,
+            cliCommand: selectionExportCommand(.pool(sourceResultID: "result-1", pool: 1), .primerFASTA),
             routeContext: routeContext,
             reporter: center
         ) { _ in launched = true }
@@ -265,14 +291,16 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         XCTAssertEqual(refusal.blockingOperationTitle, "Mapping reads")
     }
 
-    func testPrimerSelectionExportsRecordTheirTypeAndLockAndNoCommandAsAParityGap() throws {
-        for title in ["Save Primer FASTA Bundle", "Extract Reference Amplicon"] {
+    func testPrimerSelectionExportsRecordTheirTypeLockAndTheExportSelectionCommand() throws {
+        for (selection, kind) in selectionExports {
+            let title = kind == .primerFASTA ? "Save Primer FASTA Bundle" : "Extract Reference Amplicon"
             let reporter = RecordingOperationReporter()
             var launchedID: UUID?
 
             MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
                 title: title,
-                destinationURL: destinationURL,
+                destinationURL: selectionDestinationURL,
+                cliCommand: selectionExportCommand(selection, kind),
                 routeContext: routeContext,
                 reporter: reporter
             ) { launchedID = $0 }
@@ -282,16 +310,16 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
             XCTAssertEqual(item.title, title)
             XCTAssertEqual(item.initialDetail, "Verifying saved primer analysis…")
             XCTAssertEqual(item.operationType, .workflow)
-            XCTAssertEqual(item.targetBundleURL, destinationURL)
+            XCTAssertEqual(item.targetBundleURL, selectionDestinationURL)
             XCTAssertEqual(item.additionalLockedBundleURLs, [])
             XCTAssertEqual(item.routeContext, routeContext)
-            // CLI parity gap. No lungfish-cli command exports a primer FASTA
-            // bundle or a reference amplicon for a selected primer, amplicon
-            // or pool. The closest is `primers analysis annotated-reference`,
-            // which covers a whole Primer3 result. When a selection export
-            // command exists, record it and replace this pin with a parse test.
-            XCTAssertNil(item.cliCommand)
-            assertCLIParityGap(item.cliCommand, id: "primer-selection-export")
+            // The row records the command that reproduces the export. It parses with the real leaf and
+            // names the analysis, the kind, the selection and the folder the run wrote.
+            let command = try RecordedCLICommand.parse(item.cliCommand, as: PrimerAnalysisExportSelectionCommand.self)
+            XCTAssertEqual(command.bundlePath, analysisURL.path)
+            XCTAssertEqual(command.kind.exportKind, kind)
+            XCTAssertEqual(try command.selection(), selection)
+            XCTAssertEqual(command.outputPath, selectionDestinationURL.path)
         }
     }
 
@@ -332,26 +360,18 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         )
     }
 
-    func testSelectionExportProvenanceArgvNamesTheAppTheKindAndTheSelection() throws {
-        let cases: [(PrimerAnalysisExportSelection, PrimerAnalysisExportKind, [String])] = [
-            (.primer(targetID: "target-1", primerID: "primer-3"), .primerFASTA,
-             ["--target-id", "target-1", "--primer-id", "primer-3"]),
-            (.amplicon(targetID: "target-1", ampliconID: "amplicon-2"), .referenceAmplicon,
-             ["--target-id", "target-1", "--amplicon-id", "amplicon-2"]),
-            (.pool(sourceResultID: "result-1", pool: 2), .primerFASTA,
-             ["--source-result-id", "result-1", "--pool", "2"]),
-            (.nativePool(sourceResultID: "result-1", pool: "B"), .primerFASTA,
-             ["--source-result-id", "result-1", "--native-pool", "B"]),
-        ]
-        for (selection, kind, selectionArguments) in cases {
+    func testSelectionExportProvenanceArgvIsTheExportSelectionCommandTheRowRecords() throws {
+        // The export used to record `Lungfish.app export-primer-selection`, which no binary has.
+        for (selection, kind) in selectionExports {
             let argv = MainSplitViewController.primerSelectionExportProvenanceArgv(
-                analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
+                analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: selectionDestinationURL
             )
             XCTAssertEqual(
                 argv,
-                ["Lungfish.app", "export-primer-selection", analysisURL.path, "--kind", kind.rawValue]
-                    + selectionArguments + ["--output", destinationURL.path]
+                [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: selectionExportCommand(selection, kind)))
             )
+            XCTAssertEqual(Array(argv.prefix(4)), [CLICommandIdentity.executableName, "primers", "analysis", "export-selection"])
+            XCTAssertFalse(argv.contains("Lungfish.app"), "\(argv)")
         }
     }
 }

@@ -5,8 +5,9 @@
 // Phase 2.12 lane 12.15 (A67-M3). "Save Primer FASTA Bundle" and "Extract Reference Amplicon" write a new
 // .lungfishref folder through PrimerAnalysisSelectionExportService. M1 pins at the base what the app writes
 // for a primer, an amplicon, a numbered pool and a native pool, and the argv the app records for it, which
-// names `Lungfish.app export-primer-selection`, a command that does not exist. M2 adds the parity test that
-// runs the command the row records through the real leaf and compares its folder with the app's.
+// names `Lungfish.app export-primer-selection`, a command that does not exist. M2 flips that argv pin to the
+// command the row records and adds the parity test, which runs the recorded command through the real leaf
+// and compares its folder with the app's.
 
 import Darwin
 import Foundation
@@ -84,32 +85,123 @@ final class PrimerSelectionExportParityTests: XCTestCase {
         }
     }
 
-    /// At the base the argv the folder's provenance records names the app and an export command that
-    /// no binary has. M2 replaces this pin with the command the row records.
-    func testTheAppRecordsAnExportCommandThatDoesNotExistAsTheInvocation() async throws {
+    /// The argv the folder's provenance records is the command the row records, as words. At the base it
+    /// named `Lungfish.app export-primer-selection`, a command that no binary has.
+    func testTheAppRecordsTheRowCommandAsTheInvocation() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
         for item in try cases(snapshot) {
             let folder = try await exportAsTheAppDoes(fixture, item)
             let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: folder), item.label)
+            let row = MainSplitViewController.primerSelectionExportCLICommand(
+                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder)
             XCTAssertEqual(
-                envelope.argv,
-                ["Lungfish.app", "export-primer-selection", fixture.bundle.path, "--kind", item.kind.rawValue]
-                    + selectionArguments(item.selection) + ["--output", folder.path],
-                item.label)
+                envelope.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row)), item.label)
+            XCTAssertEqual(
+                Array(envelope.argv.prefix(4)),
+                [CLICommandIdentity.executableName, "primers", "analysis", "export-selection"], item.label)
+        }
+    }
+
+    /// The command the row records, parsed with the real leaf and run on a second folder, writes what the app
+    /// wrote for the same selection. The folders differ only in the fields that name the run: the identifiers,
+    /// the dates, the destination path and the provenance argv, which the app records as the row's command and
+    /// the leaf records as the argv of the process that ran it.
+    func testTheRecordedCommandWritesTheFolderTheAppWrote() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        let cliParent = fixture.root.appendingPathComponent("cli", isDirectory: true)
+        try FileManager.default.createDirectory(at: cliParent, withIntermediateDirectories: true)
+        for item in try cases(snapshot) {
+            let appFolder = try await exportAsTheAppDoes(fixture, item)
+            let cliFolder = cliParent.appendingPathComponent(appFolder.lastPathComponent, isDirectory: true)
+            let row = MainSplitViewController.primerSelectionExportCLICommand(
+                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: cliFolder)
+            let command = try RecordedCLICommand.parse(row, as: PrimerAnalysisExportSelectionCommand.self)
+            XCTAssertEqual(try command.selection(), item.selection, item.label)
+            XCTAssertEqual(command.kind.exportKind, item.kind, item.label)
+            try await command.run()
+
+            let app = try facts(of: appFolder), cli = try facts(of: cliFolder)
+            XCTAssertEqual(cli.entries, app.entries, item.label)
+            XCTAssertEqual(Set(cli.files.keys), Set(app.files.keys), item.label)
+            for (path, bytes) in app.files {
+                XCTAssertEqual(cli.files[path], bytes, "\(item.label): \(path) differs")
+            }
+            XCTAssertEqual(cli.selection, app.selection, item.label)
+            XCTAssertEqual(cli.manifestName, app.manifestName, item.label)
+            XCTAssertEqual(cli.chromosomes, app.chromosomes, item.label)
+            XCTAssertEqual(cli.envelope.workflowName, app.envelope.workflowName, item.label)
+            XCTAssertEqual(cli.envelope.exitStatus, app.envelope.exitStatus, item.label)
+            XCTAssertEqual(cli.envelope.options.explicit, app.envelope.options.explicit, item.label)
+            XCTAssertEqual(cli.resolved, app.resolved, item.label)
+            XCTAssertEqual(cli.outputPaths, app.outputPaths, item.label)
+            XCTAssertEqual(cli.outputChecksums, app.outputChecksums, item.label)
+            XCTAssertEqual(cli.envelope.steps.count, app.envelope.steps.count, item.label)
+            // The declared difference. The leaf records the argv of the process that ran it.
+            XCTAssertEqual(cli.envelope.argv, CommandLine.arguments, item.label)
+            XCTAssertNotEqual(cli.envelope.argv, app.envelope.argv, item.label)
         }
     }
 
     // MARK: - Helpers
 
-    private func selectionArguments(_ selection: PrimerAnalysisExportSelection) -> [String] {
-        switch selection {
-        case .primer(let targetID, let primerID): ["--target-id", targetID, "--primer-id", primerID]
-        case .amplicon(let targetID, let ampliconID): ["--target-id", targetID, "--amplicon-id", ampliconID]
-        case .pool(let sourceResultID, let pool): ["--source-result-id", sourceResultID, "--pool", String(pool)]
-        case .nativePool(let sourceResultID, let pool): ["--source-result-id", sourceResultID, "--native-pool", pool]
+    /// What an export folder holds, apart from the fields that name the run.
+    private struct Facts {
+        /// The top level names of the folder.
+        let entries: [String]
+        /// The files that hold no run identity, by path in the folder.
+        let files: [String: Data]
+        /// selection.json without the destination path.
+        let selection: NSDictionary
+        let manifestName: String
+        let chromosomes: [String]
+        let envelope: ProvenanceEnvelope
+        /// The resolved options without the destination path.
+        let resolved: [String: ParameterValue]
+        /// The provenance outputs by path in the folder, and the checksums of the files that hold no run identity.
+        let outputPaths: Set<String>
+        let outputChecksums: [String: String]
+    }
+
+    private func facts(of folder: URL) throws -> Facts {
+        let manager = FileManager.default
+        var files: [String: Data] = [:]
+        let enumerator = try XCTUnwrap(manager.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey]))
+        for case let url as URL in enumerator where try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+            let path = String(url.path.dropFirst(folder.path.count + 1))
+            // The bundle manifest holds an identifier and dates, selection.json the destination path, and the
+            // provenance the run's times and paths.
+            let holdsRunIdentity = path == "manifest.json" || path == "selection.json"
+                || path == ProvenanceWriter.provenanceFilename
+                || path.hasPrefix(ProvenanceWriter.bundleProvenanceDirectoryName + "/")
+            if !holdsRunIdentity { files[path] = try Data(contentsOf: url) }
         }
+        var document = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: folder.appendingPathComponent("selection.json"))) as? [String: Any])
+        document.removeValue(forKey: "outputBundlePath")
+        var options = try XCTUnwrap(document["options"] as? [String: Any])
+        options.removeValue(forKey: "outputBundle")
+        document["options"] = options
+        let manifest = try BundleManifest.load(from: folder)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: folder))
+        var resolved = envelope.options.resolvedDefaults
+        resolved.removeValue(forKey: "outputBundle")
+        var paths: Set<String> = []
+        var checksums: [String: String] = [:]
+        for descriptor in envelope.outputs {
+            XCTAssertTrue(descriptor.path.hasPrefix(folder.path + "/"), descriptor.path)
+            let path = String(descriptor.path.dropFirst(folder.path.count + 1))
+            paths.insert(path)
+            if files[path] != nil { checksums[path] = descriptor.checksumSHA256 }
+        }
+        return Facts(
+            entries: try manager.contentsOfDirectory(atPath: folder.path).sorted(), files: files,
+            selection: document as NSDictionary, manifestName: manifest.name,
+            chromosomes: manifest.genome?.chromosomes.map(\.name) ?? [], envelope: envelope, resolved: resolved,
+            outputPaths: paths, outputChecksums: checksums)
     }
 
     /// The service call `exportPrimerAnalysisSelection` makes, with the argv the app builds for it. The
