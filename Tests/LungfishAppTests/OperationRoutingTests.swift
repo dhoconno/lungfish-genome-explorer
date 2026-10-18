@@ -487,7 +487,7 @@ final class OperationRoutingTests: XCTestCase {
 
         let czIdLaunch = try sourceFunctionBody(
             named: "@objc func launchCzIdImport",
-            endingBefore: "func importNvdResultFromURL",
+            endingBefore: "@objc func launchOrientReads",
             in: source
         )
         XCTAssertTrue(czIdLaunch.contains("activeMainWindowController(sender: sender)"))
@@ -497,7 +497,7 @@ final class OperationRoutingTests: XCTestCase {
 
         let nvdImport = try sourceFunctionBody(
             named: "func importNvdResultFromURL",
-            endingBefore: "@objc func launchOrientReads",
+            endingBefore: "func importCzIdResultFromURL",
             in: source
         )
         XCTAssertTrue(nvdImport.contains("targetMainWindowController(routeContext: routeContext)"))
@@ -509,7 +509,7 @@ final class OperationRoutingTests: XCTestCase {
 
         let czIdImport = try sourceFunctionBody(
             named: "func importCzIdResultFromURL",
-            endingBefore: "static func reportViralReconLaunchFailure(",
+            endingBefore: "\n}\n",
             in: source
         )
         XCTAssertTrue(czIdImport.contains("targetMainWindowController(routeContext: routeContext)"))
