@@ -13,7 +13,7 @@ import LungfishWorkflow
 /// C4 of 2.11). With `--format json` the run prints the row's events. SIGTERM, the app's Cancel, cancels the import,
 /// removes its private staging folder, records the run as cancelled in the project and exits 125 (decision S7).
 ///
-/// `--resume` and `--materialize` replace the app's `--vcf-resume-helper` and `--vcf-materialize-helper` modes. Each
+/// `--resume` and `--materialize` replace the two finishing modes that the app executable ran for the Import Center. Each
 /// finishes the import of the `--replace` track from the database it already has, on a private copy, then
 /// reconciles the chromosome names, finalizes and publishes the track as a fresh import does.
 extension ImportCommand.VCFSubcommand {

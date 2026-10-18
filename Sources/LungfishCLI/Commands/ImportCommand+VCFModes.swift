@@ -32,8 +32,8 @@ extension ImportCommand.VCFSubcommand {
     typealias AttachSummary = VCFAttachSummary
 
     /// Builds the track in `mode`. A fresh attach is `VCFBundleVariantImport.attachInProcess`. `--resume` and
-    /// `--materialize` finish the `--replace` track's own database, as the app's `--vcf-resume-helper` and
-    /// `--vcf-materialize-helper` modes did, then run the same reconciliation, finalization and publication.
+    /// `--materialize` finish the `--replace` track's own database, as the app's former resume and
+    /// materialize helper modes did, then run the same reconciliation, finalization and publication.
     static func attach(
         _ request: VCFBundleVariantImport.Request,
         mode: AttachMode,

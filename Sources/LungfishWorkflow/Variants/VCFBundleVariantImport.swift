@@ -12,11 +12,11 @@ import LungfishIO
 /// which metadata the database carries, and how the database, provenance
 /// sidecar and manifest are published together.
 ///
-/// The GUI Import Center (`performVCFImport`, which builds the database
-/// out of process through `--vcf-import-helper`) and `lungfish-cli import vcf
-/// <path> --output-dir <bundle.lungfishref>` (which builds it in process through
-/// `attachInProcess`) both call these functions, so the two entry points cannot
-/// drift apart on anything that lands in the bundle.
+/// `lungfish-cli import vcf <path> --output-dir <bundle.lungfishref>` calls these
+/// functions in process, `attachInProcess` for a fresh import and the command's own
+/// `--resume` and `--materialize` modes for a stopped track. The Import Center runs
+/// that command (Phase 2.12 lane 12.07), so one route puts a VCF into a bundle and
+/// nothing can drift apart on what lands in the bundle.
 public enum VCFBundleVariantImport {
 
     // MARK: - Naming
