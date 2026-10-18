@@ -300,6 +300,60 @@ final class MappingSummaryBuilderTests: XCTestCase {
         XCTAssertFalse(stillRunning, "samtools view process (pid \(pid)) should be terminated promptly after Task cancellation")
     }
 
+    /// The streaming `samtools view` read that every summary build runs stops
+    /// its process when the task is cancelled, as the captured read above
+    /// does. The viewport cancels a superseded row refresh, so this handler is
+    /// a live path (P2 review item 8, SWIFT 3).
+    func testRunProcessStreamingOutputTerminatesProcessPromptlyWhenTaskIsCancelled() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-stream-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let pidFile = root.appendingPathComponent("view.pid")
+        let scriptURL = root.appendingPathComponent("fake_samtools_view_stream.sh")
+        try """
+        #!/bin/bash
+        /usr/bin/printf "%s" "$$" > "\(pidFile.path)"
+        exec /bin/sleep 300
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let task = Task {
+            try await MappingSummaryBuilder.runProcessStreamingOutput(
+                executableURL: scriptURL,
+                arguments: [],
+                workingDirectory: root,
+                timeout: 300,
+                consumeStdout: { _ in }
+            )
+        }
+
+        guard let pid = try await waitForPIDs(at: [pidFile], timeout: 30).first else {
+            task.cancel()
+            _ = try? await task.value
+            return
+        }
+        XCTAssertTrue(ProcessTreeTerminator.processExists(pid: pid), "the stub samtools view should have started")
+
+        task.cancel()
+        do {
+            try await task.value
+            XCTFail("Expected cancellation to propagate as an error")
+        } catch {
+            // The assertion that matters is the prompt termination below.
+        }
+
+        // Up to 30 s for the parallel unit tier, far short of the stub's 300 s sleep.
+        let terminationDeadline = Date().addingTimeInterval(30)
+        var stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        while stillRunning, Date() < terminationDeadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        }
+        XCTAssertFalse(stillRunning, "the streamed samtools view (pid \(pid)) should end promptly after Task cancellation")
+    }
+
     func testCancellingReadGroupCoveragePipelineTerminatesViewAndCoverageProcessTrees() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping-summary-rg-pipeline-cancel-\(UUID().uuidString)", isDirectory: true)

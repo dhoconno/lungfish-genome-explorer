@@ -250,7 +250,8 @@ public extension MappingResult {
 
         let mappingSidecarURL = directory.appendingPathComponent(mappingResultSidecarFilename)
         if FileManager.default.fileExists(atPath: mappingSidecarURL.path) {
-            let data = try Data(contentsOf: mappingSidecarURL)
+            // Mapped, so a large result's bytes stay evictable pages instead of a resident copy.
+            let data = try Data(contentsOf: mappingSidecarURL, options: .mappedIfSafe)
             let persisted = try decoder.decode(PersistedMappingResult.self, from: data)
             let legacyContext = legacyPathContext(
                 fromBAMPath: persisted.bamPath,

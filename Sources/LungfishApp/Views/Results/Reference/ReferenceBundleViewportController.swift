@@ -67,8 +67,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
     private var alignmentActionContextGeneration = 0
     private var alignmentActionContextTask: Task<Void, Never>?
-    /// The running mapping row refresh. A newer refresh cancels it, which stops its samtools children.
-    private var mappingRowsRefreshTask: Task<Void, Never>?
+    /// The running mapping row refresh, `nil` once it finishes. A newer refresh cancels it,
+    /// which stops its samtools children, and the ready announcement waits for it.
+    var mappingRowsRefreshTask: Task<Void, Never>?
 
     private struct AlignmentActionContextSeed: Sendable {
         let identity: AlignmentEvidenceIdentity
@@ -919,12 +920,15 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 // visible as an unmatched, no-RG row in All Alignments.
                 let stats = await AlignmentTrackStatsSnapshot.read(track: track, databaseURL: databaseURL)
                 for (sampleID, readGroups) in stats.sampleReadGroups {
+                    // A cancelled build reads as no rows, so a superseded refresh stops here.
+                    guard !Task.isCancelled else { return }
                     let summaries: [MappingContigSummary]
                     if stats.canUseAggregateFallback, let cached = stats.fallbackRows {
                         summaries = cached
                     } else {
                         summaries = (try? await builder(bamURL, stats.totalReads, readGroups)) ?? []
                     }
+                    guard !Task.isCancelled else { return }
                     rows += summaries.filter { $0.mappedReads > 0 }.map {
                         MappingContigSummary(sampleID: sampleID, alignmentTrackID: track.id, readGroupIDs: readGroups, contigName: $0.contigName, contigLength: $0.contigLength, mappedReads: $0.mappedReads, mappedReadPercent: $0.mappedReadPercent, meanDepth: $0.meanDepth, coverageBreadth: $0.coverageBreadth, medianMAPQ: $0.medianMAPQ, meanIdentity: $0.meanIdentity)
                     }
@@ -936,6 +940,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             // auto-select one while the viewer is explicitly filtered to
             // "all"; detail is meaningful only after an explicit row choice.
             self.clearMappingSelectionAfterAllRebuild()
+            self.finishMappingRowsRefresh()
         }
     }
 
@@ -1263,6 +1268,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         let refreshID = alignmentTrackSummaryRefreshID
         // A superseded refresh stops its samtools children, not only its output.
         mappingRowsRefreshTask?.cancel()
+        mappingRowsRefreshTask = nil
 
         guard let trackID,
               !trackID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1324,6 +1330,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     sampleSummaries, track: track, mappedReads: stats.mappedReads,
                     totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName
                 )
+                self.finishMappingRowsRefresh()
             } catch {
                 guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
                 if let fallback {
@@ -1334,6 +1341,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 } else {
                     self.showDetailPlaceholder("Unable to compute alignment statistics for \(track.name).")
                 }
+                self.finishMappingRowsRefresh()
             }
         }
     }

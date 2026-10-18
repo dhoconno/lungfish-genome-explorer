@@ -707,6 +707,72 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testSummaryText, "minimap2 Mapping — 198 / 200 reads mapped (99.0%)")
     }
 
+    /// A superseded All Alignments refresh stops at its cancelled build. It
+    /// read the cancellation as an empty result and went on to start the next
+    /// track's summary build (P2 review item 7).
+    func testCancelledAllAlignmentsRefreshStartsNoFurtherBuild() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        vc.setAlignmentTrackSummaryBuilderForTesting { _, _ in [] }
+        vc.configureForTesting(
+            result: makeMappingResult(viewerBundleURL: bundleURL, resultDirectoryURL: resultDirectory),
+            resultDirectoryURL: resultDirectory
+        )
+        await vc.mappingRowsRefreshTask?.value
+
+        var buildsStarted = 0
+        var buildsStartedWhileCancelled = 0
+        vc.setAlignmentTrackSummaryBuilderForTesting { _, _ in
+            buildsStarted += 1
+            if Task.isCancelled { buildsStartedWhileCancelled += 1 }
+            guard buildsStarted == 1 else { return [] }
+            try await Task.sleep(for: .seconds(60))
+            return []
+        }
+        vc.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.visibleAlignmentTrackID: ""])
+        let allAlignmentsRefresh = try XCTUnwrap(vc.mappingRowsRefreshTask)
+        try await waitUntil(timeout: 30) { buildsStarted == 1 }
+
+        vc.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"])
+        await allAlignmentsRefresh.value
+
+        XCTAssertEqual(buildsStartedWhileCancelled, 0, "the cancelled refresh started another summary build")
+    }
+
+    /// A progressive mapping open announces the table once the track refresh
+    /// has replaced the result's rows, so the count is the rows shown (P2
+    /// review item 10, UX ruling Q-S1).
+    func testMappingReadyAnnouncementCountsTheRowsShownAfterTheTrackRefresh() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        var announcements: [String] = []
+        vc.openProgress.announce = { announcements.append($0) }
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        vc.setAlignmentTrackSummaryBuilderForTesting { _, _ in
+            [MappingContigSummary(
+                contigName: "gamma", contigLength: 100, mappedReads: 4, mappedReadPercent: 100,
+                meanDepth: 7.5, coverageBreadth: 0.42, medianMAPQ: 60, meanIdentity: 1.0
+            )]
+        }
+
+        vc.showOpenLoading(title: "minimap2 Mapping", documentURL: resultDirectory)
+        vc.configureForTesting(
+            result: makeMappingResult(viewerBundleURL: bundleURL, resultDirectoryURL: resultDirectory),
+            resultDirectoryURL: resultDirectory
+        )
+        vc.finishOpenLoading()
+        try await waitUntil(timeout: 30) {
+            vc.testContigTableView.displayedRows.map(\.contigName) == ["gamma"] && !announcements.isEmpty
+        }
+
+        XCTAssertEqual(announcements, ["Mapping table ready, 1 sequence"])
+    }
+
     func testMultiSampleTrackBuildsRGFilteredRowsAndSelectionAppliesEverySampleRG() async throws {
         let vc = MappingResultViewController()
         _ = vc.view

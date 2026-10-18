@@ -93,15 +93,25 @@ extension ReferenceBundleViewportController {
 
     /// Posts "Sequence list ready, N sequences" or "Mapping table ready, N
     /// sequences" the first time the list or table of a progressive open
-    /// holds rows. Later row changes announce nothing.
+    /// holds rows. A mapping table waits for its track refresh, which
+    /// replaces the result's rows with the rows that have reads. Later row
+    /// changes announce nothing.
     func announceReadyIfUsable() {
         let progress = openProgress
+        if currentInput?.kind == .mappingResult, mappingRowsRefreshTask != nil { return }
         guard progress.isProgressive, !progress.isAwaitingInput, !progress.hasAnnouncedReady else { return }
         let isMappingTable = currentInput?.kind == .mappingResult
         let count = isMappingTable ? contigTableView.displayedRows.count : sequenceTableView.displayedRows.count
         guard count > 0 else { return }
         progress.hasAnnouncedReady = true
         progress.announce(ReferenceViewportOpenProgress.readyAnnouncement(isMappingTable: isMappingTable, count: count))
+    }
+
+    /// Ends the mapping row refresh that just finished, and announces the
+    /// table when the open still waits to.
+    func finishMappingRowsRefresh() {
+        mappingRowsRefreshTask = nil
+        announceReadyIfUsable()
     }
 
     /// Holds the first viewer open of a progressive open for one main-actor

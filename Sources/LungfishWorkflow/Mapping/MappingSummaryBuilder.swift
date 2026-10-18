@@ -383,7 +383,7 @@ public enum MappingSummaryBuilder {
 
     /// Runs a process without retaining stdout. Chunks are delivered in order
     /// to the caller while stderr remains concurrently drained for diagnostics.
-    private static func runProcessStreamingOutput(
+    static func runProcessStreamingOutput(
         executableURL: URL,
         arguments: [String],
         workingDirectory: URL?,
