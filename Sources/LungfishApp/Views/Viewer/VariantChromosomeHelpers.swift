@@ -6,6 +6,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishOperations
+import LungfishWorkflow
 
 /// Resolves the ordered list of chromosome query candidates for a track database.
 ///
