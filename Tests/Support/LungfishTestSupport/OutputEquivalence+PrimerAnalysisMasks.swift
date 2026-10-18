@@ -21,12 +21,15 @@ extension OutputEquivalence.MaskPolicy {
     /// This policy gives that payload text the masks a record gets (UUIDs, run IDs, ISO times) and the runtime keys a
     /// provenance envelope masks. It hides every sha256, checksumSHA256, byteSize and fileSize value in every record and
     /// payload of the bundle, not only those of files that hold the run's own UUIDs. Each file is still compared as
-    /// text, so a changed pair, template, option or flag still differs. argv and reproducibleCommand are hidden because
-    /// their first word differs by design. The app records the row's command, which starts with the executable name
-    /// (PrimerDesignOperation.cliArgv, 2.12 lane 12.17), and the CLI records the path it ran from. With both keys in the
-    /// compare, A against C differed only there, at argv[0] and reproducibleCommand of provenance/wrapper.json and
-    /// execution-provenance/normalization.json (measured by lane 12.17). The Primer3 class pins each side's vector
-    /// apart. explicit is hidden because the app names its dialog controls and the CLI its flags.
+    /// text, so a changed pair, template, option or flag still differs. argv, reproducibleCommand and explicit are
+    /// hidden. The hiding began while side A ran in process. Then the first word of argv differed by design, since the
+    /// app recorded the row's command, which starts with the executable name (PrimerDesignOperation.cliArgv, 2.12 lane
+    /// 12.17), where the CLI records the path it ran from, and explicit differed since the app named its dialog controls
+    /// where the CLI names its flags. With the keys in the compare, A against C differed only there, at argv[0] and
+    /// reproducibleCommand of provenance/wrapper.json and execution-provenance/normalization.json (measured by lane
+    /// 12.17). Since lane 12.17 M2, sides A and C of Primer3, PrimalScheme3 and varVAMP both run the CLI, so that reason
+    /// no longer holds for them. The policy itself does not change, and the keys stay hidden until the Olivar row of 2.13
+    /// measures whether they can leave the list. The Primer3 class pins each side's vector apart.
     public static var primerAnalysis: OutputEquivalence.MaskPolicy {
         var policy = OutputEquivalence.MaskPolicy.standard
         let digests = OutputEquivalence.Mask(name: "primerAnalysisDigests") { text, _ in
@@ -38,8 +41,8 @@ extension OutputEquivalence.MaskPolicy {
             )
         }
         // What the host that wrote an envelope says about itself and its call. That is its argument vector, the options
-        // it names for the run (the dialog's controls on side A, the command's flags on side C) and its name and
-        // version. The class pins the CLI's vector against the recorded command apart (`assertRecordedArgv`), and the
+        // it names for the run (the dialog's controls on side A while it ran in process, the command's flags on every
+        // side since lane 12.17 M2) and its name and version. The class pins the CLI's vector against the recorded command apart (`assertRecordedArgv`), and the
         // resolved options (`options.resolved*`) stay in the compare, where they are equal.
         let hostKeys: Set<String> = ["argv", "reproducibleCommand", "explicit"]
         let host = OutputEquivalence.Mask(name: "primerAnalysisHost") { text, _ in
