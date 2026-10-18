@@ -2,11 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// A Lungfish item dropped into an open project is copied by
-// CrossProjectItemCopier, one row per item (R4). No lungfish-cli command copies
-// an item between projects, so the row records no command, a CLI parity gap
-// (R3) the tests pin. The row locks no bundle, so a reporter that refuses every
-// begin stands in for a refusal.
+// A Lungfish item dropped into an open project is copied one row per item
+// (R4). On the `cli` route of the hidden key `CrossProjectCopyRoute` the row
+// records `lungfish-cli project copy-item`, which these tests parse with the
+// shipped parser (Phase 2.12 lane 12.18, gap id `cross-project-copy` closed).
+// On `legacy` the copy runs in the app and the row records no command until
+// 2.13 deletes the key. The row locks no bundle, so a reporter that refuses
+// every begin stands in for a refusal.
 
 import XCTest
 @testable import LungfishApp
@@ -26,12 +28,14 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
         windowStateScopeID: UUID()
     )
 
-    func testCopyRowRecordsItsRowAndNoCommandAsAParityGap() throws {
+    func testCopyRowRecordsTheCopyItemCommandThatParses() throws {
         let reporter = RecordingOperationReporter()
 
         let result = MainSplitViewController.beginCrossProjectCopyOperation(
             itemURL: itemURL,
             projectURL: projectURL,
+            requestedFolder: nil,
+            route: .cli,
             routeContext: routeContext,
             reporter: reporter
         )
@@ -45,11 +49,69 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
         XCTAssertNil(item.targetBundleURL)
         XCTAssertEqual(item.additionalLockedBundleURLs, [])
         XCTAssertEqual(item.routeContext, routeContext)
-        // CLI parity gap. No lungfish-cli command copies an item into another
-        // project with its links rewritten. When one exists, record it and
-        // replace this pin with a parse test.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "cross-project-copy")
+
+        let parsed = try RecordedCLICommand.parse(item.cliCommand, as: ProjectCopyItemSubcommand.self)
+        XCTAssertEqual(parsed.item, "Imports/Sample 1.lungfishfastq", "the item by its path inside its project")
+        XCTAssertEqual(parsed.sourceProject, "/tmp/lane 1k2/Other.lungfish")
+        XCTAssertEqual(parsed.project, "/tmp/lane 1k2/Project.lungfish")
+        XCTAssertNil(parsed.folder)
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .json, "the row reads the command's events")
+    }
+
+    func testCopyRowRecordsTheFolderTheItemWasDroppedOnInsideTheProject() throws {
+        let reporter = RecordingOperationReporter()
+        let cases: [(folder: URL, recorded: String)] = [
+            (projectURL.appendingPathComponent("Imports/Reviewed", isDirectory: true), "Imports/Reviewed"),
+            (projectURL, "."),
+        ]
+
+        for (folder, recorded) in cases {
+            MainSplitViewController.beginCrossProjectCopyOperation(
+                itemURL: itemURL,
+                projectURL: projectURL,
+                requestedFolder: folder,
+                route: .cli,
+                routeContext: nil,
+                reporter: reporter
+            )
+            let parsed = try RecordedCLICommand.parse(reporter.items.last?.cliCommand, as: ProjectCopyItemSubcommand.self)
+            XCTAssertEqual(parsed.folder, recorded, folder.path)
+        }
+    }
+
+    func testFinderItemInNoProjectIsRecordedByItsAbsolutePath() throws {
+        let reporter = RecordingOperationReporter()
+        let finderItem = URL(fileURLWithPath: "/tmp/lane 1k2/Loose/NC_045512.lungfishref", isDirectory: true)
+
+        MainSplitViewController.beginCrossProjectCopyOperation(
+            itemURL: finderItem,
+            projectURL: projectURL,
+            requestedFolder: nil,
+            route: .cli,
+            routeContext: nil,
+            reporter: reporter
+        )
+
+        let parsed = try RecordedCLICommand.parse(reporter.items.first?.cliCommand, as: ProjectCopyItemSubcommand.self)
+        XCTAssertEqual(parsed.item, finderItem.path)
+        XCTAssertNil(parsed.sourceProject)
+    }
+
+    func testLegacyCopyRowRecordsNoCommandSinceTheCopyRunsInTheApp() throws {
+        let reporter = RecordingOperationReporter()
+
+        MainSplitViewController.beginCrossProjectCopyOperation(
+            itemURL: itemURL,
+            projectURL: projectURL,
+            requestedFolder: nil,
+            route: .legacy,
+            routeContext: routeContext,
+            reporter: reporter
+        )
+
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(item.title, "Copy Sample 1.lungfishfastq")
+        XCTAssertNil(item.cliCommand, "the in-process copy ran no command")
     }
 
     func testRefusedCopyReturnsTheRefusalSoTheItemIsSkipped() {
@@ -58,6 +120,8 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
         let result = MainSplitViewController.beginCrossProjectCopyOperation(
             itemURL: itemURL,
             projectURL: projectURL,
+            requestedFolder: nil,
+            route: .cli,
             routeContext: nil,
             reporter: reporter
         )

@@ -45,6 +45,7 @@ extension MainSplitViewController {
             return
         }
         let routeContext = operationRouteContext
+        let route = CrossProjectCopyRouteSettings.currentRoute
         Task { @MainActor [weak self] in
             defer { onFinished?() }
             guard let self else { return }
@@ -55,6 +56,8 @@ extension MainSplitViewController {
                 let startResult = Self.beginCrossProjectCopyOperation(
                     itemURL: url,
                     projectURL: projectURL,
+                    requestedFolder: requestedFolder,
+                    route: route,
                     routeContext: routeContext
                 )
                 guard case .started(let opID) = startResult else {
@@ -63,27 +66,19 @@ extension MainSplitViewController {
                     continue
                 }
 
-                let result: Result<CrossProjectItemCopier.Outcome, any Error> = await Task.detached(priority: .userInitiated) {
-                    Result { try CrossProjectItemCopier.copy(itemAt: url, intoProject: projectURL, requestedFolder: requestedFolder) }
-                }.value
+                let result = await Self.copyDroppedProjectItem(
+                    url, intoProject: projectURL, requestedFolder: requestedFolder, route: route, operationID: opID
+                )
 
                 switch result {
                 case .success(let copied):
                     outcome.recordSuccess()
                     lastDestination = copied.destinationURL
-                    let landed = "Copied to \(Self.projectRelativeDescription(of: copied.destinationURL, in: projectURL))"
-                    if copied.record.hasMissingSources {
-                        for line in copied.record.missingSourceSummaryLines {
-                            OperationCenter.shared.log(id: opID, level: .warning, message: line)
-                        }
-                        _ = OperationCenter.shared.completeWithWarning(
-                            id: opID,
-                            detail: "\(landed). \(copied.record.unresolvedLinks.count) source item(s) not in this project."
-                        )
-                    } else {
-                        _ = OperationCenter.shared.complete(id: opID, detail: landed, outputURLs: [copied.destinationURL])
-                    }
+                    Self.completeCrossProjectCopyRow(opID, landed: copied, route: route, projectURL: projectURL)
                     postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
+                case .failure(let error) where error is CancellationError:
+                    // The runner acknowledged the cancel, so the row ends Cancelled. A cancel is no failure to alert about.
+                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Cancelled")
                 case .failure(let error):
                     let message = error.localizedDescription
                     mainSplitLogger.error("importProjectItemsFromDrop: \(url.lastPathComponent, privacy: .public) failed: \(message, privacy: .public)")
@@ -112,25 +107,80 @@ extension MainSplitViewController {
     /// project and returns the result. The row locks no bundle, as before,
     /// and the launch skips the item on a refusal.
     ///
-    /// cli-parity-gap: cross-project-copy. No `lungfish-cli` command copies an item between
-    /// projects. `CrossProjectItemCopier` lands the item in the folder the
-    /// project expects, rewrites the links it can resolve and lists the
-    /// sources the project lacks, and it runs only in the app, so the row
-    /// records no command. A copy command in the CLI would replace the pin in
-    /// MainSplitCrossProjectCopyOperationTests with a parse test.
+    /// On `cli` the row records the `lungfish-cli project copy-item` command
+    /// the route runs. On `legacy` the copy runs in this process and the row
+    /// records no command, until 2.13 deletes the key (U-R1).
     @discardableResult
     static func beginCrossProjectCopyOperation(
         itemURL: URL,
         projectURL: URL,
+        requestedFolder: URL?,
+        route: CrossProjectCopyRoute,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared
     ) -> OperationStartResult {
-        reporter.begin(
+        let command = route == .cli
+            ? CrossProjectCopyRoute.command(itemURL: itemURL, projectURL: projectURL, requestedFolder: requestedFolder)
+            : nil
+        return reporter.begin(
             title: "Copy \(itemURL.lastPathComponent)",
             detail: "Copying into \(projectURL.deletingPathExtension().lastPathComponent)...",
             operationType: .ingestion,
-            cliCommand: nil,
+            cliCommand: command,
             routeContext: routeContext
+        )
+    }
+
+    /// Copies one dropped item on `route` for the row `operationID`. The
+    /// failure is `CancellationError` once the row's cancel is acknowledged.
+    static func copyDroppedProjectItem(
+        _ itemURL: URL,
+        intoProject projectURL: URL,
+        requestedFolder: URL?,
+        route: CrossProjectCopyRoute,
+        operationID: UUID,
+        launch: CrossProjectCopyRoute.Launch = CrossProjectCopyRoute.launchCommand
+    ) async -> Result<CrossProjectCopyRoute.Landed, any Error> {
+        do {
+            switch route {
+            case .cli:
+                return .success(try await CrossProjectCopyRoute.copy(
+                    itemURL: itemURL, projectURL: projectURL, requestedFolder: requestedFolder,
+                    operationID: operationID, launch: launch
+                ))
+            case .legacy:
+                return .success(try await CrossProjectCopyRoute.copyInProcess(
+                    itemURL: itemURL, projectURL: projectURL, requestedFolder: requestedFolder
+                ))
+            }
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Completes the row of a copy that landed, with a warning when the
+    /// project lacks some of the item's sources. On `cli` the command logged
+    /// each of them on the row, so only `legacy` logs them here.
+    static func completeCrossProjectCopyRow(
+        _ operationID: UUID,
+        landed: CrossProjectCopyRoute.Landed,
+        route: CrossProjectCopyRoute,
+        projectURL: URL,
+        reporter: any OperationReporting = OperationCenter.shared
+    ) {
+        let detail = "Copied to \(projectRelativeDescription(of: landed.destinationURL, in: projectURL))"
+        guard let record = landed.record, record.hasMissingSources else {
+            _ = reporter.complete(id: operationID, detail: detail, outputURLs: [landed.destinationURL])
+            return
+        }
+        if route == .legacy {
+            for line in record.missingSourceSummaryLines {
+                reporter.log(id: operationID, level: .warning, message: line)
+            }
+        }
+        _ = reporter.completeWithWarning(
+            id: operationID,
+            detail: "\(detail). \(record.unresolvedLinks.count) source item(s) not in this project."
         )
     }
 
