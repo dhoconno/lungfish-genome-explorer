@@ -48,7 +48,7 @@ extension ClassifierReadResolver {
         destination: ExtractionDestination,
         runClock: ProvenanceRunClock,
         progress: (@Sendable (Double, String) -> Void)?
-    ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout) {
+    ) async throws -> (outcome: ExtractionOutcome, layout: ClassifierExtractionLayout, sourceFiles: [URL]) {
         let hasSingleSampleSelectors = selections.contains { $0.sampleId == nil }
         let hasBatchSampleSelectors = selections.contains { $0.sampleId != nil }
         guard !(hasSingleSampleSelectors && hasBatchSampleSelectors) else {
@@ -87,6 +87,8 @@ extension ClassifierReadResolver {
         // used to be dropped silently, so the user saw a "success" that
         // omitted whole samples.
         var skippedSamples: [String] = []
+        // Every read file the samples were extracted from, which a collection file's record names.
+        var readFiles: [URL] = []
         // The R1 and R2 reads of every pair of files, each R1 record followed
         // by its R2 record, go into one file, and the reads of every other
         // file follow it: all pairs first, then the single reads (D7d). The
@@ -141,6 +143,7 @@ extension ClassifierReadResolver {
                 continue
             }
             let sourceFASTQs = sources.urls
+            readFiles.append(contentsOf: sourceFASTQs)
             provenanceSourceURLs.append(contentsOf: sourceFASTQs)
             sourcesHoldMates = sourcesHoldMates || sources.holdsMates
                 || Self.sourceHoldsInterleavedPairs(config: classResult.config, sourceFASTQs: sourceFASTQs)
@@ -258,7 +261,7 @@ extension ClassifierReadResolver {
                 "Extracted \(readCount) reads. Skipped \(skippedSamples.count) sample(s) with unresolvable source data: \(skippedSamples.joined(separator: ", "))"
             )
         }
-        return (outcome, ClassifierExtractionLayout(pairingMode: layout.mode, roles: layout.roles))
+        return (outcome, ClassifierExtractionLayout(pairingMode: layout.mode, roles: layout.roles), readFiles)
     }
 
     /// Whether a Kraken 2 sample's source is one FASTQ holding interleaved

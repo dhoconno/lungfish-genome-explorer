@@ -25,9 +25,11 @@ struct ExtractTaxaCollectionOutcome: Sendable {
 
 /// Extracts the reads of every taxon of a taxa collection from a Kraken2 classification result, one
 /// gzip FASTQ file per taxon (Phase 2.11 lane A66). It is the command behind the Extract button of the
-/// taxa collections drawer, which writes into `extracted-<collection id>` beside the result. The files
-/// are the ones `TaxonomyExtractionPipeline.extractBatch` writes, so a result that holds several read
-/// files gives each taxon one file with the pairs together (decisions D7d and D7e of Phase 2.10).
+/// taxa collections drawer, which writes into `extracted-<collection id>` beside the result. Since
+/// Phase 2.12 lane 12.11 each taxon runs through `ClassifierReadResolver`, as `extract reads
+/// --by-classifier` does, so a result that holds several read files gives each taxon one file with the
+/// pairs together (decisions D7d and D7e of Phase 2.10), and each file's record names this command for
+/// that one taxon.
 ///
 /// ```
 /// lungfish-cli extract taxa-collection --result Analyses/kraken2-run \
@@ -122,7 +124,7 @@ struct ExtractTaxaCollectionSubcommand: AsyncParsableCommand {
         }
     }
 
-    /// The batch of ``extractBatch``, taxon by taxon, with its progress as events.
+    /// The collection through the resolver, taxon by taxon, with its progress as events.
     func extract(events: CLIEventEmitter) async throws -> ExtractTaxaCollectionOutcome {
         let startedAt = Date()
         let resultURL = URL(fileURLWithPath: result, isDirectory: true)
@@ -139,10 +141,10 @@ struct ExtractTaxaCollectionSubcommand: AsyncParsableCommand {
             id: collectionID, name: collectionName, description: "", sfSymbol: "circle",
             taxa: try targets.map(Self.parseTarget)
         )
-        let outputs = try await TaxonomyExtractionPipeline().extractBatch(
-            collection: collection,
-            classificationResult: classification,
-            tree: classification.tree,
+        let outputs = try await ClassifierReadResolver().extractCollection(
+            collection,
+            resultPath: resultURL,
+            classification: classification,
             outputDirectory: URL(fileURLWithPath: outputDirectory, isDirectory: true),
             progress: { fraction, message in events.emitProgress(fraction, message: message) }
         )

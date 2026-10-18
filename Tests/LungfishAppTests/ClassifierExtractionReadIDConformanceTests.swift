@@ -75,17 +75,14 @@ final class ClassifierExtractionReadIDConformanceTests: XCTestCase {
         XCTAssertEqual(lines.joined(separator: "\n"), Self.frozenKraken2, "Kraken2\n" + lines.joined(separator: "\n"))
     }
 
-    func testTheKraken2CollectionThroughExtractBatchWritesTheFrozenReads() async throws {
+    func testTheKraken2CollectionThroughTheLeafWritesTheFrozenReads() async throws {
         try await requireTool(.seqkit)
         let fixtures = try TaxaCollectionFixtures(in: root.appendingPathComponent("collection", isDirectory: true))
         var lines: [String] = []
         for (label, resultFolder) in [("single", fixtures.singleEnd), ("paired", fixtures.paired)] {
-            let result = try ClassificationResult.load(from: resultFolder)
-            let outputs = try await TaxonomyExtractionPipeline().extractBatch(
-                collection: TaxaCollectionFixtures.collection,
-                classificationResult: result,
-                tree: result.tree,
-                outputDirectory: root.appendingPathComponent("batch-\(label)", isDirectory: true)
+            let outputs = try await extractCollection(
+                TaxaCollectionFixtures.collection, from: resultFolder,
+                into: root.appendingPathComponent("batch-\(label)", isDirectory: true)
             )
             for output in outputs {
                 lines.append("collection \(label) \(output.lastPathComponent) \(try Self.summary(of: output))")
@@ -122,13 +119,16 @@ final class ClassifierExtractionReadIDConformanceTests: XCTestCase {
         XCTAssertEqual(lines.joined(separator: "\n"), Self.frozenExactCollection, "exact collection\n" + lines.joined(separator: "\n"))
     }
 
-    /// The collection engine the exact case runs, `extractBatch` until lane 12.11 M3 moves the
-    /// collection onto the resolver, when this runs the leaf and the frozen text stays.
+    /// The collection engine both collection tests run. It was `extractBatch` when the text was frozen.
+    /// Since lane 12.11 M3 it is `extract taxa-collection`, in process on the argv the viewer's Extract
+    /// button hands it, which runs each taxon through the resolver, and the frozen text stays (X12).
     private func extractCollection(_ collection: TaxaCollection, from folder: URL, into output: URL) async throws -> [URL] {
-        let result = try ClassificationResult.load(from: folder)
-        return try await TaxonomyExtractionPipeline().extractBatch(
-            collection: collection, classificationResult: result, tree: result.tree, outputDirectory: output
+        let arguments = await ViewerViewController.taxaCollectionExtractionArguments(
+            collection: collection, resultDirectory: folder, outputDirectory: output
         )
+        let command = try ExtractTaxaCollectionSubcommand.parse(Array(arguments.dropFirst(2)))
+        let outcome = try await command.extract(events: CLIEventEmitter(enabled: false, emit: { _ in }))
+        return outcome.outputs.map { URL(fileURLWithPath: $0) }
     }
 
     // MARK: - Sample grouping under a collation that is not English (BIO 5)

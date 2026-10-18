@@ -46,20 +46,27 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
     ) async throws -> (outputs: [URL], folder: URL) {
         let result = try ClassificationResult.load(from: resultFolder)
         let folder = extractedFolder(of: result, collection)
-        let outputs = try await TaxonomyExtractionPipeline().extractBatch(
-            collection: collection,
-            classificationResult: result,
-            tree: result.tree,
+        let outputs = try await ClassifierReadResolver().extractCollection(
+            collection,
+            resultPath: resultFolder,
+            classification: result,
             outputDirectory: folder,
             progress: { _, message in log.append(message) }
         )
         return (outputs, folder)
     }
 
-    // MARK: - extractBatch
+    /// The scratch folders in the project's `.tmp`, where the resolver works (the review of lane 12.11,
+    /// fix 8e). A run leaves none behind.
+    private func projectScratch() -> Set<String> {
+        Set((try? FileManager.default.contentsOfDirectory(atPath: ProjectTempDirectory.tempRoot(for: fixtures.projectURL).path)) ?? [])
+    }
+
+    // MARK: - The collection on the resolver (extractBatch until lane 12.11 M3)
 
     func testATwoTaxonCollectionWritesOneGzipFilePerTaxonUnderTheExtractedFolder() async throws {
         let log = TaxaCollectionProgressLog()
+        let scratchBefore = projectScratch()
         let run = try await runBatch(resultFolder: fixtures.singleEnd, log: log)
 
         XCTAssertEqual(run.folder.lastPathComponent, "extracted-a66-genus-and-b")
@@ -80,8 +87,12 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         XCTAssertEqual(try TaxaCollectionFixtures.recordNames(in: run.outputs[1]), ["b1", "b2"], "a target without children reads its own taxon")
         XCTAssertEqual(log.messages.first, "Starting batch extraction: A66 genus and B (2 taxa)")
         XCTAssertEqual(log.messages.last, "Batch complete: 2 of 2 taxa extracted (0 skipped)")
-        let scratch = try FileManager.default.contentsOfDirectory(atPath: run.folder.path).filter { $0.hasPrefix(".kraken2-sources-") }
-        XCTAssertEqual(scratch, [], "the scratch folder of the read files goes at the end")
+        XCTAssertEqual(projectScratch(), scratchBefore, "the scratch folders of the run go at the end")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: run.folder.path).filter { $0.hasPrefix(".") },
+            [".lungfish-provenance.json"],
+            "the extracted folder holds no scratch, only the last record"
+        )
     }
 
     func testAPairedResultWritesEachTaxonsMatesTogetherInOneFile() async throws {
@@ -139,12 +150,14 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         let result = try ClassificationResult.load(from: fixtures.singleEnd)
         let folder = extractedFolder(of: result, collection)
         let cancel = TaxaCollectionCancelBox()
+        let resultFolder: URL = fixtures.singleEnd
+        let scratchBefore = projectScratch()
 
         let task = Task.detached {
-            try await TaxonomyExtractionPipeline().extractBatch(
-                collection: collection,
-                classificationResult: result,
-                tree: result.tree,
+            try await ClassifierReadResolver().extractCollection(
+                collection,
+                resultPath: resultFolder,
+                classification: result,
                 outputDirectory: folder,
                 progress: { _, message in
                     if message.hasPrefix("Extracting Species B (2 of 2)") { cancel.cancel() }
@@ -163,8 +176,7 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("Genus_A_taxid10.fastq.gz").path), "the first taxon's file stays")
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("Species_B_taxid20.fastq.gz").path))
-        let scratch = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasPrefix(".kraken2-sources-") }
-        XCTAssertEqual(scratch, [], "a cancel removes the scratch folder too")
+        XCTAssertEqual(projectScratch(), scratchBefore, "a cancel removes the run's scratch folders in the project's .tmp too")
     }
 
     // MARK: - A second run into the same folder (Phase 2.12 lane 12.11 M1, BIO 6)

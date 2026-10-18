@@ -64,13 +64,13 @@ final class Kraken2MateNameExtractionTests: XCTestCase {
         )
         let result = try ClassificationResult.load(from: resultDirectory)
 
-        let outputs = try await TaxonomyExtractionPipeline().extractBatch(
-            collection: TaxaCollection(
+        let outputs = try await ClassifierReadResolver().extractCollection(
+            TaxaCollection(
                 id: "l6-dotted", name: "L6 dotted", description: "", sfSymbol: "circle",
                 taxa: [TaxonTarget(name: "Target virus", taxId: t)]
             ),
-            classificationResult: result,
-            tree: result.tree,
+            resultPath: resultDirectory,
+            classification: result,
             outputDirectory: root.appendingPathComponent("batch-out", isDirectory: true)
         )
 

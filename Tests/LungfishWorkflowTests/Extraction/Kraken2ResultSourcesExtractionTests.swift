@@ -225,10 +225,10 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
 
         let outputs: [URL]
         do {
-            outputs = try await TaxonomyExtractionPipeline().extractBatch(
-                collection: collection,
-                classificationResult: result,
-                tree: result.tree,
+            outputs = try await ClassifierReadResolver().extractCollection(
+                collection,
+                resultPath: shapes.mergeDerivativeResult,
+                classification: result,
                 outputDirectory: outputDirectory
             )
         } catch {
@@ -246,7 +246,8 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
         XCTAssertEqual(Set(roles.files.map(\.filename)), [output.lastPathComponent])
         let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)))
         XCTAssertEqual(envelope.options.explicit["extractedReads"], .integer(3), "the records of the one file")
-        XCTAssertEqual(Array(envelope.steps.first?.argv.prefix(2) ?? []), ["LungfishWorkflow", "extract-taxon-reads"])
+        // The file's record names extract taxa-collection for this one taxon (lane 12.11 M3, BIO 6).
+        XCTAssertEqual(Array(envelope.steps.first?.argv.prefix(3) ?? []), [CLICommandIdentity.executableName, "extract", "taxa-collection"])
     }
 
     /// A result of one loose file is extracted as before: one gzip file per
@@ -265,10 +266,10 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
             taxa: [TaxonTarget(name: "Target virus", taxId: 100)]
         )
 
-        let outputs = try await TaxonomyExtractionPipeline().extractBatch(
-            collection: collection,
-            classificationResult: result,
-            tree: result.tree,
+        let outputs = try await ClassifierReadResolver().extractCollection(
+            collection,
+            resultPath: resultDirectory,
+            classification: result,
             outputDirectory: root.appendingPathComponent("batch-single", isDirectory: true)
         )
 

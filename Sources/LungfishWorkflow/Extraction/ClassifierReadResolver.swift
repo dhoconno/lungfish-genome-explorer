@@ -181,14 +181,11 @@ public actor ClassifierReadResolver {
             )
             return (outcome, .singleEnd)
         } else {
-            return try await extractViaKraken2(
-                selections: nonEmpty,
-                resultPath: resultPath,
-                options: options,
-                destination: destination,
-                runClock: runClock,
-                progress: progress
+            let kraken2 = try await extractViaKraken2(
+                selections: nonEmpty, resultPath: resultPath, options: options,
+                destination: destination, runClock: runClock, progress: progress
             )
+            return (kraken2.outcome, kraken2.layout)
         }
     }
 

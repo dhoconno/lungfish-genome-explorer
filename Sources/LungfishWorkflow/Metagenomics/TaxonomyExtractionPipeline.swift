@@ -258,133 +258,6 @@ public actor TaxonomyExtractionPipeline {
     }
 
 
-    // MARK: - Batch Extraction
-
-    /// Extracts reads for every taxon target in a collection, producing one output per target.
-    ///
-    /// For each ``TaxonTarget`` in the collection:
-    /// 1. The target tax ID set is built (expanding to descendants if ``TaxonTarget/includeChildren`` is `true`).
-    /// 2. A read ID set is constructed from the classification output.
-    /// 3. Matching reads are extracted via seqkit grep into a separate output file.
-    /// 4. A `.lungfishfastq` bundle is created for the extracted reads.
-    ///
-    /// Targets with zero matching reads are skipped (logged but not fatal).
-    /// Each target is processed sequentially to avoid I/O contention.
-    ///
-    /// ## Progress
-    ///
-    /// The progress callback reports overall batch progress from 0.0 to 1.0,
-    /// with per-taxon sub-progress messages.
-    ///
-    /// - Parameters:
-    ///   - collection: The taxa collection defining targets to extract.
-    ///   - classificationResult: The classification result containing the tree and output files.
-    ///   - tree: The taxonomy tree for descendant lookup.
-    ///   - outputDirectory: The directory to write output files into.
-    ///   - progress: Optional progress callback.
-    /// - Returns: URLs of the output FASTQ files that were created (one per successful target).
-    /// - Throws: ``TaxonomyExtractionError`` if the classification output or source files are missing.
-    public func extractBatch(
-        collection: TaxaCollection,
-        classificationResult: ClassificationResult,
-        tree: TaxonTree,
-        outputDirectory: URL,
-        progress: (@Sendable (Double, String) -> Void)? = nil
-    ) async throws -> [URL] {
-        let targets = collection.taxa
-        let totalTargets = targets.count
-        guard totalTargets > 0 else { return [] }
-
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: outputDirectory.path) {
-            try fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        }
-
-        progress?(0.0, "Starting batch extraction: \(collection.name) (\(totalTargets) taxa)")
-
-        // Every read file of the result (D7e). A trimmed or oriented subset
-        // is materialized once into a scratch folder that goes at the end,
-        // removed only when it was made (``ClassificationPipeline/removeIfPresent(_:)``).
-        let scratch = outputDirectory.appendingPathComponent(".kraken2-sources-\(UUID().uuidString)", isDirectory: true)
-        defer { ClassificationPipeline.removeIfPresent(scratch) }
-        let sources = try await KrakenResultReadSources.resolve(
-            result: classificationResult,
-            materializationDirectory: scratch.appendingPathComponent("materialized", isDirectory: true)
-        )
-
-        var outputURLs: [URL] = []
-        var skippedCount = 0
-
-        for (index, target) in targets.enumerated() {
-            try Task.checkCancellation()
-
-            let overallBase = Double(index) / Double(totalTargets)
-            let overallStep = 1.0 / Double(totalTargets)
-
-            // Check if this taxon has any reads in the result
-            let node = tree.node(taxId: target.taxId)
-            let cladeReads = node?.readsClade ?? 0
-            if cladeReads == 0 {
-                logger.info("Skipping \(target.displayName, privacy: .public): 0 reads in result")
-                skippedCount += 1
-                progress?(overallBase + overallStep, "Skipped \(target.displayName) (0 reads)")
-                continue
-            }
-
-            progress?(
-                overallBase,
-                "Extracting \(target.displayName) (\(index + 1) of \(totalTargets))..."
-            )
-
-            // Build a safe filename from the target name
-            let safeName = target.displayName
-                .replacingOccurrences(of: " ", with: "_")
-                .replacingOccurrences(of: "/", with: "-")
-            let outputFile = outputDirectory.appendingPathComponent("\(safeName)_taxid\(target.taxId).fastq")
-
-            // Build config for this single target. One file of reads is
-            // extracted as before. Several give one file per taxon, pairs
-            // interleaved, then single reads (D7e).
-            let config = TaxonomyExtractionConfig(
-                taxIds: Set([target.taxId]),
-                includeChildren: target.includeChildren,
-                sourceFile: sources.urls[0],
-                outputFile: outputFile,
-                classificationOutput: classificationResult.outputURL,
-                taxonomyReport: target.includeChildren ? classificationResult.reportURL : nil
-            )
-            let targetProgress: @Sendable (Double, String) -> Void = { fraction, message in
-                let mappedFraction = overallBase + overallStep * fraction
-                progress?(min(mappedFraction, overallBase + overallStep), message)
-            }
-
-            do {
-                if sources.files.count == 1 {
-                    outputURLs += try await extract(config: config, tree: tree, progress: targetProgress)
-                } else {
-                    outputURLs.append(try await extractIntoOneFile(
-                        config: config,
-                        files: sources.files,
-                        scratch: scratch.appendingPathComponent("\(index)", isDirectory: true),
-                        tree: tree,
-                        progress: targetProgress
-                    ))
-                }
-            } catch TaxonomyExtractionError.noMatchingReads {
-                logger.info("No matching reads for \(target.displayName, privacy: .public), skipping")
-                skippedCount += 1
-                progress?(overallBase + overallStep, "Skipped \(target.displayName) (no matching reads)")
-            }
-        }
-
-        let extractedCount = outputURLs.count
-        progress?(1.0, "Batch complete: \(extractedCount) of \(totalTargets) taxa extracted (\(skippedCount) skipped)")
-        logger.info("Batch extraction complete: \(extractedCount) extracted, \(skippedCount) skipped from \(collection.name, privacy: .public)")
-
-        return outputURLs
-    }
-
-
     // MARK: - Descendant Collection
 
     /// Collects all descendant tax IDs for the given set of tax IDs.
@@ -579,14 +452,16 @@ public actor TaxonomyExtractionPipeline {
 
     // MARK: - Provenance
 
-    /// Records provenance for the extraction operation.
+    /// Records provenance for the extraction operation. `command` is the command the record names, the
+    /// one `extract taxa-collection` gives for a collection file, and nil names the replay of
+    /// ``extract(config:tree:progress:)``.
     func recordProvenance(
         config: TaxonomyExtractionConfig,
         resolvedTaxIds: Set<Int>,
         outputURLs: [URL],
         extractedCount: Int,
         runtime: TimeInterval,
-        commandPrefix: [String]? = nil
+        command: [String]? = nil
     ) async throws {
         let recorder = ProvenanceRecorder.shared
         let runID = await recorder.beginRun(
@@ -615,7 +490,7 @@ public actor TaxonomyExtractionPipeline {
             runID: runID,
             toolName: "TaxonomyExtractionPipeline",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds, prefix: commandPrefix),
+            command: command ?? extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds),
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -680,18 +555,16 @@ public actor TaxonomyExtractionPipeline {
 
     private func extractionReplayCommand(
         config: TaxonomyExtractionConfig,
-        resolvedTaxIds: Set<Int>,
-        prefix: [String]? = nil
+        resolvedTaxIds: Set<Int>
     ) -> [String] {
-        // Legacy CLI replay for taxonomy-ID extraction. The supported
-        // `extract reads --by-id` path needs a materialized read-ID file; until
-        // this workflow writes one, provenance identifies the actor above.
-        // A taxon extracted from several files into one names the workflow
-        // step, since `conda extract` writes one output per file.
+        // The legacy replay of `extract(config:tree:progress:)`, which no
+        // command or view calls since Phase 2.12 lane 12.11 moved the taxa
+        // collection onto ClassifierReadResolver and retired the conda leaf
+        // it names. Lane 13.02 (DEL-READS) deletes it with its tests.
         let replayTaxIds = config.includeChildren && config.taxonomyReport == nil
             ? resolvedTaxIds
             : config.taxIds
-        var command = (prefix ?? [CLICommandIdentity.executableName, "conda", "extract"]) + [
+        var command = [CLICommandIdentity.executableName, "conda", "extract"] + [
             "--kraken-output",
             config.classificationOutput.path,
         ]

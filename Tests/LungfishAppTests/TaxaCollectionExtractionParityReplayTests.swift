@@ -8,14 +8,14 @@
 // and records that command. Each case runs on three sides that start as copies of one project with a
 // single-end and a paired Kraken2 result.
 //
-// - Side A is the in-process route at the base, `extractBatch` on the loaded result.
+// - Side A was the in-process route at the base, `extractBatch` on the loaded result. It retired with
+//   the old engine in Phase 2.12 lane 12.11 M3, so it no longer runs, and the class compares C against C'.
 // - Side C is the CLI route, the begin helper the viewer calls and `CLIBundleBuildRunner`, which launches
 //   the built `lungfish-cli` on the argv of `ViewerViewController.taxaCollectionExtractionArguments`.
 //   Its row records the command.
 // - Side C' is the harness's replay of that command.
 //
-// C against C' declares nothing. A against C declares the root record the command writes last and the
-// run ids that follow from it (`declared`). The cases cover a taxon with children (BIO 2), a paired
+// C against C' declares nothing. The cases cover a taxon with children (BIO 2), a paired
 // result whose taxa keep their mates together (BIO 3) and taxa the result cannot give, skipped and not
 // counted. The last test drives the viewer's Extract button itself.
 //
@@ -111,35 +111,25 @@ final class TaxaCollectionExtractionParityReplayTests: XCTestCase {
     /// record after `extractBatch`, so it names the command that ran and every file of the run, where side
     /// A's root record is the last taxon's step. The last taxon's own sidecar then keeps its run and step
     /// ids, which side A shares with its root record. Nothing is declared for C against C'.
-    private static let declared: [RouteParityDeclaredDifference<Case>] = [
-        RouteParityDeclaredDifference(
-            [.singleEndWithChildren: 138, .pairedMates: 146, .skippedTaxa: 129],
-            "differs: Project.lungfish/Analyses/<ANY>/extracted-<ANY>/.lungfish-provenance.json at <ANY>",
-            reason: "the command's root record replaces the last taxon's",
-            closedBy: "2.11 A66, the retirement of side A"
-        ),
-        RouteParityDeclaredDifference(
-            [.singleEndWithChildren: 2, .pairedMates: 2, .skippedTaxa: 2],
-            "differs: Project.lungfish/Analyses/<ANY>/extracted-<ANY>/<ANY>.fastq.gz.lungfish-provenance.json at <ANY>",
-            reason: "the last taxon's sidecar keeps its own run and step ids, which side A shares with its root record",
-            closedBy: "2.11 A66, the retirement of side A"
-        ),
-    ]
+    /// Side A, `extractBatch`, retired with the old engine in lane 12.11 M3 (the review's fix 9). The
+    /// harness still runs a side A, so it is this outcome, and the class compares C against C' alone,
+    /// with nothing declared. The two differences A had, both closed by the retirement of side A, went
+    /// with it.
+    private static let retiredSideA = RouteParitySideOutcome(end: .completed, detail: "not run, extractBatch retired in 2.12 lane 12.11")
 
     private func assertCase(_ parityCase: Case, detail: String) async throws {
-        let result = try await harness.assertParity(
-            parityCase,
-            declared: Self.declared,
+        let runs = try await harness.run(
             in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
             fixture: { root in _ = try TaxaCollectionFixtures(in: root) },
-            sideA: { root in await self.sideA(root, parityCase) },
+            sideA: { _ in Self.retiredSideA },
             sideC: { root in await self.sideC(root, parityCase) }
         )
-        for run in [result.runs.a, result.runs.c, result.runs.cPrime] {
+        let differences = try harness.differences(runs.c, runs.cPrime)
+        RouteParityHarness.assertNoFailures(differences.map { "\($0)" }, in: "\(parityCase), C against C'")
+        for run in [runs.c, runs.cPrime] {
             XCTAssertEqual(run.outcome.end, .completed, "\(run.side): \(run.outcome.detail)")
         }
-        XCTAssertEqual(result.runs.a.outcome.detail, detail, "the row's complete words")
-        XCTAssertEqual(result.runs.c.outcome.detail, detail, "the row's complete words")
+        XCTAssertEqual(runs.c.outcome.detail, detail, "the row's complete words")
     }
 
     // MARK: - The sides
@@ -162,23 +152,6 @@ final class TaxaCollectionExtractionParityReplayTests: XCTestCase {
             return Setup(resultFolder: analyses.appendingPathComponent("kraken2-paired", isDirectory: true), collection: TaxaCollectionFixtures.collection)
         case .skippedTaxa:
             return Setup(resultFolder: analyses.appendingPathComponent("kraken2-single", isDirectory: true), collection: TaxaCollectionFixtures.skippingCollection)
-        }
-    }
-
-    /// Side A. `extractBatch` on the loaded result, as the viewer ran it in the app.
-    private func sideA(_ root: URL, _ parityCase: Case) async -> RouteParitySideOutcome {
-        do {
-            let setup = Self.setup(root, parityCase)
-            let classification = try ClassificationResult.load(from: setup.resultFolder)
-            let outputs = try await TaxonomyExtractionPipeline().extractBatch(
-                collection: setup.collection,
-                classificationResult: classification,
-                tree: classification.tree,
-                outputDirectory: setup.outputDirectory
-            )
-            return RouteParitySideOutcome(end: .completed, detail: "Extracted \(outputs.count) taxa from \(setup.collection.name)")
-        } catch {
-            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
         }
     }
 
