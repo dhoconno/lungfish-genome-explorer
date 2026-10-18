@@ -444,45 +444,35 @@ final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
     static let cliRecord = """
     workflow lungfish extract sequence
     tool lungfish extract sequence
-    argv lungfish-cli | extract | sequence | @/Downloads/test virus.fasta | NC_TEST.1:11-40 | --output | @/Extractions/Region 1.lungfishref
+    argv lungfish-cli | extract | sequence | @/Downloads/test virus.fasta | NC_TEST.1:11-40 | --output | @/Extractions/Region 1.lungfishref | --next-free-name | --format | json
     steps lungfish extract sequence, bgzip, samtools faidx
-    explicit chromosome=string("NC_TEST.1")
-    explicit effectiveEnd=integer(40)
-    explicit effectiveStart=integer(10)
-    explicit extractedLength=integer(30)
-    explicit flank=integer(0)
-    explicit flank3=null
-    explicit flank5=null
+    explicit bundle_name=string("NC_TEST.1:11-40")
+    explicit concatenate_exons=boolean(false)
     explicit input=file(file:@/Downloads/test%20virus.fasta)
-    explicit lineWidth=integer(70)
-    explicit output=file(file:@/Extractions/Region%201.lungfishref)
-    explicit region=string("NC_TEST.1:11-40")
-    explicit requestedEnd=integer(40)
-    explicit requestedStart=integer(11)
-    explicit reverseComplement=boolean(false)
-    default flank=integer(0)
-    default flank3=null
-    default flank5=null
-    default lineWidth=integer(70)
-    default reverseComplement=boolean(false)
+    explicit operation=string("sequence-extraction")
+    explicit reverse_complement=boolean(false)
+    explicit sample_filter=array([])
+    explicit source_bundle=null
+    explicit source_bundle_name=null
+    explicit source_name=string("NC_TEST.1:11-40")
+    default concatenate_exons=boolean(false)
+    default reverse_complement=boolean(false)
+    default sample_filter=array([])
+    resolved bundle_name=string("NC_TEST.1:11-40")
     resolved chromosome=string("NC_TEST.1")
+    resolved concatenate_exons=boolean(false)
     resolved coordinate_system=string("0-based half-open")
-    resolved effectiveEnd=integer(40)
-    resolved effectiveStart=integer(10)
-    resolved extractedLength=integer(30)
-    resolved flank3=integer(0)
-    resolved flank5=integer(0)
-    resolved headerCoordinateSystem=string("1-based inclusive")
-    resolved headerRegion=string("NC_TEST.1:11-40")
+    resolved end=integer(40)
     resolved input=file(file:@/Downloads/test%20virus.fasta)
-    resolved lineWidth=integer(70)
-    resolved output=file(file:@/Extractions/Region%201.lungfishref)
+    resolved operation=string("sequence-extraction")
     resolved output_bundle=file(file:@/Extractions/Region%201.lungfishref)
-    resolved region=string("NC_TEST.1:11-40")
-    resolved requestedEnd=integer(40)
-    resolved requestedStart=integer(11)
-    resolved reverseComplement=boolean(false)
-    step lungfish extract sequence | lungfish-cli | extract | sequence | @/Downloads/test virus.fasta | NC_TEST.1:11-40 | --output | @/Extractions/Region 1.lungfishref
+    resolved reverse_complement=boolean(false)
+    resolved sample_filter=array([])
+    resolved source_bundle=null
+    resolved source_bundle_name=null
+    resolved source_name=string("NC_TEST.1:11-40")
+    resolved start=integer(10)
+    step lungfish extract sequence | lungfish-cli | extract | sequence | @/Downloads/test virus.fasta | NC_TEST.1:11-40 | --output | @/Extractions/Region 1.lungfishref | --next-free-name | --format | json
       input input @/Downloads/test virus.fasta digest=true
       output output @/Extractions/Region 1.lungfishref/genome/sequence.fa.gz digest=true
       output index @/Extractions/Region 1.lungfishref/genome/sequence.fa.gz.fai digest=true

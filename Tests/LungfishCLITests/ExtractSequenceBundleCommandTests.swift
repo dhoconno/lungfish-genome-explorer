@@ -77,7 +77,7 @@ final class ExtractSequenceBundleCommandTests: XCTestCase {
             try await command.run()
             XCTFail("--samples without --bundle must be refused")
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("Add --bundle, or leave them out."), "\(error)")
+            XCTAssertTrue(error.localizedDescription.contains("Add --bundle or -o <name>.lungfishref, or leave them out."), "\(error)")
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a refused run writes no FASTA")
     }

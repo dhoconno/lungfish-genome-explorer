@@ -212,22 +212,7 @@ package final class SequenceExtractionPipeline: Sendable {
         outputBundleURL: URL,
         nextFreeName: Bool = true
     ) -> [String] {
-        let chromosome: String
-        let intervals: [(start: Int, end: Int)]
-        var feature: [String] = []
-        switch source {
-        case .region(let name, let start, let end):
-            chromosome = name
-            intervals = [(start, end)]
-        case .annotation(let annotation):
-            chromosome = annotation.chromosome ?? ""
-            intervals = annotation.intervals.map { ($0.start, $0.end) }
-            feature = ["--feature-name=\(annotation.name)", "--feature-type", annotation.type.rawValue]
-            if annotation.strand != .unknown {
-                feature += ["--strand", annotation.strand.rawValue]
-            }
-        }
-        let region = chromosome + ":" + intervals.map { "\($0.start + 1)-\($0.end)" }.joined(separator: ",")
+        let (region, feature) = regionAndFeatureArguments(source, chromosomeWithoutName: "")
         var arguments = ["extract", "sequence", sourceBundleURL.path, region, "--bundle"] + feature
         if reverseComplement { arguments.append("--reverse-complement") }
         if concatenateExons { arguments.append("--concatenate-exons") }
@@ -240,5 +225,60 @@ package final class SequenceExtractionPipeline: Sendable {
         arguments += ["--output", outputBundleURL.path]
         if nextFreeName { arguments.append("--next-free-name") }
         return arguments + ["--format", "json"]
+    }
+
+    /// The `lungfish-cli` argv after the executable that builds the region bundle a viewer with no
+    /// reference bundle asks for, `extract sequence <fasta> <region> -o <name>.lungfishref` with
+    /// `--format json` (2.12 lane 12.12, A48-GAP). `inputURL` is the FASTA the viewer staged of the
+    /// sequence it shows, named `sequenceName`, which also names a feature that names no sequence.
+    /// `sourceDocumentURL` is the file the viewer shows, which the record names. The name goes as one
+    /// `--name=value` word, a blank one included, so the record keeps the name the person gave, as the
+    /// in-process route did, and the folder is `outputBundleURL`'s. An empty name, which the sheet never
+    /// gives and no option can carry, goes as none, so the record names the source name the folder took.
+    package static func cliFASTAArguments(
+        source: ExtractionRequest.Source,
+        flank5Prime: Int,
+        flank3Prime: Int,
+        reverseComplement: Bool,
+        concatenateExons: Bool,
+        inputURL: URL,
+        sequenceName: String,
+        sourceDocumentURL: URL?,
+        bundleName: String?,
+        outputBundleURL: URL
+    ) -> [String] {
+        let (region, feature) = regionAndFeatureArguments(source, chromosomeWithoutName: sequenceName)
+        var arguments = ["extract", "sequence", inputURL.path, region] + feature
+        if reverseComplement { arguments.append("--reverse-complement") }
+        if concatenateExons { arguments.append("--concatenate-exons") }
+        if flank5Prime != 0 { arguments += ["--flank-5", String(flank5Prime)] }
+        if flank3Prime != 0 { arguments += ["--flank-3", String(flank3Prime)] }
+        if let bundleName, !bundleName.isEmpty { arguments.append("--name=\(bundleName)") }
+        if let sourceDocumentURL { arguments += ["--source-document", sourceDocumentURL.path] }
+        return arguments + ["--output", outputBundleURL.path, "--next-free-name", "--format", "json"]
+    }
+
+    /// The region word, its parts 1-based and inclusive in their stored order, and the feature's
+    /// options. A feature that names no sequence takes `chromosomeWithoutName`.
+    private static func regionAndFeatureArguments(
+        _ source: ExtractionRequest.Source,
+        chromosomeWithoutName: String
+    ) -> (region: String, feature: [String]) {
+        let chromosome: String
+        let intervals: [(start: Int, end: Int)]
+        var feature: [String] = []
+        switch source {
+        case .region(let name, let start, let end):
+            chromosome = name
+            intervals = [(start, end)]
+        case .annotation(let annotation):
+            chromosome = annotation.chromosome ?? chromosomeWithoutName
+            intervals = annotation.intervals.map { ($0.start, $0.end) }
+            feature = ["--feature-name=\(annotation.name)", "--feature-type", annotation.type.rawValue]
+            if annotation.strand != .unknown {
+                feature += ["--strand", annotation.strand.rawValue]
+            }
+        }
+        return (chromosome + ":" + intervals.map { "\($0.start + 1)-\($0.end)" }.joined(separator: ","), feature)
     }
 }

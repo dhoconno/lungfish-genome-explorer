@@ -49,6 +49,9 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
 
             With --bundle the input is a .lungfishref bundle, and -o names the new
             .lungfishref, which keeps the annotation and variant tracks in the region.
+            Without --bundle, -o <name>.lungfishref builds a bundle of the FASTA's region
+            or feature, and --source-document names the file the FASTA was written from.
+            A GenBank document's annotations are not carried, and the record says so.
 
             With --format json, standard output holds event lines: one start line,
             progress lines with --bundle, and one complete or failed line. The text
@@ -111,8 +114,17 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
     )
     var bundle: Bool = false
 
-    @Option(name: .customLong("name"), help: "With --bundle, the bundle's display name (default: the region or the feature name)")
+    @Option(
+        name: .customLong("name"),
+        help: "With --bundle or a .lungfishref output, the bundle's name the record keeps (default: the region or the feature name)"
+    )
     var name: String?
+
+    @Option(
+        name: .customLong("source-document"),
+        help: "With a FASTA input and a .lungfishref output, the document the FASTA was written from, which the record names"
+    )
+    var sourceDocument: String?
 
     @Option(
         name: .customLong("samples"),
@@ -125,13 +137,13 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
 
     @Flag(
         name: .customLong("next-free-name"),
-        help: "With --bundle, when a bundle holds the name -o gives, publish under the next free name (_1, _2 and so on) and replace nothing"
+        help: "With --bundle or a .lungfishref output, when a bundle holds the name -o gives, publish under the next free name (_1, _2 and so on) and replace nothing"
     )
     var nextFreeName: Bool = false
 
     @Option(
         name: .customLong("feature-name"),
-        help: "With --bundle, extract this feature, whose parts the region lists in order as name:start-end,start-end"
+        help: "With --bundle or a .lungfishref output, extract this feature, whose parts the region lists in order as name:start-end,start-end"
     )
     var featureName: String?
 
@@ -148,14 +160,19 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         if bundle {
-            return try await runBundle()
+            return try await runBundle(fromFASTA: false)
+        }
+        // A FASTA region to a new bundle, the route of a viewer with no reference bundle (2.12 lane 12.12).
+        if let output, URL(fileURLWithPath: output).pathExtension.lowercased() == "lungfishref" {
+            return try await runBundle(fromFASTA: true)
         }
         // The FASTA run would drop these, so a run that names one is refused (review A48-M2 Fix 6).
         if name != nil || !samples.isEmpty || noSamples || featureName != nil || featureType != nil || strand != nil
-            || concatenateExons || nextFreeName {
+            || concatenateExons || nextFreeName || sourceDocument != nil {
             throw CLIError.validationFailed(errors: [
-                "--name, --samples, --no-samples, --feature-name, --feature-type, --strand, --concatenate-exons and "
-                    + "--next-free-name describe a bundle. Add --bundle, or leave them out."
+                "--name, --samples, --no-samples, --feature-name, --feature-type, --strand, --concatenate-exons, "
+                    + "--next-free-name and --source-document describe a bundle. Add --bundle or -o <name>.lungfishref, "
+                    + "or leave them out."
             ])
         }
         let runClock = ProvenanceRunClock()
@@ -340,67 +357,37 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
                 "extractedLength": .integer(result.nucleotideSequence.count)
             ]
 
-            if outputURL.pathExtension.lowercased() == "lungfishref" {
-                let command = provenanceCommand(inputURL: inputURL, outputURL: outputURL)
-                let context = SequenceExtractionBundleCommandContext(
-                    workflowName: "lungfish extract sequence",
-                    toolName: "lungfish extract sequence",
-                    toolVersion: LungfishCLI.configuration.version,
-                    argv: command,
-                    explicitOptions: parameters,
-                    defaultOptions: defaults,
-                    resolvedOptions: resolved,
-                    inputURLs: [inputURL],
-                    runClock: runClock
+            try fastaOutput.write(
+                to: outputURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            let completedAt = runClock.now
+            try await CLIProvenanceSupport.recordSingleStepRun(
+                name: "lungfish extract sequence",
+                parameters: parameters,
+                defaults: defaults,
+                resolved: resolved,
+                toolName: "lungfish extract sequence",
+                toolVersion: LungfishCLI.configuration.version,
+                command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)
+                ],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(runClock.startedAt),
+                stderr: nil,
+                status: .completed,
+                outputDirectory: outputURL.deletingLastPathComponent()
+            )
+            if !globalOptions.quiet {
+                printHumanLine(
+                    formatter.success("Extracted \(result.nucleotideSequence.count) bp to \(outputPath)"),
+                    eventsOn: globalOptions.outputFormat == .json
                 )
-                let bundleURL = try await SequenceExtractionBundleBuilder().buildBundle(
-                    request: SequenceExtractionBundleBuildRequest(
-                        result: result,
-                        outputDirectory: outputURL.deletingLastPathComponent(),
-                        outputBundleURL: outputURL,
-                        desiredBundleName: outputURL.deletingPathExtension().lastPathComponent,
-                        commandContext: context
-                    )
-                )
-                if !globalOptions.quiet {
-                    printHumanLine(
-                        formatter.success("Extracted \(result.nucleotideSequence.count) bp to \(bundleURL.path)"),
-                        eventsOn: globalOptions.outputFormat == .json
-                    )
-                }
-            } else {
-                try fastaOutput.write(
-                    to: outputURL,
-                    atomically: true,
-                    encoding: .utf8
-                )
-                let completedAt = runClock.now
-                try await CLIProvenanceSupport.recordSingleStepRun(
-                    name: "lungfish extract sequence",
-                    parameters: parameters,
-                    defaults: defaults,
-                    resolved: resolved,
-                    toolName: "lungfish extract sequence",
-                    toolVersion: LungfishCLI.configuration.version,
-                    command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
-                    inputs: [
-                        ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)
-                    ],
-                    outputs: [
-                        ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)
-                    ],
-                    exitCode: 0,
-                    wallTime: completedAt.timeIntervalSince(runClock.startedAt),
-                    stderr: nil,
-                    status: .completed,
-                    outputDirectory: outputURL.deletingLastPathComponent()
-                )
-                if !globalOptions.quiet {
-                    printHumanLine(
-                        formatter.success("Extracted \(result.nucleotideSequence.count) bp to \(outputPath)"),
-                        eventsOn: globalOptions.outputFormat == .json
-                    )
-                }
             }
         } else {
             if !globalOptions.quiet && globalOptions.outputFormat == .text {

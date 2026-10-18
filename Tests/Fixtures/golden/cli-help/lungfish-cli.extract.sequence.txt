@@ -10,6 +10,9 @@ that sequence is used.
 
 With --bundle the input is a .lungfishref bundle, and -o names the new
 .lungfishref, which keeps the annotation and variant tracks in the region.
+Without --bundle, -o <name>.lungfishref builds a bundle of the FASTA's region
+or feature, and --source-document names the file the FASTA was written from.
+A GenBank document's annotations are not carried, and the record says so.
 
 With --format json, standard output holds event lines: one start line,
 progress lines with --bundle, and one complete or failed line. The text
@@ -45,18 +48,24 @@ OPTIONS:
                           .lungfishref input, keeping its annotation and
                           variant tracks in the region. Needs -o
                           <name>.lungfishref
-  --name <name>           With --bundle, the bundle's display name (default:
-                          the region or the feature name)
+  --name <name>           With --bundle or a .lungfishref output, the bundle's
+                          name the record keeps (default: the region or the
+                          feature name)
+  --source-document <source-document>
+                          With a FASTA input and a .lungfishref output, the
+                          document the FASTA was written from, which the record
+                          names
   --samples <samples>     With --bundle, keep the variant calls of this sample.
                           Give it once for each sample to keep. A name may hold
                           commas, dots and spaces
   --no-samples            With --bundle, keep the variant calls of no sample
-  --next-free-name        With --bundle, when a bundle holds the name -o gives,
-                          publish under the next free name (_1, _2 and so on)
-                          and replace nothing
+  --next-free-name        With --bundle or a .lungfishref output, when a bundle
+                          holds the name -o gives, publish under the next free
+                          name (_1, _2 and so on) and replace nothing
   --feature-name <feature-name>
-                          With --bundle, extract this feature, whose parts the
-                          region lists in order as name:start-end,start-end
+                          With --bundle or a .lungfishref output, extract this
+                          feature, whose parts the region lists in order as
+                          name:start-end,start-end
   --feature-type <feature-type>
                           With --feature-name, the feature's type, such as
                           gene, CDS or mRNA (default: region)

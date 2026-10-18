@@ -22,7 +22,7 @@ extension ExtractSequenceSubcommand {
     /// (2.11 A48 M2). With `--format json` standard output holds only `CLIEvent` lines, with the words
     /// the app's row shows. SIGTERM, the app's Cancel, stops the run before it publishes, records it as
     /// cancelled beside the bundle it would have published and exits 125. A refusal exits 3.
-    func runBundle() async throws {
+    func runBundle(fromFASTA: Bool) async throws {
         let eventsOn = globalOptions.outputFormat == .json
         let events = CLIEventEmitter(enabled: eventsOn, emit: printEventLine)
         let startedAt = Date()
@@ -31,7 +31,7 @@ extension ExtractSequenceSubcommand {
         let command = self
         let task = Task { () -> Result<(URL, Int), any Error> in
             do {
-                return .success(try await command.buildRegionBundle(events: events))
+                return .success(try await fromFASTA ? command.buildFASTARegionBundle(events: events) : command.buildRegionBundle(events: events))
             } catch {
                 // A tool stopped by the cancel fails with its own error, which is the cancel.
                 return .failure(Task.isCancelled ? CancellationError() : error)
@@ -87,12 +87,15 @@ extension ExtractSequenceSubcommand {
         if noSamples && !samples.isEmpty {
             throw ExtractSequenceBundleRefusal("--no-samples keeps no sample, so it cannot go with --samples. Give one of them.")
         }
-        if featureName == nil && (featureType != nil || strand != nil || concatenateExons) {
-            throw ExtractSequenceBundleRefusal("--feature-type, --strand and --concatenate-exons describe a feature. Add --feature-name.")
+        try refuseFeatureOptionsWithoutAFeature()
+        if sourceDocument != nil {
+            throw ExtractSequenceBundleRefusal(
+                "--source-document names the document a FASTA input was written from. Leave it out with --bundle."
+            )
         }
 
         let source = try await ReferenceBundle(url: sourceURL)
-        let request = try extractionRequest()
+        let request = try extractionRequest(region: region)
         let result = try extractionResult(request: request, from: source)
         events.emitStart("Extracting \(result.sourceName)")
         events.emitProgress(0, message: "Preparing...")
@@ -143,9 +146,148 @@ extension ExtractSequenceSubcommand {
         return (bundleURL, result.nucleotideSequence.count)
     }
 
+    /// The words a record of a GenBank document's region keeps, since the bundle keeps no annotation
+    /// of the document (2.12 R-B3). Carrying them is Phase 5b's payload change.
+    static let annotationsNotCarried = "not carried: a region bundle of a GenBank document keeps its sequence only"
+
+    /// The region bundle of a FASTA input, `extract sequence <fasta> <region> -o <name>.lungfishref`,
+    /// the route of a viewer with no reference bundle (2.12 lane 12.12, A48-GAP). It extracts a region or
+    /// a feature of several parts as the viewer does from the sequence it shows, and records the options
+    /// the in-process route recorded, the FASTA it read and, with `--source-document`, the document the
+    /// FASTA was written from. A GenBank document's annotations are not carried, and the record says so.
+    private func buildFASTARegionBundle(events: CLIEventEmitter) async throws -> (URL, Int) {
+        let runClock = ProvenanceRunClock()
+        guard let output else { throw ExtractSequenceBundleRefusal("Add -o <name>.lungfishref.") }
+        let outputURL = URL(fileURLWithPath: output, isDirectory: true).standardizedFileURL
+        let inputURL = URL(fileURLWithPath: input).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: inputURL.path) else { throw CLIError.inputFileNotFound(path: input) }
+        let detectURL = inputURL.pathExtension.lowercased() == "gz" ? inputURL.deletingPathExtension() : inputURL
+        guard ["fa", "fasta", "fna", "faa"].contains(detectURL.pathExtension.lowercased()) else {
+            throw CLIError.unsupportedFormat(format: "\(detectURL.pathExtension.lowercased()) (extract requires FASTA input)")
+        }
+        if !samples.isEmpty || noSamples {
+            throw ExtractSequenceBundleRefusal(
+                "--samples and --no-samples keep the calls of a source bundle's samples. Add --bundle, or leave them out."
+            )
+        }
+        try refuseFeatureOptionsWithoutAFeature()
+        let documentURL = try sourceDocument.map { path -> URL in
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw ExtractSequenceBundleRefusal("No document at \(url.path). --source-document names the file the FASTA was written from.")
+            }
+            return url
+        }
+
+        let (request, sequence) = try fastaRequest(in: try await FASTAReader(url: inputURL).readAll())
+        let result = try SequenceExtractor.extract(
+            request: request, sequenceProvider: Self.clampedProvider(sequence), chromosomeLength: sequence.length
+        )
+        events.emitStart("Extracting \(result.sourceName)")
+        events.emitProgress(0, message: "Preparing...")
+
+        let argv = Self.observedArguments() ?? [CLICommandIdentity.executableName] + SequenceExtractionPipeline.cliFASTAArguments(
+            source: request.source, flank5Prime: request.flank5Prime, flank3Prime: request.flank3Prime,
+            reverseComplement: reverseComplement, concatenateExons: concatenateExons, inputURL: inputURL,
+            sequenceName: sequence.name, sourceDocumentURL: documentURL, bundleName: name, outputBundleURL: outputURL
+        )
+        var added: [String: ParameterValue] = ["input": .file(inputURL)]
+        if let documentURL { added["source_document"] = .file(documentURL) }
+        var resolved = SequenceExtractionPipeline.extractionResolvedOptions(
+            result: result, bundleURL: outputURL, sourceBundleURL: nil, sourceBundleName: nil,
+            desiredBundleName: name, sampleFilter: nil, isConcatenated: concatenateExons
+        ).merging(added) { _, new in new }
+        if let documentURL, Self.isGenBank(documentURL) {
+            resolved["source_annotations"] = .string(Self.annotationsNotCarried)
+        }
+        let context = SequenceExtractionBundleCommandContext(
+            workflowName: "lungfish extract sequence",
+            toolName: "lungfish extract sequence",
+            toolVersion: LungfishCLI.configuration.version,
+            argv: argv,
+            explicitOptions: SequenceExtractionPipeline.extractionExplicitOptions(
+                result: result, sourceBundleURL: nil, sourceBundleName: nil, desiredBundleName: name,
+                sampleFilter: nil, isConcatenated: concatenateExons
+            ).merging(added) { _, new in new },
+            defaultOptions: SequenceExtractionPipeline.extractionDefaultOptions,
+            resolvedOptions: resolved,
+            inputURLs: [inputURL] + (documentURL.map { [$0] } ?? []),
+            runClock: runClock
+        )
+        let bundleURL = try await SequenceExtractionBundleBuilder().buildBundle(
+            request: SequenceExtractionBundleBuildRequest(
+                result: result,
+                outputDirectory: outputURL.deletingLastPathComponent(),
+                outputBundleURL: outputURL,
+                desiredBundleName: name ?? outputURL.deletingPathExtension().lastPathComponent,
+                isConcatenated: concatenateExons,
+                publishesUnderNextFreeName: nextFreeName,
+                commandContext: context
+            ),
+            progressHandler: { fraction, message in events.emitProgress(fraction, message: message) }
+        )
+        return (bundleURL, result.nucleotideSequence.count)
+    }
+
+    /// The request for the region or the feature of the FASTA sequence the region names, and that
+    /// sequence, found by its exact name and then without case. A region without a name reads the
+    /// file's one sequence, as the FASTA output does.
+    private func fastaRequest(in sequences: [LungfishCore.Sequence]) throws -> (ExtractionRequest, LungfishCore.Sequence) {
+        let available = sequences.map(\.name).joined(separator: ", ")
+        var named = region
+        if !region.contains(":") {
+            guard sequences.count == 1 else {
+                throw CLIError.conversionFailed(reason: "Multiple sequences in file. Specify which one: \(available)")
+            }
+            named = "\(sequences[0].name):\(region)"
+        }
+        let request = try extractionRequest(region: named)
+        let chromosome: String
+        switch request.source {
+        case .region(let name, _, _): chromosome = name
+        case .annotation(let annotation): chromosome = annotation.chromosome ?? ""
+        }
+        guard let sequence = sequences.first(where: { $0.name == chromosome })
+            ?? sequences.first(where: { $0.name.lowercased() == chromosome.lowercased() }) else {
+            throw CLIError.conversionFailed(reason: "Sequence '\(chromosome)' not found. Available: \(available)")
+        }
+        guard case .region(_, let start, let end) = request.source else { return (request, sequence) }
+        guard end <= sequence.length else {
+            throw CLIError.conversionFailed(reason: "End position \(end) exceeds sequence length \(sequence.length)")
+        }
+        let region = ExtractionRequest(
+            source: .region(chromosome: sequence.name, start: start, end: end),
+            flank5Prime: request.flank5Prime, flank3Prime: request.flank3Prime, reverseComplement: request.reverseComplement
+        )
+        return (region, sequence)
+    }
+
+    /// The viewer's provider over a sequence it holds whole, clamped to its length.
+    static func clampedProvider(_ sequence: LungfishCore.Sequence) -> SequenceExtractor.SequenceProvider {
+        { _, start, end in
+            let clampedStart = max(0, start)
+            let clampedEnd = min(sequence.length, end)
+            guard clampedStart < clampedEnd else { return nil }
+            return sequence[clampedStart..<clampedEnd]
+        }
+    }
+
+    /// Whether `url` names a GenBank file, by its extension.
+    static func isGenBank(_ url: URL) -> Bool {
+        let detect = url.pathExtension.lowercased() == "gz" ? url.deletingPathExtension() : url
+        return ["gb", "gbk", "gbff", "genbank"].contains(detect.pathExtension.lowercased())
+    }
+
+    /// Refuses the feature's options without `--feature-name`, which they describe.
+    private func refuseFeatureOptionsWithoutAFeature() throws {
+        if featureName == nil && (featureType != nil || strand != nil || concatenateExons) {
+            throw ExtractSequenceBundleRefusal("--feature-type, --strand and --concatenate-exons describe a feature. Add --feature-name.")
+        }
+    }
+
     /// The viewer's request for the region, or for the feature `--feature-name` names, whose parts
     /// the region lists 1-based and inclusive in their stored order.
-    private func extractionRequest() throws -> ExtractionRequest {
+    private func extractionRequest(region: String) throws -> ExtractionRequest {
         guard let colon = region.lastIndex(of: ":"), colon != region.startIndex else {
             throw ExtractSequenceBundleRefusal("--bundle needs a region with its sequence name, such as chr1:1000-2000.")
         }
