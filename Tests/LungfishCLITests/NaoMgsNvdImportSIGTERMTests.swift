@@ -118,6 +118,57 @@ final class NaoMgsNvdImportSIGTERMTests: XCTestCase {
         XCTAssertFalse(OperationMarker.isInProgress(folderB), "B's bundle is finished")
     }
 
+    /// Finding 1 of the review of lane 12.05. Every case above sends SIGTERM when the folder first appears, while the
+    /// service still has progress reports ahead, so the worker parks at the next one within milliseconds. The slow
+    /// tail of an import has none. `manifest.json` is the last file the import writes before its record, and the
+    /// record hashes every file of the source folder, which holds a 16 GB sparse file. A SIGTERM after the manifest
+    /// finds no report left to park at, so the two second wait for the worker runs out, the run removes the folder
+    /// and still exits 125 with the `cancelled` record inside the grace.
+    func testImportNaoMgsCancelledWhileItWritesItsRecordRemovesItsFolder() async throws {
+        let input = try NaoMgsNvdImportFixtures.naoMgsResult(in: root)
+        try NaoMgsNvdImportFixtures.addLargeSparseFile(to: input, gigabytes: 16)
+        let (project, imports, run) = try launch(kind: "nao-mgs", arguments: [input.path, "--no-fetch-references"])
+        defer { run.stop() }
+        let manifest = imports.appendingPathComponent("naomgs-S1/manifest.json")
+        let reached = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(5)) {
+            FileManager.default.fileExists(atPath: manifest.path)
+        }
+        XCTAssertTrue(reached, "the command never wrote the manifest of its result folder")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            run, record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(NaoMgsNvdImportFixtures.entries(in: imports), [], "a cancelled import removes the folder it began")
+        XCTAssertGreaterThan(
+            try XCTUnwrap(stop.elapsed), .seconds(1.5),
+            "the service had no report left to park at, so the two second wait ran out"
+        )
+    }
+
+    /// The NVD twin of the case above. The bundle is built in a hidden staging folder and moved to `nvd-*` once the
+    /// record is written, so a cancel in the tail leaves no staging folder and publishes no bundle.
+    func testImportNvdCancelledWhileItWritesItsRecordPublishesNothing() async throws {
+        let input = try NaoMgsNvdImportFixtures.nvdRun(in: root)
+        try NaoMgsNvdImportFixtures.addLargeSparseFile(to: input, gigabytes: 16)
+        let (project, imports, run) = try launch(kind: "nvd", arguments: [input.path])
+        defer { run.stop() }
+        let reached = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(5)) {
+            NaoMgsNvdImportFixtures.nvdStagingFolders(in: imports).contains { folder in
+                FileManager.default.fileExists(atPath: imports.appendingPathComponent(folder).appendingPathComponent("manifest.json").path)
+            }
+        }
+        XCTAssertTrue(reached, "the command never wrote the manifest of its staging folder")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
+            run, record: { ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue }
+        )
+        try ImportCommandsSIGTERMTests.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(NaoMgsNvdImportFixtures.entries(in: imports), [], "no staging folder is left and no nvd bundle was published")
+        XCTAssertGreaterThan(
+            try XCTUnwrap(stop.elapsed), .seconds(1.5),
+            "the service had no report left to park at, so the two second wait ran out"
+        )
+    }
+
     // MARK: - Running one import
 
     /// Starts `import <kind>` into a project's Imports folder under the scratch managed storage.
