@@ -38,6 +38,15 @@ enum InspectorStepCopyText {
         stepTexts.joined(separator: "\n\n")
     }
 
+    /// `text` without the line ends it finishes with, which a recorded stderr carries.
+    static func withoutTrailingNewlines(_ text: String) -> String {
+        var end = text.endIndex
+        while end > text.startIndex, text[text.index(before: end)].isNewline {
+            end = text.index(before: end)
+        }
+        return String(text[..<end])
+    }
+
     /// `<label> <version>` with trailing white space trimmed, which is the
     /// label alone when the record holds no version for the tool.
     static func title(_ label: String, version: String?) -> String {

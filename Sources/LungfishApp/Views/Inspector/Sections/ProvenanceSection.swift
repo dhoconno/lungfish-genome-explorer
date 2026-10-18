@@ -396,7 +396,7 @@ struct ProvenanceSection: View {
         ProvenanceDisclosureRow(
             identifier: "provenance-run-\(runOrdinal)-step-\(step.ordinal)",
             accessibilityName: "Step \(step.ordinal), \(step.toolName)",
-            copyText: viewModel.stepCopyText(of: step),
+            copyText: viewModel.stepClipboardText(of: step),
             copyActions: viewModel.stepCopyActions(step, in: run)
         ) {
             VStack(alignment: .leading, spacing: 6) {

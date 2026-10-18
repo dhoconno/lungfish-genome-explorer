@@ -15,9 +15,15 @@ extension ProvenanceInspectorViewModel {
         return lines.joined(separator: "\n")
     }
 
+    /// A step's text for the clipboard. It is the step's block of the Copy text without the line ends a recorded stderr
+    /// finishes with, so Copy Step ends without a newline and Copy All Steps joins by one blank line (Q-U2 rules 1 and 7).
+    func stepClipboardText(of step: ProvenanceLineageStep) -> String {
+        InspectorStepCopyText.withoutTrailingNewlines(stepCopyText(of: step))
+    }
+
     /// Copy All Steps on the Provenance tab: every step of `run` in row order, joined by one blank line.
     func allStepsCopyText(of run: ProvenanceLineageRun) -> String {
-        InspectorStepCopyText.allSteps(run.steps.map { stepCopyText(of: $0) })
+        InspectorStepCopyText.allSteps(run.steps.map { stepClipboardText(of: $0) })
     }
 
     /// The commands a Lineage step's label and Command row offer, in the context menu and, under the same titles and
@@ -25,7 +31,7 @@ extension ProvenanceInspectorViewModel {
     /// form the row shows.
     func stepCopyActions(_ step: ProvenanceLineageStep, in run: ProvenanceLineageRun) -> [ContextAction] {
         [
-            .command("Copy Step") { self.writeStepCopy(self.stepCopyText(of: step)) },
+            .command("Copy Step") { self.writeStepCopy(self.stepClipboardText(of: step)) },
             .command("Copy Command", isEnabled: !step.command.isEmpty) { self.writeStepCopy(step.command) },
             .divider(),
             .command("Copy All Steps") { self.writeStepCopy(self.allStepsCopyText(of: run)) },
