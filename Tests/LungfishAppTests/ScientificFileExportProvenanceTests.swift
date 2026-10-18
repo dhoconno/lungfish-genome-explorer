@@ -434,20 +434,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         )
     }
 
-    func testFASTAExporterWritesScientificProvenanceSidecar() throws {
-        let source = try String(
-            contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"),
-            encoding: .utf8
-        )
-
-        let body = try XCTUnwrap(source.range(of: "func exportFASTARecords"))
-        let exportBody = source[body.lowerBound...]
-        XCTAssertTrue(exportBody.contains("ScientificFileExportProvenance.writeAtomically(.init("))
-        XCTAssertTrue(exportBody.contains(#"workflowName: "lungfish app fasta export""#))
-        XCTAssertTrue(exportBody.contains("try normalized.write(to: staged"))
-        XCTAssertFalse(exportBody.contains("try? normalized.write(to: destination"))
-    }
-
     func testStandaloneScientificExportersWriteScientificProvenanceSidecars() throws {
         let root = repositoryRoot()
         let files = [

@@ -1967,35 +1967,10 @@ public class ViewerViewController: NSViewController {
             ) else {
                 return
             }
-            let runClock = ProvenanceRunClock()
-            let normalized = records.joined(separator: "")
-            let sourceURLs = self.fastaExportSourceURLs()
-            do {
-                try ScientificFileExportProvenance.writeAtomically(.init(
-                    workflowName: "lungfish app fasta export",
-                    sourceURLs: sourceURLs,
-                    outputURL: destination,
-                    outputFormat: .fasta,
-                    argv: self.fastaExportArgv(sourceURLs: sourceURLs, outputURL: destination),
-                    explicitOptions: [
-                        "sourcePaths": .array(sourceURLs.map { .file($0) }),
-                        "outputPath": .file(destination),
-                        "suggestedName": .string(suggestedName),
-                    ],
-                    resolved: [
-                        "recordCount": .integer(records.count),
-                        "outputByteCount": .integer(normalized.utf8.count),
-                    ],
-                    runClock: runClock
-                )) { staged in
-                    try normalized.write(to: staged, atomically: true, encoding: .utf8)
-                }
-            } catch {
-                logger.error("FASTA export failed for \(destination.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                self.presentBlockingAlert(
-                    title: "FASTA Export Failed",
-                    message: error.localizedDescription
-                )
+            // `lungfish-cli extract sequence` writes the file and its record behind an Operations row (2.12 lane 12.34, A11).
+            await Self.runFASTARecordsExport(records: records, outputURL: destination) { message in
+                logger.error("FASTA export failed for \(destination.lastPathComponent, privacy: .public): \(message, privacy: .public)")
+                self.presentBlockingAlert(title: "FASTA Export Failed", message: message)
             }
         }
     }
@@ -2026,15 +2001,6 @@ public class ViewerViewController: NSViewController {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             return seen.insert(url.path).inserted ? url : nil
         }
-    }
-
-    private func fastaExportArgv(sourceURLs: [URL], outputURL: URL) -> [String] {
-        var argv = ["Lungfish Genome Explorer", "export-fasta"]
-        for sourceURL in sourceURLs {
-            argv.append(contentsOf: ["--source", sourceURL.path])
-        }
-        argv.append(contentsOf: ["--output", outputURL.path])
-        return argv
     }
 
     func exportMSASelectionViaCLI(_ request: MultipleSequenceAlignmentSelectionExportRequest) {
