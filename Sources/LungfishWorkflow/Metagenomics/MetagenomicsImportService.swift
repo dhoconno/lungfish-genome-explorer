@@ -1366,7 +1366,7 @@ private func writeMetagenomicsImportProvenance(
             resolvedDefaults: resolvedDefaults.merging([
                 "outputDirectory": .file(reportedResultDirectory),
                 "resultBundle": .file(reportedResultDirectory),
-            ]) { existing, _ in existing }
+            ]) { existing, _ in existing }.merging(MetagenomicsImportRecordFacts.resolvedDefaults(kind: kind, sourceURLs: sourceURLs, inputs: inputDescriptors)) { existing, _ in existing }
         ),
         files: uniqueProvenanceDescriptors(
             inputDescriptors

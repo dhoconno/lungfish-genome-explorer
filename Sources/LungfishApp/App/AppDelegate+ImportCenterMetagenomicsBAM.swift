@@ -106,6 +106,38 @@ extension AppDelegate {
             }
         }
 
+        // Kraken2, EsViritu and TaxTriage run `lungfish-cli import <kind>` (Phase 2.12 lane 12.04).
+        if ClassifierResultImportCLIRoute.runs(kind) {
+            let runner = CLIBundleBuildRunner()
+            let arguments = ClassifierResultImportCLIRoute.arguments(
+                kind: kind, inputURL: url, outputDirectory: outputDir, preferredName: preferredName
+            )
+            Self.beginClassifierResultImportOperation(
+                kind: kind,
+                operationTitle: operationTitle,
+                inputURL: url,
+                outputDirectory: outputDir,
+                preferredName: preferredName,
+                naoMgsOptions: naoMgsOptions,
+                routeContext: routeContext,
+                onCancel: { runner.cancel() }
+            ) { opID in
+                onDispatch?(.started)
+                Task { [weak self] in
+                    let outcome = await ClassifierResultImportCLIRoute.run(
+                        runner, arguments: arguments, operationID: opID, operationTitle: operationTitle
+                    )
+                    guard case .failed(let detail, alert: true) = outcome else { return }
+                    self?.showAlert(
+                        title: "\(operationTitle) Failed",
+                        message: detail,
+                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                    )
+                }
+            }
+            return
+        }
+
         Self.beginClassifierResultImportOperation(
             kind: kind,
             operationTitle: operationTitle,

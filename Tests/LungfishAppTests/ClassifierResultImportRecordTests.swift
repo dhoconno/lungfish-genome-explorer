@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.04 (A63-M2a, QA 1). The Import Center imports a Kraken2, EsViritu or TaxTriage result
-// through the app's `--metagenomics-import-helper` mode. These cases pin, at the lane's base, what that path
+// through the app's `--metagenomics-import-helper` mode until lane 12.04 moved these kinds to `lungfish-cli`. These cases pin what that path
 // writes for a fixture result with the dotted sample id `S1.2024` (BIO 5): the folder name, the record's
 // command (`MetagenomicsImportHelper.canonicalProvenanceCommand`), the sample names it records, the digest of
 // each source file, and the words of the row (its title, command and the detail it completes with).
 
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
@@ -35,8 +36,8 @@ final class ClassifierResultImportRecordTests: XCTestCase {
         let run = try runHelper(kind: .kraken2, input: input)
         XCTAssertEqual(run.folderName, "classification-S1_2024")
         XCTAssertEqual(run.doneMessage, "Imported Kraken2 result: 2,504,263 reads, 738 species")
-        XCTAssertNil(run.envelope.options.resolvedDefaults["sampleName"], "today the record names no sample")
-        XCTAssertNil(run.envelope.options.resolvedDefaults["sourceDigest"], "today the record carries no digest of the source result")
+        XCTAssertEqual(run.envelope.options.resolvedDefaults["sampleNames"], .array([.string("S1.2024")]), "the kreport's sample id, whole")
+        XCTAssertEqual(run.envelope.options.resolvedDefaults["sourceDigest"], .string(try ProvenanceFileHasher.sha256(of: input)))
         try assertEachSourceFileDigested(run.envelope, sources: [input])
     }
 
@@ -46,7 +47,8 @@ final class ClassifierResultImportRecordTests: XCTestCase {
         XCTAssertEqual(run.folderName, "esviritu-S1", "today the folder name drops the sample id after its dot")
         XCTAssertEqual(run.doneMessage, "Imported EsViritu result: 3 files, 3 detections")
         XCTAssertEqual(run.envelope.options.resolvedDefaults["sampleName"], .string("S1.2024"), "the detection file's sample id, whole")
-        XCTAssertNil(run.envelope.options.resolvedDefaults["sourceDigest"])
+        XCTAssertEqual(run.envelope.options.resolvedDefaults["sampleNames"], .array([.string("S1.2024")]))
+        try assertFolderDigest(run.envelope, of: input)
         try assertEachSourceFileDigested(run.envelope, sources: ClassifierImportAppFixtures.regularFiles(in: input))
     }
 
@@ -55,9 +57,23 @@ final class ClassifierResultImportRecordTests: XCTestCase {
         let run = try runHelper(kind: .taxtriage, input: input)
         XCTAssertEqual(run.folderName, "taxtriage-run")
         XCTAssertEqual(run.doneMessage, "Imported TaxTriage result: 6 files")
-        XCTAssertNil(run.envelope.options.resolvedDefaults["sampleName"], "today the record names no sample")
-        XCTAssertNil(run.envelope.options.resolvedDefaults["sourceDigest"])
+        XCTAssertEqual(
+            run.envelope.options.resolvedDefaults["sampleNames"],
+            .array(["S1.2024", "SRR35517702", "SRR35517703", "SRR35517705"].map(ParameterValue.string)),
+            "the sample ids the per-sample report and maps spell, whole"
+        )
+        try assertFolderDigest(run.envelope, of: input)
         try assertEachSourceFileDigested(run.envelope, sources: ClassifierImportAppFixtures.regularFiles(in: input))
+    }
+
+    /// The digest of a source folder is the SHA-256 of one `<relative path>\t<SHA-256>` line per file in path order.
+    private func assertFolderDigest(_ envelope: ProvenanceEnvelope, of folder: URL, file: StaticString = #filePath, line: UInt = #line) throws {
+        let root = folder.resolvingSymlinksInPath().path
+        let lines = try ClassifierImportAppFixtures.regularFiles(in: folder).map { url in
+            "\(url.resolvingSymlinksInPath().path.dropFirst(root.count + 1))\t\(try ProvenanceFileHasher.sha256(of: url))\n"
+        }.sorted()
+        let expected = SHA256.hash(data: Data(lines.joined().utf8)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(envelope.options.resolvedDefaults["sourceDigest"], .string(expected), file: file, line: line)
     }
 
     /// The row the Import Center begins for each kind, whose command is the record's command after `lungfish-cli`.

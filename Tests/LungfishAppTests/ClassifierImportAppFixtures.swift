@@ -54,6 +54,16 @@ enum ClassifierImportAppFixtures {
         return folder
     }
 
+    /// Adds a 4 GB sparse file to `folder`. It takes no disk space, a copy clones it, and hashing it takes
+    /// seconds, which holds an import at work.
+    static func addLargeSparseFile(to folder: URL) throws {
+        let file = folder.appendingPathComponent("hold.bin")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: file)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: 4 * 1_073_741_824)
+    }
+
     /// Every regular file under `folder`, sorted by path.
     static func regularFiles(in folder: URL) -> [URL] {
         let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])

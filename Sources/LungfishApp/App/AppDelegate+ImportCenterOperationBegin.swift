@@ -246,7 +246,9 @@ extension AppDelegate {
     /// import helper writes into the result's provenance, so the row and the
     /// provenance replay command agree. NAO-MGS records `--no-fetch-references`
     /// only when references are not fetched, because the command-line option
-    /// is a flag that defaults to fetching.
+    /// is a flag that defaults to fetching. Kraken2, EsViritu and TaxTriage
+    /// run that command, `lungfish-cli import <kind>`, and the row registers
+    /// `onCancel`, the runner's cancel, when it starts (Phase 2.12 lane 12.04).
     @discardableResult
     static func beginClassifierResultImportOperation(
         kind: MetagenomicsImportKind,
@@ -257,6 +259,7 @@ extension AppDelegate {
         naoMgsOptions: MetagenomicsImportHelperClient.NaoMgsOptions?,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
+        onCancel: (@Sendable () -> Void)? = nil,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
         let trimmedName = preferredName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -276,7 +279,8 @@ extension AppDelegate {
                 subcommand: "import",
                 args: Array(argv.dropFirst(2))
             ),
-            routeContext: routeContext
+            routeContext: routeContext,
+            onCancel: onCancel
         )
         switch result {
         case .started(let operationID):
