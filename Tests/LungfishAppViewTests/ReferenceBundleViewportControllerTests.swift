@@ -4,9 +4,52 @@ import SQLite3
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishKit
+import LungfishWorkflow
 
 @MainActor
 final class ReferenceBundleViewportControllerTests: XCTestCase {
+    /// VoiceOver reads the bar as summary text, count, Focus, and a direct
+    /// bundle hides the count a mapping result showed (UX ruling Q-B2).
+    func testReferenceCountLabelOrderAndDirectBundle() throws {
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+
+        XCTAssertEqual(
+            vc.summaryBarView.subviews.map { $0.accessibilityIdentifier() },
+            ["reference-bundle-summary-label", "reference-bundle-reference-count-label", "reference-viewport-focus-button"]
+        )
+
+        vc.configureForTesting(result: MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            bamURL: URL(fileURLWithPath: "/tmp/count-label.sorted.bam"),
+            baiURL: URL(fileURLWithPath: "/tmp/count-label.sorted.bam.bai"),
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1,
+            contigs: [MappingContigSummary(
+                contigName: "chr1", contigLength: 100, mappedReads: 9, mappedReadPercent: 90,
+                meanDepth: 1, coverageBreadth: 1, medianMAPQ: 60, meanIdentity: 1
+            )],
+            referenceCount: 4,
+            unalignedReferenceCount: 3
+        ))
+        XCTAssertFalse(vc.testReferenceCountLabel.isHidden, "a mapping result that left sequences out shows the count")
+
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Reference",
+            chromosomes: [.init(name: "chr1", length: 100)],
+            includeAlignment: false,
+            includeVariant: false
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: try BundleManifest.load(from: bundleURL)))
+
+        XCTAssertTrue(vc.testReferenceCountLabel.isHidden)
+        XCTAssertEqual(vc.testReferenceCountLabel.stringValue, "")
+    }
+
     func testConfigureDirectBundleBeforeViewLoadingInitializesEmbeddedViewer() throws {
         let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
             name: "Reference",

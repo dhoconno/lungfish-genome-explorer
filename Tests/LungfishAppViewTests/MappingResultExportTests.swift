@@ -53,6 +53,25 @@ final class MappingResultExportTests: XCTestCase {
         XCTAssertEqual(resolved["contigCount"]?.integerValue, 3)
         XCTAssertNil(resolved["referenceCount"], "a schema-1 result records no reference count")
         XCTAssertNil(resolved["unalignedReferenceCount"], "a schema-1 result records no unaligned count")
+
+        let schemaTwo = makeResult(
+            in: "schema-two",
+            contigs: [row("alpha", length: 100, reads: 42), row("supplementary-only", length: 200, reads: 0)],
+            referenceCount: 905_628,
+            unalignedReferenceCount: 905_626
+        )
+
+        let (schemaTwoContent, schemaTwoResolved) = try export(schemaTwo, to: "schema-two.csv")
+
+        let lines = schemaTwoContent.split(separator: "\n").map(String.init)
+        XCTAssertEqual(
+            lines.first,
+            "Contig,Length,Mapped Reads,% Mapped,Mean Depth,Coverage Breadth,Median MAPQ,Mean Identity"
+        )
+        XCTAssertEqual(lines.count, 1 + schemaTwo.contigs.count, "the export writes the stored rows and no others")
+        XCTAssertEqual(schemaTwoResolved["contigCount"]?.integerValue, 2)
+        XCTAssertEqual(schemaTwoResolved["referenceCount"]?.integerValue, 905_628)
+        XCTAssertEqual(schemaTwoResolved["unalignedReferenceCount"]?.integerValue, 905_626)
     }
 
     // MARK: - Helpers
@@ -70,7 +89,12 @@ final class MappingResultExportTests: XCTestCase {
         )
     }
 
-    private func makeResult(in folder: String, contigs: [MappingContigSummary]) -> MappingResult {
+    private func makeResult(
+        in folder: String,
+        contigs: [MappingContigSummary],
+        referenceCount: Int? = nil,
+        unalignedReferenceCount: Int? = nil
+    ) -> MappingResult {
         let directory = tempDir.appendingPathComponent(folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let result = MappingResult(
@@ -82,7 +106,9 @@ final class MappingResultExportTests: XCTestCase {
             mappedReads: 42,
             unmappedReads: 158,
             wallClockSeconds: 1.5,
-            contigs: contigs
+            contigs: contigs,
+            referenceCount: referenceCount,
+            unalignedReferenceCount: unalignedReferenceCount
         )
         try? Data("bam".utf8).write(to: result.bamURL)
         try? Data("bai".utf8).write(to: result.baiURL)

@@ -773,6 +773,72 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(announcements, ["Mapping table ready, 1 sequence"])
     }
 
+    // MARK: - Reference sequences left out (UX ruling Q-B2)
+
+    func testSummaryBarStatesReferenceSequencesLeftOut() {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(referenceCount: 3, unalignedReferenceCount: 1))
+
+        XCTAssertEqual(vc.testSummaryText, "minimap2 Mapping — 198 / 200 reads mapped (99.0%)")
+        let label = vc.testReferenceCountLabel
+        XCTAssertFalse(label.isHidden)
+        XCTAssertEqual(label.stringValue, "2 of 3 reference sequences have alignments")
+        XCTAssertEqual(label.toolTip, "1 reference sequence has no alignments in this mapping and is not listed.")
+        XCTAssertEqual(label.accessibilityHelp(), "1 reference sequence has no alignments in this mapping and is not listed.")
+        XCTAssertEqual(label.accessibilityRole(), .staticText)
+    }
+
+    func testSummaryBarUnchangedWithoutReferenceCounts() {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult())
+
+        XCTAssertEqual(vc.testSummaryText, "minimap2 Mapping — 198 / 200 reads mapped (99.0%)")
+        let label = vc.testReferenceCountLabel
+        XCTAssertTrue(label.isHidden)
+        XCTAssertEqual(label.stringValue, "")
+        XCTAssertNil(label.toolTip)
+        XCTAssertNil(label.accessibilityHelp())
+    }
+
+    /// The visible-track summary replaces the summary text, and the count
+    /// label keeps stating the result's counts beside it.
+    func testReferenceCountLabelStaysWhenTrackRowsArrive() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _ in
+            guard bamURL.lastPathComponent == "filtered.bam" else { return [] }
+            return [MappingContigSummary(
+                contigName: "gamma", contigLength: 100, mappedReads: 4, mappedReadPercent: 100,
+                meanDepth: 7.5, coverageBreadth: 0.42, medianMAPQ: 60, meanIdentity: 1.0
+            )]
+        }
+        vc.configureForTesting(
+            result: makeMappingResult(
+                viewerBundleURL: bundleURL, resultDirectoryURL: resultDirectory,
+                referenceCount: 5, unalignedReferenceCount: 3
+            ),
+            resultDirectoryURL: resultDirectory
+        )
+
+        vc.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"])
+        try await waitUntil(timeout: 30) {
+            vc.testSummaryText == "Exact matches — 4 / 4 reads mapped (100.0%)"
+        }
+
+        let expected = try XCTUnwrap(
+            MappingReferenceCountText.make(referenceCount: 5, unalignedReferenceCount: 3, storedRowCount: 2)
+        )
+        XCTAssertFalse(vc.testReferenceCountLabel.isHidden)
+        XCTAssertEqual(vc.testReferenceCountLabel.stringValue, expected.label)
+    }
+
     func testMultiSampleTrackBuildsRGFilteredRowsAndSelectionAppliesEverySampleRG() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
@@ -1548,7 +1614,9 @@ final class MappingResultViewControllerTests: XCTestCase {
 
     private func makeMappingResult(
         viewerBundleURL: URL? = nil,
-        resultDirectoryURL: URL? = nil
+        resultDirectoryURL: URL? = nil,
+        referenceCount: Int? = nil,
+        unalignedReferenceCount: Int? = nil
     ) -> MappingResult {
         let directory = resultDirectoryURL ?? tempDir!
         let result = MappingResult(
@@ -1562,7 +1630,9 @@ final class MappingResultViewControllerTests: XCTestCase {
             mappedReads: 198,
             unmappedReads: 2,
             wallClockSeconds: 1.5,
-            contigs: makeContigs()
+            contigs: makeContigs(),
+            referenceCount: referenceCount,
+            unalignedReferenceCount: unalignedReferenceCount
         )
         try? Data("bam".utf8).write(to: result.bamURL)
         try? Data("bai".utf8).write(to: result.baiURL)

@@ -195,6 +195,7 @@ extension ReferenceBundleViewportController {
             progress.statusItem.trailingAnchor.constraint(equalTo: focusButton.leadingAnchor, constant: -12),
             progress.statusItem.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
             summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: progress.statusItem.leadingAnchor, constant: -12),
+            referenceCountLabel.trailingAnchor.constraint(lessThanOrEqualTo: progress.statusItem.leadingAnchor, constant: -12),
             progress.listPlaceholder.centerXAnchor.constraint(equalTo: listContainer.centerXAnchor),
             progress.listPlaceholder.centerYAnchor.constraint(equalTo: listContainer.centerYAnchor),
         ])

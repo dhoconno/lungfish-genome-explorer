@@ -33,6 +33,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             sortedBAMURL: bamURL,
             totalReads: totalReads,
             readGroupIDs: readGroupIDs,
+            // The table shows rows with reads only, so rows for references without alignments are never built.
+            includeUnmappedReferenceRows: false,
             reportWarning: { warning in
                 // MappingSummaryBuilder's own memory guard warning (see its
                 // sortedBAMMemoryGuardBytes doc comment) previously had no
@@ -105,6 +107,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         label.setAccessibilityIdentifier("reference-bundle-summary-label")
         return label
     }()
+    /// How many reference sequences have alignments, when a result left some out (UX ruling Q-B2).
+    let referenceCountLabel = MappingReferenceCountText.makeLabel()
 
     let focusButton: NSButton = {
         let button = NSButton(title: "Focus", target: nil, action: nil)
@@ -216,10 +220,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     private func setupSummaryBar() {
         summaryBar.addSubview(summaryLabel)
+        summaryBar.addSubview(referenceCountLabel)
         summaryBar.addSubview(focusButton)
         NSLayoutConstraint.activate([
             summaryLabel.leadingAnchor.constraint(equalTo: summaryBar.leadingAnchor, constant: 12),
-            summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: focusButton.leadingAnchor, constant: -12),
+            referenceCountLabel.leadingAnchor.constraint(equalTo: summaryLabel.trailingAnchor, constant: 12),
+            referenceCountLabel.trailingAnchor.constraint(lessThanOrEqualTo: focusButton.leadingAnchor, constant: -12),
+            referenceCountLabel.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
             summaryLabel.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
 
             focusButton.trailingAnchor.constraint(equalTo: summaryBar.trailingAnchor, constant: -12),
@@ -484,6 +491,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private func updateSummaryBar() {
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.toolTip = nil
+        MappingReferenceCountText.apply(to: referenceCountLabel, result: currentInput?.kind == .mappingResult ? currentResult : nil)
         if let visibleAlignmentSummaryOverride {
             let pct = visibleAlignmentSummaryOverride.totalReads > 0
                 ? String(
@@ -1603,57 +1611,6 @@ private struct VisibleAlignmentSummary: Equatable {
     let totalReads: Int
 }
 
-private enum MappingResultExportError: LocalizedError {
-    case noData
-    case unsupportedFormat(ResultExportFormat)
-
-    var errorDescription: String? {
-        switch self {
-        case .noData:
-            return "No mapping result data is loaded; cannot export."
-        case .unsupportedFormat(let format):
-            return "Export format '\(format.rawValue)' is not supported for mapping results."
-        }
-    }
-}
-
-private enum MappingResultExportBuilder {
-    private static let numericLocale = Locale(identifier: "en_US_POSIX")
-
-    static func delimitedContent(for result: MappingResult, separator: String) -> String {
-        let headers = [
-            "Contig",
-            "Length",
-            "Mapped Reads",
-            "% Mapped",
-            "Mean Depth",
-            "Coverage Breadth",
-            "Median MAPQ",
-            "Mean Identity",
-        ]
-        let rows = result.contigs.map { contig in
-            [
-                escaped(contig.contigName, separator: separator),
-                "\(contig.contigLength)",
-                "\(contig.mappedReads)",
-                String(format: "%.4f", locale: numericLocale, contig.mappedReadPercent),
-                String(format: "%.4f", locale: numericLocale, contig.meanDepth),
-                String(format: "%.4f", locale: numericLocale, contig.coverageBreadth),
-                String(format: "%.4f", locale: numericLocale, contig.medianMAPQ),
-                String(format: "%.4f", locale: numericLocale, contig.meanIdentity),
-            ].joined(separator: separator)
-        }
-        return ([headers.joined(separator: separator)] + rows).joined(separator: "\n") + "\n"
-    }
-
-    private static func escaped(_ value: String, separator: String) -> String {
-        guard value.contains(separator) || value.contains("\"") || value.contains("\n") else {
-            return value
-        }
-        return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-    }
-}
-
 extension ReferenceBundleViewportController {
     public func configure(result: MappingResult) {
         configure(result: result, resultDirectoryURL: nil)
@@ -1730,12 +1687,7 @@ extension ReferenceBundleViewportController {
                 "format": .string(format.rawValue),
                 "outputPath": .file(outputURL),
             ],
-            resolved: [
-                "contigCount": .integer(result.contigs.count),
-                "mappedReads": .integer(result.mappedReads),
-                "sourceCount": .integer(sourceURLs.count),
-                "totalReads": .integer(result.totalReads),
-            ],
+            resolved: MappingResultExportBuilder.resolvedValues(for: result, sourceCount: sourceURLs.count),
             runClock: runClock
         )) { staged in
             try content.write(to: staged, atomically: true, encoding: .utf8)
@@ -1849,6 +1801,7 @@ extension ReferenceBundleViewportController {
     var testListContainer: NSView { listContainer }
     var testDetailContainer: NSView { detailContainer }
     var testSummaryText: String { summaryLabel.stringValue }
+    var testReferenceCountLabel: NSTextField { referenceCountLabel }
     var testRecordTableColumnIdentifiers: [String] {
         sequenceTableView.tableView.tableColumns.map(\.identifier.rawValue)
     }
