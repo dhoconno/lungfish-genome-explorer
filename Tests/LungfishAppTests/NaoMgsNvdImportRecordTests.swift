@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.05 (A63-M2b, QA 1). The Import Center imported a NAO-MGS or NVD result through the app's
-// `--metagenomics-import-helper` mode until lane 12.05 moved these kinds to `lungfish-cli`. These cases ran against
-// that path at the lane's base (commit 754d060bc) and now run the helper mode in process as the vehicle for the
-// service, whose record every route shares. They pin the folder name, the record's command
-// (`MetagenomicsImportHelper.canonicalProvenanceCommand`), the sample facts and the digest of the source it records
-// (BIO 5 and 6, new in this lane), the digest of each source file, and the words of the row (its title, command and
-// the detail it completes with). The one NAO-MGS option, `fetchReferences`, must reach a flag of the leaf.
+// helper mode until lane 12.05 moved these kinds to `lungfish-cli`. These cases ran against that path at the lane's
+// base (commit 754d060bc). Lane 12.06 removed the helper, so they run the route's argv in process as the vehicle for
+// the service, whose record every route shares. They pin the folder name, the record's command (the route's argv
+// without `--format json`), the sample facts and the digest of the source it records (BIO 5 and 6, new in lane
+// 12.05), the digest of each source file, and the words of the row (its title, command and the detail it completes
+// with). The one NAO-MGS option, `fetchReferences`, must reach a flag of the leaf.
 //
 // The managed storage of the process is a folder under the scratch folder that holds a fixture taxonomy, so the
 // import resolves taxon names without the network and without writing into the user's managed storage.
@@ -16,7 +16,6 @@
 import CryptoKit
 import Darwin
 import Foundation
-import Synchronization
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -41,9 +40,9 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testTheNaoMgsHelperPathWritesItsFolderRecordAndRowWords() throws {
+    func testTheNaoMgsImportWritesItsFolderRecordAndRowWords() async throws {
         let input = try NaoMgsNvdAppFixtures.naoMgsResult(in: root)
-        let run = try runHelper(kind: .naomgs, input: input, extra: ["--fetch-references", "false"], fetchReferences: false)
+        let run = try await runImport(kind: .naomgs, input: input, fetchReferences: false)
         XCTAssertEqual(run.folderName, "naomgs-S1", "today the folder name drops the sample id after its dot")
         XCTAssertEqual(run.doneMessage, "Imported NAO-MGS result: 5 reads, 1 taxa")
         let defaults = run.envelope.options.resolvedDefaults
@@ -57,9 +56,9 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         try assertEachSourceFileDigested(run.envelope, sources: ClassifierImportAppFixtures.regularFiles(in: input))
     }
 
-    func testTheNvdHelperPathWritesItsFolderRecordAndRowWords() throws {
+    func testTheNvdImportWritesItsFolderRecordAndRowWords() async throws {
         let input = try NaoMgsNvdAppFixtures.nvdRun(in: root)
-        let run = try runHelper(kind: .nvd, input: input, extra: [], fetchReferences: true)
+        let run = try await runImport(kind: .nvd, input: input, fetchReferences: true)
         XCTAssertEqual(run.folderName, "nvd-EXP001")
         XCTAssertEqual(run.doneMessage, "Imported NVD result: 3 hits, 2 samples")
         let defaults = run.envelope.options.resolvedDefaults
@@ -74,8 +73,8 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
     }
 
     /// `NaoMgsOptions` holds one option, `fetchReferences`, which defaults to fetching. It reaches the leaf as
-    /// `--no-fetch-references`, and the preferred name reaches it as `--sample-name`. The route's argv, which the runner
-    /// runs and the row shows, is the command the record holds plus `--format json`.
+    /// `--no-fetch-references`, and the preferred name reaches it as `--sample-name`. The route's argv is what the
+    /// runner runs and the row shows, and `runImport` pins that the record holds it without `--format json`.
     func testEveryNaoMgsOptionReachesAFlagOfTheLeaf() throws {
         XCTAssertTrue(ClassifierResultImportCLIRoute.NaoMgsOptions().fetchReferences)
         let input = root.appendingPathComponent("S1.2024", isDirectory: true)
@@ -95,14 +94,6 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
             XCTAssertEqual(leaf.sampleName, "Sample 7")
             XCTAssertEqual(leaf.fetchReferences, fetch)
             XCTAssertEqual(leaf.globalOptions.outputFormat, .json)
-            XCTAssertEqual(
-                MetagenomicsImportHelper.canonicalProvenanceCommand(
-                    kind: .naomgs, inputURL: input, outputDirectory: imports, secondaryInputURL: nil,
-                    preferredName: "Sample 7", fetchReferences: fetch
-                ),
-                ["lungfish-cli"] + argv.dropLast(2),
-                "the command the record holds is the route's argv without --format json"
-            )
         }
     }
 
@@ -144,49 +135,36 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         )
     }
 
-    // MARK: - The helper in process
+    // MARK: - The route's argv in process
 
-    private struct HelperRun {
+    private struct ImportRun {
         let folderName: String
         let doneMessage: String?
         let envelope: ProvenanceEnvelope
     }
 
-    /// Runs the helper mode in process, as the app's helper process ran it, into a project's Imports folder, and
-    /// reads the folder it made, its `done` message and its record. The record's command is the canonical one.
-    private func runHelper(kind: MetagenomicsImportKind, input: URL, extra: [String], fetchReferences: Bool) throws -> HelperRun {
+    /// Runs the route's argv (`ClassifierResultImportCLIRoute.arguments`) in process into a project's Imports folder,
+    /// and reads the folder it made, the words of its `complete` event and its record. The record's command is the
+    /// argv without `--format json`.
+    private func runImport(kind: MetagenomicsImportKind, input: URL, fetchReferences: Bool) async throws -> ImportRun {
         let imports = root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
         try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
-        let arguments = ["--metagenomics-import-helper", "--kind", kind.rawValue, "--input-path", input.path, "--output-dir", imports.path] + extra
-        let (status, lines) = try ClassifierImportAppFixtures.standardOutput(in: root) {
-            Self.helperStatus(arguments)
-        }
-        XCTAssertEqual(status, 0, lines.joined(separator: "\n"))
+        let argv = ClassifierResultImportCLIRoute.arguments(
+            kind: kind, inputURL: input, outputDirectory: imports, preferredName: nil, fetchReferences: fetchReferences
+        )
+        let run = try await ClassifierImportAppFixtures.runCLI(argv, in: root)
+        XCTAssertNil(run.failure, run.lines.joined(separator: "\n"))
         let folders = try FileManager.default.contentsOfDirectory(atPath: imports.path).filter { !$0.hasPrefix(".") }
         XCTAssertEqual(folders.count, 1, "\(folders)")
         let folder = imports.appendingPathComponent(try XCTUnwrap(folders.first), isDirectory: true)
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), "the result folder holds its record")
-        XCTAssertEqual(envelope.argv, MetagenomicsImportHelper.canonicalProvenanceCommand(
-            kind: kind, inputURL: input, outputDirectory: imports, secondaryInputURL: nil, preferredName: nil, fetchReferences: fetchReferences
-        ))
-        let done = lines.compactMap { line -> String? in
+        XCTAssertEqual(envelope.argv, ["lungfish-cli"] + argv.dropLast(2), "the record holds the route's argv without --format json")
+        let done = run.lines.compactMap { line -> String? in
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  object["event"] as? String == "done" else { return nil }
+                  object["event"] as? String == "complete" else { return nil }
             return object["message"] as? String
         }.last
-        return HelperRun(folderName: folder.lastPathComponent, doneMessage: done, envelope: envelope)
-    }
-
-    /// The helper waits on a semaphore for its own task, so it runs on a dispatch thread rather than the main thread.
-    nonisolated private static func helperStatus(_ arguments: [String]) -> Int32? {
-        let status = Mutex<Int32?>(nil)
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            status.withLock { $0 = MetagenomicsImportHelper.runIfRequested(arguments: arguments) }
-            finished.signal()
-        }
-        finished.wait()
-        return status.withLock { $0 }
+        return ImportRun(folderName: folder.lastPathComponent, doneMessage: done, envelope: envelope)
     }
 
     /// The digest of a source folder is the SHA-256 of one `<relative path>\t<SHA-256>` line per file in path order.

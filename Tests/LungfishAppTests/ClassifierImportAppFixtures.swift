@@ -2,8 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Darwin
 import Foundation
+@testable import LungfishCLI
 
 /// The results the app's classifier result import tests use (Phase 2.12 lane 12.04), the same as
 /// `ClassifierResultImportFixtures` of the CLI tests. Each carries the dotted sample id `S1.2024` (BIO 5) and
@@ -72,8 +74,12 @@ enum ClassifierImportAppFixtures {
             .sorted { $0.path < $1.path }
     }
 
-    /// Runs `body` with standard output sent to a file under `root`, and returns its result and the lines it printed.
-    static func standardOutput<T>(in root: URL, _ body: () throws -> T) throws -> (T, [String]) {
+    /// Runs `lungfish-cli <argv>` in process, as the route's runner launches it, with standard output sent to a file
+    /// under `root`, and returns the error the command threw, if any, and the lines it printed, which hold its events
+    /// under `--format json`. The record tests use it as the vehicle of the import service since lane 12.06 removed
+    /// the app's helper mode.
+    @MainActor
+    static func runCLI(_ argv: [String], in root: URL) async throws -> (failure: (any Error)?, lines: [String]) {
         let file = root.appendingPathComponent("standard-output-\(UUID().uuidString).capture")
         fflush(stdout)
         let saved = dup(STDOUT_FILENO)
@@ -81,12 +87,21 @@ enum ClassifierImportAppFixtures {
         guard saved >= 0, descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
         dup2(descriptor, STDOUT_FILENO)
         close(descriptor)
-        let result: Result<T, any Error> = Result { try body() }
+        var failure: (any Error)?
+        do { try await runParsed(argv) } catch { failure = error }
         fflush(stdout)
         dup2(saved, STDOUT_FILENO)
         close(saved)
         let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
         try? FileManager.default.removeItem(at: file)
-        return (try result.get(), text.split(separator: "\n").map(String.init))
+        return (failure, text.split(separator: "\n").map(String.init))
+    }
+
+    /// Parses `argv` with the root command, as `lungfish-cli` does, and runs the leaf it names.
+    nonisolated private static func runParsed(_ argv: [String]) async throws {
+        guard var command = try LungfishCLI.parseAsRoot(argv) as? AsyncParsableCommand else {
+            throw CocoaError(.featureUnsupported, userInfo: [NSLocalizedDescriptionKey: "\(argv) names no async leaf"])
+        }
+        try await command.run()
     }
 }

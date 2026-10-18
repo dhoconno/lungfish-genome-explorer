@@ -2,14 +2,17 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The Import Center imports an NVD run through MetagenomicsImportHelper, which
-// hands MetagenomicsImportService.importNvd the managed samtools, so the copied
-// BAMs get duplicate marks and every hit gets a unique-read count. The
-// Operations panel records `lungfish-cli import nvd` for that import, and
+// The Import Center imported an NVD run through the app's helper mode, which
+// handed MetagenomicsImportService.importNvd the managed samtools, so the copied
+// BAMs got duplicate marks and every hit got a unique-read count. The
+// Operations panel recorded `lungfish-cli import nvd` for that import, and
 // `nvd import` is its second spelling. Both commands passed no samtools, so a
 // pasted command skipped duplicate marking and left every unique-read count
-// empty (R3). They now resolve the managed samtools the way the app does.
-// This test imports one small NVD run all three ways and compares the counts.
+// empty (R3). They now resolve the managed samtools the way the app did.
+// Since Phase 2.12 lane 12.05 the Import Center runs `lungfish-cli import nvd`
+// itself (`ClassifierResultImportCLIRoute`), and lane 12.06 removed the helper.
+// This test imports one small NVD run with the route's argv and with both
+// spellings, and compares the counts.
 
 import ArgumentParser
 import Foundation
@@ -96,28 +99,20 @@ final class NvdImportSamtoolsParityTests: XCTestCase {
         )
     }
 
-    func testAppHelperAndBothCLISpellingsProduceTheSameCounts() async throws {
+    func testTheAppRouteAndBothCLISpellingsProduceTheSameCounts() async throws {
         guard BundleBuildHelpers.managedToolExecutablePath(.samtools) != nil else {
             throw XCTSkip("The managed samtools is not installed, so the app skips duplicate marking too.")
         }
         let run = try makeNvdRun()
 
-        // The app's path: the Import Center's helper process, run in process.
-        // The helper waits on a semaphore for its own task, so it runs on a
-        // dispatch thread rather than one of Swift's cooperative threads.
+        // The app's path: the argv the Import Center's route runs, in process.
         let appOutput = root.appendingPathComponent("app", isDirectory: true)
-        let helperArguments = [
-            "Lungfish", "--metagenomics-import-helper",
-            "--kind", "nvd",
-            "--input-path", run.path,
-            "--output-dir", appOutput.path,
-        ]
-        let status: Int32? = await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                continuation.resume(returning: MetagenomicsImportHelper.runIfRequested(arguments: helperArguments))
-            }
-        }
-        XCTAssertEqual(status, 0)
+        let routeArguments = ClassifierResultImportCLIRoute.arguments(
+            kind: .nvd, inputURL: run, outputDirectory: appOutput, preferredName: nil
+        )
+        let parsedRoute = try LungfishCLI.parseAsRoot(routeArguments)
+        var routeCommand = try XCTUnwrap(parsedRoute as? AsyncParsableCommand)
+        try await routeCommand.run()
         let app = try counts(in: appOutput.appendingPathComponent("nvd-EXP001", isDirectory: true))
         XCTAssertFalse(app.uniqueReads.isEmpty)
         XCTAssertTrue(app.uniqueReads.values.allSatisfy { $0 != nil }, "the app counts unique reads: \(app)")

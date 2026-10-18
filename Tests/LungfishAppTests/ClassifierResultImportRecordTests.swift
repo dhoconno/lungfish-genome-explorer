@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.04 (A63-M2a, QA 1). The Import Center imports a Kraken2, EsViritu or TaxTriage result
-// through the app's `--metagenomics-import-helper` mode until lane 12.04 moved these kinds to `lungfish-cli`. These cases pin what that path
+// Phase 2.12 lane 12.04 (A63-M2a, QA 1). The Import Center imported a Kraken2, EsViritu or TaxTriage result
+// through the app's helper mode until lane 12.04 moved these kinds to `lungfish-cli`. These cases pin what the import
 // writes for a fixture result with the dotted sample id `S1.2024` (BIO 5): the folder name, the record's
-// command (`MetagenomicsImportHelper.canonicalProvenanceCommand`), the sample names it records, the digest of
-// each source file, and the words of the row (its title, command and the detail it completes with).
+// command (the route's argv without `--format json`), the sample names it records, the digest of each source file,
+// and the words of the row (its title, command and the detail it completes with). Lane 12.06 removed the helper,
+// so they run the route's argv in process as the vehicle of the service, whose record every route shares.
 
 import CryptoKit
 import Darwin
@@ -31,9 +32,9 @@ final class ClassifierResultImportRecordTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testTheKraken2HelperPathWritesItsFolderRecordAndRowWords() throws {
+    func testTheKraken2ImportWritesItsFolderRecordAndRowWords() async throws {
         let input = try ClassifierImportAppFixtures.kraken2Report(in: root)
-        let run = try runHelper(kind: .kraken2, input: input)
+        let run = try await runImport(kind: .kraken2, input: input)
         XCTAssertEqual(run.folderName, "classification-S1_2024")
         XCTAssertEqual(run.doneMessage, "Imported Kraken2 result: 2,504,263 reads, 738 species")
         XCTAssertEqual(run.envelope.options.resolvedDefaults["sampleNames"], .array([.string("S1.2024")]), "the kreport's sample id, whole")
@@ -41,9 +42,9 @@ final class ClassifierResultImportRecordTests: XCTestCase {
         try assertEachSourceFileDigested(run.envelope, sources: [input])
     }
 
-    func testTheEsVirituHelperPathWritesItsFolderRecordAndRowWords() throws {
+    func testTheEsVirituImportWritesItsFolderRecordAndRowWords() async throws {
         let input = try ClassifierImportAppFixtures.esVirituResult(in: root)
-        let run = try runHelper(kind: .esviritu, input: input)
+        let run = try await runImport(kind: .esviritu, input: input)
         XCTAssertEqual(run.folderName, "esviritu-S1", "today the folder name drops the sample id after its dot")
         XCTAssertEqual(run.doneMessage, "Imported EsViritu result: 3 files, 3 detections")
         XCTAssertEqual(run.envelope.options.resolvedDefaults["sampleName"], .string("S1.2024"), "the detection file's sample id, whole")
@@ -52,9 +53,9 @@ final class ClassifierResultImportRecordTests: XCTestCase {
         try assertEachSourceFileDigested(run.envelope, sources: ClassifierImportAppFixtures.regularFiles(in: input))
     }
 
-    func testTheTaxTriageHelperPathWritesItsFolderRecordAndRowWords() throws {
+    func testTheTaxTriageImportWritesItsFolderRecordAndRowWords() async throws {
         let input = try ClassifierImportAppFixtures.taxTriageResult(in: root)
-        let run = try runHelper(kind: .taxtriage, input: input)
+        let run = try await runImport(kind: .taxtriage, input: input)
         XCTAssertEqual(run.folderName, "taxtriage-run")
         XCTAssertEqual(run.doneMessage, "Imported TaxTriage result: 6 files")
         XCTAssertEqual(
@@ -98,37 +99,34 @@ final class ClassifierResultImportRecordTests: XCTestCase {
         }
     }
 
-    // MARK: - The helper in process
+    // MARK: - The route's argv in process
 
-    private struct HelperRun {
+    private struct ImportRun {
         let folderName: String
         let doneMessage: String?
         let envelope: ProvenanceEnvelope
     }
 
-    /// Runs the helper mode in process, as the app's helper process ran it, into a project's Imports folder, and
-    /// reads the folder it made, its `done` message and its record. The record's command is the canonical one.
-    private func runHelper(kind: MetagenomicsImportKind, input: URL) throws -> HelperRun {
+    /// Runs the route's argv (`ClassifierResultImportCLIRoute.arguments`) in process into a project's Imports folder,
+    /// and reads the folder it made, the words of its `complete` event and its record. The record's command is the
+    /// argv without `--format json`.
+    private func runImport(kind: MetagenomicsImportKind, input: URL) async throws -> ImportRun {
         let imports = root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
         try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
-        let arguments = ["--metagenomics-import-helper", "--kind", kind.rawValue, "--input-path", input.path, "--output-dir", imports.path]
-        let (status, lines) = try ClassifierImportAppFixtures.standardOutput(in: root) {
-            MetagenomicsImportHelper.runIfRequested(arguments: arguments)
-        }
-        XCTAssertEqual(status, 0, lines.joined(separator: "\n"))
+        let argv = ClassifierResultImportCLIRoute.arguments(kind: kind, inputURL: input, outputDirectory: imports, preferredName: nil)
+        let run = try await ClassifierImportAppFixtures.runCLI(argv, in: root)
+        XCTAssertNil(run.failure, run.lines.joined(separator: "\n"))
         let folders = try FileManager.default.contentsOfDirectory(atPath: imports.path).filter { !$0.hasPrefix(".") }
         XCTAssertEqual(folders.count, 1, "\(folders)")
         let folder = imports.appendingPathComponent(try XCTUnwrap(folders.first), isDirectory: true)
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: folder), "the result folder holds its record")
-        XCTAssertEqual(envelope.argv, MetagenomicsImportHelper.canonicalProvenanceCommand(
-            kind: kind, inputURL: input, outputDirectory: imports, secondaryInputURL: nil, preferredName: nil, fetchReferences: true
-        ))
-        let done = lines.compactMap { line -> String? in
+        XCTAssertEqual(envelope.argv, ["lungfish-cli"] + argv.dropLast(2), "the record holds the route's argv without --format json")
+        let done = run.lines.compactMap { line -> String? in
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  object["event"] as? String == "done" else { return nil }
+                  object["event"] as? String == "complete" else { return nil }
             return object["message"] as? String
         }.last
-        return HelperRun(folderName: folder.lastPathComponent, doneMessage: done, envelope: envelope)
+        return ImportRun(folderName: folder.lastPathComponent, doneMessage: done, envelope: envelope)
     }
 
     /// Each source file is an input of the record with the SHA-256 of its bytes. The fixtures' file names are unique.
