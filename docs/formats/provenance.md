@@ -13,6 +13,8 @@ Lungfish Genome Explorer (LGE) writes a provenance record beside every result it
 
 Some results keep a typed record of their own, such as `mapping-provenance.json`. A typed record keeps its own schema and is not described here.
 
+`lungfish-cli build-db` writes the record of its run beside each file it made. A record beside the database, or beside an output of `build-db kraken2` or `build-db taxtriage`, holds the steps that name that file among their outputs and every step without outputs, so the database's record keeps every read count of the run. A record beside a BAM or BAM index that `build-db esviritu` moved to a sample's `bams/` folder holds the steps that name that file among their outputs, the steps without outputs whose inputs name the file or the `_temp` path it was moved from, and the steps that name no file at all. The second kind covers the file's header probe, its read counts, the replacement of its bytes by duplicate marking and the removal of the `_temp` folders. A step keeps all its inputs, so the move, the removal of the `_temp` folders and the run's own step still list the files of every sample. A BAM record written by an earlier release also holds the steps without outputs of every other sample, and LGE reads it as written.
+
 ## The envelope
 
 LGE writes every new record as an envelope. The encoder sorts the keys, writes dates in ISO 8601 with whole seconds in UTC, and writes slashes as typed, so a path appears as `@/Analyses/run` in the raw bytes. A record written before version 2 escapes them, as in `@\/Analyses\/run`. A reader parses the JSON and relies on neither key order nor escaping.
