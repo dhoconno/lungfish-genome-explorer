@@ -52,12 +52,12 @@ import LungfishWorkflow
 /// and the bridge reads and writes the bar, the detail and the log inside that hop. The
 /// state of a run lives in one main-actor object, so no event reads a bar that another
 /// event can change before it writes.
-enum OperationCenterCLIBridge {
+public enum OperationCenterCLIBridge {
     /// Suitable as the `onEvent` closure passed to `CLISubprocessTransport.run`.
     ///
     /// - Parameter overlay: Called on the main actor with each non-empty progress message the
     ///   row takes, in arrival order, only while the row runs. Nil for a route with no overlay.
-    static func onEvent(
+    public static func onEvent(
         operationID: UUID,
         overlay: (@MainActor @Sendable (String) -> Void)? = nil
     ) -> @Sendable (CLIEvent) -> Void {
@@ -75,13 +75,13 @@ enum OperationCenterCLIBridge {
     /// independent of whether `cancel()` was called directly on the runner —
     /// mirrors the previous per-runner `isOperationCancelled` check.
     @MainActor
-    static func isOperationCancelled(_ id: UUID) -> Bool {
+    public static func isOperationCancelled(_ id: UUID) -> Bool {
         let state = OperationCenter.shared.items.first { $0.id == id }?.state
         return state == .cancelling || state == .cancelled
     }
 
     @MainActor
-    static func failOperation(_ id: UUID, detail: String?, fallbackMessage: String) {
+    public static func failOperation(_ id: UUID, detail: String?, fallbackMessage: String) {
         let message = detail ?? fallbackMessage
         guard OperationCenter.shared.items.first(where: { $0.id == id })?.state != .cancelled else {
             return
@@ -90,7 +90,7 @@ enum OperationCenterCLIBridge {
     }
 
     @MainActor
-    static func acknowledgeCancellation(_ id: UUID) {
+    public static func acknowledgeCancellation(_ id: UUID) {
         OperationCenter.shared.acknowledgeCancellation(id: id)
     }
 
@@ -98,13 +98,13 @@ enum OperationCenterCLIBridge {
     /// await this directly from a non-isolated async context; `@MainActor`
     /// isolation handles the actor hop without an explicit `MainActor.run`.
     @MainActor
-    static func completeOperation(_ id: UUID, detail: String, bundleURLs: [URL]) {
+    public static func completeOperation(_ id: UUID, detail: String, bundleURLs: [URL]) {
         _ = OperationCenter.shared.complete(id: id, detail: detail, bundleURLs: bundleURLs)
     }
 
     /// Marks an operation complete with loose (non-bundle) output files.
     @MainActor
-    static func completeOperation(_ id: UUID, detail: String, outputURLs: [URL]) {
+    public static func completeOperation(_ id: UUID, detail: String, outputURLs: [URL]) {
         _ = OperationCenter.shared.complete(id: id, detail: detail, outputURLs: outputURLs)
     }
 }
