@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the NVD contigs.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 2 rows to contigs.tsv","output":"\/work\/contigs.tsv","outputs":["\/work\/contigs.tsv"],"progress":1,"schemaVersion":2}

@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the NAO-MGS table.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 2 rows to summary.tsv","output":"\/work\/summary.tsv","outputs":["\/work\/summary.tsv"],"progress":1,"schemaVersion":2}
