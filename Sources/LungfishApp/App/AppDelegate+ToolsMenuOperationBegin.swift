@@ -21,31 +21,33 @@ extension AppDelegate {
     /// Classification type, which replaces the Download label it showed while
     /// the call passed no type.
     ///
-    /// The run launches this app executable in `--metagenomics-import-helper`
-    /// mode, which is not a `lungfish-cli` flag. The row records the runnable
-    /// equivalent, `lungfish-cli import nvd <source> --output-dir <imports>`,
-    /// which reaches the same `MetagenomicsImportService.importNvd`.
+    /// The run launches `lungfish-cli import nvd` on `CLIBundleBuildRunner`
+    /// (Phase 2.12 lane 12.05). The row records that argv whole, `--format json`
+    /// included, from `ClassifierResultImportCLIRoute.rowCommand`, the builder
+    /// the runner's argv comes from, and registers `onCancel`, the runner's
+    /// cancel, when it starts.
     ///
-    /// Both paths hand the managed samtools to that service, which marks
-    /// duplicates in the copied BAM files and counts unique reads, so the
-    /// recorded command reproduces the run. A test pins the exact string.
+    /// The command hands the managed samtools to `MetagenomicsImportService`,
+    /// which marks duplicates in the copied BAM files and counts unique reads,
+    /// so the recorded command reproduces the run. A test pins the exact string.
     @discardableResult
     static func beginNvdImportOperation(
         sourceURL: URL,
         importsDirectory: URL,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
+        onCancel: (@Sendable () -> Void)? = nil,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
         let result = reporter.begin(
             title: "NVD Import",
             detail: "Importing \(sourceURL.lastPathComponent)...",
             operationType: .classification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "import",
-                args: ["nvd", sourceURL.path, "--output-dir", importsDirectory.path]
+            cliCommand: ClassifierResultImportCLIRoute.rowCommand(
+                kind: .nvd, inputURL: sourceURL, outputDirectory: importsDirectory, preferredName: nil
             ),
-            routeContext: routeContext
+            routeContext: routeContext,
+            onCancel: onCancel
         )
         switch result {
         case .started(let operationID):

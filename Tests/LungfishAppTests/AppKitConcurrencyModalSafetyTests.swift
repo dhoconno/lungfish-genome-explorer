@@ -361,16 +361,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             pairedWith: "logProgress("
         )
 
-        let importCenterResultsPath = "Sources/LungfishApp/App/AppDelegate+ImportCenterMetagenomicsBAM.swift"
-        let importCenterResultsSource = try String(
-            contentsOf: root.appendingPathComponent(importCenterResultsPath),
-            encoding: .utf8
-        )
-        assertLogged(
-            path: importCenterResultsPath,
-            marker: "MetagenomicsImportHelperClient.importViaCLI(",
-            source: importCenterResultsSource
-        )
+        // The Import Center's result imports run lungfish-cli since Phase 2.12 lanes 12.04 and 12.05, so no helper handler logs here.
 
         XCTAssertTrue(
             violations.isEmpty,

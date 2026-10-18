@@ -1,4 +1,4 @@
-// ClassifierResultImportCLIRoute.swift - The Import Center's Kraken2, EsViritu and TaxTriage result imports on lungfish-cli
+// ClassifierResultImportCLIRoute.swift - The Import Center's classifier result imports on lungfish-cli
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -6,16 +6,29 @@ import Foundation
 import LungfishKit
 import LungfishWorkflow
 
-/// The Import Center's Kraken2, EsViritu and TaxTriage result imports run `lungfish-cli import <kind>` on
-/// `CLIBundleBuildRunner` (Phase 2.12 lane 12.04, A63-M2a), which replaced the app's
-/// `--metagenomics-import-helper` mode for these kinds. NAO-MGS and NVD still run in the helper.
+/// The Import Center's Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD result imports run `lungfish-cli import <kind>` on
+/// `CLIBundleBuildRunner` (Phase 2.12 lanes 12.04 and 12.05, A63-M2), which replaced the app's
+/// `--metagenomics-import-helper` mode for every kind.
 ///
 /// The command writes the result folder and its record, and the app writes nothing after it exits.
 /// `OperationCenterCLIBridge` shows the command's progress on the row, and the row completes with the
 /// command's `complete` words, the words the helper printed. A cancel reaches the command as SIGTERM with
 /// `operationGrace` before SIGKILL. The command removes the folder it began, records the run as cancelled and
 /// exits 125, and the runner acknowledges the cancel on the row, which shows no alert.
+///
+/// ``arguments(kind:inputURL:outputDirectory:preferredName:fetchReferences:)`` is the one builder of the argv. The
+/// runner runs it and ``rowCommand(kind:inputURL:outputDirectory:preferredName:fetchReferences:)`` shows it whole.
 enum ClassifierResultImportCLIRoute {
+    /// The NAO-MGS options the Import Center passes to the command. `fetchReferences` reaches the leaf as
+    /// `--no-fetch-references` when it is false, since the leaf's option is a flag that defaults to fetching.
+    struct NaoMgsOptions: Sendable {
+        let fetchReferences: Bool
+
+        init(fetchReferences: Bool = true) {
+            self.fetchReferences = fetchReferences
+        }
+    }
+
     /// How a run ended. A failure shows its alert when `alert` is set, the row having failed by it.
     enum Outcome: Equatable {
         case completed(URL, detail: String)
@@ -23,18 +36,42 @@ enum ClassifierResultImportCLIRoute {
         case failed(String, alert: Bool)
     }
 
-    /// Whether the Import Center runs `kind` on `lungfish-cli`.
-    static func runs(_ kind: MetagenomicsImportKind) -> Bool {
-        kind == .kraken2 || kind == .esviritu || kind == .taxtriage
-    }
-
-    /// The argv after `lungfish-cli`. Before `--format json` it is the command the leaf records and the row shows.
-    static func arguments(kind: MetagenomicsImportKind, inputURL: URL, outputDirectory: URL, preferredName: String?) -> [String] {
+    /// The argv after `lungfish-cli`. The row shows this argv whole. The leaf records it without `--format json`, as
+    /// `import bam` does. The preferred name reaches NAO-MGS as `--sample-name` and every other kind as `--name`.
+    static func arguments(
+        kind: MetagenomicsImportKind,
+        inputURL: URL,
+        outputDirectory: URL,
+        preferredName: String?,
+        fetchReferences: Bool = true
+    ) -> [String] {
         let trimmed = preferredName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed?.isEmpty == true ? nil : trimmed
-        return ["import", kind.importCommandToken, inputURL.path, "--output-dir", outputDirectory.path]
-            + (name.map { ["--name", $0] } ?? [])
-            + ["--format", "json"]
+        var argv = ["import", kind.importCommandToken, inputURL.path, "--output-dir", outputDirectory.path]
+        if kind == .naomgs {
+            argv += name.map { ["--sample-name", $0] } ?? []
+            if !fetchReferences { argv.append("--no-fetch-references") }
+        } else {
+            argv += name.map { ["--name", $0] } ?? []
+        }
+        return argv + ["--format", "json"]
+    }
+
+    /// The row's command, the text Copy CLI Command gives. It is `arguments` whole, `--format json` included.
+    static func rowCommand(
+        kind: MetagenomicsImportKind,
+        inputURL: URL,
+        outputDirectory: URL,
+        preferredName: String?,
+        fetchReferences: Bool = true
+    ) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "import \(kind.importCommandToken)",
+            args: Array(arguments(
+                kind: kind, inputURL: inputURL, outputDirectory: outputDirectory,
+                preferredName: preferredName, fetchReferences: fetchReferences
+            ).dropFirst(2))
+        )
     }
 
     /// Runs `arguments` for the row `operationID` and ends the row as the helper route did.

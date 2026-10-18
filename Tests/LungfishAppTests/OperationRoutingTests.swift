@@ -503,7 +503,7 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(nvdImport.contains("targetMainWindowController(routeContext: routeContext)"))
         XCTAssertTrue(nvdImport.contains("routeContext: routeContext"))
         XCTAssertTrue(nvdImport.contains("canWriteProjectOutputs"))
-        XCTAssertTrue(nvdImport.contains("MetagenomicsImportHelperClient.importViaCLI"))
+        XCTAssertTrue(nvdImport.contains("ClassifierResultImportCLIRoute.run("))
         XCTAssertTrue(nvdImport.contains("kind: .nvd"))
         XCTAssertFalse(nvdImport.contains("mainWindowController?.mainSplitViewController"))
 

@@ -59,7 +59,7 @@ final class AppDelegateToolsMenuOperationTests: XCTestCase {
     }
 
     func testNvdImportKeepsItsRecordedCommandByteForByte() {
-        // The row recorded this exact string before the migration.
+        // The row shows the argv the runner runs, `--format json` included, from one builder (Phase 2.12 lane 12.05).
         let reporter = RecordingOperationReporter()
 
         AppDelegate.beginNvdImportOperation(
@@ -71,7 +71,7 @@ final class AppDelegateToolsMenuOperationTests: XCTestCase {
 
         XCTAssertEqual(
             reporter.items.first?.cliCommand,
-            "lungfish-cli import nvd /tmp/in/nvd-run --output-dir /tmp/project.lungfish/Imports"
+            "lungfish-cli import nvd /tmp/in/nvd-run --output-dir /tmp/project.lungfish/Imports --format json"
         )
     }
 

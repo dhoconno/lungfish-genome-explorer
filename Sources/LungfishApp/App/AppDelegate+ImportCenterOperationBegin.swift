@@ -235,20 +235,15 @@ extension AppDelegate {
 
     // MARK: - Classifier result imports
 
-    /// Registers the classifier result import row (Kraken2, EsViritu,
-    /// TaxTriage and NAO-MGS) and calls `launch` with the operation ID only
-    /// when the row started. The row locks no bundle and carries the
-    /// Classification type, which replaces the Download label it showed
-    /// while the call passed no type.
+    /// Registers the classifier result import row (Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD) and calls
+    /// `launch` with the operation ID only when the row started. The row locks no bundle and carries the
+    /// Classification type, which replaces the Download label it showed while the call passed no type.
     ///
-    /// The recorded command comes from
-    /// `MetagenomicsImportHelper.canonicalProvenanceCommand`, the argv the
-    /// import helper writes into the result's provenance, so the row and the
-    /// provenance replay command agree. NAO-MGS records `--no-fetch-references`
-    /// only when references are not fetched, because the command-line option
-    /// is a flag that defaults to fetching. Kraken2, EsViritu and TaxTriage
-    /// run that command, `lungfish-cli import <kind>`, and the row registers
-    /// `onCancel`, the runner's cancel, when it starts (Phase 2.12 lane 12.04).
+    /// The recorded command is `ClassifierResultImportCLIRoute.rowCommand`, the argv the runner runs whole
+    /// (`--format json` included), so the row and the run share one builder. NAO-MGS records
+    /// `--no-fetch-references` only when references are not fetched, because the command-line option is a flag
+    /// that defaults to fetching. Every kind runs `lungfish-cli import <kind>`, and the row registers `onCancel`,
+    /// the runner's cancel, when it starts (Phase 2.12 lanes 12.04 and 12.05).
     @discardableResult
     static func beginClassifierResultImportOperation(
         kind: MetagenomicsImportKind,
@@ -256,28 +251,19 @@ extension AppDelegate {
         inputURL: URL,
         outputDirectory: URL,
         preferredName: String?,
-        naoMgsOptions: MetagenomicsImportHelperClient.NaoMgsOptions?,
+        naoMgsOptions: ClassifierResultImportCLIRoute.NaoMgsOptions?,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         onCancel: (@Sendable () -> Void)? = nil,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
-        let trimmedName = preferredName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let argv = MetagenomicsImportHelper.canonicalProvenanceCommand(
-            kind: kind,
-            inputURL: inputURL,
-            outputDirectory: outputDirectory,
-            secondaryInputURL: nil,
-            preferredName: trimmedName?.isEmpty == true ? nil : trimmedName,
-            fetchReferences: naoMgsOptions?.fetchReferences ?? true
-        )
         let result = reporter.begin(
             title: operationTitle,
             detail: "Importing \(inputURL.lastPathComponent)...",
             operationType: .classification,
-            cliCommand: OperationCenter.buildCLICommand(
-                subcommand: "import",
-                args: Array(argv.dropFirst(2))
+            cliCommand: ClassifierResultImportCLIRoute.rowCommand(
+                kind: kind, inputURL: inputURL, outputDirectory: outputDirectory,
+                preferredName: preferredName, fetchReferences: naoMgsOptions?.fetchReferences ?? true
             ),
             routeContext: routeContext,
             onCancel: onCancel

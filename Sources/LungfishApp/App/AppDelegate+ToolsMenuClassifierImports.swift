@@ -44,86 +44,38 @@ extension AppDelegate {
             return
         }
 
+        // The import is `lungfish-cli import nvd`, and the row shows its events (Phase 2.12 lane 12.05).
+        let runner = CLIBundleBuildRunner()
+        let arguments = ClassifierResultImportCLIRoute.arguments(
+            kind: .nvd, inputURL: url, outputDirectory: importsDir, preferredName: nil
+        )
         let began = Self.beginNvdImportOperation(
             sourceURL: url,
             importsDirectory: importsDir,
-            routeContext: routeContext
+            routeContext: routeContext,
+            onCancel: { runner.cancel() }
         ) { opID in
             onDispatch?(.started)
-            let task = Task.detached { [weak self] in
-                do {
-                    let result = try await MetagenomicsImportHelperClient.importViaCLI(
-                        kind: .nvd,
-                        inputURL: url,
-                        outputDirectory: importsDir
-                    ) { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: progress,
-                                    detail: message
-                                )
-                            }
-                        }
-                    }
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: result.detail,
-                                bundleURLs: [result.resultDirectory]
-                            ) else { return }
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "NVD import complete: \(result.resultDirectory.lastPathComponent)"
-                            )
-                            self?.targetMainWindowController(routeContext: routeContext)?
-                                .mainSplitViewController?.sidebarController.requestReloadFromFilesystem()
-                        }
-                    }
-                } catch is CancellationError {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.acknowledgeCancellation(id: opID)
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "NVD import cancelled"
-                            )
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            if let partialDir = (error as? MetagenomicsImportHelperClientError)?
-                                .partialResultDirectory {
-                                try? FileManager.default.removeItem(at: partialDir)
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .info,
-                                    message: "Cleaned up partial NVD import directory"
-                                )
-                            }
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .error,
-                                message: "NVD import failed: \(error.localizedDescription)"
-                            )
-                            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                            self?.showAlert(
-                                title: "NVD Import Failed",
-                                message: error.localizedDescription,
-                                presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
-                            )
-                        }
-                    }
+            Task { [weak self] in
+                let outcome = await ClassifierResultImportCLIRoute.run(
+                    runner, arguments: arguments, operationID: opID, operationTitle: "NVD Import"
+                )
+                switch outcome {
+                case .completed(let folder, _):
+                    OperationCenter.shared.log(id: opID, level: .info, message: "NVD import complete: \(folder.lastPathComponent)")
+                    self?.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?.sidebarController.requestReloadFromFilesystem()
+                case .cancelled:
+                    break
+                case .failed(let detail, let alert):
+                    guard alert else { return }
+                    self?.showAlert(
+                        title: "NVD Import Failed",
+                        message: detail,
+                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                    )
                 }
             }
-
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
         if case .refused(let refusal) = began { onDispatch?(.rejected(refusal.message)) }
     }

@@ -64,7 +64,7 @@ extension AppDelegate {
         missingProjectMessage: String,
         preferredName: String? = nil,
         routeContext explicitRouteContext: OperationRouteContext? = nil,
-        naoMgsOptions: MetagenomicsImportHelperClient.NaoMgsOptions? = nil,
+        naoMgsOptions: ClassifierResultImportCLIRoute.NaoMgsOptions? = nil,
         onDispatch: (@MainActor @Sendable (ImportDispatchOutcome) -> Void)? = nil
     ) {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
@@ -106,38 +106,12 @@ extension AppDelegate {
             }
         }
 
-        // Kraken2, EsViritu and TaxTriage run `lungfish-cli import <kind>` (Phase 2.12 lane 12.04).
-        if ClassifierResultImportCLIRoute.runs(kind) {
-            let runner = CLIBundleBuildRunner()
-            let arguments = ClassifierResultImportCLIRoute.arguments(
-                kind: kind, inputURL: url, outputDirectory: outputDir, preferredName: preferredName
-            )
-            Self.beginClassifierResultImportOperation(
-                kind: kind,
-                operationTitle: operationTitle,
-                inputURL: url,
-                outputDirectory: outputDir,
-                preferredName: preferredName,
-                naoMgsOptions: naoMgsOptions,
-                routeContext: routeContext,
-                onCancel: { runner.cancel() }
-            ) { opID in
-                onDispatch?(.started)
-                Task { [weak self] in
-                    let outcome = await ClassifierResultImportCLIRoute.run(
-                        runner, arguments: arguments, operationID: opID, operationTitle: operationTitle
-                    )
-                    guard case .failed(let detail, alert: true) = outcome else { return }
-                    self?.showAlert(
-                        title: "\(operationTitle) Failed",
-                        message: detail,
-                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
-                    )
-                }
-            }
-            return
-        }
-
+        // Every kind runs `lungfish-cli import <kind>` (Phase 2.12 lanes 12.04 and 12.05).
+        let runner = CLIBundleBuildRunner()
+        let arguments = ClassifierResultImportCLIRoute.arguments(
+            kind: kind, inputURL: url, outputDirectory: outputDir, preferredName: preferredName,
+            fetchReferences: naoMgsOptions?.fetchReferences ?? true
+        )
         Self.beginClassifierResultImportOperation(
             kind: kind,
             operationTitle: operationTitle,
@@ -145,82 +119,21 @@ extension AppDelegate {
             outputDirectory: outputDir,
             preferredName: preferredName,
             naoMgsOptions: naoMgsOptions,
-            routeContext: routeContext
+            routeContext: routeContext,
+            onCancel: { runner.cancel() }
         ) { opID in
             onDispatch?(.started)
-            let task = Task.detached { [weak self] in
-                do {
-                    let result = try await MetagenomicsImportHelperClient.importViaCLI(
-                        kind: kind,
-                        inputURL: url,
-                        outputDirectory: outputDir,
-                        preferredName: preferredName,
-                        naoMgsOptions: naoMgsOptions
-                    ) { progress, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.updateWithLog(
-                                    id: opID,
-                                    progress: progress,
-                                    detail: message
-                                )
-                            }
-                        }
-                    }
-
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: result.detail,
-                                bundleURLs: [result.resultDirectory]
-                            ) else { return }
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "Imported result at \(result.resultDirectory.lastPathComponent)"
-                            )
-                        }
-                    }
-                } catch is CancellationError {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.acknowledgeCancellation(id: opID)
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "\(operationTitle) cancelled"
-                            )
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            let detail = error.localizedDescription
-                            // Cleanup partial result directory left by failed import
-                            if let partialDir = (error as? MetagenomicsImportHelperClientError)?
-                                .partialResultDirectory {
-                                try? FileManager.default.removeItem(at: partialDir)
-                                OperationCenter.shared.log(
-                                    id: opID,
-                                    level: .info,
-                                    message: "Cleaned up partial import directory"
-                                )
-                            }
-
-                            guard OperationCenter.shared.fail(id: opID, detail: detail) else { return }
-                            self?.showAlert(
-                                title: "\(operationTitle) Failed",
-                                message: detail,
-                                presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
-                            )
-                        }
-                    }
-                }
+            Task { [weak self] in
+                let outcome = await ClassifierResultImportCLIRoute.run(
+                    runner, arguments: arguments, operationID: opID, operationTitle: operationTitle
+                )
+                guard case .failed(let detail, alert: true) = outcome else { return }
+                self?.showAlert(
+                    title: "\(operationTitle) Failed",
+                    message: detail,
+                    presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                )
             }
-
-            // Wire cancellation so the Operations Panel cancel button stops downloads.
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
     }
 

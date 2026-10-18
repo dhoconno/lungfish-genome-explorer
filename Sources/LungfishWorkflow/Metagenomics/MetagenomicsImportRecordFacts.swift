@@ -15,15 +15,19 @@ import Foundation
 ///   one `<relative path>\t<SHA-256>` line for each of its files in path order, made from the digests the
 ///   record's inputs already carry, so each file is read once.
 ///
-/// NAO-MGS and NVD records get neither until their own lane.
+/// NAO-MGS and NVD records name their samples where the service parsed them, the sample ids of the table and of the CSV,
+/// and get the digest here (Phase 2.12 lane 12.05).
 enum MetagenomicsImportRecordFacts {
     static func resolvedDefaults(
         kind: MetagenomicsImportKind,
         sourceURLs: [URL],
         inputs: [ProvenanceFileDescriptor]
     ) -> [String: ParameterValue] {
-        guard [.kraken2, .esviritu, .taxtriage].contains(kind), let source = sourceURLs.first else { return [:] }
-        var facts: [String: ParameterValue] = ["sampleNames": .array(sampleNames(kind: kind, source: source, inputs: inputs).map(ParameterValue.string))]
+        guard let source = sourceURLs.first else { return [:] }
+        var facts: [String: ParameterValue] = [:]
+        if [.kraken2, .esviritu, .taxtriage].contains(kind) {
+            facts["sampleNames"] = .array(sampleNames(kind: kind, source: source, inputs: inputs).map(ParameterValue.string))
+        }
         if let digest = sourceDigest(source: source, inputs: inputs) {
             facts["sourceDigest"] = .string(digest)
         }

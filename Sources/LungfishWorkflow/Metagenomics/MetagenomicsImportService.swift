@@ -595,7 +595,7 @@ public enum MetagenomicsImportService {
                     "outputDirectory": .file(finalDirectory),
                     "bundleName": .string(finalDirectory.lastPathComponent),
                     "experiment": .string(parseResult.experiment),
-                    "sampleCount": .integer(parseResult.sampleIds.count),
+                    "sampleCount": .integer(parseResult.sampleIds.count), "sampleNames": .array(parseResult.sampleIds.sorted().map(ParameterValue.string)),
                     "hitCount": .integer(parseResult.hits.count),
                     "contigCount": .integer(sampleBuild.contigCount),
                     "copiedBAMCount": .integer(copiedBAMs.bamURLs.count),
@@ -924,7 +924,7 @@ public enum MetagenomicsImportService {
                 explicitOptions: explicitProvenanceOptions,
                 resolvedDefaults: [
                     "outputDirectory": .file(resultDirectory),
-                    "sampleName": .string(normalizedSampleName),
+                    "sampleName": .string(normalizedSampleName), "sampleNames": .array(sortedSamples.map(ParameterValue.string)),
                     "sourceFileCount": .integer(virusHitsFiles.count),
                     "totalHitReads": .integer(totalHitCount),
                     "taxonCount": .integer(mergedTaxonCount),

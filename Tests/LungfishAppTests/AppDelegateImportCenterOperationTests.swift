@@ -372,8 +372,8 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
     }
 
     func testKraken2ImportKeepsItsRecordedCommandByteForByte() throws {
-        // The Kraken2, EsViritu and TaxTriage rows recorded this exact string
-        // before the migration, so the shared builder must not change it.
+        // The rows show the argv the runner runs, `--format json` included, from
+        // one builder (Phase 2.12 lane 12.05, Ruling A of the review of lane 12.04).
         let reporter = RecordingOperationReporter()
 
         AppDelegate.beginClassifierResultImportOperation(
@@ -389,7 +389,7 @@ final class AppDelegateImportCenterOperationTests: XCTestCase {
 
         XCTAssertEqual(
             reporter.items.first?.cliCommand,
-            "lungfish-cli import kraken2 /tmp/in/sample.kreport --output-dir /tmp/project.lungfish/Imports"
+            "lungfish-cli import kraken2 /tmp/in/sample.kreport --output-dir /tmp/project.lungfish/Imports --format json"
         )
     }
 

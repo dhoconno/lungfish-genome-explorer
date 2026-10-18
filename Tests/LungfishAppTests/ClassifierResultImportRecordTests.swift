@@ -93,7 +93,7 @@ final class ClassifierResultImportRecordTests: XCTestCase {
             XCTAssertEqual(item.operationType, .classification)
             XCTAssertEqual(
                 item.cliCommand,
-                OperationCenter.buildCLICommand(subcommand: "import", args: [kind.importCommandToken, input.path, "--output-dir", imports.path])
+                ClassifierResultImportCLIRoute.rowCommand(kind: kind, inputURL: input, outputDirectory: imports, preferredName: nil)
             )
         }
     }

@@ -2,16 +2,18 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.05 (A63-M2b, QA 1). The Import Center imports a NAO-MGS or NVD result through the app's
-// `--metagenomics-import-helper` mode until lane 12.05 moved these kinds to `lungfish-cli`. These cases pin what that
-// path writes for a fixture result with the dotted sample ids `S1.2024` and `S2.2024` (BIO 5): the folder name, the
-// record's command (`MetagenomicsImportHelper.canonicalProvenanceCommand`), the sample facts it records, the digest of
-// each source file, and the words of the row (its title, command and the detail it completes with). The one NAO-MGS
-// option, `fetchReferences`, must reach a flag of the leaf.
+// Phase 2.12 lane 12.05 (A63-M2b, QA 1). The Import Center imported a NAO-MGS or NVD result through the app's
+// `--metagenomics-import-helper` mode until lane 12.05 moved these kinds to `lungfish-cli`. These cases ran against
+// that path at the lane's base (commit 754d060bc) and now run the helper mode in process as the vehicle for the
+// service, whose record every route shares. They pin the folder name, the record's command
+// (`MetagenomicsImportHelper.canonicalProvenanceCommand`), the sample facts and the digest of the source it records
+// (BIO 5 and 6, new in this lane), the digest of each source file, and the words of the row (its title, command and
+// the detail it completes with). The one NAO-MGS option, `fetchReferences`, must reach a flag of the leaf.
 //
 // The managed storage of the process is a folder under the scratch folder that holds a fixture taxonomy, so the
 // import resolves taxon names without the network and without writing into the user's managed storage.
 
+import CryptoKit
 import Darwin
 import Foundation
 import Synchronization
@@ -21,7 +23,6 @@ import XCTest
 import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
-import LungfishOperations
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -48,8 +49,11 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         let defaults = run.envelope.options.resolvedDefaults
         XCTAssertEqual(defaults["sampleName"], .string("S1.2024"), "the first sample's id, whole")
         XCTAssertEqual(defaults["totalHitReads"], .integer(5))
-        XCTAssertNil(defaults["sampleNames"], "today the record names one sample")
-        XCTAssertNil(defaults["sourceDigest"], "today the record holds no digest of the source")
+        XCTAssertEqual(
+            defaults["sampleNames"], .array([.string("S1.2024"), .string("S2.2024")]),
+            "the sample ids the table spells, whole and in order"
+        )
+        XCTAssertEqual(defaults["sourceDigest"], .string(try folderDigest(of: input)))
         try assertEachSourceFileDigested(run.envelope, sources: ClassifierImportAppFixtures.regularFiles(in: input))
     }
 
@@ -61,36 +65,48 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         let defaults = run.envelope.options.resolvedDefaults
         XCTAssertEqual(defaults["sampleCount"], .integer(2))
         XCTAssertEqual(defaults["hitCount"], .integer(3))
-        XCTAssertNil(defaults["sampleNames"], "today the record names no sample")
-        XCTAssertNil(defaults["sourceDigest"], "today the record holds no digest of the source")
+        XCTAssertEqual(
+            defaults["sampleNames"], .array([.string("S1.2024"), .string("S2.2024")]),
+            "the sample ids the table spells, whole and in order"
+        )
+        XCTAssertEqual(defaults["sourceDigest"], .string(try folderDigest(of: input)))
         try assertEachSourceFileDigested(run.envelope, sources: ClassifierImportAppFixtures.regularFiles(in: input))
     }
 
     /// `NaoMgsOptions` holds one option, `fetchReferences`, which defaults to fetching. It reaches the leaf as
-    /// `--no-fetch-references`, and the preferred name reaches it as `--sample-name`.
+    /// `--no-fetch-references`, and the preferred name reaches it as `--sample-name`. The route's argv, which the runner
+    /// runs and the row shows, is the command the record holds plus `--format json`.
     func testEveryNaoMgsOptionReachesAFlagOfTheLeaf() throws {
-        XCTAssertTrue(MetagenomicsImportHelperClient.NaoMgsOptions().fetchReferences)
+        XCTAssertTrue(ClassifierResultImportCLIRoute.NaoMgsOptions().fetchReferences)
         let input = root.appendingPathComponent("S1.2024", isDirectory: true)
         let imports = root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
         for fetch in [true, false] {
-            let argv = MetagenomicsImportHelper.canonicalProvenanceCommand(
-                kind: .naomgs, inputURL: input, outputDirectory: imports, secondaryInputURL: nil,
-                preferredName: "Sample 7", fetchReferences: fetch
+            let argv = ClassifierResultImportCLIRoute.arguments(
+                kind: .naomgs, inputURL: input, outputDirectory: imports, preferredName: "Sample 7", fetchReferences: fetch
             )
             XCTAssertEqual(
                 argv,
-                ["lungfish-cli", "import", "nao-mgs", input.path, "--output-dir", imports.path, "--sample-name", "Sample 7"]
-                    + (fetch ? [] : ["--no-fetch-references"])
+                ["import", "nao-mgs", input.path, "--output-dir", imports.path, "--sample-name", "Sample 7"]
+                    + (fetch ? [] : ["--no-fetch-references"]) + ["--format", "json"]
             )
-            let leaf = try ImportCommand.NaoMgsSubcommand.parse(Array(argv.dropFirst(3)))
+            let leaf = try ImportCommand.NaoMgsSubcommand.parse(Array(argv.dropFirst(2)))
             XCTAssertEqual(leaf.inputPath, input.path)
             XCTAssertEqual(leaf.outputDir, imports.path)
             XCTAssertEqual(leaf.sampleName, "Sample 7")
             XCTAssertEqual(leaf.fetchReferences, fetch)
+            XCTAssertEqual(leaf.globalOptions.outputFormat, .json)
+            XCTAssertEqual(
+                MetagenomicsImportHelper.canonicalProvenanceCommand(
+                    kind: .naomgs, inputURL: input, outputDirectory: imports, secondaryInputURL: nil,
+                    preferredName: "Sample 7", fetchReferences: fetch
+                ),
+                ["lungfish-cli"] + argv.dropLast(2),
+                "the command the record holds is the route's argv without --format json"
+            )
         }
     }
 
-    /// The row the Import Center begins for each kind, whose command is the record's command after `lungfish-cli`.
+    /// The row the Import Center begins for each kind, whose command is the argv the runner runs.
     func testTheRowWordsOfBothKinds() throws {
         let imports = root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
         let naoMgsInput = root.appendingPathComponent("S1.2024", isDirectory: true)
@@ -106,7 +122,10 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         XCTAssertEqual(naoMgsItem.operationType, .classification)
         XCTAssertEqual(
             naoMgsItem.cliCommand,
-            OperationCenter.buildCLICommand(subcommand: "import", args: ["nao-mgs", naoMgsInput.path, "--output-dir", imports.path, "--no-fetch-references"])
+            OperationCenter.buildCLICommand(
+                subcommand: "import",
+                args: ["nao-mgs", naoMgsInput.path, "--output-dir", imports.path, "--no-fetch-references", "--format", "json"]
+            )
         )
 
         let nvdInput = root.appendingPathComponent("nvd.2024", isDirectory: true)
@@ -121,7 +140,7 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         XCTAssertEqual(nvdItem.operationType, .classification)
         XCTAssertEqual(
             nvdItem.cliCommand,
-            OperationCenter.buildCLICommand(subcommand: "import", args: ["nvd", nvdInput.path, "--output-dir", imports.path])
+            OperationCenter.buildCLICommand(subcommand: "import", args: ["nvd", nvdInput.path, "--output-dir", imports.path, "--format", "json"])
         )
     }
 
@@ -168,6 +187,15 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
         }
         finished.wait()
         return status.withLock { $0 }
+    }
+
+    /// The digest of a source folder is the SHA-256 of one `<relative path>\t<SHA-256>` line per file in path order.
+    private func folderDigest(of folder: URL) throws -> String {
+        let root = folder.resolvingSymlinksInPath().path
+        let lines = try ClassifierImportAppFixtures.regularFiles(in: folder).map { url in
+            "\(url.resolvingSymlinksInPath().path.dropFirst(root.count + 1))\t\(try ProvenanceFileHasher.sha256(of: url))\n"
+        }.sorted()
+        return SHA256.hash(data: Data(lines.joined().utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Each source file is an input of the record with the SHA-256 of its bytes. The fixtures' file names are unique.
