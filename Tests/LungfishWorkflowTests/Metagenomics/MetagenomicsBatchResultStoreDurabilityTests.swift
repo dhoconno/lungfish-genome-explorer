@@ -31,49 +31,67 @@ final class MetagenomicsBatchResultStoreDurabilityTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    private func reference(sample: String = "S1") -> TaxTriageCrossRef {
-        TaxTriageCrossRef(
-            resultDirectory: "/tmp/out",
-            runId: "taxtriage-20261013-120000",
-            sampleId: sample,
+    /// A TaxTriage batch manifest, the sidecar the TaxTriage viewer saves when its unique reads arrive.
+    private func manifest(sample: String = "S1") -> TaxTriageBatchManifest {
+        TaxTriageBatchManifest(
             createdAt: Date(timeIntervalSince1970: 0),
-            batchSampleCount: 3
+            sampleCount: 1,
+            sampleIds: [sample],
+            cachedRows: [
+                TaxTriageBatchManifest.CachedRow(
+                    sample: sample, organism: "Influenza A virus (A/California/07/2009(H1N1))", tassScore: 0.5,
+                    reads: 120, uniqueReads: 80, confidence: nil, coverageBreadth: nil, coverageDepth: nil, abundance: nil
+                ),
+            ]
         )
+    }
+
+    private func savedSamples() -> [String]? {
+        MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: root)?.sampleIds
     }
 
     private func entries() throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
     }
 
-    private var sidecarName: String { MetagenomicsBatchResultStore.taxTriageRefFilename(runId: "taxtriage-20261013-120000") }
+    private var sidecarName: String { TaxTriageBatchManifest.filename }
 
     // MARK: - Byte pin
 
     func testASidecarIsSortedPrettyPrintedJSONWithAnISODateAndEscapedSlashes() throws {
-        try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(), to: root)
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(), to: root)
 
         let expected = """
             {
-              "batchSampleCount" : 3,
+              "cachedRows" : [
+                {
+                  "organism" : "Influenza A virus (A\\/California\\/07\\/2009(H1N1))",
+                  "reads" : 120,
+                  "sample" : "S1",
+                  "tassScore" : 0.5,
+                  "uniqueReads" : 80
+                }
+              ],
               "createdAt" : "1970-01-01T00:00:00Z",
-              "resultDirectory" : "\\/tmp\\/out",
-              "runId" : "taxtriage-20261013-120000",
-              "sampleId" : "S1"
+              "sampleCount" : 1,
+              "sampleIds" : [
+                "S1"
+              ]
             }
             """
         XCTAssertEqual(try String(contentsOf: root.appendingPathComponent(sidecarName), encoding: .utf8), expected)
-        XCTAssertEqual(MetagenomicsBatchResultStore.loadTaxTriageRefs(from: root), [reference()])
+        XCTAssertEqual(savedSamples(), ["S1"])
         XCTAssertEqual(try entries(), [sidecarName])
     }
 
     func testSavingAgainReplacesTheEarlierSidecarWithoutALeftoverEvenOnSimulatedExFAT() throws {
-        try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(sample: "first"), to: root)
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(sample: "first"), to: root)
 
         try PortableRename.simulatingUnsupportedFlags {
-            try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(sample: "second"), to: root)
+            try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(sample: "second"), to: root)
         }
 
-        XCTAssertEqual(MetagenomicsBatchResultStore.loadTaxTriageRefs(from: root), [reference(sample: "second")])
+        XCTAssertEqual(savedSamples(), ["second"])
         XCTAssertEqual(try entries(), [sidecarName])
     }
 
@@ -87,7 +105,7 @@ final class MetagenomicsBatchResultStoreDurabilityTests: XCTestCase {
         )
 
         try DurableReplace.$overrideOperations.withValue(operations) {
-            try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(), to: root)
+            try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(), to: root)
         }
 
         XCTAssertEqual(tally["syncFile"], 1)
@@ -97,7 +115,7 @@ final class MetagenomicsBatchResultStoreDurabilityTests: XCTestCase {
     }
 
     func testAFullDiskIsAThrownErrorAndTheNameKeepsItsOldSidecar() throws {
-        try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(sample: "old"), to: root)
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(sample: "old"), to: root)
         let operations = DurableReplace.Operations(writeBytes: { descriptor, bytes, count in
             if ReadWriterFixtures.path(of: descriptor).contains(DurableReplace.stageInfix) {
                 errno = ENOSPC
@@ -108,7 +126,7 @@ final class MetagenomicsBatchResultStoreDurabilityTests: XCTestCase {
 
         XCTAssertThrowsError(
             try DurableReplace.$overrideOperations.withValue(operations) {
-                try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(sample: "new"), to: root)
+                try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(sample: "new"), to: root)
             }
         ) { error in
             guard case .systemFailure(_, let operation, let code)? = error as? DurableReplace.ReplaceError else {
@@ -118,12 +136,12 @@ final class MetagenomicsBatchResultStoreDurabilityTests: XCTestCase {
             XCTAssertEqual(code, ENOSPC)
         }
 
-        XCTAssertEqual(MetagenomicsBatchResultStore.loadTaxTriageRefs(from: root), [reference(sample: "old")])
+        XCTAssertEqual(savedSamples(), ["old"])
         XCTAssertEqual(try entries(), [sidecarName], "no stage file is left")
     }
 
     func testAFaultAtAnyStepBeforeTheNameChangesKeepsTheOldSidecar() throws {
-        try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(sample: "old"), to: root)
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(sample: "old"), to: root)
 
         for step in [DurableReplace.Step.staged, .stageSynced] {
             let operations = DurableReplace.Operations(checkpoint: { reached in
@@ -132,11 +150,11 @@ final class MetagenomicsBatchResultStoreDurabilityTests: XCTestCase {
 
             XCTAssertThrowsError(
                 try DurableReplace.$overrideOperations.withValue(operations) {
-                    try MetagenomicsBatchResultStore.saveTaxTriageRef(reference(sample: "new"), to: root)
+                    try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest(sample: "new"), to: root)
                 },
                 "\(step)"
             ) { XCTAssertTrue($0 is ReadWriterFixtures.Refusal, "\(step): \($0)") }
-            XCTAssertEqual(MetagenomicsBatchResultStore.loadTaxTriageRefs(from: root), [reference(sample: "old")], "\(step)")
+            XCTAssertEqual(savedSamples(), ["old"], "\(step)")
             XCTAssertEqual(try entries(), [sidecarName], "\(step)")
         }
     }
