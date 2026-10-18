@@ -1665,7 +1665,7 @@ extension SequenceViewerView {
     func fetchAnnotationBasesAsync(_ annotation: SequenceAnnotation) async -> String? {
         if let bundle = currentReferenceBundle {
             // Bundle mode: fetch each interval and concatenate
-            let chrom = annotation.chromosome ?? bundle.chromosomeNames.first ?? ""
+            let chrom = annotation.chromosome ?? bundle.firstChromosomeName ?? ""
             var allBases = ""
             for interval in annotation.intervals {
                 let start = max(0, interval.start)

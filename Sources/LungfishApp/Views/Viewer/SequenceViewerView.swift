@@ -2191,7 +2191,7 @@ public class SequenceViewerView: NSView {
         if let bundle = currentReferenceBundle {
             // Bundle mode: sync fetch, clamped to the chromosome like single-sequence mode
             sequenceProvider = ClampedSequenceProvider(bundle: bundle).basesProvider(
-                chromosome: annotation.chromosome ?? bundle.chromosomeNames.first ?? ""
+                chromosome: annotation.chromosome ?? bundle.firstChromosomeName ?? ""
             )
         } else if let seq = sequence {
             // Single-sequence mode: extract from loaded sequence

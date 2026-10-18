@@ -116,7 +116,6 @@ Sources/LungfishIO/Bundles/ONTGenotypeWorkbookCleanupStateStore.swift 1314
 Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift 3398
 Sources/LungfishIO/Bundles/ONTMHCCandidateAlleles.swift 1429
 Sources/LungfishIO/Bundles/ProjectTempDirectory.swift 805
-Sources/LungfishIO/Bundles/ReferenceBundle.swift 807
 Sources/LungfishIO/Bundles/VariantDatabase+CreateFromVCF.swift 1309
 Sources/LungfishIO/Bundles/VariantDatabase+Import.swift 845
 Sources/LungfishIO/Bundles/VariantDatabase+RegionExtraction.swift 829

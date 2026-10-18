@@ -65,6 +65,9 @@ public final class ReferenceBundle: Sendable {
     private let bookmarkAccess: ReferenceBundleBookmarkAccess
     private let activeSecurityScopedAlignmentURLs = OSAllocatedUnfairLock(initialState: [String: URL]())
 
+    /// The name index and the sequence reader, each built once on first use (`ReferenceBundle+SequenceAccess.swift`).
+    let sequenceCache = ReferenceBundleSequenceCache()
+
     /// Logger for bundle operations.
     private let logger = Logger(
         subsystem: "com.lungfish.core",
@@ -203,29 +206,6 @@ public final class ReferenceBundle: Sendable {
         manifest.genome?.chromosomes.map { $0.name } ?? []
     }
 
-    /// Returns information about a specific chromosome.
-    ///
-    /// - Parameter name: Chromosome name (e.g., "chr1")
-    /// - Returns: Chromosome information, or nil if not found
-    public func chromosome(named name: String) -> ChromosomeInfo? {
-        guard let chromosomes = manifest.genome?.chromosomes else { return nil }
-        if let exact = chromosomes.first(where: { $0.name == name || $0.aliases.contains(name) }) {
-            return exact
-        }
-        guard let mappedName = mapVCFChromosomes([name], toBundleChromosomes: chromosomes)[name] else {
-            return nil
-        }
-        return chromosomes.first { $0.name == mappedName }
-    }
-
-    /// Returns the length of a chromosome.
-    ///
-    /// - Parameter name: Chromosome name
-    /// - Returns: Length in base pairs, or nil if chromosome not found
-    public func chromosomeLength(named name: String) -> Int64? {
-        chromosome(named: name)?.length
-    }
-
     /// Opens the optional indexed record-level metadata store declared by the manifest.
     ///
     /// Returns `nil` only when the manifest does not declare a record store. A declared
@@ -259,114 +239,6 @@ public final class ReferenceBundle: Sendable {
             )
         }
         return database
-    }
-
-    // MARK: - Sequence Access
-
-    /// Fetches sequence data for a genomic region.
-    ///
-    /// Uses the indexed bgzip-compressed FASTA for efficient random access.
-    ///
-    /// - Parameter region: The genomic region to fetch
-    /// - Returns: The sequence string for the region
-    /// - Throws: `ReferenceBundleError` if the sequence cannot be fetched
-    public func fetchSequence(region: GenomicRegion) async throws -> String {
-        // Variant-only bundle — no sequence data available
-        guard let genome = manifest.genome else {
-            return ""
-        }
-
-        // Validate chromosome exists
-        guard let chromInfo = chromosome(named: region.chromosome) else {
-            throw ReferenceBundleError.chromosomeNotFound(region.chromosome)
-        }
-
-        // Validate region bounds
-        guard region.start >= 0 && region.end <= chromInfo.length else {
-            throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
-        }
-        let fetchRegion = canonicalRegion(region, for: chromInfo)
-
-        let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
-        let faiURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
-
-        // Check if we have a bgzip-compressed file with GZI index
-        if let gzipIndexPath = genome.gzipIndexPath {
-            let gziURL = try validatedBundleMemberURL(path: gzipIndexPath, field: "genome.gzipIndexPath")
-
-            // Use bgzip-aware reader for random access to compressed files
-            let reader = try await BgzipIndexedFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
-            let sequence = try await reader.fetch(region: fetchRegion)
-
-            logger.debug("Fetched sequence (bgzip): \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) (\(sequence.count) bp)")
-            return sequence
-        } else {
-            // Fall back to uncompressed indexed FASTA reader
-            let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
-            let sequence = try await reader.fetch(region: fetchRegion)
-
-            logger.debug("Fetched sequence: \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) (\(sequence.count) bp)")
-            return sequence
-        }
-    }
-
-    /// Synchronously fetches sequence data for a genomic region.
-    ///
-    /// This version reads the FASTA file directly without async, useful when
-    /// Swift Tasks are not executing properly in the app context.
-    ///
-    /// - Parameter region: The genomic region to fetch
-    /// - Returns: The sequence string for the region
-    /// - Throws: `ReferenceBundleError` if the sequence cannot be fetched
-    public func fetchSequenceSync(region: GenomicRegion) throws -> String {
-        logger.info("fetchSequenceSync: START \(region.description)")
-
-        // Variant-only bundle — no sequence data available
-        guard let genome = manifest.genome else {
-            return ""
-        }
-
-        // Validate chromosome exists
-        guard let chromInfo = chromosome(named: region.chromosome) else {
-            logger.error("fetchSequenceSync: Chromosome '\(region.chromosome)' not found in manifest")
-            throw ReferenceBundleError.chromosomeNotFound(region.chromosome)
-        }
-
-        // Validate region bounds
-        guard region.start >= 0 && region.end <= chromInfo.length else {
-            logger.log(level: FASTAOutOfBoundsLog.level(start: region.start, end: region.end, length: Int(chromInfo.length)), "fetchSequenceSync: Region out of bounds: end=\(region.end) > length=\(chromInfo.length)")
-            throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
-        }
-        let fetchRegion = canonicalRegion(region, for: chromInfo)
-
-        let genomeURL = try validatedBundleMemberURL(path: genome.path, field: "genome.path")
-        let faiURL = try validatedBundleMemberURL(path: genome.indexPath, field: "genome.indexPath")
-
-        // Check if we have a bgzip-compressed file with GZI index
-        if let gzipIndexPath = genome.gzipIndexPath {
-            let gziURL = try validatedBundleMemberURL(path: gzipIndexPath, field: "genome.gzipIndexPath")
-
-            logger.info("fetchSequenceSync: Creating SyncBgzipFASTAReader for \(genomeURL.lastPathComponent)")
-            // Use synchronous bgzip reader
-            let reader = try SyncBgzipFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
-            logger.info("fetchSequenceSync: Reader created, calling fetchSync")
-            let sequence = try reader.fetchSync(region: fetchRegion)
-
-            logger.info("fetchSequenceSync: DONE (bgzip) \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) -> \(sequence.count) bp")
-            return sequence
-        } else {
-            // Use the synchronous indexed FASTA reader for uncompressed files
-            let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
-            let sequence = try reader.fetchSync(region: fetchRegion)
-
-            logger.info("fetchSequenceSync: DONE (uncompressed) \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) -> \(sequence.count) bp")
-            return sequence
-        }
-    }
-
-    private func canonicalRegion(_ region: GenomicRegion, for chromosome: ChromosomeInfo) -> GenomicRegion {
-        guard region.chromosome != chromosome.name else { return region }
-        return GenomicRegion(chromosome: chromosome.name, start: region.start, end: region.end)
     }
 
     // MARK: - Annotation Access

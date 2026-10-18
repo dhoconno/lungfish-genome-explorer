@@ -195,7 +195,7 @@ public final class SelectionSectionViewModel {
         guard let bundle = referenceBundle else { return nil }
 
         let sequenceProvider = ClampedSequenceProvider(bundle: bundle).basesProvider(
-            chromosome: annotation.chromosome ?? bundle.chromosomeNames.first ?? ""
+            chromosome: annotation.chromosome ?? bundle.firstChromosomeName ?? ""
         )
 
         guard let result = TranslationEngine.translateCDS(

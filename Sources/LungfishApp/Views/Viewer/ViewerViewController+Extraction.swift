@@ -673,7 +673,7 @@ extension SequenceViewerView {
     /// Returns the chromosome length for an annotation.
     func chromosomeLengthForAnnotation(_ annotation: SequenceAnnotation) -> Int {
         if let bundle = currentReferenceBundle {
-            let chromName = annotation.chromosome ?? bundle.chromosomeNames.first ?? ""
+            let chromName = annotation.chromosome ?? bundle.firstChromosomeName ?? ""
             if let chromInfo = bundle.chromosome(named: chromName) {
                 return Int(chromInfo.length)
             }
