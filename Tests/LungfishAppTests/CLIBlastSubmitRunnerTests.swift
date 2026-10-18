@@ -41,6 +41,21 @@ final class CLIBlastSubmitRunnerTests: XCTestCase {
         ])
     }
 
+    func testADatabaseIsSentOnlyWhenTheRequestNamesOne() {
+        var request = BlastSubmitRequest(
+            queryURL: URL(fileURLWithPath: "/q.fasta"), outputURL: URL(fileURLWithPath: "/o"), label: "taxon"
+        )
+        XCTAssertFalse(
+            CLIBlastSubmitRunner.arguments(for: request).contains("--database"),
+            "no database, no flag, so the leaf searches its default core_nt (BIO 3)"
+        )
+        request.database = "nt"
+        XCTAssertEqual(CLIBlastSubmitRunner.arguments(for: request), [
+            "blast", "submit", "--query", "/q.fasta", "--output", "/o", "--name", "taxon",
+            "--database", "nt", "--format", "json", "--no-progress",
+        ])
+    }
+
     func testCancelReturnsAtOnceWithNothingRunning() {
         let started = ContinuousClock.now
         CLIBlastSubmitRunner(cliURLOverride: URL(fileURLWithPath: "/nonexistent/lungfish-cli")).cancel()
