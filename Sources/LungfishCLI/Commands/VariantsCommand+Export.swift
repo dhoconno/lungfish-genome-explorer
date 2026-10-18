@@ -140,7 +140,15 @@ extension VariantsCommand {
         @Argument(help: "The reference bundle whose variant tracks hold the samples")
         var bundlePath: String
 
-        @OptionGroup var metadataColumns: ViewerExportOptions.MetadataColumns
+        /// The template writes an empty cell for each column, so this option does not share the group whose help says
+        /// the values come from the result's metadata (`ViewerExportOptions.MetadataColumns`).
+        @Option(
+            name: .customLong(ViewerExportOption.metadataColumn.rawValue),
+            parsing: .singleValue,
+            help: "A sample metadata column to add to the template, by name. Repeat for more. Its cells are empty"
+        )
+        var metadataColumns: [String] = []
+
         @OptionGroup var format: ViewerExportOptions.ExportFormat<ViewerExportDelimitedFormat>
         @OptionGroup var output: ViewerExportOptions.Output
         @OptionGroup var globalOptions: GlobalOptions
@@ -148,7 +156,7 @@ extension VariantsCommand {
         /// The invocation this parse stands for, which the record's argv comes from.
         func invocation() throws -> ViewerExportInvocation {
             var state = ViewerTableExportState()
-            try metadataColumns.apply(to: &state)
+            state.metadataColumns = metadataColumns
             return VariantSampleTemplateExport.invocation(
                 bundleURL: URL(fileURLWithPath: bundlePath, isDirectory: true),
                 metadataColumns: state.metadataColumns,

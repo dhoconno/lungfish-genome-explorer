@@ -9,8 +9,8 @@ ARGUMENTS:
 
 OPTIONS:
   --metadata-column <metadata-column>
-                          A sample metadata column to add, by name. Repeat for
-                          more. Values come from the result's metadata
+                          A sample metadata column to add to the template, by
+                          name. Repeat for more. Its cells are empty
   --output-format <output-format>
                           The file format to write (values: csv, tsv)
   -o, --output <output>   The file to write. An existing file is refused
