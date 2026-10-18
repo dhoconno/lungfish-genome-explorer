@@ -108,6 +108,40 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
         try await assertParity(.x8)
     }
 
+    // MARK: - The routed words
+
+    /// BIO's Fix 7 of the review of 2.12 K1 M1. The words side C runs for X1 and X8 are the words the root
+    /// records of `SB` name (`lanes/12.01/bytes/raw-bytes/<case>/C/records`, key `argv`, less the
+    /// `--format json` the transport adds), built here from the case's paths, the engine's database and
+    /// the bundled pin, never a constant revision. `routedCommand` builds them itself since K1 deleted
+    /// the row builder it read.
+    func testRoutedWordsOfX1AndX8() throws {
+        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().revision
+        for parityCase in [TaxTriageParityCase.x1, .x8] {
+            let caseRoot = scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true)
+            let engine = try makeStandInEngine(in: caseRoot, for: parityCase)
+            let project = try parityCase.makeProject(in: caseRoot)
+            let settings = [
+                "--db", engine.databasePath.path, "--platform", "illumina", "--confidence", "0.2", "--top-hits", "10",
+                "--rank", "S", "--remove-taxids", "9606", "--max-memory", "16.GB", "--max-cpus", "1",
+                "--nf-profile", "local", "--revision", pin,
+            ]
+            let expected: [String]
+            if parityCase == .x1 {
+                let bundle = project.appendingPathComponent(try XCTUnwrap(parityCase.bundlePaths.first), isDirectory: true)
+                expected = ["taxtriage", "run", "--input", bundle.path, "--sample", "len-150-any-00000000", "--project", project.path]
+                    + settings
+            } else {
+                let folder = project.appendingPathComponent(try XCTUnwrap(parityCase.pooledInputFolder), isDirectory: true)
+                let output = project.appendingPathComponent("Analyses/taxtriage-pooled", isDirectory: true)
+                expected = ["taxtriage", "--input", folder.path, "--output", output.path] + settings
+            }
+            let routed = try TaxTriageParityHarness(testCase: self, cliBinary: cliBinary)
+                .routedCommand(parityCase, root: caseRoot, engine: engine)
+            XCTAssertEqual(routed, expected, "\(parityCase)")
+        }
+    }
+
     // MARK: - One case
 
     /// Runs `parityCase` on its own stand-in engine through TaxTriageParityHarness, which a live

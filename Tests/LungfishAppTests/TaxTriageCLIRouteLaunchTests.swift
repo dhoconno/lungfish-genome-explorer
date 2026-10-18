@@ -74,7 +74,7 @@ final class TaxTriageCLIRouteLaunchTests: XCTestCase {
         }
     }
 
-    /// One sample runs the words its legacy row records, `taxtriage run` with `--project` in place of
+    /// One sample runs the words its in-process row recorded until 2.12 K1, `taxtriage run` with `--project` in place of
     /// `--output`, the words the parity class's side C runs (2.8 T17), and `--format json`.
     func testOneSampleRunsTheLegacyRowsWordsIntoTheProject() throws {
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
@@ -86,11 +86,13 @@ final class TaxTriageCLIRouteLaunchTests: XCTestCase {
         sampleConfig.extraArguments = ["--min_reads", "5"]
         let launch = try XCTUnwrap(try ClassifierCLIRouteLaunch.taxTriage(config: sampleConfig, projectURL: project))
 
-        var legacy = try RecordedCLICommand.arguments(of: AppDelegate.taxTriageCLICommand(for: sampleConfig))
-        XCTAssertEqual(legacy.first, "taxtriage")
-        let output = try XCTUnwrap(legacy.firstIndex(of: "--output"))
-        legacy.replaceSubrange(output...(output + 1), with: ["--project", project.path])
-        XCTAssertEqual(launch.arguments, ["taxtriage", "run"] + legacy.dropFirst() + ["--format", "json"])
+        // The words the in-process route's row recorded for the sample until Phase 2.12 K1, with `--project` in
+        // place of `--output` (BIO's Fix 7 of the review of K1 M1).
+        let sample = try XCTUnwrap(sampleConfig.samples.first)
+        let revision = try sampleConfig.revision ?? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().revision
+        let words = ["--input", sample.fastq1.path, "--input2", try XCTUnwrap(sample.fastq2).path, "--sample", "air A", "--project", project.path]
+            + TaxTriageRoutedWords.settings(of: sampleConfig, platform: sample.platform, revision: revision)
+        XCTAssertEqual(launch.arguments, ["taxtriage", "run"] + words + ["--format", "json"])
         XCTAssertEqual(launch.tool, .taxTriage)
         XCTAssertFalse(launch.extractsReads)
         XCTAssertEqual(launch.sampleIDs, ["air A"])

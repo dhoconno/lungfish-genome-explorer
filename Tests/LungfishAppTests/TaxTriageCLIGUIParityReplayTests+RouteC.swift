@@ -113,42 +113,41 @@ extension TaxTriageParityHarness {
         }
     }
 
-    /// The words of side C's command after `lungfish-cli`. They are the words of one sample's
-    /// command, with the samples' folder as the one `--input` and no `--sample` for several, and
-    /// `--project` in place of `--output`, so the run lays out its folder as the app does (2.8 T4
-    /// and T17), and the `run` subcommand the CLI route spells. X8 keeps its plain `--output`
-    /// (2.8 T2).
+    /// The words of side C's command after `lungfish-cli`. They are the words the in-process route's row
+    /// recorded for one sample until Phase 2.12 K1, with the samples' folder as the one `--input` and no
+    /// `--sample` for several, and `--project` in place of `--output`, so the run lays out its folder as
+    /// the app does (2.8 T4 and T17), and the `run` subcommand the CLI route spells. X8 keeps its plain
+    /// `--output` (2.8 T2). The test builds them itself since K1 deleted the row's builder, and
+    /// `testRoutedWordsOfX1AndX8` pins them to the words of the saved root records (BIO's Fix 7).
     func routedCommand(
         _ parityCase: TaxTriageParityCase,
         root: URL,
         engine: TaxTriageParityEngine
     ) throws -> [String] {
         let project = root.appendingPathComponent(ClassifierParityFixtures.projectName, isDirectory: true)
-        var config = parityCase.wizardConfig(project: project, engine: engine)
+        let config = parityCase.wizardConfig(project: project, engine: engine)
+        let revision = try config.revision ?? NextflowWorkflowDescriptor.taxTriage.resolveBundledPin().revision
+        let input: [String]
+        let platform: TaxTriageConfig.Platform
         if let folder = parityCase.pooledInputFolder {
-            config.samples = [TaxTriageSample(
-                sampleId: "pooled",
-                fastq1: project.appendingPathComponent(folder, isDirectory: true),
-                platform: config.platform
-            )]
+            input = ["--input", project.appendingPathComponent(folder, isDirectory: true).path]
+            platform = config.platform
+        } else {
+            guard config.samples.count == 1, let sample = config.samples.first else {
+                throw TaxTriageParityPooledCommandError(words: config.samples.map(\.sampleId))
+            }
+            input = ["--input", sample.fastq1.path] + (sample.fastq2.map { ["--input2", $0.path] } ?? []) + ["--sample", sample.sampleId]
+            platform = sample.platform
         }
-        config.outputDirectory = project.appendingPathComponent("Analyses/taxtriage-pooled", isDirectory: true)
-        var words = try RecordedCLICommand.arguments(of: AppDelegate.taxTriageCLICommand(for: config))
-        if parityCase.pooledInputFolder != nil, let index = words.firstIndex(of: "--sample"), index + 1 < words.count {
-            words.removeSubrange(index...(index + 1))
+        let settings = TaxTriageRoutedWords.settings(of: config, platform: platform, revision: revision)
+        guard !parityCase.runsPooled(on: .c) else {
+            let output = project.appendingPathComponent("Analyses/taxtriage-pooled", isDirectory: true)
+            return ["taxtriage"] + input + ["--output", output.path] + settings
         }
-        guard !parityCase.runsPooled(on: .c) else { return words }
-        guard let index = words.firstIndex(of: "--output"), index + 1 < words.count else {
-            throw TaxTriageParityPooledCommandError(words: words)
-        }
-        words.replaceSubrange(index...(index + 1), with: ["--project", project.path])
         // The route runs `taxtriage run --project` (`ClassifierCLIRouteLaunch.taxTriage`), so the command the
         // live class runs spells the subcommand as the route does. A fact pins the two to the same words (the
         // review of U30 M3, fix 5).
-        if words.first == "taxtriage", words.dropFirst().first != "run" {
-            words.insert("run", at: 1)
-        }
-        return words
+        return ["taxtriage", "run"] + input + ["--project", project.path] + settings
     }
 
     /// Runs `words` with the built `lungfish-cli` in `root` and reads what it left. A line with
@@ -266,5 +265,35 @@ extension TaxTriageParityHarness {
             side: side, root: root, analysisPath: nil, recordedCommand: nil, replayedCommands: [],
             terminal: .error(String(describing: error)), row: nil, launches: []
         )
+    }
+}
+
+/// The setting words of a routed TaxTriage command after its input and its output, in the order the
+/// in-process route's row spelled them until Phase 2.12 K1. The database, the platform, the thresholds,
+/// the assembly and Krona switches, the host taxa, the resources, the profile, the revision and the
+/// extra arguments.
+enum TaxTriageRoutedWords {
+    static func settings(of config: TaxTriageConfig, platform: TaxTriageConfig.Platform, revision: String) -> [String] {
+        var words: [String] = []
+        if let database = config.kraken2DatabasePath {
+            words += ["--db", database.path]
+        }
+        words += ["--platform", platform.rawValue.lowercased()]
+        words += ["--confidence", String(config.k2Confidence), "--top-hits", String(config.topHitsCount), "--rank", config.rank]
+        if !config.skipAssembly {
+            words.append("--no-skip-assembly")
+        }
+        if config.skipKrona {
+            words.append("--skip-krona")
+        }
+        if let removeTaxids = config.effectiveRemoveTaxids {
+            words += ["--remove-taxids", removeTaxids]
+        }
+        words += ["--max-memory", config.maxMemory, "--max-cpus", String(config.maxCpus), "--nf-profile", config.profile]
+        words += ["--revision", revision]
+        if !config.extraArguments.isEmpty {
+            words += ["--extra-args", AdvancedCommandLineOptions.join(config.extraArguments)]
+        }
+        return words
     }
 }
