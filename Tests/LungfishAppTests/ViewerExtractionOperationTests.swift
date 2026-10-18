@@ -206,6 +206,33 @@ final class ViewerExtractionOperationTests: XCTestCase {
         XCTAssertEqual(sequences.map(\.name), ["NC_TEST"])
     }
 
+    /// A run that failed and published nothing writes no record, so nothing names its staged folder and
+    /// the folder goes. A run that published keeps it, because the record names it (2.12 review of lane
+    /// 12.12, Fix 2).
+    func testAStagedInputGoesWhenTheRunPublishedNothingAndStaysWhenItPublished() async throws {
+        let root = try TestTempDirectory.make(prefix: "staged-sequence-discard")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let output = project.appendingPathComponent("Extractions/Region 1.lungfishref", isDirectory: true)
+        let fileManager = FileManager.default
+
+        let failed = try await StagedSequenceInput.writeFASTA(
+            [.init(name: "NC_TEST", bases: "ACGTACGT")], fileName: "sequence.fa", prefix: "extract-sequence-input-", projectURL: project
+        ).deletingLastPathComponent()
+        XCTAssertTrue(fileManager.fileExists(atPath: failed.appendingPathComponent("sequence.fa").path))
+        XCTAssertFalse(fileManager.fileExists(atPath: output.path))
+        XCTAssertTrue(StagedSequenceInput.discard(failed, unlessPublishedAt: output), "nothing published, so the folder goes")
+        XCTAssertFalse(fileManager.fileExists(atPath: failed.path), "the folder is gone")
+
+        let published = try await StagedSequenceInput.writeFASTA(
+            [.init(name: "NC_TEST", bases: "ACGTACGT")], fileName: "sequence.fa", prefix: "extract-sequence-input-", projectURL: project
+        ).deletingLastPathComponent()
+        try fileManager.createDirectory(at: output, withIntermediateDirectories: true)
+        XCTAssertFalse(StagedSequenceInput.discard(published, unlessPublishedAt: output), "a bundle is published, so the folder stays")
+        XCTAssertTrue(fileManager.fileExists(atPath: published.appendingPathComponent("sequence.fa").path), "the staged FASTA stays")
+    }
+
     func testExtractionBundleLaunchesNothingWhenTheBeginIsRefused() throws {
         // The row requests no lock, so no real center refuses it. A reporter
         // that refuses every begin proves the launch closure sits behind the

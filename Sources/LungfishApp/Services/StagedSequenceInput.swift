@@ -16,9 +16,13 @@ import LungfishIO
 /// - Each call writes one file into a folder of its own under `<project>/.tmp/`, made by
 ///   `ProjectTempDirectory.create(prefix:in:keepIntermediates:)`, through one `DurableReplace.replace`,
 ///   so the name holds the whole file or nothing, on APFS and ExFAT alike (2.11 C1, SWIFT inv 82).
-/// - The folder stays after the run. Its marker keeps it, so no project sweep removes it, the record
-///   that names the file as an input names a file that exists, and a copied command replays (ARCH 5,
-///   BIO 6). With no project the folder is made under the system scratch root, which the system may clear.
+/// - The folder stays after a run that published or was cancelled. Its marker keeps it, so no project
+///   sweep removes it, the record that names the file as an input names a file that exists, and a copied
+///   command replays (ARCH 5, BIO 6). With no project the folder is made under the system scratch root,
+///   which the system may clear.
+/// - A run that failed and published nothing writes no record, so nothing names the folder and the
+///   marker keeps every sweep off it. The caller then removes it with `discard(_:unlessPublishedAt:)`
+///   (2.12 review of lane 12.12, Fix 2).
 /// - The FASTA holds one record per sequence. A header is the sequence's name alone and a line holds 70
 ///   bases, so the leaf finds each sequence by the name the viewer uses.
 enum StagedSequenceInput {
@@ -38,6 +42,19 @@ enum StagedSequenceInput {
         let folder = try ProjectTempDirectory.create(prefix: prefix, in: projectURL, keepIntermediates: true)
         _ = try DurableReplace.replace(fastaData(records), named: fileName, in: folder)
         return folder.appendingPathComponent(fileName)
+    }
+
+    /// Removes the staged `folder` of a run that failed and published nothing, since no record names it
+    /// and the marker keeps every project sweep off it. It removes nothing and returns false when
+    /// `output` exists, because a bundle there means the run published and its record names the folder.
+    /// Otherwise it removes `folder` as the bundle builder removes its own `extract-bundle-` stage, a
+    /// removal that may fail without a word, and returns true. Call it for a failure only, never for a
+    /// success or a cancel.
+    @discardableResult
+    static func discard(_ folder: URL, unlessPublishedAt output: URL) -> Bool {
+        guard !FileManager.default.fileExists(atPath: output.path) else { return false }
+        try? FileManager.default.removeItem(at: folder)
+        return true
     }
 
     /// The FASTA text of `records`.

@@ -456,8 +456,12 @@ extension SequenceViewerView {
 
     /// Runs `arguments` on `CLIBundleBuildRunner` for the row `itemId`. The row completes with the
     /// bundle the command's `complete` line names, a cancel the runner acknowledged on the row ends it
-    /// Cancelled with no alert, and a failure fails it with the alert.
-    private static func launchExtractionBundle(arguments: [String], outputBundleURL: URL, itemId: UUID) {
+    /// Cancelled with no alert, and a failure fails it with the alert. A failure that published nothing
+    /// also removes `stagedInput`, the folder of the FASTA the run read, since a failed run writes no
+    /// record that names it. A success and a cancel keep it, because their records name it.
+    private static func launchExtractionBundle(
+        arguments: [String], outputBundleURL: URL, itemId: UUID, stagedInput: URL? = nil
+    ) {
         Task { @MainActor in
             do {
                 let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: itemId)
@@ -467,6 +471,9 @@ extension SequenceViewerView {
             } catch is CancellationError {
                 // The runner acknowledged the cancel on the row, and the command published nothing.
             } catch {
+                if let stagedInput {
+                    StagedSequenceInput.discard(stagedInput, unlessPublishedAt: outputBundleURL)
+                }
                 failExtractionBundle(itemId: itemId, description: error.localizedDescription, detail: "\(error)")
             }
         }
@@ -525,7 +532,10 @@ extension SequenceViewerView {
             Self.beginExtractionBundleOperation(
                 sourceName: result.sourceName, arguments: arguments, routeContext: routeContext
             ) { itemId in
-                Self.launchExtractionBundle(arguments: arguments, outputBundleURL: outputBundleURL, itemId: itemId)
+                Self.launchExtractionBundle(
+                    arguments: arguments, outputBundleURL: outputBundleURL, itemId: itemId,
+                    stagedInput: inputURL.deletingLastPathComponent()
+                )
             }
         }
     }
