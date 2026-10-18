@@ -552,8 +552,8 @@ public actor BlastService {
     ///
     /// For gzip files, pipes through `/usr/bin/gzip -dc`. If the subprocess
     /// fails (e.g., killed by macOS XPC interruptions), retries once with a
-    /// brief delay. This addresses intermittent failures observed when the
-    /// system terminates background subprocesses during network activity.
+    /// brief delay. A gzip that ends well with no matching record is read
+    /// once, since `waitForGzip` reports a killed one (S38, 2.12 lane 12.10).
     ///
     /// - Parameters:
     ///   - sourceURL: Path to the FASTQ file (raw or .gz)
@@ -569,9 +569,8 @@ public actor BlastService {
         let maxAttempts = isGzip ? 2 : 1  // Retry only for gzip (subprocess can fail)
 
         for attempt in 1...maxAttempts {
-            let sequences: [(id: String, mate: Int?, sequence: String)]
             do {
-                sequences = try extractMatchingSequencesOnce(
+                return try extractMatchingSequencesOnce(
                     from: sourceURL,
                     matchingReadIds: matchingReadIds,
                     isGzip: isGzip
@@ -584,17 +583,6 @@ public actor BlastService {
                     continue
                 }
                 throw error
-            }
-
-            if !sequences.isEmpty || !isGzip {
-                return sequences
-            }
-
-            // Gzip subprocess returned 0 sequences — likely killed by OS.
-            // Retry once after a brief delay.
-            if attempt < maxAttempts {
-                logger.warning("extractMatchingSequences: gzip returned 0 sequences on attempt \(attempt, privacy: .public), retrying...")
-                try await Task.sleep(nanoseconds: 500_000_000)
             }
         }
 

@@ -90,4 +90,22 @@ final class BlastReadLookupNotesTests: XCTestCase {
         }
         XCTAssertTrue(gone, "the lookup's gzip -dc outlived the cancel")
     }
+
+    // MARK: - Note 2, one decompression where there were two
+
+    /// A gzip source that holds none of the sampled reads, such as the single reads beside a pair, is read
+    /// once. A gzip that fails is still retried once, since `waitForGzip` reports the failure.
+    func testAGzipSourceWithNoSampledReadIsDecompressedOnce() async throws {
+        let plain = try write("@r1\nACGTACGTAC\n+\nIIIIIIIIII\n", named: "singles.fastq")
+        let gz = tempDir.appendingPathComponent("singles.fastq.gz")
+        try await SystemToolProbe.gzip(plain, to: gz)
+        let runs = OSAllocatedUnfairLock(initialState: 0)
+        let observer = ToolProcessObserver { _ in runs.withLock { $0 += 1 } }
+        let service = try XCTUnwrap(service)
+        let found = try await ToolProcessObservation.$observer.withValue(observer) {
+            try await service.extractMatchingSequences(from: gz, matchingReadIds: ["absent"], isGzip: true)
+        }
+        XCTAssertTrue(found.isEmpty)
+        XCTAssertEqual(runs.withLock { $0 }, 1, "one gzip -dc for the source")
+    }
 }
