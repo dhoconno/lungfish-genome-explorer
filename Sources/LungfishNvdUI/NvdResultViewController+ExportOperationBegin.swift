@@ -37,6 +37,7 @@ extension NvdResultViewController {
     ///   - invocation: The leaf's invocation for the view's state, from `contigsExportInvocation(outputURL:)`.
     ///   - runner: The runner the leaf runs on. The row's cancel callback is its `cancel()`.
     ///   - reporter: Where the row begins.
+    ///   - environmentAdditions: Variables for the leaf's environment, for tests. No production caller passes any.
     ///   - onFailure: Called on the main actor when the leaf failed.
     /// - Returns: The row's id and the task that runs the leaf and settles the row, or nil when the row did not
     ///   start.
@@ -45,6 +46,7 @@ extension NvdResultViewController {
         invocation: ViewerExportInvocation,
         runner: CLIViewerExportRunner = CLIViewerExportRunner(),
         reporter: any OperationReporting = OperationCenter.shared,
+        environmentAdditions: [String: String] = [:],
         onFailure: @escaping @MainActor @Sendable (CLIViewerExportRunner.Failure) -> Void
     ) -> (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>)? {
         let arguments = invocation.arguments()
@@ -65,7 +67,8 @@ extension NvdResultViewController {
                 arguments: arguments,
                 outputURL: outputURL,
                 operationID: operationID,
-                completionDetail: "Exported \(outputURL.lastPathComponent)"
+                completionDetail: "Exported \(outputURL.lastPathComponent)",
+                environmentAdditions: environmentAdditions
             )
             if case .failed(let failure) = outcome {
                 onFailure(failure)

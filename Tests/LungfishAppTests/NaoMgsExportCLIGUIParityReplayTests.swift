@@ -136,11 +136,10 @@ final class NaoMgsExportCLIGUIParityReplayTests: XCTestCase {
         let view = try Self.configuredView(root, .shownRowsWithMetadataColumn)
         let invocation = try XCTUnwrap(view.tableExportInvocation(outputURL: output))
 
-        let saved = ProcessEnvironmentOverride(set: [Self.holdFileVariable: hold.path], unset: [])
-        defer { saved.restore() }
         let failures = NaoMgsExportFailureCalls()
         let begun = try XCTUnwrap(NaoMgsResultViewController.beginNaoMgsTableExportOperation(
-            invocation: invocation, runner: CLIViewerExportRunner(cliURLOverride: harness.cliBinary)
+            invocation: invocation, runner: CLIViewerExportRunner(cliURLOverride: harness.cliBinary),
+            environmentAdditions: [Self.holdFileVariable: hold.path]
         ) { failure in failures.messages.append(failure.message) })
         let held = try await Self.waitForFile(hold)
         XCTAssertTrue(held, "the leaf reached its transaction")
