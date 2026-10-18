@@ -14,6 +14,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
+import LungfishWorkflow
 
 @MainActor
 final class SequenceExportStagingDurabilityTests: XCTestCase {
@@ -140,7 +141,68 @@ final class SequenceExportStagingDurabilityTests: XCTestCase {
         XCTAssertEqual(entries.filter { $0.hasPrefix("sequence-export-") }, [])
     }
 
+    func testRunDiscardsTheStagingWhenTheBodyThrows() async throws {
+        let seq = try writeSeqFile()
+        let staged = try SequenceExportStaging.stage(
+            [Self.fileSource(seq)], format: .fasta, outputURL: root.appendingPathComponent("out.fa")
+        )
+        let folder = try XCTUnwrap(staged.folder)
+        struct BodyFailure: Error {}
+
+        do {
+            _ = try await staged.run { (inputs: [URL]) -> Int in
+                XCTAssertEqual(inputs, staged.inputs, "the body runs on the staged inputs")
+                XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path), "and the staging exists while it runs")
+                throw BodyFailure()
+            }
+            XCTFail("the error of the body comes back")
+        } catch is BodyFailure {
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a failed or cancelled export discards its staging")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: seq.path), "and keeps its source")
+    }
+
+    func testRunKeepsTheStagingWhenTheBodyReturns() async throws {
+        let seq = try writeSeqFile()
+        let staged = try SequenceExportStaging.stage(
+            [Self.fileSource(seq)], format: .fasta, outputURL: root.appendingPathComponent("out.fa")
+        )
+        let folder = try XCTUnwrap(staged.folder)
+
+        let count = try await staged.run { (inputs: [URL]) -> Int in inputs.count }
+
+        XCTAssertEqual(count, 1, "the result of the body comes back")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path), "the record of a finished export names the staged files")
+        let marker = try OwnedWorkDirectoryMarkerStore.load(from: folder, expectedProjectURL: project)
+        XCTAssertTrue(marker.keepIntermediates, "and no sweep removes them")
+    }
+
+    func testTheProjectStorageScanKeepsTheStagedFolder() throws {
+        let seq = try writeSeqFile()
+        let staged = try SequenceExportStaging.stage(
+            [Self.fileSource(seq)], format: .fasta, outputURL: root.appendingPathComponent("out.fa")
+        )
+        let folder = try XCTUnwrap(staged.folder)
+
+        let entries = Dictionary(
+            uniqueKeysWithValues: try ProjectStorageScanner().scan(projectURL: project).entries
+                .map { ($0.relativePath, $0.classification) }
+        )
+
+        let kept = try XCTUnwrap(entries[".tmp/\(folder.lastPathComponent)"], "the scan lists the staged folder")
+        XCTAssertFalse(kept.isRemovable, "no cleanup removes the files the record of the export names")
+        XCTAssertEqual(kept.code, .explicitlyRetained)
+    }
+
     // MARK: - Helpers
+
+    /// A `.seq` file, which `convert` does not read, so staging copies it into a folder.
+    private func writeSeqFile() throws -> URL {
+        let seq = project.appendingPathComponent("reads.seq")
+        try ">one\nACGT\n".write(to: seq, atomically: true, encoding: .utf8)
+        return seq
+    }
 
     private static func fileSource(_ url: URL) -> SequenceExportSourceResolver.Source {
         .init(

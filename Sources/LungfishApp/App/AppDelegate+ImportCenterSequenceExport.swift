@@ -72,12 +72,14 @@ extension AppDelegate {
                     await appPerformOnMainRunLoop {
                         OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
                     }
-                    let count = try await self?.performSequenceExport(
-                        inputs: staged.inputs,
-                        outputURL: outputURL,
-                        format: format,
-                        compression: compression
-                    ) ?? 0
+                    let count = try await staged.run { inputs in
+                        try await self?.performSequenceExport(
+                            inputs: inputs,
+                            outputURL: outputURL,
+                            format: format,
+                            compression: compression
+                        ) ?? 0
+                    }
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
@@ -99,7 +101,6 @@ extension AppDelegate {
                         }
                     }
                 } catch {
-                    staged.discard()
                     debugLog("exportSequences: Failed - \(error)")
                     let detail = error.localizedDescription
                     DispatchQueue.main.async {

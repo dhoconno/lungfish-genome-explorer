@@ -513,7 +513,8 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         return text.replacingOccurrences(of: "[0-9]{2}-[A-Z]{3}-[0-9]{4}", with: "<DATE>", options: .regularExpression)
     }
 
-    /// Stages `sources` and runs the export as the app does, which discards the staging when the run fails.
+    /// Stages `sources` and runs the export as the app does, through `Staged.run`, which discards the staging
+    /// when the run fails or is cancelled. The rule lives in production code, so the test has no copy of it.
     private func runExport(
         _ sources: [SequenceExportSourceResolver.Source],
         to output: URL,
@@ -522,13 +523,10 @@ final class SequenceExportPinConformanceTests: XCTestCase {
     ) async throws {
         let staged = try SequenceExportStaging.stage(sources, format: format, outputURL: output)
         if let folder = staged.folder { stagedFolders.append(folder) }
-        do {
-            _ = try await makeAppDelegateWithTemporaryState().performSequenceExport(
-                inputs: staged.inputs, outputURL: output, format: format, compression: compression
+        _ = try await staged.run { inputs in
+            try await makeAppDelegateWithTemporaryState().performSequenceExport(
+                inputs: inputs, outputURL: output, format: format, compression: compression
             )
-        } catch {
-            staged.discard()
-            throw error
         }
     }
 

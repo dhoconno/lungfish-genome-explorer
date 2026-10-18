@@ -31,6 +31,17 @@ enum SequenceExportStaging {
             guard let folder else { return }
             try? FileManager.default.removeItem(at: folder)
         }
+
+        /// Runs `body` on the staged inputs and removes the staging folder when it throws, since a failed or
+        /// cancelled export publishes no record that names it. It runs on the caller's isolation, so a `body`
+        /// that is isolated to an actor needs no hop to call it.
+        func run<T>(
+            isolation: isolated (any Actor)? = #isolation,
+            _ body: ([URL]) async throws -> T
+        ) async throws -> T {
+            // Rare edge, kept: a convert that exits 0 with no readable count throws after its record names this folder.
+            do { return try await body(inputs) } catch { discard(); throw error }
+        }
     }
 
     /// The name of the selection's metadata in the staging folder.
