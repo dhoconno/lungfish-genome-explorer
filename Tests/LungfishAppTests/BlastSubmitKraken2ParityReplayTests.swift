@@ -50,7 +50,11 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
             fixture: Self.makeProject,
             sideA: { root in await Self.inProcessRoute(root, request: request, server: self.server) },
             sideC: { root in
-                await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: { try Self.plan(request, $0) }, begin: Self.begin)
+                let outcome = await BlastSubmitParity.sideC(
+                    root, cli: self.harness.cliBinary, plan: { try Self.plan(request, $0) }, begin: Self.begin
+                )
+                Self.assertRecordFacts(under: root)
+                return outcome
             }
         )
     }
@@ -182,6 +186,24 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
             request: request, projectURL: BlastSubmitParity.project(in: root),
             resultDirectory: root.appendingPathComponent(resultPath, isDirectory: true)
         )
+    }
+
+    /// What the leaf recorded for the taxon search (BIO 3, 4 and 6).
+    private static func assertRecordFacts(under root: URL) {
+        let sidecar = BlastSubmitParity.record(under: root.appendingPathComponent(resultPath, isDirectory: true))
+        let recordURL = sidecar.deletingLastPathComponent().appendingPathComponent(BlastSubmissionRecord.recordFileName)
+        guard let record = try? BlastSubmissionRecord.load(recordURL) else {
+            return XCTFail("side C left no readable \(recordURL.lastPathComponent)")
+        }
+        XCTAssertEqual(record.search.database, "nt", "the search keeps the in-process row's database")
+        XCTAssertEqual(record.lineage.taxId, 562)
+        XCTAssertEqual(record.lineage.sourceResult, "@/Analyses/kraken2-run")
+        XCTAssertEqual(record.lineage.subsampleCount, 2)
+        XCTAssertEqual(record.lineage.subsampleSeed, 0)
+        XCTAssertEqual(record.query.sequenceCount, 2)
+        let argv = (try? ProvenanceEnvelopeReader.load(fromSidecar: sidecar))?.argv ?? []
+        let flag = argv.firstIndex(of: "--database")
+        XCTAssertEqual(flag.flatMap { argv.indices.contains($0 + 1) ? argv[$0 + 1] : nil }, "nt", "the recorded argv names the database")
     }
 
     private static func begin(_ command: String, _ reporter: RecordingOperationReporter) {
