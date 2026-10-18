@@ -564,58 +564,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 #if DEBUG
         taxonomyTransformCount += 1
 #endif
-        var rows = sourceRows
-
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
-            rows = rows.filter {
-                $0.name.localizedCaseInsensitiveContains(query)
-                    || $0.sample.localizedCaseInsensitiveContains(query)
-            }
-        }
-
-        if columnFilterSet.isActive {
-            rows = rows.filter { row in
-                columnFilterSet.matches { filter in
-                    applyColumnFilter(filter, to: row)
-                }
-            }
-        }
-
-        if let sortDescriptor = taxonomyTableView.sortDescriptors.first {
-            switch sortDescriptor.key {
-            case "sample":
-                rows.sort {
-                    let compare = $0.sample.localizedCaseInsensitiveCompare($1.sample)
-                    return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
-                }
-            case "name":
-                rows.sort {
-                    let compare = $0.name.localizedCaseInsensitiveCompare($1.name)
-                    return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
-                }
-            case "hits":
-                rows.sort {
-                    sortDescriptor.ascending ? $0.hitCount < $1.hitCount : $0.hitCount > $1.hitCount
-                }
-            case "unique":
-                rows.sort {
-                    sortDescriptor.ascending
-                        ? $0.uniqueReadCount < $1.uniqueReadCount
-                        : $0.uniqueReadCount > $1.uniqueReadCount
-                }
-            case "refs":
-                rows.sort {
-                    sortDescriptor.ascending
-                        ? $0.accessionCount < $1.accessionCount
-                        : $0.accessionCount > $1.accessionCount
-                }
-            default:
-                break
-            }
-        }
-
-        return rows
+        return NaoMgsSummaryExport.shownRows(
+            sourceRows,
+            searchText: searchText,
+            filters: columnFilterSet,
+            sortKey: taxonomyTableView.sortDescriptors.first.flatMap { descriptor in
+                descriptor.key.map { ViewerExportSortKey(column: $0, ascending: descriptor.ascending) }
+            },
+            metadataRecords: metadataColumnController.store?.records ?? [:]
+        )
     }
 
     // MARK: - Sample Column Visibility
@@ -2892,57 +2849,14 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     private func summaryTSVContent() -> String {
-        var lines: [String] = []
-        var headerFields = [
-            "sample",
-            "taxon_id",
-            "name",
-            "hit_count",
-            "unique_read_count",
-            "pcr_duplicate_count",
-            "avg_identity",
-            "avg_bit_score",
-            "avg_edit_distance",
-            "accession_count",
-        ]
-        headerFields.append(contentsOf: metadataColumnController.exportHeaders.map(Self.tsvField))
-        lines.append(headerFields.joined(separator: "\t"))
-
-        for row in displayedRows {
-            var fields = [
-                Self.tsvField(row.sample),
-                "\(row.taxId)",
-                Self.tsvField(row.name),
-                "\(row.hitCount)",
-                "\(row.uniqueReadCount)",
-                "\(row.pcrDuplicateCount)",
-                Self.exportDecimal(row.avgIdentity, digits: 2),
-                Self.exportDecimal(row.avgBitScore, digits: 1),
-                Self.exportDecimal(row.avgEditDistance, digits: 1),
-                "\(row.accessionCount)",
-            ]
-            fields.append(contentsOf: metadataColumnController.exportValues(for: row.sample).map(Self.tsvField))
-            lines.append(fields.joined(separator: "\t"))
-        }
-
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    private static func exportDecimal(_ value: Double, digits: Int) -> String {
-        String(
-            format: "%.\(digits)f",
-            locale: Locale(identifier: "en_US_POSIX"),
-            value
+        NaoMgsSummaryExport.summaryTSV(
+            rows: displayedRows,
+            metadataHeaders: metadataColumnController.exportHeaders,
+            metadataValuesBySample: Dictionary(uniqueKeysWithValues: Set(displayedRows.map(\.sample)).map {
+                ($0, metadataColumnController.exportValues(for: $0))
+            })
         )
     }
-
-    private static func tsvField(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-    }
-
 }
 
 // MARK: - Content Typography Helpers
@@ -3193,36 +3107,105 @@ extension NaoMgsResultViewController {
 extension NaoMgsResultViewController {
     /// Applies a single column filter to a taxonomy row.
     func applyColumnFilter(_ filter: ColumnFilter, to row: NaoMgsTaxonSummaryRow) -> Bool {
-        guard filter.isActive else { return true }
+        NaoMgsSummaryExport.columnFilter(filter, matches: row, metadataRecords: metadataColumnController.store?.records ?? [:])
+    }
+}
 
-        switch filter.columnId {
-        case "sample":
-            return filter.matchesString(row.sample)
-        case "name":
-            let displayName = row.name.isEmpty ? "Taxid \(row.taxId)" : row.name
-            return filter.matchesString(displayName)
-        case "hits":
-            return filter.matchesNumeric(Double(row.hitCount))
-        case "unique":
-            return filter.matchesNumeric(Double(row.uniqueReadCount))
-        case "refs":
-            return filter.matchesNumeric(Double(row.accessionCount))
-        default:
-            // Metadata columns: look up value from metadata store
-            if filter.columnId.hasPrefix("metadata_") {
-                let metaColName = String(filter.columnId.dropFirst("metadata_".count))
-                if let metaStore = metadataColumnController.store,
-                   let value = metaStore.records[row.sample]?[metaColName] {
-                    // Try numeric first, fall back to string
-                    if let numValue = Double(value) {
-                        return filter.matchesNumeric(numValue)
-                    }
-                    return filter.matchesString(value)
-                }
-                return false  // No metadata value → doesn't match
+extension NaoMgsSummaryExport {
+    /// The rows the view shows, in its order, after its search, column filters and first sort key. Sort columns
+    /// other than `sample`, `name`, `hits`, `unique` and `refs` keep the rows' order.
+    public static func shownRows(
+        _ sourceRows: [NaoMgsTaxonSummaryRow],
+        searchText: String,
+        filters: ColumnFilterSet,
+        sortKey: ViewerExportSortKey?,
+        metadataRecords: [String: [String: String]]
+    ) -> [NaoMgsTaxonSummaryRow] {
+        var rows = sourceRows
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            rows = rows.filter {
+                $0.name.localizedCaseInsensitiveContains(query) || $0.sample.localizedCaseInsensitiveContains(query)
             }
-            return true
         }
+        if filters.isActive {
+            rows = rows.filter { row in
+                filters.matches { filter in columnFilter(filter, matches: row, metadataRecords: metadataRecords) }
+            }
+        }
+        guard let sortKey else { return rows }
+        let ascending = sortKey.ascending
+        func inOrder(_ compare: ComparisonResult) -> Bool {
+            ascending ? compare == .orderedAscending : compare == .orderedDescending
+        }
+        func countsInOrder(_ lhs: Int, _ rhs: Int) -> Bool { ascending ? lhs < rhs : lhs > rhs }
+        switch sortKey.column {
+        case "sample": rows.sort { inOrder($0.sample.localizedCaseInsensitiveCompare($1.sample)) }
+        case "name": rows.sort { inOrder($0.name.localizedCaseInsensitiveCompare($1.name)) }
+        case "hits": rows.sort { countsInOrder($0.hitCount, $1.hitCount) }
+        case "unique": rows.sort { countsInOrder($0.uniqueReadCount, $1.uniqueReadCount) }
+        case "refs": rows.sort { countsInOrder($0.accessionCount, $1.accessionCount) }
+        default: break
+        }
+        return rows
+    }
+
+    /// Whether one column filter keeps a row. A `metadata_<column>` filter reads the sample's value from
+    /// `metadataRecords`, numerically when it parses, and drops a row with no value. Other columns keep every row.
+    public static func columnFilter(
+        _ filter: ColumnFilter,
+        matches row: NaoMgsTaxonSummaryRow,
+        metadataRecords: [String: [String: String]]
+    ) -> Bool {
+        guard filter.isActive else { return true }
+        switch filter.columnId {
+        case "sample": return filter.matchesString(row.sample)
+        case "name": return filter.matchesString(row.name.isEmpty ? "Taxid \(row.taxId)" : row.name)
+        case "hits": return filter.matchesNumeric(Double(row.hitCount))
+        case "unique": return filter.matchesNumeric(Double(row.uniqueReadCount))
+        case "refs": return filter.matchesNumeric(Double(row.accessionCount))
+        default:
+            guard filter.columnId.hasPrefix("metadata_") else { return true }
+            let column = String(filter.columnId.dropFirst("metadata_".count))
+            guard let value = metadataRecords[row.sample]?[column] else { return false }
+            if let number = Double(value) {
+                return filter.matchesNumeric(number)
+            }
+            return filter.matchesString(value)
+        }
+    }
+
+    /// The summary table of `rows`, each row with its own sample's metadata values.
+    public static func summaryTSV(
+        rows: [NaoMgsTaxonSummaryRow],
+        metadataHeaders: [String],
+        metadataValuesBySample: [String: [String]]
+    ) -> String {
+        let header = [
+            "sample", "taxon_id", "name", "hit_count", "unique_read_count", "pcr_duplicate_count",
+            "avg_identity", "avg_bit_score", "avg_edit_distance", "accession_count",
+        ] + metadataHeaders.map(tsvField)
+        var lines = [header.joined(separator: "\t")]
+        for row in rows {
+            let fields = [
+                tsvField(row.sample), "\(row.taxId)", tsvField(row.name), "\(row.hitCount)", "\(row.uniqueReadCount)",
+                "\(row.pcrDuplicateCount)", exportDecimal(row.avgIdentity, digits: 2),
+                exportDecimal(row.avgBitScore, digits: 1), exportDecimal(row.avgEditDistance, digits: 1),
+                "\(row.accessionCount)",
+            ] + (metadataValuesBySample[row.sample] ?? []).map(tsvField)
+            lines.append(fields.joined(separator: "\t"))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func exportDecimal(_ value: Double, digits: Int) -> String {
+        String(format: "%.\(digits)f", locale: Locale(identifier: "en_US_POSIX"), value)
+    }
+
+    static func tsvField(_ value: String) -> String {
+        value.replacingOccurrences(of: "\t", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
     }
 }
 
