@@ -53,6 +53,8 @@ extension PrimerDesignCommand {
         let resolved = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
         let eventsOn = resolved.outputFormat == .json
         let events = CLIEventEmitter(enabled: eventsOn, emit: emit)
+        // Every transcript begins with its start event, a refusal's too, which still comes before any folder exists.
+        events.emitStart(startMessage)
         var refusal: String?
         do {
             try refuseExistingOutput(outputPath) { message in
@@ -63,7 +65,6 @@ extension PrimerDesignCommand {
             if let refusal { events.emitFailed(refusal) }
             throw error
         }
-        events.emitStart(startMessage)
         let argv = recordedArgv(CommandLine.arguments)
         let progress: @Sendable (Double, String) -> Void = { fraction, message in
             events.emitProgress(fraction, message: message)

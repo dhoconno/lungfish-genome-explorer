@@ -5,44 +5,45 @@
 {"event":"progress","message":"Running PrimalScheme","progress":0.2,"schemaVersion":2}
 {"event":"log","level":"info","message":"Native command: \/work\/conda\/envs\/primalscheme3\/bin\/primalscheme3 --version","schemaVersion":2}
 {"event":"log","level":"info","message":"PrimalScheme3-LGE version: 3.3.0+lge.5","schemaVersion":2}
-{"event":"log","level":"info","message":"Native command: \/work\/conda\/envs\/primalscheme3\/bin\/primalscheme3 scheme-create --msa \/work\/project\/Analyses\/.primalscheme3-975273DC-24AE-4153-B948-45717A30A075\/inputs\/74FBFAC0-1F8E-47B0-B995-E4004C914C23.fasta --output \/work\/project\/Analyses\/.primalscheme3-975273DC-24AE-4153-B948-45717A30A075\/native\/7788FF5A-26A2-4CD2-85EA-33B35E3074E4 --amplicon-size 400 --n-pools 2 --min-base-freq 0.0 --mapping first --no-high-gc --ncores 4 --terminal-gap-policy observed-only --dimer-score -26.0 --use-matchdb --offline-plots --amplicon-size-min 360 --amplicon-size-max 440 --min-overlap 10 --no-backtrack --no-ignore-n","schemaVersion":2}
-{"event":"log","level":"info","message":"[17:08:37] INFO     Creating the Mismatch Database                              ","schemaVersion":2}
+{"event":"log","level":"info","message":"Native command: \/work\/conda\/envs\/primalscheme3\/bin\/primalscheme3 scheme-create --msa \/work\/project\/Analyses\/.primalscheme3-CF4EAC31-A98B-46BC-A764-26CCEC167AE9\/inputs\/F06EB034-D1B4-4C21-85EE-FBC94BB0B5C2.fasta --output \/work\/project\/Analyses\/.primalscheme3-CF4EAC31-A98B-46BC-A764-26CCEC167AE9\/native\/0FAE8EC8-3CF4-4338-ACE1-4018DA2CA138 --amplicon-size 400 --n-pools 2 --min-base-freq 0.0 --mapping first --no-high-gc --ncores 4 --terminal-gap-policy observed-only --dimer-score -26.0 --use-matchdb --offline-plots --amplicon-size-min 360 --amplicon-size-max 440 --min-overlap 10 --no-backtrack --no-ignore-n","schemaVersion":2}
+{"event":"log","level":"info","message":"[17:27:48] INFO     Creating the Mismatch Database                              ","schemaVersion":2}
 {"event":"log","level":"info","message":"           INFO     Created:                                                    ","schemaVersion":2}
-{"event":"log","level":"info","message":"                    7788FF5A-26A2-4CD2-85EA-33B35E3074E4\/work\/mismatch.db       ","schemaVersion":2}
-{"event":"log","level":"info","message":"           INFO     Read in MSA: input_74FBFAC01F8E47B0B995E4004C914C23_row_0   ","schemaVersion":2}
+{"event":"log","level":"info","message":"                    0FAE8EC8-3CF4-4338-ACE1-4018DA2CA138\/work\/mismatch.db       ","schemaVersion":2}
+{"event":"log","level":"info","message":"           INFO     Read in MSA: input_F06EB034D1B44C2185EEFBC94BB0B5C2_row_0   ","schemaVersion":2}
 {"event":"log","level":"info","message":"                    seqs:3  cols:1500                                           ","schemaVersion":2}
 {"event":"log","level":"info","message":"           INFO     LGE observed-only policy: Python process discovery; terminal","schemaVersion":2}
 {"event":"log","level":"info","message":"                    missing coverage excluded without imputation                ","schemaVersion":2}
 {"event":"log","level":"info","message":"Python discovery:   0%|          | 0\/24 [00:00<?, ?it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:   4%|▍         | 1\/24 [00:00<00:14,  1.58it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:  12%|█▎        | 3\/24 [00:00<00:04,  4.86it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:  25%|██▌       | 6\/24 [00:00<00:01,  9.27it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:  38%|███▊      | 9\/24 [00:01<00:01, 12.50it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:  50%|█████     | 12\/24 [00:01<00:00, 14.91it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:  62%|██████▎   | 15\/24 [00:01<00:00, 16.54it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:  75%|███████▌  | 18\/24 [00:01<00:00, 17.76it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery:  88%|████████▊ | 21\/24 [00:01<00:00, 18.67it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery: 100%|██████████| 24\/24 [00:01<00:00, 20.99it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Python discovery: 100%|██████████| 24\/24 [00:01<00:00, 13.98it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"[17:08:39] INFO     input_74FBFAC01F8E47B0B995E4004C914C23_row_0: digested to   ","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:   4%|▍         | 1\/24 [00:00<00:17,  1.32it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  12%|█▎        | 3\/24 [00:00<00:05,  4.17it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  21%|██        | 5\/24 [00:00<00:02,  7.02it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  33%|███▎      | 8\/24 [00:01<00:01, 10.77it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  46%|████▌     | 11\/24 [00:01<00:00, 13.59it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  58%|█████▊    | 14\/24 [00:01<00:00, 15.61it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  67%|██████▋   | 16\/24 [00:01<00:00, 15.63it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  75%|███████▌  | 18\/24 [00:01<00:00, 16.61it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  83%|████████▎ | 20\/24 [00:01<00:00, 15.84it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery:  96%|█████████▌| 23\/24 [00:01<00:00, 17.27it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Python discovery: 100%|██████████| 24\/24 [00:01<00:00, 12.38it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"[17:27:50] INFO     input_F06EB034D1B44C2185EEFBC94BB0B5C2_row_0: digested to   ","schemaVersion":2}
 {"event":"log","level":"info","message":"                    781 FKmers and 765 RKmers                                   ","schemaVersion":2}
 {"event":"log","level":"info","message":"Generating primer pairs:   0%|          | 0\/781 [00:00<?, ?it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Generating primer pairs:  54%|█████▍    | 425\/781 [00:00<00:00, 4240.26it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"Generating primer pairs: 100%|██████████| 781\/781 [00:00<00:00, 6146.99it\/s]","schemaVersion":2}
-{"event":"log","level":"info","message":"           INFO     input_74FBFAC01F8E47B0B995E4004C914C23_row_0: Generated     ","schemaVersion":2}
+{"event":"log","level":"info","message":"Generating primer pairs:  53%|█████▎    | 417\/781 [00:00<00:00, 4160.43it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"Generating primer pairs: 100%|██████████| 781\/781 [00:00<00:00, 6066.49it\/s]","schemaVersion":2}
+{"event":"log","level":"info","message":"           INFO     input_F06EB034D1B44C2185EEFBC94BB0B5C2_row_0: Generated     ","schemaVersion":2}
 {"event":"log","level":"info","message":"                    24873 possible amplicons                                    ","schemaVersion":2}
 {"event":"log","level":"info","message":"Creating Scheme: 0it [00:00, ?it\/s]","schemaVersion":2}
 {"event":"log","level":"info","message":"           INFO     Added first amplicon for                                    ","schemaVersion":2}
-{"event":"log","level":"info","message":"                    input_74FBFAC01F8E47B0B995E4004C914C23_row_0: 2        424  ","schemaVersion":2}
+{"event":"log","level":"info","message":"                    input_F06EB034D1B44C2185EEFBC94BB0B5C2_row_0: 2        424  ","schemaVersion":2}
 {"event":"log","level":"info","message":"                    1                                                           ","schemaVersion":2}
 {"event":"log","level":"info","message":"           INFO     Added overlapping amplicon for                              ","schemaVersion":2}
-{"event":"log","level":"info","message":"                    input_74FBFAC01F8E47B0B995E4004C914C23_row_0: 361        793","schemaVersion":2}
+{"event":"log","level":"info","message":"                    input_F06EB034D1B44C2185EEFBC94BB0B5C2_row_0: 361        793","schemaVersion":2}
 {"event":"log","level":"info","message":"                    2                                                           ","schemaVersion":2}
 {"event":"log","level":"info","message":"           INFO     Added overlapping amplicon for                              ","schemaVersion":2}
-{"event":"log","level":"info","message":"                    input_74FBFAC01F8E47B0B995E4004C914C23_row_0: 721           ","schemaVersion":2}
+{"event":"log","level":"info","message":"                    input_F06EB034D1B44C2185EEFBC94BB0B5C2_row_0: 721           ","schemaVersion":2}
 {"event":"log","level":"info","message":"                    1161    1                                                   ","schemaVersion":2}
 {"event":"log","level":"info","message":"           INFO     Added overlapping amplicon for                              ","schemaVersion":2}
-{"event":"log","level":"info","message":"                    input_74FBFAC01F8E47B0B995E4004C914C23_row_0: 1030          ","schemaVersion":2}
+{"event":"log","level":"info","message":"                    input_F06EB034D1B44C2185EEFBC94BB0B5C2_row_0: 1030          ","schemaVersion":2}
 {"event":"log","level":"info","message":"                    1468    2                                                   ","schemaVersion":2}
 {"event":"log","level":"info","message":"Creating Scheme:   0%|          | 0\/1500 [00:00<?, ?it\/s]","schemaVersion":2}
 {"event":"log","level":"info","message":"                                                         ","schemaVersion":2}
@@ -50,7 +51,7 @@
 {"event":"log","level":"info","message":"Creating output files: |          ","schemaVersion":2}
 {"event":"log","level":"info","message":"Creating output files:  75%|███████▌  ","schemaVersion":2}
 {"event":"log","level":"info","message":"                                      ","schemaVersion":2}
-{"event":"log","level":"info","message":"[17:08:41] INFO     Completed Successfully                                      ","schemaVersion":2}
+{"event":"log","level":"info","message":"[17:27:53] INFO     Completed Successfully                                      ","schemaVersion":2}
 {"event":"progress","message":"Publishing primer analysis and ordering worksheets","progress":0.95,"schemaVersion":2}
 {"event":"progress","message":"Saved PrimalScheme analysis","progress":1,"schemaVersion":2}
 {"event":"complete","message":"Primer analysis saved.","output":"\/work\/project\/Analyses\/primers-design-primalscheme3.lungfishprimeranalysis","outputs":["\/work\/project\/Analyses\/primers-design-primalscheme3.lungfishprimeranalysis"],"progress":1,"schemaVersion":2}

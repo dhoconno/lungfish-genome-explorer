@@ -54,8 +54,9 @@ extension PrimerDesignCLIGUIParityReplayTests {
         )
         let command = try XCTUnwrap(result.runs.c.outcome.recordedCommand, "side C records the row's command")
         XCTAssertTrue(command.hasPrefix("lungfish-cli primers design primalscheme3 "), command)
-        XCTAssertEqual(result.runs.a.outcome.recordedCommand, command, "side A's row records the same command")
-        try Self.assertRecordedArgv(of: result.runs.a, is: RecordedCLICommand.arguments(of: command), cli: cli)
+        // Side A runs in its own root, so its row's command names that root, and its record names that command.
+        let commandA = try XCTUnwrap(result.runs.a.outcome.recordedCommand, "side A records the row's command")
+        try Self.assertRecordedArgv(of: result.runs.a, is: RecordedCLICommand.arguments(of: commandA), cli: cli)
         try Self.assertRecordedArgv(of: result.runs.c, is: RecordedCLICommand.arguments(of: command), cli: cli)
         try Self.assertRecordedArgv(
             of: result.runs.cPrime, is: try XCTUnwrap(result.runs.cPrime.replayedArguments.first), cli: cli

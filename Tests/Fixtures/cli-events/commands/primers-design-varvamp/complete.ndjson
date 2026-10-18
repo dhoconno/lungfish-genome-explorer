@@ -2,7 +2,7 @@
 {"event":"progress","message":"Checking varVAMP runtime…","progress":0,"schemaVersion":2}
 {"event":"progress","message":"Snapshotting primer-scheme inputs…","progress":0.06,"schemaVersion":2}
 {"event":"progress","message":"Running varvamp through the LGE adapter…","progress":0.12,"schemaVersion":2}
-{"event":"log","level":"info","message":"Native command: \/work\/conda\/envs\/varvamp\/bin\/python \/work\/project\/Analyses\/.primer-scheme-run-AF0AD454-FA50-4FE4-8FF6-4052D34B26B1-3B76507C-0103-4EF6-89E1-DCE3DE884308\/adapter\/run.py --request \/work\/project\/Analyses\/.primer-scheme-run-AF0AD454-FA50-4FE4-8FF6-4052D34B26B1-3B76507C-0103-4EF6-89E1-DCE3DE884308\/request.json","schemaVersion":2}
+{"event":"log","level":"info","message":"Native command: \/work\/conda\/envs\/varvamp\/bin\/python \/work\/project\/Analyses\/.primer-scheme-run-28A3D729-A198-4174-946C-C68ECF5D0736-91F0B9F0-96D5-48C2-AE7C-5E8D5D60796C\/adapter\/run.py --request \/work\/project\/Analyses\/.primer-scheme-run-28A3D729-A198-4174-946C-C68ECF5D0736-91F0B9F0-96D5-48C2-AE7C-5E8D5D60796C\/request.json","schemaVersion":2}
 {"event":"log","level":"info","message":"Starting \u001b[31m\u001b[1mvarVAMP ◥(ºwº)◤\u001b[0m primer design","schemaVersion":2}
 {"event":"log","level":"info","message":"Job:\t\t Checking config.","schemaVersion":2}
 {"event":"log","level":"info","message":"Progress: \t [████------------------------------------] 10.0%\tconfig file passed","schemaVersion":2}
@@ -24,10 +24,10 @@
 {"event":"log","level":"info","message":"Progress: \t [████████████████████████████████████----] 90.0%\t96.53 % total coverage with 5 amplicons","schemaVersion":2}
 {"event":"log","level":"info","message":"Job:\t\t Finalizing output.","schemaVersion":2}
 {"event":"log","level":"info","message":"Progress: \t [████████████████████████████████████████] 100%\tall done ","schemaVersion":2}
-{"event":"log","level":"info","message":"varVAMP 1.3.2 finished in 2.22091 sec!","schemaVersion":2}
-{"event":"log","level":"info","message":"2026-10-18 17:09:36.092274","schemaVersion":2}
-{"event":"log","level":"info","message":"Thank you. Come again.","schemaVersion":2}
-{"event":"log","level":"info","message":"{\"resultPath\": \"\/work\/project\/Analyses\/.primer-scheme-run-AF0AD454-FA50-4FE4-8FF6-4052D34B26B1-3B76507C-0103-4EF6-89E1-DCE3DE884308\/adapter-output\/adapter-result-v1.json\", \"schemaVersion\": 1}","schemaVersion":2}
+{"event":"log","level":"info","message":"varVAMP 1.3.2 finished in 1.341554 sec!","schemaVersion":2}
+{"event":"log","level":"info","message":"2026-10-18 17:28:43.913344","schemaVersion":2}
+{"event":"log","level":"info","message":"In silico we trust.","schemaVersion":2}
+{"event":"log","level":"info","message":"{\"resultPath\": \"\/work\/project\/Analyses\/.primer-scheme-run-28A3D729-A198-4174-946C-C68ECF5D0736-91F0B9F0-96D5-48C2-AE7C-5E8D5D60796C\/adapter-output\/adapter-result-v1.json\", \"schemaVersion\": 1}","schemaVersion":2}
 {"event":"progress","message":"Normalizing primer-scheme results…","progress":0.86,"schemaVersion":2}
 {"event":"progress","message":"Primer analysis published","progress":1,"schemaVersion":2}
 {"event":"complete","message":"Primer analysis saved.","output":"\/work\/project\/Analyses\/primers-design-varvamp.lungfishprimeranalysis","outputs":["\/work\/project\/Analyses\/primers-design-varvamp.lungfishprimeranalysis"],"progress":1,"schemaVersion":2}
