@@ -352,7 +352,7 @@ extension ViewerViewController {
             )
             _ = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
             try ViewerViewController.verifyTwelveSBlastPreparationProvenance(
-                sidecarURL: exportURL.appendingPathExtension("lungfish-provenance.json"),
+                sidecarURL: ProvenanceRecorder.fileSidecarURL(for: exportURL),
                 outputURL: exportURL
             )
             let sequences = try ViewerViewController.twelveSBlastSequences(fromFasta: exportURL)
