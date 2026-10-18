@@ -54,11 +54,50 @@ extension TaxonomyViewController {
               let result = Self.newestSavedBlastVerification(forTaxId: node.taxId, in: directory) else {
             return nil
         }
+        applyRestoredBlastVerification(result, for: node, from: directory)
+        return result
+    }
+
+    /// The selection path's form of ``restoreSavedBlastVerification(for:)`` (Phase 2.12 lane 12.33, review Fix 6 of
+    /// lane 12.10). Selecting a taxon lists and decodes every saved search under the result, a cost that grows with
+    /// each search saved and is paid for every taxon selected, so the scan runs off the main actor. The result
+    /// applies on the main actor only while the same three conditions hold that the synchronous form checks first
+    /// (no run in flight, this taxon still selected, the drawer not already showing it). A selection that moved on
+    /// or a run that began meanwhile drops the result. That check is the stale guard, so no task handle is stored.
+    ///
+    /// - Returns: The task that scans and applies, which tests await, or `nil` when nothing was scheduled.
+    @discardableResult
+    func scheduleSavedBlastVerificationRestore(for node: TaxonNode?) -> Task<Void, Never>? {
+        guard let node,
+              !blastRunIsActive,
+              lastBlastResult?.taxId != node.taxId,
+              let directory = blastVerificationDirectoryResolver?(node) else {
+            return nil
+        }
+        return Task { @MainActor [weak self] in
+            let result = await Self.savedBlastVerificationOffMain(forTaxId: node.taxId, in: directory)
+            guard let self,
+                  let result,
+                  !self.blastRunIsActive,
+                  self.selectedTaxonNode?.taxId == node.taxId,
+                  self.lastBlastResult?.taxId != node.taxId else {
+                return
+            }
+            self.applyRestoredBlastVerification(result, for: node, from: directory)
+        }
+    }
+
+    /// The scan of a result's saved searches off the main actor.
+    @concurrent nonisolated static func savedBlastVerificationOffMain(forTaxId taxId: Int, in directory: URL) async -> BlastVerificationResult? {
+        newestSavedBlastVerification(forTaxId: taxId, in: directory)
+    }
+
+    /// Shows a restored verification. The drawer is not opened or switched.
+    private func applyRestoredBlastVerification(_ result: BlastVerificationResult, for node: TaxonNode, from directory: URL) {
         lastBlastResult = result
         lastBlastNode = node
         taxaCollectionsDrawerView?.blastResultsTab.showResults(result)
         blastVCLogger.info("Restored saved BLAST verification for txid\(node.taxId, privacy: .public) from \(directory.path, privacy: .public)")
-        return result
     }
 
     /// The newest saved verification of `taxId` in `<directory>/blast-verifications/`. That is a `blast submit`

@@ -807,7 +807,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     // MARK: - Saved BLAST Verifications
 
-    func testSavedVerificationIsRestoredWhenItsTaxonIsSelected() throws {
+    func testSavedVerificationIsRestoredWhenItsTaxonIsSelected() async throws {
         let resultDir = FileManager.default.temporaryDirectory.appendingPathComponent("taxonomy-saved-blast-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: resultDir) }
         try BlastVerificationArchive.save(
@@ -823,10 +823,13 @@ final class TaxonomyViewControllerTests: XCTestCase {
         vc.configure(result: classification)
         vc.blastVerificationDirectoryResolver = { _ in resultDir }
 
-        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 570)))
+        let klebsiella = try XCTUnwrap(classification.tree.node(taxId: 570))
+        vc.testSunburstView.onNodeSelected?(klebsiella)
+        await vc.scheduleSavedBlastVerificationRestore(for: klebsiella)?.value
         XCTAssertNil(vc.lastBlastResult, "Klebsiella has no saved verification")
 
         vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 562)))
+        await waitUntil { vc.lastBlastResult?.taxId == 562 }
         XCTAssertEqual(vc.lastBlastResult?.taxId, 562)
         XCTAssertEqual(vc.lastBlastNode?.taxId, 562, "Re-run BLAST targets the restored taxon")
         XCTAssertFalse(vc.testIsCollectionsDrawerOpen, "restoring never opens the drawer on its own")
@@ -839,7 +842,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
         )
     }
 
-    func testSavedVerificationDoesNotReplaceARunInFlight() throws {
+    func testSavedVerificationDoesNotReplaceARunInFlight() async throws {
         let resultDir = FileManager.default.temporaryDirectory.appendingPathComponent("taxonomy-saved-blast-inflight-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: resultDir) }
         try BlastVerificationArchive.save(
@@ -858,14 +861,70 @@ final class TaxonomyViewControllerTests: XCTestCase {
         let run = vc.beginBlastVerification(for: klebsiella)
         vc.showBlastLoading(phase: .waiting, requestId: nil, runID: run)
 
-        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 562)))
+        let ecoli = try XCTUnwrap(classification.tree.node(taxId: 562))
+        vc.testSunburstView.onNodeSelected?(ecoli)
+        XCTAssertNil(vc.scheduleSavedBlastVerificationRestore(for: ecoli), "no scan starts while a run is in flight")
         XCTAssertNil(vc.lastBlastResult, "a saved result must not replace the loading state of a live run")
         XCTAssertNil(vc.testBlastResultsTab?.currentResult)
 
         vc.showBlastFailure(message: "network down", runID: run)
-        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 570)))
-        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 562)))
+        vc.testSunburstView.onNodeSelected?(klebsiella)
+        vc.testSunburstView.onNodeSelected?(ecoli)
+        await waitUntil { vc.lastBlastResult?.taxId == 562 }
         XCTAssertEqual(vc.lastBlastResult?.taxId, 562, "after the run ends, saved results restore again")
+    }
+
+    /// The stale guard of review Fix 6. A scan that ends after the selection moved to another taxon drops its result.
+    func testASavedVerificationDoesNotApplyAfterTheSelectionMovedOn() async throws {
+        let resultDir = FileManager.default.temporaryDirectory.appendingPathComponent("taxonomy-saved-blast-stale-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+        try BlastVerificationArchive.save(
+            makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
+            request: nil,
+            in: resultDir
+        )
+
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        let classification = makeTestResult()
+        vc.configure(result: classification)
+        vc.blastVerificationDirectoryResolver = { _ in resultDir }
+
+        let ecoli = try XCTUnwrap(classification.tree.node(taxId: 562))
+        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 570)))
+        let scan = try XCTUnwrap(vc.scheduleSavedBlastVerificationRestore(for: ecoli), "the scan is scheduled")
+        await scan.value
+        XCTAssertNil(vc.lastBlastResult, "Klebsiella is selected, so E. coli's saved verification is dropped")
+        XCTAssertNil(vc.testBlastResultsTab?.currentResult)
+    }
+
+    /// Phase 2.12 lane 12.33, review Fix 6 of lane 12.10. Selecting a taxon never lists and decodes a result's saved
+    /// searches on the main actor. The selection returns first and the restore applies when the scan ends. This fails
+    /// at the base, which restores before the selection call returns.
+    func testSelectingATaxonRestoresTheSavedVerificationAfterTheSelectionReturns() async throws {
+        let resultDir = FileManager.default.temporaryDirectory.appendingPathComponent("taxonomy-saved-blast-offmain-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+        try BlastVerificationArchive.save(
+            makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
+            request: nil,
+            in: resultDir
+        )
+
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        let classification = makeTestResult()
+        vc.configure(result: classification)
+        vc.blastVerificationDirectoryResolver = { _ in resultDir }
+
+        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 562)))
+        XCTAssertNil(
+            vc.lastBlastResult,
+            "the scan of the saved searches runs off the main actor, so the selection returns before it applies"
+        )
+
+        let restored = await waitUntil { vc.lastBlastResult?.taxId == 562 }
+        XCTAssertTrue(restored, "the saved verification applies once the scan ends")
+        XCTAssertEqual(vc.lastBlastNode?.taxId, 562, "Re-run BLAST targets the restored taxon")
     }
 
     // MARK: - Breadcrumb Integration

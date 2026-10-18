@@ -268,7 +268,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     // MARK: - Action Bar State
 
     /// The currently selected taxon node (for info text updates).
-    private var selectedTaxonNode: TaxonNode?
+    private(set) var selectedTaxonNode: TaxonNode?
 
     /// Total reads for percentage display in the action bar.
     private var totalReadsForActionBar: Int = 0
@@ -1307,7 +1307,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             actionBar.setExtractEnabled(false, reason: readLevelActionsDisabledReason)
         }
 
-        restoreSavedBlastVerification(for: selectedTaxonNode)
+        scheduleSavedBlastVerificationRestore(for: selectedTaxonNode)
     }
 
     // MARK: - NSSplitViewDelegate
