@@ -5,7 +5,8 @@
 // Phase 2.12 lane 12.17, ruling R-B1 and QA 1. A replay of a recorded `primers design` command names the bundle the
 // app already wrote, so a replay in the same project meets a destination that exists. Each of the four leaves runs
 // in process on such a destination, and the test reads the exit code ArgumentParser gives the error and every file
-// and folder under the project before and after. The pin of QA 1 is what each leaf does at the base of lane 12.17.
+// and folder under the project before and after. At the base of lane 12.17 every leaf failed inside its pipeline with
+// exit 1 and changed nothing (the pin of QA 1). Each leaf now refuses first, exits 3 and still changes nothing.
 
 import ArgumentParser
 import Foundation
@@ -35,38 +36,40 @@ final class PrimerDesignExistingOutputTests: XCTestCase {
     }
 
     func testPrimer3LeafLeavesAnExistingDestinationAlone() async throws {
-        try await assertRefuses(
-            PrimerDesignCommand.Primer3Subcommand.self, ["--fasta-record", fasta.path + "@0"],
-            baseWords: "destination must be a new .lungfishprimeranalysis bundle"
-        )
+        try await assertRefuses(PrimerDesignCommand.Primer3Subcommand.self, ["--fasta-record", fasta.path + "@0"])
     }
 
     func testPrimalScheme3LeafLeavesAnExistingDestinationAlone() async throws {
-        try await assertRefuses(
-            PrimerDesignCommand.PrimalScheme3Subcommand.self, ["--msa", fasta.path],
-            baseWords: "The destination already exists."
-        )
+        try await assertRefuses(PrimerDesignCommand.PrimalScheme3Subcommand.self, ["--msa", fasta.path])
     }
 
     func testOlivarLeafLeavesAnExistingDestinationAlone() async throws {
-        try await assertRefuses(
-            OlivarDesignCommand.self, ["--msa", fasta.path], baseWords: "the destination must not exist"
-        )
+        try await assertRefuses(OlivarDesignCommand.self, ["--msa", fasta.path])
     }
 
     func testVarVAMPLeafLeavesAnExistingDestinationAlone() async throws {
-        try await assertRefuses(
-            VarVAMPDesignCommand.self, ["--msa", fasta.path], baseWords: "the destination must not exist"
-        )
+        try await assertRefuses(VarVAMPDesignCommand.self, ["--msa", fasta.path])
+    }
+
+    /// The refusal names the bundle and the option to change, and exits 3. UX's sentence goes on to suggest `--project`,
+    /// which no `primers design` leaf has, so the text stops after its first clause until UX rules. A new path passes.
+    func testTheRefusalNamesTheBundleAndExitsThree() throws {
+        var lines: [String] = []
+        XCTAssertThrowsError(try PrimerDesignCommand.refuseExistingOutput(bundle.path) { lines.append($0) }) { error in
+            XCTAssertEqual((error as? ExitCode)?.rawValue, 3)
+        }
+        XCTAssertEqual(lines, ["Output already exists: \(bundle.path). Give --output a new path."])
+        let fresh = root.appendingPathComponent("Analyses/new.lungfishprimeranalysis").path
+        XCTAssertNoThrow(try PrimerDesignCommand.refuseExistingOutput(fresh) { lines.append($0) })
+        XCTAssertEqual(lines.count, 1, "a new path is not refused")
     }
 
     // MARK: - Helpers
 
-    /// Runs the leaf on `arguments` with `--output` naming the existing bundle. The leaf fails, and no file or folder
+    /// Runs the leaf on `arguments` with `--output` naming the existing bundle. The leaf exits 3, and no file or folder
     /// under the project changes.
     private func assertRefuses<Command: AsyncParsableCommand>(
-        _ type: Command.Type, _ arguments: [String], baseWords: String,
-        file: StaticString = #filePath, line: UInt = #line
+        _ type: Command.Type, _ arguments: [String], file: StaticString = #filePath, line: UInt = #line
     ) async throws {
         let before = try snapshot()
         var command = try type.parse(arguments + ["--output", bundle.path])
@@ -74,9 +77,7 @@ final class PrimerDesignExistingOutputTests: XCTestCase {
             try await command.run()
             XCTFail("the leaf ran into an existing destination", file: file, line: line)
         } catch {
-            let message = type.message(for: error)
-            XCTAssertEqual(type.exitCode(for: error).rawValue, 1, message, file: file, line: line)
-            XCTAssertTrue(message.contains(baseWords), message, file: file, line: line)
+            XCTAssertEqual(type.exitCode(for: error).rawValue, 3, type.message(for: error), file: file, line: line)
         }
         XCTAssertEqual(try snapshot(), before, "the old bundle's bytes and the project's folders", file: file, line: line)
     }

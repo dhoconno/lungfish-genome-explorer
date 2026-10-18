@@ -135,6 +135,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
     }
 
     private func execute(argv: [String]) async throws -> URL {
+        try PrimerDesignCommand.refuseExistingOutput(outputPath)
         let inputs = try primerSchemeInputs(msaPaths)
         let options = try makeOptions(argv: argv)
         var checksums: [URL: String] = [:]

@@ -20,6 +20,21 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         return (URL(fileURLWithPath: String(value[..<separator])), index)
     }
 
+    /// Refuses an `--output` that exists, before the leaf reads an input or makes a folder, and never replaces it. A replay
+    /// of a recorded command names the bundle the app already wrote, so the text names the bundle and the option to change,
+    /// and the leaf exits 3 (Phase 2.12 lane 12.17, ruling R-B1). UX's sentence goes on to suggest `--project`, which no
+    /// `primers design` leaf has, so the text stops after its first clause until UX rules.
+    static func refuseExistingOutput(
+        _ outputPath: String,
+        standardError: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
+    ) throws {
+        let output = URL(fileURLWithPath: outputPath)
+        // attributesOfItem reads a link itself, so a link at the destination counts as existing even when it dangles.
+        guard (try? FileManager.default.attributesOfItem(atPath: output.path)) != nil else { return }
+        standardError("Output already exists: \(output.path). Give --output a new path.")
+        throw CLIExitCode.inputError.exitCode
+    }
+
     /// Creates the missing parent of `--output`, as the dialog does before its row begins, so a copied command reruns in
     /// a project whose `Analyses` folder is gone (Phase 2.12 lane 12.17, A67-ANALYSES). Each of the four leaves calls it
     /// after its arguments pass and before it builds the request.
@@ -132,6 +147,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         func executeForTesting(argv: [String]) async throws -> URL { try await execute(argv: argv) }
 
         private func execute(argv: [String]) async throws -> URL {
+            try PrimerDesignCommand.refuseExistingOutput(outputPath)
             let policy: Primer3BindingSitePolicy
             switch bindingSitePolicy {
             case "template-only": policy = .templateOnly
@@ -360,6 +376,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             }
         }
         private func execute(argv: [String]) async throws -> URL {
+            try PrimerDesignCommand.refuseExistingOutput(outputPath)
             let inputs = try validatedInputURLs(paths: msaPaths)
             let resolved = try makeOptions()
             let options = resolved.options
