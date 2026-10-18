@@ -10,7 +10,9 @@
 // - Through `CLISIGTERMHarness`, the command exits 125 inside `CLIProcessLauncher.operationGrace` after
 //   SIGTERM, records its run as cancelled, publishes no file and leaves no process of its tree.
 // - Through the app's route on the real transport, a cancel of the row's task stops the command inside
-//   the grace, ends in `CancellationError` and leaves no scratch folder and no process.
+//   the grace, ends in `CancellationError` and leaves no scratch folder and no process. A share row does
+//   the same for its folder in `.lungfish/.tmp/shares`, since a share keeps that folder only after the
+//   copy returns.
 //
 // The class launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the
 // integration tier. It needs no real tool.
@@ -29,6 +31,12 @@ import LungfishWorkflow
 final class TaxonomyExtractionClipboardSIGTERMReplayTests: XCTestCase {
     /// How many times the extraction cancels in one busy window, since one run proves little.
     private static let repetitions = 3
+
+    /// Where the extraction goes. A share's folder sits in the project's `.lungfish/.tmp/shares`.
+    private enum RouteDestination {
+        case clipboard
+        case share
+    }
 
     private var scratch: URL!
 
@@ -71,13 +79,25 @@ final class TaxonomyExtractionClipboardSIGTERMReplayTests: XCTestCase {
     }
 
     func testCancellingTheClipboardRouteLeavesNoScratchFolderWithEveryCoreBusy() async throws {
+        try await assertCancellingTheRouteLeavesNoScratchFolder(.clipboard)
+    }
+
+    /// A share keeps its folder only after `deliver()` returns (`ClassifierExtractionCopyRoute.run`), so a
+    /// cancel before it removes the share folder as it removes the clipboard's (SWIFT 3).
+    func testCancellingTheShareRouteLeavesNoShareFolderWithEveryCoreBusy() async throws {
+        try await assertCancellingTheRouteLeavesNoScratchFolder(.share)
+    }
+
+    /// Cancels the route's task three times under busy cores. Each time it ends in `CancellationError`
+    /// inside the grace and leaves neither the route's folder nor the stand-in seqkit.
+    private func assertCancellingTheRouteLeavesNoScratchFolder(_ destination: RouteDestination) async throws {
         guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
             throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
         }
         let load = try await Self.busyCores()
         defer { load.stop() }
         for repetition in 1...Self.repetitions {
-            let (route, root) = try makeRoute(repetition)
+            let (route, root) = try makeRoute(repetition, destination)
             let environment = Self.environment(root)
             let task = Task.detached {
                 try await route.run(operationID: UUID(), cliURLOverride: cli, environmentAdditions: environment)
@@ -93,12 +113,15 @@ final class TaxonomyExtractionClipboardSIGTERMReplayTests: XCTestCase {
             let elapsed = ContinuousClock.now - cancelledAt
             switch result {
             case .success(let outcome):
-                XCTFail("run \(repetition): the cancelled route delivered \(outcome)")
+                XCTFail("run \(repetition): the cancelled \(destination) route delivered \(outcome)")
             case .failure(let error):
                 XCTAssertTrue(error is CancellationError, "run \(repetition): \(error)")
             }
             XCTAssertLessThanOrEqual(elapsed, CLISIGTERMHarness.operationGrace, "run \(repetition): the command stops inside the grace")
-            XCTAssertFalse(FileManager.default.fileExists(atPath: route.scratchDirectory.path), "run \(repetition): the route leaves no scratch folder")
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: route.scratchDirectory.path),
+                "run \(repetition): the \(destination) route leaves no scratch folder"
+            )
             if let seqkit {
                 await CLISIGTERMHarness.assertNoProcessLeft([seqkit])
             }
@@ -107,8 +130,8 @@ final class TaxonomyExtractionClipboardSIGTERMReplayTests: XCTestCase {
 
     // MARK: - Fixture
 
-    /// The clipboard route the sheet makes for taxon 20 of a new single-end fixture, with its stand-in seqkit.
-    private func makeRoute(_ repetition: Int) throws -> (ClassifierExtractionCopyRoute, URL) {
+    /// The route the sheet makes for taxon 20 of a new single-end fixture, with its stand-in seqkit.
+    private func makeRoute(_ repetition: Int, _ destination: RouteDestination = .clipboard) throws -> (ClassifierExtractionCopyRoute, URL) {
         let root = scratch.appendingPathComponent("run-\(repetition)", isDirectory: true)
         let fixtures = try TaxaCollectionFixtures(in: root)
         try Self.writeStandInSeqkit(in: root)
@@ -118,12 +141,25 @@ final class TaxonomyExtractionClipboardSIGTERMReplayTests: XCTestCase {
             selections: [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: [TaxaCollectionFixtures.speciesB])],
             suggestedName: "my-extract"
         )
+        let resolved = try Self.resolve(destination, in: fixtures)
         let route = try XCTUnwrap(try ClassifierExtractionCopyRoute.make(
-            destination: .clipboard(format: .fastq, cap: TaxonomyReadExtractionAction.clipboardReadCap),
+            destination: resolved,
             context: context,
             options: ExtractionOptions(format: .fastq)
         ))
         return (route, root)
+    }
+
+    /// The destination the sheet resolves. A share's root is the project's `.lungfish/.tmp`, made first.
+    private static func resolve(_ destination: RouteDestination, in fixtures: TaxaCollectionFixtures) throws -> ExtractionDestination {
+        switch destination {
+        case .clipboard:
+            return .clipboard(format: .fastq, cap: TaxonomyReadExtractionAction.clipboardReadCap)
+        case .share:
+            let shareRoot = fixtures.projectURL.appendingPathComponent(".lungfish/.tmp", isDirectory: true)
+            try FileManager.default.createDirectory(at: shareRoot, withIntermediateDirectories: true)
+            return .share(tempDirectory: shareRoot)
+        }
     }
 
     /// One busy thread for every core, all spinning.
