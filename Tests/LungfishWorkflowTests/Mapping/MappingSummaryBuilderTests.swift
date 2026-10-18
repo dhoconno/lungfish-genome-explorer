@@ -465,6 +465,75 @@ final class MappingSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.meanIdentity, 0.9, accuracy: 0.0001)
     }
 
+    // MARK: - References without alignments (BIO ruling Q-S3)
+
+    /// Three references as `samtools coverage` reports them. One has primary
+    /// reads, one has only a supplementary record, which coverage does not
+    /// count, and one has no record at all.
+    private static let threeReferenceCoverage = """
+    #rname\tstartpos\tendpos\tnumreads\tcovbases\tcoverage\tmeandepth\tmeanbaseq\tmeanmapq
+    primary-ref\t1\t1000\t2\t100\t10.0\t0.1\t30.0\t60.0
+    supplementary-only-ref\t1\t500\t0\t0\t0.0\t0.0\t0.0\t0.0
+    unaligned-ref\t1\t300\t0\t0\t0.0\t0.0\t0.0\t0.0
+    """
+
+    /// The `samtools view` records of those three references.
+    private static let threeReferenceView = """
+    read1\t0\tprimary-ref\t1\t60\t50M\t*\t0\t0\tACGT\t*\tNM:i:0
+    read2\t0\tprimary-ref\t100\t60\t50M\t*\t0\t0\tACGT\t*\tNM:i:1
+    read3\t2048\tsupplementary-only-ref\t10\t40\t40M\t*\t0\t0\tACGT\t*\tNM:i:2
+    """
+
+    /// Every row of the three references, as the builder made them before a
+    /// result could leave a reference out.
+    private static let threeReferenceRows = [
+        MappingContigSummary(
+            contigName: "primary-ref", contigLength: 1000, mappedReads: 2, mappedReadPercent: 50,
+            meanDepth: 0.1, coverageBreadth: 0.1, medianMAPQ: 60, meanIdentity: 0.99
+        ),
+        MappingContigSummary(
+            contigName: "supplementary-only-ref", contigLength: 500, mappedReads: 0, mappedReadPercent: 0,
+            meanDepth: 0, coverageBreadth: 0, medianMAPQ: 40, meanIdentity: 0.95
+        ),
+        MappingContigSummary(
+            contigName: "unaligned-ref", contigLength: 300, mappedReads: 0, mappedReadPercent: 0,
+            meanDepth: 0, coverageBreadth: 0, medianMAPQ: 0, meanIdentity: 0
+        ),
+    ]
+
+    /// The builder's default keeps every reference row, so callers other than
+    /// the mapping pipeline and the viewport see exactly the rows they saw before.
+    func testDefaultFlagReturnsEveryRowAsBefore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-parity-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let coverageURL = root.appendingPathComponent("coverage.tsv")
+        let viewURL = root.appendingPathComponent("view.sam")
+        try Self.threeReferenceCoverage.write(to: coverageURL, atomically: true, encoding: .utf8)
+        try Self.threeReferenceView.write(to: viewURL, atomically: true, encoding: .utf8)
+        let samtools = bin.appendingPathComponent("samtools")
+        try """
+        #!/bin/bash
+        if [[ "$1" == "coverage" ]]; then cat "\(coverageURL.path)"; exit 0; fi
+        if [[ "$1" == "view" ]]; then cat "\(viewURL.path)"; exit 0; fi
+        exit 1
+        """.write(to: samtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtools.path)
+        let bam = root.appendingPathComponent("input.bam")
+        try Data().write(to: bam)
+
+        let summaries = try await MappingSummaryBuilder.build(
+            sortedBAMURL: bam,
+            totalReads: 4,
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview),
+            timeout: 300
+        )
+
+        XCTAssertEqual(summaries, Self.threeReferenceRows)
+    }
+
     // MARK: - F36: concurrent stdout/stderr draining
 
     /// Regression test for F36: the samtools-view process runner used to read stdout
