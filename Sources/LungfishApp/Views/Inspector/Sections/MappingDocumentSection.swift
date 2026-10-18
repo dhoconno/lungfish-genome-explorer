@@ -18,12 +18,28 @@ struct MappingDocumentArtifactRow: Equatable {
     let fileURL: URL?
 }
 
+/// One command of a mapping run, as a Run Settings step row shows and
+/// copies it.
+struct MappingDocumentStep: Equatable {
+    /// The invocation's label, such as "minimap2" or "samtools sort".
+    let label: String
+    /// The whole shell-escaped command, `MappingCommandInvocation.commandLine`.
+    let command: String
+    /// The Mapper Version row's value for the mapper, the Samtools Version
+    /// row's value for a samtools command, and nil for any other tool.
+    let version: String?
+    /// The Recorded row's text.
+    let recorded: String
+}
+
 struct MappingDocumentState: Equatable {
     let title: String
     let subtitle: String?
     let summary: String?
     let sourceData: [MappingDocumentSourceRow]
     let contextRows: [(String, String)]
+    /// The run's commands in invocation order, drawn after the context rows.
+    var steps: [MappingDocumentStep] = []
     let artifactRows: [MappingDocumentArtifactRow]
 
     var visibleSectionOrder: [MappingDocumentSectionKind] {
@@ -36,6 +52,7 @@ struct MappingDocumentState: Equatable {
             lhs.summary == rhs.summary &&
             lhs.sourceData == rhs.sourceData &&
             lhs.contextRows.elementsEqual(rhs.contextRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
+            lhs.steps == rhs.steps &&
             lhs.artifactRows == rhs.artifactRows
     }
 }
@@ -47,27 +64,36 @@ struct MappingDocumentSection: View {
     @State private var isContextExpanded = true
     @State private var isArtifactsExpanded = true
     @State private var isAlignmentTracksExpanded = true
+    /// The Run Settings steps the user expanded, by row index. View state
+    /// only, never saved, and cleared for each result, so every step of a
+    /// newly shown result starts collapsed.
+    @State private var expandedSteps: Set<Int> = []
 
     var body: some View {
-        if let mapping = viewModel.mappingDocument {
-            VStack(alignment: .leading, spacing: 16) {
-                header(mapping)
+        Group {
+            if let mapping = viewModel.mappingDocument {
+                VStack(alignment: .leading, spacing: 16) {
+                    header(mapping)
 
-                sourceDataSection(mapping.sourceData)
+                    sourceDataSection(mapping.sourceData)
 
-                Divider()
-
-                mappingContextSection(mapping.contextRows)
-
-                if !viewModel.alignmentTrackRows.isEmpty {
                     Divider()
-                    AlignmentTrackInventorySection(viewModel: viewModel, isExpanded: $isAlignmentTracksExpanded)
+
+                    mappingContextSection(mapping)
+
+                    if !viewModel.alignmentTrackRows.isEmpty {
+                        Divider()
+                        AlignmentTrackInventorySection(viewModel: viewModel, isExpanded: $isAlignmentTracksExpanded)
+                    }
+
+                    Divider()
+
+                    sourceArtifactsSection(mapping.artifactRows)
                 }
-
-                Divider()
-
-                sourceArtifactsSection(mapping.artifactRows)
             }
+        }
+        .onChange(of: viewModel.mappingDocument) {
+            expandedSteps = []
         }
     }
 
@@ -160,20 +186,40 @@ struct MappingDocumentSection: View {
         return "mapping-source-data-\(slug)"
     }
 
-    private func mappingContextSection(_ rows: [(String, String)]) -> some View {
+    private func mappingContextSection(_ mapping: MappingDocumentState) -> some View {
         DisclosureGroup("Run Settings", isExpanded: $isContextExpanded) {
-            if rows.isEmpty {
+            if mapping.contextRows.isEmpty && mapping.steps.isEmpty {
                 emptyMessage("No mapping provenance details are available for this analysis.")
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    ForEach(Array(mapping.contextRows.enumerated()), id: \.offset) { _, row in
                         contextRow(label: row.0, value: row.1)
+                    }
+                    ForEach(Array(mapping.steps.enumerated()), id: \.offset) { index, step in
+                        MappingDocumentStepRow(
+                            step: step,
+                            number: index + 1,
+                            isExpanded: stepExpansion(index)
+                        )
                     }
                 }
                 .padding(.top, 4)
             }
         }
         .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+    }
+
+    private func stepExpansion(_ index: Int) -> Binding<Bool> {
+        Binding(
+            get: { expandedSteps.contains(index) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedSteps.insert(index)
+                } else {
+                    expandedSteps.remove(index)
+                }
+            }
+        )
     }
 
     private func sourceArtifactsSection(_ rows: [MappingDocumentArtifactRow]) -> some View {
@@ -232,19 +278,21 @@ struct MappingDocumentSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// A selectable label and value. The value shows whole, since selecting
+    /// truncated text draws the whole string over the rows below.
     private func contextRow(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: MappingDocumentStepRow.columnSpacing) {
             Text(label)
                 .font(LungfishInspectorStyle.controlFont)
                 .foregroundStyle(.secondary)
-                .frame(width: 92, alignment: .trailing)
+                .frame(width: MappingDocumentStepRow.labelWidth, alignment: .trailing)
                 .lineLimit(2)
 
             Text(value)
                 .font(LungfishInspectorStyle.controlFont)
                 .textSelection(.enabled)
-                .lineLimit(3)
-                .truncationMode(.middle)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(value)
         }

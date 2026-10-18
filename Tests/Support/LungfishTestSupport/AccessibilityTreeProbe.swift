@@ -104,6 +104,15 @@ public enum AccessibilityTreeProbe {
         (element as AnyObject).accessibilityHelp?() ?? nil
     }
 
+    /// The element's frame as an AX client reads it, in screen coordinates
+    /// whose y axis grows upward, so a row below another has a smaller y.
+    public static func frame(_ element: NSObject) -> NSRect {
+        if let frame = (element as AnyObject).accessibilityFrame?() { return frame }
+        let position = (element.accessibilityAttributeValue(.position) as? NSValue)?.pointValue ?? .zero
+        let size = (element.accessibilityAttributeValue(.size) as? NSValue)?.sizeValue ?? .zero
+        return NSRect(origin: position, size: size)
+    }
+
     /// The custom actions the element offers, which is how a SwiftUI
     /// `.accessibilityAction(named:)` reaches an AX client.
     public static func customActions(_ element: NSObject) -> [NSAccessibilityCustomAction] {

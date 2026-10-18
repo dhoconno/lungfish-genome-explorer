@@ -112,7 +112,7 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Extra arguments" && $0.1 == "--eqx" }))
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Mapper Version" && $0.1 == "2.0.0" }))
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Samtools Version" && $0.1 == "1.21" }))
-        XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "samtools index" }))
+        XCTAssertTrue(state.steps.contains(where: { $0.label == "samtools index" }))
         XCTAssertEqual(state.artifactRows.map(\.label), [
             "Sorted BAM",
             "BAM Index",
@@ -121,6 +121,99 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
             "Legacy Alignment Result",
             "Mapping Provenance"
         ])
+    }
+
+    /// Each invocation becomes a Run Settings step in invocation order, with
+    /// the version the Mapper Version or Samtools Version row shows for its
+    /// tool, and no longer appears among the context rows.
+    func testStepsComeFromTheInvocationsWithTheirRunVersions() throws {
+        let (provenance, state) = stepFixture()
+
+        XCTAssertEqual(state.steps.map(\.label), [
+            "minimap2", "samtools view", "samtools sort", "samtools index", "samtools flagstat",
+        ])
+        XCTAssertEqual(state.steps.map(\.command), provenance.commandInvocations.map(\.commandLine))
+        XCTAssertEqual(state.steps.map(\.version), ["2.31", "1.24", "1.24", "1.24", "1.24"])
+        let readsPath = try XCTUnwrap(provenance.commandInvocations.first?.argv.last)
+        XCTAssertTrue(readsPath.contains(" "), "the project folder name has a space")
+        XCTAssertTrue(
+            state.steps[0].command.contains("'\(readsPath)'"),
+            "a path in the spaced project folder stays one quoted word"
+        )
+
+        let invocationLabels = Set(provenance.commandInvocations.map(\.label))
+        XCTAssertFalse(state.contextRows.contains { invocationLabels.contains($0.0) })
+        let recorded = try XCTUnwrap(state.contextRows.first { $0.0 == "Recorded" }?.1, "Recorded stays a context row")
+        XCTAssertEqual(state.contextRows.last?.0, "Recorded")
+        XCTAssertEqual(state.steps.map(\.recorded), Array(repeating: recorded, count: 5))
+    }
+
+    /// A samtools reached by its full path keeps the Samtools Version, and
+    /// any other program has no run version to show.
+    func testStepVersionIsLeftOutForAToolWithoutARunVersion() {
+        let (_, state) = stepFixture(extraInvocations: [
+            MappingCommandInvocation(label: "samtools idxstats", argv: ["/opt/envs/samtools/bin/samtools", "idxstats", "a.bam"]),
+            MappingCommandInvocation(label: "portable-bam-header", argv: ["lungfish-cli", "portable-bam-header", "a.bam"]),
+        ])
+
+        XCTAssertEqual(state.steps.suffix(2).map(\.version), ["1.24", nil])
+    }
+
+    private func stepFixture(
+        extraInvocations: [MappingCommandInvocation] = []
+    ) -> (MappingProvenance, MappingDocumentState) {
+        let projectURL = tempRoot.appendingPathComponent("HG002 chr20.lungfish", isDirectory: true)
+        let outputDirectory = projectURL.appendingPathComponent("Analyses/minimap2-run", isDirectory: true)
+        let reads = projectURL.appendingPathComponent("Imports/reads.lungfishfastq/reads.fastq.gz")
+        let reference = projectURL.appendingPathComponent("References/reference.fa")
+        let rawSAM = outputDirectory.appendingPathComponent("reads.raw.sam")
+        let filteredBAM = outputDirectory.appendingPathComponent("reads.filtered.bam")
+        let sortedBAM = outputDirectory.appendingPathComponent("reads.sorted.bam")
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.minimap2MapONT.id,
+            inputFASTQURLs: [reads],
+            referenceFASTAURL: reference,
+            sourceReferenceBundleURL: projectURL.appendingPathComponent("References/ref.lungfishref", isDirectory: true),
+            projectURL: projectURL,
+            outputDirectory: outputDirectory,
+            sampleName: "reads",
+            pairedEnd: false,
+            threads: 4,
+            includeSecondary: false,
+            includeSupplementary: false,
+            minimumMappingQuality: 0,
+            advancedArguments: []
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            sourceReferenceBundleURL: request.sourceReferenceBundleURL,
+            viewerBundleURL: nil,
+            bamURL: sortedBAM,
+            baiURL: outputDirectory.appendingPathComponent("reads.sorted.bam.bai"),
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1,
+            contigs: []
+        )
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: MappingCommandInvocation(label: "minimap2", argv: [
+                "minimap2", "-a", "-x", "sr", "-o", rawSAM.path, reference.path, reads.path,
+            ]),
+            normalizationInvocations: [
+                MappingCommandInvocation(label: "samtools view", argv: ["samtools", "view", "-b", "-o", filteredBAM.path, rawSAM.path]),
+                MappingCommandInvocation(label: "samtools sort", argv: ["samtools", "sort", "-o", sortedBAM.path, filteredBAM.path]),
+                MappingCommandInvocation(label: "samtools index", argv: ["samtools", "index", sortedBAM.path]),
+                MappingCommandInvocation(label: "samtools flagstat", argv: ["samtools", "flagstat", sortedBAM.path]),
+            ] + extraInvocations,
+            mapperVersion: "2.31",
+            samtoolsVersion: "1.24"
+        )
+        return (provenance, MappingDocumentStateBuilder.build(result: result, provenance: provenance, projectURL: projectURL))
     }
 
     /// An interleaved `.lungfishfastq` reaches minimap2 as ONE file, so the

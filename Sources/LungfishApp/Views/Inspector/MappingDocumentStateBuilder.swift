@@ -81,6 +81,7 @@ enum MappingDocumentStateBuilder {
                 result: result,
                 provenance: provenance
             ),
+            steps: steps(provenance: provenance),
             artifactRows: artifactRows(
                 result: result,
                 outputDirectory: outputDirectory
@@ -190,11 +191,38 @@ enum MappingDocumentStateBuilder {
         rows.append(("Samtools Version", provenance.samtoolsVersion))
         rows.append(("Recorded", Self.recordedString(provenance.recordedAt)))
 
-        rows.append(contentsOf: provenance.commandInvocations.map { invocation in
-            (invocation.label, invocation.commandLine)
-        })
-
         return rows
+    }
+
+    /// The run's commands as Run Settings step rows, in invocation order,
+    /// each with the Recorded row's text.
+    private static func steps(provenance: MappingProvenance?) -> [MappingDocumentStep] {
+        guard let provenance else { return [] }
+        let recorded = recordedString(provenance.recordedAt)
+        return provenance.commandInvocations.enumerated().map { index, invocation in
+            MappingDocumentStep(
+                label: invocation.label,
+                command: invocation.commandLine,
+                version: stepVersion(of: invocation, at: index, in: provenance),
+                recorded: recorded
+            )
+        }
+    }
+
+    /// The run-level version the Run Settings rows show for a step's tool.
+    /// The mapper is always the first invocation and takes the Mapper
+    /// Version, a command whose program is samtools takes the Samtools
+    /// Version, and any other tool has none.
+    private static func stepVersion(
+        of invocation: MappingCommandInvocation,
+        at index: Int,
+        in provenance: MappingProvenance
+    ) -> String? {
+        if index == 0 { return provenance.mapperVersion }
+        guard let program = invocation.argv.first,
+              (program as NSString).lastPathComponent == "samtools"
+        else { return nil }
+        return provenance.samtoolsVersion
     }
 
     private static func artifactRows(
