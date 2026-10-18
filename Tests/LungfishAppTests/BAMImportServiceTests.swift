@@ -490,7 +490,12 @@ final class BAMImportServiceTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("metadataDB.setFileInfo(\"import_provenance_path\""))
-        XCTAssertTrue(source.contains("ProvenanceWriter(signingProvider: nil).write("))
+        // The record writer lives in the extension since lane 12.06 of Phase 2.12 split the file.
+        let recordSource = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishWorkflow/Mapping/BAMImportService+Provenance.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(recordSource.contains("ProvenanceWriter(signingProvider: nil).write("))
 
         let provenanceRange = try XCTUnwrap(source.range(of: "try writeImportProvenance("))
         let manifestRange = try XCTUnwrap(source.range(of: "try updatedManifest.save(to: bundleURL)"))

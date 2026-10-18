@@ -385,7 +385,7 @@ public final class BAMImportService: @unchecked Sendable {
         let cloneCompletedAt: Date?
     }
 
-    private struct TimedNativeToolResult {
+    struct TimedNativeToolResult {
         let result: NativeToolResult
         let startedAt: Date
         let completedAt: Date
