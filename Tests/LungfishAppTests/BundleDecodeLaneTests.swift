@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import Synchronization
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
@@ -102,5 +103,81 @@ final class BundleDecodeLaneTests: XCTestCase {
         XCTAssertEqual(BundleDecodeLane.waitingCount, 0)
         gate.release()
         await largeOpen?.value
+    }
+
+    /// A mapping open and a reference open share the one lane. The saved
+    /// result counts as a large file, so its decode holds the lane and a
+    /// reference opened over it waits. That open cancels the mapping's, so the
+    /// mapping's viewer bundle is refused at the lane and never decodes.
+    func testMappingAndReferenceOpensShareTheLane() async throws {
+        let root = try TestTempDirectory.make(prefix: "BundleDecodeLaneMixed")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleR = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle R", chromosomes: [.init(name: "chrR1", length: 100)], in: root
+        )
+        let bundleV = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle V", chromosomes: [.init(name: "chrV1", length: 100)], in: root
+        )
+        let resultM = root.appendingPathComponent("mapping-result", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultM, withIntermediateDirectories: true)
+        try MappingRoutingFixture.makeMappingResult(
+            resultDirectory: resultM, viewerBundleURL: bundleV
+        ).save(to: resultM)
+        // Every file counts as large, so each decode waits for the lane.
+        BundleDecodeLane.overrideLargeFileBytes(0)
+        let gate = BundleDecodeGate()
+        defer { gate.release() }
+        let decodes = MixedOpenDecodeLog()
+        decodes.install(holdingResultOf: resultM, on: gate)
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayMappingAnalysisFromSidebar(at: resultM)
+        let mappingOpen = split.bundleOpenTask
+        let resultHeld = await waitUntil(timeout: .seconds(30)) { decodes.count(.mappingResult) == 1 }
+        XCTAssertTrue(resultHeld, "the mapping result never began its decode")
+        split.displayReferenceBundleViewportFromSidebar(at: bundleR)
+        let queued = await waitUntil(timeout: .seconds(30)) { BundleDecodeLane.waitingCount == 1 }
+        XCTAssertTrue(queued, "the reference open did not wait for the running result decode")
+        XCTAssertEqual(decodes.count(.bundleManifest), 0, "a manifest decode ran beside the held result decode")
+
+        gate.release()
+        await mappingOpen?.value
+        let opened = await waitUntil(timeout: .seconds(30)) {
+            split.viewerController.referenceBundleViewportController?.testDisplayedSequenceNames == ["chrR1"]
+        }
+        XCTAssertTrue(opened, "the reference never showed its rows")
+        let drained = await waitUntil(timeout: .seconds(30)) { BundleDecodeLane.waitingCount == 0 }
+        XCTAssertTrue(drained, "a decode still waits for the lane")
+        // The held result decode ran to its end and its open dropped the result.
+        // The reference's open cancelled that open, so its viewer bundle never decoded.
+        XCTAssertEqual(decodes.paths(.mappingResult), [resultM.standardizedFileURL.path])
+        XCTAssertEqual(decodes.paths(.bundleManifest), [bundleR.standardizedFileURL.path])
+    }
+
+    /// Records each decode that `BundleLoadProbe` reports. Once the saved
+    /// result of one mapping folder is recorded, its decode waits on `gate`.
+    private final class MixedOpenDecodeLog: Sendable {
+        private let entries = Mutex<[(kind: BundleLoadProbe.Kind, path: String)]>([])
+
+        func install(holdingResultOf held: URL, on gate: BundleDecodeGate) {
+            let heldPath = held.standardizedFileURL.path
+            BundleLoadProbe.install { [self] kind, url in
+                let path = url.standardizedFileURL.path
+                entries.withLock { $0.append((kind, path)) }
+                if kind == .mappingResult, path == heldPath {
+                    gate.waitForRelease()
+                }
+            }
+        }
+
+        func count(_ kind: BundleLoadProbe.Kind) -> Int {
+            entries.withLock { $0.filter { $0.kind == kind }.count }
+        }
+
+        /// The bundle or result folders decoded as `kind`, in the order the decodes began.
+        func paths(_ kind: BundleLoadProbe.Kind) -> [String] {
+            entries.withLock { $0.filter { $0.kind == kind }.map(\.path) }
+        }
     }
 }
