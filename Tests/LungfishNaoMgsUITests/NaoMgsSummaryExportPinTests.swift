@@ -74,18 +74,16 @@ final class NaoMgsSummaryExportPinTests: XCTestCase {
         let resolved = envelope.options.resolvedDefaults
         XCTAssertEqual(resolved.keys.sorted(), [
             "columnFilterComposition", "columnFilters", "metadataColumns", "rowCount", "sampleName",
-            "selectedSamples", "sortDescriptors", "sourceSampleCount",
+            "selectedSamples", "sortKeys", "sourceSampleCount",
         ])
         XCTAssertEqual(resolved["rowCount"]?.integerValue, 2)
         XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), ["sample-A", "sample-B"])
         XCTAssertEqual(resolved["sourceSampleCount"]?.integerValue, 3)
         XCTAssertEqual(resolved["columnFilterComposition"]?.stringValue, "all")
         XCTAssertEqual(resolved["columnFilters"]?.arrayValue?.count, 1)
-        guard case .dictionary(let sort)? = resolved["sortDescriptors"]?.arrayValue?.first else {
-            return XCTFail("one sort descriptor, \(String(describing: resolved["sortDescriptors"]))")
-        }
-        XCTAssertEqual(sort["key"]?.stringValue, "hits")
-        XCTAssertEqual(sort["ascending"], .boolean(true))
+        // The record names the one sort key the table applies, in the `--sort` spelling of `nao-mgs export table`,
+        // and no AppKit descriptor, whose selector and later keys the table never applies (manager's answer to Q1).
+        XCTAssertEqual(resolved["sortKeys"]?.arrayValue?.compactMap(\.stringValue), ["hits:ascending"])
         XCTAssertEqual(resolved["metadataColumns"]?.arrayValue?.compactMap(\.stringValue), ["Cohort"])
         XCTAssertEqual(resolved["sampleName"]?.stringValue, "naomgs-pin")
         XCTAssertEqual(envelope.options.explicit.keys.sorted(), ["format", "outputPath"])

@@ -138,7 +138,8 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             ["sample-1"]
         )
         XCTAssertEqual(provenance.options.resolvedDefaults["columnFilterComposition"]?.stringValue, "all")
-        XCTAssertFalse(provenance.options.resolvedDefaults["sortDescriptors"]?.arrayValue?.isEmpty ?? true)
+        XCTAssertNotNil(provenance.options.resolvedDefaults["sortKeys"])
+        XCTAssertNil(provenance.options.resolvedDefaults["sortDescriptors"])
     }
 
     @MainActor func testConfigureResultPopulatesCachedRowsForViewportExport() throws {

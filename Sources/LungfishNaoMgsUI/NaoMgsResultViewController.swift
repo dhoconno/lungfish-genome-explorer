@@ -2774,15 +2774,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     func tableExportInvocation(outputURL: URL) -> ViewerExportInvocation? {
         guard let bundleURL else { return nil }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sortKey = taxonomyTableView.sortDescriptors.first.flatMap { descriptor in
-            descriptor.key.map { ViewerExportSortKey(column: $0, ascending: descriptor.ascending) }
-        }
         return NaoMgsSummaryExport.invocation(
             resultURL: bundleURL,
             state: ViewerTableExportState(
                 samples: selectedSamples.sorted(),
                 searchText: query.isEmpty ? nil : searchText,
-                sortKeys: sortKey.map { [$0] } ?? [],
+                sortKeys: exportSortKeys,
                 filters: columnFilterSet,
                 metadataColumns: metadataColumnController.exportHeaders
             ),
@@ -2816,7 +2813,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 "selectedSamples": .array(exportSelectedSampleIds.map { .string($0) }),
                 "columnFilterComposition": .string(columnFilterSet.composition.rawValue),
                 "columnFilters": .array(columnFilterSet.activeFilters.map(exportColumnFilterParameter)),
-                "sortDescriptors": .array(exportSortDescriptorParameters()),
+                "sortKeys": .array(exportSortKeys.map { .string($0.argument) }),
                 "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
                 "sampleName": .string(manifest?.sampleName ?? "naomgs"),
             ],
@@ -2838,14 +2835,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         max(sampleEntries.count, exportSelectedSampleIds.count)
     }
 
-    private func exportSortDescriptorParameters() -> [ParameterValue] {
-        taxonomyTableView.sortDescriptors.map { descriptor in
-            .dictionary([
-                "key": descriptor.key.map(ParameterValue.string) ?? .null,
-                "ascending": .boolean(descriptor.ascending),
-                "selector": descriptor.selector.map { .string(NSStringFromSelector($0)) } ?? .null,
-            ])
-        }
+    /// The one sort key `displayedRows` applies, the first descriptor's key and direction, which the record names in
+    /// the `--sort` spelling of `nao-mgs export table` (manager's answer to Q1 of 12.31 c6).
+    private var exportSortKeys: [ViewerExportSortKey] {
+        taxonomyTableView.sortDescriptors.first.flatMap { descriptor in
+            descriptor.key.map { [ViewerExportSortKey(column: $0, ascending: descriptor.ascending)] }
+        } ?? []
     }
 
     private func exportColumnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
