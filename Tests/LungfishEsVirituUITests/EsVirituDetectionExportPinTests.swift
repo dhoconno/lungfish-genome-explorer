@@ -53,10 +53,75 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         let expected = [
             Self.header.joined(separator: "\t"),
             "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.00\t100\t0.000000\t100\t1000\tS\t100\tcase",
-            "sample-B\tBeta \"virus\"\tNC_B\tGCF_B\tViruses\t\t\t\tTestviridae\t\tBeta \"virus\"\t\t20\t20.00\t1.00\t99.00\t100\t0.000000\t100\t1000\t\t100\tcase",
+            "sample-B\tBeta \"virus\"\tNC_B\tGCF_B\tViruses\t\t\t\tTestviridae\t\tBeta \"virus\"\t\t20\t20.00\t1.00\t99.00\t100\t0.000000\t100\t1000\t\t100\tcontrol",
         ].joined(separator: "\n") + "\n"
         XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), expected)
         try Self.assertRecord(outputURL: outputURL, format: "tsv")
+    }
+
+    /// BIO ruling on 12.31 G1. A batch of two samples, as the view sets it for two (no current sample), writes each
+    /// row's own sample values, so every line has as many fields as the header.
+    @MainActor func testBatchOfTwoSamplesWritesEachRowsOwnMetadata() throws {
+        let vc = try Self.configuredController()
+        vc.samplePickerState.selectedSamples = ["sample-A", "sample-B"]
+        vc.testDetectionTableView.metadataColumns.update(store: try Self.metadataStore(), sampleId: nil)
+        let outputURL = folder.appendingPathComponent("detections.tsv")
+        try vc.writeDelimitedDetections(result: Self.result, separator: "\t", fileExtension: "tsv", to: outputURL)
+
+        let lines = try String(contentsOf: outputURL, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[1].hasPrefix("sample-A\t") && lines[1].hasSuffix("\tcase"), lines[1])
+        XCTAssertTrue(lines[2].hasPrefix("sample-B\t") && lines[2].hasSuffix("\tcontrol"), lines[2])
+        XCTAssertEqual(lines.map { $0.split(separator: "\t", omittingEmptySubsequences: false).count }, [23, 23, 23])
+    }
+
+    /// One sample in the file keeps today's bytes.
+    @MainActor func testOneSampleBytesAreUnchanged() throws {
+        let vc = try Self.configuredController()
+        let oneSample = LungfishIO.EsVirituResult(
+            sampleId: "sample-A", detections: [Self.result.detections[0]], assemblies: [], taxProfile: [],
+            coverageWindows: [], totalFilteredReads: 1_000, detectedFamilyCount: 1, detectedSpeciesCount: 1,
+            runtime: nil, toolVersion: nil
+        )
+        let outputURL = folder.appendingPathComponent("detections.tsv")
+        try vc.writeDelimitedDetections(result: oneSample, separator: "\t", fileExtension: "tsv", to: outputURL)
+        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), [
+            Self.header.joined(separator: "\t"),
+            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.00\t100\t0.000000\t100\t1000\tS\t100\tcase",
+        ].joined(separator: "\n") + "\n")
+    }
+
+    /// The record names the metadata files whose values the payload holds, with their digests, and names neither
+    /// when no metadata column is shown (BIO 6).
+    @MainActor func testMetadataFilesAreInputsWhenAColumnIsShown() throws {
+        let resultFolder = folder.appendingPathComponent("esviritu-batch", isDirectory: true)
+        let metadataFolder = resultFolder.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataFolder, withIntermediateDirectories: true)
+        try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
+            .write(to: metadataFolder.appendingPathComponent("sample_metadata.tsv"))
+        try Data("[]".utf8).write(to: metadataFolder.appendingPathComponent("sample_metadata_edits.json"))
+        let vc = try Self.configuredController()
+        vc.batchURL = resultFolder
+
+        let shown = folder.appendingPathComponent("shown.tsv")
+        try vc.writeDelimitedDetections(result: Self.result, separator: "\t", fileExtension: "tsv", to: shown)
+        let inputs = try Self.inputs(of: shown)
+        XCTAssertEqual(inputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted(), [
+            "sample_metadata.tsv", "sample_metadata_edits.json",
+        ])
+        XCTAssertTrue(inputs.allSatisfy { $0.checksumSHA256 != nil })
+
+        vc.testDetectionTableView.metadataColumns.visibleColumns = []
+        let hidden = folder.appendingPathComponent("hidden.tsv")
+        try vc.writeDelimitedDetections(result: Self.result, separator: "\t", fileExtension: "tsv", to: hidden)
+        XCTAssertEqual(try Self.inputs(of: hidden).map(\.path), [])
+    }
+
+    private static func inputs(of outputURL: URL) throws -> [ProvenanceFileDescriptor] {
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        return envelope.files.filter { $0.role == .input }
     }
 
     @MainActor func testCSVBytesQuoteOnlyFieldsTheBuilderEscapes() throws {
@@ -67,7 +132,7 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         let expected = [
             Self.header.joined(separator: ","),
             "sample-A,\"Alpha, virus\",NC_A,GCF_A,Viruses,,,,Testviridae,,\"Alpha, virus\",,40,40.00,1.00,99.00,100,0.000000,100,1000,S,100,case",
-            "sample-B,\"Beta \"\"virus\"\"\",NC_B,GCF_B,Viruses,,,,Testviridae,,\"Beta \"\"virus\"\"\",,20,20.00,1.00,99.00,100,0.000000,100,1000,,100,case",
+            "sample-B,\"Beta \"\"virus\"\"\",NC_B,GCF_B,Viruses,,,,Testviridae,,\"Beta \"\"virus\"\"\",,20,20.00,1.00,99.00,100,0.000000,100,1000,,100,control",
         ].joined(separator: "\n") + "\n"
         XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), expected)
         try Self.assertRecord(outputURL: outputURL, format: "csv")
@@ -92,6 +157,27 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: blocked).path))
     }
 
+    /// The batch result breaks read-count ties by sample id and then by assembly accession (BIO ruling on 12.31 G1).
+    func testTiedAssembliesOrderBySampleThenAccession() {
+        func assembly(_ accession: String, sample: String, reads: Int) -> ViralAssembly {
+            ViralAssembly(
+                assembly: accession, assemblyLength: 100, name: accession, family: nil, genus: nil, species: nil,
+                totalReads: reads, rpkmf: 0, meanCoverage: 0, avgReadIdentity: 0,
+                contigs: [Self.detection(name: accession, sampleId: sample, id: accession, reads: reads, segment: nil)]
+            )
+        }
+        let unordered = [
+            assembly("GCF_2", sample: "sample-B", reads: 20),
+            assembly("GCF_9", sample: "sample-A", reads: 20),
+            assembly("GCF_1", sample: "sample-A", reads: 20),
+            assembly("GCF_5", sample: "sample-C", reads: 50),
+        ]
+        XCTAssertEqual(
+            unordered.sorted(by: EsVirituDetectionExport.assemblyPrecedes).map(\.assembly),
+            ["GCF_5", "GCF_1", "GCF_9", "GCF_2"]
+        )
+    }
+
     // MARK: - Fixture
 
     @MainActor private static func configuredController() throws -> EsVirituResultViewController {
@@ -108,13 +194,16 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
             with: ColumnFilter(columnId: "reads", op: .greaterOrEqual, value: "30")
         )
         table.columnHeaderFilterMenu(setComposition: .any)
-        let store = try SampleMetadataStore(
+        table.metadataColumns.visibleColumns = ["Group"]
+        table.metadataColumns.update(store: try metadataStore(), sampleId: "sample-A")
+        return vc
+    }
+
+    private static func metadataStore() throws -> SampleMetadataStore {
+        try SampleMetadataStore(
             csvData: Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8),
             knownSampleIds: ["sample-A", "sample-B"]
         )
-        table.metadataColumns.visibleColumns = ["Group"]
-        table.metadataColumns.update(store: store, sampleId: "sample-A")
-        return vc
     }
 
     static let result = LungfishIO.EsVirituResult(

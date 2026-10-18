@@ -831,7 +831,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                       selectedSet.contains(sampleId) else { return nil }
                 return value
             }
-            .sorted { $0.totalReads > $1.totalReads }
+            .sorted(by: EsVirituDetectionExport.assemblyPrecedes)
 
         let detections = assemblies.flatMap(\.contigs)
         let familyCount = Set(detections.compactMap(\.family)).count
@@ -1925,6 +1925,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
         if let batchURL {
             urls.append(batchURL.appendingPathComponent(EsVirituBatchAggregatedManifest.filename))
+            let writesMetadata = !detectionTableView.metadataColumns.exportHeaders.isEmpty
+            urls += EsVirituDetectionExport.metadataInputURLs(in: batchURL, writesMetadata: writesMetadata)
         }
         if let outputDirectory = esVirituConfig?.outputDirectory {
             urls.append(outputDirectory.appendingPathComponent("esviritu-result.json"))
@@ -1947,9 +1949,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         let metaHeaders = detectionTableView.metadataColumns.exportHeaders
         headers.append(contentsOf: metaHeaders)
         lines.append(headers.joined(separator: separator))
-
-        // Metadata values (constant per sample for all rows in single-sample EsViritu)
-        let metaValues = detectionTableView.metadataColumns.exportValues
 
         for detection in result.detections {
             var row = [
@@ -1976,7 +1975,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 detection.segment ?? "",
                 "\(detection.length)",
             ]
-            for value in metaValues {
+            for value in detectionTableView.metadataColumns.exportValues(for: detection.sampleId) {
                 row.append(escapeField(value, separator: separator))
             }
             lines.append(row.joined(separator: separator))
