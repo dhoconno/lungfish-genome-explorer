@@ -43,24 +43,49 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         let outputURL = URL(fileURLWithPath: output.output)
         let readingFrame = Self.readingFrame(for: frame)
         let runClock = ProvenanceRunClock()
+        // The layout is settled once, before any record is read (decision [9] part B, vote T2).
+        let numbersMates = Self.numbersMates(of: resolvedInput)
 
         FileManager.default.createFile(atPath: outputURL.path, contents: nil)
         let handle = try FileHandle(forWritingTo: outputURL)
         do {
             let reader = FASTQReader(validateSequence: false)
-            for try await record in reader.records(from: inputURL) {
+            // `mate` is the number the input record carries in its pair, or nil when it stands alone, so a
+            // read with no protein is skipped without moving the number of its mate.
+            func write(_ record: FASTQRecord, mate: Int?) throws {
                 let translated = TranslationEngine.translateFrames(
                     [readingFrame],
                     sequence: record.sequence,
                     table: codonTable
                 )
-                guard let protein = translated.first?.1, !protein.isEmpty else { continue }
+                guard let protein = translated.first?.1, !protein.isEmpty else { return }
+                let mark = mate.map { ".\($0)" } ?? ""
                 try Self.writeFASTARecord(
-                    identifier: "\(record.identifier)_frame\(readingFrame.rawValue)",
+                    identifier: "\(record.identifier)\(mark)_frame\(readingFrame.rawValue)",
                     description: "[\(codonTable.name)] [\(protein.count) aa]",
                     sequence: protein,
                     to: handle
                 )
+            }
+            var held: FASTQRecord?
+            for try await record in reader.records(from: inputURL) {
+                guard numbersMates else {
+                    try write(record, mate: nil)
+                    continue
+                }
+                if let first = held {
+                    held = nil
+                    if Self.areMates(first, record) {
+                        try write(first, mate: 1)
+                        try write(record, mate: 2)
+                        continue
+                    }
+                    try write(first, mate: nil)
+                }
+                held = record
+            }
+            if let last = held {
+                try write(last, mate: nil)
             }
             try handle.close()
         } catch {
@@ -115,6 +140,55 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         case 6: return .minus3
         default: return .plus1
         }
+    }
+
+    /// Whether the mates of this input take the marks `.1` and `.2`. The read-pairing contract's resolver
+    /// settles the layout once, from the bundle's recorded pairing and a scan of the whole file, never a
+    /// prefix of it. A mixed file recorded `single_end` and an input that records Oxford Nanopore or PacBio
+    /// reads keep their ids, since neither is paired.
+    private static func numbersMates(of input: FASTQSubcommandInput) -> Bool {
+        let hints = FASTQReadLayoutClassifier.metadataHints(for: input.originalURL)
+        if hints.pairingMode == .singleEnd, hints.hasMergedOrUnpairedReads { return false }
+        if recordsLongReads(input) { return false }
+        let resolution = FASTQInputLayoutResolver.resolve(
+            fastqURL: input.executionURL,
+            metadataFrom: input.bundleURL == nil ? nil : input.originalURL,
+            recordLimit: Int.max
+        )
+        return resolution.layout == .strictlyInterleaved || resolution.layout == .mixedMergedAndPairs
+    }
+
+    /// Whether the input, or a bundle it derives from, records a long-read platform. Such reads are never
+    /// paired, by name or by content (`docs/contracts/READ-PAIRING.md`). This follows the platform lookup of
+    /// the read set resolver, which is not public.
+    private static func recordsLongReads(_ input: FASTQSubcommandInput) -> Bool {
+        var current = (input.bundleURL ?? input.originalURL).standardizedFileURL
+        var seen: Set<String> = [current.path]
+        for _ in 0..<32 {
+            let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: current) ?? current
+            if let platform = FASTQMetadataStore.load(for: fastqURL)?.sequencingPlatform
+                ?? FASTQMetadataStore.load(for: current)?.sequencingPlatform {
+                return platform == .oxfordNanopore || platform == .pacbio
+            }
+            guard let manifest = FASTQBundle.loadDerivedManifest(in: current) else { return false }
+            let parent = FASTQBundle.resolveBundle(relativePath: manifest.parentBundleRelativePath, from: current)
+                .standardizedFileURL
+            guard seen.insert(parent.path).inserted, FASTQBundle.isBundleURL(parent),
+                  FileManager.default.fileExists(atPath: parent.path) else { return false }
+            current = parent
+        }
+        return false
+    }
+
+    /// Two adjacent records are the mates of one fragment when their identifiers are byte-equal and the
+    /// contract's pair rule reads their headers as read 1 followed by read 2.
+    private static func areMates(_ first: FASTQRecord, _ second: FASTQRecord) -> Bool {
+        first.identifier.utf8.elementsEqual(second.identifier.utf8)
+            && FASTQReadLayoutClassifier.areMates(header(of: first), header(of: second))
+    }
+
+    private static func header(of record: FASTQRecord) -> String {
+        record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
     }
 
     private static func writeFASTARecord(

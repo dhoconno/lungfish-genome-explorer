@@ -6,8 +6,9 @@
 // `>{name}_frame{label} [{code name}] [{n} aa]` in both commands, where the label is the reading frame's
 // own text from `+1` to `-3`, so `--frame 4` prints `_frame-1`. Before this file only `_frame+1` was pinned.
 // These cases pin all six frames of both commands, the bytes of four `fastq translate` inputs and what
-// `--compress` writes. They pass at the base, before any Sources edit. Milestone M2 moves two of the four
-// inputs (a loose interleaved Casava file and a bundle recorded `interleaved`) by prediction and no other byte.
+// `--compress` writes. They passed at the base, before any Sources edit. Milestone M2 moved two of the four
+// inputs (a loose interleaved Casava file and a bundle recorded `interleaved`) by prediction and no other byte,
+// and `FastqTranslateMateIdTests` holds their new bytes.
 //
 // The proteins below come from a six-frame table worked out apart from the engine (standard code, the
 // reverse frames read on the reverse complement from the last base), not from `TranslationEngine`.
@@ -212,20 +213,21 @@ enum FastqTranslateInputFixture {
         "@M00123:1:000000000-A1B2C:1:1101:15589:1331/2", mate2Reads, "+", quality2,
     ].joined(separator: "\n") + "\n"
 
-    /// What `--frame 1` writes for `casava` at the base, both mates of a fragment under one id.
-    static let casavaFrame1AtTheBase = [
-        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000_frame+1 [Standard] [6 aa]", "MASKGE",
-        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000_frame+1 [Standard] [5 aa]", "MKPGF",
-        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000_frame+1 [Standard] [6 aa]", "MASKGE",
-        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000_frame+1 [Standard] [5 aa]", "MKPGF",
+    /// What `--frame 1` writes for `casava`. M1 pinned both mates of a fragment under one id, and M2 gives
+    /// them `.1` and `.2` right after the id (decision [9] part B).
+    static let casavaFrame1 = [
+        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000.1_frame+1 [Standard] [6 aa]", "MASKGE",
+        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000.2_frame+1 [Standard] [5 aa]", "MKPGF",
+        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000.1_frame+1 [Standard] [6 aa]", "MASKGE",
+        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000.2_frame+1 [Standard] [5 aa]", "MKPGF",
     ].joined(separator: "\n") + "\n"
 
-    /// What `--frame 4` writes for `casava` at the base. The header says `-1`.
-    static let casavaFrame4AtTheBase = [
-        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000_frame-1 [Standard] [6 aa]", "FSFASH",
-        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000_frame-1 [Standard] [5 aa]", "KPGFH",
-        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000_frame-1 [Standard] [6 aa]", "FSFASH",
-        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000_frame-1 [Standard] [5 aa]", "KPGFH",
+    /// What `--frame 4` writes for `casava`. The header says `-1` and the marks stay before `_frame`.
+    static let casavaFrame4 = [
+        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000.1_frame-1 [Standard] [6 aa]", "FSFASH",
+        ">A00123:8:H7KJ2DSXX:1:1101:10004:1000.2_frame-1 [Standard] [5 aa]", "KPGFH",
+        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000.1_frame-1 [Standard] [6 aa]", "FSFASH",
+        ">A00123:8:H7KJ2DSXX:1:1101:10005:1000.2_frame-1 [Standard] [5 aa]", "KPGFH",
     ].joined(separator: "\n") + "\n"
 
     static let casavaMate1AloneFrame1 = [
@@ -239,8 +241,9 @@ enum FastqTranslateInputFixture {
     ].joined(separator: "\n") + "\n"
 }
 
-/// The bytes `fastq translate` writes for four inputs and for `--compress`. The first two inputs change in
-/// M2, since their mates share one FASTA id today. The next two keep their bytes.
+/// The bytes `fastq translate` writes for the two M1 inputs that keep them, and for `--compress`. The other two
+/// M1 inputs, a loose interleaved Casava file and a bundle recorded `interleaved`, moved in M2 and are checked
+/// in `FastqTranslateMateIdTests`.
 final class FastqTranslateInputPinTests: XCTestCase {
     private typealias Fixture = FastqTranslateInputFixture
     private var folder: URL!
@@ -257,33 +260,7 @@ final class FastqTranslateInputPinTests: XCTestCase {
         return url
     }
 
-    // MARK: Inputs whose bytes M2 moves
-
-    /// Input 1, a loose interleaved Casava file.
-    func testLooseInterleavedCasavaFileWritesBothMatesUnderOneIdAtTheBase() async throws {
-        let input = try writeFASTQ(Fixture.casava, named: "interleaved.fastq")
-        XCTAssertEqual(resolvedLayoutPin(input), .strictlyInterleaved)
-
-        let frame1 = try await runFastqTranslatePin(input, frame: 1, output: folder.appendingPathComponent("loose-1.fa"))
-        let frame4 = try await runFastqTranslatePin(input, frame: 4, output: folder.appendingPathComponent("loose-4.fa"))
-
-        XCTAssertEqual(String(decoding: frame1, as: UTF8.self), Fixture.casavaFrame1AtTheBase)
-        XCTAssertEqual(String(decoding: frame4, as: UTF8.self), Fixture.casavaFrame4AtTheBase)
-    }
-
-    /// Input 2, a bundle recorded `interleaved`, the input the FASTQ pane runs.
-    func testBundleRecordedInterleavedWritesBothMatesUnderOneIdAtTheBase() async throws {
-        let bundle = try writeFASTQBundlePin(Fixture.casava, named: "paired", in: folder, pairingMode: .interleaved)
-        XCTAssertEqual(resolvedLayoutPin(bundle), .strictlyInterleaved)
-
-        let frame1 = try await runFastqTranslatePin(bundle, frame: 1, output: folder.appendingPathComponent("bundle-1.fa"))
-        let frame4 = try await runFastqTranslatePin(bundle, frame: 4, output: folder.appendingPathComponent("bundle-4.fa"))
-
-        XCTAssertEqual(String(decoding: frame1, as: UTF8.self), Fixture.casavaFrame1AtTheBase)
-        XCTAssertEqual(String(decoding: frame4, as: UTF8.self), Fixture.casavaFrame4AtTheBase)
-    }
-
-    // MARK: Inputs that keep their bytes
+    // MARK: Inputs that keep their bytes through M2
 
     /// Input 3, a single-end file. These are the mate 1 records of the Casava fixture alone, no two ids equal.
     func testSingleEndFileKeepsItsBytes() async throws {
