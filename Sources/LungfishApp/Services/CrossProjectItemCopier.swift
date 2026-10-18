@@ -14,18 +14,17 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishOperations
 import LungfishWorkflow
 import os.log
 
 private let copierLogger = Logger(subsystem: "com.lungfish.app", category: "CrossProjectItemCopier")
 
-enum CrossProjectItemCopier {
+package enum CrossProjectItemCopier {
 
     // MARK: - Kinds
 
     /// What kind of project item is being copied. Decided from the item alone.
-    enum ItemKind: Equatable, Sendable {
+    package enum ItemKind: Equatable, Sendable {
         case fastqBundle
         case referenceBundle
         case multipleSequenceAlignmentBundle
@@ -40,14 +39,14 @@ enum CrossProjectItemCopier {
         case analysisResult(tool: String, isBatch: Bool)
 
         /// Project folder that holds saved `.lungfishflow` workflow bundles.
-        static let workflowsDirectoryName = "Workflows"
+        package static let workflowsDirectoryName = "Workflows"
         /// Directory extension of a saved workflow bundle. `kind(of:)` now finds that kind through
         /// `BundleKindRegistry`, so only `BundleKindParityTests` reads this constant.
-        static let workflowBundleExtension = "lungfishflow"
+        package static let workflowBundleExtension = "lungfishflow"
 
         /// Items that carry `analysis-metadata.json` are hidden by the sidebar
         /// anywhere except under `Analyses/`, so they must land there.
-        var mustLiveUnderAnalyses: Bool {
+        package var mustLiveUnderAnalyses: Bool {
             switch self {
             case .analysisResult, .genotypeResultBundle: return true
             default: return false
@@ -55,7 +54,7 @@ enum CrossProjectItemCopier {
         }
 
         /// Where a Finder drop of this kind lands when the source gives no hint.
-        var defaultRelativeFolder: String {
+        package var defaultRelativeFolder: String {
             switch self {
             case .fastqBundle: return "Imports"
             case .referenceBundle: return ReferenceSequenceFolder.folderName
@@ -70,7 +69,7 @@ enum CrossProjectItemCopier {
             }
         }
 
-        var displayName: String {
+        package var displayName: String {
             switch self {
             case .fastqBundle: return "read bundle"
             case .referenceBundle: return "reference bundle"
@@ -100,7 +99,7 @@ enum CrossProjectItemCopier {
     /// manifest, a 12S reference database, a run bundle and any other folder
     /// whose extension starts with `lungfish` copy as an other native bundle,
     /// as the sidebar's bundle classification made them before.
-    static func kind(of url: URL, fileManager: FileManager = .default) -> ItemKind? {
+    package static func kind(of url: URL, fileManager: FileManager = .default) -> ItemKind? {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             return nil
@@ -133,24 +132,24 @@ enum CrossProjectItemCopier {
         return nil
     }
 
-    static func isCopyableProjectItem(_ url: URL) -> Bool {
+    package static func isCopyableProjectItem(_ url: URL) -> Bool {
         kind(of: url) != nil
     }
 
     // MARK: - Outcome
 
-    struct Outcome: Sendable {
-        let sourceURL: URL
-        let destinationURL: URL
-        let kind: ItemKind
-        let record: ProjectItemCopyRecord
+    package struct Outcome: Sendable {
+        package let sourceURL: URL
+        package let destinationURL: URL
+        package let kind: ItemKind
+        package let record: ProjectItemCopyRecord
     }
 
-    enum CopyError: Error, LocalizedError {
+    package enum CopyError: Error, LocalizedError {
         case notAProjectItem(URL)
         case destinationInsideSource(URL)
 
-        var errorDescription: String? {
+        package var errorDescription: String? {
             switch self {
             case .notAProjectItem(let url):
                 return "\(url.lastPathComponent) is not a Lungfish bundle or analysis result."
@@ -170,7 +169,7 @@ enum CrossProjectItemCopier {
     ///   project-relative parent folder, so `Analyses/Reviewed/` stays grouped
     ///   and `Reference Sequences/` stays where references go.
     /// - A Finder drop from outside any project uses the kind's convention.
-    static func destinationFolder(
+    package static func destinationFolder(
         for kind: ItemKind,
         sourceURL: URL,
         sourceProjectURL: URL?,
@@ -212,7 +211,7 @@ enum CrossProjectItemCopier {
     }
 
     /// `name.ext`, then `name-2.ext`, `name-3.ext`, ... until free.
-    static func uniqueDestinationURL(for sourceURL: URL, in folder: URL, fileManager: FileManager = .default) -> URL {
+    package static func uniqueDestinationURL(for sourceURL: URL, in folder: URL, fileManager: FileManager = .default) -> URL {
         let ext = sourceURL.pathExtension
         let base = ext.isEmpty ? sourceURL.lastPathComponent : sourceURL.deletingPathExtension().lastPathComponent
         var counter = 1
@@ -230,7 +229,7 @@ enum CrossProjectItemCopier {
 
     /// Copies one item into the target project and returns where it landed
     /// together with its missing-source record.
-    static func copy(
+    package static func copy(
         itemAt sourceURL: URL,
         intoProject targetProjectURL: URL,
         requestedFolder: URL? = nil,
