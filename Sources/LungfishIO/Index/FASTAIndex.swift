@@ -44,8 +44,8 @@ public struct FASTAIndex: Sendable {
         }
     }
 
-    /// Entries indexed by sequence name
-    private let entriesByName: [String: Entry]
+    /// Position in `orderedEntries` of each sequence name. A name listed twice maps to its last entry.
+    private let positionByName: [String: Int]
 
     /// Ordered list of entries
     private let orderedEntries: [Entry]
@@ -69,53 +69,116 @@ public struct FASTAIndex: Sendable {
             throw FASTAError.indexNotFound(url)
         }
 
-        let content = try String(contentsOf: url, encoding: .utf8)
-        var entries: [Entry] = []
-        var byName: [String: Entry] = [:]
+        // Reading the text as a string keeps the errors of a file that is not UTF-8. The lines are
+        // then parsed from its UTF-8 bytes rather than split into grapheme clusters, which for an
+        // index of 905,628 sequences took most of the parse.
+        var content = try String(contentsOf: url, encoding: .utf8)
+        content.makeContiguousUTF8()
+        let entries = try content.utf8.withContiguousStorageIfAvailable(Self.parseEntries)
+            ?? Array(content.utf8).withUnsafeBufferPointer(Self.parseEntries)
 
-        for (lineNum, line) in content.split(separator: "\n").enumerated() {
-            let parts = line.split(separator: "\t")
-            guard parts.count >= 5 else {
-                throw FASTAError.invalidIndex("Line \(lineNum + 1): expected 5 tab-separated fields")
-            }
-
-            guard let length = Int(parts[1]),
-                  let offset = Int(parts[2]),
-                  let lineBases = Int(parts[3]),
-                  let lineWidth = Int(parts[4]) else {
-                throw FASTAError.invalidIndex("Line \(lineNum + 1): invalid numeric values")
-            }
-
-            let entry = Entry(
-                name: String(parts[0]),
-                length: length,
-                offset: offset,
-                lineBases: lineBases,
-                lineWidth: lineWidth
-            )
-
-            entries.append(entry)
-            byName[entry.name] = entry
+        var positionByName: [String: Int] = [:]
+        positionByName.reserveCapacity(entries.count)
+        for (position, entry) in entries.enumerated() {
+            positionByName[entry.name] = position
         }
 
         self.orderedEntries = entries
-        self.entriesByName = byName
+        self.positionByName = positionByName
     }
 
     /// Creates an index from a list of entries.
     public init(entries: [Entry]) {
         self.orderedEntries = entries
-        self.entriesByName = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0) })
+        self.positionByName = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($1.name, $0) })
     }
 
     /// Returns the entry for a sequence by name.
     public func entry(for name: String) -> Entry? {
-        entriesByName[name]
+        positionByName[name].map { orderedEntries[$0] }
     }
 
     /// Returns the length of a sequence.
     public func length(of name: String) -> Int? {
-        entriesByName[name]?.length
+        entry(for: name)?.length
+    }
+
+    /// The entries of a `.fai`, parsed from its UTF-8 bytes with the results of splitting its text at
+    /// "\n" and each line at "\t". As there, an LF ends a line unless a CR comes right before it,
+    /// since CR LF is one grapheme cluster. Empty lines and empty fields are skipped, fields after
+    /// the fifth are ignored, and the line numbers in errors count non-empty lines only.
+    private static func parseEntries(_ bytes: UnsafeBufferPointer<UInt8>) throws -> [Entry] {
+        let lineFeed = UInt8(ascii: "\n")
+        let carriageReturn = UInt8(ascii: "\r")
+        let tab = UInt8(ascii: "\t")
+        var entries: [Entry] = []
+        var fields: [Range<Int>] = []
+        fields.reserveCapacity(5)
+        var lineNumber = 0
+        var lineStart = 0
+
+        while lineStart < bytes.count {
+            var lineEnd = lineStart
+            while lineEnd < bytes.count, bytes[lineEnd] != lineFeed || (lineEnd > 0 && bytes[lineEnd - 1] == carriageReturn) {
+                lineEnd += 1
+            }
+            let line = lineStart..<lineEnd
+            lineStart = lineEnd + 1
+            guard !line.isEmpty else { continue }
+            lineNumber += 1
+
+            fields.removeAll(keepingCapacity: true)
+            var fieldStart = line.lowerBound
+            for index in line.lowerBound...line.upperBound where index == line.upperBound || bytes[index] == tab {
+                if index > fieldStart { fields.append(fieldStart..<index) }
+                fieldStart = index + 1
+                if fields.count == 5 { break }
+            }
+            guard fields.count == 5 else {
+                throw FASTAError.invalidIndex("Line \(lineNumber): expected 5 tab-separated fields")
+            }
+
+            guard let length = integer(in: bytes, fields[1]),
+                  let offset = integer(in: bytes, fields[2]),
+                  let lineBases = integer(in: bytes, fields[3]),
+                  let lineWidth = integer(in: bytes, fields[4]) else {
+                throw FASTAError.invalidIndex("Line \(lineNumber): invalid numeric values")
+            }
+
+            entries.append(Entry(
+                name: String(decoding: UnsafeBufferPointer(rebasing: bytes[fields[0]]), as: UTF8.self),
+                length: length,
+                offset: offset,
+                lineBases: lineBases,
+                lineWidth: lineWidth
+            ))
+        }
+        return entries
+    }
+
+    /// The value `Int(_:)` gives for the field's text: an optional `+` or `-`, then one or more
+    /// decimal digits, and nil when anything else appears or the value overflows.
+    private static func integer(in bytes: UnsafeBufferPointer<UInt8>, _ field: Range<Int>) -> Int? {
+        var index = field.lowerBound
+        let isNegative = bytes[index] == UInt8(ascii: "-")
+        if isNegative || bytes[index] == UInt8(ascii: "+") {
+            index += 1
+        }
+        guard index < field.upperBound else { return nil }
+
+        var value = 0
+        while index < field.upperBound {
+            let digit = Int(bytes[index]) - Int(UInt8(ascii: "0"))
+            guard (0...9).contains(digit) else { return nil }
+            let (shifted, shiftOverflow) = value.multipliedReportingOverflow(by: 10)
+            let (next, digitOverflow) = isNegative
+                ? shifted.subtractingReportingOverflow(digit)
+                : shifted.addingReportingOverflow(digit)
+            guard !shiftOverflow, !digitOverflow else { return nil }
+            value = next
+            index += 1
+        }
+        return value
     }
 
     /// Calculates the byte offset for a position within a sequence.
