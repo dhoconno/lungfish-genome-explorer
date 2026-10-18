@@ -2877,6 +2877,10 @@ extension NvdResultViewController {
     var testDetailScrollView: NSScrollView { detailScrollView }
 
 #if DEBUG
+    /// The view state the deleted in-app contigs writer read, for the parity class's frozen side A (12.31 M4).
+    var testContigsExportWriterState: (
+        hits: [NvdBlastHit], experiment: String?, taxonGroupCount: Int, databaseURL: URL?
+    ) { (displayedContigs, manifest?.experiment, taxonGroups.count, database?.databaseURL) }
     var testOutlineReloadCount: Int { outlineReloadCount }
     var testChildHitLoadCount: Int { childHitLoadCount }
     var testDetailRebuildCount: Int { detailRebuildCount }

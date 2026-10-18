@@ -7,7 +7,8 @@
 // run folder the import read, `nvd-run`, and the NVD result folder the sidebar item opens, with `hits.sqlite` of three
 // samples, `manifest.json` and a sample metadata table.
 //
-// - Side A is the in-app writer, `writeContigsTSV`, run on a view opened as the app opens it
+// - Side A is the in-app writer, `writeContigsTSV` as the view held it at cad519f3b, frozen in this file since the
+//   lane deletes it from the view, run on a view opened as the app opens it
 //   (`configure(database:manifest:bundleURL:)`) with the case's view state.
 // - Side C is the view's begin helper, `beginNvdContigsExportOperation`, with the invocation the view builds
 //   (`contigsExportInvocation(outputURL:)`). It begins the row and runs the built `lungfish-cli nvd export contigs`
@@ -259,15 +260,75 @@ extension NvdExportCLIGUIParityReplayTests {
         return true
     }
 
-    /// Side A. The in-app writer the view's Export ran before the leaf.
+    /// Side A. The in-app writer the view's Export ran before the leaf, frozen below.
     private func sideA(_ root: URL, _ parityCase: Case) throws -> RouteParitySideOutcome {
         let view = try Self.configuredView(root, parityCase)
         do {
-            try view.writeContigsTSV(to: Self.outputURL(in: root))
+            try Self.frozenWriteContigsTSV(view: view, to: Self.outputURL(in: root))
             return RouteParitySideOutcome(end: .completed, detail: "Exported contigs.tsv")
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)")
         }
+    }
+
+    /// `writeContigsTSV` and its helpers as `NvdResultViewController` held them at cad519f3b, reading the view
+    /// through `testContigsExportWriterState` and the members its begin helper reads.
+    private static func frozenWriteContigsTSV(view: NvdResultViewController, to url: URL) throws {
+        let state = view.testContigsExportWriterState
+        let runClock = ProvenanceRunClock()
+        let metadata = view.metadataColumnController
+        let content = NvdContigsExport.contigsTSV(
+            hits: state.hits,
+            metadataHeaders: metadata.exportHeaders,
+            metadataValuesBySample: Dictionary(uniqueKeysWithValues: Set(state.hits.map(\.sampleId)).map {
+                ($0, metadata.exportValues(for: $0))
+            })
+        )
+        let groupingModeName: String
+        switch view.groupingMode {
+        case .bySample: groupingModeName = "bySample"
+        case .byTaxon: groupingModeName = "byTaxon"
+        }
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app nvd contigs export",
+            sourceURLs: frozenSourceURLs(view: view, databaseURL: state.databaseURL),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-nvd-contigs", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("tsv"),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(state.hits.count),
+                "experiment": .string(state.experiment ?? "nvd"),
+                "sourceSampleCount": .integer(view.sampleEntries.count),
+                "selectedSamples": .array(view.selectedSamples.sorted().map { .string($0) }),
+                "searchQuery": .string(view.searchQuery),
+                "groupingMode": .string(groupingModeName),
+                "taxonGroupCount": .integer(state.taxonGroupCount),
+                "metadataColumns": .array(metadata.exportHeaders.map { .string($0) }),
+            ],
+            runClock: runClock
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private static func frozenSourceURLs(view: NvdResultViewController, databaseURL: URL?) -> [URL] {
+        var urls: [URL] = []
+        if let databaseURL {
+            urls.append(databaseURL)
+        }
+        if let bundleURL = view.bundleURL {
+            urls.append(bundleURL.appendingPathComponent("manifest.json"))
+            let writesMetadata = !view.metadataColumnController.exportHeaders.isEmpty
+            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: writesMetadata)
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Side C. The view's invocation and begin helper, which run the built CLI behind the row on the shared runner.
