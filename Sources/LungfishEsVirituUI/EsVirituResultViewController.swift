@@ -1859,7 +1859,14 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         to url: URL
     ) throws {
         let runClock = ProvenanceRunClock()
-        let content = buildDelimitedExport(result: result, separator: separator)
+        let metadata = detectionTableView.metadataColumns
+        let sampleIds = Set(result.detections.map(\.sampleId))
+        let content = EsVirituDetectionExport.buildDelimitedExport(
+            result: result,
+            separator: separator,
+            metadataHeaders: metadata.exportHeaders,
+            metadataValuesBySample: Dictionary(uniqueKeysWithValues: sampleIds.map { ($0, metadata.exportValues(for: $0)) })
+        )
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app esviritu detections export",
             sourceURLs: exportProvenanceSourceURLs(),
@@ -1932,66 +1939,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             urls.append(outputDirectory.appendingPathComponent("esviritu-result.json"))
         }
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    /// Builds delimited export content from all detections.
-    func buildDelimitedExport(result: LungfishIO.EsVirituResult, separator: String) -> String {
-        var lines: [String] = []
-
-        var headers = [
-            "Sample ID", "Virus Name", "Accession", "Assembly", "Kingdom", "Phylum",
-            "Class", "Order", "Family", "Genus", "Species", "Subspecies",
-            "Read Count", "RPKMF", "Coverage", "Identity", "Covered Bases",
-            "Nucleotide Diversity", "Assembly Length", "Filtered Reads",
-            "Segment", "Length",
-        ]
-        // Append visible metadata column headers
-        let metaHeaders = detectionTableView.metadataColumns.exportHeaders
-        headers.append(contentsOf: metaHeaders)
-        lines.append(headers.joined(separator: separator))
-
-        for detection in result.detections {
-            var row = [
-                escapeField(detection.sampleId, separator: separator),
-                escapeField(detection.name, separator: separator),
-                detection.accession,
-                detection.assembly,
-                escapeField(detection.kingdom ?? "", separator: separator),
-                escapeField(detection.phylum ?? "", separator: separator),
-                escapeField(detection.tclass ?? "", separator: separator),
-                escapeField(detection.order ?? "", separator: separator),
-                escapeField(detection.family ?? "", separator: separator),
-                escapeField(detection.genus ?? "", separator: separator),
-                escapeField(detection.species ?? "", separator: separator),
-                escapeField(detection.subspecies ?? "", separator: separator),
-                "\(detection.readCount)",
-                String(format: "%.2f", detection.rpkmf),
-                String(format: "%.2f", detection.meanCoverage),
-                String(format: "%.2f", detection.avgReadIdentity),
-                "\(detection.coveredBases)",
-                String(format: "%.6f", detection.pi),
-                "\(detection.assemblyLength)",
-                "\(detection.filteredReadsInSample)",
-                detection.segment ?? "",
-                "\(detection.length)",
-            ]
-            for value in detectionTableView.metadataColumns.exportValues(for: detection.sampleId) {
-                row.append(escapeField(value, separator: separator))
-            }
-            lines.append(row.joined(separator: separator))
-        }
-
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    /// Escapes a field for CSV output.
-    private func escapeField(_ value: String, separator: String) -> String {
-        guard separator == "," else { return value }
-        if value.contains(",") || value.contains("\"") || value.contains("\n") {
-            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
-            return "\"\(escaped)\""
-        }
-        return value
     }
 
     // MARK: - Summary Text
@@ -2267,5 +2214,71 @@ struct EsVirituProvenanceView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+    }
+}
+
+extension EsVirituDetectionExport {
+    /// Builds delimited export content from all detections.
+    public static func buildDelimitedExport(
+        result: LungfishIO.EsVirituResult,
+        separator: String,
+        metadataHeaders: [String],
+        metadataValuesBySample: [String: [String]]
+    ) -> String {
+        var lines: [String] = []
+
+        var headers = [
+            "Sample ID", "Virus Name", "Accession", "Assembly", "Kingdom", "Phylum",
+            "Class", "Order", "Family", "Genus", "Species", "Subspecies",
+            "Read Count", "RPKMF", "Coverage", "Identity", "Covered Bases",
+            "Nucleotide Diversity", "Assembly Length", "Filtered Reads",
+            "Segment", "Length",
+        ]
+        // Append visible metadata column headers
+        headers.append(contentsOf: metadataHeaders)
+        lines.append(headers.joined(separator: separator))
+
+        for detection in result.detections {
+            var row = [
+                escapeField(detection.sampleId, separator: separator),
+                escapeField(detection.name, separator: separator),
+                detection.accession,
+                detection.assembly,
+                escapeField(detection.kingdom ?? "", separator: separator),
+                escapeField(detection.phylum ?? "", separator: separator),
+                escapeField(detection.tclass ?? "", separator: separator),
+                escapeField(detection.order ?? "", separator: separator),
+                escapeField(detection.family ?? "", separator: separator),
+                escapeField(detection.genus ?? "", separator: separator),
+                escapeField(detection.species ?? "", separator: separator),
+                escapeField(detection.subspecies ?? "", separator: separator),
+                "\(detection.readCount)",
+                String(format: "%.2f", detection.rpkmf),
+                String(format: "%.2f", detection.meanCoverage),
+                String(format: "%.2f", detection.avgReadIdentity),
+                "\(detection.coveredBases)",
+                String(format: "%.6f", detection.pi),
+                "\(detection.assemblyLength)",
+                "\(detection.filteredReadsInSample)",
+                detection.segment ?? "",
+                "\(detection.length)",
+            ]
+            for value in metadataValuesBySample[detection.sampleId] ?? [] {
+                row.append(escapeField(value, separator: separator))
+            }
+            lines.append(row.joined(separator: separator))
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Escapes a field for CSV output.
+    private static func escapeField(_ value: String, separator: String) -> String {
+        guard separator == "," else { return value }
+        if value.contains(",") || value.contains("\"") || value.contains("\n") {
+            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+            return "\"\(escaped)\""
+        }
+        return value
     }
 }
