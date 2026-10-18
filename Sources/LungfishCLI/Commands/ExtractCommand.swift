@@ -54,8 +54,8 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             A GenBank document's annotations are not carried, and the record says so.
 
             With --format json, standard output holds event lines: one start line,
-            progress lines with --bundle, and one complete or failed line. The text
-            goes to standard error, and -o is required.
+            progress lines with --bundle or a .lungfishref output, and one complete or
+            failed line. The text goes to standard error, and -o is required.
 
             Examples:
               lungfish-cli extract sequence genome.fasta chr1:1000-2000
