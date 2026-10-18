@@ -53,7 +53,7 @@ extension SequenceViewerView {
                 referenceAliases[alias] = chromosome.name
             }
         }
-        return VariantTableExportResolverSnapshot(
+        var snapshot = VariantTableExportResolverSnapshot(
             features: features,
             variantChromosomeAliasMap: variantChromosomeAliasMap,
             referenceChromosomeAliases: referenceAliases,
@@ -61,6 +61,10 @@ extension SequenceViewerView {
             cachedSequence: cachedBundleSequence,
             cachedSequenceRegion: cachedSequenceRegion
         )
+        snapshot.codingFeatureTrackIDs = Set(
+            cachedBundleAnnotations.compactMap { $0.qualifier("annotation_db_track_id") }
+        ).sorted()
+        return snapshot
     }
 }
 

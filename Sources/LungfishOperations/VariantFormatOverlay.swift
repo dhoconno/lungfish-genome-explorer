@@ -22,7 +22,7 @@ package struct VariantFormatKey: Hashable, Sendable {
 }
 
 package struct VariantFormatSourceIdentity: Hashable, Sendable {
-    let trackID: String
+    package let trackID: String
     package let url: URL
     let fileSize: UInt64?
     let modificationDate: Date?

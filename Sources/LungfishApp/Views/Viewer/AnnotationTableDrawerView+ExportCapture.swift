@@ -36,7 +36,7 @@ extension AnnotationTableDrawerView {
             ScientificTableColumn(id: $0.identifier.rawValue, title: $0.title)
         }
         let selected = tableView.selectedRowIndexes
-        let sources = try scientificTableExportSourceURLs()
+        let sources = try scientificTableExportSources(columns: columns)
         let numericInfoIDs = Set(infoColumnKeys.compactMap { info -> String? in
             let type = info.type.lowercased()
             return (type.contains("float") || type.contains("number") || type.contains("real"))
@@ -55,7 +55,7 @@ extension AnnotationTableDrawerView {
             let rows = selected.compactMap { displayedAnnotations.indices.contains($0) ? displayedAnnotations[$0] : nil }
             let resolved = resolvedAnnotationExportText(rows: rows, columns: columns)
             let snapshot = AnnotationTableExportSnapshot.captureAnnotations(
-                rows, columns: columns, scope: scope, sourceURLs: sources,
+                rows, columns: columns, scope: scope, sourceURLs: try sources.urls(tab: "annotations", trackIDs: Set(rows.map(\.trackId))),
                 queryDescription: annotationExportQueryDescription(sortKey: sortKey, ascending: sortAscending),
                 resolvedText: resolved
             )
@@ -89,7 +89,7 @@ extension AnnotationTableDrawerView {
             return AnnotationTablePendingExport(runClock: runClock, tab: "annotations", scope: scope) { shouldCancel in
                 let rows = try request.run(shouldCancel: shouldCancel)
                 return AnnotationTableExportSnapshot.captureAnnotations(
-                    rows, columns: columns, scope: scope, sourceURLs: sources,
+                    rows, columns: columns, scope: scope, sourceURLs: try sources.urls(tab: "annotations", trackIDs: Set(rows.map(\.trackId))),
                     queryDescription: description
                 )
             }
@@ -99,7 +99,7 @@ extension AnnotationTableDrawerView {
                 ? selected.compactMap { displayedSamples.indices.contains($0) ? displayedSamples[$0] : nil }
                 : displayedSamples
             let snapshot = AnnotationTableExportSnapshot.captureSamples(
-                rows, columns: columns, scope: scope, sourceURLs: sources,
+                rows, columns: columns, scope: scope, sourceURLs: try sources.urls(tab: "samples", trackIDs: []),
                 queryDescription: sampleExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
             )
             return pending(snapshot, runClock: runClock)
@@ -109,7 +109,7 @@ extension AnnotationTableDrawerView {
             let snapshot = AnnotationTableExportSnapshot.captureVariants(
                 rows, columns: columns, scope: scope, numericInfoColumnIDs: numericInfoIDs,
                 integerInfoColumnIDs: integerInfoIDs,
-                sourceURLs: sources,
+                sourceURLs: try sources.urls(tab: "variants", trackIDs: Set(rows.map(\.trackId))),
                 queryDescription: variantExportQueryDescription(sortKey: sortKey, ascending: sortAscending),
                 resolvedText: resolvedVariantExportText(rows: rows, columns: columns)
             )
@@ -134,7 +134,7 @@ extension AnnotationTableDrawerView {
                 return AnnotationTableExportSnapshot.captureVariants(
                     rows, columns: columns, scope: scope, numericInfoColumnIDs: numericInfoIDs,
                     integerInfoColumnIDs: integerInfoIDs,
-                    sourceURLs: sources, queryDescription: capturedDescription,
+                    sourceURLs: try sources.urls(tab: "variants", trackIDs: Set(rows.map(\.trackId))), queryDescription: capturedDescription,
                     resolvedText: Self.backgroundVariantResolvedText(
                         rows: rows, columns: columns,
                         callerSettingsByTrack: request.callerSettingsByTrack,
@@ -148,7 +148,7 @@ extension AnnotationTableDrawerView {
             let snapshot = AnnotationTableExportSnapshot.captureGenotypes(
                 rows, columns: columns, scope: scope, numericInfoColumnIDs: numericGenotypeInfoIDs,
                 integerInfoColumnIDs: integerGenotypeInfoIDs,
-                sourceURLs: sources,
+                sourceURLs: try sources.urls(tab: "genotypes", trackIDs: Set(rows.map(\.trackId))),
                 queryDescription: genotypeExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
             )
             return pending(snapshot, runClock: runClock)
@@ -210,7 +210,7 @@ extension AnnotationTableDrawerView {
                     genotypeRows, columns: columns, scope: scope,
                     numericInfoColumnIDs: numericGenotypeInfoIDs,
                     integerInfoColumnIDs: integerGenotypeInfoIDs,
-                    sourceURLs: sources, queryDescription: capturedDescription
+                    sourceURLs: try sources.urls(tab: "genotypes", trackIDs: Set(genotypeRows.map(\.trackId))), queryDescription: capturedDescription
                 )
             }
         }
@@ -308,17 +308,6 @@ extension AnnotationTableDrawerView {
                 return (type.contains("integer") || type.contains("float") || type.contains("number")) ? "info_\($0.key)" : nil
             }),
             sortKey: sortKey, sortAscending: ascending
-        )
-    }
-
-    private func scientificTableExportSourceURLs() throws -> [URL] {
-        guard let index = searchIndex else { throw AnnotationTableExportServiceError.noScientificSources }
-        return try validatedScientificTableExportSourceURLs(
-            annotationDatabaseURLs: index.annotationDatabaseHandles.map { $0.db.databaseURL },
-            variantDatabaseURLs: index.variantDatabaseHandles.map { $0.db.databaseURL },
-            overlaySourceURLs: index.variantFormatOverlaySnapshot.sourceIdentities.map(\.url),
-            additionalURLs: activeTab == .variants
-                ? (try delegate?.annotationDrawerAdditionalExportSources(self) ?? []) : []
         )
     }
 

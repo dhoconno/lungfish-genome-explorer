@@ -358,7 +358,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+ExportCapture.swift"),
             encoding: .utf8
         )
-        XCTAssertTrue(annotationExportCapture.contains("scientificTableExportSourceURLs"))
+        XCTAssertTrue(annotationExportCapture.contains("scientificTableExportSources(columns: columns)"))
         XCTAssertTrue(annotationExportCapture.contains("variantFormatOverlaySnapshot.sourceIdentities"))
     }
 
