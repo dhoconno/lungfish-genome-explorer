@@ -63,29 +63,17 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         window.close()
     }
 
-    /// Launches `config` on `route` and returns the row it began, or nil when it began none.
+    /// Launches `config` and returns the row it began, or nil when it began none.
     private func launch(
         _ config: TaxTriageConfig,
-        route: TaxTriageLaunchRoute,
         viewer: ViewerViewController,
         routeContext: OperationRouteContext?,
         cli: URL? = nil
     ) -> OperationCenter.Item? {
         let existing = Set(OperationCenter.shared.items.map(\.id))
-        switch route {
-        case .legacy:
-            // Since 2.12 K1 M2 the launch runs the CLI route only, so a legacy case calls the legacy route
-            // itself, with a runner that ends it at once, so it never reaches the managed Nextflow.
-            AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
-                TaxTriageSerialBatchRunner(runPipeline: { _, _ in throw CancellationError() })
-            }) {
-                makeAppDelegateWithTemporaryState().runTaxTriage(config: config, viewerController: viewer, routeContext: routeContext)
-            }
-        case .cli:
-            makeAppDelegateWithTemporaryState().launchTaxTriage(
-                config: config, viewerController: viewer, routeContext: routeContext, cliURLOverride: cli
-            )
-        }
+        makeAppDelegateWithTemporaryState().launchTaxTriage(
+            config: config, viewerController: viewer, routeContext: routeContext, cliURLOverride: cli
+        )
         let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
         rowIDs.append(contentsOf: started.map(\.id))
         return started.first
@@ -93,80 +81,20 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
 
     // MARK: - No project
 
-    func testEachRouteRefusesALaunchWithNoProjectInTheSameWords() throws {
+    func testTheLaunchRefusesALaunchWithNoProjectInTodaysWords() throws {
         let reads = try ClassifierRouteFixtures.makeProject(in: root).inputs
-        for route in TaxTriageLaunchRoute.allCases {
-            let before = try ClassifierRouteFixtures.snapshot(of: root)
-            let recorder = RecordingNoProjectPresenter()
-            let row = AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
-                launch(config(inputs: reads), route: route, viewer: ViewerViewController(), routeContext: nil)
-            }
-            XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open"], "\(route)")
-            XCTAssertEqual(
-                recorder.presentations.map(\.message),
-                ["Open or create a project before running TaxTriage. LGE saves its results in the project's Analyses folder."],
-                "\(route)"
-            )
-            XCTAssertNil(row, "\(route): a refused launch registers no row")
-            XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: root), before, "\(route): a refused launch writes nothing")
+        let before = try ClassifierRouteFixtures.snapshot(of: root)
+        let recorder = RecordingNoProjectPresenter()
+        let row = AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+            launch(config(inputs: reads), viewer: ViewerViewController(), routeContext: nil)
         }
-    }
-
-    // MARK: - legacy
-
-    /// `legacy` runs `runTaxTriage` unchanged. Its row records the legacy command, with `--output`
-    /// into the batch folder it made, and its stand-in engine fails the one sample.
-    func testTheLegacyValueRunsTheInProcessRoute() async throws {
-        let made = try ClassifierRouteFixtures.makeProject(in: root)
-        let routeContext = OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
-        let (viewer, window) = makeViewerInWindow()
-        defer { close(window) }
-        let row = try XCTUnwrap(launch(config(inputs: made.inputs), route: .legacy, viewer: viewer, routeContext: routeContext))
-
-        XCTAssertEqual(row.title, "TaxTriage (1 sample)")
-        let command = try XCTUnwrap(row.cliCommand)
-        XCTAssertTrue(command.hasPrefix("lungfish-cli taxtriage --input "), command)
-        XCTAssertTrue(command.contains(" --output \(made.project.path)/Analyses/taxtriage-batch-"), command)
-        XCTAssertFalse(command.contains("--project"), command)
-        let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
-        XCTAssertTrue(finished, "the legacy row did not finish")
-    }
-
-    /// The M1 review's item 3 (b), the legacy side of a mixed-platform request (U30 M3). A bundle whose
-    /// reads record Oxford Nanopore runs on the dialog's Illumina on `legacy`, because the serial batch
-    /// hands each sample the dialog's config. On `cli` the command runs the sample on the platform its
-    /// reads record (`TaxTriageRunBundleInputsTests.testEachSampleRunsOnThePlatformItsBundleRecordsAndAPooledRunOfTwoPlatformsIsRefused`),
-    /// a declared difference that Q32 M3 and BIO read.
-    func testTheLegacyValueRunsABundleThatRecordsNanoporeOnTheDialogsPlatform() async throws {
-        let made = try ClassifierRouteFixtures.makeProject(in: root)
-        let bundle = made.project.appendingPathComponent("Imports/ont.lungfishfastq", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        let reads = bundle.appendingPathComponent("ont.fastq")
-        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
-        try FASTQMetadataStore.write(PersistedFASTQMetadata(sequencingPlatform: .oxfordNanopore), for: reads)
-        let routeContext = OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
-        let (viewer, window) = makeViewerInWindow()
-        defer { close(window) }
-        let received = OSAllocatedUnfairLock<[TaxTriageConfig]>(initialState: [])
-        let existing = Set(OperationCenter.shared.items.map(\.id))
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
-            TaxTriageSerialBatchRunner(runPipeline: { config, _ in
-                received.withLock { $0.append(config) }
-                throw CancellationError()
-            })
-        }) {
-            makeAppDelegateWithTemporaryState().runTaxTriage(
-                config: config(inputs: [bundle]), viewerController: viewer, routeContext: routeContext
-            )
-        }
-        let row = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) })
-        rowIDs.append(row.id)
-        let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
-        XCTAssertTrue(finished, "the legacy row did not finish")
-
-        let configs = received.withLock { $0 }
-        XCTAssertEqual(configs.map(\.platform), [.illumina], "the sample's run takes the dialog's platform")
-        XCTAssertEqual(configs.flatMap(\.samples).map(\.platform), [.illumina], "and so does its sample")
+        XCTAssertEqual(recorder.presentations.map(\.title), ["No Project Open"])
+        XCTAssertEqual(
+            recorder.presentations.map(\.message),
+            ["Open or create a project before running TaxTriage. LGE saves its results in the project's Analyses folder."]
+        )
+        XCTAssertNil(row, "a refused launch registers no row")
+        XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: root), before, "a refused launch writes nothing")
     }
 
     // MARK: - The launch (2.12 K1)
@@ -188,7 +116,7 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         let (viewer, window) = makeViewerInWindow()
         defer { close(window) }
 
-        let row = try XCTUnwrap(launch(config(inputs: made.inputs), route: .cli, viewer: viewer, routeContext: routeContext, cli: cli))
+        let row = try XCTUnwrap(launch(config(inputs: made.inputs), viewer: viewer, routeContext: routeContext, cli: cli))
         XCTAssertEqual(row.cliCommand, expected.cliCommand)
         XCTAssertTrue(expected.cliCommand.hasPrefix("lungfish-cli taxtriage run --input \(made.inputs[0].path) "), expected.cliCommand)
         XCTAssertTrue(expected.cliCommand.contains(" --project \(made.project.path) "), expected.cliCommand)
@@ -197,7 +125,6 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         _ = await waitUntil(timeout: .seconds(5)) { window.attachedSheet != nil }
     }
 
-    /// U30 M4. An explicit `legacy` still runs `runTaxTriage` in this process for one Preview, so the row
     // MARK: - cli
 
     /// `cli` begins a row with today's title and first detail that records the argv it runs, runs
@@ -219,7 +146,7 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         let (viewer, window) = makeViewerInWindow()
         defer { close(window) }
 
-        let row = try XCTUnwrap(launch(config, route: .cli, viewer: viewer, routeContext: routeContext, cli: cli))
+        let row = try XCTUnwrap(launch(config, viewer: viewer, routeContext: routeContext, cli: cli))
         XCTAssertEqual(row.title, "TaxTriage (1 sample)")
         XCTAssertEqual(row.detail, "Starting TaxTriage pipeline\u{2026}")
         XCTAssertEqual(row.cliCommand, expected.cliCommand)
@@ -251,7 +178,7 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         let (viewer, window) = makeViewerInWindow()
         defer { close(window) }
 
-        let row = try XCTUnwrap(launch(config(inputs: made.inputs), route: .cli, viewer: viewer, routeContext: routeContext, cli: cli))
+        let row = try XCTUnwrap(launch(config(inputs: made.inputs), viewer: viewer, routeContext: routeContext, cli: cli))
         let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
         XCTAssertTrue(finished, "the CLI row did not finish")
         _ = await waitUntil(timeout: .seconds(5)) { window.attachedSheet != nil }
@@ -271,7 +198,6 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         let row = AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
             launch(
                 config,
-                route: .cli,
                 viewer: ViewerViewController(),
                 routeContext: OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
             )
@@ -302,7 +228,6 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
             let row = AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
                 launch(
                     config(inputs: bundles),
-                    route: .cli,
                     viewer: ViewerViewController(),
                     routeContext: OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
                 )

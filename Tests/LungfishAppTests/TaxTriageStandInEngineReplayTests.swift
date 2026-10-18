@@ -3,17 +3,13 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.8 lane TF-G, decisions T14 and T16 (docs/plans/2026-10-11-phase-2-8.md). One sample runs
-// through the GUI's runner factory, `AppDelegate.TaxTriageLaunchSeam.makeRunner`, which
-// `runTaxTriage` reads, and one through the CLI's pipeline factory,
-// `TaxTriageCommand.RunSubcommand.makePipeline`, which `taxtriage run` reads. Both run on
-// `TaxTriageStandInEngine`, and each case checks what today's code writes: what the engine
-// received, the result and its provenance record, and for the GUI the row, the `build-db` database
-// and the recorded command.
+// through the CLI's pipeline factory, `TaxTriageCommand.RunSubcommand.makePipeline`, which
+// `taxtriage run` reads, on `TaxTriageStandInEngine`, and the case checks what today's code writes,
+// what the engine received, the result and its provenance record. The case of the GUI's runner
+// factory went with the in-process route in Phase 2.12 K1.
 //
-// The GUI case runs on `OperationCenter.shared`, with `LUNGFISH_CLI_PATH` naming the built CLI for
-// its `build-db` step, and the engine starts processes, so the class runs serially. Its name ends
-// in ReplayTests, which sends it to the integration tier (`REPLAY_SUITES` in
-// scripts/full-suite-gate.sh).
+// The engine starts processes, so the class runs serially. Its name ends in ReplayTests, which
+// sends it to the integration tier (`REPLAY_SUITES` in scripts/full-suite-gate.sh).
 
 import AppKit
 import Foundation
@@ -43,108 +39,6 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
         OperationCenter.shared.clearCompleted()
         TestTempDirectory.cleanup(scratch)
         try await super.tearDown()
-    }
-
-    // MARK: - GUI
-
-    func testOneSampleThroughTheGUIRunnerFactoryRunsOnTheStandIn() async throws {
-        try requireBuiltCLI()
-        let engine = try makeEngine()
-        let reads = try writeFASTQ("S1.fastq", records: 7)
-        let database = try makeDatabaseFolder()
-        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let config = TaxTriageConfig(
-            samples: [TaxTriageSample(sampleId: "S1", fastq1: reads)],
-            outputDirectory: scratch.appendingPathComponent("replaced-by-the-launch", isDirectory: true),
-            kraken2DatabasePath: database,
-            maxCpus: 2,
-            profile: TaxTriageStandInEngine.profile
-        )
-
-        let delegate = makeAppDelegateWithTemporaryState()
-        let viewer = OverlayRecordingViewer()
-        let window = NSWindow(contentViewController: viewer)
-        window.isReleasedWhenClosed = false
-        defer {
-            if let sheet = window.attachedSheet { window.endSheet(sheet) }
-            window.contentViewController = nil
-            window.close()
-        }
-
-        let existing = Set(OperationCenter.shared.items.map(\.id))
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({ engine.makeRunner() }) {
-            delegate.runTaxTriage(
-                config: config,
-                viewerController: viewer,
-                routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-            )
-        }
-        let rowID = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }?.id, "runTaxTriage started no row")
-        let finished = await waitUntil(timeout: .seconds(120), pollInterval: .milliseconds(100)) {
-            OperationCenter.shared.items.first { $0.id == rowID }.map { !$0.state.isActive } ?? true
-        }
-        XCTAssertTrue(finished, "the TaxTriage row did not finish in 120 seconds")
-        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == rowID })
-
-        // Today's row.
-        XCTAssertEqual(item.state, .completed, "\(item.displayStateLabel): \(item.errorMessage ?? item.detail)")
-        XCTAssertEqual(item.title, "TaxTriage (1 sample)")
-        let detailLines = item.detail.components(separatedBy: "\n")
-        XCTAssertEqual(detailLines.first, "TaxTriage pipeline completed successfully")
-        XCTAssertTrue(detailLines.contains("Samples: 1"), item.detail)
-        XCTAssertTrue(detailLines.contains("Reports: 1"), item.detail)
-
-        // The one folder the launch made in the project, spelled from the project's path as the
-        // launch spells it.
-        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
-        let folderName = try XCTUnwrap(
-            Self.visibleFolders(in: analyses).onlyElement?.lastPathComponent,
-            "the launch must make one analysis folder"
-        )
-        XCTAssertTrue(folderName.hasPrefix("taxtriage-"), folderName)
-        let analysis = analyses.appendingPathComponent(folderName, isDirectory: true)
-
-        // The recorded command names this run.
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: TaxTriageCommand.RunSubcommand.self)
-        XCTAssertEqual(command.input, reads.path)
-        XCTAssertEqual(command.sampleId, "S1")
-        XCTAssertEqual(command.outputDir, analysis.path)
-        XCTAssertEqual(command.databasePath, database.path)
-        XCTAssertEqual(command.nfProfile, TaxTriageStandInEngine.profile)
-
-        // What the engine received.
-        let launch = try Self.onlyLaunch(of: engine)
-        Self.assertLaunch(
-            launch,
-            engine: engine,
-            outputDirectory: analysis,
-            database: database,
-            samplesheet: "sample,fastq_1,fastq_2,platform\nS1,\(reads.path),,ILLUMINA\n",
-            records: [.init(sample: "S1", column: "fastq_1", path: reads.path, records: 7)]
-        )
-
-        // What today's code wrote. The record names `top/S1.top_report.tsv`, which the GUI's
-        // `build-db taxtriage` step then deletes with the rest of `top/`
-        // (`performCleanupForSingleResult` in BuildDbCommand+TaxTriageCore.swift), so after a GUI run the record
-        // names a file that is gone (O1, ARCH 5). Pinned as today's fact.
-        try Self.assertResult(
-            in: analysis,
-            sample: "S1",
-            launch: launch,
-            engine: engine,
-            missingRecordFiles: ["top/S1.top_report.tsv"]
-        )
-        let sqlite = analysis.appendingPathComponent("taxtriage.sqlite")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sqlite.path), "the GUI's build-db step made no taxtriage.sqlite")
-        let samples = try TaxTriageDatabase(at: sqlite).fetchSamples()
-        XCTAssertEqual(samples.map(\.sample), ["S1"])
-        XCTAssertEqual(samples.map(\.organismCount), [5], "the stand-in's report holds the five rows of the 3.3.8 fixture")
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: analysis.appendingPathComponent(BatchRunHistoryLog.filename).path),
-            "the GUI records the run in the folder's batch history"
-        )
-        XCTAssertFalse(viewer.overlayLines.isEmpty, "the viewer's overlay showed no progress")
     }
 
     // MARK: - CLI

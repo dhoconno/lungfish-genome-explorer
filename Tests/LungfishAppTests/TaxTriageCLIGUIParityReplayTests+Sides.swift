@@ -71,7 +71,7 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
     /// Whether a side materializes a virtual bundle, which runs seqkit.
     var materializesVirtualBundle: Bool { self == .x1 }
 
-    /// The wizard's run token, fixed. `runTaxTriage` replaces the folder it names.
+    /// The wizard's run token, fixed. A `--project` run writes into a folder of its own instead.
     static let runToken = "0000PAR1"
 
     /// The project every side of the case starts from, built in `root`: the classifier parity
@@ -94,8 +94,8 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
     /// wizard's defaults: Illumina, the test sample role and the host taxid it brings, 10 top
     /// hits, confidence 0.2, assembly skipped, Krona on, 16 GB and no extra arguments. The CPU
     /// count, the profile and the database come from the engine, since a stand-in cannot run
-    /// the wizard's docker profile. `runTaxTriage` replaces the output folder with one in
-    /// `Analyses/`.
+    /// the wizard's docker profile. A `--project` run writes into a folder of its own in
+    /// `Analyses/` instead of the output folder.
     @MainActor
     func wizardConfig(project: URL, engine: TaxTriageParityEngine) -> TaxTriageConfig {
         let bundles = bundlePaths.map { project.appendingPathComponent($0, isDirectory: true) }

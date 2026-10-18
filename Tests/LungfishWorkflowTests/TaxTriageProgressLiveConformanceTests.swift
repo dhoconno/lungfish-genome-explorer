@@ -16,7 +16,7 @@
 // It never starts Docker Desktop. The run downloads NCBI's taxonomy and reference files, takes about
 // three minutes and is bounded at ten. Its name ends in LiveConformanceTests, so only the conformance
 // tier selects it. NextflowProgressReaderTests on lane Q15's real lines and trace files and
-// TaxTriageOperationRowTextReplayTests on the stand-in stay the default and the fallback.
+// TaxTriageCLIRouteRowTests on captured transcripts stay the default and the fallback.
 
 import Foundation
 import LungfishCore

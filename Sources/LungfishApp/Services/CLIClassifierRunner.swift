@@ -286,8 +286,8 @@ struct CLIClassifierRunner {
     }
 
     /// A TaxTriage result, the one sample's that a `--project` run writes into its batch folder or
-    /// the aggregate result of a batch root, read as the legacy row's end reads it
-    /// (`AppDelegate.finishTaxTriageOperation`). A run with ignored task failures or failed samples
+    /// the aggregate result of a batch root, read with the words the in-process route's end gave it
+    /// until Phase 2.12 K1 deleted that route. A run with ignored task failures or failed samples
     /// completes with a detail that names them and its report count, a run with neither with the
     /// result's summary. The failed samples get today's one warning line. The paragraph of ignored
     /// task failures is a line of the command, which the row keeps as a warning.

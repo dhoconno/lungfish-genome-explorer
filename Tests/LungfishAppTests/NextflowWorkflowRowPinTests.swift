@@ -12,8 +12,9 @@
 //
 // Every case passes at the base. They pin today's behaviour, defects included, and none is a
 // target. Viral Recon's row does not move in 2.9, so its cases are the ones S16 reads first. The
-// TaxTriage cases here add only what `TaxTriageOperationRowTextReplayTests` does not pin, the title
-// and first detail without a run, and the overlay after `Cancelling...` (row T2). No case starts a
+// TaxTriage case here pins the title and first detail without a run. `TaxTriageCLIRouteRowTests` pins
+// the rest of the TaxTriage row since Phase 2.12 K1, and `CLIClassifierRunnerOverlayTests` the overlay
+// after `Cancelling...` (row T2). No case starts a
 // process or needs Docker, so the class runs in the unit tier.
 
 import AppKit
@@ -371,86 +372,6 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
         XCTAssertNil(reporter.items.last?.cliCommand, "several samples record no command")
     }
 
-    /// Row T2 of the UX inventory, as lane U10's second milestone moved it. The app shows an engine
-    /// line on the viewer's overlay only once the row has taken it, and the row refuses a line once
-    /// it is cancelling. From the cancel on, the overlay shows the row's own `Cancelling...`. So a
-    /// line the engine prints through the grace of a cancel reaches the log alone, while the row
-    /// and the overlay keep reading `Cancelling...` and the bar stays where it was. The runner here
-    /// prints such a line and ends only when the case lets it.
-    func testAnEngineLineAfterACancelLeavesTheRowAndTheOverlayReadingCancelling() async throws {
-        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let reads = try writeFASTQ("S1.fastq")
-        let database = scratch.appendingPathComponent("kraken2-db", isDirectory: true)
-        try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
-        let before = "Engine line before the cancel"
-        let during = "Engine line during the grace"
-        let gate = RunnerGate()
-        let runner = TaxTriageSerialBatchRunner { _, progress in
-            progress?(0.3, before)
-            while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
-            progress?(0.4, during)
-            // The engine's last reading of trace.txt, once the process has exited, reports a bar that
-            // moved with the last task line's words (U10 M1 review, note 3).
-            progress?(0.5, during)
-            await gate.wait()
-            throw CancellationError()
-        }
-        let delegate = makeAppDelegateWithTemporaryState()
-        let viewer = OverlayRecordingViewer()
-        let window = NSWindow(contentViewController: viewer)
-        window.isReleasedWhenClosed = false
-        windows.append(window)
-
-        let existing = Set(OperationCenter.shared.items.map(\.id))
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({ runner }) {
-            delegate.runTaxTriage(
-                config: makeTaxTriageConfig([TaxTriageSample(sampleId: "S1", fastq1: reads)], database: database),
-                viewerController: viewer,
-                routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-            )
-        }
-        let rowID = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }?.id, "runTaxTriage started no row")
-        defer { gate.release() }
-
-        let reachedFirstLine = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
-            self.item(rowID)?.detail == before
-        }
-        XCTAssertTrue(reachedFirstLine, "the row never read the first engine line")
-        XCTAssertEqual(viewer.overlayLines.last, before, "a line the row takes reaches the overlay")
-        OperationCenter.shared.cancel(id: rowID)
-        let loggedLateLine = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
-            self.item(rowID).map { Self.loggedLines(of: $0).last == "info: \(during)" } ?? false
-        }
-        XCTAssertTrue(loggedLateLine, "the late engine line never reached the log")
-        let overlayReadsCancelling = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
-            viewer.overlayLines.last == "Cancelling..."
-        }
-        XCTAssertTrue(overlayReadsCancelling, "the overlay never read the row's Cancelling..., \(viewer.overlayLines)")
-
-        let cancelling = try XCTUnwrap(item(rowID))
-        XCTAssertEqual(cancelling.state, .cancelling)
-        XCTAssertEqual(cancelling.displayStateLabel, "Cancelling")
-        XCTAssertEqual(cancelling.detail, "Cancelling...", "the row refuses the late line")
-        // The runner's 0.3 reads 0.27 on the row, which scales the runner's fraction by 0.9 (U38 fix 1).
-        XCTAssertEqual(cancelling.progress, 0.27, accuracy: 0.0001, "and the bar stays where it was")
-        XCTAssertFalse(viewer.overlayLines.contains(during), "the overlay refuses it too, \(viewer.overlayLines)")
-        XCTAssertEqual(Self.loggedLines(of: cancelling).last, "info: \(during)", "and the log keeps it")
-
-        gate.release()
-        let finished = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
-            self.item(rowID).map { !$0.state.isActive } ?? true
-        }
-        XCTAssertTrue(finished, "the row did not leave Cancelling")
-        let cancelled = try XCTUnwrap(item(rowID))
-        XCTAssertEqual(cancelled.state, .cancelled)
-        XCTAssertEqual(cancelled.detail, "Cancelled by user")
-        XCTAssertNil(window.attachedSheet, "a cancel shows no sheet")
-        // The main queue ran both late reports before the run's end, so this sees the reading too.
-        XCTAssertEqual(viewer.overlayLines.last, "Cancelling...", "the reading after the cancel leaves the overlay, \(viewer.overlayLines)")
-        XCTAssertEqual(Self.loggedLines(of: cancelled).filter { $0 == "info: \(during)" }.count, 1, "and logs the line once")
-    }
-
     // MARK: - pbAA
 
     /// pbAA starts as a plain FASTQ operation row. Its title is the tool's name and its first detail
@@ -682,32 +603,3 @@ private final class PinLocalWorkflowRunner: LocalWorkflowCLIProcessRunning {
     }
 }
 
-/// Holds a runner until the case releases it. Unlike a sleep, waiting on it survives the
-/// cancellation of the task that waits.
-private final class RunnerGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var released = false
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
-            lock.lock()
-            if released {
-                lock.unlock()
-                waiter.resume()
-            } else {
-                continuation = waiter
-                lock.unlock()
-            }
-        }
-    }
-
-    func release() {
-        lock.lock()
-        released = true
-        let waiter = continuation
-        continuation = nil
-        lock.unlock()
-        waiter?.resume()
-    }
-}

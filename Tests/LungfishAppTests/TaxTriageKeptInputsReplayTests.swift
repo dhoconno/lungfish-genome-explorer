@@ -5,12 +5,11 @@
 // Phase 2.8 lane B2, decision O1 (docs/plans/2026-10-11-phase-2-8.md). A bundle of several files of single reads
 // runs as one file that the planner joins with `cat`. The record names that file twice, as the output of the `cat`
 // step and as the input of the TaxTriage step, so under O1 the file stays in the result's
-// `.lungfish-taxtriage-inputs` folder after the run, unchanged. One case runs the GUI launch, `runTaxTriage`
-// through `AppDelegate.TaxTriageLaunchSeam.makeRunner`, and one runs `taxtriage run` through
-// `TaxTriageCommand.RunSubcommand.makePipeline`, both on `TaxTriageStandInEngine`.
+// `.lungfish-taxtriage-inputs` folder after the run, unchanged. The case runs `taxtriage run` through
+// `TaxTriageCommand.RunSubcommand.makePipeline` on `TaxTriageStandInEngine`. The case of the GUI launch went
+// with the in-process route in Phase 2.12 K1.
 //
-// The GUI case runs on `OperationCenter.shared`, with `LUNGFISH_CLI_PATH` naming the built CLI for its `build-db`
-// step, and the engine starts processes, so the class runs serially. Its name ends in ReplayTests, which sends it
+// The engine starts processes, so the class runs serially. Its name ends in ReplayTests, which sends it
 // to the integration tier (`REPLAY_SUITES` in scripts/full-suite-gate.sh).
 
 import AppKit
@@ -41,53 +40,6 @@ final class TaxTriageKeptInputsReplayTests: XCTestCase {
         OperationCenter.shared.clearCompleted()
         TestTempDirectory.cleanup(scratch)
         try await super.tearDown()
-    }
-
-    // MARK: - GUI
-
-    func testTheGUIKeepsTheJoinedInputItsRecordNamesInTheResult() async throws {
-        try requireBuiltCLI()
-        let engine = try makeEngine()
-        let fixtures = try ReadSetFixtures(in: scratch.appendingPathComponent("fixtures", isDirectory: true))
-        let config = TaxTriageConfig(
-            samples: [TaxTriageSample(sampleId: "J1", fastq1: fixtures.chunkedRoot)],
-            outputDirectory: scratch.appendingPathComponent("replaced-by-the-launch", isDirectory: true),
-            kraken2DatabasePath: try makeDatabaseFolder(),
-            maxCpus: 2,
-            profile: TaxTriageStandInEngine.profile
-        )
-
-        let delegate = makeAppDelegateWithTemporaryState()
-        let viewer = OverlayRecordingViewer()
-        let window = NSWindow(contentViewController: viewer)
-        window.isReleasedWhenClosed = false
-        defer {
-            if let sheet = window.attachedSheet { window.endSheet(sheet) }
-            window.contentViewController = nil
-            window.close()
-        }
-
-        let existing = Set(OperationCenter.shared.items.map(\.id))
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({ engine.makeRunner() }) {
-            delegate.runTaxTriage(
-                config: config,
-                viewerController: viewer,
-                routeContext: OperationRouteContext(projectURL: fixtures.projectURL, windowStateScopeID: nil)
-            )
-        }
-        let rowID = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }?.id, "runTaxTriage started no row")
-        let finished = await waitUntil(timeout: .seconds(120), pollInterval: .milliseconds(100)) {
-            OperationCenter.shared.items.first { $0.id == rowID }.map { !$0.state.isActive } ?? true
-        }
-        XCTAssertTrue(finished, "the TaxTriage row did not finish in 120 seconds")
-
-        let analyses = fixtures.projectURL.appendingPathComponent("Analyses", isDirectory: true)
-        let analysis = try XCTUnwrap(
-            Self.visibleFolders(in: analyses).filter { $0.lastPathComponent.hasPrefix("taxtriage-") }.onlyElement,
-            "the launch must make one TaxTriage folder"
-        )
-        XCTAssertEqual(try TaxTriageResult.load(from: analysis).exitCode, 0)
-        try assertKeptJoinedInput(in: analysis, bundle: fixtures.chunkedRoot)
     }
 
     // MARK: - CLI

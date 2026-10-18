@@ -2,13 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.11 lane U30 M2 (panel decision K1, UX F4, F5, F6, F13 and row 24, RU2). Behind the hidden key's
-// `cli` value the Tools menu's TaxTriage launch runs `lungfish-cli taxtriage run --project` through the
-// classifier CLI route. Each case launches with `launchTaxTriage(route: .cli)` on `OperationCenter.shared`,
-// with a stand-in `lungfish-cli` that plays a transcript of `Tests/Fixtures/cli-events/commands/taxtriage-run/`,
-// and pins the words the legacy row's tests pin (`TaxTriageOperationRowTextReplayTests`). The result the
-// read-back opens is placed before the launch, and every case checks that the route writes no byte after
-// the command exits, so no sidecar and no run history (R1).
+// Phase 2.11 lane U30 M2 (panel decision K1, UX F4, F5, F6, F13 and row 24, RU2). The Tools menu's TaxTriage
+// launch runs `lungfish-cli taxtriage run --project` through the classifier CLI route, with no key to read
+// since Phase 2.12 K1. Each case launches with `launchTaxTriage` on `OperationCenter.shared`, with a stand-in
+// `lungfish-cli` that plays a transcript of `Tests/Fixtures/cli-events/commands/taxtriage-run/`, and pins the
+// words the in-process route's row read until K1 deleted it. The result the read-back opens is placed before
+// the launch, and every case checks that the route writes no byte after the command exits, so no sidecar and
+// no run history (R1).
 
 import AppKit
 import XCTest

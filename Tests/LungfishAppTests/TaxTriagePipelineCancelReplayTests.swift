@@ -2,12 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane S1, decisions T10 to T13 (docs/plans/2026-10-11-phase-2-8.md) and 2.7 E5. Until
-// Phase 2.11 U30 M4 the Tools menu ran TaxTriage in process, through `TaxTriageSerialBatchRunner` and
-// `TaxTriagePipeline`, and the hidden key `TaxTriageLaunchRoute` set to `legacy` keeps that route for
-// one Preview. Its Cancel cancels the task. Each case runs that route on `TaxTriageStandInEngine`,
-// most of them in its TERM-trapping mode, where the engine and a heartbeat child it forks trap TERM
-// and go on, so only a KILL after a grace ends the tree.
+// Phase 2.8 lane S1, decisions T10 to T13 (docs/plans/2026-10-11-phase-2-8.md) and 2.7 E5. Each case
+// cancels `TaxTriagePipeline` or `TaxTriageSerialBatchRunner` on `TaxTriageStandInEngine`, most of them
+// in its TERM-trapping mode, where the engine and a heartbeat child it forks trap TERM and go on, so
+// only a KILL after a grace ends the tree. The cases of the Tools menu's in-process route went with that
+// route in Phase 2.12 K1. `TaxTriageCLIRouteRowTests`, `CLIClassifierRunnerTests`,
+// `CLIClassifierRunnerOverlayTests` and case X6 of `TaxTriageCLIGUIParityReplayTests` pin the cancel of
+// the CLI route the Tools menu runs.
 //
 // At the base of the lane each defect sat in an `XCTExpectFailure` block, XCTest's known issue.
 // The fix made them plain assertions. A cancel stops the whole tree with TERM, then KILL after a
@@ -15,8 +16,7 @@
 // launch scratch goes only once the tree is gone. A cancel during the finish wins, and a serial
 // batch stops at its next sample and saves its record as cancelled.
 //
-// The cases start processes and the GUI case runs on `OperationCenter.shared`, so the class runs
-// serially. Its name ends in ReplayTests, which sends it to the integration tier (`REPLAY_SUITES` in
+// The cases start processes, so the class runs serially. Its name ends in ReplayTests, which sends it to the integration tier (`REPLAY_SUITES` in
 // scripts/full-suite-gate.sh).
 
 import AppKit
@@ -161,149 +161,6 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertEqual(record?.status, .cancelled, "the cancel wins over the completed first sample")
         XCTAssertEqual(record?.steps.map(\.exitStatus) ?? [], [0, 125], "the completed sample, then the cancelled one")
         XCTAssertFalse(FileManager.default.fileExists(atPath: batchResult.path), "a cancelled batch writes no aggregate result")
-    }
-
-    // MARK: - The Tools menu route
-
-    func testCancellingTheToolsMenuRunSettlesItsRowOnlyOnceTheEngineTreeIsGone() async throws {
-        let engine = try makeEngine(.trapsTermWithHeartbeatChild)
-        let reads = try writeFASTQ("G1.fastq", records: 3)
-        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let config = TaxTriageConfig(
-            samples: [TaxTriageSample(sampleId: "G1", fastq1: reads)],
-            outputDirectory: scratch.appendingPathComponent("replaced-by-the-launch", isDirectory: true),
-            kraken2DatabasePath: try makeDatabaseFolder(),
-            maxCpus: 2,
-            profile: TaxTriageStandInEngine.profile
-        )
-
-        let delegate = makeAppDelegateWithTemporaryState()
-        let viewer = OverlayRecordingViewer()
-        let window = NSWindow(contentViewController: viewer)
-        window.isReleasedWhenClosed = false
-        defer {
-            if let sheet = window.attachedSheet { window.endSheet(sheet) }
-            window.contentViewController = nil
-            window.close()
-        }
-
-        let existing = Set(OperationCenter.shared.items.map(\.id))
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({ engine.makeRunner() }) {
-            delegate.runTaxTriage(
-                config: config,
-                viewerController: viewer,
-                routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-            )
-        }
-        let rowID = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }?.id, "runTaxTriage started no row")
-        let started = await engine.waitForLaunch()
-        let launch = try XCTUnwrap(started, "the launch never started")
-        let engineID = try XCTUnwrap(launch.processIdentifier)
-        let childID = try XCTUnwrap(launch.childProcessIdentifier)
-
-        OperationCenter.shared.cancel(id: rowID)
-        let settled = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
-            OperationCenter.shared.items.first { $0.id == rowID }.map { !$0.state.isActive } ?? true
-        }
-        let treeRunsWhenTheRowSettles = Self.isRunning(engineID) || Self.isRunning(childID)
-        XCTAssertTrue(settled, "the row did not settle in 30 seconds")
-        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == rowID })
-        XCTAssertEqual(item.state, .cancelled, "\(item.displayStateLabel): \(item.detail)")
-        // UX 4. The row reads Cancelled with no alert, since OperationCenter.fail returns false once
-        // the cancel has won, and the cancelled sample logs no failure line. This run has one sample,
-        // which skips the batch loop, and only that loop writes a ": Failed - " progress line. So the
-        // base logged none here either, and the failure-line assertion guards against a regression.
-        // A cancelled sample could log one only in a batch of two or more, which the batch cases above run.
-        XCTAssertEqual(item.displayStateLabel, "Cancelled")
-        XCTAssertEqual(item.detail, "Cancelled by user")
-        let alerted = await waitUntil(timeout: .seconds(2), pollInterval: .milliseconds(20)) {
-            window.attachedSheet != nil
-        }
-        XCTAssertFalse(alerted, "a cancel shows no alert")
-        XCTAssertFalse(
-            item.logEntries.contains { $0.message.contains(": Failed - ") },
-            "a cancelled sample logs no failure line, \(item.logEntries.map(\.message))"
-        )
-        // UX 2. The worker settles the row inside OperationCenter's 10 s grace, so the row carries
-        // no forced-cancel warning and the worker itself releases the bundle lock.
-        XCTAssertFalse(item.logEntries.contains { $0.level == .warning }, "\(item.logEntries.map(\.message))")
-
-        let analysis = try XCTUnwrap(
-            Self.visibleFolders(in: project.appendingPathComponent("Analyses", isDirectory: true)).onlyElement,
-            "the launch must make one analysis folder"
-        )
-        let record = try ProvenanceEnvelopeReader.load(from: analysis)
-        // T4 and T5, where the row settled at once while the tree ran on, and the record said failed.
-        XCTAssertFalse(treeRunsWhenTheRowSettles, "the row settles only once the engine tree is gone")
-        XCTAssertEqual(record?.status, .cancelled, "the run's record says cancelled")
-    }
-
-    /// Row T2 of the Phase 2.9 UX inventory on the stand-in engine (U9's review, note 3). The engine
-    /// traps the cancel's TERM, and the case lets it print its task lines inside the 4 s grace. The
-    /// reader words them and the log keeps them, but the row keeps reading `Cancelling...` and the
-    /// viewer's overlay reads the row's `Cancelling...` from the cancel on and shows no later line.
-    func testATaskLineInsideTheCancelsGraceReachesNeitherTheRowNorTheOverlay() async throws {
-        let engine = try makeEngine(.trapsTermWithHeartbeatChild)
-        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let config = TaxTriageConfig(
-            samples: [TaxTriageSample(sampleId: "G1", fastq1: try writeFASTQ("G1.fastq", records: 3))],
-            outputDirectory: scratch.appendingPathComponent("replaced-by-the-launch", isDirectory: true),
-            kraken2DatabasePath: try makeDatabaseFolder(),
-            maxCpus: 2,
-            profile: TaxTriageStandInEngine.profile
-        )
-        let delegate = makeAppDelegateWithTemporaryState()
-        let viewer = OverlayRecordingViewer()
-        let window = NSWindow(contentViewController: viewer)
-        window.isReleasedWhenClosed = false
-        defer {
-            if let sheet = window.attachedSheet { window.endSheet(sheet) }
-            window.contentViewController = nil
-            window.close()
-        }
-
-        let existing = Set(OperationCenter.shared.items.map(\.id))
-        let details = RowDetailRecorder(ignoring: existing)
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({ engine.makeRunner() }) {
-            delegate.runTaxTriage(
-                config: config,
-                viewerController: viewer,
-                routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-            )
-        }
-        let rowID = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }?.id, "runTaxTriage started no row")
-        let started = await engine.waitForLaunch()
-        XCTAssertNotNil(started, "the launch never started")
-
-        OperationCenter.shared.cancel(id: rowID)
-        let trapped = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(10)) {
-            (try? engine.launches().first?.trappedSignals.isEmpty == false) ?? false
-        }
-        XCTAssertTrue(trapped, "the engine never trapped the cancel's TERM")
-        engine.release()
-
-        let taskLines = { () -> [String] in
-            OperationCenter.shared.items.first { $0.id == rowID }?.logEntries.map(\.message).filter { $0.hasPrefix("Running ") } ?? []
-        }
-        let logged = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) { !taskLines().isEmpty }
-        XCTAssertTrue(logged, "no task line of the grace reached the log")
-        let settled = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
-            OperationCenter.shared.items.first { $0.id == rowID }.map { !$0.state.isActive } ?? true
-        }
-        XCTAssertTrue(settled, "the row did not settle in 30 seconds")
-
-        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == rowID })
-        XCTAssertEqual(item.state, .cancelled, "\(item.displayStateLabel): \(item.detail)")
-        XCTAssertEqual(item.detail, "Cancelled by user")
-        let shown = details.details[rowID] ?? []
-        let afterCancel = shown.drop { $0 != "Cancelling..." }
-        XCTAssertEqual(afterCancel.first, "Cancelling...", "the row never read Cancelling..., \(shown)")
-        XCTAssertEqual(Array(afterCancel.dropFirst()), ["Cancelled by user"], "the row took a line after the cancel, \(shown)")
-        XCTAssertFalse(viewer.overlayLines.contains { $0.hasPrefix("Running ") }, "the overlay took a task line, \(viewer.overlayLines)")
-        XCTAssertEqual(viewer.overlayLines.last, "Cancelling...", "the overlay reads the row's Cancelling..., \(viewer.overlayLines)")
-        XCTAssertNil(window.attachedSheet, "a cancel shows no alert")
     }
 
     // MARK: - Helpers
