@@ -107,10 +107,6 @@ final class TaxaCollectionExtractionParityReplayTests: XCTestCase {
         }
     }
 
-    /// The one way side A differs from side C (review of A66, fix 5). The leaf writes the folder's root
-    /// record after `extractBatch`, so it names the command that ran and every file of the run, where side
-    /// A's root record is the last taxon's step. The last taxon's own sidecar then keeps its run and step
-    /// ids, which side A shares with its root record. Nothing is declared for C against C'.
     /// Side A, `extractBatch`, retired with the old engine in lane 12.11 M3 (the review's fix 9). The
     /// harness still runs a side A, so it is this outcome, and the class compares C against C' alone,
     /// with nothing declared. The two differences A had, both closed by the retirement of side A, went

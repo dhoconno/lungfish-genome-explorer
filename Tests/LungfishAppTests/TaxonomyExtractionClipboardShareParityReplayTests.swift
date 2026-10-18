@@ -5,18 +5,22 @@
 // Phase 2.12 lane 12.11 M2, on lane Q30's harness (decisions C4, C5 and C13 of 2.10, R-A1). The
 // extraction sheet's clipboard and share destinations ran `ClassifierReadResolver` in the app and
 // recorded no command. They now run `lungfish-cli extract reads --by-classifier` into a scratch file on
-// `CLIBundleBuildRunner` and copy that file (`ClassifierExtractionCopyRoute`). Each case runs on three
+// `CLIBundleBuildRunner` and copy that file (`ClassifierExtractionCopyRoute`). Each case runs on
 // sides that start as copies of one project with a single-end Kraken2 result, taxon 20 selected.
 //
-// - Side A is the in-process route at the base, the resolver with the `.clipboard` or `.share` destination.
+// - Side A was the in-process route at the base, the resolver with the `.clipboard` or `.share`
+//   destination. A against C declared nothing, so side A retired with the resolver's two branches in
+//   lane 12.11 M3 (review fix 9, R-A1). It no longer runs, and the class compares C against C'.
 // - Side C is the route as the sheet runs it, the copy route, the begin helper and the runner, which
 //   launches the built lungfish-cli, then the copy. Its row records the command.
 // - Side C' is the harness's replay of that command, then the same copy of the file the replay wrote.
 //
 // Each side then hands over what the person gets. It writes the pasteboard text, or moves the shared file,
 // into `Delivered/` of its root, and removes the folder of `.lungfish/.tmp/shares` the picker read the
-// file from. That folder holds a record beside the shared file on every side, the app's own sidecar on
-// side A and the command's record on sides C and C'. Nothing is declared for A against C or C against C'.
+// file from, so the hand-over removes the share folder on every side. On sides C and C' that folder held
+// the command's record beside the shared file. Side A as it was built here wrote no app sidecar, since
+// its options carried no `fileProvenance`, so an app sidecar there held only for the real app's options.
+// Nothing is declared for C against C'.
 //
 // It runs the managed seqkit and launches the built lungfish-cli, so its name ends in ReplayTests, which
 // sends it to the integration tier, and it skips without the tool unless `LUNGFISH_REQUIRE_TOOLS=1`.
@@ -59,32 +63,37 @@ final class TaxonomyExtractionClipboardShareParityReplayTests: XCTestCase {
         if let scratch { TestTempDirectory.cleanup(scratch) }
     }
 
-    func testTheClipboardRouteCopiesWhatTheInProcessResolverCopied() async throws {
+    func testTheClipboardRouteCopiesWhatItsReplayCopies() async throws {
         try await requireSeqkit()
         try await assertCase(.clipboard)
     }
 
-    func testTheShareRouteSharesWhatTheInProcessResolverShared() async throws {
+    func testTheShareRouteSharesWhatItsReplayShares() async throws {
         try await requireSeqkit()
         try await assertCase(.share)
     }
+
+    /// Side A, the resolver's `.clipboard` and `.share` branches, retired in lane 12.11 M3. The harness
+    /// still runs a side A, so it is this outcome, and the class compares C against C' alone.
+    private static let retiredSideA = RouteParitySideOutcome(
+        end: .completed, detail: "not run, the resolver's clipboard and share branches retired in 2.12 lane 12.11"
+    )
 
     private func assertCase(_ parityCase: Case) async throws {
         let runs = try await harness.run(
             in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
             fixture: { root in _ = try TaxaCollectionFixtures(in: root) },
-            sideA: { root in await self.sideA(root, parityCase) },
+            sideA: { _ in Self.retiredSideA },
             sideC: { root in await self.sideC(root, parityCase) }
         )
-        for run in [runs.a, runs.c, runs.cPrime] {
+        for run in [runs.c, runs.cPrime] {
             XCTAssertEqual(run.outcome.end, .completed, "\(run.side): \(run.outcome.detail)")
         }
         // Side C' replayed the command. The same copy hands over the file the replay wrote.
         let copied = try await Self.copyReplayed(runs.cPrime, parityCase)
-        let result = try harness.evaluate(parityCase, declared: [RouteParityDeclaredDifference<Case>](), runs: runs)
-        RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase)")
+        let differences = try harness.differences(runs.c, runs.cPrime)
+        RouteParityHarness.assertNoFailures(differences.map { "\($0)" }, in: "\(parityCase), C against C'")
 
-        XCTAssertEqual(runs.a.outcome.detail, "Extracted 2 reads", "the row's complete words")
         XCTAssertEqual(runs.c.outcome.detail, "Extracted 2 reads", "the row's complete words")
         XCTAssertEqual(copied, "Extracted 2 reads")
         let delivered = Self.delivered(runs.c.root).appendingPathComponent("kraken2-concat.fastq")
@@ -139,23 +148,6 @@ final class TaxonomyExtractionClipboardShareParityReplayTests: XCTestCase {
             return RouteParitySideOutcome(end: .completed, detail: "Extracted \(readCount) reads")
         case .file, .bundle:
             return RouteParitySideOutcome(end: .failed, detail: "not a clipboard or share outcome: \(outcome)")
-        }
-    }
-
-    /// Side A. The resolver with the sheet's destination, as the app ran it.
-    private func sideA(_ root: URL, _ parityCase: Case) async -> RouteParitySideOutcome {
-        do {
-            let context = Self.context(root)
-            let outcome = try await ClassifierReadResolver().resolveAndExtract(
-                tool: context.tool,
-                resultPath: context.resultPath,
-                selections: context.selections,
-                options: Self.options,
-                destination: try Self.destination(root, parityCase)
-            )
-            return try Self.handOver(outcome, root: root)
-        } catch {
-            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
         }
     }
 

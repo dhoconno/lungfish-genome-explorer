@@ -133,7 +133,6 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         // The exact row of the path.
         XCTAssertEqual(id(["kraken2", "classify"]), "cli.kraken2.classify")
         XCTAssertEqual(id(["conda", "classify"]), "cli.kraken2.classify")
-        XCTAssertEqual(id(["conda", "extract"]), "cli.conda.extract")
         XCTAssertEqual(id(["fastq", "12s-match"]), "cli.fastq.12s-match")
         XCTAssertEqual(id(["fastq", "mhc-reference-bundle"]), "cli.fastq.mhc-reference-bundle")
 

@@ -166,6 +166,10 @@ public actor ClassifierReadResolver {
         guard !nonEmpty.isEmpty else {
             throw ClassifierExtractionError.zeroReadsExtracted
         }
+        switch destination {
+        case .file, .bundle: break
+        case .clipboard, .share: throw Self.copyDestinationRefusal()
+        }
 
         progress?(0.0, "Preparing \(tool.displayName) extraction…")
 
@@ -716,37 +720,18 @@ public actor ClassifierReadResolver {
             progress?(1.0, "Created bundle \(bundleURL.lastPathComponent)")
             return .bundle(bundleURL, readCount: readCount)
 
-        case .clipboard(_, let cap):
-            if readCount > cap {
-                throw ClassifierExtractionError.clipboardCapExceeded(
-                    requested: readCount,
-                    cap: cap
-                )
-            }
-            let data = try Data(contentsOf: finalFile)
-            let payload = String(decoding: data, as: UTF8.self)
-            progress?(1.0, "Prepared \(data.count) bytes for clipboard")
-            return .clipboard(payload: payload, byteCount: data.count, readCount: readCount)
-
-        case .share(let shareDir):
-            let sharesSubdir = shareDir.appendingPathComponent("shares/\(UUID().uuidString)")
-            try fm.createDirectory(at: sharesSubdir, withIntermediateDirectories: true)
-            let stableURL = sharesSubdir.appendingPathComponent(finalFile.lastPathComponent)
-            if fm.fileExists(atPath: stableURL.path) {
-                try fm.removeItem(at: stableURL)
-            }
-            try fm.moveItem(at: finalFile, to: stableURL)
-            try writeStandaloneFileProvenanceIfNeeded(
-                outputURL: stableURL,
-                outputFormat: options.format.fileFormat,
-                readCount: readCount,
-                options: options,
-                sourceURLs: provenanceSourceURLs,
-                extractionClock: extractionClock
-            )
-            progress?(1.0, "Prepared file for sharing")
-            return .share(stableURL, readCount: readCount)
+        case .clipboard, .share:
+            throw Self.copyDestinationRefusal()
         }
+    }
+
+    /// The refusal of a clipboard or share destination. Since Phase 2.12 lane 12.11 those rows run
+    /// `lungfish-cli extract reads --by-classifier` into a scratch file and copy that file
+    /// (`ClassifierExtractionCopyRoute` in LungfishApp), so the resolver writes only a file or a bundle.
+    static func copyDestinationRefusal() -> CocoaError {
+        CocoaError(.featureUnsupported, userInfo: [
+            NSLocalizedDescriptionKey: "Classifier read extraction writes a file or a bundle. A clipboard or share extraction runs lungfish-cli extract reads --by-classifier and copies the file it writes.",
+        ])
     }
 
     private func writeStandaloneFileProvenanceIfNeeded(
@@ -792,7 +777,7 @@ public actor ClassifierReadResolver {
         if let preparedSourceURL {
             try Self.publishStandaloneFile(from: preparedSourceURL, to: outputURL, provenance: request)
         } else {
-            // Same-file and share outputs are already owned private scratch files.
+            // A same-file output is already an owned private scratch file.
             try ScientificFileExportProvenance.write(request)
         }
     }

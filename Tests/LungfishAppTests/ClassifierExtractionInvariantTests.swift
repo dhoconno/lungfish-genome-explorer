@@ -25,7 +25,7 @@ import LungfishTestSupport
 /// | I3 | Click wiring: activating the menu fires `onExtractReadsRequested` (or shared.present) |
 /// | I4 | Count-sequence agreement: extracted FASTQ record count equals `MarkdupService.countReads` |
 /// | I5 | Samtools flag dispatch: resolver uses `-F 0x404` (strict) or `-F 0x400` (loose) |
-/// | I6 | Clipboard cap enforcement: dialog disables Clipboard above cap; resolver rejects past cap |
+/// | I6 | Clipboard cap enforcement: dialog disables Clipboard above cap; the copy route rejects past cap (ClassifierExtractionCopyRouteTests) |
 /// | I7 | CLI/GUI round-trip equivalence: the CLI command stamped by the GUI reproduces the same FASTQ |
 /// | I8 | A BAM that links out of the result is refused with its own words and never read (U36) |
 @MainActor
@@ -263,12 +263,6 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         try await assertI4(tool: .esviritu) { projectRoot in
             .bundle(projectRoot: projectRoot, displayName: "i4", metadata: metadata)
         }
-        try await assertI4(tool: .esviritu) { _ in
-            .clipboard(format: .fastq, cap: 100_000)
-        }
-        try await assertI4(tool: .esviritu) { projectRoot in
-            .share(tempDirectory: projectRoot)
-        }
     }
 
     func testI4_taxtriage_allDestinations() async throws {
@@ -278,9 +272,6 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         }
         try await assertI4(tool: .taxtriage) { projectRoot in
             .bundle(projectRoot: projectRoot, displayName: "i4", metadata: metadata)
-        }
-        try await assertI4(tool: .taxtriage) { _ in
-            .clipboard(format: .fastq, cap: 100_000)
         }
     }
 
@@ -419,29 +410,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         XCTAssertFalse(model.clipboardDisabledDueToCap)
     }
 
-    func testI6_resolverRejectsOverCap() async throws {
-        let sampleId = "I6"
-        let (resultPath, projectRoot) = try ClassifierExtractionFixtures.buildFixture(tool: .nvd, sampleId: sampleId)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
-        let selections = try await ClassifierExtractionFixtures.defaultSelection(
-            for: .nvd, sampleId: sampleId
-        )
-
-        let resolver = ClassifierReadResolver()
-        do {
-            _ = try await resolver.resolveAndExtract(
-                tool: .nvd,
-                resultPath: resultPath,
-                selections: selections,
-                options: ExtractionOptions(),
-                destination: .clipboard(format: .fastq, cap: 1),  // deliberately tiny
-                progress: nil
-            )
-            XCTFail("Expected clipboardCapExceeded error")
-        } catch ClassifierExtractionError.clipboardCapExceeded {
-            // Expected
-        }
-    }
+    // The refusal past the cap is the copy route's since Phase 2.12 lane 12.11, pinned by
+    // ClassifierExtractionCopyRouteTests. The resolver writes only a file or a bundle.
 
     // MARK: - I7: CLI/GUI round-trip equivalence
 

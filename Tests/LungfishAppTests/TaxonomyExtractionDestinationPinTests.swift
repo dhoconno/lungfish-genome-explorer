@@ -5,12 +5,11 @@
 // Phase 2.11 lane A66 M1, freeze first (QA 1). One Kraken2 selection, taxon 20 of the single-end
 // fixture, goes to each destination of the extraction sheet through `ClassifierReadResolver`, and
 // the row that destination registers is read back. The file and bundle destinations write the
-// selection's reads as plain FASTQ and record a runnable `lungfish-cli extract reads` command. The
-// clipboard destination hands the same bytes to the pasteboard as one string and refuses a selection
-// over its cap. The share destination writes the same bytes into a folder of the project's scratch.
+// selection's reads as plain FASTQ and record a runnable `lungfish-cli extract reads` command.
 // Since Phase 2.12 lane 12.11 the clipboard and share rows record the `lungfish-cli extract reads`
-// command that writes the selection into the scratch file the app copies. The resolver calls here
-// are the in-process engine those rows ran before, the side A of the lane's parity class.
+// command that writes the selection into the scratch file the app copies, and the resolver refuses
+// both destinations. The copy, its cap and its refusal words are pinned by
+// `ClassifierExtractionCopyRouteTests`.
 
 import XCTest
 @testable import LungfishApp
@@ -157,63 +156,21 @@ final class TaxonomyExtractionDestinationPinTests: XCTestCase {
 
     // MARK: - Clipboard
 
-    func testTheClipboardDestinationHandsTheSameBytesToThePasteboardAndRecordsItsCommand() async throws {
+    func testTheClipboardRowRecordsTheCommandIntoAScratchFolderOfTheProjectTmp() throws {
         let destination = ExtractionDestination.clipboard(format: .fastq, cap: TaxonomyReadExtractionAction.clipboardReadCap)
-
-        guard case .clipboard(let payload, let byteCount, let count) = try await extract(destination) else {
-            return XCTFail("a clipboard outcome")
-        }
-        // What the clipboard parse test asserts: the payload is the FASTQ text of the selection.
-        XCTAssertEqual(payload, Self.expectedFASTQ)
-        XCTAssertEqual(byteCount, payload.utf8.count)
-        XCTAssertEqual(count, 2)
-        XCTAssertEqual(payload.split(separator: "\n").count, 4 * count, "four lines a read")
         XCTAssertEqual(TaxonomyReadExtractionAction.clipboardReadCap, 10_000)
-
         // The row records the command that writes the selection into a scratch folder of the project's .tmp.
         try assertTheRowRunsTheCommandIntoItsScratchFile(destination, under: ProjectTempDirectory.tempRoot(for: fixtures.projectURL))
     }
 
-    func testTheClipboardCapIsInclusiveAndARefusalNamesTheSelectionAndTheCap() async throws {
-        guard case .clipboard(_, _, let count) = try await extract(.clipboard(format: .fastq, cap: 2)) else {
-            return XCTFail("a selection at the cap is copied")
-        }
-        XCTAssertEqual(count, 2)
-        do {
-            _ = try await extract(.clipboard(format: .fastq, cap: 1))
-            XCTFail("a selection over the cap is refused")
-        } catch ClassifierExtractionError.clipboardCapExceeded(let requested, let cap) {
-            XCTAssertEqual(requested, 2)
-            XCTAssertEqual(cap, 1)
-        }
-    }
-
-    /// The refusal is words a person reads in the sheet (Phase 2.12 lane 12.11 M1, UX inv 47).
-    func testTheCapRefusalTellsThePersonTheCountTheCapAndTheOtherDestinations() async throws {
-        do {
-            _ = try await extract(.clipboard(format: .fastq, cap: 1))
-            XCTFail("a selection over the cap is refused")
-        } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Selection contains 2 reads, which exceeds the clipboard cap of 1. Choose Save to File, Save as Bundle, or Share instead."
-            )
-        }
-    }
-
     // MARK: - Share
 
-    func testTheShareDestinationWritesTheSameBytesBelowTheScratchFolderAndRecordsItsCommand() async throws {
+    func testTheShareRowRecordsTheCommandIntoANewFolderBelowTheShareRoot() throws {
         let scratch = fixtures.projectURL.appendingPathComponent(".lungfish/.tmp", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        let destination = ExtractionDestination.share(tempDirectory: scratch)
-
-        guard case .share(let url, let count) = try await extract(destination) else { return XCTFail("a share outcome") }
-        XCTAssertEqual(count, 2)
-        XCTAssertTrue(url.standardizedFileURL.path.hasPrefix(scratch.standardizedFileURL.path + "/shares/"), url.path)
-        XCTAssertEqual(try text(of: url), Self.expectedFASTQ)
-
         // The row records the command that writes the selection into a new folder below the share root.
-        try assertTheRowRunsTheCommandIntoItsScratchFile(destination, under: scratch.appendingPathComponent("shares", isDirectory: true))
+        try assertTheRowRunsTheCommandIntoItsScratchFile(
+            .share(tempDirectory: scratch), under: scratch.appendingPathComponent("shares", isDirectory: true)
+        )
     }
 }

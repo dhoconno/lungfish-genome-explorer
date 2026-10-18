@@ -1621,86 +1621,25 @@ final class ClassifierReadResolverTests: XCTestCase {
         })
     }
 
-    func testDestination_clipboard_returnsSerializedFASTQ() async throws {
-        let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "cb")
-        defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
-        let bamRefs = try await BAMRegionMatcher.readBAMReferences(bamURL: try sarscov2FixtureBAM(), runner: .shared)
-        guard let region = bamRefs.first else { throw XCTSkip("no BAM refs") }
-
-        let resolver = ClassifierReadResolver()
-        let outcome = try await resolver.resolveAndExtract(
-            tool: .nvd,
-            resultPath: resultPath,
-            selections: [ClassifierRowSelector(sampleId: "cb", accessions: [region], taxIds: [])],
-            options: ExtractionOptions(format: .fastq),
-            destination: .clipboard(format: .fastq, cap: 10_000)
-        )
-        guard case .clipboard(let payload, let byteCount, let n) = outcome else {
-            XCTFail("Expected .clipboard outcome")
-            return
-        }
-        XCTAssertFalse(payload.isEmpty)
-        XCTAssertGreaterThan(byteCount, 0)
-        XCTAssertGreaterThan(n, 0)
-    }
-
-    func testDestination_share_movesFileToStableLocation() async throws {
-        let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "sh")
-        defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
-        let bamRefs = try await BAMRegionMatcher.readBAMReferences(bamURL: try sarscov2FixtureBAM(), runner: .shared)
-        guard let region = bamRefs.first else { throw XCTSkip("no BAM refs") }
-
-        let shareDir = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: shareDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: shareDir) }
-
-        let resolver = ClassifierReadResolver()
-        let outcome = try await resolver.resolveAndExtract(
-            tool: .nvd,
-            resultPath: resultPath,
-            selections: [ClassifierRowSelector(sampleId: "sh", accessions: [region], taxIds: [])],
-            options: ExtractionOptions(fileProvenance: makeTestFileProvenance(destination: "share")),
-            destination: .share(tempDirectory: shareDir)
-        )
-        guard case .share(let url, _) = outcome else {
-            XCTFail("Expected .share outcome")
-            return
-        }
-        XCTAssertTrue(url.path.hasPrefix(shareDir.path),
-                      "Share file must land under the requested temp directory")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
-        let envelope = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: url))
-        )
-        XCTAssertEqual(envelope.workflowName, "lungfish app classifier read extraction")
-        XCTAssertEqual(envelope.output?.path, url.path)
-        XCTAssertEqual(envelope.output?.format, .fastq)
-        XCTAssertEqual(envelope.options.explicit["destination"]?.stringValue, "share")
-        XCTAssertEqual(envelope.options.explicit["outputPath"]?.fileValue?.path, url.path)
-        XCTAssertGreaterThan(envelope.options.resolvedDefaults["readCount"]?.integerValue ?? 0, 0)
-        XCTAssertTrue(envelope.argv.contains(url.path))
-    }
-
-    func testDestination_clipboard_capExceeded_throws() async throws {
-        let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "cap")
-        defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
-        let bamRefs = try await BAMRegionMatcher.readBAMReferences(bamURL: try sarscov2FixtureBAM(), runner: .shared)
-        guard let region = bamRefs.first else { throw XCTSkip("no BAM refs") }
-
-        let resolver = ClassifierReadResolver()
-        do {
-            _ = try await resolver.resolveAndExtract(
-                tool: .nvd,
-                resultPath: resultPath,
-                selections: [ClassifierRowSelector(sampleId: "cap", accessions: [region], taxIds: [])],
-                options: ExtractionOptions(),
-                destination: .clipboard(format: .fastq, cap: 1)  // deliberately tiny
-            )
-            XCTFail("Expected clipboardCapExceeded error")
-        } catch ClassifierExtractionError.clipboardCapExceeded {
-            // ok
-        } catch {
-            XCTFail("Expected clipboardCapExceeded, got \(error)")
+    /// Since Phase 2.12 lane 12.11 the clipboard and share rows run `lungfish-cli extract reads
+    /// --by-classifier` and copy its file (`ClassifierExtractionCopyRoute`), so the resolver refuses both
+    /// destinations before it reads or writes anything.
+    func testTheClipboardAndShareDestinationsAreRefusedBeforeAnyWork() async throws {
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("no-result-\(UUID().uuidString)")
+        for destination in [ExtractionDestination.clipboard(format: .fastq, cap: 10_000), .share(tempDirectory: missing)] {
+            do {
+                _ = try await ClassifierReadResolver().resolveAndExtract(
+                    tool: .nvd,
+                    resultPath: missing,
+                    selections: [ClassifierRowSelector(sampleId: "s", accessions: ["NC_1"], taxIds: [])],
+                    options: ExtractionOptions(format: .fastq),
+                    destination: destination
+                )
+                XCTFail("\(destination) is refused")
+            } catch let error as CocoaError {
+                XCTAssertEqual(error.code, .featureUnsupported, "\(destination)")
+                XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path), "\(destination): nothing is written")
+            }
         }
     }
 
