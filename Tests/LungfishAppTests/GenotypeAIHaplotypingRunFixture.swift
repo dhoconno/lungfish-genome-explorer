@@ -39,13 +39,20 @@ final class GenotypeAIHaplotypingRunFixture {
     /// - Parameters:
     ///   - storesKey: Whether the stand-in keychain holds the throwaway OpenAI key.
     ///   - providerStatus: The HTTP status the stand-in answers. 200 sends the recorded reply.
-    init(testCase: XCTestCase, storesKey: Bool = true, providerStatus: Int = 200) async throws {
+    ///   - specialistManifest: Whether the manifest names the MCM MiSeq preset, so the run
+    ///     resolves the specialist prompt pins. Without them it resolves the general prompt.
+    init(
+        testCase: XCTestCase,
+        storesKey: Bool = true,
+        providerStatus: Int = 200,
+        specialistManifest: Bool = true
+    ) async throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lane-12-19-ai-haplotyping-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let root = root
         testCase.addTeardownBlock { try? FileManager.default.removeItem(at: root) }
-        bundleURL = try Self.writeBundle(in: root)
+        bundleURL = try Self.writeBundle(in: root, specialistManifest: specialistManifest)
 
         server = try LoopbackHTTPStandIn.start { _ in
             Self.recordedResponse(status: providerStatus)
@@ -185,8 +192,33 @@ final class GenotypeAIHaplotypingRunFixture {
         return LoopbackHTTPResponse(status: 200, contentType: "application/json", body: body)
     }
 
-    private static func writeBundle(in root: URL) throws -> URL {
-        let name = "LF2823-mcm"
+    /// Rewrites the bundle's manifest, with or without the MCM MiSeq preset's
+    /// definition set and assay, which decide the prompt pins of the command.
+    func writeManifest(specialist: Bool) throws {
+        try Self.writeManifest(in: bundleURL, specialist: specialist)
+    }
+
+    private static let bundleName = "LF2823-mcm"
+
+    private static func writeManifest(in bundleURL: URL, specialist: Bool) throws {
+        let name = bundleName
+        let preset = MCMHaplotypingPreset.mcmMHCmiseq
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: name,
+            analysisName: name,
+            primaryWorkbookPath: "\(name).xlsx",
+            longSummaryCSVPath: "\(name).genotypes.csv",
+            sampleSummaryCSVPath: "\(name).samples.csv",
+            statsJSONPath: "\(name).stats.json",
+            provenancePath: "genotyping-provenance.json",
+            haplotypeDefinitionSetID: specialist ? preset.haplotypeDefinitionSetID : nil,
+            haplotypeAssayID: specialist ? preset.haplotypeAssayID : nil
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+    }
+
+    private static func writeBundle(in root: URL, specialistManifest: Bool) throws -> URL {
+        let name = bundleName
         let bundleURL = root.appendingPathComponent("\(name).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data("workbook".utf8).write(to: bundleURL.appendingPathComponent("\(name).xlsx"))
@@ -198,19 +230,7 @@ final class GenotypeAIHaplotypingRunFixture {
             .write(to: bundleURL.appendingPathComponent("\(name).stats.json"))
         try Data(#"{"workflow":"lane-12-19"}"#.utf8)
             .write(to: bundleURL.appendingPathComponent("genotyping-provenance.json"))
-        let preset = MCMHaplotypingPreset.mcmMHCmiseq
-        let manifest = ONTGenotypeResultBundleManifest(
-            outputName: name,
-            analysisName: name,
-            primaryWorkbookPath: "\(name).xlsx",
-            longSummaryCSVPath: "\(name).genotypes.csv",
-            sampleSummaryCSVPath: "\(name).samples.csv",
-            statsJSONPath: "\(name).stats.json",
-            provenancePath: "genotyping-provenance.json",
-            haplotypeDefinitionSetID: preset.haplotypeDefinitionSetID,
-            haplotypeAssayID: preset.haplotypeAssayID
-        )
-        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+        try writeManifest(in: bundleURL, specialist: specialistManifest)
         return bundleURL
     }
 }

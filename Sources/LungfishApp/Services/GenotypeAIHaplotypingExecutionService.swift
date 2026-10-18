@@ -9,6 +9,9 @@ final class GenotypeAIHaplotypingExecutionService {
     private let operationCenter: OperationCenter
     private let settings: AppSettings
     private let keychain: KeychainSecretStorage
+    /// Runs once on an owned run between `prepare` and `begin`, so a test can
+    /// change the bundle there and reach the re-read in `currentRun`.
+    var afterPrepareForTesting: (@MainActor () async -> Void)?
 
     init(
         operationCenter: OperationCenter = .shared,
@@ -51,6 +54,7 @@ final class GenotypeAIHaplotypingExecutionService {
             } catch {
                 preparationError = error
             }
+            await afterPrepareForTesting?()
             let startResult = operationCenter.begin(
                 title: "AI Haplotyping",
                 detail: "Preparing \(displayName(for: mode))",

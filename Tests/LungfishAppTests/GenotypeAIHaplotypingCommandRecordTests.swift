@@ -144,4 +144,63 @@ final class GenotypeAIHaplotypingCommandRecordTests: XCTestCase {
         XCTAssertFalse(fixture.rowTexts().contains { $0.contains(key) }, "the key reached the failure sheet")
         XCTAssertEqual(try fixture.filesContaining(key), [], "the key reached a file")
     }
+
+    /// Review fix 3 (QA 2). A sidecar written between `prepare` and `begin`
+    /// changes the bundle state, so the run reads the bundle again under the
+    /// lock and publishes against the sidecar that now exists.
+    func testSidecarWrittenBetweenPrepareAndBeginIsReadAgainSoThePublishIsNotStale() async throws {
+        let fixture = try await GenotypeAIHaplotypingRunFixture(testCase: self)
+        let service = fixture.makeService()
+        let bundleURL = fixture.bundleURL
+        service.afterPrepareForTesting = {
+            do {
+                try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+                    .empty(generatedAt: "2026-10-18T00:00:00Z"),
+                    forBundleAt: bundleURL
+                )
+            } catch {
+                XCTFail("The hook could not write a sidecar: \(error)")
+            }
+        }
+        try await service.run(bundleURL: bundleURL, mode: .aiDiscovery)
+
+        let item = try XCTUnwrap(fixture.operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        let argv = try await fixture.expectedArgv()
+        XCTAssertEqual(item.cliCommand, Self.preview(argv))
+    }
+
+    /// Review fixes 2 and 3 (ARCH 2, BIO 4). A manifest rewritten between
+    /// `prepare` and `begin` moves the prompt pins, so the row takes the
+    /// command the run used, the revision's argv equals it, and View Log
+    /// says the command moved.
+    func testBundleChangeThatMovesThePromptPinsUpdatesTheRowCommand() async throws {
+        let fixture = try await GenotypeAIHaplotypingRunFixture(testCase: self, specialistManifest: false)
+        let firstArgv = try await fixture.expectedArgv()
+        let service = fixture.makeService()
+        service.afterPrepareForTesting = {
+            do {
+                try fixture.writeManifest(specialist: true)
+            } catch {
+                XCTFail("The hook could not rewrite the manifest: \(error)")
+            }
+        }
+        let published = try await service.run(bundleURL: fixture.bundleURL, mode: .aiDiscovery)
+
+        let item = try XCTUnwrap(fixture.operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        let usedArgv = try await fixture.expectedArgv()
+        XCTAssertNotEqual(usedArgv, firstArgv, "the rewrite must move the prompt pins")
+        let recordArgvs = try GenotypeAIHaplotypingRunFixture.argvArrays(inRecordAt: published.provenanceURL)
+        XCTAssertEqual(recordArgvs.filter { $0.first == CLICommandIdentity.executableName }, [usedArgv, usedArgv])
+        XCTAssertEqual(item.cliCommand, Self.preview(usedArgv))
+        XCTAssertTrue(
+            item.logEntries.contains { $0.message.contains("the row now records the command this run used") },
+            "\(item.logEntries.map(\.message))"
+        )
+    }
+
+    private static func preview(_ argv: [String]) -> String {
+        ViralReconWorkflowCommandPreview.build(executableName: argv[0], arguments: Array(argv.dropFirst()))
+    }
 }
