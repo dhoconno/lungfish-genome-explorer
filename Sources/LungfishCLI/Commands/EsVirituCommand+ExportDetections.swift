@@ -62,7 +62,7 @@ extension EsVirituCommand {
             try await ViewerExportLeaf.run(
                 globalOptions: globalOptions,
                 startMessage: "Exporting EsViritu detections."
-            ) {
+            ) { _ in
                 try command.export()
             }
         }
@@ -79,7 +79,11 @@ extension EsVirituCommand {
                     "No EsViritu database at \(databaseURL.path). Pass the EsViritu result folder the app opens."
                 )
             }
-            try ViewerExportLeaf.refuseExistingOutput(outputURL, force: invocation.force)
+            try ViewerExportLeaf.refuseUnsafeOutput(
+                outputURL,
+                inputs: [databaseURL] + EsVirituDetectionExport.metadataInputURLs(in: resultURL, writesMetadata: true),
+                force: invocation.force
+            )
 
             let database: EsVirituDatabase
             do {

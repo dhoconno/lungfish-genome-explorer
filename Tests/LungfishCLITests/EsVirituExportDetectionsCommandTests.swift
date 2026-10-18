@@ -144,6 +144,49 @@ final class EsVirituExportDetectionsCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: unknown.path))
     }
 
+    /// Review 12.31-M3a Fix 3. `--force` never lets the output replace a file the leaf reads.
+    func testRefusesAnOutputThatIsAnInput() throws {
+        let database = resultFolder.appendingPathComponent("esviritu.sqlite")
+        let before = try Data(contentsOf: database)
+        XCTAssertThrowsError(try command(leafArguments(output: database, extra: ["--force"])).export()) { error in
+            XCTAssertTrue(error is ViewerExportRefusal, "\(error)")
+        }
+        XCTAssertEqual(try Data(contentsOf: database), before)
+    }
+
+    /// Review 12.31-M3a Fix 3. A missing output folder is a refusal, exit 3, and the leaf creates no folder.
+    func testRefusesAnOutputWhoseFolderIsMissing() throws {
+        let missing = folder.appendingPathComponent("missing", isDirectory: true)
+        XCTAssertThrowsError(try command(leafArguments(output: missing.appendingPathComponent("out.tsv"))).export()) { error in
+            XCTAssertTrue(error is ViewerExportRefusal, "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path))
+    }
+
+    /// Review 12.31-M3a Fix 4. Each refusal of deviation 2 comes before any write.
+    func testRefusesAMissingDatabase() throws {
+        try FileManager.default.removeItem(at: resultFolder.appendingPathComponent("esviritu.sqlite"))
+        try assertRefusedBeforeWriting(extra: [])
+    }
+
+    func testRefusesAMetadataColumnWithoutAMetadataTable() throws {
+        try FileManager.default.removeItem(at: resultFolder.appendingPathComponent("metadata/sample_metadata.tsv"))
+        try assertRefusedBeforeWriting(extra: ["--metadata-column", "Group"])
+    }
+
+    func testRefusesAnUnknownMetadataColumn() throws {
+        try assertRefusedBeforeWriting(extra: ["--metadata-column", "Nope"])
+    }
+
+    private func assertRefusedBeforeWriting(extra: [String], line: UInt = #line) throws {
+        let output = folder.appendingPathComponent("refused.tsv")
+        XCTAssertThrowsError(try command(leafArguments(output: output, extra: extra)).export(), line: line) { error in
+            XCTAssertTrue(error is ViewerExportRefusal, "\(error)", line: line)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), line: line)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path), line: line)
+    }
+
     /// ARCH ruling G2 section 5. The arguments the begin helper builds parse through the root into the leaf, whose
     /// canonical argv is the executable name and the same array.
     func testEsVirituDetectionsLeafParsesTheGUIArguments() throws {
