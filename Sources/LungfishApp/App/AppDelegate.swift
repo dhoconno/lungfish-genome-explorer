@@ -146,15 +146,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// (relocated from the OperationsMenuActions section; extensions cannot hold stored properties).
     internal var operationsPanelController: OperationsPanelController?
 
-    internal struct VCFImportHelperEvent: Decodable {
-        let event: String
-        let progress: Double?
-        let message: String?
-        let variantCount: Int?
-        let error: String?
-        let profile: String?
-    }
-
     /// Public accessor for working directory URL
     public func getWorkingDirectoryURL() -> URL? {
         return workingDirectoryURL
