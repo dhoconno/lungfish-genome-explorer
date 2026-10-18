@@ -64,6 +64,29 @@ final class ClassifierResultImportCLIGUIParityReplayTests: XCTestCase {
         try await assertParity(.taxtriage)
     }
 
+    /// The row's command is the argv the runner runs, `--format json` included, from one builder (finding 1 of the
+    /// review of lane 12.04). The input has a space in its path and the name has spaces around it, and the row,
+    /// split into words as a shell does, equals `ClassifierResultImportCLIRoute.arguments`.
+    func testTheRowCommandIsTheArgvTheRunnerRuns() throws {
+        let imports = scratch.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
+        for (kind, name) in [(MetagenomicsImportKind.kraken2, "S1.2024.kreport"), (.esviritu, "S1.2024"), (.taxtriage, "run.2024")] {
+            let input = scratch.appendingPathComponent("Incoming folder/\(name)")
+            let reporter = RecordingOperationReporter()
+            AppDelegate.beginClassifierResultImportOperation(
+                kind: kind, operationTitle: "Import", inputURL: input, outputDirectory: imports, preferredName: " S1 sample ",
+                naoMgsOptions: nil, routeContext: nil, reporter: reporter, launch: { _ in }
+            )
+            let words = try RecordedCLICommand.arguments(of: reporter.items.first?.cliCommand)
+            XCTAssertEqual(
+                words,
+                ClassifierResultImportCLIRoute.arguments(kind: kind, inputURL: input, outputDirectory: imports, preferredName: " S1 sample "),
+                "\(kind): the row shows the argv the runner runs"
+            )
+            XCTAssertEqual(Array(words.suffix(2)), ["--format", "json"], "\(kind): the row shows the option the runner ran")
+            XCTAssertTrue(words.contains(input.path) && words.contains("S1 sample"), "\(kind): \(words)")
+        }
+    }
+
     /// The row's Cancel through the real transport with every core busy (X14). The command exits 125 inside the grace,
     /// records the run as cancelled in the project and leaves no process, the row ends Cancelled with no alert, and
     /// the folder the import began is gone.
