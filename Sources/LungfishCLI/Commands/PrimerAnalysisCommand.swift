@@ -9,7 +9,7 @@ struct PrimerAnalysisCommand: ParsableCommand {
         abstract: "Inspect saved primer analysis results",
         subcommands: [PrimerAnalysisInspectCommand.self, PrimerAnalysisHistoryCommand.self,
                       PrimerAnalysisAuditCommand.self, PrimerAnalysisAnnotatedReferenceCommand.self,
-                      PrimerAnalysisExportOrderCommand.self]
+                      PrimerAnalysisExportOrderCommand.self, PrimerAnalysisExportSelectionCommand.self]
     )
 }
 

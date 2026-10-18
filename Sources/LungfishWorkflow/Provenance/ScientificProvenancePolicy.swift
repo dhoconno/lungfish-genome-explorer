@@ -205,6 +205,8 @@ public enum ScientificProvenancePolicy {
         "variants import-sample-metadata": dataWriting("cli.variants.import-sample-metadata", writer: "VariantSampleMetadataImportService"),
         "primers analysis annotated-reference": dataWriting("cli.primers.analysis.annotated-reference"),
         "primers analysis export-order": dataWriting("cli.primers.analysis.export-order", writer: "PrimerOrderExportService"),
+        "primers analysis export-selection": dataWriting(
+            "cli.primers.analysis.export-selection", writer: "PrimerAnalysisSelectionExportService"),
         // `kraken2 classify` and `conda classify` are one command, `ClassifyCommand`, and both
         // spellings hold this entry (S19). It is read by tests only, so it changes no field a run
         // records.

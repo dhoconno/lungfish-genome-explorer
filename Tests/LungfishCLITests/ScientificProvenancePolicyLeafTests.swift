@@ -442,6 +442,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "primers analysis annotated-reference": "cli.primers.analysis.annotated-reference",
         "primers analysis audit": "cli.primers.analysis.audit",
         "primers analysis export-order": "cli.primers.analysis.export-order",
+        "primers analysis export-selection": "cli.primers.analysis.export-selection",
         "primers analysis history": "cli.primers.analysis.history",
         "primers analysis inspect": "cli.primers.analysis.inspect",
         "primers design olivar": "cli.primers",

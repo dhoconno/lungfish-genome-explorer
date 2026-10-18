@@ -329,6 +329,7 @@ package enum CLIEventContractTable {
         "primers analysis annotated-reference": .text(reason: humanTextOnly),
         "primers analysis audit": .text(reason: humanTextOnly),
         "primers analysis export-order": .text(reason: humanTextOnly),
+        "primers analysis export-selection": .text(reason: humanTextOnly),
         "primers analysis history": .text(reason: humanTextOnly),
         "primers design olivar": .text(reason: humanTextOnly),
         "primers design primalscheme3": .text(reason: humanTextOnly),
