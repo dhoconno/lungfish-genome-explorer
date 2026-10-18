@@ -162,6 +162,45 @@ final class NaoMgsNvdImportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertTrue(noneLeft, "no process of the command is left")
     }
 
+    /// A failed import through the real transport (QA 4, UX 4, finding 4 of the review of lane 12.05). The input is
+    /// missing, so the command prints `failed` with its words and exits with the input error. The route returns those
+    /// words with the alert, the row fails with the same words, no folder is left and the project holds no cancelled
+    /// record.
+    func testAFailedNaoMgsImportFailsTheRowWithTheCommandsWordsAndShowsTheAlert() async throws {
+        try await assertAFailedImportShowsTheAlert(.naomgs, title: "NAO-MGS Import", words: "Input not found: ")
+    }
+
+    func testAFailedNvdImportFailsTheRowWithTheCommandsWordsAndShowsTheAlert() async throws {
+        try await assertAFailedImportShowsTheAlert(.nvd, title: "NVD Import", words: "Input directory not found: ")
+    }
+
+    private func assertAFailedImportShowsTheAlert(_ kind: MetagenomicsImportKind, title: String, words: String) async throws {
+        let root = scratch.appendingPathComponent("failed-\(kind.rawValue)", isDirectory: true)
+        let (_, imports, project) = try Self.writeFixture(kind, in: root)
+        let missing = project.appendingPathComponent("Incoming/missing")
+        let runner = CLIBundleBuildRunner(cliURLOverride: harness.cliBinary)
+        let operationID = try XCTUnwrap(AppDelegate.beginClassifierResultImportOperation(
+            kind: kind, operationTitle: title, inputURL: missing, outputDirectory: imports, preferredName: nil,
+            naoMgsOptions: kind == .naomgs ? .init(fetchReferences: false) : nil, routeContext: nil,
+            onCancel: { runner.cancel() }, launch: { _ in }
+        ).startedID)
+        let outcome = await ClassifierResultImportCLIRoute.run(
+            runner,
+            arguments: ClassifierResultImportCLIRoute.arguments(
+                kind: kind, inputURL: missing, outputDirectory: imports, preferredName: nil, fetchReferences: false
+            ),
+            operationID: operationID,
+            operationTitle: title
+        )
+        let detail = words + missing.path
+        XCTAssertEqual(outcome, .failed(detail, alert: true), "a failure shows its alert")
+        let row = OperationCenter.shared.items.first { $0.id == operationID }
+        XCTAssertEqual(row?.state, .failed)
+        XCTAssertEqual(row?.detail, detail, "the row fails with the command's words")
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: imports.path)) ?? [], [], "no folder is left")
+        XCTAssertNotEqual(ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue, "cancelled", "a failure is no cancel")
+    }
+
     // MARK: - The sides
 
     private func assertParity(_ kind: MetagenomicsImportKind, file: StaticString = #filePath, line: UInt = #line) async throws {
