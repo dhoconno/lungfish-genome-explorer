@@ -3,15 +3,17 @@
 // SPDX-License-Identifier: MIT
 //
 // The EsViritu viewer registers one row, the BLAST verification of a
-// detection (R4). It locks no bundle. No lungfish-cli command BLASTs the reads
-// of a detection, so the recorded command is a CLI parity gap and the test
-// pins it.
+// detection (R4). It locks no bundle. Since Phase 2.12 (lane 12.08) the row
+// records the `lungfish-cli blast submit` command its search runs, and a test
+// parses it.
 
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 @MainActor
 final class ViewerEsVirituOperationTests: XCTestCase {
@@ -35,19 +37,50 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         XCTAssertNil(item.routeContext)
     }
 
-    func testDetectionBlastRowRecordsNoCommandAsAParityGap() throws {
+    func testDetectionBlastRowRecordsTheBlastSubmitCommandItRuns() throws {
+        let scratch = try TestTempDirectory.make(prefix: "esviritu-blast-begin")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let result = project.appendingPathComponent("Analyses/esviritu-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        let detection = BlastSubmitParity.esVirituDetection(
+            name: "Influenza A virus", species: "Alphainfluenzavirus influenzae", genus: "Alphainfluenzavirus"
+        )
+        // Six reads and a count of 4, so the subsample draws four.
+        let reads = (1...6).map { (id: "read_\($0)", sequence: String(repeating: "ACGT", count: $0 + 2)) }
+        let plan = try ViewerViewController.esVirituBlastSubmitPlan(
+            detection: detection, reads: reads, readCount: 4, accessions: ["NC_026433.1"], projectURL: project,
+            sourceResultURL: result
+        )
         let reporter = RecordingOperationReporter()
 
         ViewerViewController.beginEsVirituBlastVerificationOperation(
-            taxonName: "Hepatitis B virus",
+            taxonName: detection.name,
+            cliCommand: plan.cliCommand,
             reporter: reporter
         ) { _ in }
 
         let item = try XCTUnwrap(reporter.items.first)
-        // No lungfish-cli command BLASTs the reads of an EsViritu detection, so
-        // the row records no command.
-        XCTAssertNil(item.cliCommand)
-        assertCLIParityGap(item.cliCommand, id: "blast-esviritu")
+        XCTAssertEqual(item.cliCommand, plan.cliCommand)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.SubmitSubcommand.self)
+        let stage = URL(fileURLWithPath: command.queryPath).deletingLastPathComponent()
+        XCTAssertTrue(stage.lastPathComponent.hasPrefix("blast-submit-"), command.queryPath)
+        XCTAssertEqual(stage.deletingLastPathComponent().lastPathComponent, ".tmp", "the query file sits in the project's .tmp")
+        let output = URL(fileURLWithPath: command.outputPath).deletingLastPathComponent()
+        XCTAssertEqual(output.lastPathComponent, "blast-verifications")
+        XCTAssertEqual(output.deletingLastPathComponent().path, project.path, "the search sits under the project")
+        XCTAssertEqual(command.label, "Influenza A virus")
+        XCTAssertNil(command.taxId, "EsViritu names no tax ID")
+        XCTAssertEqual(command.contig, "NC_026433.1", "the accession the reads came from")
+        XCTAssertEqual(command.sample, "S1")
+        XCTAssertEqual(command.sourceResult, result.path)
+        XCTAssertEqual(command.subsampleCount, 4)
+        XCTAssertEqual(command.subsampleSeed, 0)
+        XCTAssertEqual(command.acceptedTaxIds, [])
+        XCTAssertEqual(command.acceptedNames, ["Influenza A virus", "Alphainfluenzavirus influenzae"])
+        XCTAssertEqual(command.relatedNames, ["Alphainfluenzavirus"], "the genus counts as a relative")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+        XCTAssertEqual(String(decoding: plan.queryData, as: UTF8.self).components(separatedBy: ">").count - 1, 4)
     }
 
     func testDetectionBlastLaunchesNothingWhenTheBeginIsRefused() {

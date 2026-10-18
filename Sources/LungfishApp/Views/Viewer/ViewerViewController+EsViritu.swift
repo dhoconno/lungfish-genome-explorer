@@ -83,13 +83,23 @@ extension ViewerViewController {
         controller.configureFromDatabase(db, resultURL: resultURL)
 
         // Wire BLAST verification callback for EsViritu.
-        controller.onBlastVerification = { [weak controller] detection, readCount, accessions, bamURL, bamIndexURL in
+        controller.onBlastVerification = { [weak self, weak controller] detection, readCount, accessions, bamURL, bamIndexURL in
             guard let bamURL else {
                 controller?.showBlastFailure("BAM file not available for BLAST verification.")
                 return
             }
 
             let selectedReadCount = min(50, max(1, readCount))
+            if ClassifierBlastRouteSettings.currentRoute == .cli {
+                self?.launchEsVirituBlastSubmit(
+                    detection: detection, readCount: selectedReadCount, accessions: accessions, bamURL: bamURL,
+                    bamIndexURL: bamIndexURL, resultURL: resultURL, controller: controller
+                )
+                return
+            }
+
+            // The in-process search, the route before Phase 2.12, kept behind `ClassifierBlastRoute` for one
+            // release (C4, U-R1). Its row records no command. Phase 2.13 deletes it with the key.
             ViewerViewController.beginEsVirituBlastVerificationOperation(
                 taxonName: detection.name
             ) { opID in
@@ -239,19 +249,92 @@ extension ViewerViewController {
         esVirituLogger.info("displayEsVirituFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
     }
 
+    /// The EsViritu detection's search on `blast submit` (2.12 lane 12.08). With no project it shows the
+    /// `No Project Open` refusal and starts nothing. Otherwise the drawer shows the search starting while
+    /// the reads of `accessions` are extracted from the sample's BAM into the project's `.tmp`, and once
+    /// they are read the row begins with the command of the plan they make and runs it. The extraction
+    /// comes before the row because the row records the command it runs, and that command names the
+    /// count the subsample drew. An extraction that fails shows in the drawer.
+    func launchEsVirituBlastSubmit(
+        detection: ViralDetection,
+        readCount: Int,
+        accessions: [String],
+        bamURL: URL,
+        bamIndexURL: URL?,
+        resultURL: URL,
+        controller: EsVirituResultViewController?
+    ) {
+        let window = view.window
+        guard let projectURL = blastSubmitProjectURL() ?? ProjectTempDirectory.findProjectRoot(resultURL) else {
+            return Self.refuseBlastWithoutProject(window: window)
+        }
+        controller?.showBlastLoading(phase: .submitting, requestId: nil)
+        Task { @MainActor in
+            let reads: [(id: String, sequence: String)]
+            do {
+                reads = try await EsVirituBlastReads.extract(
+                    bamURL: bamURL, indexURL: bamIndexURL, accessions: accessions, projectURL: projectURL
+                )
+            } catch {
+                controller?.showBlastFailure(error.localizedDescription)
+                return
+            }
+            guard let plan = Self.blastSubmitPlan(window: window, failure: { controller?.showBlastFailure($0) }, {
+                try Self.esVirituBlastSubmitPlan(
+                    detection: detection, reads: reads, readCount: readCount, accessions: accessions,
+                    projectURL: projectURL, sourceResultURL: resultURL
+                )
+            }) else { return }
+            Self.beginEsVirituBlastVerificationOperation(taxonName: detection.name, cliCommand: plan.cliCommand) { opID in
+                Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                    loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+                    results: { controller?.showBlastResults($0) },
+                    failure: { controller?.showBlastFailure($0) }
+                )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+            }
+        }
+    }
+
+    /// The search of an EsViritu detection's reads on `blast submit` (2.12 lane 12.08). From `reads`, the
+    /// reads of the selected accessions, it draws the subsample the in-process route drew, the mixed
+    /// strategy with seed 0, and judges hits on the request `ViralDetection.blastVerificationRequest`
+    /// builds, the detection's names with its genus as the relative. The record names the EsViritu result,
+    /// the sample, the accessions as the contig and the count and seed of the subsample. The search's
+    /// folder sits under the project's `blast-verifications/`, never in the EsViritu result.
+    nonisolated static func esVirituBlastSubmitPlan(
+        detection: ViralDetection,
+        reads: [(id: String, sequence: String)],
+        readCount: Int,
+        accessions: [String],
+        projectURL: URL?,
+        sourceResultURL: URL? = nil,
+        date: Date = Date()
+    ) throws -> BlastSubmitPlan {
+        guard !reads.isEmpty else { throw BlastServiceError.noSequences }
+        let longestCount = min(5, readCount / 4)
+        let seed: UInt64 = 0
+        let subsampled = BlastService(environment: [:]).subsampleReads(
+            from: reads, strategy: .mixed(longest: longestCount, random: readCount - longestCount), seed: seed
+        )
+        return try BlastSubmitPlan.make(
+            request: detection.blastVerificationRequest(sequences: subsampled),
+            projectURL: projectURL, sourceResultURL: sourceResultURL, outputParentURL: projectURL,
+            contig: accessions.isEmpty ? nil : accessions.joined(separator: ","), sample: detection.sampleId,
+            subsampleCount: subsampled.count, subsampleSeed: seed, date: date
+        )
+    }
+
     /// Registers the BLAST verification row for an EsViritu detection and, only
     /// when it starts, calls `launch` with the operation ID. The run extracts
     /// reads from the sample's BAM and locks no bundle.
     ///
-    /// cli-parity-gap: blast-esviritu. No `lungfish-cli` command BLASTs the
-    /// reads of an EsViritu detection. The closest is
-    /// `lungfish-cli blast verify`, which covers a Kraken2 classification
-    /// only and needs `--kreport`, `--kraken-output`, `--source` and
-    /// `--taxid`. The row records no command until a CLI command covers
-    /// EsViritu verification.
+    /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
+    /// (``BlastSubmitPlan/cliCommand``), nil on the in-process route that
+    /// ``ClassifierBlastRouteSettings`` keeps for one release.
     @discardableResult
     static func beginEsVirituBlastVerificationOperation(
         taxonName: String,
+        cliCommand: String? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -259,7 +342,7 @@ extension ViewerViewController {
             title: "BLAST \(taxonName)",
             detail: "Preparing BLAST verification…",
             operationType: .blastVerification,
-            cliCommand: nil
+            cliCommand: cliCommand
         )
         switch result {
         case .started(let operationID):
@@ -286,5 +369,36 @@ extension ViewerViewController {
         geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
         revealAnnotationDrawerUnlessNativeBundleInstalled()
         fastqMetadataDrawerView?.isHidden = false
+    }
+}
+
+/// The reads an EsViritu BLAST Verify sends, read off the main actor (2.12 lane 12.08).
+enum EsVirituBlastReads {
+    /// The reads of `accessions` in the sample's BAM, at most 5,000, as the in-process route reads them. The
+    /// extraction runs through `classifierBlastExtractionConfig`, which carries the BAM's index (PF12,
+    /// `d4bed54e0`), into a folder under the project's `.tmp` that is removed once the reads are read.
+    @concurrent static func extract(
+        bamURL: URL,
+        indexURL: URL?,
+        accessions: [String],
+        projectURL: URL
+    ) async throws -> [(id: String, sequence: String)] {
+        let tempDir = try ProjectTempDirectory.create(prefix: "esviritu-blast-", in: projectURL)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let config = ViewerViewController.classifierBlastExtractionConfig(
+            bamURL: bamURL, indexURL: indexURL, accessions: accessions, outputDirectory: tempDir
+        )
+        let extraction = try await ReadExtractionService().extractByBAMRegion(config: config)
+        guard let fastq = extraction.fastqURLs.first else { throw BlastServiceError.noSequences }
+        var reads: [(id: String, sequence: String)] = []
+        reads.reserveCapacity(min(5_000, extraction.readCount))
+        for try await record in FASTQReader(validateSequence: false).records(from: fastq) {
+            let sequence = record.sequence.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sequence.isEmpty else { continue }
+            reads.append((id: record.identifier, sequence: sequence))
+            if reads.count >= 5_000 { break }
+        }
+        guard !reads.isEmpty else { throw BlastServiceError.noSequences }
+        return reads
     }
 }

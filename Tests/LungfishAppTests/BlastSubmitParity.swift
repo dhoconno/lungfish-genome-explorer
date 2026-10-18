@@ -355,4 +355,18 @@ enum BlastSubmitParity {
             readsPerBillion: 1
         )
     }
+
+    /// An influenza A detection of sample S1 on segment 4, named `name`, with its species and genus (the shape
+    /// of `ClassifierBlastVerificationRequestTests`). EsViritu names no tax ID.
+    static func esVirituDetection(name: String, species: String?, genus: String?) -> ViralDetection {
+        ViralDetection(
+            sampleId: "S1", name: name, description: name, length: 1_701, segment: "4",
+            accession: "NC_026433.1", assembly: "GCF_001343785.1", assemblyLength: 13_588,
+            kingdom: "Orthornavirae", phylum: "Negarnaviricota", tclass: "Insthoviricetes",
+            order: "Articulavirales", family: "Orthomyxoviridae", genus: genus,
+            species: species, subspecies: nil,
+            rpkmf: 10, readCount: 100, coveredBases: 1_500, meanCoverage: 4,
+            avgReadIdentity: 99, pi: 0, filteredReadsInSample: 1_000_000
+        )
+    }
 }

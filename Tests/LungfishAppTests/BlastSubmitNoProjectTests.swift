@@ -74,6 +74,19 @@ final class BlastSubmitNoProjectTests: XCTestCase {
         }
     }
 
+    func testAnEsVirituDetectionSearchWithNoProjectRefusesAndStartsNothing() throws {
+        let result = try folder("esviritu-run")
+        let detection = BlastSubmitParity.esVirituDetection(
+            name: "Influenza A virus", species: "Alphainfluenzavirus influenzae", genus: "Alphainfluenzavirus"
+        )
+        assertRefused {
+            try ViewerViewController.esVirituBlastSubmitPlan(
+                detection: detection, reads: [(id: "read_1", sequence: "ACGTACGTAC")], readCount: 1,
+                accessions: ["NC_026433.1"], projectURL: nil, sourceResultURL: result
+            )
+        }
+    }
+
     // MARK: - Helpers
 
     /// A folder under the scratch folder, standing in for the result a search starts from.
