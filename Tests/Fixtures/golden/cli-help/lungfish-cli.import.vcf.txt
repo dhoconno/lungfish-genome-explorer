@@ -1,6 +1,6 @@
 OVERVIEW: Import a VCF variant file
 
-USAGE: lungfish-cli import vcf <input-file> [--output-dir <output-dir>] [--name <name>] [--import-profile <import-profile>] [--replace <replace>]
+USAGE: lungfish-cli import vcf [<options>] <input-file>
 
 ARGUMENTS:
   <input-file>            Path to the VCF or VCF.GZ file
@@ -21,6 +21,24 @@ OPTIONS:
         Without --replace, a VCF whose file name matches an existing track is
         added under a new id (calls, calls-2, calls-3, ...); nothing is
         overwritten. Use `bundle list <bundle> --tracks` to see track ids.
+  --resume                Finish the import of the --replace track whose
+                          database stopped before its index build.
+        Builds the missing indexes of the track's database instead of reading
+        the VCF again, then publishes the track as a fresh import does.
+  --materialize           Fill the INFO table of the --replace track whose INFO
+                          materialization was skipped or stopped.
+        Materializes the INFO fields of the track's finished database, then
+        publishes the track.
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --version               Show the version.
   -h, --help              Show help information.
 
