@@ -11,6 +11,35 @@ import LungfishIO
 /// The view's writer and `esviritu export detections` order the batch's assemblies and name the metadata files with
 /// these functions, so the view, the in-app writer and the leaf agree on the rows and on the record's inputs.
 public enum EsVirituDetectionExport {
+    /// The leaf's path under `lungfish-cli` (ARCH ruling 1.1, row A1).
+    public static let commandPath = ["esviritu", "export", "detections"]
+    /// The workflow name the leaf's record carries (ARCH ruling 1.4).
+    public static let workflowName = "lungfish esviritu export detections"
+    /// The batch database of a result folder, which the viewer opens and the leaf reads.
+    public static let databaseFileName = "esviritu.sqlite"
+
+    /// The leaf's invocation for a view state, with absolute standardized paths. The begin helper passes its
+    /// `arguments()` to the runner and to the row's command, and the leaf records its `canonicalArgv()`.
+    public static func invocation(
+        resultURL: URL,
+        samples: [String],
+        metadataColumns: [String],
+        format: ViewerExportDelimitedFormat,
+        outputURL: URL,
+        force: Bool,
+        emitsEvents: Bool = true
+    ) -> ViewerExportInvocation {
+        ViewerExportInvocation(
+            commandPath: commandPath,
+            input: resultURL.standardizedFileURL.path,
+            state: ViewerTableExportState(samples: samples, metadataColumns: metadataColumns),
+            outputFormat: format.rawValue,
+            output: outputURL.standardizedFileURL.path,
+            force: force,
+            emitsEvents: emitsEvents
+        )
+    }
+
     /// Orders batch assemblies by read count, highest first, then by sample id and then by assembly accession, so
     /// assemblies with tied read counts keep one order from launch to launch.
     public static func assemblyPrecedes(_ lhs: ViralAssembly, _ rhs: ViralAssembly) -> Bool {

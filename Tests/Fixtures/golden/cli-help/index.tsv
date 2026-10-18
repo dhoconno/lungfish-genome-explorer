@@ -134,6 +134,8 @@ lungfish-cli esviritu	shown	0	lungfish-cli.esviritu.txt
 lungfish-cli esviritu detect	shown	0	lungfish-cli.esviritu.detect.txt
 lungfish-cli esviritu download-db	shown	0	lungfish-cli.esviritu.download-db.txt
 lungfish-cli esviritu db-status	shown	0	lungfish-cli.esviritu.db-status.txt
+lungfish-cli esviritu export	shown	0	lungfish-cli.esviritu.export.txt
+lungfish-cli esviritu export detections	shown	0	lungfish-cli.esviritu.export.detections.txt
 lungfish-cli taxtriage	shown	0	lungfish-cli.taxtriage.txt
 lungfish-cli taxtriage run	shown	0	lungfish-cli.taxtriage.run.txt
 lungfish-cli taxtriage check-prerequisites	shown	0	lungfish-cli.taxtriage.check-prerequisites.txt

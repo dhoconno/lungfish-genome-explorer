@@ -300,6 +300,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "esviritu db-status": "cli.esviritu",
         "esviritu detect": "cli.esviritu",
         "esviritu download-db": "cli.esviritu",
+        "esviritu export detections": "cli.esviritu",
         "extract contigs": "cli.extract",
         "extract reads": "cli.extract",
         "extract sequence": "cli.extract.sequence",

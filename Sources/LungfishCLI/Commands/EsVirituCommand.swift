@@ -51,6 +51,7 @@ struct EsVirituCommand: AsyncParsableCommand {
             DetectSubcommand.self,
             DownloadDBSubcommand.self,
             DBStatusSubcommand.self,
+            ExportSubcommand.self,
         ],
         defaultSubcommand: DetectSubcommand.self
     )

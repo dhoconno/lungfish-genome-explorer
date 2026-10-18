@@ -17,5 +17,6 @@ SUBCOMMANDS:
   detect (default)        Run EsViritu viral detection on FASTQ files
   download-db             Download the EsViritu viral reference database
   db-status               Check EsViritu database installation status
+  export                  Export EsViritu result tables with provenance
 
   See 'lungfish-cli help esviritu <subcommand>' for detailed help.

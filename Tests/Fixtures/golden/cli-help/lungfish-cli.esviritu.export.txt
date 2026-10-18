@@ -1,0 +1,13 @@
+OVERVIEW: Export EsViritu result tables with provenance
+
+USAGE: lungfish-cli esviritu export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  detections              Write the detection table of an EsViritu result as
+                          TSV or CSV with provenance
+
+  See 'lungfish-cli help esviritu export <subcommand>' for detailed help.
