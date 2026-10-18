@@ -13,7 +13,14 @@ import LungfishWorkflow
 struct FastqTranslateSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "translate",
-        abstract: "Translate FASTQ reads to protein FASTA"
+        abstract: "Translate FASTQ reads to protein FASTA",
+        discussion: """
+            When the two mates of an interleaved pair share one read ID, the protein names add .1 for mate 1 \
+            and .2 for mate 2 right after the ID, so a pair named A1 gives >A1.1_frame+1 and >A1.2_frame+1. \
+            Every other read keeps its name, including single-end reads, mates already named apart such as \
+            A1/1 and A1/2, Nanopore and PacBio reads, and the pairs in a bundle that also holds merged or \
+            unpaired reads.
+            """
     )
 
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")

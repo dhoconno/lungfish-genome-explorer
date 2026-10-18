@@ -486,7 +486,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .translate:
-                Text("Frame 1 translation is used for this operation.")
+                Text("Frame 1 translation is used for this operation. When the two mates of an interleaved pair share one read ID, their protein names add .1 and .2 after the ID. Other reads keep their names.")
                     .foregroundStyle(.secondary)
 
             case .orientReads:
