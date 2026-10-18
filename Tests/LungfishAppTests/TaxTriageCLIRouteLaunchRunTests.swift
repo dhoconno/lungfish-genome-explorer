@@ -1,12 +1,12 @@
-// TaxTriageLaunchRouteRunTests.swift - Under each value of its key the TaxTriage launch runs or refuses in words
+// TaxTriageCLIRouteLaunchRunTests.swift - The TaxTriage launch runs its CLI route or refuses in words
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane U30 M1 (panel decision K1, owner direction of 2026-10-15, UX U-211-1). The Tools
-// menu hands its TaxTriage config to `launchTaxTriage`, which takes the route the hidden key names.
-// `legacy` runs `runTaxTriage` unchanged, here on a stand-in engine. `cli` begins a row that records
+// menu hands its TaxTriage config to `launchTaxTriage`, which begins a row that records
 // `lungfish-cli taxtriage run --project` and runs a stand-in command that plays the captured
-// transcript. Either route refuses a launch with no project open in the same words.
+// transcript, with no hidden key to read since Phase 2.12 K1. A launch with no project open is refused
+// in words.
 
 import AppKit
 import os
@@ -19,7 +19,7 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @MainActor
-final class TaxTriageLaunchRouteRunTests: XCTestCase {
+final class TaxTriageCLIRouteLaunchRunTests: XCTestCase {
     private var root: URL!
     private var rowIDs: [UUID] = []
 
@@ -125,12 +125,12 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         _ = await waitUntil(timeout: .seconds(5)) { window.attachedSheet != nil }
     }
 
-    // MARK: - cli
+    // MARK: - The CLI route
 
-    /// `cli` begins a row with today's title and first detail that records the argv it runs, runs
+    /// The launch begins a row with today's title and first detail that records the argv it runs, runs
     /// the stand-in command, and completes with the command's message. The app writes nothing into the
     /// project, before or after the command, and no sheet opens.
-    func testTheCLIValueRunsTaxTriageRunAgainstTheTranscript() async throws {
+    func testTheCLIRouteRunsTaxTriageRunAgainstTheTranscript() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let routeContext = OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
         let config = config(inputs: made.inputs)
@@ -164,7 +164,7 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
 
     /// A failed command fails the row with its message and shows today's `TaxTriage Failed` sheet
     /// with the message as its text (UX F5).
-    func testTheCLIValueFailsWithTodaysAlert() async throws {
+    func testTheCLIRouteFailsWithTodaysAlert() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let routeContext = OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
         let cli = try ClassifierRouteFixtures.standInCLI(
@@ -189,7 +189,7 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
     }
 
     /// A launch the argv cannot carry is refused in words before any row or byte (U-211-1).
-    func testTheCLIValueRefusesAPairOutsideABundleInWords() throws {
+    func testTheCLIRouteRefusesAPairOutsideABundleInWords() throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["S1_R1.fastq", "S1_R2.fastq", "S2.fastq"])
         var config = config(inputs: [made.inputs[0], made.inputs[2]])
         config.samples[0].fastq2 = made.inputs[1]
@@ -210,7 +210,7 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
 
     /// The M1 review's item 5. Several samples the command would name otherwise than the dialog shows
     /// them are refused through the same presenter as the pair, before any row or byte (U-211-1).
-    func testTheCLIValueRefusesSamplesTheCommandWouldRenameInWords() throws {
+    func testTheCLIRouteRefusesSamplesTheCommandWouldRenameInWords() throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let cases: [(names: [String], refusal: TaxTriageCLIRouteRefusal)] = [
             (["air.B", "blank"], .renamed(sampleID: "air.B", commandName: "air")),

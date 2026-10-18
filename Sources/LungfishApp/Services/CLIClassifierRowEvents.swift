@@ -9,8 +9,8 @@ import LungfishWorkflow
 enum CLIClassifierTool: String, Sendable, Equatable, CaseIterable {
     case kraken2
     case esViritu
-    /// `taxtriage run --project`, the TaxTriage launch's default route since Phase 2.11 lane U30 M4,
-    /// which the hidden key `TaxTriageLaunchRoute` set to `legacy` turns off for one Preview.
+    /// `taxtriage run --project`, the TaxTriage launch's route since Phase 2.11 lane U30 M4, and its
+    /// only route since Phase 2.12 K1.
     case taxTriage
 
     /// The detail today's row shows while the viewer database is built. The command's finalize

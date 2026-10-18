@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.9 lane Q1b, a rider of A2, with 2.7 T2 and 2.8 T1, T2, T4, T5 and T17. Since Phase 2.11
-// lane U30 M3 side C is the GUI route the hidden key's `cli` value selects, `launchTaxTriage(route: .cli)`,
+// lane U30 M3 side C is the GUI route, `launchTaxTriage`,
 // which runs `taxtriage run --project` with the inputs and settings of the wizard's config through the
 // built `lungfish-cli` on the case's engine, with its Operations panel row (runGUISide). Side C' reads
 // the argv side C's root record names, rebases it onto its own root and runs it through the same

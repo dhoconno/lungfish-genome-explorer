@@ -1,12 +1,11 @@
-// TaxTriageLaunchRouteTests.swift - The hidden key of the TaxTriage launch and the argv of its CLI route
+// TaxTriageCLIRouteLaunchTests.swift - The argv the TaxTriage launch runs through its CLI route
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane U30 M1, M2 and M4 (panel decision K1, UX R2 and U-211-1, the M1 review's items 2 to 4). The
-// Tools menu's TaxTriage launch takes `lungfish-cli taxtriage run --project` by default since the flip (M4), and
-// the hidden key `TaxTriageLaunchRoute` set to `legacy` keeps the in-process route for one Preview. These tests
-// read each value of the key from a defaults suite of their own and pin the argv the CLI route runs and records,
-// which the command's own parser reads back, and the refusals of samples the command would not name as the dialog does.
+// Tools menu's TaxTriage launch takes `lungfish-cli taxtriage run --project`, with no hidden key since Phase 2.12
+// K1. These tests pin the argv the CLI route runs and records, which the command's own parser reads back, and the
+// refusals of samples the command would not name as the dialog does.
 
 import XCTest
 @testable import LungfishApp
@@ -17,7 +16,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
-final class TaxTriageLaunchRouteTests: XCTestCase {
+final class TaxTriageCLIRouteLaunchTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
@@ -28,43 +27,6 @@ final class TaxTriageLaunchRouteTests: XCTestCase {
     override func tearDownWithError() throws {
         TestTempDirectory.cleanup(root)
         try super.tearDownWithError()
-    }
-
-    // MARK: - The key
-
-    private func route(holding value: Any?) -> TaxTriageLaunchRoute {
-        let suite = makeTestDefaultsSuite(prefix: "taxtriage-launch-route")
-        if let value { suite.defaults.set(value, forKey: TaxTriageLaunchRouteSettings.defaultsKey) }
-        return TaxTriageLaunchRouteSettings(defaults: suite.defaults).route
-    }
-
-    func testTheKeyReadsEachValueAndAnUnknownOneTakesTheDefault() {
-        XCTAssertEqual(TaxTriageLaunchRouteSettings.defaultsKey, "TaxTriageLaunchRoute")
-        XCTAssertEqual(route(holding: "cli"), .cli)
-        XCTAssertEqual(route(holding: "CLI"), .cli)
-        XCTAssertEqual(route(holding: "legacy"), .legacy)
-        XCTAssertEqual(route(holding: true), .cli)
-        XCTAssertEqual(route(holding: false), .legacy)
-        XCTAssertEqual(route(holding: "in-process"), TaxTriageLaunchRouteSettings.defaultRoute, "a value nothing reads")
-        XCTAssertEqual(route(holding: 7), TaxTriageLaunchRouteSettings.defaultRoute, "a number is not a route")
-        XCTAssertEqual(TaxTriageLaunchRoute.allCases, [.legacy, .cli])
-    }
-
-    /// K1 and U30 M4. Since the flip, which followed Q32 M3's evidence and BIO's read, an unset key and a
-    /// value nothing reads take the CLI route.
-    func testTheDefaultRouteIsTheCLIRouteSinceTheFlip() {
-        XCTAssertEqual(TaxTriageLaunchRouteSettings.defaultRoute, .cli)
-        XCTAssertEqual(route(holding: nil), .cli, "an unset key takes the CLI route")
-        XCTAssertEqual(route(holding: "in-process"), .cli, "a value nothing reads takes the CLI route")
-    }
-
-    /// K1 and U30 M4. An explicit `legacy`, as a word or as false, still selects the in-process route for
-    /// one Preview, and the route's deletion goes to 2.12.
-    func testAnExplicitLegacyValueKeepsTheInProcessRouteForOnePreview() {
-        XCTAssertEqual(route(holding: "legacy"), .legacy)
-        XCTAssertEqual(route(holding: "Legacy"), .legacy)
-        XCTAssertEqual(route(holding: false), .legacy)
-        XCTAssertEqual(TaxTriageLaunchRoute(rawValue: "legacy"), .legacy, "the value stays for one Preview")
     }
 
     // MARK: - The argv
@@ -195,12 +157,11 @@ final class TaxTriageLaunchRouteTests: XCTestCase {
         XCTAssertEqual(parsed.project, project.path)
     }
 
-    /// The M1 review's item 1, a declared difference of the two routes (U30 M3). Loose files named with a
-    /// dot and a space keep their names on `cli`, so the launch runs, and each route spells a sample's
-    /// folder by its own rule. `legacy` keeps the dot (`TaxTriageSerialBatchRunner.sanitizedDirectoryName`)
-    /// and the command turns it into an underscore (`AnalysesFolder.batchSampleDirectory`), so `S.1` is
-    /// folder `S.1` on `legacy` and `S_1` on `cli`. Both spell `blank 1` as `blank_1`.
-    func testEachRouteSpellsASampleFolderByItsOwnRule() throws {
+    /// The M1 review's item 1 (U30 M3). Loose files named with a dot and a space keep their names, so the
+    /// launch runs, and the command spells each sample's folder by its own rule
+    /// (`AnalysesFolder.batchSampleDirectory`), so `S.1` is folder `S_1` and `blank 1` is `blank_1`. The
+    /// in-process route kept the dot until Phase 2.12 K1 deleted it.
+    func testTheCommandSpellsASampleFolderByItsOwnRule() throws {
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         let imports = project.appendingPathComponent("Imports", isDirectory: true)
         // The command drops the last two extensions of each of several inputs, so `.fastq.gz` keeps the dot.
@@ -209,7 +170,6 @@ final class TaxTriageLaunchRouteTests: XCTestCase {
         XCTAssertEqual(try launch(samples, project: project).sampleIDs, ["S.1", "blank 1"], "the command keeps both names, so nothing is refused")
         let batch = root.appendingPathComponent("batch", isDirectory: true)
         try FileManager.default.createDirectory(at: batch, withIntermediateDirectories: true)
-        XCTAssertEqual(samples.map { TaxTriageSerialBatchRunner.sanitizedDirectoryName(for: $0.sampleId) }, ["S.1", "blank_1"], "legacy")
         XCTAssertEqual(
             try samples.map { try AnalysesFolder.batchSampleDirectory(named: $0.sampleId, in: batch).lastPathComponent },
             ["S_1", "blank_1"],

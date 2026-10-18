@@ -8,8 +8,8 @@ import LungfishKit
 import LungfishWorkflow
 
 /// What the TaxTriage CLI route runs for one launch of the FASTQ operations dialog (Phase 2.11 lane
-/// U30, panel decision K1). The hidden key `TaxTriageLaunchRoute` chooses the route
-/// (``TaxTriageLaunchRoute``), and the run takes the classifier CLI route's one row path.
+/// U30, panel decision K1). Every launch takes it since Phase 2.12 K1 deleted the hidden key and the
+/// in-process route, and the run takes the classifier CLI route's one row path.
 ///
 /// The argv is `taxtriage run` with the words the legacy row records for one sample
 /// (`AppDelegate.taxTriageCLICommand(for:)`) and `--project` in place of `--output`, the words the

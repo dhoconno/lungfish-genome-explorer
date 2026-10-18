@@ -1,4 +1,4 @@
-// AppDelegate+ClassifierLaunchRouting.swift - The FASTQ operations dialog's Kraken2 and EsViritu launches
+// AppDelegate+ClassifierLaunchRouting.swift - The FASTQ operations dialog's Kraken2, EsViritu and TaxTriage launches
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
