@@ -60,6 +60,7 @@ lungfish-cli fastq 12s-match	shown	0	lungfish-cli.fastq.12s-match.txt
 lungfish-cli fastq 12s-export	shown	0	lungfish-cli.fastq.12s-export.txt
 lungfish-cli fastq 12s-export-unresolved	shown	0	lungfish-cli.fastq.12s-export-unresolved.txt
 lungfish-cli fastq export	shown	0	lungfish-cli.fastq.export.txt
+lungfish-cli fastq export reads	shown	0	lungfish-cli.fastq.export.reads.txt
 lungfish-cli fastq export sample-barcodes	shown	0	lungfish-cli.fastq.export.sample-barcodes.txt
 lungfish-cli fastq search-text	shown	0	lungfish-cli.fastq.search-text.txt
 lungfish-cli fastq search-motif	shown	0	lungfish-cli.fastq.search-motif.txt

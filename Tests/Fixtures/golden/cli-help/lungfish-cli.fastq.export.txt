@@ -7,6 +7,8 @@ OPTIONS:
   -h, --help              Show help information.
 
 SUBCOMMANDS:
+  reads                   Write the reads of a FASTQ bundle as one FASTQ file
+                          with provenance
   sample-barcodes         Write the sample barcode sheet of the FASTQ metadata
                           drawer as CSV with provenance
 

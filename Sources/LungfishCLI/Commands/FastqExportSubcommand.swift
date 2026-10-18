@@ -11,6 +11,7 @@ struct FastqExportSubcommand: AsyncParsableCommand {
         commandName: "export",
         abstract: "Export FASTQ views and tables with provenance",
         subcommands: [
+            FastqExportReadsSubcommand.self,
             FastqExportSampleBarcodesSubcommand.self,
         ]
     )

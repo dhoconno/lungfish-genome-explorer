@@ -1,0 +1,3 @@
+{"event":"start","message":"Exporting the FASTQ reads.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Copying reads.fastq...","progress":0.2,"schemaVersion":2}
+{"event":"complete","message":"Exported reads-export.fastq","output":"\/work\/reads-export.fastq","outputs":["\/work\/reads-export.fastq"],"progress":1,"schemaVersion":2}
