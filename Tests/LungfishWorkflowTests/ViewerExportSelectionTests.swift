@@ -5,6 +5,7 @@
 // Phase 2.12 lane 12.31 M2 (3), ARCH ruling 1.3. Lanes 12.34, 12.35 and 12.39 use this type, so 12.31 builds it once.
 
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class ViewerExportSelectionTests: XCTestCase {
@@ -110,6 +111,55 @@ final class ViewerExportSelectionTests: XCTestCase {
       }
     }
     """
+
+    /// ARCH ruling on 12.39 R2. Each family field alone writes schema 2 and reads back equal, a field set after the
+    /// init writes 2 too, and a nil field writes no key.
+    func testFamilyFieldWritesSchemaTwoAndRoundTrips() throws {
+        let table = ViewerExportSelection(
+            identities: ["variant:7"],
+            annotationTable: AnnotationTableExportSelection(
+                scope: "allMatchingRows",
+                columns: [ScientificTableColumn(id: "chromosome", title: "Chromosome")],
+                numericColumnIDs: ["quality", "position"],
+                integerColumnIDs: ["position"],
+                query: ["tab": "variants"],
+                variantChromosomeAliases: ["chr1": "1"],
+                codingFeatureRegion: AnnotationTableFeatureRegion(chromosome: "chr1", start: 0, end: 500, trackIDs: ["genes"])
+            )
+        )
+        let annotations = [SequenceAnnotation(type: .gene, name: "unsaved", chromosome: "chr1", start: 1, end: 9)]
+        let document = ViewerExportSelection(documentAnnotations: AnnotationExportDocumentSelection(
+            sourceName: "Edited document", sourcePath: "/tmp/edited.gb", annotations: annotations
+        ))
+        for (name, selection) in [("annotationTable", table), ("documentAnnotations", document)] {
+            XCTAssertEqual(selection.schemaVersion, 2, name)
+            let url = try selection.write(besideOutput: folder.appendingPathComponent("out.tsv"))
+            let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            XCTAssertEqual(object["schemaVersion"] as? Int, 2, name)
+            XCTAssertEqual(Set(object.keys).subtracting(["editedValues", "identities", "schemaVersion", "state"]), [name])
+            XCTAssertEqual(try ViewerExportSelection.read(from: url), selection, name)
+        }
+        XCTAssertEqual(table.annotationTable?.numericColumnIDs, ["position", "quality"], "sorted for one digest")
+
+        var late = ViewerExportSelection(identities: ["a"])
+        XCTAssertEqual(late.schemaVersion, 1)
+        late.documentAnnotations = document.documentAnnotations
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: late.encoded()) as? [String: Any])
+        XCTAssertEqual(object["schemaVersion"] as? Int, 2)
+    }
+
+    /// ARCH ruling on 12.39 R2. A file newer than schema 2 is refused.
+    func testSchemaThreeIsRefused() throws {
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Self.selection.encoded()) as? [String: Any]
+        )
+        object["schemaVersion"] = 3
+        let url = folder.appendingPathComponent("selection.json")
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+        XCTAssertThrowsError(try ViewerExportSelection.read(from: url)) { error in
+            XCTAssertEqual(error as? ViewerExportSelection.ReadError, .unsupportedSchema(3))
+        }
+    }
 
     func testAFailedWriteLeavesNoInputsFolder() throws {
         let blocker = folder.appendingPathComponent(".lungfish-export-inputs")

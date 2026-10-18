@@ -16,8 +16,9 @@ public struct ViewerExportSelection: Codable, Sendable, Equatable {
     public static let fileName = "selection.json"
     /// The folder beside the output that holds one `<UUID>` folder per export.
     public static let inputsFolderName = ".lungfish-export-inputs"
-    /// The schema this type writes.
-    public static let currentSchemaVersion = 1
+    /// The newest schema this type reads. It writes 2 for a selection with a family field and 1 for one with none,
+    /// so a selection with neither keeps its schema 1 bytes and digest (ARCH ruling on 12.39 R2).
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     /// Row identities the view holds selected, spelled as the result records them.
@@ -26,23 +27,40 @@ public struct ViewerExportSelection: Codable, Sendable, Equatable {
     public var state: ViewerTableExportState
     /// Values edited in the view and not saved, keyed by row identity and then by field.
     public var editedValues: [String: [String: String]]
+    /// The annotation table's columns, query and coding feature region (lane 12.39, ARCH ruling on 12.39 R1).
+    public var annotationTable: AnnotationTableExportSelection?
+    /// An open document's annotations for the GFF3 export (lane 12.39, ARCH ruling on 12.39 R2).
+    public var documentAnnotations: AnnotationExportDocumentSelection?
 
     public init(
         identities: [String] = [],
         state: ViewerTableExportState = ViewerTableExportState(),
-        editedValues: [String: [String: String]] = [:]
+        editedValues: [String: [String: String]] = [:],
+        annotationTable: AnnotationTableExportSelection? = nil,
+        documentAnnotations: AnnotationExportDocumentSelection? = nil
     ) {
-        self.schemaVersion = Self.currentSchemaVersion
         self.identities = identities
         self.state = state
         self.editedValues = editedValues
+        self.annotationTable = annotationTable
+        self.documentAnnotations = documentAnnotations
+        self.schemaVersion = 1
+        self.schemaVersion = writtenSchemaVersion
     }
 
-    /// The bytes of the file, JSON with sorted keys so that one selection always writes one digest.
+    /// 2 when a family field is set, else 1, and never below a schema set by hand.
+    var writtenSchemaVersion: Int {
+        max(schemaVersion, annotationTable == nil && documentAnnotations == nil ? 1 : 2)
+    }
+
+    /// The bytes of the file, JSON with sorted keys so that one selection always writes one digest. A nil family
+    /// field writes no key.
     public func encoded() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return try encoder.encode(self)
+        var written = self
+        written.schemaVersion = writtenSchemaVersion
+        return try encoder.encode(written)
     }
 
     /// Writes the file into a new `.lungfish-export-inputs/<UUID>/` folder beside `outputURL` and returns its URL.
