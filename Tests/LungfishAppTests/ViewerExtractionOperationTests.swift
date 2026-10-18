@@ -8,8 +8,8 @@
 // with the argv the site hands the helper, and the row records that argv, so
 // a parse test replaces the gap pin of `region-bundle-extraction`.
 // RegionBundleExtractionParityReplayTests replays the command. A viewer with
-// no reference bundle still builds in process and records no command, the
-// narrower gap `region-extraction-without-bundle`. A reporter that refuses
+// no reference bundle stages its sequence and launches the same leaf on that
+// FASTA since 2.12 lane 12.12 (A48-GAP), and its row records that argv. A reporter that refuses
 // every begin proves the launch closure sits behind the `.started` case.
 
 import XCTest
