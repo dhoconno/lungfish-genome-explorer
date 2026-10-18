@@ -9,7 +9,7 @@ struct VariantsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "variants",
         abstract: "Call viral variants from a bundle-owned alignment track",
-        subcommands: [CallSubcommand.self, PhaseSubcommand.self, ExtractSampleSubcommand.self, QuerySubcommand.self, DeleteSubcommand.self, ImportSampleMetadataSubcommand.self]
+        subcommands: [CallSubcommand.self, PhaseSubcommand.self, ExtractSampleSubcommand.self, QuerySubcommand.self, DeleteSubcommand.self, ImportSampleMetadataSubcommand.self, ExportSubcommand.self]
     )
 
     struct Runtime {

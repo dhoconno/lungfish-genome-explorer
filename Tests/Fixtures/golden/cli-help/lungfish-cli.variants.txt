@@ -18,5 +18,6 @@ SUBCOMMANDS:
                           reference bundle.
   import-sample-metadata  Import a CSV or TSV file of sample metadata into the
                           variant databases of a reference bundle.
+  export                  Export variant drawer tables with provenance
 
   See 'lungfish-cli help variants <subcommand>' for detailed help.

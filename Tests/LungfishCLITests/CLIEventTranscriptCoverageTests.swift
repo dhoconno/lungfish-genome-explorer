@@ -752,7 +752,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     }
 
     /// The standard output of a run that has no sink, redirected to a file for its length.
-    private static func standardOutputLines(
+    static func standardOutputLines(
         in scratch: Scratch,
         expectingFailure: Bool = false,
         _ run: () async throws -> Void

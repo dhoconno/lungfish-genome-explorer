@@ -1,0 +1,15 @@
+OVERVIEW: Export variant drawer tables with provenance
+
+USAGE: lungfish-cli variants export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  bookmarked              Write the bookmarked variants of variant databases as
+                          TSV with provenance
+  sample-template         Write a sample metadata template of a bundle's
+                          variant samples as TSV or CSV with provenance
+
+  See 'lungfish-cli help variants export <subcommand>' for detailed help.

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishCLI
 
@@ -24,6 +25,30 @@ extension CLIEventTranscriptCoverageTests {
                     fixture.bundleURL.path, metadata.path, "--format", "json",
                 ])
                 return try await Self.eventLines { try await command.execute(emit: $0) }
+            },
+            // The two viewer export leaves of lane 12.39 print through `ViewerExportLeaf.run`, which has no sink, so
+            // their standard output is redirected for the run.
+            Capture(leaf: "variants export bookmarked", name: "complete") { scratch in
+                let fixture = try VariantEditFixture.make(in: scratch.root, withTrackManifest: true)
+                do {
+                    let database = try VariantDatabase(url: fixture.databaseURL, readWrite: true)
+                    for id in try fixture.variantIDs().prefix(2) {
+                        database.toggleBookmark(variantId: id)
+                    }
+                }
+                let command = try VariantsCommand.ExportBookmarkedSubcommand.parse([
+                    fixture.databaseURL.path, "--output", scratch.root.appendingPathComponent("bookmarked.tsv").path,
+                    "--format", "json",
+                ])
+                return try await Self.standardOutputLines(in: scratch) { try await command.run() }
+            },
+            Capture(leaf: "variants export sample-template", name: "complete") { scratch in
+                let fixture = try VariantEditFixture.make(in: scratch.root, withTrackManifest: true)
+                let command = try VariantsCommand.ExportSampleTemplateSubcommand.parse([
+                    fixture.bundleURL.path, "--metadata-column", "cohort", "--output-format", "tsv",
+                    "--output", scratch.root.appendingPathComponent("template.tsv").path, "--format", "json",
+                ])
+                return try await Self.standardOutputLines(in: scratch) { try await command.run() }
             },
         ]
     }

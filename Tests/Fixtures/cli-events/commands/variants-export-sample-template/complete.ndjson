@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the sample metadata template.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported a template of 2 samples to template.tsv","output":"\/work\/template.tsv","outputs":["\/work\/template.tsv"],"progress":1,"schemaVersion":2}

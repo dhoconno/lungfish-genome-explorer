@@ -151,6 +151,8 @@ package enum CLIEventContractTable {
         "tree reroot": .events(flag: formatJSON, channel: .standardOutput),
         "variants call": .events(flag: formatJSON, channel: .standardOutput),
         "variants delete": .events(flag: formatJSON, channel: .standardOutput),
+        "variants export bookmarked": .events(flag: formatJSON, channel: .standardOutput),
+        "variants export sample-template": .events(flag: formatJSON, channel: .standardOutput),
         "variants import-sample-metadata": .events(flag: formatJSON, channel: .standardOutput),
         "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]

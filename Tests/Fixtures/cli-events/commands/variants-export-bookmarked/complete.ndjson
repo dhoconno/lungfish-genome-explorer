@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting bookmarked variants.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 2 bookmarked variants to bookmarked.tsv","output":"\/work\/bookmarked.tsv","outputs":["\/work\/bookmarked.tsv"],"progress":1,"schemaVersion":2}

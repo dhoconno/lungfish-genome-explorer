@@ -481,6 +481,8 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "universal-search": "cli.universal-search",
         "variants call": "cli.variants",
         "variants delete": "cli.variants.delete",
+        "variants export bookmarked": "cli.variants",
+        "variants export sample-template": "cli.variants",
         "variants extract-sample": "cli.variants",
         "variants import-sample-metadata": "cli.variants.import-sample-metadata",
         "variants phase": "cli.variants",
