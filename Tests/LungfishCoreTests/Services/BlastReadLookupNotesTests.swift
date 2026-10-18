@@ -108,4 +108,22 @@ final class BlastReadLookupNotesTests: XCTestCase {
         XCTAssertTrue(found.isEmpty)
         XCTAssertEqual(runs.withLock { $0 }, 1, "one gzip -dc for the source")
     }
+
+    // MARK: - Note 3, the cancel check of the plain-file branch
+
+    func testACancelledTaskReadsNoMoreOfAPlainKrakenOutputOrFASTQ() async throws {
+        let kraken = try write("C\thit\t562\t10\t562:10\n", named: "plain.kraken")
+        let fastq = try write("@hit\nACGTACGTAC\n+\nIIIIIIIIII\n", named: "plain.fastq")
+        let service = try XCTUnwrap(service)
+        let scan = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await service.scanKrakenClassificationOutput(kraken, targetTaxIds: [562]).totalClassified
+        }
+        await assertEndsCancelled(scan, "the scan of a plain Kraken output")
+        let extraction = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await service.extractMatchingSequences(from: fastq, matchingReadIds: ["hit"], isGzip: false).count
+        }
+        await assertEndsCancelled(extraction, "the extraction from a plain FASTQ")
+    }
 }

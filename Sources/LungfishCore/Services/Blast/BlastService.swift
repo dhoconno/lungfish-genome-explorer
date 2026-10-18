@@ -256,10 +256,14 @@ public actor BlastService {
         ))
     }
 
-    /// The next `count` bytes of a plain file or of `gzip -dc`, fewer at the end. A cancelled task
-    /// ends a gzip read before its next piece, so a gzip that writes nothing sees the cancel late.
+    /// The next `count` bytes of a plain file or of `gzip -dc`, fewer at the end. A cancelled task ends a
+    /// plain read before its next chunk (S38, 2.12 lane 12.10) and a gzip read before its next piece, so a
+    /// gzip that writes nothing sees the cancel late.
     private nonisolated static func nextChunk(_ file: FileHandle?, _ gzip: ToolProcessRun?, count: Int) throws -> Data {
-        guard let gzip else { return file?.readData(ofLength: count) ?? Data() }
+        guard let gzip else {
+            try Task.checkCancellation()
+            return file?.readData(ofLength: count) ?? Data()
+        }
         var data = Data()
         while data.count < count {
             if Task.isCancelled { throw CancellationError() }
