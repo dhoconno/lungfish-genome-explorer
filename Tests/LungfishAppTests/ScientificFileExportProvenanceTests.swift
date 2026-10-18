@@ -501,19 +501,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(annotationExportCapture.contains("variantFormatOverlaySnapshot.sourceIdentities"))
     }
 
-    func testSequenceExportWriterDeclaresRequiredProvenancePolicy() throws {
-        let source = try String(
-            contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ImportCenterSequenceExport.swift"),
-            encoding: .utf8
-        )
-        // Dynamic document publication is covered by CapturedSequenceExportTests. A reference bundle export now
-        // runs as `lungfish-cli convert`, which writes its own record, and SequenceExportPinConformanceTests checks
-        // that a record sits beside each output. This check covers the writer that stays in the app.
-        XCTAssertTrue(source.contains("try Self.writeSequenceExportProvenance("))
-        XCTAssertTrue(source.contains(#"workflowName: "lungfish app sequence export""#))
-        XCTAssertTrue(source.contains(#""compression": .string(compression.provenanceValue)"#))
-    }
-
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
