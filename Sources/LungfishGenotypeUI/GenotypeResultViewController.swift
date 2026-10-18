@@ -6845,31 +6845,27 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
 
     private func exportManualDefinitions() {
         guard let store = annotationStore else { return }
-        let assignments = GenotypeManualHaplotypeAssignmentIndex(
-            assignments: store.sidecar.manualHaplotypeAssignments
-        ).currentAssignments
+        // The store's raw assignments, frozen before the panel. The leaf picks the current ones (lane 12.35, Q-A3).
+        let assignments = store.sidecar.manualHaplotypeAssignments
+        let bundleURL = store.bundleURL
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "manual-haplotype-definitions.json"
         panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { response in
             guard response == .OK, let url = panel.url else { return }
-            do {
-                let runClock = ProvenanceRunClock()
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                let data = try encoder.encode(assignments)
-                try self.writeManualDefinitionsExport(
-                    data: data,
-                    outputURL: url,
-                    assignmentCount: assignments.count,
-                    runClock: runClock
-                )
-            } catch {
+            let presentFailure: @MainActor @Sendable (any Error) -> Void = { error in
                 if let window = self.view.window ?? NSApp.keyWindow {
                     NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
                 } else {
                     NSApp.presentError(error)
                 }
+            }
+            do {
+                try Self.runManualDefinitionsExport(
+                    assignments: assignments, bundleURL: bundleURL, outputURL: url
+                ) { failure in presentFailure(failure) }
+            } catch {
+                presentFailure(error)
             }
         }
     }
