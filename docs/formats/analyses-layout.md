@@ -41,6 +41,34 @@ A batch run puts each sample in a subfolder from `batchSampleDirectory(named:in:
 
 `writeAnalysisMetadata` encodes with pretty printing and sorted keys and publishes the file through `DurableReplace`, so the name always holds a complete old or new file (plan decisions S1, V1 and V2, lane P2). `readAnalysisMetadata` returns nothing for a missing or unreadable file, which is the case for folders made before the file existed. The file is the authoritative way to identify a result, because it survives a rename of the folder.
 
+## mapping-result.json
+
+A mapping run, from `lungfish-cli map` or the app's Map Reads, writes `mapping-result.json` at the top of its result folder. `MappingResult` in `Sources/LungfishWorkflow/Mapping/MappingResult.swift` reads and writes it. `save(to:relativeTo:)` encodes with pretty printing and sorted keys and publishes the file through `DurableReplace`, so the name always holds a complete old or new file and every save gives it a new modification date. `load(from:)` reads `alignment-result.json`, the older name, when the folder has no `mapping-result.json`.
+
+| Key | What it holds |
+| --- | --- |
+| `schemaVersion` | 1 or 2, described below |
+| `mapper` | The mapper id, such as `minimap2` |
+| `modeID` | The mapping mode id, such as `short-read-default` |
+| `bamPath`, `baiPath` | The sorted BAM and its index, relative to the result folder when they are inside it |
+| `sourceReferenceBundlePath`, `viewerBundlePath` | The reference bundle the reads were mapped against and the viewer bundle made from it, when known |
+| `totalReads`, `mappedReads`, `unmappedReads` | Read counts from `samtools flagstat` |
+| `wallClockSeconds` | The wall time of the run |
+| `contigs` | One row per reference sequence, described below |
+| `referenceCount` | Schema 2 only. How many reference sequences the BAM header lists |
+| `unalignedReferenceCount` | Schema 2 only. How many reference sequences no alignment record names, which `contigs` leaves out |
+
+A row of `contigs` holds `contigName`, `contigLength`, `mappedReads` (primary reads), `mappedReadPercent`, `meanDepth`, `coverageBreadth`, `medianMAPQ`, `meanIdentity` and `readGroupIDs`, and a row made from one alignment track adds `sampleID` and `alignmentTrackID`. `MappingSummaryBuilder` makes the rows from `samtools coverage`, which lists every sequence of the BAM header, and from one `samtools view` pass, which measures MAPQ and identity.
+
+The two schema numbers differ in which rows `contigs` holds.
+
+- Schema 1 lists every reference sequence of the BAM header, zero rows included, and holds neither count. Results made before schema 2, and results whose counts are unknown such as the filtered results of ONT genotyping, are schema 1.
+- Schema 2 lists only the reference sequences that at least one alignment record names, primary, secondary or supplementary. A sequence with only secondary or supplementary records keeps its row with 0 in `mappedReads` and its measured MAPQ and identity. Both counts are present, and `contigs.count + unalignedReferenceCount == referenceCount`.
+- `save` writes schema 2 when both counts are known and schema 1 with neither count otherwise. An absent count means unknown, never that `contigs` lists every reference sequence.
+- Readers accept both numbers and never refuse a higher one. A build released before schema 2 reads a schema-2 file, ignores the counts and shows its rows. Nothing rewrites a schema-1 file, and its table export keeps its bytes.
+
+The mapping table export writes the rows the file holds, never more, and its provenance record adds `referenceCount` and `unalignedReferenceCount` to the resolved values of a schema-2 result.
+
 ## How a folder is recognized
 
 `AnalysesFolder.analysisInfo(for:)` names the kind of a result folder, its date and whether it is a batch. It tries five rules in order:
