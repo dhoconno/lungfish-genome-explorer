@@ -315,6 +315,23 @@ public enum PrimerSchemeAdapterResultLoader {
         url.canonicalFilePath
     }
 
+    /// Whether the adapter's record of its command, `argv` and `executable`, is the command LGE launched, word by
+    /// word. The adapter records `run.py` through `Path(__file__).resolve()`, which keeps `/private`, and the request
+    /// path as passed (`run.py:203`), so a project spelled through a symlink (`/tmp`, `/var` or a linked folder) gives
+    /// two spellings of one file. Resolving can turn a mismatch into a match and never the reverse.
+    static func recordedCommandMatchesLaunch(argv: [String], executable: String, launched: [String]) -> Bool {
+        guard let launchedExecutable = launched.first, argv.count == launched.count else { return false }
+        return zip(launched, argv).allSatisfy { sameLaunchedWord($0, $1) }
+            && sameLaunchedWord(launchedExecutable, executable)
+    }
+
+    /// `launched == recorded`, or both are absolute paths with one canonical path (`CanonicalFilePath`).
+    static func sameLaunchedWord(_ launched: String, _ recorded: String) -> Bool {
+        if launched == recorded { return true }
+        guard launched.hasPrefix("/"), recorded.hasPrefix("/") else { return false }
+        return canonicalPath(URL(fileURLWithPath: launched)) == canonicalPath(URL(fileURLWithPath: recorded))
+    }
+
     /// Checks the runtime the adapter reports against the one LGE launched and
     /// names the first mismatch precisely. These checks run after the native
     /// tool has already finished, so every message says so and says what to do:
@@ -415,8 +432,9 @@ public enum PrimerSchemeAdapterResultLoader {
             throw PrimerSchemeDesignError.contractViolation(
                 "Adapter provenance digest \(provenance.adapterSHA256) differs from copied adapter digest \(copiedAdapterDigest).")
         }
-        guard provenance.command.argv == command.arguments.prepending(command.executableURL.path),
-              provenance.command.executable == command.executableURL.path else {
+        guard recordedCommandMatchesLaunch(
+                argv: provenance.command.argv, executable: provenance.command.executable,
+                launched: command.arguments.prepending(command.executableURL.path)) else {
             throw PrimerSchemeDesignError.contractViolation(
                 "Adapter provenance command differs from the launched argv.")
         }
