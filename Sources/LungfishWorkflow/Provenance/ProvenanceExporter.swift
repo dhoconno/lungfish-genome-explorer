@@ -231,10 +231,13 @@ public struct ProvenanceExporter: Sendable {
         sourceSidecarURL: URL?,
         sourceRootURL: URL?
     ) -> ProvenanceChainExpansion {
+        // An export is all or nothing. A caller's cancel must not cut the walk short and leave a
+        // record that reads as complete with its upstream runs missing.
         let runs = ProvenanceLineageResolver().resolve(
             envelope: envelope,
             sidecarURL: sourceSidecarURL,
-            sourceRootURL: sourceRootURL
+            sourceRootURL: sourceRootURL,
+            isCancelled: { false }
         )
         var sourceArtifactURLs: [URL] = []
         for run in runs {
