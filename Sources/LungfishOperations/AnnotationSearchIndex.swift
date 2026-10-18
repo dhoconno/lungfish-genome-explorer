@@ -250,12 +250,7 @@ public final class AnnotationSearchIndex {
                 let db = try VariantDatabase(url: dbURL, readWrite: true)
                 variantDatabases.append((trackId: vTrackId, db: db))
                 variantTrackNames[vTrackId] = trackInfo.name
-                let settings = Self.variantCallerSettingsSummary(
-                    parametersJSON: VariantDatabase.metadataValue(at: dbURL, key: "variant_caller_parameters_json")
-                )
-                let command = VariantDatabase.metadataValue(at: dbURL, key: "variant_caller_command_line")
-                variantCallerSettings[vTrackId] = settings == "Not recorded"
-                    ? (command.flatMap { $0.isEmpty ? nil : $0 } ?? settings) : settings
+                variantCallerSettings[vTrackId] = VariantCallerSettingsSummary.text(databaseURL: dbURL)
                 variantTrackChromosomes[vTrackId] = Set(db.allChromosomes())
                 let vcount = db.totalCount()
                 searchLogger.info("AnnotationSearchIndex: Opened variant database '\(vTrackId, privacy: .public)' with \(vcount) variants")

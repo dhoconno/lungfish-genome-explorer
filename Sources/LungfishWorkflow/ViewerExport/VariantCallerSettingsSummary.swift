@@ -3,10 +3,23 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// The caller-settings column's text. Uses the parameters recorded with the call, without inventing defaults for
 /// imported tracks. A value type, so the table export leaf writes the column the drawer shows.
 package enum VariantCallerSettingsSummary {
+    /// The column's text for one variant database. The parameters recorded with the call, or else the recorded
+    /// command line, or else "Not recorded", as the search index shows it, so `bundle export-annotation-table`
+    /// writes the drawer's text from the database alone.
+    package static func text(databaseURL: URL) -> String {
+        let settings = text(
+            parametersJSON: VariantDatabase.metadataValue(at: databaseURL, key: "variant_caller_parameters_json")
+        )
+        let command = VariantDatabase.metadataValue(at: databaseURL, key: "variant_caller_command_line")
+        return settings == "Not recorded"
+            ? (command.flatMap { $0.isEmpty ? nil : $0 } ?? settings) : settings
+    }
+
     package static func text(parametersJSON: String?) -> String {
         guard let data = parametersJSON?.data(using: .utf8),
               let parameters = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
