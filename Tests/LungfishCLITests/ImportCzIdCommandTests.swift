@@ -94,6 +94,32 @@ final class ImportCzIdCommandTests: XCTestCase {
         )
     }
 
+    /// Phase 2.12 lane 12.06, review 12.06-M1 fix 7. A taxon report without the `tax_id` column cannot be
+    /// converted. The leaf ends with a `failed` event that says why and exit 5 (`formatError`), and publishes no
+    /// bundle.
+    func testAReportThatCannotBeConvertedExitsWithFormatErrorAndPublishesNothing() async throws {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let source = try scratch.write(
+            "inputs/taxon_report.tsv",
+            "sample_name\ttaxon_name\trank\tnt_read_count\nBroken-Sample\tViruses\tsuperkingdom\t88\n"
+        )
+        let command = try ImportCommand.CzIdSubcommand.parse([
+            source.path, "--project", scratch.project.path, "--sample-name", "Broken Sample", "--format", "json",
+        ])
+        let output = try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+
+        let exit = try XCTUnwrap(output.thrown as? ExitCode, "\(String(describing: output.thrown))")
+        XCTAssertEqual(exit.rawValue, CLIExitCode.formatError.exitCode.rawValue)
+        let last = try XCTUnwrap(output.standardOutput.last, "the leaf printed no event")
+        let event = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any], last)
+        XCTAssertEqual(event["event"] as? String, "failed", last)
+        XCTAssertFalse(((event["error"] as? String) ?? "").isEmpty, last)
+        let classifications = scratch.project.appendingPathComponent("Classifications", isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: classifications.path)) ?? []
+        XCTAssertEqual(entries.filter { $0.hasSuffix(".lungfishtax") }, [], "a failed conversion publishes no bundle")
+    }
+
     private func fixtureURL(_ relativePath: String) throws -> URL {
         var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while dir.path != "/" {
