@@ -66,7 +66,7 @@ extension AppDelegate {
     /// known by then.
     ///
     /// The row records `lungfish-cli import cz-id <source> --project <project>
-    /// --sample-name <name>`, the command that `CzIdProjectImportWorkflow`
+    /// --sample-name <name>`, the command that `lungfish-cli import cz-id`
     /// writes into the result's provenance for the same run.
     @discardableResult
     static func beginCzIdImportOperation(
