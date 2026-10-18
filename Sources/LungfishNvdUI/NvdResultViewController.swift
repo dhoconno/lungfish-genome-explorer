@@ -2385,68 +2385,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
     }
 
-    func writeContigsTSV(to url: URL) throws {
-        let runClock = ProvenanceRunClock()
-        let content = contigsTSVContent()
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app nvd contigs export",
-            sourceURLs: exportProvenanceSourceURLs(),
-            outputURL: url,
-            outputFormat: .text,
-            argv: ["Lungfish.app", "export-nvd-contigs", "--output", url.path],
-            explicitOptions: [
-                "outputPath": .file(url),
-                "format": .string("tsv"),
-            ],
-            defaults: [
-                "format": .string("tsv"),
-            ],
-            resolved: [
-                "rowCount": .integer(displayedContigs.count),
-                "experiment": .string(manifest?.experiment ?? "nvd"),
-                "sourceSampleCount": .integer(sampleEntries.count),
-                "selectedSamples": .array(selectedSamples.sorted().map { .string($0) }),
-                "searchQuery": .string(searchQuery),
-                "groupingMode": .string(exportGroupingModeName),
-                "taxonGroupCount": .integer(taxonGroups.count),
-                "metadataColumns": .array(metadataColumnController.exportHeaders.map { .string($0) }),
-            ],
-            runClock: runClock
-        )) { outputURL in
-            try content.write(to: outputURL, atomically: true, encoding: .utf8)
-        }
-    }
-
-    private var exportGroupingModeName: String {
-        switch groupingMode {
-        case .bySample: return "bySample"
-        case .byTaxon: return "byTaxon"
-        }
-    }
-
-    private func contigsTSVContent() -> String {
-        NvdContigsExport.contigsTSV(
-            hits: displayedContigs,
-            metadataHeaders: metadataColumnController.exportHeaders,
-            metadataValuesBySample: Dictionary(uniqueKeysWithValues: Set(displayedContigs.map(\.sampleId)).map {
-                ($0, metadataColumnController.exportValues(for: $0))
-            })
-        )
-    }
-
-    private func exportProvenanceSourceURLs() -> [URL] {
-        var urls: [URL] = []
-        if let database {
-            urls.append(database.databaseURL)
-        }
-        if let bundleURL {
-            urls.append(bundleURL.appendingPathComponent("manifest.json"))
-            let writesMetadata = !metadataColumnController.exportHeaders.isEmpty
-            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: writesMetadata)
-        }
-        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
     // MARK: - Child Hits (Lazy Loading)
 
     /// Returns child hits for a contig, loading from database on first access.
@@ -2877,7 +2815,7 @@ extension NvdResultViewController {
     var testDetailScrollView: NSScrollView { detailScrollView }
 
 #if DEBUG
-    /// The view state the deleted in-app contigs writer read, for the parity class's frozen side A (12.31 M4).
+    /// The view state the deleted in-app contigs writer read, for the parity class's frozen side A and the byte pin.
     var testContigsExportWriterState: (
         hits: [NvdBlastHit], experiment: String?, taxonGroupCount: Int, databaseURL: URL?
     ) { (displayedContigs, manifest?.experiment, taxonGroups.count, database?.databaseURL) }

@@ -1,29 +1,22 @@
-// NvdContigsExportPinTests.swift - Pins the NVD contigs export at the 12.31 base
+// NvdContigsExportPinTests.swift - Pins the NVD contigs export bytes
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.31 M1 for M4 (QA 1). These pins hold today's in-app writer, `writeContigsTSV`, before
-// `nvd export contigs` replaces it. The view applies its search and sample selection to the best hits it shows
-// (`displayedContigs`, ordered by sample and contig), so the bytes hold only those rows with the shown metadata
-// column. An outline sort leaves the bytes in that order. The record names the tool `Lungfish.app` with its own
-// argv. The M4 parity class reads these facts as side A.
+// Phase 2.12 lane 12.31 M1 for M4 (QA 1). The byte pin held the in-app writer, `writeContigsTSV`, before
+// `nvd export contigs` replaced it, and now holds the builder the leaf calls, `NvdContigsExport.contigsTSV`, fed by
+// the view's shown contigs and metadata columns, with the same expected bytes. The view applies its search and sample
+// selection to the best hits it shows (`displayedContigs`, ordered by sample and contig), so the bytes hold only those
+// rows with the shown metadata column. An outline sort leaves the bytes in that order. The record, input and alert
+// facts the deleted pins held are in `NvdExportCLIGUIParityReplayTests`, `NvdExportContigsCommandTests` and
+// `NvdContigsExportRowTests`.
 
 import XCTest
 import AppKit
 @testable import LungfishNvdUI
 @testable import LungfishIO
 import LungfishWorkflow
-@testable import LungfishKit
 @testable import LungfishCore
 import LungfishTestSupport
-
-@MainActor
-private final class NvdRecordingFailurePresenter: ExportFailurePresenting {
-    private(set) var alerts: [(title: String, message: String)] = []
-    func presentExportFailure(title: String, message: String, in window: NSWindow?) {
-        alerts.append((title, message))
-    }
-}
 
 final class NvdContigsExportPinTests: XCTestCase {
     private var folder: URL!
@@ -42,92 +35,30 @@ final class NvdContigsExportPinTests: XCTestCase {
     /// would put `sample2` first, leaves the database's order.
     @MainActor func testBytesHoldTheShownContigsInDatabaseOrder() throws {
         let vc = try configuredController()
-        let outputURL = folder.appendingPathComponent("contigs.tsv")
-        try vc.writeContigsTSV(to: outputURL)
 
-        XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), [
+        XCTAssertEqual(Self.bytes(of: vc), [
             "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion\tCohort",
             "sample1\tcontig_1\t8\tAlpha virus\tspecies\tNC_sample1_contig_1\tAlpha virus\t100.00\t0.0\t50.0\t30\t30000000\tcase",
             "sample2\tcontig_1\t8\tGamma virus\tspecies\tNC_sample2_contig_1\tGamma virus\t100.00\t0.0\t50.0\t20\t20000000\tcontrol",
         ].joined(separator: "\n") + "\n")
     }
 
-    /// The record facts lane 12.31 predicts will move (tool, kind, argv, workflow name), the `resolved` keys and
-    /// the inputs, which name the database, the result's manifest and the sample metadata table the shown column
-    /// reads (BIO ruling on 12.31 M4).
-    @MainActor func testRecordNamesTheAppWriterAndTheViewState() throws {
-        let vc = try configuredController()
-        let outputURL = folder.appendingPathComponent("contigs.tsv")
-        try vc.writeContigsTSV(to: outputURL)
-
-        let envelope = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+    /// The builder the leaf calls, fed by the view's shown contigs and metadata columns as the deleted writer fed it.
+    @MainActor private static func bytes(of vc: NvdResultViewController) -> String {
+        let hits = vc.testContigsExportWriterState.hits
+        let metadata = vc.metadataColumnController
+        return NvdContigsExport.contigsTSV(
+            hits: hits,
+            metadataHeaders: metadata.exportHeaders,
+            metadataValuesBySample: Dictionary(uniqueKeysWithValues: Set(hits.map(\.sampleId)).map {
+                ($0, metadata.exportValues(for: $0))
+            })
         )
-        let argv = ["Lungfish.app", "export-nvd-contigs", "--output", outputURL.path]
-        XCTAssertEqual(envelope.workflowName, "lungfish app nvd contigs export")
-        XCTAssertEqual(envelope.toolName, "Lungfish.app")
-        XCTAssertEqual(envelope.tool.kind, "gui")
-        XCTAssertEqual(envelope.argv, argv)
-        XCTAssertEqual(envelope.durableReplayArgv, argv)
-        let resolved = envelope.options.resolvedDefaults
-        XCTAssertEqual(resolved.keys.sorted(), [
-            "experiment", "groupingMode", "metadataColumns", "rowCount", "searchQuery", "selectedSamples",
-            "sourceSampleCount", "taxonGroupCount",
-        ])
-        XCTAssertEqual(resolved["rowCount"]?.integerValue, 2)
-        XCTAssertEqual(resolved["experiment"]?.stringValue, "exp-pin")
-        XCTAssertEqual(resolved["sourceSampleCount"]?.integerValue, 3)
-        XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), ["sample1", "sample2"])
-        XCTAssertEqual(resolved["searchQuery"]?.stringValue, "virus")
-        XCTAssertEqual(resolved["groupingMode"]?.stringValue, "bySample")
-        XCTAssertEqual(resolved["metadataColumns"]?.arrayValue?.compactMap(\.stringValue), ["Cohort"])
-        XCTAssertEqual(envelope.options.explicit.keys.sorted(), ["format", "outputPath"])
-        XCTAssertEqual(envelope.options.defaults["format"]?.stringValue, "tsv")
-        XCTAssertEqual(
-            envelope.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted(),
-            ["hits.sqlite", "manifest.json", "sample_metadata.tsv"]
-        )
-    }
-
-    /// BIO ruling on 12.31 M4 (M4-3). The run folder the import read feeds no byte, so it is never an input, and with
-    /// no metadata column shown the sample metadata table is not one either. `metadataColumnController` is private to
-    /// the view, so the fixture opens with the store applied and no column shown.
-    @MainActor func testRunFolderIsNeverAnInput() throws {
-        let vc = try configuredController(showsMetadataColumn: false)
-        let outputURL = folder.appendingPathComponent("contigs.tsv")
-        try vc.writeContigsTSV(to: outputURL)
-
-        let envelope = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        )
-        XCTAssertEqual(
-            envelope.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }.sorted(),
-            ["hits.sqlite", "manifest.json"]
-        )
-    }
-
-    /// A failed write reaches `ResultExportCoordinator.reportFailure`, whose words UX 1 keeps.
-    @MainActor func testFailureAlertWords() throws {
-        let vc = try configuredController()
-        let blocked = folder.appendingPathComponent("contigs.tsv", isDirectory: true)
-        try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
-        let presenter = NvdRecordingFailurePresenter()
-        do {
-            try vc.writeContigsTSV(to: blocked)
-            XCTFail("a folder in the output's place fails the export")
-        } catch {
-            ResultExportCoordinator.reportFailure(
-                fileName: blocked.lastPathComponent, error: error, window: nil, presenter: presenter
-            )
-            XCTAssertEqual(presenter.alerts.map(\.title), ["Export Failed"])
-            XCTAssertEqual(presenter.alerts.map(\.message), ["Could not write contigs.tsv: \(error.localizedDescription)"])
-        }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: blocked).path))
     }
 
     // MARK: - Fixture
 
-    @MainActor private func configuredController(showsMetadataColumn: Bool = true) throws -> NvdResultViewController {
+    @MainActor private func configuredController() throws -> NvdResultViewController {
         let isolatedDefaults = makeTestDefaultsSuite(prefix: "NvdContigsExportPinTests").defaults
         NvdResultViewController.testMetadataUserDefaultsOverride = isolatedDefaults
         addTeardownBlock {
@@ -174,11 +105,7 @@ final class NvdContigsExportPinTests: XCTestCase {
         try Data("Sample\tCohort\nsample1\tcase\nsample2\tcontrol\nsample3\tcase\n".utf8)
             .write(to: metadataFolder.appendingPathComponent("sample_metadata.tsv"))
         let store = try XCTUnwrap(SampleMetadataStore.load(from: bundleURL, knownSampleIds: Set(samples)))
-        if showsMetadataColumn {
-            vc.testShowMetadataColumn("Cohort", store: store)
-        } else {
-            vc.applySampleMetadata(store)
-        }
+        vc.testShowMetadataColumn("Cohort", store: store)
         vc.testSearchField.stringValue = "virus"
         _ = vc.testSearchField.target?.perform(vc.testSearchField.action, with: vc.testSearchField)
         vc.testOutlineView.sortDescriptors = [NSSortDescriptor(key: "mappedReads", ascending: true)]

@@ -328,7 +328,10 @@ final class NvdResultViewControllerTests: XCTestCase {
             drawer.blastResultsTab.emptyStateDetailText)
     }
 
-    func testContigTSVExportWritesScientificProvenanceSidecar() throws {
+    /// 12.31 M4. The view's Export runs `nvd export contigs` behind its row, and the leaf writes the file and its
+    /// record (`NvdExportContigsCommandTests`, `NvdExportCLIGUIParityReplayTests`). The view names its result folder,
+    /// the picked samples, no search and no metadata column.
+    func testContigsExportInvocationNamesTheViewState() throws {
         let fixture = try NvdMenuFixture()
         addTeardownBlock {
             try? FileManager.default.removeItem(at: fixture.rootURL)
@@ -338,31 +341,15 @@ final class NvdResultViewControllerTests: XCTestCase {
         _ = vc.view
         vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
 
-        let outputDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("nvd-export-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: outputDirectory)
-        }
-        let outputURL = outputDirectory.appendingPathComponent("nvd-contigs.tsv")
-        try vc.writeContigsTSV(to: outputURL)
-
-        let envelope = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        )
-        XCTAssertEqual(envelope.workflowName, "lungfish app nvd contigs export")
-        XCTAssertEqual(envelope.output?.path, outputURL.path)
-        XCTAssertNotNil(envelope.output?.checksumSHA256)
-        XCTAssertEqual(envelope.options.resolvedDefaults["rowCount"]?.integerValue, 1)
-        XCTAssertEqual(
-            envelope.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
-            ["sample1"]
-        )
-        XCTAssertEqual(envelope.options.resolvedDefaults["searchQuery"]?.stringValue, "")
-        XCTAssertEqual(envelope.options.resolvedDefaults["groupingMode"]?.stringValue, "bySample")
-        XCTAssertTrue(envelope.files.contains { $0.path == fixture.database.databaseURL.path && $0.checksumSHA256 != nil })
-        // BIO ruling on 12.31 M4 (M4-3). The run folder the import read feeds no byte, so it is not an input.
-        XCTAssertFalse(envelope.files.contains { $0.path == fixture.rootURL.path && $0.role == .input })
+        let outputURL = fixture.rootURL.appendingPathComponent("nvd-contigs.tsv")
+        let invocation = try XCTUnwrap(vc.contigsExportInvocation(outputURL: outputURL))
+        XCTAssertEqual(invocation.commandPath, NvdContigsExport.commandPath)
+        XCTAssertEqual(invocation.input, fixture.bundleURL.standardizedFileURL.path)
+        XCTAssertEqual(invocation.output, outputURL.standardizedFileURL.path)
+        XCTAssertFalse(invocation.force)
+        XCTAssertEqual(invocation.state.samples, ["sample1"])
+        XCTAssertNil(invocation.state.searchText)
+        XCTAssertEqual(invocation.state.metadataColumns, [])
     }
 
     func testOutlineTypographyScalesReusedRolesAndLateMetadataWithoutReloading() throws {
