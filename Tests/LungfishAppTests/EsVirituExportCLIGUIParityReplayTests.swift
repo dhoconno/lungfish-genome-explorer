@@ -6,8 +6,9 @@
 // harness. Each case runs on three sides that start as copies of one EsViritu result folder, a database of two
 // samples, a sample metadata table that gives them different groups, and the batch manifest the view caches.
 //
-// - Side A is the in-app writer at the lane commit before the leaf commit, with the G1 and G3 fixes (G3-3), run on
-//   a view configured from the database as the app's route configures it.
+// - Side A is the in-app writer, `writeDelimitedDetections` as the view held it at 25c696e5a with the G1 and G3 fixes
+//   (G3-3), frozen in this file since the lane deletes it from the view, run on a view configured from the database
+//   as the app's route configures it.
 // - Side C is the view's begin helper, `beginEsVirituDetectionsExportOperation`, with the invocation the view builds.
 //   It begins the row and runs the built `lungfish-cli esviritu export detections` on `CLIViewerExportRunner`.
 // - Side C' is the harness's replay of the command side C's row recorded.
@@ -208,16 +209,106 @@ extension EsVirituExportCLIGUIParityReplayTests {
         return true
     }
 
-    /// Side A. The in-app writer the view's Export ran before the leaf.
+    /// Side A. The in-app writer the view's Export ran before the leaf, frozen below.
     private func sideA(_ root: URL, samples: Set<String>) throws -> RouteParitySideOutcome {
         let view = try Self.configuredView(root, samples: samples)
         let result = try XCTUnwrap(view.esVirituResult)
         do {
-            try view.writeDelimitedDetections(result: result, separator: "\t", fileExtension: "tsv", to: Self.outputURL(in: root))
+            try Self.frozenWriteDelimitedDetections(
+                view: view, result: result, separator: "\t", fileExtension: "tsv", to: Self.outputURL(in: root)
+            )
             return RouteParitySideOutcome(end: .completed, detail: "Exported detections.tsv")
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)")
         }
+    }
+
+    /// `writeDelimitedDetections` and its helpers as `EsVirituResultViewController` held them at 25c696e5a, reading
+    /// the view through its test accessors. The database is the result folder's, which `configuredView` opens.
+    private static func frozenWriteDelimitedDetections(
+        view: EsVirituResultViewController,
+        result: LungfishIO.EsVirituResult,
+        separator: String,
+        fileExtension: String,
+        to url: URL
+    ) throws {
+        let runClock = ProvenanceRunClock()
+        let table = view.testDetectionTableView
+        let metadata = table.metadataColumns
+        let sampleIds = Set(result.detections.map(\.sampleId))
+        let content = EsVirituDetectionExport.buildDelimitedExport(
+            result: result,
+            separator: separator,
+            metadataHeaders: metadata.exportHeaders,
+            metadataValuesBySample: Dictionary(uniqueKeysWithValues: sampleIds.map { ($0, metadata.exportValues(for: $0)) })
+        )
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app esviritu detections export",
+            sourceURLs: frozenSourceURLs(view: view),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-esviritu-detections", "--format", fileExtension, "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string(fileExtension),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(result.detections.count),
+                "sampleId": .string(result.sampleId),
+                "selectedSamples": .array(frozenSelectedSampleIds(view: view, result: result).map(ParameterValue.string)),
+                "sourceSampleCount": .integer(view.sampleEntries.count),
+                "tableMode": .string(view.isBatchMode ? "batchHierarchical" : "singleSample"),
+                "searchText": .string(table.exportSearchText),
+                "sortDescriptors": .array([
+                    .dictionary([
+                        "key": .string(table.exportSortKey),
+                        "ascending": .boolean(table.exportSortAscending),
+                    ]),
+                ]),
+                "columnFilterComposition": .string(table.exportColumnFilterComposition.rawValue),
+                "columnFilters": .array(table.exportColumnFilters.map(frozenColumnFilterParameter)),
+                "metadataColumns": .array(metadata.exportHeaders.map { .string($0) }),
+            ],
+            runClock: runClock
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private static func frozenSelectedSampleIds(
+        view: EsVirituResultViewController,
+        result: LungfishIO.EsVirituResult
+    ) -> [String] {
+        if view.isBatchMode, let samplePickerState = view.samplePickerState {
+            return samplePickerState.selectedSamples.sorted()
+        }
+        let detectionSamples = Set(result.detections.map(\.sampleId))
+        if !detectionSamples.isEmpty {
+            return detectionSamples.sorted()
+        }
+        return result.sampleId == "batch" ? [] : [result.sampleId]
+    }
+
+    private static func frozenColumnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
+        .dictionary([
+            "columnId": .string(filter.columnId),
+            "operator": .string(filter.op.rawValue),
+            "operatorName": .string(String(describing: filter.op)),
+            "value": .string(filter.value),
+            "value2": filter.value2.map(ParameterValue.string) ?? .null,
+            "inverted": .boolean(filter.isInverted),
+        ])
+    }
+
+    private static func frozenSourceURLs(view: EsVirituResultViewController) -> [URL] {
+        guard let batchURL = view.batchURL else { return [] }
+        let writesMetadata = !view.testDetectionTableView.metadataColumns.exportHeaders.isEmpty
+        let urls = [batchURL.appendingPathComponent(EsVirituDetectionExport.databaseFileName)]
+            + EsVirituDetectionExport.metadataInputURLs(in: batchURL, writesMetadata: writesMetadata)
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Side C. The view's invocation and begin helper, which run the built CLI behind the row on the shared runner.
