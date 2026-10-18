@@ -2751,19 +2751,44 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }
 
-            do {
-                try self.writeSummaryTSV(to: url)
-                logger.info("Exported NAO-MGS summary to \(url.lastPathComponent, privacy: .public)")
-            } catch {
-                logger.error("Failed to export NAO-MGS summary: \(error.localizedDescription, privacy: .public)")
+            guard let invocation = self.tableExportInvocation(outputURL: url) else {
+                logger.warning("Cannot export: the result has no folder")
+                return
+            }
+            Self.beginNaoMgsTableExportOperation(invocation: invocation) { [weak self] failure in
+                logger.error("Failed to export NAO-MGS summary: \(failure.message, privacy: .public)")
                 ResultExportCoordinator.reportFailure(
                     fileName: url.lastPathComponent,
-                    error: error,
+                    error: failure,
                     window: window,
-                    presenter: self.exportFailurePresenter
+                    presenter: self?.exportFailurePresenter ?? DefaultExportFailurePresenter()
                 )
             }
         }
+    }
+
+    /// The `nao-mgs export table` invocation for the view's state, or nil when the view has no result folder, which
+    /// the app's database route always sets (`configure(database:manifest:bundleURL:)`). It names the state
+    /// `displayedRows` applies, which is the samples, the search, the column filters, the first sort key and the
+    /// shown metadata columns.
+    func tableExportInvocation(outputURL: URL) -> ViewerExportInvocation? {
+        guard let bundleURL else { return nil }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sortKey = taxonomyTableView.sortDescriptors.first.flatMap { descriptor in
+            descriptor.key.map { ViewerExportSortKey(column: $0, ascending: descriptor.ascending) }
+        }
+        return NaoMgsSummaryExport.invocation(
+            resultURL: bundleURL,
+            state: ViewerTableExportState(
+                samples: selectedSamples.sorted(),
+                searchText: query.isEmpty ? nil : searchText,
+                sortKeys: sortKey.map { [$0] } ?? [],
+                filters: columnFilterSet,
+                metadataColumns: metadataColumnController.exportHeaders
+            ),
+            outputURL: outputURL,
+            force: FileManager.default.fileExists(atPath: outputURL.path)
+        )
     }
 
     public func writeSummaryTSV(to url: URL) throws {
