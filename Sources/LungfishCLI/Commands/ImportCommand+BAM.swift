@@ -110,10 +110,13 @@ extension ImportCommand {
             printHumanLine("", eventsOn: eventsOn)
 
             // Create output directory.
-            try FileManager.default.createDirectory(
-                at: outputDirectory,
-                withIntermediateDirectories: true
-            )
+            do {
+                try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            } catch {
+                guard eventsOn else { throw error }
+                emitter.emitFailed(CLIFailureWords.describe(error))
+                throw CLIExitCode.failure.exitCode
+            }
 
             let alignmentFormat = alignmentFileFormat(forExtension: ext)
             var createdArtifacts: [URL] = []

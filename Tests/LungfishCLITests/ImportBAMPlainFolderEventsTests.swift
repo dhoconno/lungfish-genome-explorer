@@ -64,6 +64,32 @@ final class ImportBAMPlainFolderEventsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a refusal makes no folder")
     }
 
+    /// A plain folder that cannot be made ends with a `failed` event too. The leaf made its folder outside the `do`
+    /// that turns a failure into an event, so with `--format json` such a run ended after `start` with exit 1 and no
+    /// terminal event, which the `.events` row forbids (review of M2, fix 3).
+    func testAPlainFolderThatCannotBeMadeEndsWithAFailedEvent() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sarscov2/test.paired_end.sorted.bam")
+        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let input = inputs.appendingPathComponent("sample.bam")
+        try FileManager.default.copyItem(at: fixture, to: input)
+        try FileManager.default.copyItem(at: fixture.appendingPathExtension("bai"), to: input.appendingPathExtension("bai"))
+        let blocker = root.appendingPathComponent("blocker")
+        let blockerBytes = Data("a file, not a folder\n".utf8)
+        try blockerBytes.write(to: blocker)
+        let folder = blocker.appendingPathComponent("child", isDirectory: true)
+
+        let result = try runCLI(["import", "bam", input.path, "--output-dir", folder.path, "--format", "json"])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.failure.rawValue, result.stderr)
+        let events = try Self.events(in: result.stdout)
+        XCTAssertEqual(events.map { $0["event"] as? String }, ["start", "failed"], "\(events)")
+        XCTAssertFalse((events.last?["error"] as? String ?? "").isEmpty, "the failure has words: \(events)")
+        XCTAssertEqual(try Data(contentsOf: blocker), blockerBytes, "the file in the way is as it was")
+    }
+
     // MARK: - Helpers
 
     /// Every line of standard output as an event, failing on a line that is not one.
