@@ -1,6 +1,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 package struct VariantTableExportResolvedFields: Sendable, Equatable {
     package let codingFeature: String
