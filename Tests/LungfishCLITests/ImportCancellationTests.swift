@@ -62,6 +62,54 @@ final class ImportCancellationTests: XCTestCase {
         XCTAssertLessThan(ContinuousClock.now - cancelledAt, .seconds(5))
     }
 
+    /// Pin of Phase 2.12 lane 12.06 (SWIFT 4, A63 review note 5a). `import msa` and `import tree` run their
+    /// importer through `blocking`, which a cancel cannot stop. Their cancel arm removes the destination while
+    /// the importer may still write, so a write that lands after the removal leaves a partial bundle beside
+    /// "Nothing was published". The step that makes the two leaves publish by stage and rename flips this pin.
+    func testACancelInTheWritePhaseLeavesWhatTheCallWritesAfterTheRemovalToday() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("import-write-phase-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("aln.lungfishmsa", isDirectory: true)
+        let lateFile = bundle.appendingPathComponent("manifest.json")
+        let destination = ImportDestination()
+        destination.set(bundle)
+        let release = DispatchSemaphore(value: 0)
+        let task = Task {
+            try await ImportCancellation.blocking { () throws -> Int in
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                release.wait()
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                try Data("{}".utf8).write(to: lateFile)
+                return 1
+            }
+        }
+        let began = await Self.waitFor { FileManager.default.fileExists(atPath: bundle.path) }
+        XCTAssertTrue(began, "the call began to write")
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("a cancelled wait throws CancellationError")
+        } catch is CancellationError {
+            // expected
+        }
+        destination.removeIfCreatedByThisRun()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.path), "the cancel arm removed the destination")
+        release.signal()
+        let wroteLate = await Self.waitFor { FileManager.default.fileExists(atPath: lateFile.path) }
+        XCTAssertTrue(wroteLate, "the call still writes after the removal, so a partial bundle stays")
+    }
+
+    /// Polls `condition` every 20 ms for up to 30 seconds and returns whether it held.
+    private static func waitFor(_ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
+    }
+
     func testRunReturnsTheWorksResultAndItsErrorWhenNoSIGTERMCameIn() async {
         let success = await ImportCancellation.run { 7 }
         if case .success(let value) = success { XCTAssertEqual(value, 7) } else { XCTFail("\(success)") }
