@@ -386,7 +386,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// which gives each run a scratch folder of its own and returns the standard output already rewritten to `/work`.
     private static func importCaptures() -> [Capture] {
         (ImportStreamCapture.cases() + BuildDbStreamCapture.cases() + AlignmentActionStreamCapture.cases()
-            + CzIdImportStreamCapture.cases()).map { testCase in
+            + CzIdImportStreamCapture.cases() + ViewerExportStreamCapture.cases()).map { testCase in
             Capture(leaf: testCase.leaf, name: testCase.name) { _ in
                 let scratch = try ImportStreamCapture.Scratch()
                 defer { scratch.remove() }

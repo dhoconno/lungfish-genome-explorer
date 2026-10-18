@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting EsViritu detections.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 2 detections to detections.tsv","output":"\/work\/detections.tsv","outputs":["\/work\/detections.tsv"],"progress":1,"schemaVersion":2}
