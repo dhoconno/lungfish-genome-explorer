@@ -1636,8 +1636,15 @@ final class ClassifierReadResolverTests: XCTestCase {
                     destination: destination
                 )
                 XCTFail("\(destination) is refused")
-            } catch let error as CocoaError {
-                XCTAssertEqual(error.code, .featureUnsupported, "\(destination)")
+            } catch let error as ClassifierExtractionError {
+                guard case .unsupportedCopyDestination = error else {
+                    XCTFail("\(destination) is refused with the typed case, not \(error)")
+                    continue
+                }
+                XCTAssertEqual(
+                    error.errorDescription, "Clipboard / share destinations are not supported from the CLI",
+                    "\(destination): the words the command prints for the same refusal"
+                )
                 XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path), "\(destination): nothing is written")
             }
         }

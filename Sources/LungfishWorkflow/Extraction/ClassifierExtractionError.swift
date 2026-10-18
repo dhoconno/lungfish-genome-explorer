@@ -60,6 +60,11 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
     /// The underlying extraction was cancelled.
     case cancelled
 
+    /// A clipboard or share destination reached the resolver, which writes only a file or a bundle. Those
+    /// rows run `lungfish-cli extract reads --by-classifier` and copy the file it writes (Phase 2.12 lane
+    /// 12.11). The words are the ones the command prints for the same refusal.
+    case unsupportedCopyDestination
+
     // MARK: - LocalizedError
 
     public var errorDescription: String? {
@@ -92,6 +97,8 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
             return "No reads could be extracted: \(samples.count) sample(s) were skipped because their classification output or source FASTQ could not be located (\(samples.joined(separator: ", ")))."
         case .cancelled:
             return "Extraction was cancelled"
+        case .unsupportedCopyDestination:
+            return "Clipboard / share destinations are not supported from the CLI"
         }
     }
 }

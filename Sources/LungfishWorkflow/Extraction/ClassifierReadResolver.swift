@@ -725,13 +725,12 @@ public actor ClassifierReadResolver {
         }
     }
 
-    /// The refusal of a clipboard or share destination. Since Phase 2.12 lane 12.11 those rows run
+    /// The refusal of a clipboard or share destination, the typed case
+    /// ``ClassifierExtractionError/unsupportedCopyDestination``. Since Phase 2.12 lane 12.11 those rows run
     /// `lungfish-cli extract reads --by-classifier` into a scratch file and copy that file
     /// (`ClassifierExtractionCopyRoute` in LungfishApp), so the resolver writes only a file or a bundle.
-    static func copyDestinationRefusal() -> CocoaError {
-        CocoaError(.featureUnsupported, userInfo: [
-            NSLocalizedDescriptionKey: "Classifier read extraction writes a file or a bundle. A clipboard or share extraction runs lungfish-cli extract reads --by-classifier and copies the file it writes.",
-        ])
+    static func copyDestinationRefusal() -> ClassifierExtractionError {
+        .unsupportedCopyDestination
     }
 
     private func writeStandaloneFileProvenanceIfNeeded(
