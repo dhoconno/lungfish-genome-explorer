@@ -39,6 +39,7 @@ final class MappingOpenManifestLoadTests: XCTestCase {
         try MappingRoutingFixture.makeMappingResult(
             resultDirectory: resultURL, viewerBundleURL: bundleURL
         ).save(to: resultURL)
+        let digestBefore = try TreeDigest.of(root)
         let decodes = BundleDecodeLog()
         decodes.install(offMainOnly: true)
 
@@ -54,6 +55,7 @@ final class MappingOpenManifestLoadTests: XCTestCase {
         XCTAssertTrue(opened, "the mapping viewport never showed its sample rows and its viewer")
         XCTAssertEqual(decodes.count(.mappingResult), 1)
         XCTAssertEqual(decodes.count(.bundleManifest), 1)
+        XCTAssertEqual(try TreeDigest.of(root), digestBefore, "opening a mapping wrote to its folder (UX 6)")
     }
 
     /// SWIFT-fai 4.7 item 1, for the mapping open. A mapping onto a large reference

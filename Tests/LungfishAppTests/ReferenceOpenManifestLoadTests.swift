@@ -77,6 +77,7 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
             chromosomes: [.init(name: "chr2", length: 80), .init(name: "chr1", length: 100)],
             in: root
         )
+        let digestBefore = try TreeDigest.of(root)
         let decodes = BundleDecodeLog()
         decodes.install(offMainOnly: true)
 
@@ -93,6 +94,7 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
         let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
         XCTAssertEqual(viewport.testDisplayedSequenceNames.sorted(), ["chr1", "chr2"])
         XCTAssertEqual(decodes.count(.bundleManifest), 1)
+        XCTAssertEqual(try TreeDigest.of(root), digestBefore, "opening a reference wrote to its folder (UX 6)")
     }
 
     /// UX ruling Q-S1. The decode of a bundle the user has left still runs to
