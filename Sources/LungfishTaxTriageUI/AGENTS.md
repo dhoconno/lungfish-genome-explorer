@@ -17,7 +17,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | `TaxTriageResultViewController` and `configureFromDatabase` | Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift lines 189 and 2928 |
 | Batch table | `BatchTaxTriageTableView`, Sources/LungfishTaxTriageUI/BatchTaxTriageTableView.swift line 40 |
 | Row commands for menus and accessibility | Sources/LungfishTaxTriageUI/TaxTriageRowCommands.swift |
-| Batch export | `TaxTriageBatchExporter`, Sources/LungfishTaxTriageUI/TaxTriageBatchExporter.swift line 19 |
+| Batch export | `TaxTriageBatchExporter`, Sources/LungfishWorkflow/ViewerExport/TaxTriageBatchExporter.swift line 18 |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+TaxTriage.swift |
 
 ## Contracts this module owns
