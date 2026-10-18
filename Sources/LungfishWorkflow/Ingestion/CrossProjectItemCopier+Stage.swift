@@ -122,11 +122,20 @@ extension CrossProjectItemCopier {
               var envelope = try ProvenanceEnvelopeReader.load(fromSidecar: recordURL) else { return }
         let finalRoot = destination.standardizedFileURL.path
         var changed = false
+        // Only JSON files change in the stage, and several lists of the record name one file, so each
+        // JSON file is hashed once.
+        var digests: [String: String] = [:]
         func refreshed(_ descriptor: ProvenanceFileDescriptor) throws -> ProvenanceFileDescriptor {
-            guard let recorded = descriptor.checksumSHA256, descriptor.path.hasPrefix(finalRoot + "/") else { return descriptor }
+            guard let recorded = descriptor.checksumSHA256, descriptor.path.hasPrefix(finalRoot + "/"), descriptor.path.lowercased().hasSuffix(".json") else { return descriptor }
             let stagedFile = staged.appendingPathComponent(String(descriptor.path.dropFirst(finalRoot.count + 1)))
             guard FileManager.default.fileExists(atPath: stagedFile.path) else { return descriptor }
-            let digest = try ProvenanceFileHasher.sha256(of: stagedFile)
+            let digest: String
+            if let known = digests[descriptor.path] {
+                digest = known
+            } else {
+                digest = try ProvenanceFileHasher.sha256(of: stagedFile)
+                digests[descriptor.path] = digest
+            }
             guard digest != recorded else { return descriptor }
             changed = true
             return ProvenanceFileDescriptor(
