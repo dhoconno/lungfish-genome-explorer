@@ -7,7 +7,8 @@
 // that start as copies of one root, which holds the import's source file `virus_hits.tsv` and the NAO-MGS result
 // folder the sidebar item opens, with `hits.sqlite` of three samples, `manifest.json` and a sample metadata table.
 //
-// - Side A is the in-app writer, `writeSummaryTSV`, run on a view opened as the app opens it
+// - Side A is the in-app writer, `writeSummaryTSV` as the view held it at d702ab9a7 with the Q1 and Q2 fixes, frozen
+//   in this file since the lane deletes it from the view, run on a view opened as the app opens it
 //   (`configure(database:manifest:bundleURL:)`) with the case's view state.
 // - Side C is the view's begin helper, `beginNaoMgsTableExportOperation`, with the invocation the view builds
 //   (`tableExportInvocation(outputURL:)`). It begins the row and runs the built `lungfish-cli nao-mgs export table`
@@ -253,15 +254,98 @@ extension NaoMgsExportCLIGUIParityReplayTests {
         return true
     }
 
-    /// Side A. The in-app writer the view's Export ran before the leaf.
+    /// Side A. The in-app writer the view's Export ran before the leaf, frozen below.
     private func sideA(_ root: URL, _ parityCase: Case) throws -> RouteParitySideOutcome {
         let view = try Self.configuredView(root, parityCase)
         do {
-            try view.writeSummaryTSV(to: Self.outputURL(in: root))
+            try Self.frozenWriteSummaryTSV(view: view, to: Self.outputURL(in: root))
             return RouteParitySideOutcome(end: .completed, detail: "Exported summary.tsv")
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)")
         }
+    }
+
+    private struct FrozenNoRows: Error {}
+
+    /// `writeSummaryTSV` and its helpers as `NaoMgsResultViewController` held them at d702ab9a7, with the Q1 and Q2
+    /// fixes, reading the view through `testTableExportWriterState` and its other test accessors.
+    private static func frozenWriteSummaryTSV(view: NaoMgsResultViewController, to url: URL) throws {
+        let state = view.testTableExportWriterState
+        guard !state.rows.isEmpty else { throw FrozenNoRows() }
+        let runClock = ProvenanceRunClock()
+        let metadata = view.metadataColumnController
+        let content = NaoMgsSummaryExport.summaryTSV(
+            rows: state.rows,
+            metadataHeaders: metadata.exportHeaders,
+            metadataValuesBySample: Dictionary(uniqueKeysWithValues: Set(state.rows.map(\.sample)).map {
+                ($0, metadata.exportValues(for: $0))
+            })
+        )
+        let selected = state.selectedSamples.isEmpty
+            ? Array(Set(state.rows.map(\.sample))).sorted()
+            : state.selectedSamples.sorted()
+        let sortKeys = view.testTaxonomyTableView.sortDescriptors.first.flatMap { descriptor in
+            descriptor.key.map { [ViewerExportSortKey(column: $0, ascending: descriptor.ascending)] }
+        } ?? []
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app naomgs summary export",
+            sourceURLs: frozenSourceURLs(view: view, filters: state.filters, databaseURL: state.databaseURL),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-naomgs-summary", "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string("tsv"),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(state.rows.count),
+                "sourceSampleCount": .integer(max(view.sampleEntries.count, selected.count)),
+                "selectedSamples": .array(selected.map { .string($0) }),
+                "columnFilterComposition": .string(state.filters.composition.rawValue),
+                "columnFilters": .array(state.filters.activeFilters.map(frozenColumnFilterParameter)),
+                "sortKeys": .array(sortKeys.map { .string($0.argument) }),
+                "metadataColumns": .array(metadata.exportHeaders.map { .string($0) }),
+                "sampleName": .string(state.sampleName ?? "naomgs"),
+            ],
+            runClock: runClock
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private static func frozenColumnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
+        .dictionary([
+            "columnId": .string(filter.columnId),
+            "operator": .string(filter.op.rawValue),
+            "operatorName": .string(String(describing: filter.op)),
+            "value": .string(filter.value),
+            "value2": filter.value2.map(ParameterValue.string) ?? .null,
+            "inverted": .boolean(filter.isInverted),
+        ])
+    }
+
+    private static func frozenSourceURLs(
+        view: NaoMgsResultViewController,
+        filters: ColumnFilterSet,
+        databaseURL: URL?
+    ) -> [URL] {
+        var urls: [URL] = []
+        if let databaseURL {
+            urls.append(databaseURL)
+        }
+        if let bundleURL = view.bundleURL {
+            urls.append(bundleURL.appendingPathComponent("manifest.json"))
+            let metadata = view.metadataColumnController
+            let readsMetadata = metadata.store != nil && (
+                !metadata.exportHeaders.isEmpty
+                    || filters.activeFilters.contains { $0.columnId.hasPrefix("metadata_") }
+            )
+            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: readsMetadata)
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Side C. The view's invocation and begin helper, which run the built CLI behind the row on the shared runner.

@@ -2559,6 +2559,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var testDisplayedTaxonOrder: [String] {
         displayedRows.map { "\($0.sample):\($0.taxId)" }
     }
+    /// The view state the deleted in-app table writer read, for the parity class's frozen side A (12.31 M4).
+    var testTableExportWriterState: (
+        rows: [NaoMgsTaxonSummaryRow], selectedSamples: Set<String>, filters: ColumnFilterSet, sampleName: String?,
+        databaseURL: URL?
+    ) {
+        (displayedRows, selectedSamples, columnFilterSet, manifest?.sampleName, database?.databaseURL)
+    }
     var testDetailContentView: NSView { detailContentView }
     var testDetailScrollView: NSScrollView { detailScrollView }
     var testOverviewHostingView: NSView? { overviewHostingView }
