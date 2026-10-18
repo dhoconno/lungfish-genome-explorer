@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishKit
 import LungfishWorkflow
 
 /// Bridges a ``CLISubprocessTransport`` run onto an `OperationCenter` item.
