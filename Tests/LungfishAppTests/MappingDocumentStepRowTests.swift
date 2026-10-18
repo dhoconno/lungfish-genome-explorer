@@ -65,6 +65,25 @@ final class MappingDocumentStepRowTests: XCTestCase {
         )
     }
 
+    /// Q-U3 "Other rows". A long Run Settings value shows whole, and the next row sits below it.
+    func testLongRunSettingsValueShowsWholeAndClearsTheNextRow() throws {
+        let long = Array(repeating: "--max-intron-len 5000", count: 20).joined(separator: " ")
+        let state = MappingDocumentState(
+            title: "Mapping", subtitle: nil, summary: nil, sourceData: [],
+            contextRows: [("Extra arguments", long), ("Mapper Version", "2.31")], artifactRows: []
+        )
+        let window = hostSection(state, width: 320)
+        func frame(ofValue value: String) -> NSRect? {
+            AccessibilityTreeProbe.all(in: window).first { AccessibilityTreeProbe.value($0) == value }
+                .map { AccessibilityTreeProbe.frame($0) }
+        }
+        AccessibilityTreeProbe.waitUntil { frame(ofValue: "2.31") != nil }
+        let longRow = try XCTUnwrap(frame(ofValue: long), "tree:\n" + AccessibilityTreeProbe.dump(window))
+        let nextRow = try XCTUnwrap(frame(ofValue: "2.31"))
+        XCTAssertGreaterThan(longRow.height, 3 * nextRow.height, "more than three lines show")
+        XCTAssertGreaterThanOrEqual(longRow.minY, nextRow.maxY, "the next row sits below the whole value")
+    }
+
     func testStepDisclosureReportsAndChangesItsState() throws {
         let state = try fixtureState()
         let window = hostSection(state)
