@@ -4,11 +4,19 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
+/// Where a run reads a provider key. The app passes the login keychain and a
+/// test passes an in-memory stand-in, so no test writes a credential store.
+protocol AIProviderSecretLookup: Sendable {
+    func retrieve(forKey key: String) async throws -> String?
+}
+
+extension KeychainSecretStorage: AIProviderSecretLookup {}
+
 @MainActor
 final class GenotypeAIHaplotypingExecutionService {
     private let operationCenter: OperationCenter
     private let settings: AppSettings
-    private let keychain: KeychainSecretStorage
+    private let keychain: any AIProviderSecretLookup
     /// Runs once on an owned run between `prepare` and `begin`, so a test can
     /// change the bundle there and reach the re-read in `currentRun`.
     var afterPrepareForTesting: (@MainActor () async -> Void)?
@@ -16,7 +24,7 @@ final class GenotypeAIHaplotypingExecutionService {
     init(
         operationCenter: OperationCenter = .shared,
         settings: AppSettings = .shared,
-        keychain: KeychainSecretStorage = .shared
+        keychain: any AIProviderSecretLookup = KeychainSecretStorage.shared
     ) {
         self.operationCenter = operationCenter
         self.settings = settings

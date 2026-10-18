@@ -5,8 +5,9 @@
 // Phase 2.12 lane 12.19 (L11, Q-S10). The fixture writes an MCM MiSeq genotype
 // bundle with one sample, points the OpenAI hosted endpoint setting at a
 // loopback stand-in that answers a recorded Responses API reply, and puts a
-// throwaway API key on a stand-in keychain service that no app build reads.
-// The settings go to a test defaults suite, never `UserDefaults.standard`.
+// throwaway API key in an in-memory secret lookup, so no run reads or writes
+// a keychain and none skips when the login keychain is locked. The settings
+// go to a test defaults suite, never `UserDefaults.standard`.
 
 import Foundation
 import XCTest
@@ -28,7 +29,7 @@ final class GenotypeAIHaplotypingRunFixture {
     let root: URL
     let bundleURL: URL
     let server: LoopbackHTTPStandIn
-    let keychain: KeychainSecretStorage
+    let secrets: InMemoryProviderSecrets
     let operationCenter = OperationCenter()
 
     /// The recorded structured reply, one MHC-A call for the fixture sample.
@@ -37,7 +38,7 @@ final class GenotypeAIHaplotypingRunFixture {
     static let mcm0069Header = "MCM_MHC_MiSeq_0069|source_loci=MHC-A1|haplotype_groups=MHC-A|haplotypes=M4|alleles=Mafa-A1_031:01:01:01|accessions=OR823430|length=156|evidence_classes=primary_expressed|max_evidence_weight=1.00|evidence_weight_sum=1.00"
 
     /// - Parameters:
-    ///   - storesKey: Whether the stand-in keychain holds the throwaway OpenAI key.
+    ///   - storesKey: Whether the in-memory secret lookup holds the throwaway OpenAI key.
     ///   - providerStatus: The HTTP status the stand-in answers. 200 sends the recorded reply.
     ///   - specialistManifest: Whether the manifest names the MCM MiSeq preset, so the run
     ///     resolves the specialist prompt pins. Without them it resolves the general prompt.
@@ -69,26 +70,14 @@ final class GenotypeAIHaplotypingRunFixture {
         settings.openAIHostedEndpoint = server.baseURL.absoluteString
         settings.openAIHostedDeployment = deployment
 
-        keychain = KeychainSecretStorage(service: "org.lungfish.tests.lane-12-19.\(UUID().uuidString)")
-        let keychain = keychain
-        testCase.addTeardownBlock {
-            try? await keychain.delete(forKey: KeychainSecretStorage.openAIAPIKey)
-            try? await keychain.delete(forKey: KeychainSecretStorage.anthropicAPIKey)
-        }
-        if storesKey {
-            do {
-                try await keychain.store(secret: throwawayKey, forKey: KeychainSecretStorage.openAIAPIKey)
-            } catch {
-                throw XCTSkip("The login keychain refused a stand-in item (\(error)), so the run cannot resolve a key.")
-            }
-        }
+        secrets = InMemoryProviderSecrets(storesKey ? [KeychainSecretStorage.openAIAPIKey: throwawayKey] : [:])
     }
 
     func makeService() -> GenotypeAIHaplotypingExecutionService {
         GenotypeAIHaplotypingExecutionService(
             operationCenter: operationCenter,
             settings: .shared,
-            keychain: keychain
+            keychain: secrets
         )
     }
 
@@ -232,5 +221,19 @@ final class GenotypeAIHaplotypingRunFixture {
             .write(to: bundleURL.appendingPathComponent("genotyping-provenance.json"))
         try writeManifest(in: bundleURL, specialist: specialistManifest)
         return bundleURL
+    }
+}
+
+/// The provider keys of one fixture, held in memory. It stands in for the
+/// login keychain, so a run resolves its key with no credential store.
+actor InMemoryProviderSecrets: AIProviderSecretLookup {
+    private let values: [String: String]
+
+    init(_ values: [String: String]) {
+        self.values = values
+    }
+
+    func retrieve(forKey key: String) -> String? {
+        values[key]
     }
 }

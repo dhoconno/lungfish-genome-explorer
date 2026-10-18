@@ -5,8 +5,8 @@
 // Phase 2.12 lane 12.19 (L11, BIO 4, Q-S10). Each test runs
 // `GenotypeAIHaplotypingExecutionService.run` end to end on
 // `GenotypeAIHaplotypingRunFixture`, whose provider is a loopback stand-in
-// with a recorded reply and whose key is a throwaway on a stand-in keychain
-// service. The CLI's own lookup order (environment, then keychain, with the
+// with a recorded reply and whose key is a throwaway in an in-memory secret
+// lookup, never a keychain. The CLI's own lookup order (environment, then keychain, with the
 // Azure key first under Azure settings) is pinned in GenotypeSubcommandsTests.
 
 import Foundation
