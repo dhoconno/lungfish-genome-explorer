@@ -108,6 +108,29 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
         XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: made.project), run.before)
     }
 
+    /// 2.8 D4. A viewer index the command could not build is its one warning line, and the row of the clean
+    /// result reads Completed with Warnings with the result's summary as its detail. The in-process route's
+    /// row pinned the same words until 2.12 K1 deleted it.
+    func testAFailedDatabaseBuildLogsOneWarningAndTheRowReadsCompletedWithWarnings() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["S1.fastq"])
+        let transcript = try CapturedClassifierTranscript.load(command: "taxtriage-run", run: "complete-project", root: root)
+        let result = try placeResult(in: try XCTUnwrap(transcript.folder), samples: ["S1"], reports: 1)
+        let warning = ClassificationCompletionDetail.viewerIndexWarning("lungfish-cli exited with status 3: no space left")
+        let lines = Array(transcript.lines.dropLast())
+            + [#"{"event":"log","level":"warning","message":"\#(warning)","schemaVersion":2}"#, try XCTUnwrap(transcript.lines.last)]
+
+        let run = try await launch(config(made.inputs, ids: ["S1"]), project: made.project, lines: lines)
+
+        XCTAssertEqual(run.row.state, .completed)
+        XCTAssertEqual(run.row.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(run.row.detail, result.summary)
+        XCTAssertEqual(
+            messages(of: run.row, at: .warning),
+            ["The viewer index could not be built (lungfish-cli exited with status 3: no space left). LGE builds it when the result opens."]
+        )
+        XCTAssertEqual(try ClassifierRouteFixtures.snapshot(of: made.project), run.before)
+    }
+
     // MARK: - The bar
 
     /// UX F6, F13 and check list row 16. The held progress of a batch reaches 0.90 when the last sample's engine

@@ -1,4 +1,4 @@
-// TaxTriageCompletionStateTests.swift - Errored TaxTriage tasks finish as a warning; host taxa field defaults
+// TaxTriageCompletionStateTests.swift - The words a finished TaxTriage result gives its row; host taxa field defaults
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -7,10 +7,22 @@ import XCTest
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
 final class TaxTriageCompletionStateTests: XCTestCase {
+    private var root: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        root = try TestTempDirectory.make(prefix: "taxtriage-completion-state")
+    }
+
+    override func tearDown() async throws {
+        TestTempDirectory.cleanup(root)
+        try await super.tearDown()
+    }
 
     private func result(
         ignoredFailures: [TaxTriageIgnoredFailure],
@@ -22,7 +34,7 @@ final class TaxTriageCompletionStateTests: XCTestCase {
                 TaxTriageSample(sampleId: "SRR12486983", fastq1: URL(fileURLWithPath: "/data/a.fastq")),
                 TaxTriageSample(sampleId: "SRR12486989", fastq1: URL(fileURLWithPath: "/data/b.fastq")),
             ],
-            outputDirectory: URL(fileURLWithPath: "/tmp/taxtriage-batch")
+            outputDirectory: root.appendingPathComponent("taxtriage-batch", isDirectory: true)
         )
         return TaxTriageResult(
             config: config,
@@ -43,21 +55,12 @@ final class TaxTriageCompletionStateTests: XCTestCase {
         )
     }
 
-    /// Finishes a fresh row with `result` and returns the row.
-    private func finishedRow(_ result: TaxTriageResult) throws -> OperationCenter.Item {
-        let center = OperationCenter()
-        let id = center.begin(
-            title: "TaxTriage (2 samples)",
-            detail: "Starting",
-            operationType: .classification,
-            cliCommand: nil
-        ).rowID
-        XCTAssertTrue(AppDelegate.finishTaxTriageOperation(id: id, result: result, center: center))
-        return try XCTUnwrap(center.items.first { $0.id == id })
-    }
-
-    private func warningLines(of item: OperationCenter.Item) -> [String] {
-        item.logEntries.filter { $0.level == .warning }.map(\.message)
+    /// The completion the row of a `taxtriage run` gets, `result` saved into its folder and read back
+    /// as the CLI route reads it (`CLIClassifierRunner.taxTriageCompletion(folder:)`).
+    private func completion(_ result: TaxTriageResult) throws -> CLIClassifierCompletion {
+        try FileManager.default.createDirectory(at: result.outputDirectory, withIntermediateDirectories: true)
+        try result.save()
+        return try CLIClassifierRunner.taxTriageCompletion(folder: result.outputDirectory)
     }
 
     private func minimapKilled(_ sampleID: String) -> TaxTriageIgnoredFailure {
@@ -72,79 +75,52 @@ final class TaxTriageCompletionStateTests: XCTestCase {
         )
     }
 
-    // MARK: - Operation state
-
-    func testErroredTasksFinishTheOperationAsCompletedWithWarnings() throws {
-        let center = OperationCenter()
-        let id = center.begin(
-            title: "TaxTriage (2 samples)",
-            detail: "Starting",
-            operationType: .classification,
-            cliCommand: nil
-        ).rowID
-
-        let finished = AppDelegate.finishTaxTriageOperation(
-            id: id,
-            result: result(ignoredFailures: [minimapKilled("SRR12486983"), minimapKilled("SRR12486989")]),
-            center: center
-        )
-
-        XCTAssertTrue(finished)
-        let item = try XCTUnwrap(center.items.first { $0.id == id })
-        XCTAssertEqual(item.state, .completed)
-        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        XCTAssertEqual(
-            item.detail,
-            "Some TaxTriage tasks failed: MINIMAP2_ALIGN failed for SRR12486983, SRR12486989 after 4 attempts (killed, usually for running out of memory) (0 reports)"
-        )
-        XCTAssertTrue(item.logEntries.contains { entry in
-            entry.level == .warning && entry.message.contains("Exclude host taxa (9606 for human)")
-        })
-        // T8 and D4: the one warning line of the cause makes the label, and the detail is no second line.
-        XCTAssertEqual(warningLines(of: item).count, 1)
-    }
-
-    func testCleanRunFinishesAsPlainCompleted() throws {
-        let center = OperationCenter()
-        let id = center.begin(
-            title: "TaxTriage (2 samples)",
-            detail: "Starting",
-            operationType: .classification,
-            cliCommand: nil
-        ).rowID
-
-        XCTAssertTrue(AppDelegate.finishTaxTriageOperation(id: id, result: result(ignoredFailures: []), center: center))
-
-        let item = try XCTUnwrap(center.items.first { $0.id == id })
-        XCTAssertEqual(item.displayStateLabel, "Completed")
-        XCTAssertFalse(item.hasWarnings)
-    }
-
     // MARK: - The words of the finish
     //
-    // Phase 2.8 lane U2, milestones M1 and M3. These pin the words and the warning lines of
-    // `finishTaxTriageOperation`. Milestone M1 pinned them as they read before the fixes, and each
-    // fix of milestone M3 (T8, T9 and D4 of docs/plans/2026-10-11-phase-2-8.md) flipped its pins in
-    // the commit that made it. The row text of a whole run is pinned in
-    // `TaxTriageOperationRowTextReplayTests`.
+    // Phase 2.8 lane U2 pinned these words on the finish of the in-process route (T8, T9 and D4 of
+    // docs/plans/2026-10-11-phase-2-8.md). Since Phase 2.12 K1 the Tools menu runs `taxtriage run` only, and
+    // its row reads the finished result back with `CLIClassifierRunner.taxTriageCompletion(folder:)`, so the
+    // pins hold the words of that read-back. The paragraph of ignored task failures is a line of the command,
+    // which `TaxTriageCLIRouteRowTests.testIgnoredTasksReadCompletedWithWarningsAndOneWarningLine` pins as the
+    // row's one warning line, so the read-back adds no copy of it. A warning line makes the row read Completed
+    // with Warnings (D4), which the row tests of `TaxTriageCLIRouteRowTests` pin on the whole route.
 
-    func testOneFailedSampleReadsASingularNounAndLogsOneWarningLine() throws {
-        let item = try finishedRow(result(ignoredFailures: [], sampleFailures: [sampleFailure("SRR12486989")]))
+    func testErroredTasksNameTheProcessAndTheReportCountInTheDetail() throws {
+        let finished = result(ignoredFailures: [minimapKilled("SRR12486983"), minimapKilled("SRR12486989")])
+        let read = try completion(finished)
 
-        // The warning line of the cause makes the label (T8, D4). The detail is no second line (T9).
-        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        // One item reads in the singular and zero stays plural (T9).
-        XCTAssertEqual(item.detail, "1 failed sample (0 reports)")
         XCTAssertEqual(
-            warningLines(of: item),
-            ["1 TaxTriage sample failed (SRR12486989: boom SRR12486989)"]
+            read.detail,
+            "Some TaxTriage tasks failed: MINIMAP2_ALIGN failed for SRR12486983, SRR12486989 after 4 attempts (killed, usually for running out of memory) (0 reports)"
         )
+        XCTAssertTrue(try XCTUnwrap(finished.erroredProcessesMessage).contains("Exclude host taxa (9606 for human)"))
+        // T8 and D4: the command's one warning line of the cause makes the label, so the read-back adds
+        // none, and the detail is no second line.
+        XCTAssertEqual(read.warnings, [])
+        XCTAssertFalse(read.completesWithWarning)
+    }
+
+    func testACleanResultWarnsOfNothingAndShowsItsWholeSummary() throws {
+        let finished = result(ignoredFailures: [])
+        let read = try completion(finished)
+
+        XCTAssertEqual(read.detail, finished.summary)
+        XCTAssertEqual(read.warnings, [])
+        XCTAssertFalse(read.completesWithWarning)
+    }
+
+    func testOneFailedSampleReadsASingularNounAndWarnsOnce() throws {
+        let read = try completion(result(ignoredFailures: [], sampleFailures: [sampleFailure("SRR12486989")]))
+
+        // One item reads in the singular and zero stays plural (T9). The detail is no second line.
+        XCTAssertEqual(read.detail, "1 failed sample (0 reports)")
+        XCTAssertEqual(read.warnings, ["1 TaxTriage sample failed (SRR12486989: boom SRR12486989)"])
     }
 
     func testTheReportCountReadsSingularForOneAndPluralOtherwise() throws {
         func detail(reports count: Int) throws -> String {
             let files = (0..<count).map { URL(fileURLWithPath: "/tmp/taxtriage-batch/report-\($0).html") }
-            return try finishedRow(result(
+            return try completion(result(
                 ignoredFailures: [],
                 sampleFailures: [sampleFailure("SRR12486989")],
                 reportFiles: files
@@ -158,50 +134,24 @@ final class TaxTriageCompletionStateTests: XCTestCase {
 
     func testSixFailedSamplesListFiveAndCountTheRest() throws {
         let ids = (1...6).map { "S\($0)" }
-        let item = try finishedRow(result(ignoredFailures: [], sampleFailures: ids.map(sampleFailure)))
+        let read = try completion(result(ignoredFailures: [], sampleFailures: ids.map(sampleFailure)))
 
-        XCTAssertEqual(item.detail, "6 failed samples (0 reports)")
+        XCTAssertEqual(read.detail, "6 failed samples (0 reports)")
         XCTAssertEqual(
-            warningLines(of: item).first,
-            "6 TaxTriage samples failed (S1: boom S1; S2: boom S2; S3: boom S3; S4: boom S4; S5: boom S5; +1 more)"
+            read.warnings,
+            ["6 TaxTriage samples failed (S1: boom S1; S2: boom S2; S3: boom S3; S4: boom S4; S5: boom S5; +1 more)"]
         )
     }
 
     func testAnErroredTaskAndAFailedSampleShareOneDetail() throws {
         let finished = result(ignoredFailures: [minimapKilled("SRR12486983")], sampleFailures: [sampleFailure("SRR12486989")])
-        let item = try finishedRow(finished)
+        let read = try completion(finished)
 
         let headline = try XCTUnwrap(finished.erroredProcessesHeadline)
-        XCTAssertEqual(item.detail, "\(headline); 1 failed sample (0 reports)")
-        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        // One warning line per cause (T9), so the detail is no third line.
-        XCTAssertEqual(
-            warningLines(of: item),
-            [
-                try XCTUnwrap(finished.erroredProcessesMessage),
-                "1 TaxTriage sample failed (SRR12486989: boom SRR12486989)",
-            ]
-        )
-    }
-
-    func testAnErroredTaskCauseLogsItsParagraphOnceAsAWarning() throws {
-        let finished = result(ignoredFailures: [minimapKilled("SRR12486983")])
-        let item = try finishedRow(finished)
-
-        // The paragraph is the one warning line of the cause and the only line of the log (T9).
-        // The detail is not logged again, because the row completes plainly and the warning line
-        // alone makes the label (T8, D4).
-        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        XCTAssertEqual(warningLines(of: item), [try XCTUnwrap(finished.erroredProcessesMessage)])
-        XCTAssertEqual(item.logEntries.count, 1)
-    }
-
-    func testACleanResultLogsNothingAndShowsItsWholeSummary() throws {
-        let finished = result(ignoredFailures: [])
-        let item = try finishedRow(finished)
-
-        XCTAssertEqual(item.detail, finished.summary)
-        XCTAssertTrue(item.logEntries.isEmpty)
+        XCTAssertEqual(read.detail, "\(headline); 1 failed sample (0 reports)")
+        // One warning line per cause (T9). The failed sample's is the read-back's and the paragraph is the
+        // command's, so the detail is no third line.
+        XCTAssertEqual(read.warnings, ["1 TaxTriage sample failed (SRR12486989: boom SRR12486989)"])
     }
 
     func testTheSummaryCountsOneAffectedSampleInTheSingular() {
