@@ -56,9 +56,11 @@ public final class BundleDataProvider {
     /// - Parameters:
     ///   - bundleURL: URL of the `.lungfishref` bundle directory
     ///   - manifest: The pre-loaded bundle manifest
-    public init(bundleURL: URL, manifest: BundleManifest) {
+    ///   - referenceBundle: A bundle already built from `manifest`, which the provider shares instead of building its own
+    public init(bundleURL: URL, manifest: BundleManifest, referenceBundle: ReferenceBundle? = nil) {
         self.bundleURL = bundleURL
         self.manifest = manifest
+        self.referenceBundle = referenceBundle
         logger.info("BundleDataProvider: Initialized for '\(manifest.name, privacy: .public)' at \(bundleURL.lastPathComponent, privacy: .public)")
     }
 

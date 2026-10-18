@@ -26,6 +26,31 @@ final class ReferenceBundleSequenceCache: Sendable {
         case plain(IndexedFASTAReader)
     }
 
+    /// The two builds a cache makes, which take a second or more for a reference with hundreds of thousands of sequences.
+    enum Build: Sendable, Equatable {
+        case nameIndex
+        case reader
+    }
+
+    typealias BuildObserver = @Sendable (Build) -> Void
+
+    #if DEBUG
+    private static let buildObserver = OSAllocatedUnfairLock<BuildObserver?>(initialState: nil)
+
+    /// Test seam. Installs `observer` for every later build in any bundle, or removes it with `nil`. It runs on the
+    /// building thread, once per build and before the build starts. Release builds compile the hook to nothing.
+    static func installBuildObserver(_ observer: BuildObserver?) {
+        buildObserver.withLock { $0 = observer }
+    }
+    #endif
+
+    @inline(__always)
+    private static func willBuild(_ build: Build) {
+        #if DEBUG
+        buildObserver.withLock { $0 }?(build)
+        #endif
+    }
+
     /// First position of each name and of each alias in `genome.chromosomes`.
     struct NameIndex: Sendable {
         let byName: [String: Int]
@@ -62,6 +87,7 @@ final class ReferenceBundleSequenceCache: Sendable {
 
         mutating func buildIndexIfNeeded(_ chromosomes: [ChromosomeInfo]) {
             guard index == nil else { return }
+            ReferenceBundleSequenceCache.willBuild(.nameIndex)
             index = NameIndex(chromosomes)
             indexBuilds += 1
         }
@@ -109,6 +135,7 @@ final class ReferenceBundleSequenceCache: Sendable {
             if let reader = state.reader { return reader }
             let genomeURL = try bundle.memberURL(for: path, field: "genome.path")
             let faiURL = try bundle.memberURL(for: indexPath, field: "genome.indexPath")
+            Self.willBuild(.reader)
             let reader: Reader
             if let gzipIndexPath {
                 let gziURL = try bundle.memberURL(for: gzipIndexPath, field: "genome.gzipIndexPath")

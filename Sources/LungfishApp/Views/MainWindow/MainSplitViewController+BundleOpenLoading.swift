@@ -4,7 +4,17 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
+
+/// What a reference open reads from disk, built once and off the main actor: the
+/// bundle's manifest and the bundle made from it, with its chromosome name index
+/// and sequence reader already built. The embedded viewer shows this bundle, so it
+/// decodes no manifest and builds no index on the main actor.
+struct ReferenceBundleOpenPayload: Sendable {
+    let manifest: BundleManifest
+    let bundle: ReferenceBundle
+}
 
 /// What a mapping open reads from disk, decoded once and off the main actor,
 /// then shared by every consumer of the open: the route, the Inspector, the
@@ -19,13 +29,22 @@ struct MappingAnalysisOpenPayload: Sendable {
 }
 
 extension MainSplitViewController {
-    /// Decodes a bundle manifest on a background thread. The manifest of a
-    /// large reference is hundreds of megabytes and takes seconds to decode,
-    /// so a large one waits for ``BundleDecodeLane``.
-    nonisolated static func loadReferenceManifestOffMain(at url: URL) async -> Result<BundleManifest, Error> {
+    /// Decodes a bundle manifest on a background thread, then builds the bundle and
+    /// its chromosome name index and sequence reader there. The manifest of a large
+    /// reference is hundreds of megabytes and takes seconds to decode, and its
+    /// indexes take a second more. A large one waits for ``BundleDecodeLane``, and
+    /// the indexes are built in the same turn, so a 16 GB Mac holds one large open
+    /// at a time.
+    nonisolated static func loadReferenceBundleOffMain(
+        at url: URL
+    ) async -> Result<ReferenceBundleOpenPayload, Error> {
         await BundleDecodeLane.offMain {
             try await BundleDecodeLane.decode(reading: [url.appendingPathComponent(BundleManifest.filename)]) {
-                try BundleManifest.load(from: url)
+                let manifest = try BundleManifest.load(from: url)
+                let bundle = ReferenceBundle(url: url.standardizedFileURL, manifest: manifest)
+                // A genome that cannot be read is reported by the first fetch, as before the indexes were built here.
+                try? bundle.prepareSequenceAccess()
+                return ReferenceBundleOpenPayload(manifest: manifest, bundle: bundle)
             }
         }
     }

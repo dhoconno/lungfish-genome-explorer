@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 enum ViewerDisplayRoute: Equatable {
@@ -16,11 +17,14 @@ enum ViewerBundleDisplayRoute: Equatable {
 }
 
 enum ViewerDisplayRouteFactory {
+    /// `preparedBundle` is the bundle an open built from `manifest` off the main
+    /// actor, with its sequence indexes already built. The embedded viewer shows it.
     static func directReferenceBundle(
         bundleURL: URL,
-        manifest: BundleManifest
+        manifest: BundleManifest,
+        preparedBundle: ReferenceBundle? = nil
     ) -> ViewerDisplayRoute {
-        .referenceBundle(.directBundle(bundleURL: bundleURL, manifest: manifest))
+        .referenceBundle(.directBundle(bundleURL: bundleURL, manifest: manifest, preparedBundle: preparedBundle))
     }
 
     static func referenceBundleDisplayRoute(

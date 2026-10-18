@@ -42,9 +42,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     }
 
     /// Displays a reference genome bundle using the harmonized viewport or direct sequence mode.
-    public func displayBundle(at url: URL, mode: BundleDisplayMode, manifest: BundleManifest? = nil) throws {
+    public func displayBundle(at url: URL, mode: BundleDisplayMode, manifest: BundleManifest? = nil, bundle: ReferenceBundle? = nil) throws {
         saveCurrentViewState()
-        let context = try loadBundleDisplayContext(at: url, manifest: manifest)
+        let context = try loadBundleDisplayContext(at: url, manifest: manifest, bundle: bundle)
         let displayRoute = ViewerDisplayRouteFactory.referenceBundleDisplayRoute(
             bundleURL: context.url,
             manifest: context.manifest,
@@ -110,10 +110,10 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         updateStatusBar()
     }
 
-    /// `suppliedManifest` is the one the caller already decoded, which a large reference must not pay for twice.
-    private func loadBundleDisplayContext(at url: URL, manifest suppliedManifest: BundleManifest? = nil) throws -> BundleDisplayContext {
+    /// `suppliedManifest` and `suppliedBundle` are the manifest the caller already decoded and the bundle it built and indexed, which a large reference must not pay for twice.
+    private func loadBundleDisplayContext(at url: URL, manifest suppliedManifest: BundleManifest? = nil, bundle suppliedBundle: ReferenceBundle? = nil) throws -> BundleDisplayContext {
         bundleLogger.info("displayBundle: Opening bundle at '\(url.lastPathComponent, privacy: .public)'")
-        let manifest = try suppliedManifest ?? BundleManifest.load(from: url)
+        let manifest = try suppliedBundle?.manifest ?? suppliedManifest ?? BundleManifest.load(from: url)
         let validationErrors = manifest.validate()
         if !validationErrors.isEmpty {
             let messages = validationErrors.map(\.localizedDescription).joined(separator: "; ")
@@ -121,7 +121,8 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             throw DocumentLoadError.parseError("Bundle validation failed: \(messages)")
         }
 
-        let provider = BundleDataProvider(bundleURL: url, manifest: manifest)
+        let bundle = suppliedBundle ?? ReferenceBundle(url: url, manifest: manifest)
+        let provider = BundleDataProvider(bundleURL: url, manifest: manifest, referenceBundle: bundle)
 
         let viewStateURL = url.appendingPathComponent(BundleViewState.filename)
         let viewState = FileManager.default.fileExists(atPath: viewStateURL.path)
@@ -131,7 +132,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             "displayBundle: Loaded view state (overrides=\(viewState.typeColorOverrides.count), chrom=\(viewState.lastChromosome ?? "none", privacy: .public))"
         )
 
-        let bundle = ReferenceBundle(url: url, manifest: manifest)
         let chromosomes = resolvedChromosomes(for: manifest, bundle: bundle)
 
         return BundleDisplayContext(

@@ -802,25 +802,24 @@ extension MainSplitViewController {
         )
         showBundleOpenLoading(at: url, kind: .directBundle)
 
-        // A large reference's manifest is hundreds of megabytes, so the open
-        // decodes it once, off the main actor, and every consumer shares it.
+        // A large reference's manifest is hundreds of megabytes, so the open decodes it
+        // once and builds its sequence indexes, off the main actor, and every consumer shares both.
         bundleOpenTask?.cancel()
         bundleOpenTask = Task { @MainActor [weak self] in
-            let loaded = await Self.loadReferenceManifestOffMain(at: url)
+            let loaded = await Self.loadReferenceBundleOffMain(at: url)
             guard let self else { return }
             self.activityIndicator.hide()
             guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity),
                   self.viewerAwaitsBundleOpen(at: url, kind: .directBundle) else { return }
             do {
                 self.inspectorController.clearSelection()
-                let manifest = try loaded.get()
+                let opened = try loaded.get()
                 let route = ViewerDisplayRouteFactory.directReferenceBundle(
-                    bundleURL: url,
-                    manifest: manifest
+                    bundleURL: url, manifest: opened.manifest, preparedBundle: opened.bundle
                 )
                 try self.viewerController.display(route)
                 self.installBAMMetadataPresentation(
-                    resultURL: url, bundleURL: url, workflowName: "Reference Bundle", manifest: manifest
+                    resultURL: url, bundleURL: url, workflowName: "Reference Bundle", manifest: opened.manifest
                 )
                 self.wireDirectReferenceViewportInspectorUpdates()
                 onDisplayed?()

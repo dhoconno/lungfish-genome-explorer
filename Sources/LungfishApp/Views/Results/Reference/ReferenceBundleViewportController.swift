@@ -826,13 +826,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
         embeddedViewerController.clearViewport(statusMessage: ReferenceViewportOpenProgress.loadingViewer)
         embeddedViewerController.annotationSearchIndex = nil
-        // The manifest the open decoded once, never a second decode here.
-        let heldManifest = standardized == currentInput?.renderedBundleURL
-            ? currentInput?.manifest ?? currentInput?.viewerBundleManifest : nil
+        // The manifest and bundle the open built once, never a second decode or index build here.
+        let held = standardized == currentInput?.renderedBundleURL ? currentInput : nil
         try embeddedViewerController.displayBundle(
             at: standardized,
             mode: .sequence(name: sequenceName, restoreViewState: false),
-            manifest: heldManifest
+            manifest: held?.manifest ?? held?.viewerBundleManifest,
+            bundle: held?.preparedBundle
         )
         rebuildEmbeddedAnnotationSearchIndex()
         loadedViewerBundleURL = standardized

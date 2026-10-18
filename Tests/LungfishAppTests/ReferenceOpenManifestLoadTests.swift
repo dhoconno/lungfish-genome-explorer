@@ -7,6 +7,7 @@ import Synchronization
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishIO
 import LungfishTestSupport
 
 /// Records every decode that `BundleLoadProbe` reports.
@@ -40,6 +41,23 @@ final class BundleDecodeLog: Sendable {
     }
 }
 
+/// Records every name index and sequence reader that any bundle starts to build.
+/// The seam traps the process at a build on the main queue.
+final class SequenceIndexBuildLog: Sendable {
+    private let builds = Mutex<[ReferenceBundleSequenceCache.Build]>([])
+
+    func install() {
+        ReferenceBundleSequenceCache.installBuildObserver { [self] build in
+            dispatchPrecondition(condition: .notOnQueue(.main))
+            builds.withLock { $0.append(build) }
+        }
+    }
+
+    func count(_ build: ReferenceBundleSequenceCache.Build) -> Int {
+        builds.withLock { $0.filter { $0 == build }.count }
+    }
+}
+
 /// The manifest of a large reference is hundreds of megabytes and takes
 /// seconds to decode. Opening one decoded it three times on the main thread,
 /// for the route, for the embedded viewer and for the BAM metadata context.
@@ -47,6 +65,7 @@ final class BundleDecodeLog: Sendable {
 final class ReferenceOpenManifestLoadTests: XCTestCase {
     override func tearDown() async throws {
         BundleLoadProbe.install(nil)
+        ReferenceBundleSequenceCache.installBuildObserver(nil)
         try await super.tearDown()
     }
 
@@ -150,5 +169,39 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
         let hidden = await waitUntil(timeout: .seconds(30)) { split.activityIndicator.isHidden }
         XCTAssertTrue(hidden, "the superseded open left its Loading toast on screen")
         XCTAssertNil(split.viewerController.referenceBundleViewportController)
+    }
+
+    /// SWIFT-fai 4.7 item 1. The chromosome name index (250 ms) and the `.fai` of a
+    /// reference with hundreds of thousands of sequences (seconds) were built by the
+    /// embedded viewer's first lookup and first fetch, on the main actor. The open
+    /// builds both in its off-main load, and the viewer shows that same bundle.
+    func testOpenBuildsSequenceIndexesOffMain() async throws {
+        let root = try TestTempDirectory.make(prefix: "ReferenceOpenIndexes")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Open Indexes",
+            chromosomes: [.init(name: "chr2", length: 80), .init(name: "chr1", length: 100)],
+            in: root
+        )
+        let builds = SequenceIndexBuildLog()
+        builds.install()
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+
+        let opened = await waitUntil(timeout: .seconds(30)) {
+            split.viewerController.referenceBundleViewportController?
+                .testEmbeddedViewerController.currentReferenceBundle?.url.standardizedFileURL
+                == bundleURL.standardizedFileURL
+        }
+        XCTAssertTrue(opened, "the embedded viewer never opened the bundle")
+        let shown = try XCTUnwrap(
+            split.viewerController.referenceBundleViewportController?.testEmbeddedViewerController.currentReferenceBundle
+        )
+        XCTAssertEqual(shown.sequenceCache.nameIndexBuildCount, 1)
+        XCTAssertEqual(shown.sequenceCache.readerBuildCount, 1)
+        XCTAssertEqual(builds.count(.nameIndex), 1, "a second bundle built its name index")
+        XCTAssertEqual(builds.count(.reader), 1, "a second bundle built its sequence reader")
     }
 }

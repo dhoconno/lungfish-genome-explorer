@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 struct ReferenceBundleViewportInput: Equatable {
@@ -24,6 +25,11 @@ struct ReferenceBundleViewportInput: Equatable {
     /// When the saved mapping result last changed on disk, the version of
     /// `mappingResult` that identity compares instead of its contigs.
     let mappingResultModificationDate: Date?
+    /// The bundle an open built from `manifest` off the main actor, with its
+    /// chromosome name index and sequence reader already built. The embedded
+    /// viewer shows it, so it builds neither on the main actor. It follows from
+    /// the files that `==` compares, so it takes no part there.
+    let preparedBundle: ReferenceBundle?
 
     var documentTitle: String {
         manifest?.name
@@ -70,7 +76,8 @@ struct ReferenceBundleViewportInput: Equatable {
 
     static func directBundle(
         bundleURL: URL,
-        manifest: BundleManifest
+        manifest: BundleManifest,
+        preparedBundle: ReferenceBundle? = nil
     ) -> ReferenceBundleViewportInput {
         ReferenceBundleViewportInput(
             kind: .directBundle,
@@ -80,7 +87,8 @@ struct ReferenceBundleViewportInput: Equatable {
             mappingResultDirectoryURL: nil,
             mappingProvenance: nil,
             viewerBundleManifest: nil,
-            mappingResultModificationDate: nil
+            mappingResultModificationDate: nil,
+            preparedBundle: preparedBundle
         )
     }
 
@@ -99,7 +107,8 @@ struct ReferenceBundleViewportInput: Equatable {
             mappingResultDirectoryURL: resultDirectoryURL?.standardizedFileURL,
             mappingProvenance: provenance,
             viewerBundleManifest: viewerBundleManifest,
-            mappingResultModificationDate: resultModificationDate
+            mappingResultModificationDate: resultModificationDate,
+            preparedBundle: nil
         )
     }
 }
