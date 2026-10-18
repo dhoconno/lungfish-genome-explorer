@@ -45,28 +45,4 @@ final class MappingWorkflowFilePanelFactoryTests: XCTestCase {
         XCTAssertTrue(panel.canChooseDirectories)
         XCTAssertEqual(panel.message, "Select a Lungfish workflow bundle")
     }
-
-    func testWorkflowSavePanelUsesSuggestedNameAndMessage() {
-        let panel = MappingWorkflowFilePanelFactory.workflowSavePanel(
-            contentTypes: [.folder],
-            suggestedName: "Example.lungfishflow",
-            message: "Save workflow as"
-        )
-
-        XCTAssertEqual(panel.allowedContentTypes, [.folder])
-        XCTAssertEqual(panel.nameFieldStringValue, "Example.lungfishflow")
-        XCTAssertEqual(panel.message, "Save workflow as")
-    }
-
-    func testWorkflowExporterPanelsUseExpectedNames() {
-        let nextflow = MappingWorkflowFilePanelFactory.nextflowExportPanel(suggestedName: "Example.nf")
-        let snakemake = MappingWorkflowFilePanelFactory.snakemakeExportPanel()
-
-        XCTAssertEqual(nextflow.nameFieldStringValue, "Example.nf")
-        XCTAssertEqual(nextflow.message, "Export as Nextflow pipeline")
-        XCTAssertEqual(nextflow.allowedContentTypes, [UTType(filenameExtension: "nf") ?? .plainText])
-        XCTAssertEqual(snakemake.nameFieldStringValue, "Snakefile")
-        XCTAssertEqual(snakemake.message, "Export as Snakemake workflow")
-        XCTAssertEqual(snakemake.allowedContentTypes, [.plainText])
-    }
 }

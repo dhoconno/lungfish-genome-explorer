@@ -29,32 +29,4 @@ enum MappingWorkflowFilePanelFactory {
         panel.message = "Select a Lungfish workflow bundle"
         return panel
     }
-
-    static func workflowSavePanel(
-        contentTypes: [UTType],
-        suggestedName: String,
-        message: String
-    ) -> NSSavePanel {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = contentTypes
-        panel.nameFieldStringValue = suggestedName
-        panel.message = message
-        return panel
-    }
-
-    static func nextflowExportPanel(suggestedName: String) -> NSSavePanel {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "nf") ?? .plainText]
-        panel.nameFieldStringValue = suggestedName
-        panel.message = "Export as Nextflow pipeline"
-        return panel
-    }
-
-    static func snakemakeExportPanel() -> NSSavePanel {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "Snakefile"
-        panel.message = "Export as Snakemake workflow"
-        return panel
-    }
 }
