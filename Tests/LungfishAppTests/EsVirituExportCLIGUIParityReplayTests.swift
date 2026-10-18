@@ -409,6 +409,8 @@ extension EsVirituExportCLIGUIParityReplayTests {
         XCTAssertEqual(a.durableReplayArgv, argvA)
         XCTAssertEqual(a.workflowName, "lungfish app esviritu detections export")
         XCTAssertEqual(Set(a.options.resolvedDefaults.keys), Self.sharedResolvedKeys.union(Self.unappliedKeys))
+        XCTAssertEqual(a.options.explicit.keys.sorted(), ["format", "outputPath"])
+        XCTAssertEqual(a.options.defaults["format"]?.stringValue, "tsv")
 
         let rowArguments = try RouteParityHarness.arguments(ofLine: try XCTUnwrap(runs.c.outcome.recordedCommand))
         XCTAssertEqual(c.toolName, CLICommandIdentity.executableName)
@@ -417,6 +419,9 @@ extension EsVirituExportCLIGUIParityReplayTests {
         XCTAssertEqual(c.durableReplayArgv, c.argv)
         XCTAssertEqual(c.workflowName, EsVirituDetectionExport.workflowName)
         XCTAssertEqual(Set(c.options.resolvedDefaults.keys), Self.sharedResolvedKeys)
+        XCTAssertEqual(c.options.explicit.keys.sorted(), ["metadataColumns", "outputFormat", "outputPath", "samples"])
+        XCTAssertEqual(c.options.explicit["outputFormat"]?.stringValue, "tsv")
+        XCTAssertTrue(c.options.defaults.isEmpty)
     }
 
     /// Each input's path below `root`, with its digest.
