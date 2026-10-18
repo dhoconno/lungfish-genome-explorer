@@ -265,7 +265,7 @@ A new workflow takes the right column of the Operations row table and not one of
 
 | Suite | What it pins |
 |---|---|
-| `Tests/LungfishAppTests/NextflowWorkflowRowPinTests.swift` | The title and first detail of each row above, Viral Recon's row for a launch, a clean end, stderr warning lines, a failure with its 40-line tail and a cancel, Local Workflow's first run with its Cancel and its end words, and TaxTriage's title for one and several samples |
+| `Tests/LungfishAppTests/NextflowWorkflowRowPinTests.swift` | The title and first detail of each row above, Viral Recon's row for a launch, a clean end, stderr warning lines, a failure with its 40-line tail and a cancel, Local Workflow's first run with its Cancel and its end words |
 | `Tests/LungfishAppTests/ViralReconWorkflowProcessRunnerTests.swift` | The runner behind the Viral Recon and Local Workflow rows, the 6 s a cancel gives the CLI before SIGKILL, a cancel before the launch, the exit code and both streams, the last 4 MiB of each stream, and the warning line for output a child kept open |
 | `Tests/LungfishAppTests/TaxTriagePipelineCancelReplayTests.swift` | On the stand-in engine, that a cancel of the pipeline or of a serial batch stops the whole engine tree before the run returns and records the cancel |
 | `Tests/LungfishAppTests/CLIClassifierRunnerOverlayTests.swift` | That the app's CLI route shows no line on the overlay once the row is cancelling |

@@ -12,9 +12,9 @@
 //
 // Every case passes at the base. They pin today's behaviour, defects included, and none is a
 // target. Viral Recon's row does not move in 2.9, so its cases are the ones S16 reads first. The
-// TaxTriage case here pins the title and first detail without a run. `TaxTriageCLIRouteRowTests` pins
-// the rest of the TaxTriage row since Phase 2.12 K1, and `CLIClassifierRunnerOverlayTests` the overlay
-// after `Cancelling...` (row T2). No case starts a
+// TaxTriage row is pinned on its CLI route since Phase 2.12 K1, by `TaxTriageCLIRouteRowTests`, the row
+// facts of `TaxTriageCLIGUIParityReplayTests` and `CLIClassifierRunnerOverlayTests` for the overlay after
+// `Cancelling...` (row T2). No case starts a
 // process or needs Docker, so the class runs in the unit tier.
 
 import AppKit
@@ -347,29 +347,6 @@ final class NextflowWorkflowRowPinTests: XCTestCase {
                 "error: \(stderr)",
             ]
         )
-    }
-
-    // MARK: - TaxTriage
-
-    /// The title counts samples in the singular or the plural, the first detail is fixed, and a
-    /// run of several samples records no command (the gap marker `taxtriage-multi-sample`).
-    func testTheTaxTriageRowTitleCountsSamplesAndStartsWithTheFixedFirstDetail() throws {
-        let reads = try writeFASTQ("S1.fastq")
-        let reporter = RecordingOperationReporter()
-        for count in [1, 2] {
-            let samples = (1...count).map { TaxTriageSample(sampleId: "S\($0)", fastq1: reads) }
-            _ = AppDelegate.beginTaxTriageOperation(
-                config: makeTaxTriageConfig(samples),
-                routeContext: nil,
-                reporter: reporter
-            ) { _ in }
-        }
-
-        XCTAssertEqual(reporter.items.map(\.title), ["TaxTriage (1 sample)", "TaxTriage (2 samples)"])
-        XCTAssertEqual(reporter.items.map(\.initialDetail), ["Starting TaxTriage pipeline\u{2026}", "Starting TaxTriage pipeline\u{2026}"])
-        XCTAssertEqual(reporter.items.map(\.operationType), [.classification, .classification])
-        XCTAssertEqual(reporter.items.first?.cliCommand?.hasPrefix("lungfish-cli taxtriage --input "), true)
-        XCTAssertNil(reporter.items.last?.cliCommand, "several samples record no command")
     }
 
     // MARK: - pbAA

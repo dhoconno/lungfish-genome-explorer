@@ -11,8 +11,8 @@ import LungfishWorkflow
 /// U30, panel decision K1). Every launch takes it since Phase 2.12 K1 deleted the hidden key and the
 /// in-process route, and the run takes the classifier CLI route's one row path.
 ///
-/// The argv is `taxtriage run` with the words the legacy row records for one sample
-/// (`AppDelegate.taxTriageCLICommand(for:)`) and `--project` in place of `--output`, the words the
+/// The argv is `taxtriage run` with the words the in-process route's row recorded for one sample
+/// until Phase 2.12 K1, and `--project` in place of `--output`, the words the
 /// parity class's side C runs (2.8 T17). The command then makes `Analyses/taxtriage-batch-<timestamp>/`
 /// in the project, as the legacy route does for one sample too (UX F7). Several samples take one
 /// `--input` each, in the dialog's order, and `--batch`, so each sample runs alone in its own folder as

@@ -298,10 +298,9 @@ extension TaxTriageParityHarness {
         cliRouteCommandViolations(parityCase, samples: samples, run: run, analysis: analysis, engine: engine, violate: violate)
     }
 
-    /// The command side C's row records on the route the hidden key's `cli` value selects (Phase
-    /// 2.11 U30 M3). It is `taxtriage run --project` with one `--input` per bundle, `--sample` for one
-    /// sample and `--batch` for several, so a request of several samples records its command
-    /// (cli-parity-gap taxtriage-multi-sample on this route). It is also the argv the result's root
+    /// The command side C's row records on the CLI route (Phase 2.11 U30 M3), the only route since
+    /// Phase 2.12 K1. It is `taxtriage run --project` with one `--input` per bundle, `--sample` for one
+    /// sample and `--batch` for several, so a request of several samples records its command. It is also the argv the result's root
     /// record names, so Copy CLI Command replays what ran (BIO's 2.10 requirement), which side C'
     /// runs.
     private func cliRouteCommandViolations(

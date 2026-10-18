@@ -14,6 +14,7 @@ import Foundation
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import LungfishOperations
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
@@ -96,7 +97,7 @@ final class TaxTriageReadSetAppTests: XCTestCase {
         let fastq2: [String]?
     }
 
-    /// Resolves one sample through the app's TaxTriage launch, prepares it as
+    /// Resolves one sample as `taxtriage run` does instead of the app's TaxTriage launch, prepares it as
     /// `TaxTriagePipeline.run` does and reads its samplesheet row.
     private func samplesheetRow(for bundle: URL) async throws -> Row {
         let sample = TaxTriageSample(sampleId: "sample", fastq1: bundle)
@@ -104,10 +105,15 @@ final class TaxTriageReadSetAppTests: XCTestCase {
             samples: [sample],
             outputDirectory: root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true)
         )
-        let resolved = try await AppDelegate().resolvedTaxTriageConfig(
-            config,
-            tempDirectory: root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true)
-        )
+        // The planner `taxtriage run` resolves each sample with, as the in-process launch did until Phase
+        // 2.12 K1 deleted it.
+        var resolved = config
+        resolved.samples = [try await TaxTriageReadSetPlanner.resolve(
+            sample,
+            materializationDirectory: root.appendingPathComponent("inputs-\(UUID().uuidString)", isDirectory: true),
+            materializer: FASTQCLIMaterializer(runner: FASTQDerivativeService.shared.runner),
+            progress: nil
+        )]
         let prepared = try await TaxTriagePipeline.splitStrictlyInterleavedSamples(
             in: resolved,
             splitRoot: root.appendingPathComponent("split-\(UUID().uuidString)", isDirectory: true)
