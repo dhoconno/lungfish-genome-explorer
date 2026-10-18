@@ -59,6 +59,8 @@ struct MappingDocumentState: Equatable {
 
 struct MappingDocumentSection: View {
     @Bindable var viewModel: DocumentSectionViewModel
+    /// Where the step copy commands write. Tests pass a private pasteboard.
+    var pasteboard: NSPasteboard = .general
 
     @State private var isSourceDataExpanded = true
     @State private var isContextExpanded = true
@@ -199,14 +201,34 @@ struct MappingDocumentSection: View {
                         MappingDocumentStepRow(
                             step: step,
                             number: index + 1,
-                            isExpanded: stepExpansion(index)
+                            isExpanded: stepExpansion(index),
+                            copyText: InspectorStepCopyText.mappingStep(step),
+                            copy: copyToPasteboard,
+                            allStepsText: { InspectorStepCopyText.mappingSteps(mapping.steps) }
                         )
+                    }
+                    if !mapping.steps.isEmpty {
+                        InspectorCopyButton(
+                            title: "Copy All Steps",
+                            help: "Copy every step of this run",
+                            accessibilityLabel: "Copy all steps",
+                            identifier: "mapping-steps-copy-all"
+                        ) {
+                            copyToPasteboard(InspectorStepCopyText.mappingSteps(mapping.steps))
+                        }
+                        .padding(.leading, MappingDocumentStepRow.labelWidth + MappingDocumentStepRow.columnSpacing)
                     }
                 }
                 .padding(.top, 4)
             }
         }
         .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+    }
+
+    /// Writes plain text in one `.string` flavour, as Copy Path does.
+    private func copyToPasteboard(_ text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     private func stepExpansion(_ index: Int) -> Binding<Bool> {

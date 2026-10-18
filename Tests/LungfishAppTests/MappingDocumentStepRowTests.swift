@@ -16,17 +16,23 @@ import XCTest
 final class MappingDocumentStepRowTests: XCTestCase {
     private var windows: [NSWindow] = []
     private var tempRoot: URL!
+    private var pasteboard: NSPasteboard!
+    /// The fixture's read path, which lies in the spaced project folder.
+    private var readsPath = ""
 
     override func setUp() async throws {
         try await super.setUp()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("MappingDocumentStepRowTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        pasteboard = NSPasteboard(name: NSPasteboard.Name("MappingDocumentStepRowTests-\(UUID().uuidString)"))
     }
 
     override func tearDown() async throws {
         for window in windows { window.orderOut(nil) }
         windows.removeAll()
+        pasteboard.releaseGlobally()
+        pasteboard = nil
         try? FileManager.default.removeItem(at: tempRoot)
         try await super.tearDown()
     }
@@ -88,7 +94,136 @@ final class MappingDocumentStepRowTests: XCTestCase {
         XCTAssertEqual(value(of: "mapping-step-2-toggle", in: window), "Collapsed", "the other steps stay collapsed")
     }
 
+    // MARK: - Copy
+
+    func testCopyStepWritesTheTitleRecordedAndTheWholeCommand() throws {
+        let state = try fixtureState()
+        let window = hostSection(state)
+
+        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Step", on: try stepRow(1, in: window)))
+
+        let copied = try XCTUnwrap(pasteboard.string(forType: .string))
+        XCTAssertEqual(copied, try expectedStepText(state.steps[0], in: state))
+        XCTAssertTrue(copied.hasPrefix("minimap2 2.31\nRecorded: "), copied)
+        XCTAssertFalse(copied.contains("\u{2026}"), "the copy is never truncated")
+        XCTAssertFalse(copied.hasSuffix("\n"))
+    }
+
+    func testCopyCommandWritesOnlyTheCommand() throws {
+        let state = try fixtureState()
+        let window = hostSection(state)
+
+        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Command", on: try stepRow(1, in: window)))
+
+        let copied = try XCTUnwrap(pasteboard.string(forType: .string))
+        XCTAssertEqual(copied, state.steps[0].command)
+        XCTAssertTrue(readsPath.contains(" "), "the project folder name has a space")
+        XCTAssertTrue(copied.hasSuffix(" '\(readsPath)'"), "the spaced path is one single-quoted word")
+        XCTAssertFalse(copied.contains("\n"))
+    }
+
+    func testCopyAllStepsJoinsEveryStepWithOneBlankLine() throws {
+        let state = try fixtureState()
+        let window = hostSection(state)
+        var stepTexts: [String] = []
+        for number in 1...state.steps.count {
+            XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Step", on: try stepRow(number, in: window)))
+            stepTexts.append(try XCTUnwrap(pasteboard.string(forType: .string)))
+        }
+        XCTAssertEqual(Set(stepTexts).count, 5, "each of the five steps copies its own text")
+
+        let button = try XCTUnwrap(
+            AccessibilityTreeProbe.element(in: window, identifier: "mapping-steps-copy-all"),
+            "no Copy All Steps button; tree:\n" + AccessibilityTreeProbe.dump(window)
+        )
+        XCTAssertEqual(AccessibilityTreeProbe.label(button), "Copy all steps")
+        pasteboard.clearContents()
+        XCTAssertTrue(AccessibilityTreeProbe.press(button))
+        XCTAssertEqual(pasteboard.string(forType: .string), stepTexts.joined(separator: "\n\n"))
+
+        pasteboard.clearContents()
+        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy All Steps", on: try stepRow(3, in: window)))
+        XCTAssertEqual(
+            pasteboard.string(forType: .string), stepTexts.joined(separator: "\n\n"),
+            "the menu command copies the same text from any step"
+        )
+    }
+
+    func testStepRowOffersItsCopyCommandsInMenuOrder() throws {
+        let window = hostSection(try fixtureState())
+        XCTAssertEqual(
+            AccessibilityTreeProbe.customActionNames(try stepRow(1, in: window)),
+            ["Copy Step", "Copy Command", "Copy All Steps"]
+        )
+
+        let withoutCommand = MappingDocumentState(
+            title: "Mapping", subtitle: nil, summary: nil, sourceData: [], contextRows: [],
+            steps: [MappingDocumentStep(label: "minimap2", command: "", version: "2.31", recorded: "Oct 16, 2026")],
+            artifactRows: []
+        )
+        let otherWindow = hostSection(withoutCommand)
+        XCTAssertEqual(
+            AccessibilityTreeProbe.customActionNames(try stepRow(1, in: otherWindow)),
+            ["Copy Step", "Copy All Steps"],
+            "a step without a command offers no Copy Command"
+        )
+    }
+
+    func testCopyIconCopiesTheStep() throws {
+        let state = try fixtureState()
+        let window = hostSection(state)
+        AccessibilityTreeProbe.waitUntil { AccessibilityTreeProbe.element(in: window, identifier: "mapping-step-1-copy") != nil }
+        let icon = try XCTUnwrap(
+            AccessibilityTreeProbe.element(in: window, identifier: "mapping-step-1-copy"),
+            "no copy icon; tree:\n" + AccessibilityTreeProbe.dump(window)
+        )
+        XCTAssertEqual(AccessibilityTreeProbe.label(icon), "Copy minimap2 step")
+        XCTAssertEqual(AccessibilityTreeProbe.help(icon), "Copy this step")
+
+        XCTAssertTrue(AccessibilityTreeProbe.press(icon))
+
+        XCTAssertEqual(pasteboard.string(forType: .string), try expectedStepText(state.steps[0], in: state))
+    }
+
+    /// A version's trailing white space is trimmed from the title, a fact the
+    /// record does not hold is left out, and the text never ends in a newline.
+    func testStepTextLeavesOutWhatTheRecordDoesNotHold() {
+        XCTAssertEqual(
+            InspectorStepCopyText.mappingStep(
+                MappingDocumentStep(label: "minimap2", command: "minimap2 -a", version: "2.31 \n", recorded: "Oct 16")
+            ),
+            "minimap2 2.31\nRecorded: Oct 16\nCommand: minimap2 -a"
+        )
+        XCTAssertEqual(
+            InspectorStepCopyText.mappingStep(
+                MappingDocumentStep(label: "portable-bam-header", command: "lungfish-cli portable-bam-header a.bam", version: nil, recorded: "Oct 16")
+            ),
+            "portable-bam-header\nRecorded: Oct 16\nCommand: lungfish-cli portable-bam-header a.bam"
+        )
+        XCTAssertEqual(
+            InspectorStepCopyText.mappingStep(MappingDocumentStep(label: "minimap2", command: "", version: "", recorded: "Oct 16")),
+            "minimap2\nRecorded: Oct 16"
+        )
+    }
+
     // MARK: - Fixture
+
+    private func stepRow(_ number: Int, in window: NSWindow) throws -> NSObject {
+        let identifier = "mapping-step-\(number)"
+        AccessibilityTreeProbe.waitUntil { AccessibilityTreeProbe.element(in: window, identifier: identifier) != nil }
+        return try XCTUnwrap(
+            AccessibilityTreeProbe.element(in: window, identifier: identifier),
+            "no step row \(number); tree:\n" + AccessibilityTreeProbe.dump(window)
+        )
+    }
+
+    /// The Copy Step text Q-U2 sets for a Document tab step, with the
+    /// Recorded text the builder wrote rather than a typed date.
+    private func expectedStepText(_ step: MappingDocumentStep, in state: MappingDocumentState) throws -> String {
+        let recorded = try XCTUnwrap(state.contextRows.first { $0.0 == "Recorded" }?.1)
+        let version = try XCTUnwrap(step.version)
+        return "\(step.label) \(version)\nRecorded: \(recorded)\nCommand: \(step.command)"
+    }
 
     private func value(of identifier: String, in window: NSWindow) -> String? {
         AccessibilityTreeProbe.element(in: window, identifier: identifier).flatMap { AccessibilityTreeProbe.value($0) }
@@ -98,7 +233,7 @@ final class MappingDocumentStepRowTests: XCTestCase {
         let viewModel = DocumentSectionViewModel()
         viewModel.mappingDocument = state
         let window = AccessibilityTreeProbe.host(
-            ScrollView { MappingDocumentSection(viewModel: viewModel) },
+            ScrollView { MappingDocumentSection(viewModel: viewModel, pasteboard: pasteboard) },
             size: CGSize(width: width, height: 720)
         )
         windows.append(window)
@@ -116,6 +251,7 @@ final class MappingDocumentStepRowTests: XCTestCase {
         let outputDirectory = projectURL.appendingPathComponent("Analyses/minimap2-2026-10-16T20-46-08", isDirectory: true)
         let sample = "SRR35517702-lengthFilter-subsampleCount"
         let reads = projectURL.appendingPathComponent("Analyses/\(sample).lungfishfastq/subsampleCount.fastq.gz")
+        readsPath = reads.path
         let reference = projectURL.appendingPathComponent(
             ".tmp/mapping-reference-stage-41B36A8C-9FC1-49ED-82AD-F8D0F393B10B/reference.fa"
         )
