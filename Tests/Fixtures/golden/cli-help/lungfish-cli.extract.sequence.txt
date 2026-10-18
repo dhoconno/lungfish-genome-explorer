@@ -18,6 +18,11 @@ With --format json, standard output holds event lines: one start line,
 progress lines with --bundle or a .lungfishref output, and one complete or
 failed line. The text goes to standard error, and -o is required.
 
+With no region, --sequence names a whole sequence to write as stored, and
+--selection names a file the app wrote that lists them. The input is a
+plain FASTA file, the records come in the order asked, -o is required, and
+an existing -o file is refused without --force.
+
 Examples:
   lungfish-cli extract sequence genome.fasta chr1:1000-2000
   lungfish-cli extract sequence genome.fasta chr1:1000-2000
@@ -26,13 +31,16 @@ Examples:
   lungfish-cli extract sequence genome.fasta seq1:1-100 -o region.fasta
   lungfish-cli extract sequence genome.lungfishref chr1:1000-2000 --bundle -o
 region.lungfishref
+  lungfish-cli extract sequence genome.fasta --sequence chr1 --sequence chr2 -o
+two.fasta
 
-USAGE: lungfish-cli extract sequence [<options>] <input> <region>
+USAGE: lungfish-cli extract sequence [<options>] <input> [<region>]
 
 ARGUMENTS:
   <input>                 Input file (FASTA format)
   <region>                Region to extract (format: name:start-end, 1-based
-                          inclusive)
+                          inclusive). Leave it out with --sequence or
+                          --selection
 
 OPTIONS:
   --reverse-complement    Reverse complement the extracted sequence
@@ -72,6 +80,13 @@ OPTIONS:
   --strand <strand>       With --feature-name, the feature's strand, + or -
   --concatenate-exons     With --feature-name, join the feature's parts into
                           one sequence
+  --sequence <sequence>   With no region, write this whole sequence as stored.
+                          Give it once for each sequence. A name is a header
+                          line or its first word
+  --selection <selection> With no region, the selection file the app wrote that
+                          lists the sequences to write
+  --force                 With --sequence or --selection, overwrite an existing
+                          -o file
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

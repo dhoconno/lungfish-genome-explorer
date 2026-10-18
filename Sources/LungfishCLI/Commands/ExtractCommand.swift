@@ -57,20 +57,35 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             progress lines with --bundle or a .lungfishref output, and one complete or
             failed line. The text goes to standard error, and -o is required.
 
+            With no region, --sequence names a whole sequence to write as stored, and
+            --selection names a file the app wrote that lists them. The input is a
+            plain FASTA file, the records come in the order asked, -o is required, and
+            an existing -o file is refused without --force.
+
             Examples:
               lungfish-cli extract sequence genome.fasta chr1:1000-2000
               lungfish-cli extract sequence genome.fasta chr1:1000-2000 --reverse-complement
               lungfish-cli extract sequence genome.fasta chr1:1-500 --flank 100
               lungfish-cli extract sequence genome.fasta seq1:1-100 -o region.fasta
               lungfish-cli extract sequence genome.lungfishref chr1:1000-2000 --bundle -o region.lungfishref
+              lungfish-cli extract sequence genome.fasta --sequence chr1 --sequence chr2 -o two.fasta
             """
     )
 
     @Argument(help: "Input file (FASTA format)")
     var input: String
 
-    @Argument(help: "Region to extract (format: name:start-end, 1-based inclusive)")
-    var region: String
+    @Argument(help: ArgumentHelp(
+        "Region to extract (format: name:start-end, 1-based inclusive). Leave it out with --sequence or --selection",
+        valueName: "region"
+    ))
+    var regionArgument: String?
+
+    /// The region, empty when the run names whole sequences and not a region.
+    var region: String {
+        get { regionArgument ?? "" }
+        set { regionArgument = newValue }
+    }
 
     @Flag(
         name: .customLong("reverse-complement"),
@@ -156,9 +171,29 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("concatenate-exons"), help: "With --feature-name, join the feature's parts into one sequence")
     var concatenateExons: Bool = false
 
+    @Option(
+        name: .customLong("sequence"),
+        help: "With no region, write this whole sequence as stored. Give it once for each sequence. A name is a header line or its first word"
+    )
+    var sequenceNames: [String] = []
+
+    @Option(
+        name: .customLong("selection"),
+        help: "With no region, the selection file the app wrote that lists the sequences to write"
+    )
+    var selection: String?
+
+    @Flag(name: .customLong("force"), help: "With --sequence or --selection, overwrite an existing -o file")
+    var force: Bool = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        // Whole sequences by name and no region, the viewers' FASTA records export (2.12 lane 12.34, A11).
+        if regionArgument == nil || !sequenceNames.isEmpty || selection != nil {
+            try validateRecordsRun()
+            return try await runRecords()
+        }
         if bundle {
             return try await runBundle(fromFASTA: false)
         }
