@@ -283,17 +283,19 @@ extension AppDelegate {
     /// only when the row started. The row locks `bundleURL` and registers
     /// `onCancel` when it starts.
     ///
-    /// The run launches this app executable in `--vcf-import-helper` mode,
-    /// which is not a `lungfish-cli` flag. The row records the runnable
-    /// equivalent, `lungfish-cli import vcf`, as `VCFImportCLICommand` builds
-    /// it, with `--replace` when the user confirmed a replacement. It attaches
-    /// through the same `VCFBundleVariantImport` core as the run.
+    /// The run is `lungfish-cli import vcf` on `CLIBundleBuildRunner` (Phase 2.12
+    /// lane 12.07, A64), and the row records that command as `VCFImportCLICommand`
+    /// builds it, with `--replace` when the user confirmed a replacement and
+    /// `--resume` or `--materialize` when `mode` finishes the replaced track. The
+    /// command attaches through `VCFBundleVariantImport`, the core the app ran in
+    /// a helper process before.
     @discardableResult
     static func beginVCFImportOperation(
         vcfURL: URL,
         bundleURL: URL,
         importProfile: VCFImportProfile,
         replaceTrackID: String?,
+        mode: VCFImportCLICommand.Mode = .fresh,
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         onCancel: @escaping @Sendable () -> Void,
@@ -308,7 +310,8 @@ extension AppDelegate {
                 vcfURL: vcfURL,
                 bundleURL: bundleURL,
                 importProfile: importProfile,
-                replaceTrackID: replaceTrackID
+                replaceTrackID: replaceTrackID,
+                mode: mode
             ),
             routeContext: routeContext,
             onCancel: onCancel

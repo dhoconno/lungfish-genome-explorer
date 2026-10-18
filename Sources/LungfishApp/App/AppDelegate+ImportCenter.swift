@@ -628,355 +628,64 @@ extension AppDelegate {
             return nil
         }
 
-        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let selectedImportProfile = selectedVCFImportProfile()
         // The track id is decided against the manifest up front, exactly as
         // `lungfish-cli import vcf` does: a same-named VCF gets `calls-2`,
         // and a replacement must name a track that exists.
-        let helperTrackID: String
+        let trackID: String
         do {
             let manifest = try BundleManifest.load(from: bundleURL)
-            helperTrackID = try VCFBundleVariantImport.resolveTrackID(
+            trackID = try VCFBundleVariantImport.resolveTrackID(
                 forVCFURL: vcfURL, in: manifest, bundleURL: bundleURL, replacing: replaceTrackID)
         } catch {
             showAlert(title: "VCF Import Failed", message: error.localizedDescription,
                       presentingWindow: targetMainWindowController(routeContext: routeContext)?.window)
             return nil
         }
+        // A replaced track whose import or materialization stopped is finished from
+        // its own database with `--resume` or `--materialize`.
+        let mode = VCFImportCLICommand.mode(forTrackID: trackID, replacing: replaceTrackID, in: bundleURL)
+        let arguments = VCFImportCLICommand.arguments(
+            vcfURL: vcfURL, bundleURL: bundleURL, importProfile: selectedImportProfile,
+            replaceTrackID: replaceTrackID, mode: mode
+        )
         let result = Self.beginVCFImportOperation(
             vcfURL: vcfURL,
             bundleURL: bundleURL,
             importProfile: selectedImportProfile,
             replaceTrackID: replaceTrackID,
+            mode: mode,
             routeContext: routeContext,
-            onCancel: { cancelFlag.withLock { $0 = true } }
+            onCancel: {} // CLIBundleBuildRunner.launch wires the row's Cancel to the command once it starts
         ) { opID in
-            let importClock = ProvenanceRunClock()
-
-            DispatchQueue.global(qos: .userInitiated).async {
-                // All file I/O on background thread — no UI references captured
-                let result: Result<(variantCount: Int, trackInfo: VariantTrackInfo, cleanupWarning: String?), Error>
-                let isCancelled: @Sendable () -> Bool = { cancelFlag.withLock { $0 } }
-
-                let trackId = helperTrackID
-                let dbFilename = VCFBundleVariantImport.databaseFilename(trackID: trackId)
-                let variantsDir = bundleURL.appendingPathComponent("variants")
-                let finalDBURL = variantsDir.appendingPathComponent(dbFilename)
-                let stagingDirectory = variantsDir.appendingPathComponent(".import-\(opID.uuidString)", isDirectory: true)
-                let dbURL = stagingDirectory.appendingPathComponent(dbFilename)
-                var staging: OperationImportStaging?
-
+            // The import is `lungfish-cli import vcf`, and the row shows its events (Phase 2.12 lane 12.07, A64).
+            Task { [weak self] in
                 do {
-                    let ownedStaging = try OperationImportStaging(parentDirectory: variantsDir, operationID: opID)
-                    staging = ownedStaging
-                    // SQLite backup captures a coherent resumable database, including
-                    // committed WAL pages, without copying live journal files.
-                    let databasePublication = try ownedStaging.prepareSQLiteCopy(filename: dbFilename, from: finalDBURL)
-                    if isCancelled() { throw VariantDatabaseError.cancelled }
+                    let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: opID)
+                    guard OperationCenter.shared.complete(id: opID, detail: run.message ?? "Variants imported") else { return }
 
-                    let variantCount: Int
-                    let helperInvocations = OSAllocatedUnfairLock(initialState: [VCFHelperInvocation]())
-                    let recordInvocation: @Sendable (VCFHelperInvocation) -> Void = { invocation in
-                        helperInvocations.withLock { $0.append(invocation) }
-                        scheduleOnMainRunLoop {
-                            OperationCenter.shared.log(id: opID, level: invocation.exitStatus == 0 ? .info : .warning,
-                                message: "\(invocation.argv.map(shellEscape).joined(separator: " ")) • exit \(invocation.exitStatus) • \(invocation.wallTimeSeconds)s\n\(invocation.stderr)")
+                    guard let originController = self?.targetMainWindowController(routeContext: routeContext),
+                          let viewerController = originController.mainSplitViewController?.viewerController else {
+                        debugLog("performVCFImport: No viewer controller")
+                        return
+                    }
+                    do {
+                        try viewerController.displayBundle(at: bundleURL)
+                        debugLog("performVCFImport: Bundle reloaded (\(run.message ?? ""))")
+                    } catch {
+                        debugLog("performVCFImport: Bundle reload failed: \(error.localizedDescription)")
+                        if let window = originController.window {
+                            self?.showAlert(title: "Import Error", message: "VCF imported but bundle reload failed: \(error.localizedDescription)", presentingWindow: window)
                         }
                     }
-                    func record(_ run: VCFHelperRunResult) -> Int { run.variantCount }
-
-                    // Check if there's a resumable incomplete import from a previous crash.
-                    let detectedImportState = VariantDatabase.importState(at: dbURL)
-                    let dbExists = FileManager.default.fileExists(atPath: dbURL.path)
-                    debugLog("performVCFImport: dbExists=\(dbExists), importState=\(detectedImportState ?? "nil"), path=\(dbURL.lastPathComponent)")
-
-                    func runFreshImport(startedAt: Date) throws -> Int {
-                        if FileManager.default.fileExists(atPath: dbURL.path) {
-                            try FileManager.default.removeItem(at: dbURL)
-                        }
-
-                        debugLog("performVCFImport: Creating variant database at \(dbURL.lastPathComponent) via helper")
-
-                        do {
-                            var importedCount = try record(Self.runVCFImportViaHelper(
-                                vcfURL: vcfURL,
-                                outputDBURL: dbURL,
-                                sourceFile: vcfURL.lastPathComponent,
-                                importProfile: selectedImportProfile,
-                                shouldCancel: isCancelled,
-                                recordInvocation: recordInvocation,
-                                progressHandler: { progress, message in
-                                    let clampedProgress = max(0.0, min(1.0, progress))
-                                    let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: startedAt)
-                                    let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                    scheduleOnMainRunLoop {
-                                        _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                    }
-                                }
-                            ))
-
-                            // Staged ultra-low-memory imports intentionally return after insert
-                            // phase with import_state=indexing so indexing runs in a fresh process.
-                            if VariantDatabase.importState(at: dbURL) == "indexing" {
-                                debugLog("performVCFImport: Insert phase complete, launching phase-2 index build helper")
-                                let resumeStartedAt = Date()
-                                importedCount = try record(Self.runVCFResumeViaHelper(
-                                    outputDBURL: dbURL,
-                                    shouldCancel: isCancelled,
-                                    recordInvocation: recordInvocation,
-                                    progressHandler: { progress, message in
-                                        let clampedProgress = max(0.0, min(1.0, progress))
-                                        let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
-                                        let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                        scheduleOnMainRunLoop {
-                                            _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                        }
-                                    }
-                                ))
-                                debugLog("performVCFImport: Phase-2 index build complete with \(importedCount) variants")
-                            }
-
-                            return importedCount
-                        } catch {
-                            // If helper failed during indexing, inserts are complete and only
-                            // index creation needs recovery in a fresh process.
-                            if !isCancelled(), let importState = VariantDatabase.importState(at: dbURL),
-                               importState == "indexing" {
-                                debugLog("performVCFImport: Helper failed during indexing, auto-resuming index creation...")
-                                let resumeStartedAt = Date()
-                                let resumedCount = try record(Self.runVCFResumeViaHelper(
-                                    outputDBURL: dbURL,
-                                    shouldCancel: isCancelled,
-                                    recordInvocation: recordInvocation,
-                                    progressHandler: { progress, message in
-                                        let clampedProgress = max(0.0, min(1.0, progress))
-                                        let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
-                                        let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                        scheduleOnMainRunLoop {
-                                            _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                        }
-                                    }
-                                ))
-                                debugLog("performVCFImport: Auto-resume complete with \(resumedCount) variants")
-                                return resumedCount
-                            }
-                            throw error
-                        }
-                    }
-
-                    if detectedImportState == "indexing" {
-                        debugLog("performVCFImport: Found interrupted indexing phase, resuming via helper")
-                        variantCount = try record(Self.runVCFResumeViaHelper(
-                            outputDBURL: dbURL,
-                            shouldCancel: isCancelled,
-                            recordInvocation: recordInvocation,
-                            progressHandler: { progress, message in
-                                let clampedProgress = max(0.0, min(1.0, progress))
-                                let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importClock.startedAt)
-                                let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                scheduleOnMainRunLoop {
-                                    _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                }
-                            }
-                        ))
-                    } else if detectedImportState == "inserting" {
-                        // Partial row ingest cannot be resumed safely without replaying the VCF.
-                        debugLog("performVCFImport: Found interrupted inserting phase, restarting full import from source VCF")
-                        variantCount = try runFreshImport(startedAt: importClock.startedAt)
-                    } else if VariantDatabase.metadataValue(at: dbURL, key: "materialize_state") == "materializing" {
-                        // Import is complete but materialization was interrupted — resume it.
-                        debugLog("performVCFImport: Found incomplete materialization, resuming via helper")
-                        let importedDB = try VariantDatabase(url: dbURL)
-                        variantCount = importedDB.totalCount()
-
-                        let materializeStartedAt = Date()
-                        _ = try record(Self.runVCFMaterializeViaHelper(
-                            outputDBURL: dbURL,
-                            shouldCancel: isCancelled,
-                            recordInvocation: recordInvocation,
-                            progressHandler: { progress, message in
-                                let clampedProgress = max(0.0, min(1.0, progress))
-                                let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: materializeStartedAt)
-                                let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                scheduleOnMainRunLoop {
-                                    _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                }
-                            }
-                        ))
-                        debugLog("performVCFImport: Materialization resume complete")
-                    } else if dbExists, detectedImportState == nil,
-                              VariantDatabase.hasVariantsTable(at: dbURL) {
-                        // DB file exists with a variants table but import_state is unreadable
-                        // (likely corrupted metadata from a crash). We cannot prove inserts
-                        // completed, so rebuild from source VCF.
-                        debugLog("performVCFImport: DB has variants table but missing import_state, restarting full import from source VCF")
-                        variantCount = try runFreshImport(startedAt: importClock.startedAt)
-                    } else {
-                        variantCount = try runFreshImport(startedAt: importClock.startedAt)
-                    }
-
-                    debugLog("performVCFImport: Created database with \(variantCount) variants")
-                    if isCancelled() {
-                        throw VariantDatabaseError.cancelled
-                    }
-
-                    // Normalize chromosome names to match the bundle.
-                    // Only performs name-based mapping (aliases, chr prefix, version suffix).
-                    // Length-based matching is deferred to the runtime alias map which uses
-                    // contig lengths stored in the database — this avoids slow UPDATE statements
-                    // on very large databases.
-                    let currentManifestForChrom = try BundleManifest.load(from: bundleURL)
-                    var rwDB: VariantDatabase! = try VariantDatabase(url: dbURL, readWrite: true)
-                    let chromMapping = try VCFBundleVariantImport.normalizeChromosomes(in: rwDB, toBundle: currentManifestForChrom)
-                    if !chromMapping.isEmpty {
-                        debugLog("performVCFImport: Remapped chromosomes: \(chromMapping)")
-                    }
-                    if isCancelled() {
-                        throw VariantDatabaseError.cancelled
-                    }
-
-                    // Materialize variant_info EAV table if it was skipped during
-                    // ultraLowMemory import.  This runs as a separate helper process
-                    // with a fresh address space so it cannot OOM the GUI.
-                    if rwDB.variantInfoSkipped {
-                        debugLog("performVCFImport: Variant info was skipped — launching materialization helper")
-                        let materializeStartedAt = Date()
-                        _ = try record(Self.runVCFMaterializeViaHelper(
-                            outputDBURL: dbURL,
-                            shouldCancel: isCancelled,
-                            recordInvocation: recordInvocation,
-                            progressHandler: { progress, message in
-                                // Map materialization progress to the tail end of the operation
-                                let displayProgress = 0.95 + progress * 0.05
-                                let clampedProgress = max(0.0, min(1.0, displayProgress))
-                                let etaText = Self.estimatedRemainingText(progress: progress, startedAt: materializeStartedAt)
-                                let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                                scheduleOnMainRunLoop {
-                                    _ = OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
-                                }
-                            }
-                        ))
-                        debugLog("performVCFImport: Materialization complete")
-                    }
-
-                    // `databasePath` is authoritative for VCF imports (see
-                    // `VCFBundleVariantImport.makeTrackInfo`).
-                    let trackInfo = VCFBundleVariantImport.makeTrackInfo(
-                        trackID: trackId, vcfURL: vcfURL, variantCount: variantCount)
-
-                    let provenanceRelativePath = VCFBundleVariantImport.provenanceRelativePath(trackID: trackId)
-                    let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
-                    // Capture file ownership before consuming the manifest used to
-                    // construct its replacement. A later edit must not be blessed
-                    // by a fresh snapshot at publication time.
-                    let filePublication = try VCFBundleVariantImport.makeFilePublication(
-                        bundleURL: bundleURL, trackID: trackId)
-                    var filePublicationTransferred = false
-                    defer {
-                        if !filePublicationTransferred { filePublication.commit() }
-                    }
-
-                    // Load current manifest, add track, save
-                    let currentManifest = try BundleManifest.load(from: bundleURL)
-
-                    let updatedManifest = Self.vcfManifestReplacingTrack(trackInfo, in: currentManifest)
-
-                    try rwDB.setMetadataValues(VCFBundleVariantImport.finalizationMetadata(
-                        trackID: trackId, vcfURL: vcfURL, importProfile: selectedImportProfile))
-
-                    // Release the private writer before taking the coherent final
-                    // snapshot. Publication checkpoints the final database before hashing.
-                    rwDB = nil
-                    if isCancelled() { throw VariantDatabaseError.cancelled }
-                    filePublicationTransferred = true
-                    try Self.publishVCFImportArtifacts(
-                        databasePublication: databasePublication,
-                        bundleURL: bundleURL,
-                        provenanceURL: provenanceURL,
-                        updatedManifest: updatedManifest,
-                        filePublication: filePublication,
-                        shouldCancel: isCancelled
-                    ) { writer in
-                        try Self.writeVCFImportProvenance(
-                            vcfURL: vcfURL,
-                            bundleURL: bundleURL,
-                            dbURL: finalDBURL,
-                            provenanceURL: provenanceURL,
-                            manifest: currentManifest,
-                            trackId: trackId,
-                            trackName: trackInfo.name,
-                            dbRelativePath: "variants/\(dbFilename)",
-                            provenanceRelativePath: provenanceRelativePath,
-                            importProfile: selectedImportProfile,
-                            variantCount: variantCount,
-                            helperInvocations: helperInvocations.withLock { $0 },
-                            startedAt: importClock.startedAt,
-                            completedAt: importClock.now,
-                            provenanceWriter: writer
-                        )
-                    }
-                    let cleanupWarning = ownedStaging.finishCommittedImport()
-                    result = .success((variantCount, trackInfo, cleanupWarning))
+                } catch is CancellationError {
+                    // The runner acknowledged the cancel on the row.
+                    debugLog("performVCFImport: Cancelled by user")
                 } catch {
-                    // Cleanup is worker-owned and precedes terminal acknowledgement.
-                    // It can never address another operation's deterministic final DB.
-                    if !(error is OperationImportStaging.RecoveryRequired) && !(error is ScientificPublicationRecoveryRequired) {
-                        do { try staging?.cleanup() }
-                        catch { debugLog("performVCFImport: Private staging cleanup failed: \(error)") }
-                    }
-                    result = .failure(error)
-                }
-
-                debugLog("performVCFImport: Background work done, scheduling main thread callback")
-
-                scheduleOnMainRunLoop { [weak self] in
-                    debugLog("performVCFImport: Main thread callback executing")
-
-                    switch result {
-                    case .success(let (variantCount, _, cleanupWarning)):
-                        let completed: Bool
-                        if let cleanupWarning {
-                            OperationCenter.shared.log(id: opID, level: .warning, message: cleanupWarning)
-                            completed = OperationCenter.shared.completeWithWarning(id: opID,
-                                detail: "\(variantCount) variants imported; private staging cleanup needs attention")
-                        } else {
-                            completed = OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
-                        }
-                        guard completed else { return }
-
-                        guard let originController = self?.targetMainWindowController(routeContext: routeContext),
-                              let viewerController = originController.mainSplitViewController?.viewerController else {
-                            debugLog("performVCFImport: No viewer controller")
-                            return
-                        }
-                        do {
-                            try viewerController.displayBundle(at: bundleURL)
-                            debugLog("performVCFImport: Bundle reloaded with \(variantCount) variants")
-                        } catch {
-                            debugLog("performVCFImport: Bundle reload failed: \(error.localizedDescription)")
-                            if let window = originController.window {
-                                self?.showAlert(title: "Import Error", message: "VCF imported but bundle reload failed: \(error.localizedDescription)", presentingWindow: window)
-                            }
-                        }
-
-                    case .failure(let error):
-                        if let dbErr = error as? VariantDatabaseError, case .cancelled = dbErr {
-                            debugLog("performVCFImport: Cancelled by user")
-                            OperationCenter.shared.acknowledgeCancellation(id: opID)
-                        } else {
-                            let recoveryRequired = error is OperationImportStaging.RecoveryRequired || error is ScientificPublicationRecoveryRequired
-                            if recoveryRequired {
-                                OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
-                            }
-                            let failureAccepted = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-                            // A pending cancellation may acknowledge the worker here;
-                            // recovery artifacts still require an explicit visible error.
-                            guard failureAccepted || recoveryRequired else { return }
-                            debugLog("performVCFImport: Failed: \(error.localizedDescription)")
-                            if let window = self?.targetMainWindowController(routeContext: routeContext)?.window {
-                                self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
-                            }
-                        }
+                    guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+                    debugLog("performVCFImport: Failed: \(error.localizedDescription)")
+                    if let window = self?.targetMainWindowController(routeContext: routeContext)?.window {
+                        self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
                     }
                 }
             }

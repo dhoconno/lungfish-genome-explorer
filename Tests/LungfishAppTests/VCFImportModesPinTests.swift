@@ -182,6 +182,20 @@ final class VCFImportModesPinTests: VCFImportHelperSubprocessTestCase {
         )
     }
 
+    /// Lane 12.07 M2. The Import Center reads the mode from the replaced track's database as its helper sequence did. A
+    /// new track and a finished track read the VCF again, a database stopped at `indexing` resumes, and one whose
+    /// materialization stopped materializes.
+    func testTheRowRunsTheModeTheTrackDatabaseNeeds() throws {
+        let (bundle, _, database) = try bundleWithTrack(resumed: false)
+        XCTAssertEqual(VCFImportCLICommand.mode(forTrackID: "input", replacing: nil, in: bundle), .fresh)
+        XCTAssertEqual(VCFImportCLICommand.mode(forTrackID: "input-2", replacing: "input-2", in: bundle), .fresh)
+        XCTAssertEqual(VCFImportCLICommand.mode(forTrackID: "input", replacing: "input", in: bundle), .resume)
+        _ = try VariantDatabase.resumeImport(existingDBURL: database)
+        XCTAssertEqual(VCFImportCLICommand.mode(forTrackID: "input", replacing: "input", in: bundle), .fresh)
+        try VariantDatabase(url: database, readWrite: true).setMetadataValues(["materialize_state": "materializing"])
+        XCTAssertEqual(VCFImportCLICommand.mode(forTrackID: "input", replacing: "input", in: bundle), .materialize)
+    }
+
     // MARK: - The contig cap fixture
 
     /// The contigs whose records the cap fixture holds, two records on each of `c1` to `c3`, one on `c515` (past the

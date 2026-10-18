@@ -60,6 +60,29 @@ final class VCFImportCLICommandTests: XCTestCase {
         XCTAssertEqual(vcf.outputDir, bundleURL.path)
     }
 
+    /// ARCH 2 of lane 12.07. The row's command is the argv the runner runs, with `--format json` so the row reads
+    /// the command's events, and each finishing mode is its flag after `--replace`.
+    func testTheRowsCommandIsTheArgvTheRunnerRuns() throws {
+        let vcfURL = URL(fileURLWithPath: "/tmp/My Project/Imports/calls one.vcf.gz")
+        let bundleURL = URL(fileURLWithPath: "/tmp/My Project/ref.lungfishref")
+        let flags: [(VCFImportCLICommand.Mode, [String])] = [(.fresh, []), (.resume, ["--resume"]), (.materialize, ["--materialize"])]
+        for (mode, flag) in flags {
+            let replace = mode == .fresh ? nil : "calls"
+            let arguments = VCFImportCLICommand.arguments(
+                vcfURL: vcfURL, bundleURL: bundleURL, importProfile: .ultraLowMemory, replaceTrackID: replace, mode: mode)
+            XCTAssertEqual(arguments, [
+                "import", "vcf", vcfURL.path, "--output-dir", bundleURL.path, "--import-profile", "ultra-low-memory",
+            ] + (replace.map { ["--replace", $0] } ?? []) + flag + ["--format", "json"])
+            let command = VCFImportCLICommand.build(
+                vcfURL: vcfURL, bundleURL: bundleURL, importProfile: .ultraLowMemory, replaceTrackID: replace, mode: mode)
+            XCTAssertEqual(Array(shellSplit(command).dropFirst()), arguments)
+            let vcf = try XCTUnwrap(try LungfishCLI.parseAsRoot(arguments) as? ImportCommand.VCFSubcommand)
+            XCTAssertEqual(vcf.resume, mode == .resume)
+            XCTAssertEqual(vcf.materialize, mode == .materialize)
+            XCTAssertEqual(vcf.replace, replace)
+        }
+    }
+
     /// Minimal POSIX-shell-style tokenizer sufficient for the single-quoted
     /// escaping `OperationCenter.buildCLICommand` produces.
     private func shellSplit(_ command: String) -> [String] {
