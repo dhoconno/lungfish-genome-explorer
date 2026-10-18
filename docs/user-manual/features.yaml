@@ -261,7 +261,6 @@ features:
       - Sources/LungfishCLI/Commands/VariantsCommand.swift
       - Sources/LungfishCLI/Commands/VariantsCommand+Call.swift
       - Sources/LungfishCLI/Commands/VariantsCommand+CallGATK.swift
-      - Sources/LungfishApp/Services/GATKVariantCallingRoute.swift
     module: [LungfishApp, LungfishWorkflow, LungfishCLI]
     cli:
       - lungfish-cli variants call
