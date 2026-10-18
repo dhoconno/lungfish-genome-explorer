@@ -9,9 +9,11 @@
 import Foundation
 
 extension OutputEquivalence.MaskPolicy {
-    /// The masks of a primer analysis bundle. Ruling of the A67 review. Class-local for this class only. It is promoted
-    /// to a family policy beside OutputEquivalence.MaskPolicy.gatk, with a sentence in docs/contracts/CLI-EQUIVALENCE.md
-    /// line 35, when a second case or family needs it. The standard masks compare payload text as written and name a
+    /// The masks of a primer analysis bundle, a family policy like `gatk` and named in the Masks row of
+    /// docs/contracts/CLI-EQUIVALENCE.md. Only a compare of a `.lungfishprimeranalysis` bundle asks for it
+    /// (PrimerDesignCLIGUIParityReplayTests). Ruling 2 of the A67 review. It grows only for a host difference or a fresh
+    /// ID, never for a scientific value, and each growth is reviewed. PrimerAnalysisMaskPolicyTests holds a negative
+    /// control for each mask. The standard masks compare payload text as written and name a
     /// provenance envelope or a record by the file's own name. A primer bundle holds fresh UUIDs and clock values in
     /// payload text (the BED lines, the Primer3 boulder files, the template FASTA headers, `results/*.json`), and keeps
     /// `provenance/wrapper.json` and `execution-provenance/*.json`, which are provenance envelopes by content and

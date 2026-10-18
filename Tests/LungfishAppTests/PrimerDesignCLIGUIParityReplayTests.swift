@@ -14,11 +14,12 @@
 //   and the built `lungfish-cli` run on the arguments of that recorded command.
 // - Side C' is the harness's replay of that command.
 //
-// A against C and C against C' declare nothing (C4). The bundle needs a mask policy of its own, `primerAnalysis` at the end
-// of this file. Ruling of the A67 review. Class-local for this class only. It is promoted to a family policy beside
-// OutputEquivalence.MaskPolicy.gatk, with a sentence in docs/contracts/CLI-EQUIVALENCE.md line 35, when a second case or
-// family needs it. It hides what each host says about itself in the two provenance envelopes (the argument vector, the
-// options it names and its tool name and version), and the class pins the CLI's vector against the recorded command apart.
+// A against C and C against C' declare nothing (C4). The bundle needs a mask policy of its own, the family policy
+// OutputEquivalence.MaskPolicy.primerAnalysis beside .gatk (Tests/Support/LungfishTestSupport/
+// OutputEquivalence+PrimerAnalysisMasks.swift, named in the Masks row of docs/contracts/CLI-EQUIVALENCE.md, lane 12.16
+// under ruling 2 of the A67 review). It hides what each host says about itself in the two provenance envelopes (the
+// argument vector, the options it names and its tool name and version), and the class pins the CLI's vector against the
+// recorded command apart.
 //
 // It launches the built lungfish-cli and the managed primer3_core, so its name ends in ReplayTests, which sends it to the
 // integration tier, and it skips without primer3 unless `LUNGFISH_REQUIRE_TOOLS=1`, which fails it. The other engines
