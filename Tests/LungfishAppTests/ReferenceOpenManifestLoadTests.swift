@@ -53,6 +53,21 @@ final class SequenceIndexBuildLog: Sendable {
         }
     }
 
+    /// Records every build like `install()`, and parks the first name index build on `gate` once it is recorded,
+    /// so the load that runs it holds the decode lane until the gate is released.
+    func install(parkingFirstNameIndexOn gate: BundleDecodeGate) {
+        ReferenceBundleSequenceCache.installBuildObserver { [self] build in
+            dispatchPrecondition(condition: .notOnQueue(.main))
+            let isFirstNameIndex = builds.withLock { list -> Bool in
+                list.append(build)
+                return build == .nameIndex && list.filter { $0 == .nameIndex }.count == 1
+            }
+            if isFirstNameIndex {
+                gate.waitForRelease()
+            }
+        }
+    }
+
     func count(_ build: ReferenceBundleSequenceCache.Build) -> Int {
         builds.withLock { $0.filter { $0 == build }.count }
     }
@@ -66,6 +81,7 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
     override func tearDown() async throws {
         BundleLoadProbe.install(nil)
         ReferenceBundleSequenceCache.installBuildObserver(nil)
+        BundleDecodeLane.overrideLargeFileBytes(nil)
         try await super.tearDown()
     }
 
@@ -243,5 +259,44 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
         XCTAssertEqual(shown.sequenceCache.readerBuildCount, 1)
         XCTAssertEqual(builds.count(.nameIndex), 1, "a second bundle built its name index")
         XCTAssertEqual(builds.count(.reader), 1, "a second bundle built its sequence reader")
+    }
+
+    /// FIDX review fix 2, a pin that passes at its base. The decode lane holds one large decode at a time, and a
+    /// large open's name index and `.fai` builds sit inside the same lane turn as its decode. While A is parked in
+    /// its name index build, B waits for the lane and has not decoded its manifest. If `prepareSequenceAccess()`
+    /// ever left the lane's work closure, B's decode would start during A's build and the first count would read 2.
+    func testIndexBuildsHoldTheDecodeLane() async throws {
+        let root = try TestTempDirectory.make(prefix: "ReferenceIndexesHoldLane")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleA = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle A", chromosomes: [.init(name: "chrA1", length: 100)], in: root
+        )
+        let bundleB = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Bundle B", chromosomes: [.init(name: "chrB1", length: 100)], in: root
+        )
+        // Every manifest counts as large, so each decode waits for the lane.
+        BundleDecodeLane.overrideLargeFileBytes(0)
+        let gate = BundleDecodeGate()
+        defer { gate.release() }
+        let builds = SequenceIndexBuildLog()
+        builds.install(parkingFirstNameIndexOn: gate)
+        let decodes = BundleDecodeLog()
+        decodes.install(offMainOnly: true)
+
+        let taskA = Task { await MainSplitViewController.loadReferenceBundleOffMain(at: bundleA) }
+        let parked = await waitUntil(timeout: .seconds(30)) { builds.count(.nameIndex) == 1 }
+        XCTAssertTrue(parked, "A never reached its name index build")
+        let taskB = Task { await MainSplitViewController.loadReferenceBundleOffMain(at: bundleB) }
+        let queued = await waitUntil(timeout: .seconds(30)) { BundleDecodeLane.waitingCount == 1 }
+        XCTAssertTrue(queued, "B did not wait for the lane while A built its indexes")
+        XCTAssertEqual(decodes.count(.bundleManifest), 1, "B decoded its manifest during A's index build")
+
+        gate.release()
+        let resultA = await taskA.value
+        let resultB = await taskB.value
+        XCTAssertNoThrow(try resultA.get())
+        XCTAssertNoThrow(try resultB.get())
+        XCTAssertEqual(decodes.count(.bundleManifest), 2)
+        XCTAssertEqual(builds.count(.nameIndex), 2)
     }
 }
