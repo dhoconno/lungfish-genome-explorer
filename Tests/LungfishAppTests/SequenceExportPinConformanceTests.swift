@@ -21,6 +21,10 @@
 // skips without gzip unless `LUNGFISH_REQUIRE_TOOLS=1`. It points `LUNGFISH_CLI_PATH` at the built
 // lungfish-cli, which the base never starts for these cases and the route does. To capture the texts again set
 // `LUNGFISH_RECAPTURE_SEQUENCE_EXPORT=1`, which rewrites `SequenceExportPinExpected.swift`.
+//
+// Phase 2.12 lane 12.13 M1 (A49-PARITY, BIO 1, QA 1 and 3) adds four input kinds that 2.11 sent to `convert` and
+// never compared with the app's writer, and freezes the app writer's texts in `SequenceExportParityExpected.swift`
+// (`LUNGFISH_RECAPTURE_SEQUENCE_EXPORT_PARITY=1` wrote them at the base of 12.13, while the app's writer existed).
 
 import Foundation
 import XCTest
@@ -120,6 +124,64 @@ final class SequenceExportPinConformanceTests: XCTestCase {
                     )
                 }
             }
+        }
+    }
+
+    /// A49-PARITY (lane 12.13 M1). A one-record GenBank file with a gene feature, a `.gz` wrapped FASTA, a FASTQ
+    /// file and a mixed selection (the `Alpha` bundle and `first.fa`) each export twice with gzip. A is the app's
+    /// writer on captured documents built from the reader output of the same files, C is `convert` on the files,
+    /// and the texts after decompression must be equal. A's texts are frozen, beside three selections that the
+    /// app's writer still takes at the base, a GenBank snapshot whose features name no chromosome, a `.seq` file
+    /// and a snapshot mixed with files. Lane 12.13 M2 sends those to `convert` and holds them to the frozen texts.
+    func testEachInputKindWritesTheAppWritersTextThroughConvert() async throws {
+        try requireTools()
+        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let files = try Self.writeParityInputs(in: inputs)
+        let bundle = try ReferenceMergeFixture.writeSource(
+            named: "Alpha", sequence: "chrA", bases: "ACGTACGTACGTACGTACGT", gene: "geneA", in: project, inputs: inputs
+        )
+        let parity: [(name: String, files: [URL], format: SequenceExportFormat)] = [
+            ("genbank-file", [files.genbank], .genbank),
+            ("gz-wrapped", [files.wrapped], .fasta),
+            ("fastq", [files.fastq], .fasta),
+            ("mixed", [bundle, files.first], .fasta),
+        ]
+        var actual: [String: String] = [:]
+        for item in parity {
+            var captured: [SequenceExportSourceResolver.Source] = []
+            for file in item.files { captured.append(try await capturedSource(readFrom: file)) }
+            let app = try await export(captured, to: "\(item.name)-app.gz", format: item.format, compression: .gzip)
+            let command = try await export(
+                item.files.map(Self.fileSource), to: "\(item.name)-convert.gz", format: item.format, compression: .gzip
+            )
+            XCTAssertEqual(command, app, "\(item.name), convert on the files against the app's writer (A against C)")
+            XCTAssertEqual(Array(try recordedArgv(of: "\(item.name)-app.gz").prefix(2)), ["Lungfish.app", "export-sequences"])
+            XCTAssertEqual(try recordedArgv(of: "\(item.name)-convert.gz").dropFirst().first, "convert")
+            actual[item.name] = app
+        }
+        let geneQualifier = "/gene=\"geneB\""
+        XCTAssertTrue(actual["genbank-file"]?.contains(geneQualifier) == true, "the gene feature is kept")
+
+        let snapshots = try Self.genBankSnapshots(project: project)
+        let appOnly: [(name: String, sources: [SequenceExportSourceResolver.Source], format: SequenceExportFormat)] = [
+            ("snapshot-genbank", snapshots, .genbank),
+            ("seq-file", [Self.fileSource(files.seq)], .fasta),
+            ("snapshot-mixed", [snapshots[0], Self.fileSource(files.seq), Self.fileSource(files.first)], .genbank),
+        ]
+        for item in appOnly {
+            actual[item.name] = try await export(item.sources, to: "\(item.name).gz", format: item.format, compression: .gzip)
+        }
+        if ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_SEQUENCE_EXPORT_PARITY"] == "1" {
+            try Self.writeExpected(actual, typeName: "SequenceExportParityExpected",
+                title: "The app writer's text of each parity case after decompression",
+                variable: "LUNGFISH_RECAPTURE_SEQUENCE_EXPORT_PARITY")
+            return
+        }
+        XCTAssertEqual(Set(actual.keys), Set(SequenceExportParityExpected.cases.keys))
+        for (name, text) in actual.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(text, SequenceExportParityExpected.cases[name], "\(name) against the app's writer frozen in 12.13 M1")
         }
     }
 
@@ -390,28 +452,138 @@ final class SequenceExportPinConformanceTests: XCTestCase {
     }
 
     private static func decompress(_ url: URL, with tool: String) throws -> String {
+        String(decoding: try runTool(tool, ["-dc", url.path]), as: UTF8.self)
+    }
+
+    /// What `tool` prints on standard output for `arguments`, which must exit 0.
+    private static func runTool(_ tool: String, _ arguments: [String]) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = ["-dc", url.path]
+        process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         try process.run()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0, "\(tool) -dc \(url.lastPathComponent)")
-        return String(decoding: data, as: UTF8.self)
+        XCTAssertEqual(process.terminationStatus, 0, "\(tool) \(arguments.joined(separator: " "))")
+        return data
     }
 
-    private static func writeExpected(_ cases: [String: String]) throws {
+    /// The argv of the record beside the export `name` in `out`.
+    private func recordedArgv(of name: String) throws -> [String] {
+        let output = root.appendingPathComponent("out").appendingPathComponent(name)
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        return try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: sidecar)).argv
+    }
+
+    /// The parity inputs. `one-gene.gb` is one record with a gene feature, `wrapped.fa.gz` a gzip wrapped FASTA with
+    /// descriptions and soft-masked bases, `reads.fastq` two reads, `first.fa` two records and `reads.seq` a FASTA
+    /// under a name `convert` does not read.
+    private static func writeParityInputs(
+        in inputs: URL
+    ) throws -> (genbank: URL, wrapped: URL, fastq: URL, first: URL, seq: URL) {
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let genbank = inputs.appendingPathComponent("one-gene.gb")
+        try [
+            "LOCUS       geneB                     30 bp    DNA     linear   SYN 01-JAN-2026",
+            "DEFINITION  Synthetic record with one gene.",
+            "FEATURES             Location/Qualifiers",
+            "     gene            4..21",
+            "                     /gene=\"geneB\"",
+            "ORIGIN",
+            "        1 acgtacgtac ggttaaccgg ttaaccggtt",
+            "//",
+            "",
+        ].joined(separator: "\n").write(to: genbank, atomically: true, encoding: .utf8)
+        let plain = inputs.appendingPathComponent("wrapped.fa")
+        try ">wrapped one\nacgtNNACGTacgt\n>wrapped-two second record\nCCGGTTAAGG\n"
+            .write(to: plain, atomically: true, encoding: .utf8)
+        let wrapped = inputs.appendingPathComponent("wrapped.fa.gz")
+        try runTool("/usr/bin/gzip", ["-c", "-n", plain.path]).write(to: wrapped)
+        try FileManager.default.removeItem(at: plain)
+        let fastq = inputs.appendingPathComponent("reads.fastq")
+        try "@read1 sample=one\nACGTACGTAC\n+\nIIIIIIIIII\n@read2\nTTGGCCAA\n+\nIIIIIIII\n"
+            .write(to: fastq, atomically: true, encoding: .utf8)
+        let first = inputs.appendingPathComponent("first.fa")
+        try ">alpha first record\nACGTACGTAC\n>beta\nTTGGCCAATT\n".write(to: first, atomically: true, encoding: .utf8)
+        let seq = inputs.appendingPathComponent("reads.seq")
+        try ">one\nACGT\n>two described\nTTGGCC\n".write(to: seq, atomically: true, encoding: .utf8)
+        return (genbank, wrapped, fastq, first, seq)
+    }
+
+    /// A captured document holding what the export's reader returns for `url`, so A and C start from the same
+    /// sequences and features. A FASTQ file is mapped as `convert` maps it, since the app's loader reads every
+    /// file that is not a bundle or GenBank as FASTA.
+    private func capturedSource(readFrom url: URL) async throws -> SequenceExportSourceResolver.Source {
+        let sequences: [LungfishCore.Sequence]
+        let annotations: [SequenceAnnotation]
+        if url.pathExtension.lowercased() == "fastq" {
+            sequences = try await FASTQReader().readAll(from: url).map {
+                try LungfishCore.Sequence(name: $0.identifier, description: $0.description, alphabet: .dna, bases: $0.sequence)
+            }
+            annotations = []
+        } else {
+            (sequences, annotations) = try await makeAppDelegateWithTemporaryState().loadSequencesForExport(from: url)
+        }
+        return .init(
+            metadata: .init(kind: .openDocument, url: url, documentID: UUID(), nativeSequenceID: nil, projectURL: nil),
+            document: .init(name: url.lastPathComponent, url: url, sequences: sequences, annotations: annotations)
+        )
+    }
+
+    /// Two captured project sequences for a GenBank export. The first holds two sequences, a gene that names no
+    /// chromosome, which the app's writer puts on both, and a split reverse CDS that names `segB`. The second holds
+    /// one sequence and a feature that names no chromosome.
+    private static func genBankSnapshots(project: URL) throws -> [SequenceExportSourceResolver.Source] {
+        let documents: [(name: String, sequences: [LungfishCore.Sequence], annotations: [SequenceAnnotation])] = [
+            ("first-native", [
+                try LungfishCore.Sequence(
+                    name: "segA", description: "segment A of first", alphabet: .dna, bases: "ACGTACGTAAACCCGGGTTTACGT"
+                ),
+                try LungfishCore.Sequence(name: "segB", alphabet: .dna, bases: "TTTTGGGGCCCCAAAA"),
+            ], [
+                SequenceAnnotation(type: .gene, name: "shared", start: 0, end: 9, strand: .forward, qualifiers: [
+                    "gene": AnnotationQualifier("shared"), "note": AnnotationQualifier("names no chromosome"),
+                ]),
+                SequenceAnnotation(
+                    type: .cds, name: "onlyB", chromosome: "segB",
+                    intervals: [AnnotationInterval(start: 0, end: 6), AnnotationInterval(start: 9, end: 15)],
+                    strand: .reverse,
+                    qualifiers: ["gene": AnnotationQualifier("onlyB"), "product": AnnotationQualifier("a split protein")]
+                ),
+            ]),
+            ("second-native", [try LungfishCore.Sequence(name: "solo", alphabet: .dna, bases: "GGGGAAAACCCCTTTT")], [
+                SequenceAnnotation(type: .gene, name: "soloGene", start: 2, end: 8, qualifiers: [
+                    "gene": AnnotationQualifier("soloGene"),
+                ]),
+            ]),
+        ]
+        return documents.map { document in
+            let url = project.appendingPathComponent(document.name)
+            return .init(
+                metadata: .init(
+                    kind: .nativeProjectSequence, url: url, documentID: UUID(), nativeSequenceID: UUID(), projectURL: project
+                ),
+                document: .init(name: document.name, url: url, sequences: document.sequences, annotations: document.annotations)
+            )
+        }
+    }
+
+    private static func writeExpected(
+        _ cases: [String: String],
+        typeName: String = "SequenceExportPinExpected",
+        title: String = "The text of each pinned sequence export after decompression",
+        variable: String = "LUNGFISH_RECAPTURE_SEQUENCE_EXPORT"
+    ) throws {
         var lines = [
-            "// SequenceExportPinExpected.swift - The text of each pinned sequence export after decompression",
+            "// \(typeName).swift - \(title)",
             "// Copyright (c) 2026 Lungfish Contributors",
             "// SPDX-License-Identifier: MIT",
             "//",
-            "// Written by `SequenceExportPinConformanceTests` when `LUNGFISH_RECAPTURE_SEQUENCE_EXPORT=1`.",
+            "// Written by `SequenceExportPinConformanceTests` when `\(variable)=1`.",
             "",
-            "enum SequenceExportPinExpected {",
+            "enum \(typeName) {",
             "    static let cases: [String: String] = [",
         ]
         for (name, text) in cases.sorted(by: { $0.key < $1.key }) {
@@ -421,7 +593,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         }
         lines.append(contentsOf: ["    ]", "}", ""])
         let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appendingPathComponent("SequenceExportPinExpected.swift")
+            .appendingPathComponent("\(typeName).swift")
         try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
     }
 
