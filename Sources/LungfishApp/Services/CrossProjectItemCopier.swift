@@ -94,6 +94,12 @@ enum CrossProjectItemCopier {
     /// dedicated import paths and return nil here. `BundleKindRegistry` names
     /// them by the copy fact of the kind that the lowercased folder extension
     /// finds, as this copier always lowercased the extension.
+    ///
+    /// The kind comes from IO facts alone, the registry's kind and its manifest
+    /// rule, so the copier needs no sidebar type. A CZ ID folder without its
+    /// manifest, a 12S reference database, a run bundle and any other folder
+    /// whose extension starts with `lungfish` copy as an other native bundle,
+    /// as the sidebar's bundle classification made them before.
     static func kind(of url: URL, fileManager: FileManager = .default) -> ItemKind? {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -103,23 +109,23 @@ enum CrossProjectItemCopier {
             if case .refused = descriptor.copy {
                 return nil
             }
-            if descriptor.id == .workflowBundle {
-                return .workflowBundle
-            }
-        }
-        if let classification = SidebarProjectScanner.bundleClassification(for: url, fileManager: fileManager) {
-            switch classification.type {
-            case .fastqBundle: return .fastqBundle
-            case .referenceBundle: return .referenceBundle
-            case .multipleSequenceAlignmentBundle: return .multipleSequenceAlignmentBundle
-            case .phylogeneticTreeBundle: return .phylogeneticTreeBundle
-            case .primerSchemeBundle: return .primerSchemeBundle
-            case .primerAnalysisBundle: return .primerAnalysisBundle
-            case .genotypeResultBundle: return .genotypeResultBundle
-            case .twelveSAmpliconResultBundle: return .twelveSResultBundle
-            case .czIdResult: return .czIdResult
+            switch descriptor.id {
+            case .workflowBundle: return .workflowBundle
+            case .fastq: return .fastqBundle
+            case .reference: return .referenceBundle
+            case .multipleSequenceAlignment: return .multipleSequenceAlignmentBundle
+            case .phylogeneticTree: return .phylogeneticTreeBundle
+            case .primerScheme: return .primerSchemeBundle
+            case .primerAnalysis: return .primerAnalysisBundle
+            case .genotypeResult: return .genotypeResultBundle
+            case .twelveSResult: return .twelveSResultBundle
+            case .czIdResult:
+                return descriptor.recognizes(folder: url, fileManager: fileManager) ? .czIdResult : .otherNativeBundle
             default: return .otherNativeBundle
             }
+        }
+        if url.pathExtension.lowercased().hasPrefix("lungfish") {
+            return .otherNativeBundle
         }
         if let info = AnalysesFolder.analysisInfo(for: url) {
             return .analysisResult(tool: info.tool, isBatch: info.isBatch)
