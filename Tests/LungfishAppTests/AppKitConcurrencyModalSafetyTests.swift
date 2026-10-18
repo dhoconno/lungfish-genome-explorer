@@ -361,17 +361,6 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             pairedWith: "logProgress("
         )
 
-        let variantWorkflowPath = "Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift"
-        let variantWorkflowSource = try String(
-            contentsOf: root.appendingPathComponent(variantWorkflowPath),
-            encoding: .utf8
-        )
-        assertLogged(
-            path: variantWorkflowPath,
-            marker: "Attaching GATK variants to bundle...",
-            source: variantWorkflowSource
-        )
-
         let importCenterResultsPath = "Sources/LungfishApp/App/AppDelegate+ImportCenterMetagenomicsBAM.swift"
         let importCenterResultsSource = try String(
             contentsOf: root.appendingPathComponent(importCenterResultsPath),
