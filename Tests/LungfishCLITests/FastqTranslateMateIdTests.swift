@@ -167,6 +167,25 @@ final class FastqTranslateMateIdTests: XCTestCase {
         ].joined(separator: "\n") + "\n")
     }
 
+    /// A PacBio bundle is never paired either, so repeated ids get no mate label. The help names PacBio beside
+    /// Oxford Nanopore, and this pins the second name (12.27 review fix 1).
+    func testPacBioBundleWithRepeatedIdsKeepsItsBytes() async throws {
+        let id = "8f2e0c7a-0001-4f7a-9d1a-0123456789ab"
+        let text = Self.fastq([("@\(id) runid=abc", Self.read1), ("@\(id) runid=abc", Self.read2)])
+        var metadata = PersistedFASTQMetadata(sequencingPlatform: .pacbio)
+        metadata.ingestion = IngestionMetadata(pairingMode: .singleEnd, pairingSource: .detected)
+        let bundle = try writeBundle(text, named: "pacbio", metadata: metadata)
+        // The resolver alone reads repeated ids as mates, so it is the platform that keeps these bytes.
+        XCTAssertEqual(resolvedLayoutPin(bundle), .strictlyInterleaved)
+
+        let frame1 = try await translated(bundle, to: "pacbio.fa")
+
+        XCTAssertEqual(frame1, [
+            ">\(id)_frame+1 [Standard] [6 aa]", "MASKGE",
+            ">\(id)_frame+1 [Standard] [5 aa]", "MKPGF",
+        ].joined(separator: "\n") + "\n")
+    }
+
     /// A derived bundle whose own sidecar records no platform keeps its bytes when the bundle it derives from
     /// records Oxford Nanopore. This reaches the ancestor walk of `ReadSetResolver.recordedPlatform(of:)`, which
     /// the bundle test above does not (UX ruling 3, BIO answer 3).
