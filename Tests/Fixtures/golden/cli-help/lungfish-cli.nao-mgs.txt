@@ -13,5 +13,6 @@ OPTIONS:
 SUBCOMMANDS:
   import                  Import NAO-MGS results as a standalone JSON summary
   summary (default)       Display summary of NAO-MGS results
+  export                  Export NAO-MGS result tables with provenance
 
   See 'lungfish-cli help nao-mgs <subcommand>' for detailed help.

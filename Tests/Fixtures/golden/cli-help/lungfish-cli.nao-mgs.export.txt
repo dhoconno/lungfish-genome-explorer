@@ -1,0 +1,13 @@
+OVERVIEW: Export NAO-MGS result tables with provenance
+
+USAGE: lungfish-cli nao-mgs export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  table                   Write the taxon table of a NAO-MGS result as TSV with
+                          provenance
+
+  See 'lungfish-cli help nao-mgs export <subcommand>' for detailed help.

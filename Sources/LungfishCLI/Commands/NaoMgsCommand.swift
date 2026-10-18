@@ -43,7 +43,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
         pipeline. Parses virus_hits_final.tsv.gz and writes a standalone JSON
         summary. Use `lungfish-cli import nao-mgs` for a project bundle.
         """,
-        subcommands: [ImportSubcommand.self, SummarySubcommand.self],
+        subcommands: [ImportSubcommand.self, SummarySubcommand.self, ExportSubcommand.self],
         defaultSubcommand: SummarySubcommand.self
     )
 

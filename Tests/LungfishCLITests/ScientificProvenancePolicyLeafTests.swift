@@ -432,6 +432,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "msa mask columns": "cli.msa",
         "msa trim columns": "cli.msa",
         "nao-mgs import": "cli.nao-mgs",
+        "nao-mgs export table": "cli.nao-mgs",
         "nao-mgs summary": "cli.nao-mgs",
         "nvd import": "cli.nvd",
         "nvd summary": "cli.nvd",

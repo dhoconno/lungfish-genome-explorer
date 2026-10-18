@@ -223,6 +223,8 @@ lungfish-cli gatk collect-metrics	shown	0	lungfish-cli.gatk.collect-metrics.txt
 lungfish-cli nao-mgs	shown	0	lungfish-cli.nao-mgs.txt
 lungfish-cli nao-mgs import	shown	0	lungfish-cli.nao-mgs.import.txt
 lungfish-cli nao-mgs summary	shown	0	lungfish-cli.nao-mgs.summary.txt
+lungfish-cli nao-mgs export	shown	0	lungfish-cli.nao-mgs.export.txt
+lungfish-cli nao-mgs export table	shown	0	lungfish-cli.nao-mgs.export.table.txt
 lungfish-cli freyja	shown	0	lungfish-cli.freyja.txt
 lungfish-cli freyja demix	shown	0	lungfish-cli.freyja.demix.txt
 lungfish-cli nvd	shown	0	lungfish-cli.nvd.txt

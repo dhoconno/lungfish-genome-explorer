@@ -16,6 +16,41 @@ public enum NaoMgsSummaryExport {
     public static let commandPath = ["nao-mgs", "export", "table"]
     /// The workflow name the leaf's record carries (ARCH ruling 1.4).
     public static let workflowName = "lungfish nao-mgs export table"
+    /// The result folder's database, which the viewer opens and the leaf reads.
+    public static let databaseFileName = "hits.sqlite"
+    /// The result folder's manifest, which names the sample.
+    public static let manifestFileName = "manifest.json"
+
+    /// The leaf's invocation for a view state, with absolute standardized paths. The begin helper passes its
+    /// `arguments()` to the runner and to the row's command, and the leaf records its `canonicalArgv()`.
+    public static func invocation(
+        resultURL: URL,
+        state: ViewerTableExportState,
+        outputURL: URL,
+        force: Bool,
+        emitsEvents: Bool = true
+    ) -> ViewerExportInvocation {
+        ViewerExportInvocation(
+            commandPath: commandPath,
+            input: resultURL.standardizedFileURL.path,
+            state: state,
+            output: outputURL.standardizedFileURL.path,
+            force: force,
+            emitsEvents: emitsEvents
+        )
+    }
+
+    /// One column filter as the record's `columnFilters` entry, the form the viewer's writer recorded.
+    public static func columnFilterParameter(_ filter: ColumnFilter) -> ParameterValue {
+        .dictionary([
+            "columnId": .string(filter.columnId),
+            "operator": .string(filter.op.rawValue),
+            "operatorName": .string(String(describing: filter.op)),
+            "value": .string(filter.value),
+            "value2": filter.value2.map(ParameterValue.string) ?? .null,
+            "inverted": .boolean(filter.isInverted),
+        ])
+    }
 }
 
 extension NaoMgsSummaryExport {
