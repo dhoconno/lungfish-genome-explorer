@@ -397,7 +397,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
                 XCTFail("attempt \(attempt), expected a cancel, got \(error)")
             }
             let elapsed = clock.now - cancelled
-            XCTAssertLessThan(elapsed, CLIProcessLauncher.operationGrace + .seconds(5), "attempt \(attempt) took \(elapsed)")
+            XCTAssertLessThanOrEqual(elapsed, CLIProcessLauncher.operationGrace, "attempt \(attempt), the command ends inside the grace before SIGKILL, took \(elapsed)")
             XCTAssertEqual(try Data(contentsOf: output), earlier, "attempt \(attempt) keeps the earlier export")
             XCTAssertEqual(Self.convertEntries(in: folder), [], "attempt \(attempt) leaves no stage beside the output")
         }
