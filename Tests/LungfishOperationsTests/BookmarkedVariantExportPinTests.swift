@@ -34,10 +34,10 @@ final class BookmarkedVariantExportPinTests: XCTestCase {
 
         // The drawer's loop (`AnnotationTableDrawerView+Bookmarks.swift:120-156`), one database after another.
         var rows: [BookmarkedVariantExportService.Row] = []
-        for (trackID, url) in databases {
+        for (_, url) in databases {
             for record in try VariantDatabase(url: url).bookmarkedVariants() {
                 rows.append(.init(
-                    trackID: trackID, rowID: record.id, name: record.variantID, type: record.variantType,
+                    name: record.variantID, type: record.variantType,
                     chromosome: record.chromosome, start: record.position, ref: record.ref, alt: record.alt,
                     quality: record.quality, filter: record.filter
                 ))
@@ -64,11 +64,14 @@ final class BookmarkedVariantExportPinTests: XCTestCase {
             "--variant-database", first.path, "--variant-database", second.path, "--output", output.path,
         ])
         XCTAssertEqual(envelope.workflowName, "lungfish app bookmarked variant export")
-        XCTAssertEqual(envelope.durableReplayArgv?.first, "/bin/cp")
-        // The base names only its retained copy and selection.json, never the databases it read.
-        let inputs = envelope.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
-        XCTAssertEqual(inputs.sorted(), ["selected.tsv", "selection.json"])
-        XCTAssertEqual(Set(envelope.options.resolvedDefaults.keys), ["variantCount", "replayScope", "replaysUpstreamAnalysis"])
+        // Lane 12.39 c2, the side A fix (settled answers of 12.31, G3 and M4). The record names the databases the
+        // export read, each with its digest, and never a retained copy of its own payload, so its replay is its argv
+        // and not `/bin/cp`. At the base it named `selected.tsv` and `selection.json` and replayed `/bin/cp`.
+        XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+        let inputs = envelope.files.filter { $0.role == .input }
+        XCTAssertEqual(inputs.map(\.path), [first.standardizedFileURL.path, second.standardizedFileURL.path])
+        XCTAssertTrue(inputs.allSatisfy { $0.checksumSHA256 != nil }, "each database with its digest")
+        XCTAssertEqual(Set(envelope.options.resolvedDefaults.keys), ["variantCount"])
         XCTAssertEqual(envelope.options.resolvedDefaults["variantCount"]?.integerValue, 3)
         XCTAssertEqual(envelope.options.explicit.keys.sorted(), ["outputPath", "sourceVariantDatabasePaths"])
         XCTAssertEqual(envelope.options.defaults.keys.sorted(), ["outputFormat"])

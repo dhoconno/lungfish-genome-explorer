@@ -151,7 +151,7 @@ extension AnnotationTableDrawerView {
 
         let sourceURLs = bookmarkedVariantExportSourceURLs(from: index)
         let selectedRows = bookmarkedResults.map {
-            BookmarkedVariantExportService.Row(trackID: $0.trackId, rowID: $0.variantRowId,
+            BookmarkedVariantExportService.Row(
                 name: $0.name, type: $0.type, chromosome: $0.chromosome, start: $0.start,
                 ref: $0.ref, alt: $0.alt, quality: $0.quality, filter: $0.filter)
         }
