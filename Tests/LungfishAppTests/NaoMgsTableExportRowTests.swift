@@ -74,4 +74,23 @@ final class NaoMgsTableExportRowTests: XCTestCase {
         )
         XCTAssertEqual(try command.invocation(), exportInvocation)
     }
+
+    /// A leaf that fails fails the row and reaches `onFailure` once, which shows today's alert.
+    func testAFailedLeafReachesTheFailureHandler() async throws {
+        let reporter = RecordingOperationReporter()
+        let failures = NaoMgsTableExportFailures()
+        let begun = try XCTUnwrap(NaoMgsResultViewController.beginNaoMgsTableExportOperation(
+            invocation: exportInvocation,
+            runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/false")),
+            reporter: reporter
+        ) { failure in failures.messages.append(failure.message) })
+        let outcome = await begun.task.value
+        guard case .failed(let failure) = outcome else { return XCTFail("the leaf failed, \(outcome)") }
+        XCTAssertEqual(failures.messages, [failure.message])
+    }
+}
+
+@MainActor
+private final class NaoMgsTableExportFailures {
+    var messages: [String] = []
 }
