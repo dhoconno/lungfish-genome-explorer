@@ -264,7 +264,7 @@ struct ProvenanceSection: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 ForEach(run.steps) { step in
                                     if stepMatchesSearch(step) {
-                                        stepDisclosure(step, runOrdinal: index + 1)
+                                        stepDisclosure(step, in: run, runOrdinal: index + 1)
                                     }
                                 }
                             }
@@ -392,10 +392,12 @@ struct ProvenanceSection: View {
         .padding(.vertical, 4)
     }
 
-    private func stepDisclosure(_ step: ProvenanceLineageStep, runOrdinal: Int) -> some View {
+    private func stepDisclosure(_ step: ProvenanceLineageStep, in run: ProvenanceLineageRun, runOrdinal: Int) -> some View {
         ProvenanceDisclosureRow(
             identifier: "provenance-run-\(runOrdinal)-step-\(step.ordinal)",
-            accessibilityName: "Step \(step.ordinal), \(step.toolName)"
+            accessibilityName: "Step \(step.ordinal), \(step.toolName)",
+            copyText: viewModel.stepCopyText(of: step),
+            copyActions: viewModel.stepCopyActions(step, in: run)
         ) {
             VStack(alignment: .leading, spacing: 6) {
                 if !step.command.isEmpty {
@@ -405,10 +407,7 @@ struct ProvenanceSection: View {
                         recorded: step.command,
                         accessibilityIdentifier: "provenance-step-command"
                     )
-                    .contextMenu {
-                        Button("Copy Command") { copyToPasteboard(step.command) }
-                    }
-                    .accessibilityAction(named: "Copy Command") { copyToPasteboard(step.command) }
+                    .contextActions(viewModel.stepCopyActions(step, in: run))
                 }
                 stepObservationRow(.environment, of: step)
                 if !step.inputPaths.isEmpty {
@@ -729,6 +728,9 @@ enum ProvenanceDisclosureKeyCommand {
 struct ProvenanceDisclosureRow<Label: View, Content: View>: View {
     let identifier: String
     let accessibilityName: String
+    /// A Lineage step's Copy Step text, which Command-C copies while the label has focus, and its copy commands.
+    var copyText: String? = nil
+    var copyActions: [ContextAction] = []
     @ViewBuilder let content: () -> Content
     @ViewBuilder let label: () -> Label
 
@@ -761,6 +763,7 @@ struct ProvenanceDisclosureRow<Label: View, Content: View>: View {
             .accessibilityAction(named: isExpanded ? "Collapse" : "Expand") {
                 isExpanded.toggle()
             }
+            .lineageStepCopy(text: copyText, actions: copyActions)
         }
     }
 }

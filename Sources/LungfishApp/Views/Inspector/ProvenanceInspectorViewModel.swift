@@ -1020,8 +1020,7 @@ final class ProvenanceInspectorViewModel {
             for run in lineageRuns {
                 lines.append("\(run.title) - \(run.subtitle)")
                 for step in run.steps {
-                    lines.append("\(step.ordinal). \(step.toolName) \(step.toolVersion)".trimmingCharacters(in: .whitespaces))
-                    appendStepLines(of: step, to: &lines)
+                    lines.append(stepCopyText(of: step))
                 }
             }
             sections.append(lines.joined(separator: "\n"))
