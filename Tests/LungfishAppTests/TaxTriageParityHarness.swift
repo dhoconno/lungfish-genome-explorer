@@ -28,12 +28,12 @@ import LungfishTestSupport
 struct TaxTriageParityHarness {
     /// The test case whose app delegate state and teardown blocks the side runs use.
     let testCase: XCTestCase
-    /// The built `lungfish-cli`, which side A's build-db step runs and side B's argv names.
+    /// The built `lungfish-cli`, which sides C and C' run.
     let cliBinary: URL
 
-    /// Runs both sides of `parityCase` on `engine` in `caseRoot`, checks every side's fixed facts
-    /// and A against B, and fails the test on every difference the declared list does not hold.
-    /// `caseRoot` takes the side roots, and the engine may live in it too.
+    /// Runs sides C and C' of `parityCase` on `engine` in `caseRoot`, checks every side's fixed facts
+    /// and C against C' both ways, and fails the test on every difference the declared list does not
+    /// hold. `caseRoot` takes the side roots, and the engine may live in it too.
     func assertParity(_ parityCase: TaxTriageParityCase, engine: TaxTriageParityEngine, caseRoot: URL) async throws {
         if parityCase.materializesVirtualBundle {
             _ = try await ToolAvailability.require("seqkit", environment: "seqkit")
@@ -43,22 +43,16 @@ struct TaxTriageParityHarness {
         }
         // One project, copied, so every side starts from the same bytes, and a pristine copy that
         // no side touches, for the bundles no side may write into.
-        let projectA = try parityCase.makeProject(in: root(.a))
+        let projectC = try parityCase.makeProject(in: root(.c))
         let pristine = caseRoot.appendingPathComponent("pristine", isDirectory: true)
-            .appendingPathComponent(projectA.lastPathComponent, isDirectory: true)
-        let copies = [TaxTriageParitySide.b, .c, .cPrime].map { root($0).appendingPathComponent(projectA.lastPathComponent, isDirectory: true) }
-        for copy in copies + [pristine] {
+            .appendingPathComponent(projectC.lastPathComponent, isDirectory: true)
+        for copy in [root(.cPrime).appendingPathComponent(projectC.lastPathComponent, isDirectory: true), pristine] {
             try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: projectA, to: copy)
+            try FileManager.default.copyItem(at: projectC, to: copy)
         }
 
-        var runA = TaxTriageParitySideRun.notRun(.a, root: root(.a), reason: "no GUI route makes a plain --output run of several samples")
-        if parityCase.runsGUISide { runA = try await runGUISide(parityCase, root: root(.a), engine: engine) }
-        if parityCase.rebuildsAfterTheCleanup { runA = await rebuildAfterTheCleanup(runA) }
-        var runB = await runReplay(of: runA, parityCase, root: root(.b), engine: engine)
-        if parityCase.rebuildsAfterTheCleanup { runB = await rebuildAfterTheCleanup(runB) }
-        // Lane Q1b. Side C, the route the hidden key's `cli` value selects (Phase 2.11 U30 M3), or
-        // X8's plain --output, and side C' replaying the argv C's record names, all through the
+        // Lane Q1b. Side C, the Tools menu route (Phase 2.11 U30 M3, the only route since 2.12 K1),
+        // or X8's plain --output, and side C' replaying the argv C's record names, all through the
         // built lungfish-cli (TaxTriageCLIGUIParityReplayTests+RouteC.swift).
         var runC = parityCase.runsGUISide
             ? try await runGUISide(parityCase, side: .c, root: root(.c), engine: engine)
@@ -66,7 +60,7 @@ struct TaxTriageParityHarness {
         if parityCase.rebuildsAfterTheCleanup { runC = await rebuildAfterTheCleanup(runC) }
         var runCPrime = await runRecordedArgv(of: runC, parityCase, root: root(.cPrime), engine: engine)
         if parityCase.rebuildsAfterTheCleanup { runCPrime = await rebuildAfterTheCleanup(runCPrime) }
-        let runs = [runA, runB, runC, runCPrime]
+        let runs = [runC, runCPrime]
 
         var found: [TaxTriageParityScope: [TaxTriageParityDifference]] = [:]
         for run in runs {
@@ -74,10 +68,6 @@ struct TaxTriageParityHarness {
         }
         func differences(_ reference: TaxTriageParitySideRun, _ candidate: TaxTriageParitySideRun) throws -> [TaxTriageParityDifference] {
             try TaxTriageParityComparison.differences(reference: reference, candidate: candidate, bundlePaths: parityCase.bundlePaths)
-        }
-        if parityCase.runsGUISide {
-            found[.pair(.a, .b)] = try differences(runA, runB)
-            found[.pair(.a, .c)] = try differences(runA, runC)
         }
         // The acceptance (2.7 T2). The record comparison lets the candidate add facts, so C and C'
         // are compared both ways.
@@ -93,13 +83,9 @@ struct TaxTriageParityHarness {
         }
     }
 
-    /// Every side's fixed facts, then A against B, frozen at the base, and A against C, the
-    /// declared changes of the route's switch, both of which may only shrink, and C against C'
-    /// both ways, the acceptance, which declares nothing (2.7 T2).
-    static let scopes: [TaxTriageParityScope] = [
-        .side(.a), .side(.b), .side(.c), .side(.cPrime),
-        .pair(.a, .b), .pair(.a, .c), .pair(.c, .cPrime), .pair(.cPrime, .c),
-    ]
+    /// Every side's fixed facts, and C against C' both ways, the acceptance, which declares
+    /// nothing (2.7 T2). Sides A and B and their pairs left with the legacy route (2.12 K1).
+    static let scopes: [TaxTriageParityScope] = [.side(.c), .side(.cPrime), .pair(.c, .cPrime), .pair(.cPrime, .c)]
 
     // MARK: - Dump
 
@@ -110,7 +96,7 @@ struct TaxTriageParityHarness {
         }
     }
 
-    /// Copies the case root, which holds both side roots and the engine's launch records, into the
+    /// Copies the case root, which holds the side roots and the engine's launch records, into the
     /// case's dump folder and writes each side's end, row, launches and every difference beside it.
     private func dumpIfRequested(
         _ parityCase: TaxTriageParityCase,

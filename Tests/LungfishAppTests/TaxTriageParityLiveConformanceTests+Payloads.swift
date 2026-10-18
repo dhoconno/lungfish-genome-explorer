@@ -75,49 +75,6 @@ struct TaxTriageParityPayload: Hashable, Sendable {
 }
 
 enum TaxTriageParityPayloads {
-    /// The payload differences the live compare declares, each with its count in a case. The list only shrinks.
-    static let declared: [TaxTriageParityKnownDifference] = [
-        TaxTriageParityKnownDifference(
-            counts: [.x1: 1],
-            scope: .pair(.a, .c),
-            id: "report: *: only in C: top/*.top_report.tsv",
-            reason: "Side A's build-db cleanup deletes top/ (performCleanupForSingleResult in BuildDbCommand+TaxTriageCore.swift), "
-                + "and the executor's finalize keeps it (2.8 T5, row 258), as the folder compare declares",
-            closedBy: TaxTriageParityKnownDifferences.guiRoute
-        ),
-    ]
-
-    /// The folders side A's cleanup deletes after a run (`performCleanupForSingleResult`, BuildDbCommand+TaxTriageCore.swift:479-514),
-    /// and `fastp/` for its FASTQ files. A file that only side C holds in one of them is the GUI route's cleanup. A against C
-    /// records it in `payload-compare.txt` and does not fail on it. The `top/` declaration above keeps its own count.
-    static let cleanedByTheGUIRoute: Set<String> = [
-        "count", "filterkraken", "get", "map", "samtools", "bedtools", "top", "mergedsubspecies", "mergedkrakenreport",
-    ]
-
-    /// Whether `difference` names a file only side C holds in a folder that side A's cleanup deletes.
-    static func isCleanedByTheGUIRoute(_ difference: TaxTriageParityDifference) -> Bool {
-        guard let marker = difference.id.range(of: ": only in C: ") else { return false }
-        let key = String(difference.id[marker.upperBound...])
-        let parts = key.split(separator: "/").map(String.init)
-        guard parts.count > 1, let folder = parts.first else { return false }
-        let name = key.lowercased()
-        return cleanedByTheGUIRoute.contains(folder) || (folder == "fastp" && (name.hasSuffix(".fastq") || name.hasSuffix(".gz")))
-    }
-
-    /// Whether `fact` is one of side A's record-against-disk facts that the legacy GUI route's cleanup leaves false
-    /// (Q32 X1 ruling F3). The id ends ` that does not exist` and the file it names, below the analysis folder, lies in
-    /// a folder of `cleanedByTheGUIRoute` or is a FASTQ of `fastp/`. A name with another digest is not one, and a top
-    /// report is never one, since the counted `*top/*.top_report.tsv` entry of TaxTriageParityKnownDifferences stays.
-    static func isRemovedByTheGUIRouteCleanup(_ fact: TaxTriageParityDifference) -> Bool {
-        let ending = " that does not exist"
-        guard fact.id.hasSuffix(ending), let names = fact.id.range(of: " names "),
-              let analyses = fact.id.range(of: "/Analyses/", range: names.upperBound..<fact.id.endIndex) else { return false }
-        // Below `<project>/Analyses/` come the analysis folder, the file's folder and the file.
-        let parts = fact.id[analyses.upperBound...].dropLast(ending.count).split(separator: "/").map(String.init)
-        guard parts.count > 2, let name = parts.last?.lowercased(), !name.hasSuffix(".top_report.tsv") else { return false }
-        return cleanedByTheGUIRoute.contains(parts[1]) || (parts[1] == "fastp" && (name.hasSuffix(".fastq") || name.hasSuffix(".gz")))
-    }
-
     /// The sample names of `run`, as the request and the engine wrote them: the case's samples, the result's and the
     /// organism reports'.
     static func sampleNames(of run: TaxTriageParitySideRun, parityCase: TaxTriageParityCase) -> [String] {
@@ -257,30 +214,17 @@ enum TaxTriageParityPayloads {
         return found
     }
 
-    /// One line per asserted difference that no payload declaration holds, and per declaration that matches another
-    /// number of differences than its count, as TaxTriageParityKnownDifferences.failures reads its own list. A
-    /// difference of a file of kind `other` is recorded and never fails.
+    /// One line per asserted difference. Sides C and C' declare no payload difference (2.7 T2), and the one
+    /// declaration of A against C left with side A (2.12 K1). A difference of a file of kind `other` is recorded
+    /// and never fails.
     static func failures(
         found: [TaxTriageParityDifference],
         parityCase: TaxTriageParityCase,
         scope: TaxTriageParityScope
     ) -> [String] {
-        let asserted = found.filter { difference in
-            !difference.id.hasPrefix(TaxTriageParityPayloadKind.other.rawValue + ":")
-        }
-        let entries = declared.filter { $0.counts[parityCase] != nil && $0.scope == scope }
-        var lines = asserted
-            .filter { difference in !entries.contains { $0.matches(difference) } }
-            .filter { difference in !(scope == .pair(.a, .c) && isCleanedByTheGUIRoute(difference)) }
+        found
+            .filter { difference in !difference.id.hasPrefix(TaxTriageParityPayloadKind.other.rawValue + ":") }
             .map { "not declared: \($0)" }
-        for entry in entries {
-            let matched = asserted.filter(entry.matches)
-            let count = entry.counts[parityCase] ?? 0
-            if matched.count != count {
-                lines.append("\(matched.count) payload differences match, \(count) declared for \(parityCase.rawValue): \(entry.id)")
-            }
-        }
-        return lines
     }
 
     /// One line per expected sample that `side` holds no payload of an asserted kind for. Without it a side that kept

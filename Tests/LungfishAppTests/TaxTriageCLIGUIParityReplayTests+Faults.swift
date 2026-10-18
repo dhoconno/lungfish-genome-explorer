@@ -64,7 +64,7 @@ extension TaxTriageParityCase {
     /// 3.3.8 organism report, or the 31 of its top report where the organism report lists none.
     var standInOrganisms: Int { organismReportsHaveRows ? 5 : 31 }
 
-    /// Whether side A runs. No GUI route makes X8's plain `--output` run of several samples.
+    /// Whether side C runs the GUI route. No GUI route makes X8's plain `--output` run of several samples.
     var runsGUISide: Bool { self != .x8 }
 
     /// The bundles no side may write into, every bundle of a cancelled request (T10) and the
@@ -111,28 +111,6 @@ struct TaxTriageParityRebuild: Sendable, CustomStringConvertible {
 
 extension TaxTriageParityHarness {
     // MARK: - Cancel and rebuild
-
-    /// Side B's cancel. The window's Cancel sends SIGTERM to `lungfish-cli`, and `taxtriage run`
-    /// turns it into a cancel of its pipeline and exits 125 (2.9 S11). Side B runs the command in
-    /// this process, so once the engine runs the signal goes to this process, where the
-    /// command's own handler takes it. SIGTERM is ignored around the replay, so a command that no
-    /// longer listens leaves the signal ignored and the case fails on its end, while the test
-    /// process lives on. The stand-in's maximumWait bounds such a replay, not the engine's wait.
-    /// A second SIGTERM while the command listens ends this process (`secondSignalEndsProcess`
-    /// in TaxTriageCommand+Cancellation.swift), so the case sends exactly one.
-    nonisolated static func replayTerminalCancelledBySIGTERM(
-        of script: String,
-        engine: TaxTriageParityEngine,
-        launchesBefore: Int
-    ) async -> TaxTriageParityTerminal {
-        let previous = signal(SIGTERM, SIG_IGN)
-        defer { signal(SIGTERM, previous) }
-        let replay = Task { await Self.replayTerminal(of: script, engine: engine) }
-        if await engine.standIn?.waitForLaunch(launchesBefore, timeout: engine.processWait) != nil {
-            kill(getpid(), SIGTERM)
-        }
-        return await replay.value
-    }
 
     /// X7. Runs `lungfish-cli build-db taxtriage <analysis> --force` through the built CLI as the
     /// app runs it after a TaxTriage run, first on a side whose run built no database, so the

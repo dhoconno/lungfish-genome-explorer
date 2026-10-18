@@ -5,29 +5,21 @@
 // Phase 2.9 lane Q1a, the freeze that lands before any behaviour commit of A1 or A2 (QA 1). It
 // carries Moved out row 249 of the 2.8 plan, 2.7 T2 and T9, 2.8 T16 with the TF-G stand-in, and
 // the QA ruling on O5, under which this class runs only the stand-in. Each case runs two sides,
-// one after another, on one stand-in engine.
+// one after another, on one stand-in engine (TaxTriageCLIGUIParityReplayTests+RouteC.swift).
 //
-// - Side A is the GUI route the hidden key's `legacy` value selects. `launchTaxTriage(route: .legacy)`
-//   runs `AppDelegate.runTaxTriage` with the config the TaxTriage wizard builds for the case's
-//   bundles on `OperationCenter.shared`, with `AppDelegate.TaxTriageLaunchSeam.makeRunner` bound to
-//   the engine and `LUNGFISH_CLI_PATH` naming the built CLI for its `build-db taxtriage` step (2.7 T9).
-// - Side B is the command side A's row recorded, rebased onto a fresh root and run in this
-//   process with `TaxTriageCommand.RunSubcommand.makePipeline` bound to the same engine, as
-//   docs/contracts/CLI-EQUIVALENCE.md replays a command. A request of several samples records
-//   no command (cli-parity-gap taxtriage-multi-sample), so side B runs today's one command for
-//   it, a folder `--input` that pools the samples in one Nextflow run (2.8 T2, QA inventory 2.2).
+// - Side C is the Tools menu launch, `launchTaxTriage`, with the config the TaxTriage wizard builds
+//   for the case's bundles, which runs `taxtriage run --project` through the built `lungfish-cli`
+//   with its own row (Phase 2.11 U30 M3). X8, which no GUI route makes, runs its plain `--output`
+//   through the same binary.
+// - Side C' runs the argv C's root record names, rebased, which C's row records too.
 //
 // Each case checks the fixed facts on each side (TaxTriageCLIGUIParityReplayTests+FixedFacts.swift)
-// and compares the two side roots, every provenance record by its facts and the terminal state
-// (TaxTriageCLIGUIParityReplayTests+Compare.swift). TaxTriageParityKnownDifferences declares every
-// difference of A against B with its count, and the case fails on any other. Lane Q1b adds sides
-// C and C' to the same cases (TaxTriageCLIGUIParityReplayTests+RouteC.swift). Since Phase 2.11 U30
-// M3 C is the GUI route the key's `cli` value selects, `launchTaxTriage(route: .cli)`, which runs
-// `taxtriage run --project` through the built `lungfish-cli` with its own row, so both routes sit
-// in one parity class (ARCH 7). C' runs the argv C's root record names, rebased, which C's row
-// records too. C against C' declares nothing (2.7 T2).
+// and compares the two side roots both ways, every provenance record by its facts and the terminal
+// state (TaxTriageCLIGUIParityReplayTests+Compare.swift). C against C' declares nothing (2.7 T2).
+// Sides A and B, the legacy in-process route and its recorded command, and the 80 differences
+// TaxTriageParityKnownDifferences declared for them left with that route (2.12 K1).
 //
-// The stand-in starts processes and side A runs on `OperationCenter.shared`, so the class name ends
+// The stand-in starts processes and side C runs on `OperationCenter.shared`, so the class name ends
 // in ReplayTests, which sends it to the serial replay tier. `TaxTriageParityEngine` takes the
 // engine's root, profile and database as parameters, so a live class can run the same sides on a
 // managed root (ruling O5). `LUNGFISH_PARITY_DUMP=<folder>` keeps a copy of each case's roots and
@@ -62,7 +54,7 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
         guard let cli = CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: productsDirectory) else {
             XCTFail(
                 "No lungfish-cli beside \(productsDirectory.path) and none named by LUNGFISH_CLI_PATH. "
-                    + "Without it side A's build-db step builds no taxtriage.sqlite."
+                    + "Without it sides C and C' cannot run."
             )
             throw ParityError.missingCLI
         }
@@ -112,7 +104,7 @@ final class TaxTriageCLIGUIParityReplayTests: XCTestCase {
         try await assertParity(.x7)
     }
 
-    func testX8PlainOutputOfTwoSamplesOnSideB() async throws {
+    func testX8PlainOutputOfTwoSamples() async throws {
         try await assertParity(.x8)
     }
 

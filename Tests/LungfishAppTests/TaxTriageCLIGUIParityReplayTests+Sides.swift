@@ -2,13 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Side A drives the GUI route the hidden key's `legacy` value selects, `launchTaxTriage(route: .legacy)`
-// and so `AppDelegate.runTaxTriage`, with the config the TaxTriage wizard builds for the case's bundles
-// and the GUI's runner seam (`AppDelegate.TaxTriageLaunchSeam.makeRunner`) bound to the case's engine.
-// Side C drives the same launch with the `cli` value (Phase 2.11 U30 M3). Side B rebases the
-// command side A's row recorded onto a fresh root and runs it in this process with the CLI's
-// pipeline seam (`TaxTriageCommand.RunSubcommand.makePipeline`) bound to the same engine
-// (2.7 T2). Each run keeps the launches the stand-in recorded while it ran.
+// Side C drives the Tools menu launch, `launchTaxTriage`, with the config the TaxTriage wizard builds
+// for the case's bundles, which runs `taxtriage run --project` through the built `lungfish-cli` on the
+// case's engine (Phase 2.11 U30 M3). Sides A and B, the legacy in-process route and its recorded
+// command, left with that route (2.12 K1). Each run keeps the launches the stand-in recorded while it ran.
 
 import AppKit
 import ArgumentParser
@@ -21,7 +18,7 @@ import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
-/// The cases of section 2.2 of the 2.9 QA inventory that sides A and B run.
+/// The cases of section 2.2 of the 2.9 QA inventory.
 enum TaxTriageParityCase: String, CaseIterable, Sendable {
     /// One sample, the classifier golden's virtual subset bundle of 55 reads.
     case x1 = "X1"
@@ -38,8 +35,8 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
     /// The pair as one sample whose organism report lists nothing, rebuilt with `--force` after
     /// the cleanup.
     case x7 = "X7"
-    /// A plain `--output` of two samples, the merge bundle and the negative control, on side B
-    /// only.
+    /// A plain `--output` of two samples, the merge bundle and the negative control, which no GUI
+    /// route makes.
     case x8 = "X8"
 
     /// The folder of the two bundles a request of two samples names, relative to the project. It
@@ -68,7 +65,7 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
 
     var isBatch: Bool { bundlePaths.count > 1 }
 
-    /// The folder side B's pooled command names for a request whose row records no command.
+    /// The folder X8's pooled command names as its one `--input`.
     var pooledInputFolder: String? { isBatch ? Self.twoSampleFolder : nil }
 
     /// Whether a side materializes a virtual bundle, which runs seqkit.
@@ -174,11 +171,7 @@ struct TaxTriageParitySampleFacts: Sendable {
 
 /// The sides of a TaxTriage parity case (2.7 T2).
 enum TaxTriageParitySide: String, CaseIterable, Sendable, CustomStringConvertible {
-    /// Today's GUI route through `AppDelegate`, run on `OperationCenter.shared`.
-    case a = "A"
-    /// The command side A's row recorded, rebased onto a fresh root and run in this process.
-    case b = "B"
-    /// The route the hidden key's `cli` value selects, `launchTaxTriage(route: .cli)`, which runs
+    /// The Tools menu route, `launchTaxTriage`, which runs
     /// `taxtriage run --project` through the built `lungfish-cli` on the case's engine with an
     /// Operations panel row (2.8 T1, T4 and T17, Phase 2.11 U30 M3). X8, which no GUI route makes,
     /// runs its plain `--output` through the same binary (lane Q1b, TaxTriageCLIGUIParityReplayTests+RouteC.swift).
@@ -191,9 +184,6 @@ enum TaxTriageParitySide: String, CaseIterable, Sendable, CustomStringConvertibl
 
     /// The folder of the side's root, a name a recorded command needs no quote for.
     var folderName: String { self == .cPrime ? "C-prime" : rawValue }
-
-    /// Whether the side runs a GUI route and so has an Operations panel row, on every case but X8.
-    var hasRow: Bool { self == .a || self == .c }
 }
 
 /// How a side's run ended.
@@ -243,13 +233,12 @@ struct TaxTriageParityReplayedCommand: Sendable {
     }
 }
 
-/// Side B's command for a request of several samples is no longer a plain `--output` pooled run.
+/// The routed command of a case no longer holds the plain `--output` that `routedCommand` replaces.
 struct TaxTriageParityPooledCommandError: Error, CustomStringConvertible {
     let words: [String]
 
     var description: String {
-        "The one-sample spelling no longer gives a plain --output pooled run (2.8 T17). Side B of several "
-            + "samples stays pooled (2.8 T2, 2.9 T5), so re-spell pooledCommand. Words \(words)"
+        "The command no longer names a plain --output (2.8 T17), so re-spell routedCommand. Words \(words)"
     }
 }
 
@@ -309,16 +298,6 @@ struct TaxTriageParityEngine: Sendable {
         )
     }
 
-    /// The serial batch runner `runTaxTriage` reads from `AppDelegate.TaxTriageLaunchSeam`.
-    var makeRunner: @Sendable () -> TaxTriageSerialBatchRunner {
-        let makePipeline = makePipeline
-        return {
-            TaxTriageSerialBatchRunner(runPipeline: { config, progress in
-                try await makePipeline().run(config: config, progress: progress)
-            })
-        }
-    }
-
     /// Every launch the stand-in recorded, in launch order, none on a live root.
     func launches() throws -> [TaxTriageStandInEngine.Launch] {
         try standIn?.launches() ?? []
@@ -358,20 +337,16 @@ struct TaxTriageParitySideRun {
 }
 
 extension TaxTriageParityHarness {
-    /// A GUI side. Hands the wizard's config to `launchTaxTriage`, the dialog's launch, on the route
-    /// of the hidden key's value the side stands for (Phase 2.11 U30 M3, ARCH 7, both routes in one
-    /// parity class). Side A takes `legacy`, which runs `runTaxTriage` with the GUI's runner seam
-    /// bound to the engine. Side C takes `cli`, which runs `taxtriage run --project` through the
-    /// built `lungfish-cli` on the classifier CLI route's row (`cliRouteExecutable`). The side keeps
-    /// every detail of the row and every line of the viewer's overlay, waits for the row to finish
-    /// and reads it.
+    /// A GUI side. Hands the wizard's config to `launchTaxTriage`, the dialog's launch, which runs
+    /// `taxtriage run --project` through the built `lungfish-cli` on the classifier CLI route's row
+    /// (`cliRouteExecutable`, Phase 2.11 U30 M3). The side keeps every detail of the row and every
+    /// line of the viewer's overlay, waits for the row to finish and reads it.
     func runGUISide(
         _ parityCase: TaxTriageParityCase,
-        side: TaxTriageParitySide = .a,
+        side: TaxTriageParitySide = .c,
         root: URL,
         engine: TaxTriageParityEngine
     ) async throws -> TaxTriageParitySideRun {
-        let route: TaxTriageLaunchRoute = side == .a ? .legacy : .cli
         let project = root.appendingPathComponent(ClassifierParityFixtures.projectName, isDirectory: true)
         let config = parityCase.wizardConfig(project: project, engine: engine)
         let delegate = testCase.makeAppDelegateWithTemporaryState()
@@ -391,16 +366,8 @@ extension TaxTriageParityHarness {
         let recorder = RowDetailRecorder(ignoring: existing)
         defer { recorder.stop() }
         let routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
-        switch route {
-        case .legacy:
-            // Since 2.12 K1 M2 the launch runs the CLI route only, so side A calls the legacy route itself until K1 deletes it.
-            AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue(engine.makeRunner) {
-                delegate.runTaxTriage(config: config, viewerController: viewer, routeContext: routeContext)
-            }
-        case .cli:
-            let cli = try cliRouteExecutable(engine: engine)
-            delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: routeContext, cliURLOverride: cli)
-        }
+        let cli = try cliRouteExecutable(engine: engine)
+        delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: routeContext, cliURLOverride: cli)
         let started = try XCTUnwrap(
             OperationCenter.shared.items.first { !existing.contains($0.id) },
             "\(parityCase.rawValue): side \(side) started no row"
@@ -453,106 +420,6 @@ extension TaxTriageParityHarness {
         )
     }
 
-    /// Side B. The command side A's row recorded, rebased onto `root`, or for a request whose row
-    /// records none the pooled command of the same request (`pooledCommand`), run in this process
-    /// with the CLI's pipeline seam bound to the engine, the way docs/contracts/CLI-EQUIVALENCE.md
-    /// replays a command. Since 2.9 S11 `taxtriage run` runs its pipeline in a task that only a
-    /// SIGTERM cancels, so the engine's wait no longer cuts a hung replay. A stand-in launch that
-    /// waits gives up after the stand-in's maximumWait, which bounds the case.
-    func runReplay(
-        of gui: TaxTriageParitySideRun,
-        _ parityCase: TaxTriageParityCase,
-        root: URL,
-        engine: TaxTriageParityEngine
-    ) async -> TaxTriageParitySideRun {
-        let side = TaxTriageParitySide.b
-        let launchesBefore = (try? engine.launches().count) ?? 0
-        var replayed: [TaxTriageParityReplayedCommand] = []
-        let terminal: TaxTriageParityTerminal
-        do {
-            let script: String?
-            if let command = gui.recordedCommand {
-                script = try RecordedCLICommand.rebased(command, from: gui.root, to: root)
-            } else if let folder = parityCase.pooledInputFolder {
-                script = try pooledCommand(parityCase, folder: folder, gui: gui, root: root, engine: engine)
-            } else {
-                script = nil
-            }
-            if let script {
-                for line in script.components(separatedBy: "\n") {
-                    let arguments = try RecordedCLICommand.arguments(of: line)
-                    replayed.append(TaxTriageParityReplayedCommand(
-                        outputFolder: TaxTriageParityReplayedCommand.outputFolder(in: arguments),
-                        argv: [cliBinary.path] + arguments
-                    ))
-                }
-                if parityCase.cancelsOnceTheEngineStarts {
-                    terminal = await Self.replayTerminalCancelledBySIGTERM(of: script, engine: engine, launchesBefore: launchesBefore)
-                } else {
-                    terminal = await Self.replayTerminal(of: script, engine: engine)
-                }
-            } else {
-                terminal = .notRun("side \(gui.side)'s row records no command")
-            }
-        } catch {
-            terminal = .error(String(describing: error))
-        }
-        // The folder the replay wrote, `Project.lungfish/Analyses/<name>`, from its first line.
-        let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
-        let written = replayed.first.map { URL(fileURLWithPath: $0.outputFolder).resolvingSymlinksInPath().standardizedFileURL.path }
-        let analysisPath = written.flatMap { path -> String? in
-            guard path.hasPrefix(base) else { return nil }
-            return String(path.dropFirst(base.count)).split(separator: "/").prefix(3).joined(separator: "/")
-        }
-        return TaxTriageParitySideRun(
-            side: side,
-            root: root,
-            analysisPath: analysisPath,
-            recordedCommand: nil,
-            replayedCommands: replayed,
-            terminal: terminal,
-            row: nil,
-            launches: Array(((try? engine.launches()) ?? []).dropFirst(launchesBefore))
-        )
-    }
-
-    /// Today's one command for a request of several samples, which side A's row does not record
-    /// (cli-parity-gap taxtriage-multi-sample). It is the command the row records for one
-    /// sample, with the samples' folder as its one `--input` and without `--sample`, so
-    /// `taxtriage run` makes one sample of each bundle and runs them all in one Nextflow (2.8 T2,
-    /// Q15 R1). It writes the folder side A's run made, rebased onto `root`.
-    func pooledCommand(
-        _ parityCase: TaxTriageParityCase,
-        folder: String,
-        gui: TaxTriageParitySideRun,
-        root: URL,
-        engine: TaxTriageParityEngine
-    ) throws -> String {
-        let project = root.appendingPathComponent(ClassifierParityFixtures.projectName, isDirectory: true)
-        var config = parityCase.wizardConfig(project: project, engine: engine)
-        config.samples = [TaxTriageSample(
-            sampleId: "pooled",
-            fastq1: project.appendingPathComponent(folder, isDirectory: true),
-            platform: config.platform
-        )]
-        config.outputDirectory = root.appendingPathComponent(
-            gui.analysisPath ?? "\(ClassifierParityFixtures.projectName)/Analyses/taxtriage-pooled",
-            isDirectory: true
-        )
-        var words = try RecordedCLICommand.arguments(of: AppDelegate.taxTriageCLICommand(for: config))
-        if let index = words.firstIndex(of: "--sample"), index + 1 < words.count {
-            words.removeSubrange(index...(index + 1))
-        }
-        // 2.8 T17 changes the spelling of a one-sample row with A2, while 2.8 T2 and 2.9 T5 keep a
-        // plain --output pooled. Side B of several samples stays that pooled run, so a spelling
-        // that loses --output or gains --project or --batch means re-spelling this command.
-        guard Self.resolved(TaxTriageParityReplayedCommand.outputFolder(in: words)) == Self.resolved(config.outputDirectory.path),
-              !words.contains("--project"), !words.contains("--batch"), !words.contains("--sample") else {
-            throw TaxTriageParityPooledCommandError(words: words)
-        }
-        return OperationCenter.buildCLICommand(subcommand: "", args: words)
-    }
-
     /// The text fields of a sheet, top to bottom, one per line.
     static func texts(in window: NSWindow) -> String {
         var texts: [String] = []
@@ -569,34 +436,5 @@ extension TaxTriageParityHarness {
         ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
             .map(\.lastPathComponent)
             .sorted()
-    }
-
-    /// How `script` ends when it runs in this process with the CLI's pipeline seam bound to the
-    /// engine, raced against the engine's wait in a task group. The first to finish gives the end,
-    /// but the group still waits for the replay, because its cancel does not reach the task
-    /// `taxtriage run` starts (2.9 S11). Child tasks inherit the seam's task-local value.
-    nonisolated static func replayTerminal(of script: String, engine: TaxTriageParityEngine) async -> TaxTriageParityTerminal {
-        let timeout = engine.processWait
-        return await TaxTriageCommand.RunSubcommand.$makePipeline.withValue(engine.makePipeline) {
-            await withTaskGroup(of: TaxTriageParityTerminal.self) { group in
-                group.addTask {
-                    do {
-                        try await RecordedCLICommand.runInProcess(script)
-                        return .exit(0)
-                    } catch let exit as ExitCode {
-                        return .exit(exit.rawValue)
-                    } catch {
-                        return .error(String(describing: error))
-                    }
-                }
-                group.addTask {
-                    try? await Task.sleep(for: timeout)
-                    return .error("timed out after \(timeout)")
-                }
-                let first = await group.next() ?? .error("the replay returned nothing")
-                group.cancelAll()
-                return first
-            }
-        }
     }
 }

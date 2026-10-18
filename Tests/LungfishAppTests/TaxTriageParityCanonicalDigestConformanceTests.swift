@@ -70,7 +70,8 @@ final class TaxTriageParityCanonicalDigestConformanceTests: XCTestCase {
         let caseFolder = folder.appendingPathComponent("X1", isDirectory: true)
         var table = ["side\tsample\tkind\tkey\tsha256\tsize\tpath"]
         for (side, bam, index) in [("A", a, indexA), ("C'", b, indexB)] {
-            let copies = caseFolder.appendingPathComponent("payloads/\(TaxTriageParitySide(rawValue: side)!.folderName)/S1/minimap2", isDirectory: true)
+            // Side A's rows stand for an earlier pass's baseline, which the reader keeps by the side's own name.
+            let copies = caseFolder.appendingPathComponent("payloads/\(TaxTriageParitySide(rawValue: side)?.folderName ?? side)/S1/minimap2", isDirectory: true)
             try FileManager.default.createDirectory(at: copies, withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: bam, to: copies.appendingPathComponent("S1.S1.dwnld.references.bam"))
             try FileManager.default.copyItem(at: index, to: copies.appendingPathComponent("S1.S1.dwnld.references.bam.bai"))
@@ -91,7 +92,7 @@ final class TaxTriageParityCanonicalDigestConformanceTests: XCTestCase {
         XCTAssertEqual(rows[0].rawSHA256, try ClassifierParityFixtures.sha256(of: a), "field 4 of a 7-field row is the raw digest")
         XCTAssertNotEqual(rows[0].rawSHA256, rows[2].rawSHA256)
         XCTAssertEqual(rows[5].sha256, String(repeating: "c", count: 64), "a row of another kind keeps its digest")
-        let missing = TaxTriageParityPayloads.differences(reference: [rows[0]], .a, candidate: [rows[4]], .c)
+        let missing = TaxTriageParityPayloads.differences(reference: [rows[0]], .cPrime, candidate: [rows[4]], .c)
         XCTAssertEqual(missing.map(\.id), ["kept reads: S1: differs: \(key)"], "a copy that is not there is a finding")
         XCTAssertTrue(missing.first?.detail.contains("no copy of this file in the baseline") == true, missing.description)
         let plain = try TaxTriageParityEvidence.payloadRows(in: caseFolder).map(\.payload)

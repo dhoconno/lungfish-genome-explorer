@@ -91,9 +91,8 @@ enum TaxTriageParityEvidence {
         let differences: [TaxTriageParityDifference]
     }
 
-    /// A against C and C against C' both ways, then with a baseline the baseline's A against this pass's A and C, and
-    /// the baseline's C and C' against this pass's C and C'. The baseline's A against C carries A against C's
-    /// declarations, and every other pair declares nothing.
+    /// C against C' both ways, then with a baseline the baseline's C and C' against this pass's C and C'. No pair
+    /// declares anything. A baseline's side A rows, from a pass before 2.12 K1, are not read.
     static func comparisons(_ pass: TaxTriageParityLivePass, baseline: URL?) throws -> [Comparison] {
         var result = TaxTriageParityLivePass.pairs.map { reference, candidate in
             Comparison(
@@ -108,7 +107,7 @@ enum TaxTriageParityEvidence {
         let rows = try payloadRows(
             in: baseline.appendingPathComponent(pass.parityCase.rawValue, isDirectory: true), samtools: pass.samtools
         )
-        for (saved, side) in [(TaxTriageParitySide.a, TaxTriageParitySide.a), (.a, .c), (.c, .c), (.cPrime, .cPrime)] {
+        for (saved, side) in [(TaxTriageParitySide.c, TaxTriageParitySide.c), (.cPrime, .cPrime)] {
             result.append(Comparison(
                 title: "baseline \(saved) against \(side)",
                 scope: .pair(saved, side),

@@ -8,15 +8,13 @@
 // built `lungfish-cli` on the case's engine, with its Operations panel row (runGUISide). Side C' reads
 // the argv side C's root record names, rebases it onto its own root and runs it through the same
 // binary. C against C' checks that the recorded command gives the same result and declares
-// nothing (the acceptance of 2.7 T2). A against C declares what the switch of the route changes,
-// a list that may only shrink.
+// nothing (the acceptance of 2.7 T2).
 //
-// - One sample runs `--project` in place of side A's `--output`, so the run lays out its own
-//   `Analyses/taxtriage-batch-<timestamp>/` (T4), and its finalize builds `taxtriage.sqlite` and
-//   records the cleanup that keeps `top/` (T5).
+// - One sample runs `--project`, so the run lays out its own `Analyses/taxtriage-batch-<timestamp>/`
+//   (T4), and its finalize builds `taxtriage.sqlite` and records the cleanup that keeps `top/` (T5).
 // - Several samples run one `--input` per bundle with `--project` and `--batch`, one Nextflow per
-//   sample (T2), and the row records that command (X3 and X4). X8, which no GUI route makes, keeps
-//   side B's plain `--output` through the built binary, one Nextflow for both samples (T2, T7).
+//   sample (T2), and the row records that command (X3 and X4). X8, which no GUI route makes, runs a
+//   plain `--output` through the built binary, one Nextflow for both samples (T2, T7).
 // - A cancel (X6) is the row's Cancel, which the transport sends as SIGTERM to the CLI's process
 //   tree with the grace the app gives it (`CLIProcessLauncher.operationGrace`) once the engine runs.
 
@@ -29,23 +27,17 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 extension TaxTriageParityCase {
-    /// Whether `side` runs every sample of the request in one Nextflow: side B's pooled command
-    /// of several samples, and on sides C and C' only X8's plain `--output` (2.8 T2).
+    /// Whether `side` runs every sample of the request in one Nextflow, on sides C and C' only X8's
+    /// plain `--output` (2.8 T2).
     func runsPooled(on side: TaxTriageParitySide) -> Bool {
-        switch side {
-        case .a: return false
-        case .b: return pooledInputFolder != nil
-        case .c, .cPrime: return self == .x8
-        }
+        self == .x8
     }
 
     /// Whether `side`'s result keeps `top/` through every build-db taxtriage, a `taxtriage run` result
     /// of one Nextflow per sample. On sides C and C' the executor's finalize of a `--project` result
-    /// builds `taxtriage.sqlite` with the cleanup that keeps `top/` (2.8 T5 and row 258). Side B's
-    /// plain `--output` builds none, and since B30's review fix 8 the app's first build-db of it runs
-    /// that cleanup too.
+    /// builds `taxtriage.sqlite` with the cleanup that keeps `top/` (2.8 T5 and row 258).
     func keepsTop(on side: TaxTriageParitySide) -> Bool {
-        side != .a && !runsPooled(on: side)
+        !runsPooled(on: side)
     }
 }
 
@@ -121,11 +113,11 @@ extension TaxTriageParityHarness {
         }
     }
 
-    /// The words of side C's command after `lungfish-cli`. They are the words the row of one
-    /// sample records, with the samples' folder as the one `--input` and no `--sample` for
-    /// several, as side B's pooled command, and `--project` in place of `--output`, so the run
-    /// lays out its folder as the app does (2.8 T4 and T17), and the `run` subcommand the CLI
-    /// route spells. X8 keeps its plain `--output` into the folder side B writes (2.8 T2).
+    /// The words of side C's command after `lungfish-cli`. They are the words of one sample's
+    /// command, with the samples' folder as the one `--input` and no `--sample` for several, and
+    /// `--project` in place of `--output`, so the run lays out its folder as the app does (2.8 T4
+    /// and T17), and the `run` subcommand the CLI route spells. X8 keeps its plain `--output`
+    /// (2.8 T2).
     func routedCommand(
         _ parityCase: TaxTriageParityCase,
         root: URL,

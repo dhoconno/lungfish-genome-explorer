@@ -18,8 +18,7 @@
 // The masks and the fact rules are the classifier parity's own static helpers, so a change to
 // them moves the counts of both classes. Lane Q1b added side C, whose `--project` run names its
 // folder by the second it started, so records pair with the candidate's analysis folder named as
-// the reference's, and for A against C only a step's toolVersion is left out when each side holds
-// its own process's LGE version there (ruling R1 of Phase 2.8, `withoutOwnLGEVersion`).
+// the reference's.
 //
 // One mask is this parity's own (lane Q31, panel decision G3). The contract numbers the UUIDs of a
 // tree in the order it meets them, and a UUID that only a payload holds reads the tree's count plus
@@ -57,16 +56,6 @@ enum TaxTriageParityComparison {
     typealias Value = ProvenanceCompatFacts.Value
     /// The classifier parity's masks and fact rules, shared so both parities mask alike.
     typealias Rules = ClassifierParityComparison
-
-    /// LGE's own version as side A's steps record it, `Lungfish <version> (<build>)` and the
-    /// version alone (`WorkflowRun.currentAppVersion` and `currentAppReleaseVersion`). Side A runs
-    /// the GUI path in this process, so both read the XCTest host's bundle. The classifier parity
-    /// kept these until it retired its side A, and only this parity still has one.
-    static let sideALGEVersions = [WorkflowRun.currentAppVersion, WorkflowRun.currentAppReleaseVersion]
-
-    /// The same two shapes on side C, which runs the SwiftPM `lungfish-cli`. Its embedded plist
-    /// holds no version, so it names `LungfishAppVersion.short` and the build `dev`.
-    static let sideCLGEVersions = ["Lungfish \(LungfishAppVersion.short) (dev)", LungfishAppVersion.short]
 
     /// How `candidate` differs from `reference`.
     static func differences(
@@ -276,7 +265,7 @@ enum TaxTriageParityComparison {
 
     /// The facts of one record as a value tree.
     ///
-    /// Side B runs its command in this process. A record that holds the test process's argv,
+    /// A side that runs its command in this process (side B until 2.12 K1, none since). A record that holds the test process's argv,
     /// where the shipped binary holds its own, gets the argv of the line that wrote it instead,
     /// after both pass through what the writer and the reader do to an argv
     /// (`PortablePath.sanitize`, `PortablePath.resolve`, then the facts' `PathNormalizer`), as an
@@ -354,25 +343,6 @@ enum TaxTriageParityComparison {
         return ("Analyses/\(candidateName)", "Analyses/\(referenceName)")
     }
 
-    /// `step` without its `toolVersion` when the pair is side A against side C and each of the two
-    /// steps holds its own process's LGE version there, in the same shape (ruling R1 of Phase
-    /// 2.8). Side A records in the XCTest host and side C in the SwiftPM `lungfish-cli`, so no lane
-    /// can make the two stamps agree. The classifier parity's values are matched exactly, so a
-    /// third-party version or another LGE version still shows, and every other pair compares the
-    /// key as it is.
-    static func withoutOwnLGEVersion(_ step: Value, beside candidateStep: Value?, context: FactContext) -> Value {
-        guard context.reference.side == .a, context.candidate.side == .c,
-              case .object(var members) = step,
-              case .object(let candidateMembers)? = candidateStep,
-              case .string(let versionA)? = members["toolVersion"],
-              case .string(let versionC)? = candidateMembers["toolVersion"],
-              zip(sideALGEVersions, sideCLGEVersions).contains(where: { $0.0 == versionA && $0.1 == versionC }) else {
-            return step
-        }
-        members["toolVersion"] = nil
-        return .object(members)
-    }
-
     /// Adds to `found` every leaf of `reference` that `candidate` lacks or holds with another
     /// value, by its path. Measured facts and the host values under `recorded` are left out, and
     /// so are the checksum and size of a file both trees hold or neither holds any more.
@@ -406,9 +376,7 @@ enum TaxTriageParityComparison {
             }
             let candidateByKey = Dictionary(Rules.keyedElements(candidateItems, key), uniquingKeysWith: { first, _ in first })
             for (elementKey, element) in Rules.keyedElements(items, key) {
-                let match = candidateByKey[elementKey]
-                let compared = Rules.stepArrays.contains(last) ? withoutOwnLGEVersion(element, beside: match, context: context) : element
-                collectMissing(compared, match, path: "\(path)[\(elementKey)]", into: &found, context: context)
+                collectMissing(element, candidateByKey[elementKey], path: "\(path)[\(elementKey)]", into: &found, context: context)
             }
         case (.string(let textA), .string(let textB)) where !Rules.sameFact(reference, candidate):
             // Long texts such as a tool's log, shown from the first character that differs once masked.

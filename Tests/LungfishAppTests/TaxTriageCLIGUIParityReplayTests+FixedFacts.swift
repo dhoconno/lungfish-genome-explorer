@@ -15,7 +15,7 @@
 //   report, and source manifest entries that name the run, on a side that writes them,
 // - every file a record names in the project exists, or a later removal step names it (2.8 P1,
 //   the rule of ClassifierCLIGUIParityReplayTests.namedFileDifferences),
-// - side A's row with today's label, detail and recorded command.
+// - side C's row with its label, detail and recorded command.
 
 import Foundation
 import XCTest
@@ -250,9 +250,8 @@ extension TaxTriageParityHarness {
 
     // MARK: - Row
 
-    /// Side A's row as today's GUI writes it: its title and first detail, Completed, the result's
-    /// summary as its detail, no error and no alert. One sample records the `taxtriage run`
-    /// command of the run, and several record none (cli-parity-gap taxtriage-multi-sample).
+    /// Side C's row as the Tools menu launch writes it: its title and first detail, Completed, the
+    /// result's summary as its detail, no error and no alert, and the command of the run.
     private func rowViolations(
         _ parityCase: TaxTriageParityCase,
         samples: [TaxTriageParitySampleFacts],
@@ -296,34 +295,7 @@ extension TaxTriageParityHarness {
             violate("the row shows no error and no alert", "error \(row.errorMessage ?? "none"), alert \(row.alertText ?? "none")")
         }
 
-        guard run.side == .a else {
-            cliRouteCommandViolations(parityCase, samples: samples, run: run, analysis: analysis, engine: engine, violate: violate)
-            return
-        }
-        guard count == 1 else {
-            if let command = run.recordedCommand {
-                violate("a row of several samples records no command (cli-parity-gap taxtriage-multi-sample)", command)
-            }
-            return
-        }
-        let parsed = try? RecordedCLICommand.parse(run.recordedCommand) as? TaxTriageCommand.RunSubcommand
-        let bundle = run.project.appendingPathComponent(parityCase.bundlePaths[0], isDirectory: true)
-        guard let parsed,
-              parsed.input.map(Self.resolved) == Self.resolved(bundle.path),
-              parsed.input2 == nil,
-              parsed.sampleId == samples[0].sampleID,
-              parsed.databasePath.map(Self.resolved) == Self.resolved(engine.databasePath.path),
-              parsed.nfProfile == engine.profile,
-              parsed.maxCpus == engine.maxCpus else {
-            violate("the row records the taxtriage run command of the run", run.recordedCommand ?? "nil")
-            return
-        }
-        // 2.8 T17. Until A2 changes the command of a one-sample row, Copy CLI Command replays into
-        // the GUI's own folder, so the recorded --output names side A's analysis folder.
-        // `--output` is optional since `taxtriage run` takes `--project` (A2), and the row still names it.
-        if parsed.outputDir.map(Self.resolved) != Self.resolved(analysis.path) {
-            violate("the one-sample row's command writes the GUI's own folder (2.8 T17, until A2)", parsed.outputDir ?? "no --output")
-        }
+        cliRouteCommandViolations(parityCase, samples: samples, run: run, analysis: analysis, engine: engine, violate: violate)
     }
 
     /// The command side C's row records on the route the hidden key's `cli` value selects (Phase

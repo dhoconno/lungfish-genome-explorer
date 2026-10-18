@@ -52,18 +52,18 @@ final class TaxTriageParityUUIDNumberingTests: XCTestCase {
         )
     }
 
-    /// What the TaxTriage compare finds between side A holding `a` and side B holding `b`.
+    /// What the TaxTriage compare finds between side C holding `a` and side C' holding `b`.
     private func differences(a: [String: String], b: [String: String]) throws -> [TaxTriageParityDifference] {
         let scratch = try TestTempDirectory.make(prefix: "taxtriage-uuid-numbering")
         defer { TestTempDirectory.cleanup(scratch) }
-        let reference = try sideRun(.a, in: scratch, files: a)
-        let candidate = try sideRun(.b, in: scratch, files: b)
+        let reference = try sideRun(.c, in: scratch, files: a)
+        let candidate = try sideRun(.cPrime, in: scratch, files: b)
         return try TaxTriageParityComparison.folderDifferences(reference, candidate, bundlePaths: [])
     }
 
     // MARK: - Numbering
 
-    /// Side B's record holds a UUID more than side A's, as the executor's root record does. The
+    /// The record of side C' holds a UUID more than side C's, as the executor's root record does. The
     /// launch scratch that the log and the launch command name reads the same number on both sides.
     func testAnExtraUUIDInAnEarlierFileMovesNoLaterNumber() throws {
         let found = try differences(
@@ -82,7 +82,7 @@ final class TaxTriageParityUUIDNumberingTests: XCTestCase {
     }
 
     /// A manifest is a record, so at the base its UUIDs took the tree's numbers after every earlier
-    /// record, and one UUID more in side B's provenance moved them. Records are numbered alone too.
+    /// record, and one UUID more in side C's provenance moved them. Records are numbered alone too.
     func testAnExtraUUIDInAnEarlierRecordMovesNoManifestNumber() throws {
         let found = try differences(
             a: tree(analysis: [
