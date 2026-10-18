@@ -259,4 +259,32 @@ final class FastqTranslateMateIdTests: XCTestCase {
             ">\(Self.casavaID(10006))_frame+1 [Standard] [6 aa]", "MASKGE",
         ].joined(separator: "\n") + "\n")
     }
+
+    /// The other side of the carve-out. The same mixed file recorded `interleaved`, as a legacy bundle is, follows
+    /// the resolver, so its pairs take the marks and its merged read keeps its id (12.27 review fix 3).
+    func testMixedBundleRecordedInterleavedNumbersItsPairs() async throws {
+        let text = Self.fastq([
+            ("@\(Self.casavaID(10004)) 1:N:0:ACGTACGT", Self.read1),
+            ("@\(Self.casavaID(10004)) 2:N:0:ACGTACGT", Self.read2),
+            ("@\(Self.casavaID(10006))", Self.read1),
+        ])
+        let metadata = PersistedFASTQMetadata(
+            ingestion: IngestionMetadata(pairingMode: .interleaved, pairingSource: .detected),
+            readClassification: ReadClassification(files: [
+                .init(filename: "reads.fastq", role: .merged, readCount: 1),
+                .init(filename: "reads.fastq", role: .pairedR1, readCount: 1),
+                .init(filename: "reads.fastq", role: .pairedR2, readCount: 1),
+            ])
+        )
+        let bundle = try writeBundle(text, named: "mixed-interleaved", metadata: metadata)
+        XCTAssertEqual(resolvedLayoutPin(bundle), .mixedMergedAndPairs)
+
+        let frame1 = try await translated(bundle, to: "mixed-interleaved.fa")
+
+        XCTAssertEqual(frame1, [
+            ">\(Self.casavaID(10004)).1_frame+1 [Standard] [6 aa]", "MASKGE",
+            ">\(Self.casavaID(10004)).2_frame+1 [Standard] [5 aa]", "MKPGF",
+            ">\(Self.casavaID(10006))_frame+1 [Standard] [6 aa]", "MASKGE",
+        ].joined(separator: "\n") + "\n")
+    }
 }
