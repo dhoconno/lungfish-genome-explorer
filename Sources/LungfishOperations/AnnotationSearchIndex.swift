@@ -169,11 +169,11 @@ public final class AnnotationSearchIndex {
     /// Cached chromosome names per variant track for alias fallback matching.
     private var variantTrackChromosomes: [String: Set<String>] = [:]
 
-    /// Bundle-provided chromosome alias groups keyed by exact lowercase token.
-    private var bundleAliasGroupsByExact: [String: Set<String>] = [:]
+    /// Bundle-provided chromosome alias groups, built on the first alias lookup.
+    private var bundleAliasMaps = BundleChromosomeAliasMaps()
 
-    /// Bundle-provided chromosome alias groups keyed by canonical chromosome token.
-    private var bundleAliasGroupsByCanonical: [String: Set<String>] = [:]
+    /// How many times the alias groups were built. Tests read it.
+    var aliasMapBuildCount: Int { bundleAliasMaps.buildCount }
 
     /// Public accessor for variant database handles (for delete operations and background queries).
     public var variantDatabaseHandles: [(trackId: String, db: VariantDatabase)] { variantDatabases }
@@ -322,7 +322,10 @@ public final class AnnotationSearchIndex {
         variantCallerSettings.removeAll()
         variantTrackChromosomes.removeAll()
         variantDataGeneration += 1
-        rebuildBundleAliasMaps(from: bundle)
+        // Only annotation and variant lookups read the alias groups, see BundleChromosomeAliasMaps.
+        let hasTrackLookups = !annotationDatabases.isEmpty || !bundle.annotationTrackIds.isEmpty
+            || !bundle.variantTrackIds.isEmpty
+        bundleAliasMaps.reset(chromosomes: hasTrackLookups ? bundle.manifest.genome?.chromosomes ?? [] : nil)
         for vTrackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: vTrackId),
                   let dbPath = trackInfo.databasePath else { continue }
@@ -363,13 +366,14 @@ public final class AnnotationSearchIndex {
                 for: trackInfo.path,
                 field: "variants[\(handle.trackId)].path"
             )
+            bundleAliasMaps.prepare()
             return VariantFormatOverlaySource(
                 trackID: handle.trackId,
                 database: handle.db,
                 vcfURL: sourceURL,
                 isIVar: isIVar,
-                aliasesByExactToken: bundleAliasGroupsByExact,
-                aliasesByCanonicalToken: bundleAliasGroupsByCanonical
+                aliasesByExactToken: bundleAliasMaps.byExactToken,
+                aliasesByCanonicalToken: bundleAliasMaps.byCanonicalToken
             )
         }
         guard !sources.isEmpty else { return }
@@ -413,7 +417,6 @@ public final class AnnotationSearchIndex {
         bundleIdentifier = bundle.manifest.identifier
         bundleGenomeTotalLength = bundle.manifest.genome?.totalLength ?? 0
         bundlePloidyHint = inferPloidyHint(from: bundle.manifest)
-        rebuildBundleAliasMaps(from: bundle)
 
         for trackId in bundle.annotationTrackIds {
             if let trackInfo = bundle.annotationTrack(id: trackId),
@@ -1012,11 +1015,12 @@ public final class AnnotationSearchIndex {
     }
 
     private func makeVariantRegionSnapshot() -> VariantRegionSnapshot {
-        VariantRegionSnapshot(
+        bundleAliasMaps.prepare()
+        return VariantRegionSnapshot(
             variantDatabases: variantDatabases,
             variantTrackChromosomes: variantTrackChromosomes,
-            bundleAliasGroupsByExact: bundleAliasGroupsByExact,
-            bundleAliasGroupsByCanonical: bundleAliasGroupsByCanonical,
+            bundleAliasGroupsByExact: bundleAliasMaps.byExactToken,
+            bundleAliasGroupsByCanonical: bundleAliasMaps.byCanonicalToken,
             variantTrackNames: variantTrackNames,
             formatOverlay: variantFormatOverlaySnapshot
         )
@@ -1445,8 +1449,7 @@ public final class AnnotationSearchIndex {
         variantTrackNames = [:]
         variantTrackChromosomes = [:]
         variantDataGeneration += 1
-        bundleAliasGroupsByExact = [:]
-        bundleAliasGroupsByCanonical = [:]
+        bundleAliasMaps.reset(chromosomes: nil)
         bundleIdentifier = nil
         bundleGenomeTotalLength = nil
         bundlePloidyHint = nil
@@ -1585,12 +1588,13 @@ public final class AnnotationSearchIndex {
     /// Returns chromosome names to try for variant queries in this track.
     /// Includes direct match plus normalized/alias fallbacks.
     private func resolvedChromosomeCandidates(for chromosome: String, trackId: String) -> [String] {
-        Self.resolvedChromosomeCandidates(
+        bundleAliasMaps.prepare()
+        return Self.resolvedChromosomeCandidates(
             for: chromosome,
             trackId: trackId,
             variantTrackChromosomes: variantTrackChromosomes,
-            bundleAliasGroupsByExact: bundleAliasGroupsByExact,
-            bundleAliasGroupsByCanonical: bundleAliasGroupsByCanonical
+            bundleAliasGroupsByExact: bundleAliasMaps.byExactToken,
+            bundleAliasGroupsByCanonical: bundleAliasMaps.byCanonicalToken
         )
     }
 
@@ -1634,10 +1638,11 @@ public final class AnnotationSearchIndex {
 
     /// Returns candidate chromosome names for annotation lookups.
     private func annotationChromosomeCandidates(for chromosome: String) -> [String] {
-        Self.annotationChromosomeCandidates(
+        bundleAliasMaps.prepare()
+        return Self.annotationChromosomeCandidates(
             for: chromosome,
-            bundleAliasGroupsByExact: bundleAliasGroupsByExact,
-            bundleAliasGroupsByCanonical: bundleAliasGroupsByCanonical
+            bundleAliasGroupsByExact: bundleAliasMaps.byExactToken,
+            bundleAliasGroupsByCanonical: bundleAliasMaps.byCanonicalToken
         )
     }
 
@@ -1678,7 +1683,7 @@ public final class AnnotationSearchIndex {
     }
 
     /// Canonical chromosome key used for alias fallback matching.
-    nonisolated private static func canonicalChromosomeName(_ name: String) -> String {
+    nonisolated static func canonicalChromosomeName(_ name: String) -> String {
         var value = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         if value.hasPrefix("chr") {
             value = String(value.dropFirst(3))
@@ -1687,32 +1692,6 @@ public final class AnnotationSearchIndex {
             value = String(value[..<dot])
         }
         return value
-    }
-
-    /// Builds alias lookup maps from bundle chromosome names + aliases.
-    ///
-    /// This enables bi-directional lookup between annotation contig names and VCF contig names
-    /// (e.g. `NC_041760.1` <-> `7`) when the bundle includes these alias mappings.
-    private func rebuildBundleAliasMaps(from bundle: ReferenceBundle) {
-        bundleAliasGroupsByExact = [:]
-        bundleAliasGroupsByCanonical = [:]
-
-        for chromosome in bundle.manifest.genome?.chromosomes ?? [] {
-            var group = Set<String>()
-            group.insert(chromosome.name)
-            group.formUnion(chromosome.aliases)
-
-            // Expand common representation variants for each alias token.
-            let expanded = group.flatMap { aliasExpansions(for: $0) }
-            group.formUnion(expanded)
-
-            for token in group {
-                let lower = token.lowercased()
-                bundleAliasGroupsByExact[lower, default: []].formUnion(group)
-                let canonical = Self.canonicalChromosomeName(token)
-                bundleAliasGroupsByCanonical[canonical, default: []].formUnion(group)
-            }
-        }
     }
 
     /// Reads bundle-level ploidy hint from manifest metadata.
@@ -1731,36 +1710,6 @@ public final class AnnotationSearchIndex {
             }
         }
         return nil
-    }
-
-    /// Generates simple equivalent alias forms:
-    /// - with/without `chr` prefix
-    /// - with/without dotted version suffix
-    private func aliasExpansions(for token: String) -> [String] {
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        var results = Set<String>()
-        results.insert(trimmed)
-
-        let lower = trimmed.lowercased()
-        if lower.hasPrefix("chr") {
-            results.insert(String(trimmed.dropFirst(3)))
-        } else {
-            results.insert("chr\(trimmed)")
-        }
-
-        if let dot = trimmed.firstIndex(of: ".") {
-            let withoutVersion = String(trimmed[..<dot])
-            results.insert(withoutVersion)
-            if withoutVersion.lowercased().hasPrefix("chr") {
-                results.insert(String(withoutVersion.dropFirst(3)))
-            } else {
-                results.insert("chr\(withoutVersion)")
-            }
-        }
-
-        return Array(results)
     }
 }
 
