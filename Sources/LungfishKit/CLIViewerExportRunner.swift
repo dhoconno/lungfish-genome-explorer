@@ -9,7 +9,7 @@ import LungfishWorkflow
 ///
 /// The view keeps its save panel, begins the row with its own `begin<Family><Thing>ExportOperation` helper and hands
 /// this runner the argv that row records, so row and record name one command. The leaf writes the payload and its
-/// record in one `ScientificFileExportProvenance.writeAtomically` transaction, and the app writes no byte after the
+/// record in one `writeAtomically` transaction, and the app writes no byte after the
 /// leaf exits (rule 4). The runner shows the leaf's events on the row through ``OperationCenterCLIBridge``, settles the
 /// row and returns how the run ended. The view shows today's alert through ``ResultExportCoordinator`` for a failure
 /// only, and a cancel reads Cancelled with no alert (UX 4).
