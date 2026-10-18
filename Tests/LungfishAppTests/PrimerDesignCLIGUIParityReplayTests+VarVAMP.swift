@@ -14,16 +14,13 @@ import LungfishKitTestSupport
 
 extension PrimerDesignCLIGUIParityReplayTests {
     func testTheVarVAMPRowWritesWhatTheInProcessRunWroteOnRealVarVAMP() async throws {
-        // The dialog's tiled default. The dialog marks every option it sends as supplied. The command names the mode,
-        // and names no flag for the default bounds (the command's own 90 and 110 percent), for a path that is not set
-        // (the BLAST database and the compatible primers) or for the default cumulative consensus threshold, so those
-        // stay unnamed. Measured with LUNGFISH_PARITY_DUMP in lane 12.16 c4, and the resolved values are equal.
+        // The dialog's tiled default. The in-process dialog marked every option it sent as supplied, and the command
+        // marks only the flags it names, so lane 12.16 c4 measured a residue of five names (the two default bounds, the
+        // BLAST database, the compatible primers and the cumulative consensus threshold). Since lane 12.17 M2 side A
+        // runs the command, so the app's record marks what the command marks and the residue is empty. The resolved
+        // values stay equal.
         try await assertPrimerSchemeParity(
-            .varvamp, engine: .varVAMP, tool: "varvamp",
-            residue: [
-                "common": ["minimumAmpliconLength", "maximumAmpliconLength"],
-                "varvamp": ["blastDatabasePath", "compatiblePrimersPath", "cumulativeConsensusThreshold"],
-            ]
+            .varvamp, engine: .varVAMP, tool: "varvamp", residue: ["common": [], "varvamp": []]
         )
     }
 }

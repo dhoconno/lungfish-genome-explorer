@@ -77,8 +77,57 @@ enum PrimerDesignOperation {
     }
   }
 
-  /// Starts the run and returns its handle. A refused row launches nothing,
-  /// and its handle carries the refused row's ID with a task that has
+  /// The status line of a dialog whose settings have no `lungfish-cli` command. Nothing runs (UX ruling on lane 12.17).
+  static let noCommandMessage =
+    "Lungfish could not build the lungfish-cli command for these settings, so nothing ran. Check the settings and try again."
+  /// The alert text of a run the command refused because a bundle already sat at the destination (UX ruling on R-B1).
+  static let existingDestinationMessage =
+    "An analysis with this name already exists in the project. Run the design again with a different name."
+
+  /// Starts a Primer3, PrimalScheme3 or varVAMP design through `lungfish-cli` and returns its handle (Phase 2.12 lane
+  /// 12.17 M2). `argv` is the dialog's command, ``cliArgv(state:destination:)``, built once. The row records it and
+  /// the runner runs it with `--format json`. The row keeps the in-process route's title, first detail, end detail
+  /// and failure detail, and `onResultSaved` gets the bundle the command published. A refused row launches nothing.
+  static func startThroughCLI(
+    title: String,
+    destination: URL,
+    routeContext: OperationRouteContext?,
+    argv: [String],
+    runner: CLIPrimerDesignRunner = CLIPrimerDesignRunner(),
+    onResultSaved: @escaping @MainActor (URL) -> Void
+  ) -> Handle {
+    let center = OperationCenter.shared
+    var launched: Handle?
+    let result = beginPrimerDesignOperation(
+      title: title, destination: destination, routeContext: routeContext,
+      cliCommand: OperationCenter.buildCLICommand(subcommand: "", args: Array(argv.dropFirst())), reporter: center
+    ) { id in
+      let task = Task { @MainActor in
+        do {
+          let output = try await runner.run(arguments: CLIPrimerDesignRunner.arguments(argv: argv), operationID: id)
+          if center.complete(id: id, detail: "Primer analysis saved.", outputURLs: [output]) {
+            onResultSaved(output)
+          }
+        } catch is CancellationError {
+          center.acknowledgeCancellation(id: id)
+        } catch {
+          let message = CLIPrimerDesignRunner.refusedAnExistingDestination(error, destination: destination)
+            ? existingDestinationMessage : error.localizedDescription
+          _ = center.fail(id: id, detail: "Primer design failed.", errorMessage: message, errorDetail: String(reflecting: error))
+        }
+      }
+      center.setCancelCallback(for: id) { runner.cancel() }
+      launched = Handle(id: id, task: task)
+    }
+    if let launched { return launched }
+    guard case .refused(let refusal) = result else {
+      preconditionFailure("A started primer design row always launches its runner.")
+    }
+    return Handle(id: refusal.id, task: Task {})
+  }
+
+  /// Starts the run in process and returns its handle, the route Olivar keeps until its bundle replay (2.13 row
+  /// A67-OLIVAR). A refused row launches nothing, and its handle carries the refused row's ID with a task that has
   /// already finished.
   static func start(
     center: any OperationReporting = OperationCenter.shared,

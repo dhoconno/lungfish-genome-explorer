@@ -6,10 +6,9 @@
 // 2.9 O5. A case of an engine the primer scheme adapter runs (`olivar` or `varvamp`) runs the class's three sides on the
 // PrimalScheme3 case's alignment and the real engine of the managed environment.
 //
-// - Side A is the request `PrimerDesignDialogPresenter.run` builds from the dialog for Olivar or varVAMP (its visible
-//   options merged with `PrimerSchemeDesignOptions.provenanceOptions` and `PrimerSchemeDesignRequest`) on
-//   `PrimerSchemeDesignPipeline().run(request:)`, the call `PrimerDesignOperation.start` makes. Its invocation records
-//   `CommandLine.arguments` as the presenter does.
+// - Side A is the app's route, the class's `sideA` with the engine named, which runs the dialog's command through
+//   `CLIPrimerDesignRunner` on the staged CLI (lane 12.17 M2). That is varVAMP only, since Olivar stays in process until
+//   its replay (2.13 row A67-OLIVAR). Side A ran the pipeline in process when lane 12.16 proved A against C.
 // - Side C is the row with the command built from the same dialog and the built `lungfish-cli` on its arguments, run
 //   from an app layout staged beside the case (`stagedCLI`), where the CLI finds the bundled adapter.
 // - Side C' is the harness's replay of that command.
@@ -62,7 +61,9 @@ extension PrimerDesignCLIGUIParityReplayTests {
             declared: Self.declared,
             in: physical.appendingPathComponent(parityCase.rawValue, isDirectory: true),
             fixture: { root in try Self.writeAlignmentFixture(root) },
-            sideA: { root in await self.primerSchemeSideA(root, engine: engine) },
+            sideA: { root in
+                await self.sideA(root, engine: engine, input: Self.alignmentName, cli: cli, environment: environment)
+            },
             sideC: { root in await self.sideC(root, harness: harness, engine: engine, input: Self.alignmentName) }
         )
         let command = try XCTUnwrap(result.runs.c.outcome.recordedCommand, "side C records the row's command")
@@ -148,44 +149,6 @@ extension PrimerDesignCLIGUIParityReplayTests {
             let resolvedA = try XCTUnwrap(entries(blockA["resolved"]), "\(section) resolved", file: file, line: line)
             let resolvedC = try XCTUnwrap(entries(blockC["resolved"]), "\(section) resolved", file: file, line: line)
             XCTAssertEqual(resolvedA as NSDictionary, resolvedC as NSDictionary, "\(section) resolved", file: file, line: line)
-        }
-    }
-
-    // MARK: - Side A
-
-    /// Side A. The Olivar or varVAMP request the presenter builds from the dialog (`PrimerDesignDialogPresenter.swift`,
-    /// the visible options of the scheme branch and the `.olivar, .varVAMP` request), on the pipeline
-    /// `PrimerDesignOperation.start` runs.
-    private func primerSchemeSideA(_ root: URL, engine: PrimerDesignEngine) async -> RouteParitySideOutcome {
-        do {
-            let state = await Self.dialog(in: root, engine: engine, input: Self.alignmentName)
-            let destination = try state.validatedDestinationURL(createParent: true)
-            let runtime = ProvenanceRuntimeIdentity()
-            let options = try state.primerSchemeOptions()
-            var visibleOptions: [String: ParameterValue] = [
-                "analysisName": .string(state.analysisName),
-                "engine": .string(state.engine.rawValue),
-                "interface": .string("Lungfish PCR Primer Design"),
-                "projectPath": .string(root.path),
-            ]
-            visibleOptions.merge(options.provenanceOptions) { _, resolved in resolved }
-            visibleOptions["sizingSemantics"] = .string(
-                "full saved-reference span including primer sites; nominal target is not a closeness objective")
-            visibleOptions["poolSemantics"] = .string(
-                state.engine == .varVAMP && state.schemeMode != .tiled
-                    ? "unpooled unless native output assigns a pool" : "native fixed two-pool tiled workflow")
-            let invocation = PrimerAnalysisWrapperInvocation(
-                argv: CommandLine.arguments, callerVersion: runtime.appVersion ?? WorkflowRun.currentAppVersion,
-                explicitOptions: visibleOptions, runtimeIdentity: runtime
-            )
-            let request = PrimerSchemeDesignRequest(
-                inputURLs: state.inputURLs, destinationURL: destination, options: options, invocation: invocation,
-                expectedInputChecksums: state.inputSummaries.mapValues(\.checksumSHA256)
-            )
-            _ = try await PrimerSchemeDesignPipeline().run(request: request)
-            return RouteParitySideOutcome(end: .completed, detail: "Primer analysis saved.")
-        } catch {
-            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
         }
     }
 }

@@ -3,13 +3,14 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane A67 M1 (2) and BIO risk BR13, plan decisions C4 and C5 of 2.10 and G1, 2.9 O5 (live tests first), on
-// lane Q30's harness. The PCR Primer Design dialog runs its engine in process, and its row records the
-// `lungfish-cli primers design <engine>` command that reproduces the run (`PrimerDesignOperation.cliCommand`). One case
-// runs on three sides that start as copies of one project folder, which holds a FASTA of one template, on the real
-// `primer3_core` of the managed environment.
+// lane Q30's harness. The PCR Primer Design dialog builds the `lungfish-cli primers design <engine>` command of its
+// settings (`PrimerDesignOperation.cliArgv`), and since lane 12.17 M2 of 2.12 its row runs that command through
+// `CLIPrimerDesignRunner` for Primer3, PrimalScheme3 and varVAMP. One case runs on three sides that start as copies of
+// one project folder, which holds a FASTA of one template, on the real `primer3_core` of the managed environment.
 //
-// - Side A is the in-process route, the request `PrimerDesignDialogPresenter.run` builds from the dialog (its `:72-147`)
-//   and `Primer3DesignPipeline().run(request:)`, the call `PrimerDesignOperation.start` makes. It has no CLI.
+// - Side A is the app's route, the command `PrimerDesignDialogPresenter.run` builds from the dialog, run by
+//   `PrimerDesignOperation.startThroughCLI` on the runner with the built CLI. A against C passed with nothing declared
+//   while side A ran the pipeline in process (lane 12.16), which is why lane 12.17 M2 deleted that route with no key.
 // - Side C is the row, `PrimerDesignOperation.beginPrimerDesignOperation` with the command built from the same dialog,
 //   and the built `lungfish-cli` run on the arguments of that recorded command.
 // - Side C' is the harness's replay of that command.
@@ -80,11 +81,13 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
             declared: Self.declared,
             in: scratch.appendingPathComponent(Case.primer3.rawValue, isDirectory: true),
             fixture: { root in try Self.writeFixture(root) },
-            sideA: { root in await self.sideA(root) },
+            sideA: { root in await self.sideA(root, cli: self.cli, environment: environment) },
             sideC: { root in await self.sideC(root, harness: harness) }
         )
         let command = try XCTUnwrap(result.runs.c.outcome.recordedCommand, "side C records the row's command")
         XCTAssertTrue(command.hasPrefix("lungfish-cli primers design primer3 "), command)
+        XCTAssertEqual(result.runs.a.outcome.recordedCommand, command, "side A's row records the same command")
+        try Self.assertRecordedArgv(of: result.runs.a, is: RecordedCLICommand.arguments(of: command), cli: cli)
         try Self.assertRecordedArgv(of: result.runs.c, is: RecordedCLICommand.arguments(of: command), cli: cli)
         try Self.assertRecordedArgv(
             of: result.runs.cPrime, is: try XCTUnwrap(result.runs.cPrime.replayedArguments.first), cli: cli
@@ -114,7 +117,7 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
     /// templates) in the order of their random raw names, so two runs of the same design would number them differently.
     /// The project has no `Analyses` folder. The dialog creates it on sides A and C, and the command creates it on the
     /// replay C', which pins A67-ANALYSES (2.12 lane 12.17).
-    private static func writeFixture(_ root: URL) throws {
+    static func writeFixture(_ root: URL) throws {
         let text = ">template-one\n" + wrapped(sequence(seed: 11, length: 600)) + "\n"
         try text.write(to: root.appendingPathComponent("templates.fasta"), atomically: true, encoding: .utf8)
     }
@@ -152,41 +155,29 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
 
     // MARK: - The sides
 
-    /// Side A. The request the presenter builds from the dialog, on the pipeline `PrimerDesignOperation.start` runs.
-    private func sideA(_ root: URL) async -> RouteParitySideOutcome {
+    /// Side A. The app's route, `PrimerDesignDialogPresenter.run` for an engine `lungfish-cli` runs. It builds the
+    /// dialog's command once and starts it with `PrimerDesignOperation.startThroughCLI` on `CLIPrimerDesignRunner` with
+    /// `cli` and the side's `environment`, then reads the row the run ended on.
+    func sideA(
+        _ root: URL, engine: PrimerDesignEngine = .primer3, input: String = "templates.fasta", cli: URL,
+        environment: [String: String]
+    ) async -> RouteParitySideOutcome {
         do {
-            let state = await Self.dialog(in: root)
-            let destination = try state.validatedDestinationURL(createParent: true)
-            let runtime = ProvenanceRuntimeIdentity()
-            let options = try state.primer3Options()
-            let fixed = options.fixedOligos
-            let visibleOptions: [String: ParameterValue] = [
-                "analysisName": .string(state.analysisName),
-                "engine": .string(state.engine.rawValue),
-                "interface": .string("Lungfish PCR Primer Design"),
-                "projectPath": .string(root.path),
-                "assay": .string(state.chemistry.rawValue),
-                "assayMode": .string(state.chemistry.assayMode.rawValue),
-                "assayDefaultsSource": .string("shared Primer3AssayDefaults preset, editable in the dialog"),
-                "fixedLeftPrimer": fixed.leftPrimer.map(ParameterValue.string) ?? .null,
-                "fixedRightPrimer": fixed.rightPrimer.map(ParameterValue.string) ?? .null,
-                "fixedProbe": fixed.probe.map(ParameterValue.string) ?? .null,
-                "forceLeftEnd": fixed.forceLeftEnd.map(ParameterValue.integer) ?? .null,
-                "forceRightEnd": fixed.forceRightEnd.map(ParameterValue.integer) ?? .null,
-                "probeMinTmOffsetOverPrimers": options.probeMinTmOffsetOverPrimers.map(ParameterValue.number) ?? .null,
-            ]
-            let invocation = PrimerAnalysisWrapperInvocation(
-                argv: PrimerDesignOperation.cliArgv(state: state, destination: destination) ?? CommandLine.arguments,
-                callerVersion: runtime.appVersion ?? WorkflowRun.currentAppVersion,
-                explicitOptions: visibleOptions, runtimeIdentity: runtime
+            let state = await Self.dialog(in: root, engine: engine, input: input)
+            let destination = try state.validatedDestinationURL(createParent: false)
+            let argv = try XCTUnwrap(PrimerDesignOperation.cliArgv(state: state, destination: destination), "no command")
+            let handle = PrimerDesignOperation.startThroughCLI(
+                title: "\(state.engine.rawValue) · \(state.analysisName)", destination: destination, routeContext: nil,
+                argv: argv, runner: CLIPrimerDesignRunner(cliURLOverride: cli, environment: environment),
+                onResultSaved: { _ in }
             )
-            let request = Primer3DesignRequest(
-                inputURLs: state.inputURLs, selections: try state.primer3Selections(), destinationURL: destination,
-                options: options, invocation: invocation, executableURL: nil,
-                expectedInputChecksums: state.inputSummaries.mapValues(\.checksumSHA256)
+            await handle.task.value
+            let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == handle.id }, "the row")
+            return RouteParitySideOutcome(
+                end: row.state == .completed ? .completed : (row.state == .cancelled ? .cancelled : .failed),
+                detail: [row.detail, row.errorMessage ?? ""].joined(separator: " "),
+                recordedCommand: row.cliCommand
             )
-            _ = try await Primer3DesignPipeline().run(request: request)
-            return RouteParitySideOutcome(end: .completed, detail: "Primer analysis saved.")
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)")
         }
@@ -234,25 +225,27 @@ extension PrimerDesignCLIGUIParityReplayTests {
 }
 
 extension PrimerDesignCLIGUIParityReplayTests {
-    /// A67-ARGV (2.12 lane 12.17, `CLI-EQUIVALENCE.md` line 16). The in-process run records the row's command as its
-    /// provenance argv, the words Copy CLI Command gives, and not the app's launch arguments. Side A builds its request
-    /// as `PrimerDesignDialogPresenter.run` does, so this reads side A's `provenance/wrapper.json`.
+    /// A67-ARGV (2.12 lane 12.17, `CLI-EQUIVALENCE.md` line 16). The app's run records the row's command as its
+    /// provenance argv, the words Copy CLI Command gives, and not the app's launch arguments. Since M2 the command
+    /// writes the record, names the CLI that ran as the program and leaves out the `--format json` the runner adds.
     func testTheDesignRunRecordsTheRecordedCommandAsItsProvenanceArgv() async throws {
+        let conda = CondaManager.shared
         do {
-            _ = try await CondaManager.shared.toolPath(name: "primer3_core", environment: "primer3")
+            _ = try await conda.toolPath(name: "primer3_core", environment: "primer3")
         } catch {
             try ToolAvailability.skipOrFail("primer3 is not installed in the managed environment: \(error)")
         }
         let root = scratch.appendingPathComponent("argv", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Self.writeFixture(root)
-        let outcome = await sideA(root)
+        let outcome = await sideA(root, cli: cli, environment: ["LUNGFISH_CONDA_ROOT": conda.rootPrefix.path])
         XCTAssertEqual(outcome.end, .completed, outcome.detail)
-        let row = PrimerDesignOperation.cliCommand(state: await Self.dialog(in: root), destination: Self.bundleURL(in: root))
+        let row = try XCTUnwrap(outcome.recordedCommand)
         let wrapper = Self.bundleURL(in: root).appendingPathComponent("provenance/wrapper.json")
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: wrapper)) as? [String: Any])
-        XCTAssertEqual(
-            json["argv"] as? [String], [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row))
-        )
+        let argv = try XCTUnwrap(json["argv"] as? [String])
+        XCTAssertEqual(argv.first.map { URL(fileURLWithPath: $0).lastPathComponent }, cli.lastPathComponent)
+        XCTAssertEqual(Array(argv.dropFirst()), try RecordedCLICommand.arguments(of: row))
+        XCTAssertFalse(argv.contains("--format"), "\(argv)")
     }
 }

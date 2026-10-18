@@ -95,8 +95,8 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
     // MARK: - argv (2.12 lane 12.17, A67-ARGV)
 
     /// The argv a design run records as its provenance is the row's command word for word, so the Provenance tab and
-    /// Copy CLI Command name one command. A dialog with no command has no argv either, and the presenter then keeps
-    /// the app's launch arguments. The live class shows the Primer3 run's record
+    /// Copy CLI Command name one command. A dialog with no command has no argv either, and since lane 12.17 M2 the
+    /// presenter then runs nothing and says so in the dialog. The live class shows the Primer3 run's record
     /// (`PrimerDesignCLIGUIParityReplayTests.testTheDesignRunRecordsTheRecordedCommandAsItsProvenanceArgv`).
     func testTheArgvIsTheRowsCommandWordForWordForEachEngine() throws {
         for engine in [PrimerDesignEngine.primalScheme, .olivar, .varVAMP] {
