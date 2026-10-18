@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting manual haplotype definitions.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 1 manual haplotype assignment to manual-haplotype-definitions.json","output":"\/work\/manual-haplotype-definitions.json","outputs":["\/work\/manual-haplotype-definitions.json"],"progress":1,"schemaVersion":2}

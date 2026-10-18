@@ -39,5 +39,8 @@ SUBCOMMANDS:
                           Filtered matrices.
   export-labkey           Export the genotype bundle's analyst-reviewed results
                           as LabKey-ready CSV files.
+  export-manual-definitions
+                          Write a genotype bundle's manual haplotype
+                          definitions as JSON with provenance
 
   See 'lungfish-cli help genotype <subcommand>' for detailed help.

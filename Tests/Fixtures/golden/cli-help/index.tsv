@@ -291,6 +291,7 @@ lungfish-cli genotype export	shown	0	lungfish-cli.genotype.export.txt
 lungfish-cli genotype export-xlsx	shown	0	lungfish-cli.genotype.export-xlsx.txt
 lungfish-cli genotype export-pivot-xlsx	shown	0	lungfish-cli.genotype.export-pivot-xlsx.txt
 lungfish-cli genotype export-labkey	shown	0	lungfish-cli.genotype.export-labkey.txt
+lungfish-cli genotype export-manual-definitions	shown	0	lungfish-cli.genotype.export-manual-definitions.txt
 lungfish-cli storage	shown	0	lungfish-cli.storage.txt
 lungfish-cli storage info	shown	0	lungfish-cli.storage.info.txt
 lungfish-cli storage dedupe	shown	0	lungfish-cli.storage.dedupe.txt

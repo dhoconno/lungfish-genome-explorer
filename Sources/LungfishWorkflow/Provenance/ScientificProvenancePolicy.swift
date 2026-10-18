@@ -201,6 +201,10 @@ public enum ScientificProvenancePolicy {
         "sequence add-annotation": dataWriting("cli.sequence.add-annotation", writer: "ReferenceBundleManualAnnotationService"),
         "sequence attach-track": dataWriting("cli.sequence.attach-track", writer: "ReferenceBundleAnnotationImportService"),
         "extract sequence": dataWriting("cli.extract.sequence", writer: "SequenceExtractionBundleBuilder"),
+        "genotype export-manual-definitions": dataWriting(
+            "cli.genotype.export-manual-definitions",
+            writer: "ScientificFileExportProvenance"
+        ),
         "variants delete": dataWriting("cli.variants.delete", writer: "VariantDeletionMutationService"),
         "variants import-sample-metadata": dataWriting("cli.variants.import-sample-metadata", writer: "VariantSampleMetadataImportService"),
         "primers analysis annotated-reference": dataWriting("cli.primers.analysis.annotated-reference"),

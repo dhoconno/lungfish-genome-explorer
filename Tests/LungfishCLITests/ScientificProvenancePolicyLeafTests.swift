@@ -375,6 +375,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "genotype apply-annotations": "cli.genotype",
         "genotype export": "cli.genotype",
         "genotype export-labkey": "cli.genotype",
+        "genotype export-manual-definitions": "cli.genotype.export-manual-definitions",
         "genotype export-pivot-xlsx": "cli.genotype",
         "genotype export-xlsx": "cli.genotype",
         "genotype list-cohorts": "cli.genotype",

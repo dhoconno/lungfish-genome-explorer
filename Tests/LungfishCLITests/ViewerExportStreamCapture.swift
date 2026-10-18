@@ -43,6 +43,20 @@ enum ViewerExportStreamCapture {
                 ])
                 return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
             },
+            // The app's manual haplotype definitions Export, one assignment from the selection file (lane 12.35).
+            ImportStreamCapture.Case(leaf: "genotype export-manual-definitions", name: "complete") { scratch in
+                let bundle = scratch.root.appendingPathComponent("manual.lungfishgenotype", isDirectory: true)
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                let output = scratch.root.appendingPathComponent("manual-haplotype-definitions.json")
+                let selection = try GenotypeManualDefinitionsExport.selection(assignments: [
+                    ManualHaplotypeAssignment(sample: "animal-1", locus: "MHC-A", slot: .h1, label: "Mamu-A1*001",
+                                              colorTokenIndex: 1, diagnosticAlleles: ["A1_001"], notes: ""),
+                ]).write(besideOutput: output)
+                let command = try GenotypeExportManualDefinitionsSubcommand.parse([
+                    bundle.path, "--selection", selection.path, "--output", output.path, "--format", "json",
+                ])
+                return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+            },
         ]
     }
 
