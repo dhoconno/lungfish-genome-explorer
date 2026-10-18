@@ -641,9 +641,7 @@ public final class TaxonomyReadExtractionAction {
         case .file(let url):
             destinationKind = "file"
             explicitOptions["outputPath"] = .file(url)
-        case .share:
-            destinationKind = "share"
-        case .bundle, .clipboard:
+        case .bundle, .clipboard, .share:
             return options
         }
 

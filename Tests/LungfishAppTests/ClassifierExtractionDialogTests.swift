@@ -585,7 +585,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         )
     }
 
-    func testFileProvenanceOptions_leavesBundleAndClipboardUnchanged() {
+    func testFileProvenanceOptions_leavesBundleClipboardAndShareUnchanged() {
         let ctx = TaxonomyReadExtractionAction.Context(
             tool: .esviritu,
             resultPath: URL(fileURLWithPath: "/tmp/fake.sqlite"),
@@ -607,9 +607,16 @@ final class ClassifierExtractionDialogTests: XCTestCase {
             context: ctx,
             destination: .clipboard(format: .fastq, cap: 10_000)
         )
+        // A share takes the copy route, whose command writes the record, so the app builds no sidecar.
+        let share = TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+            options,
+            context: ctx,
+            destination: .share(tempDirectory: URL(fileURLWithPath: "/tmp/shares"))
+        )
 
         XCTAssertNil(bundle.fileProvenance)
         XCTAssertNil(clipboard.fileProvenance)
+        XCTAssertNil(share.fileProvenance)
     }
 
     // MARK: - TaskBox cancel contract
