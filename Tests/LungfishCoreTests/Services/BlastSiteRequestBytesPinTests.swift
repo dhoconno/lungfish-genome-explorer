@@ -33,7 +33,9 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
     /// One row per `cli-parity-gap: blast-*` marker, with the parameters of its site at the base.
     static var sites: [Site] {
         let coreNT = BlastDatabaseID.coreNT.rawValue
-        let clade: Set<Int> = [11320, 114727]
+        // TaxTriage judges hits on the organism's own tax ID and keeps no taxonomy tree, so its clade is one ID
+        // (`TaxTriageOrganism.blastTaxonomyContext`, which lane 12.09 pins as the site passes it).
+        let clade: Set<Int> = [11320]
         return [
             // ViewerViewController+NaoMgs.swift, the request after the mixed subsample.
             Site(gapID: "blast-nao-mgs", request: BlastVerificationRequest(
