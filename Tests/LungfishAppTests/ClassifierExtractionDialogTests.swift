@@ -4,6 +4,9 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCLI
+import LungfishKitTestSupport
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @MainActor
@@ -406,9 +409,10 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertTrue(cli.contains("--include-unmapped-mates"), "missing --include-unmapped-mates in: \(cli)")
     }
 
-    /// Clipboard / share destinations are GUI-only and the CLI string should
-    /// flag them as not directly executable.
-    func testBuildCLIString_clipboardDestination_isAnnotatedAsGUIOnly() {
+    /// A clipboard or share extraction runs the command into its scratch file
+    /// (Phase 2.12 lane 12.11), so the string names that file and asks for
+    /// the events the row shows.
+    func testBuildCLIString_clipboardDestination_writesTheScratchFile() throws {
         let ctx = TaxonomyReadExtractionAction.Context(
             tool: .esviritu,
             resultPath: URL(fileURLWithPath: "/tmp/fake.sqlite"),
@@ -417,9 +421,12 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         )
         let options = ExtractionOptions(format: .fastq, includeUnmappedMates: false)
         let dest: ExtractionDestination = .clipboard(format: .fastq, cap: 10_000)
-        let cli = TaxonomyReadExtractionAction.buildCLIString(context: ctx, options: options, destination: dest)
-        XCTAssertTrue(cli.contains("clipboard"), "expected clipboard annotation in: \(cli)")
-        XCTAssertTrue(cli.contains("GUI only"), "expected GUI-only annotation in: \(cli)")
+        let scratch = URL(fileURLWithPath: "/tmp/Project.lungfish/.tmp/classifier-clipboard-x/c.fastq")
+        let cli = TaxonomyReadExtractionAction.buildCLIString(context: ctx, options: options, destination: dest, scratchFile: scratch)
+        XCTAssertFalse(cli.contains("GUI only"), cli)
+        let command = try RecordedCLICommand.parse(cli, as: ExtractReadsSubcommand.self)
+        XCTAssertEqual(command.output, scratch.path)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
 
     func testFileProvenanceOptions_useReplayableClassifierCLIArgv() {

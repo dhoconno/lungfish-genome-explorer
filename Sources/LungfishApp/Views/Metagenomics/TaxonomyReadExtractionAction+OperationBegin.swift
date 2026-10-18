@@ -14,18 +14,16 @@ extension TaxonomyReadExtractionAction {
     /// with the operation ID. Extraction writes a new file or bundle and
     /// locks no existing bundle.
     ///
-    /// `cliCommand` comes from ``rowCLICommand(_:destination:)``. File and
-    /// bundle destinations record the `lungfish-cli extract reads` command
-    /// ``buildCLIString(context:options:destination:)`` builds, which the
-    /// caller also stores as the bundle's provenance command and which
-    /// reproduces the run.
-    ///
-    /// cli-parity-gap: classifier-extract-clipboard-share. Clipboard and share
-    /// destinations have no CLI equivalent, so they record no command.
+    /// `cliCommand` is the `lungfish-cli extract reads` command
+    /// ``buildCLIString(context:options:destination:scratchFile:)`` builds,
+    /// which reproduces the run for every destination. The caller also stores
+    /// it as a bundle's provenance command. A clipboard or share row runs it
+    /// into the scratch file of its ``ClassifierExtractionCopyRoute``, which
+    /// the app then copies (Phase 2.12 lane 12.11).
     @discardableResult
     static func beginExtractionOperation(
         context: Context,
-        cliCommand: String?,
+        cliCommand: String,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -43,19 +41,6 @@ extension TaxonomyReadExtractionAction {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
-    }
-
-    /// The command the extraction row records for `cli`, the string
-    /// ``buildCLIString(context:options:destination:)`` built for
-    /// `destination`. A clipboard or share destination records nil, because
-    /// the CLI writes files and no command reproduces either.
-    static func rowCLICommand(_ cli: String, destination: ExtractionDestination) -> String? {
-        switch destination {
-        case .file, .bundle:
-            return cli
-        case .clipboard, .share:
-            return nil
-        }
     }
 
     /// The folder a `.bundle` extraction writes into, the same folder

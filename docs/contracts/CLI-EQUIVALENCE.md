@@ -40,7 +40,7 @@ The kind of output decides what "same" means. Every comparison applies the masks
 
 | Exception | What the row records |
 |---|---|
-| Clipboard and share destinations | The command that writes the same content to a file. It names `-o` with the suggested file name relative to the working directory, the one place a relative path is allowed, because the clipboard has no path. |
+| Clipboard and share destinations | The command the app runs to write the same content to a scratch file, which the app then copies (2.10 C13). Its `-o` names that file, in a folder of the project's `.tmp` for the clipboard or in a new folder of `<project>/.lungfish/.tmp/shares` for a share, and it asks for `--format json`, so Copy CLI Command replays the extraction. |
 | A row that runs nothing | A row that only reports a failure from before the run started, or a UI-test fixture row, records nil and carries the marker `cli-parity-exempt: not-an-operation`. |
 | An owner ruling | The owner may rule that one operation stays GUI only. Its row records nil and carries `cli-parity-exempt: owner-<date>`, citing the decision. No other reason exempts a row. |
 

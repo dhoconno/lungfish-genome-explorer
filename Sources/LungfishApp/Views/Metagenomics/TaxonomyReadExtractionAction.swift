@@ -263,41 +263,42 @@ public final class TaxonomyReadExtractionAction {
                     includeUnmappedMates: model.includeUnmappedMates
                 )
 
-                // Log the equivalent CLI command so the operations panel row
-                // reproduces what the GUI did.
-                let cli = Self.buildCLIString(context: context, options: dialogOptions, destination: resolvedDestination)
+                // The row records the command that reproduces the run. A clipboard or share
+                // extraction runs that command into a scratch file and copies it (lane 12.11).
+                let copyRoute = try ClassifierExtractionCopyRoute.make(destination: resolvedDestination, context: context, options: dialogOptions)
+                let cli = Self.buildCLIString(context: context, options: dialogOptions, destination: resolvedDestination, scratchFile: copyRoute?.scratchFile)
                 let destination = Self.destination(resolvedDestination, recordingProvenanceCommand: cli, context: context)
-                let options = Self.optionsByRecordingFileProvenance(
-                    dialogOptions,
-                    context: context,
-                    destination: destination
-                )
+                let options = Self.optionsByRecordingFileProvenance(dialogOptions, context: context, destination: destination)
 
-                let started = Self.beginExtractionOperation(context: context, cliCommand: Self.rowCLICommand(cli, destination: resolvedDestination)) { opID in
+                let started = Self.beginExtractionOperation(context: context, cliCommand: cli) { opID in
                     OperationCenter.shared.log(id: opID, level: .info, message: "Extraction started: \(cli)")
 
                     // `Context` is Sendable, so the outer variable
                     // is captured directly by the detached closure — no local copy.
                     let task = Task.detached { [weak self] in
-                        let resolver = resolverFactory()
                         do {
-                            let outcome = try await resolver.resolveAndExtract(
-                                tool: context.tool,
-                                resultPath: context.resultPath,
-                                selections: context.selections,
-                                options: options,
-                                destination: destination,
-                                progress: { fraction, message in
-                                    DispatchQueue.main.async { [weak model] in
-                                        MainActor.assumeIsolated {
-                                            _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                                            OperationCenter.shared.log(id: opID, level: .info, message: message)
-                                            model?.progressFraction = fraction
-                                            model?.progressMessage = message
+                            let outcome: ExtractionOutcome
+                            if let copyRoute {
+                                outcome = try await copyRoute.run(operationID: opID)
+                            } else {
+                                outcome = try await resolverFactory().resolveAndExtract(
+                                    tool: context.tool,
+                                    resultPath: context.resultPath,
+                                    selections: context.selections,
+                                    options: options,
+                                    destination: destination,
+                                    progress: { fraction, message in
+                                        DispatchQueue.main.async { [weak model] in
+                                            MainActor.assumeIsolated {
+                                                _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                                OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                                model?.progressFraction = fraction
+                                                model?.progressMessage = message
+                                            }
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                             DispatchQueue.main.async { [weak self] in
                                 MainActor.assumeIsolated {
                                     guard OperationCenter.shared.complete(id: opID, detail: "Extracted \(outcome.readCount) reads") else { return }
@@ -364,6 +365,7 @@ public final class TaxonomyReadExtractionAction {
                     OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
                 }
                 if case .refused(let refusal) = started { // Nothing launched. Return the dialog to idle.
+                    if let copyRoute { try? FileManager.default.removeItem(at: copyRoute.scratchDirectory) }
                     model.isRunning = false
                     model.errorMessage = refusal.message
                 }
@@ -533,11 +535,27 @@ public final class TaxonomyReadExtractionAction {
     /// `--bundle-name` explicitly yourself.
     ///
     /// A `.bundle` destination's `-o` names a file in ``bundleOutputDirectory(projectRoot:)``, where the app writes the bundle.
+    /// A clipboard or share destination's `-o` names `scratchFile`, the file ``ClassifierExtractionCopyRoute`` copies.
     static func buildCLIString(
         context: Context,
         options: ExtractionOptions,
-        destination: ExtractionDestination
+        destination: ExtractionDestination,
+        scratchFile: URL? = nil
     ) -> String {
+        OperationCenter.buildCLICommand(
+            subcommand: "extract reads",
+            args: cliArguments(context: context, options: options, destination: destination, scratchFile: scratchFile)
+        )
+    }
+
+    /// The arguments after `lungfish-cli extract reads` of ``buildCLIString(context:options:destination:scratchFile:)``.
+    /// A clipboard or share route runs them, and `--format json` gives its row the command's events (lane 12.11).
+    static func cliArguments(
+        context: Context,
+        options: ExtractionOptions,
+        destination: ExtractionDestination,
+        scratchFile: URL?
+    ) -> [String] {
         var args: [String] = [
             "--by-classifier",
             "--tool", context.tool.rawValue,
@@ -575,10 +593,11 @@ public final class TaxonomyReadExtractionAction {
             args.append("-o")
             args.append(bundleOutputDirectory(projectRoot: projectRoot).appendingPathComponent("\(name).\(options.format.rawValue)").path)
         case .clipboard, .share:
-            // Not CLI-expressible; leave the -o off and annotate.
-            args.append("# (\(destinationLabel(destination)) — GUI only)")
+            // The command writes the scratch file the route copies to the pasteboard or shares.
+            if let scratchFile { args += ["-o", scratchFile.path] }
+            args += ["--format", "json"]
         }
-        return OperationCenter.buildCLICommand(subcommand: "extract reads", args: args)
+        return args
     }
 
     private static func destination(
@@ -730,15 +749,6 @@ public final class TaxonomyReadExtractionAction {
         return SHA256.hash(data: Data(payload.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
-    }
-
-    private static func destinationLabel(_ destination: ExtractionDestination) -> String {
-        switch destination {
-        case .file:      return "file"
-        case .bundle:    return "bundle"
-        case .clipboard: return "clipboard"
-        case .share:     return "share"
-        }
     }
 
     // MARK: - Test-only seams

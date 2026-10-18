@@ -6,15 +6,17 @@
 // fixture, goes to each destination of the extraction sheet through `ClassifierReadResolver`, and
 // the row that destination registers is read back. The file and bundle destinations write the
 // selection's reads as plain FASTQ and record a runnable `lungfish-cli extract reads` command. The
-// clipboard destination hands the same bytes to the pasteboard as one string, refuses a selection
-// over its cap and records no command. The share destination writes the same bytes into a folder
-// of the project's scratch and records no command. The clipboard and share rows are the parity gap
-// `classifier-extract-clipboard-share` until lane A66 M3.
+// clipboard destination hands the same bytes to the pasteboard as one string and refuses a selection
+// over its cap. The share destination writes the same bytes into a folder of the project's scratch.
+// Since Phase 2.12 lane 12.11 the clipboard and share rows record the `lungfish-cli extract reads`
+// command that writes the selection into the scratch file the app copies. The resolver calls here
+// are the in-process engine those rows ran before, the side A of the lane's parity class.
 
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
@@ -65,19 +67,36 @@ final class TaxonomyExtractionDestinationPinTests: XCTestCase {
         )
     }
 
-    /// The row the sheet registers for `destination`, with the command string it built.
+    /// The row the sheet registers for `destination`, with the scratch file of its copy route, which a
+    /// clipboard or share destination has (Phase 2.12 lane 12.11).
     private func recordedRow(
         _ destination: ExtractionDestination
-    ) throws -> (item: RecordingOperationReporter.Item, built: String) {
+    ) throws -> (item: RecordingOperationReporter.Item, scratchFile: URL?) {
         let reporter = RecordingOperationReporter()
         let options = ExtractionOptions(format: .fastq)
-        let built = TaxonomyReadExtractionAction.buildCLIString(context: context(), options: options, destination: destination)
-        TaxonomyReadExtractionAction.beginExtractionOperation(
-            context: context(),
-            cliCommand: TaxonomyReadExtractionAction.rowCLICommand(built, destination: destination),
-            reporter: reporter
-        ) { _ in }
-        return (try XCTUnwrap(reporter.items.first), built)
+        let route = try ClassifierExtractionCopyRoute.make(destination: destination, context: context(), options: options)
+        let built = TaxonomyReadExtractionAction.buildCLIString(
+            context: context(), options: options, destination: destination, scratchFile: route?.scratchFile
+        )
+        TaxonomyReadExtractionAction.beginExtractionOperation(context: context(), cliCommand: built, reporter: reporter) { _ in }
+        return (try XCTUnwrap(reporter.items.first), route?.scratchFile)
+    }
+
+    /// The clipboard or share row's command: the selection's `extract reads` into the route's scratch file,
+    /// with the events the row shows.
+    private func assertTheRowRunsTheCommandIntoItsScratchFile(
+        _ destination: ExtractionDestination, under folder: URL, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let (item, scratchFile) = try recordedRow(destination)
+        let scratch = try XCTUnwrap(scratchFile, "a clipboard or share row has a scratch file", file: file, line: line)
+        XCTAssertTrue(scratch.resolvingSymlinksInPath().path.hasPrefix(folder.resolvingSymlinksInPath().path + "/"), scratch.path, file: file, line: line)
+        let command = try RecordedCLICommand.parse(item.cliCommand, as: ExtractReadsSubcommand.self)
+        XCTAssertTrue(command.byClassifier, file: file, line: line)
+        XCTAssertEqual(command.classifierTaxonsRaw, ["20"], file: file, line: line)
+        XCTAssertEqual(command.classifierFormat, "fastq", file: file, line: line)
+        XCTAssertEqual(command.output, scratch.path, file: file, line: line)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json, file: file, line: line)
+        try? FileManager.default.removeItem(at: scratch.deletingLastPathComponent())
     }
 
     private func text(of url: URL) throws -> String {
@@ -138,7 +157,7 @@ final class TaxonomyExtractionDestinationPinTests: XCTestCase {
 
     // MARK: - Clipboard
 
-    func testTheClipboardDestinationHandsTheSameBytesToThePasteboardAndRecordsNoCommand() async throws {
+    func testTheClipboardDestinationHandsTheSameBytesToThePasteboardAndRecordsItsCommand() async throws {
         let destination = ExtractionDestination.clipboard(format: .fastq, cap: TaxonomyReadExtractionAction.clipboardReadCap)
 
         guard case .clipboard(let payload, let byteCount, let count) = try await extract(destination) else {
@@ -151,10 +170,8 @@ final class TaxonomyExtractionDestinationPinTests: XCTestCase {
         XCTAssertEqual(payload.split(separator: "\n").count, 4 * count, "four lines a read")
         XCTAssertEqual(TaxonomyReadExtractionAction.clipboardReadCap, 10_000)
 
-        let (item, built) = try recordedRow(destination)
-        XCTAssertNil(item.cliCommand, "CLI parity gap classifier-extract-clipboard-share")
-        // The sheet's command string ends in the note as one quoted word, which no shell command parses.
-        XCTAssertTrue(built.hasSuffix(" '# (clipboard \u{2014} GUI only)'"), built)
+        // The row records the command that writes the selection into a scratch folder of the project's .tmp.
+        try assertTheRowRunsTheCommandIntoItsScratchFile(destination, under: ProjectTempDirectory.tempRoot(for: fixtures.projectURL))
     }
 
     func testTheClipboardCapIsInclusiveAndARefusalNamesTheSelectionAndTheCap() async throws {
@@ -186,7 +203,7 @@ final class TaxonomyExtractionDestinationPinTests: XCTestCase {
 
     // MARK: - Share
 
-    func testTheShareDestinationWritesTheSameBytesBelowTheScratchFolderAndRecordsNoCommand() async throws {
+    func testTheShareDestinationWritesTheSameBytesBelowTheScratchFolderAndRecordsItsCommand() async throws {
         let scratch = fixtures.projectURL.appendingPathComponent(".lungfish/.tmp", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let destination = ExtractionDestination.share(tempDirectory: scratch)
@@ -196,8 +213,7 @@ final class TaxonomyExtractionDestinationPinTests: XCTestCase {
         XCTAssertTrue(url.standardizedFileURL.path.hasPrefix(scratch.standardizedFileURL.path + "/shares/"), url.path)
         XCTAssertEqual(try text(of: url), Self.expectedFASTQ)
 
-        let (item, built) = try recordedRow(destination)
-        XCTAssertNil(item.cliCommand, "CLI parity gap classifier-extract-clipboard-share")
-        XCTAssertTrue(built.hasSuffix(" '# (share \u{2014} GUI only)'"), built)
+        // The row records the command that writes the selection into a new folder below the share root.
+        try assertTheRowRunsTheCommandIntoItsScratchFile(destination, under: scratch.appendingPathComponent("shares", isDirectory: true))
     }
 }
