@@ -19,11 +19,12 @@
 // answer 2). Side A passes it to the copier and sides C and C' get it in `LUNGFISH_TEST_COPIED_AT`, which only
 // a debug build of the command reads.
 //
-// A against C declares the entries of the BIO ruling on `caller` (answer 2) for the read bundle and of the BIO
-// ruling on F4 (section 2) for the reference bundle, each with `<ANY>`. Side A's records name the command
-// that copied the item in the app, `lungfish fastq import-ont` with `caller` `app-cross-project-copy` or
-// `Lungfish.app import-native` with no `caller`, and side C's name `lungfish project copy-item` with `caller`
-// `cli`. C against C' declares nothing. The class also checks that the stage under T's `.tmp` is gone.
+// A against C declares the entries of the BIO ruling on `caller` (answer 2) for the read bundle, of the BIO
+// ruling on F4 (section 2) for the reference bundle and of the BIO ruling on T5 for both, each with `<ANY>`.
+// Side A's records name the command that copied the item in the app, `lungfish fastq import-ont` with
+// `caller` `app-cross-project-copy` or `Lungfish.app import-native` with no `caller`, and side C's name
+// `lungfish project copy-item` with `caller` `cli`. C against C' declares nothing. The class also checks that
+// the stage under T's `.tmp` is gone.
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the integration tier.
 
@@ -57,15 +58,17 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
     /// BIO ruling on F4 (section 2) for the reference bundle. Each matches the bundle's envelope and the two
     /// copies of it under `provenance/`, three files a case. Lane 13.03 deletes side A, the key and every entry.
     ///
-    /// Red at c3 (`SCR/lanes/12.18/12.18-c3.md`, T5). The case also differs, 72 times for the read bundle and 90
-    /// times for the reference bundle, in `options.explicit`, the rest of `options.resolvedDefaults`,
-    /// `reproducibleCommand` and its step's, and for the reference bundle `options.defaults`, `tool.name` and the
-    /// step's `resolvedOptions`, which neither ruling names. They wait for BIO's ruling and are not declared here.
+    /// A against C also declares the entries of the BIO ruling on T5 (`SCR/rulings/BIO-12.18-T5.md`): each command's
+    /// option names, `reproducibleCommand` and its step's, and for the reference bundle `options.defaults`,
+    /// `tool.name` and the step's `resolvedOptions`, which differ because side A records another command. Each key
+    /// ends in `.<ANY>` so that no two entries match one id.
     static let declared: [RouteParityDeclaredDifference<Case>] = {
         let readFiles = "differs: T.lungfish/Imports/R.lungfishfastq/<ANY>provenance.json at "
         let referenceFiles = "differs: T.lungfish/Reference Sequences/NC_045512.lungfishref/<ANY>provenance.json at "
         let command = "Side A records the command that copied the item in the app, side C `lungfish project copy-item`"
         let closedBy = "13.03 (DEL-REST) deletes side A and the key"
+        let readOptions = "Side A names `fastq import-ont`'s options, side C the leaf's (BIO T5)"
+        let referenceOptions = "Side A names `Lungfish.app import-native`'s options, side C the leaf's (BIO T5)"
         let read: [(String, Int, String)] = [
             ("argv[<ANY>]", 21, command), ("durableReplayArgv[<ANY>]", 21, command),
             ("workflowName", 3, command), ("toolName", 3, command), ("tool.name", 3, command),
@@ -73,6 +76,16 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
             ("steps[<ANY>].toolName", 3, command),
             ("options.resolvedDefaults.caller<ANY>", 3, "Side A `app-cross-project-copy`, side C `cli` (BIO-caller 1 and 2)"),
             ("options.defaults<ANY>", 15, "Side A `fastq import-ont`'s defaults, side C the leaf's real defaults (BIO 3)"),
+            ("options.explicit.input.<ANY>", 6, readOptions), ("options.explicit.output.<ANY>", 6, readOptions),
+            ("options.explicit.item.<ANY>", 6, readOptions), ("options.explicit.project.<ANY>", 6, readOptions),
+            ("options.explicit.sourceProject.<ANY>", 6, readOptions),
+            ("options.resolvedDefaults.input.<ANY>", 6, readOptions),
+            ("options.resolvedDefaults.output.<ANY>", 6, readOptions),
+            ("options.resolvedDefaults.destinationBundle.<ANY>", 6, readOptions),
+            ("options.resolvedDefaults.destination.<ANY>", 6, readOptions),
+            ("options.resolvedDefaults.item.<ANY>", 6, readOptions),
+            ("options.resolvedDefaults.project.<ANY>", 6, readOptions),
+            ("reproducibleCommand", 3, command), ("steps[<ANY>].reproducibleCommand", 3, command),
         ]
         let reference: [(String, Int, String)] = [
             ("argv[<ANY>]", 24, command), ("durableReplayArgv[<ANY>]", 24, command),
@@ -80,6 +93,21 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
             ("steps[<ANY>].argv[<ANY>]", 24, command), ("steps[<ANY>].durableReplayArgv[<ANY>]", 24, command),
             ("steps[<ANY>].toolName", 3, command),
             ("options.resolvedDefaults.caller<ANY>", 6, "Side A writes no `caller`, side C `cli` (F4 section 2)"),
+            ("tool.name", 3, command),
+            ("options.defaults<ANY>", 9,
+             "Side A `import-native`'s default `replaceExisting`, side C the leaf's real defaults, none (BIO 3, BIO T5)"),
+            ("options.explicit.source.<ANY>", 6, referenceOptions),
+            ("options.explicit.destination.<ANY>", 6, referenceOptions),
+            ("options.explicit.item.<ANY>", 6, referenceOptions), ("options.explicit.project.<ANY>", 6, referenceOptions),
+            ("options.explicit.sourceProject.<ANY>", 6, referenceOptions),
+            ("options.resolvedDefaults.source.<ANY>", 6, referenceOptions),
+            ("options.resolvedDefaults.item.<ANY>", 6, referenceOptions),
+            ("options.resolvedDefaults.project.<ANY>", 6, referenceOptions),
+            ("steps[<ANY>].resolvedOptions.caller.<ANY>", 6, "Side A writes no `caller`, side C `cli` (F4 section 2, BIO T5)"),
+            ("steps[<ANY>].resolvedOptions.source.<ANY>", 6, referenceOptions),
+            ("steps[<ANY>].resolvedOptions.item.<ANY>", 6, referenceOptions),
+            ("steps[<ANY>].resolvedOptions.project.<ANY>", 6, referenceOptions),
+            ("reproducibleCommand", 3, command), ("steps[<ANY>].reproducibleCommand", 3, command),
         ]
         return read.map { RouteParityDeclaredDifference([.readBundle: $0.1], readFiles + $0.0, reason: $0.2, closedBy: closedBy) }
             + reference.map {
@@ -151,7 +179,9 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
             XCTAssertEqual(stages, [], "side \(run.side): the stage is removed", file: file, line: line)
             let copy = Self.target(run.root).appendingPathComponent(parityCase.relativePath, isDirectory: true)
             let record = ProjectItemCopyRecord.load(from: copy)
-            XCTAssertEqual(record?.copiedAt, Self.clock, "side \(run.side): the copy is published with its record", file: file, line: line)
+            let clockMessage = "side \(run.side): the copy is published with its record, which names the class clock "
+                + "(a release lungfish-cli ignores \(ProjectCopyItemSubcommand.copiedAtVariable))"
+            XCTAssertEqual(record?.copiedAt, Self.clock, clockMessage, file: file, line: line)
         }
     }
 
