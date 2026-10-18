@@ -10,6 +10,9 @@ public enum ScientificFileExportProvenance {
     public struct Request {
         public let workflowName: String
         public let toolName: String
+        /// The tool's kind in the record, `gui` for an export the app writes in process and `cli` for a
+        /// `lungfish-cli` leaf (``cliLeaf(workflowName:sourceURLs:outputURL:outputFormat:argv:explicitOptions:defaults:resolved:runClock:)``).
+        public let toolKind: String
         public let sourceURLs: [URL]
         public let outputURL: URL
         public let outputFormat: FileFormat
@@ -41,6 +44,7 @@ public enum ScientificFileExportProvenance {
             self.init(
                 workflowName: workflowName,
                 toolName: toolName,
+                toolKind: "gui",
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
                 outputFormat: outputFormat,
@@ -73,6 +77,7 @@ public enum ScientificFileExportProvenance {
             self.init(
                 workflowName: workflowName,
                 toolName: toolName,
+                toolKind: "gui",
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
                 outputFormat: outputFormat,
@@ -87,9 +92,42 @@ public enum ScientificFileExportProvenance {
             )
         }
 
+        /// The request of a `lungfish-cli` leaf that writes a viewer export (Phase 2.12, ARCH ruling X-3 and 1.4).
+        /// The record names the tool ``CLICommandIdentity/executableName`` with kind `cli`, and its durable replay
+        /// argv is the leaf's own canonical `argv`, which starts with the executable name.
+        public static func cliLeaf(
+            workflowName: String,
+            sourceURLs: [URL],
+            outputURL: URL,
+            outputFormat: FileFormat,
+            argv: [String],
+            explicitOptions: [String: ParameterValue] = [:],
+            defaults: [String: ParameterValue] = [:],
+            resolved: [String: ParameterValue] = [:],
+            runClock: ProvenanceRunClock
+        ) -> Request {
+            Request(
+                workflowName: workflowName,
+                toolName: CLICommandIdentity.executableName,
+                toolKind: "cli",
+                sourceURLs: sourceURLs,
+                outputURL: outputURL,
+                outputFormat: outputFormat,
+                argv: argv,
+                durableReplayArgv: nil,
+                explicitOptions: explicitOptions,
+                defaults: defaults,
+                resolved: resolved,
+                startedAt: runClock.startedAt,
+                completedAt: runClock.now,
+                runClock: runClock
+            )
+        }
+
         private init(
             workflowName: String,
             toolName: String,
+            toolKind: String,
             sourceURLs: [URL],
             outputURL: URL,
             outputFormat: FileFormat,
@@ -104,6 +142,7 @@ public enum ScientificFileExportProvenance {
         ) {
             self.workflowName = workflowName
             self.toolName = toolName
+            self.toolKind = toolKind
             self.sourceURLs = sourceURLs
             self.outputURL = outputURL
             self.outputFormat = outputFormat
@@ -127,6 +166,7 @@ public enum ScientificFileExportProvenance {
             Request(
                 workflowName: workflowName,
                 toolName: toolName,
+                toolKind: toolKind,
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
                 outputFormat: outputFormat,
@@ -148,6 +188,7 @@ public enum ScientificFileExportProvenance {
             return Request(
                 workflowName: workflowName,
                 toolName: toolName,
+                toolKind: toolKind,
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
                 outputFormat: outputFormat,
@@ -269,7 +310,7 @@ public enum ScientificFileExportProvenance {
             workflowVersion: toolVersion,
             toolName: request.toolName,
             toolVersion: toolVersion,
-            tool: ProvenanceToolIdentity(name: request.toolName, version: toolVersion, kind: "gui"),
+            tool: ProvenanceToolIdentity(name: request.toolName, version: toolVersion, kind: request.toolKind),
             argv: request.argv,
             durableReplayArgv: request.durableReplayArgv ?? request.argv,
             options: ProvenanceOptions(
