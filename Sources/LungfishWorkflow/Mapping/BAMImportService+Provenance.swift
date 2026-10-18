@@ -166,16 +166,13 @@ extension BAMImportService {
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
     }
 
+    /// The command a record names when the caller passes none, the `import bam` leaf that attaches the same file to
+    /// the same bundle (Phase 2.12 lane 12.06, BIO 4). Records written before 2.12 name the app's retired
+    /// `--bam-import-helper` re-launch instead. They keep it as history, and the export plan does not replay it.
+    /// A caller that imports into a staging bundle has the staged path remapped at publication, as the mapping
+    /// viewer does (`MappingViewerBundlePublicationService.remappedEnvelope`).
     private static func importProvenanceArgv(bamURL: URL, bundleURL: URL, name: String?) -> [String] {
-        let executableName = URL(fileURLWithPath: ProvenanceRuntimeIdentity.currentExecutablePath).lastPathComponent
-        var argv = [
-            executableName,
-            "--bam-import-helper",
-            "--bam-path",
-            bamURL.path,
-            "--bundle-path",
-            bundleURL.path,
-        ]
+        var argv = [CLICommandIdentity.executableName, "import", "bam", bamURL.path, "--output-dir", bundleURL.path]
         if let name {
             argv += ["--name", name]
         }

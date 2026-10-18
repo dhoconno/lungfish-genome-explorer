@@ -238,7 +238,7 @@ struct ProvenanceExportPlan {
                     )
                 }
                 command = Command(argv: normalized, stdoutPath: nil)
-                kind = Self.isInternal(step) ? .inApp : (Self.isCLI(normalized) ? .wrapper : .tool)
+                kind = Self.isInternal(step) || Self.namesRetiredHelper(argv) ? .inApp : (Self.isCLI(normalized) ? .wrapper : .tool)
             } else {
                 command = Command(argv: step.durableReplayArgv ?? step.command, stdoutPath: nil)
                 kind = .inApp
@@ -498,6 +498,15 @@ struct ProvenanceExportPlan {
 
     static func isInternal(_ step: StepExecution) -> Bool {
         (step.durableReplayArgv ?? step.command).first == "lungfish-internal"
+    }
+
+    /// The re-launch flag of the app's retired BAM import helper. Records written before Phase 2.12 name it after the
+    /// app's executable, and the app stops offering it in 2.12 (lane 12.06), so such a step is history, which the plan
+    /// names and does not replay (BIO 4). New records name `lungfish-cli import bam`.
+    static let retiredHelperFlags: Set<String> = ["--bam-import-helper"]
+
+    static func namesRetiredHelper(_ argv: [String]) -> Bool {
+        argv.count >= 2 && retiredHelperFlags.contains(argv[1])
     }
 
     static func isCLI(_ argv: [String]) -> Bool {

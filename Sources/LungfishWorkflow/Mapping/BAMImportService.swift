@@ -76,7 +76,7 @@ public final class BAMImportService: @unchecked Sendable {
         name: String? = nil,
         materialization: SourceMaterialization = .sortAndIndex,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil,
-        provenanceCommand: [String]? = nil  // the argv the record names, nil keeps the helper's
+        provenanceCommand: [String]? = nil  // the argv the record names, nil names the `import bam` leaf
     ) async throws -> ImportResult {
         let runClock = ProvenanceRunClock()
         let fileName = bamURL.lastPathComponent

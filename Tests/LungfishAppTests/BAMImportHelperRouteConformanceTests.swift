@@ -6,7 +6,8 @@
 // `--bam-import-helper` mode (`BAMImportHelper`), which calls `BAMImportService.importBAM` with the file's
 // name and the default `sortAndIndex` materialization. These cases run that call on the real samtools and
 // pin what the route to `import bam` must keep or declare as differences: the track the bundle's manifest
-// gains, the files it writes, and the record, whose command names the helper flag unless the caller passes
+// gains, the files it writes, and the record, whose command names the `import bam` leaf since 2.12 lane 12.06 (the
+// helper flag before) unless the caller passes
 // the command the record names (`provenanceCommand`). `import bam` passes its own command, which
 // `BAMImportCLIGUIParityReplayTests` declares. The class needs the real samtools, so its name ends in
 // Conformance and it never runs in the unit tier.
@@ -30,7 +31,7 @@ final class BAMImportHelperRouteConformanceTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testTheHelperImportAttachesOneTrackNamedForTheFileAndRecordsTheHelperCommand() async throws {
+    func testTheHelperImportAttachesOneTrackNamedForTheFileAndRecordsTheImportBamCommand() async throws {
         let imported = try await importFixture(provenanceCommand: nil)
         let result = imported.result
         let bundleURL = imported.bundleURL
@@ -52,13 +53,15 @@ final class BAMImportHelperRouteConformanceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: trackBAM.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: trackBAI.path))
 
-        // The record. Its command is the helper's, which `lungfish-cli` cannot run.
+        // The record. Since 2.12 lane 12.06 a call that passes no command records the `import bam` leaf, which
+        // `lungfish-cli` runs, where it named the helper flag before.
         let record = try recordedImport(in: bundleURL)
         XCTAssertTrue(record.completed)
         XCTAssertTrue(
-            record.commands.contains { $0.contains("--bam-import-helper") && $0.contains("--bam-path") && $0.contains("--bundle-path") },
-            "the record names the helper flag: \(record.commands)"
+            record.commands.contains { $0.contains("import") && $0.contains("bam") && $0.contains("--output-dir") },
+            "the record names the import bam leaf: \(record.commands)"
         )
+        XCTAssertFalse(record.commands.contains { $0.contains("--bam-import-helper") }, "\(record.commands)")
         XCTAssertTrue(
             record.commands.contains { $0.contains("--name") && $0.contains(fileName) },
             "and the track name the helper was given: \(record.commands)"

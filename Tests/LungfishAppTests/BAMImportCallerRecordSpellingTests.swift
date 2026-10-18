@@ -6,9 +6,10 @@
 // pass no `provenanceCommand`. They are the workflow operation's importer (`DefaultWorkflowOperationBAMImporter`),
 // the Viral Recon viewer publication (`ViralReconViewerPublication.publish`, name `Viral Recon Alignment`) and
 // the mapping viewer layout (`MappingResultLayoutService`, which adopts the mapper's sorted, indexed BAM).
-// Their records name `<executable> --bam-import-helper --bam-path <bam> --bundle-path <bundle> --name <name>`,
-// the spelling of the helper flag that the lane deletes. These pins hold that spelling at the lane base,
-// and the step that gives new records a runnable command flips them.
+// Their records named `<executable> --bam-import-helper --bam-path <bam> --bundle-path <bundle> --name <name>`,
+// the spelling of the helper flag that the lane deletes, and these cases pinned it at the lane base. Since M2
+// a record whose caller passes no command names the runnable `lungfish-cli import bam <bam> --output-dir
+// <bundle> --name <name>` (`importProvenanceArgv`), and no stored record is rewritten.
 //
 // They run the managed samtools and skip without it.
 
@@ -33,7 +34,7 @@ final class BAMImportCallerRecordSpellingTests: XCTestCase {
         }
     }
 
-    func testTheWorkflowOperationImporterRecordsTheHelperSpelling() async throws {
+    func testTheWorkflowOperationImporterRecordsTheImportBamCommand() async throws {
         let (bam, bundle) = try await fixture(withIndex: false)
         try await DefaultWorkflowOperationBAMImporter().importBAM(
             bamURL: bam,
@@ -41,18 +42,18 @@ final class BAMImportCallerRecordSpellingTests: XCTestCase {
             name: "Workflow Track",
             progressHandler: nil
         )
-        try assertHelperSpelling(in: bundle, name: "Workflow Track")
+        try assertImportBamCommand(in: bundle, bam: bam, name: "Workflow Track")
     }
 
     /// The arguments `ViralReconViewerPublication.publish` passes.
-    func testTheViralReconPublicationArgumentsRecordTheHelperSpelling() async throws {
+    func testTheViralReconPublicationArgumentsRecordTheImportBamCommand() async throws {
         let (bam, bundle) = try await fixture(withIndex: false)
         _ = try await BAMImportService.importBAM(bamURL: bam, bundleURL: bundle, name: "Viral Recon Alignment")
-        try assertHelperSpelling(in: bundle, name: "Viral Recon Alignment")
+        try assertImportBamCommand(in: bundle, bam: bam, name: "Viral Recon Alignment")
     }
 
     /// The arguments `MappingResultLayoutService` passes, which clone the mapper's BAM and index.
-    func testTheMappingLayoutArgumentsRecordTheHelperSpelling() async throws {
+    func testTheMappingLayoutArgumentsRecordTheImportBamCommand() async throws {
         let (bam, bundle) = try await fixture(withIndex: true)
         _ = try await BAMImportService.importBAM(
             bamURL: bam,
@@ -60,7 +61,7 @@ final class BAMImportCallerRecordSpellingTests: XCTestCase {
             name: "Mapped Reads",
             materialization: .adoptCoordinateSorted
         )
-        try assertHelperSpelling(in: bundle, name: "Mapped Reads")
+        try assertImportBamCommand(in: bundle, bam: bam, name: "Mapped Reads")
     }
 
     // MARK: - Fixture and record
@@ -93,17 +94,21 @@ final class BAMImportCallerRecordSpellingTests: XCTestCase {
         return (bam, bundle)
     }
 
-    /// The one import record in the bundle names the helper flag after the executable, then the two paths
-    /// and the track name.
-    private func assertHelperSpelling(in bundle: URL, name: String, file: StaticString = #filePath, line: UInt = #line) throws {
+    /// The one import record in the bundle names `lungfish-cli import bam` with the BAM, the bundle as the output
+    /// folder and the track name, a command the CLI runs, and no helper flag.
+    private func assertImportBamCommand(in bundle: URL, bam: URL, name: String, file: StaticString = #filePath, line: UInt = #line) throws {
         let sidecars = try FileManager.default.subpathsOfDirectory(atPath: bundle.path)
             .filter { $0.hasSuffix(".json") && $0.lowercased().contains("provenance") }
         XCTAssertEqual(sidecars.count, 1, "one import record: \(sidecars)", file: file, line: line)
         let sidecar = bundle.appendingPathComponent(try XCTUnwrap(sidecars.first, file: file, line: line))
         let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar), sidecarURL: sidecar)
         let argv = envelope.argv
-        XCTAssertEqual(argv.dropFirst().first, "--bam-import-helper", "\(argv)", file: file, line: line)
-        XCTAssertEqual(argv.filter { $0.hasPrefix("--") }, ["--bam-import-helper", "--bam-path", "--bundle-path", "--name"], "\(argv)", file: file, line: line)
+        XCTAssertEqual(Array(argv.prefix(3)), [CLICommandIdentity.executableName, "import", "bam"], "\(argv)", file: file, line: line)
+        XCTAssertEqual(argv.filter { $0.hasPrefix("--") }, ["--output-dir", "--name"], "\(argv)", file: file, line: line)
+        XCTAssertEqual(argv.count, 8, "\(argv)", file: file, line: line)
+        guard argv.count == 8 else { return }
+        XCTAssertEqual(URL(fileURLWithPath: argv[3]).resolvingSymlinksInPath(), bam.resolvingSymlinksInPath(), file: file, line: line)
+        XCTAssertEqual(URL(fileURLWithPath: argv[5]).resolvingSymlinksInPath(), bundle.resolvingSymlinksInPath(), file: file, line: line)
         XCTAssertEqual(argv.last, name, "\(argv)", file: file, line: line)
     }
 }
