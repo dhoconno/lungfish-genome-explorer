@@ -113,33 +113,11 @@ extension AnnotationTableDrawerView {
 
     // MARK: - Bookmark Export
 
-    /// Exports bookmarked variants to TSV.
+    /// Exports bookmarked variants to TSV through `lungfish-cli variants export bookmarked` behind an Operations row
+    /// (Phase 2.12 lane 12.39, B6).
     @objc func exportBookmarkedVariants(_ sender: Any?) {
-        guard let index = searchIndex else { return }
-
-        // Collect bookmarked variants using efficient SQL JOIN per database
-        var bookmarkedResults: [AnnotationSearchIndex.SearchResult] = []
-        for handle in index.variantDatabaseHandles {
-            let records = handle.db.bookmarkedVariants()
-            for record in records {
-                bookmarkedResults.append(AnnotationSearchIndex.SearchResult(
-                    name: record.variantID,
-                    chromosome: record.chromosome,
-                    start: record.position,
-                    end: record.end,
-                    trackId: handle.trackId,
-                    type: record.variantType,
-                    ref: record.ref,
-                    alt: record.alt,
-                    quality: record.quality,
-                    filter: record.filter,
-                    sampleCount: record.sampleCount,
-                    variantRowId: record.id
-                ))
-            }
-        }
-
-        guard !bookmarkedResults.isEmpty else {
+        guard searchIndex != nil else { return }
+        guard let databaseURLs = bookmarkedVariantsExportDatabaseURLs() else {
             guard let window = self.window else { return }
             let alert = NSAlert()
             alert.messageText = "No Bookmarks"
@@ -149,39 +127,20 @@ extension AnnotationTableDrawerView {
             return
         }
 
-        let sourceURLs = bookmarkedVariantExportSourceURLs(from: index)
-        let selectedRows = bookmarkedResults.map {
-            BookmarkedVariantExportService.Row(
-                name: $0.name, type: $0.type, chromosome: $0.chromosome, start: $0.start,
-                ref: $0.ref, alt: $0.alt, quality: $0.quality, filter: $0.filter)
-        }
         let panel = ViewerFilePanelFactory.bookmarkedVariantsExportPanel()
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-
-            do {
-                try BookmarkedVariantExportService.export(.init(sourceURLs: sourceURLs, rows: selectedRows, outputURL: url))
-                bookmarkLogger.info("Exported \(bookmarkedResults.count) bookmarked variants to \(url.lastPathComponent)")
-            } catch {
-                bookmarkLogger.error("Bookmark export failed: \(error)")
-                let alert = NSAlert()
-                alert.messageText = "Bookmark Export Failed"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.beginSheetModal(for: window)
+            let invocation = BookmarkedVariantExport.invocation(
+                databaseURLs: databaseURLs,
+                outputURL: url,
+                force: FileManager.default.fileExists(atPath: url.path)
+            )
+            Self.beginBookmarkedVariantsExportOperation(invocation: invocation) { failure in
+                bookmarkLogger.error("Bookmark export failed: \(failure.message)")
+                Self.presentVariantExportFailure(title: "Bookmark Export Failed", message: failure.message, in: window)
             }
-        }
-    }
-
-    private func bookmarkedVariantExportSourceURLs(from index: AnnotationSearchIndex) -> [URL] {
-        var seen = Set<String>()
-        return index.variantDatabaseHandles.compactMap { handle in
-            let url = handle.db.databaseURL.standardizedFileURL
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            return seen.insert(url.path).inserted ? url : nil
         }
     }
 

@@ -4419,8 +4419,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     // MARK: - Import Metadata
 
+    /// Writes the sample metadata template through `lungfish-cli variants export sample-template` behind an
+    /// Operations row (Phase 2.12 lane 12.39, B11). A drawer with no sample opens no save panel.
     @objc func downloadSampleTemplateAction(_ sender: Any?) {
-        guard let searchIndex else { return }
+        guard let searchIndex, let bundleURL = variantDatabaseBundleURL(from: searchIndex),
+              !VariantSampleTemplateExport.sampleRows(databases: searchIndex.variantDatabaseHandles.map(\.db)).isEmpty
+        else { return }
 
         let uniqueSourceFiles = Set(
             searchIndex.variantDatabaseHandles
@@ -4452,38 +4456,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
-            let isCSV = url.pathExtension.lowercased() == "csv"
-            let delimiter = isCSV ? "," : "\t"
-
-            var sampleRows: [(name: String, sourceFile: String)] = []
-            var seenRows = Set<String>()
-            for handle in searchIndex.variantDatabaseHandles {
-                let db = handle.db
-                let dbSourceFiles = db.allSourceFiles()
-                for sampleName in db.sampleNames() {
-                    let sourceFile = dbSourceFiles[sampleName] ?? ""
-                    let normalizedKey = "\(sampleName.lowercased())|\(sourceFile.lowercased())"
-                    if seenRows.insert(normalizedKey).inserted {
-                        sampleRows.append((name: sampleName, sourceFile: sourceFile))
-                    }
-                }
-            }
-            guard !sampleRows.isEmpty else { return }
-
-            var columns = ["sample_name", "source_file"]
-            columns.append(contentsOf: self.sampleMetadataFields)
-            let header = columns.joined(separator: delimiter)
-            let rows = sampleRows.map { row -> String in
-                var values = [row.name, row.sourceFile]
-                values.append(contentsOf: Array(repeating: "", count: self.sampleMetadataFields.count))
-                return values.joined(separator: delimiter)
-            }
-            let content = ([header] + rows).joined(separator: "\n") + "\n"
-
-            do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
-            } catch {
-                annotationDrawerLogger.error("downloadSampleTemplateAction: \(error.localizedDescription)")
+            let invocation = self.variantSampleTemplateExportInvocation(bundleURL: bundleURL, outputURL: url)
+            Self.beginVariantSampleTemplateExportOperation(invocation: invocation) { failure in
+                annotationDrawerLogger.error("downloadSampleTemplateAction: \(failure.message)")
+                Self.presentVariantExportFailure(title: "Template Export Failed", message: failure.message, in: window)
             }
         }
     }
