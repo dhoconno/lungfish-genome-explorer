@@ -9,10 +9,12 @@
 // - C against C' and C' against C declare nothing, no fixed fact on either side and no folder or record difference
 //   either way (2.7 T2),
 // - each sample's payload files have the same SHA-256 on C and C', and the hashes pinned below, taken at 8aa9193e9,
-// - C and C' keep the same records, by their path with the analysis folder masked.
+// - C and C' keep the same records, by their path with the analysis folder masked,
+// - each record's text, with what changes between runs masked (`maskedRecordText`), has the SHA-256 pinned below on
+//   C and on C', so a fact that both sides lose together fails too (BIO's review of M1, Fix 1).
 //
 // Every hash is taken from the bytes on disk as the route wrote them, read once, and never from a record read through
-// `PortablePath` (B8). A record names absolute paths and times, so its hash is kept and not pinned.
+// `PortablePath` (B8). A record names absolute paths and times, so the hash of its raw bytes is kept and not pinned.
 // `LUNGFISH_PARITY_DUMP=<folder>` writes those same bytes into `<folder>/raw-bytes/<case>/`: `records/<side>/<path>`,
 // `payloads/<side>/<sample>/<key>` and `hashes.tsv` (side, what, sample, key, sha256, size, path).
 
@@ -109,6 +111,7 @@ extension TaxTriageCLIGUIParityReplayTests {
         for side in sides {
             XCTAssertEqual(side.payloadHashes, TaxTriageParityRawBytes.pinnedPayloads[parityCase] ?? [:], "\(label), side \(side.side)'s payload hashes")
             XCTAssertFalse(side.records.isEmpty || side.records.contains { $0.size == 0 }, "\(label), side \(side.side) keeps its records")
+            XCTAssertEqual(side.maskedRecordHashes, TaxTriageParityRawBytes.pinnedRecords[parityCase] ?? [:], "\(label), side \(side.side)'s record hashes")
         }
         XCTAssertEqual(sides[0].records.map(\.key), sides[1].records.map(\.key), "\(label), C and C' keep the same records")
     }
@@ -130,6 +133,8 @@ enum TaxTriageParityRawBytes {
         let size: Int
         /// The path below the side root.
         let path: String
+        /// The SHA-256 of `maskedRecordText` of the same bytes.
+        let maskedSHA256: String
     }
 
     /// What one side wrote.
@@ -159,7 +164,8 @@ enum TaxTriageParityRawBytes {
                     key: key,
                     sha256: TaxTriageParityRawBytes.hex(bytes),
                     size: bytes.count,
-                    path: path
+                    path: path,
+                    maskedSHA256: TaxTriageParityRawBytes.hex(Data(TaxTriageParityRawBytes.maskedRecordText(bytes).utf8))
                 ))
             }
             self.records = records.sorted { $0.key < $1.key }
@@ -169,6 +175,77 @@ enum TaxTriageParityRawBytes {
         var payloadHashes: [String: String] {
             Dictionary(payloads.map { ("\($0.sample)/\($0.key)", $0.sha256) }, uniquingKeysWith: { first, _ in first })
         }
+
+        /// Each record's masked SHA-256 by its key.
+        var maskedRecordHashes: [String: String] {
+            Dictionary(records.map { ($0.key, $0.maskedSHA256) }, uniquingKeysWith: { first, _ in first })
+        }
+    }
+
+    /// A record's text with what changes between runs and hosts masked, so its hash can be pinned (BIO's review of M1,
+    /// Fix 1). JSON is read and written again with sorted keys. In an object with `checksumSHA256`, the digest and
+    /// `fileSize` become `<sha>` and `<size>` unless its `path` names a payload file, whose bytes are fixed. Wall and
+    /// step times become `<seconds>`, `Runtime: <n>s` becomes `Runtime: <s>`, the project and case folders become
+    /// `<root>/Project.lungfish` and `<case>/`, each UUID becomes `<uuid<n>>` by first appearance, an ISO time (the
+    /// analysis folder's stamp too) becomes `<time>`, and the app version and macOS version become `<version>` and `<os>`.
+    static func maskedRecordText(_ bytes: Data) -> String {
+        var text = String(decoding: bytes, as: UTF8.self)
+        if let object = try? JSONSerialization.jsonObject(with: bytes, options: [.fragmentsAllowed]),
+           let data = try? JSONSerialization.data(
+               withJSONObject: maskedNode(object), options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes, .fragmentsAllowed]
+           ) {
+            text = String(decoding: data, as: UTF8.self)
+        }
+        text = replacing(#"Runtime: [0-9.]+s"#, in: text, with: "Runtime: <s>")
+        text = replacing(#"/[^"\s]*?/Project\.lungfish"#, in: text, with: "<root>/Project.lungfish")
+        text = replacing(#"/[^"\s]*?/(?:X\d-bytes|X\d)/"#, in: text, with: "<case>/")
+        text = numberingUUIDs(in: text)
+        text = replacing(
+            #"\d{4}-\d{2}-\d{2}[T ]\d{2}[\-:]\d{2}[\-:]\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:?\d{2})?"#, in: text, with: "<time>"
+        )
+        text = replacing(#"Lungfish \d{4}\.\d+\.\d+"#, in: text, with: "Lungfish <version>")
+        return replacing(#"macOS \d+(?:\.\d+)*"#, in: text, with: "macOS <os>")
+    }
+
+    private static let fixedPayloadSuffixes = [".odr.txt", ".top_report.tsv", ".combined.gcfmap.tsv"]
+
+    private static func maskedNode(_ node: Any) -> Any {
+        if let array = node as? [Any] { return array.map(maskedNode) }
+        guard let object = node as? [String: Any] else { return node }
+        var masked = object.mapValues(maskedNode)
+        let path = object["path"] as? String ?? ""
+        if object["checksumSHA256"] != nil, !fixedPayloadSuffixes.contains(where: { path.hasSuffix($0) }) {
+            masked["checksumSHA256"] = "<sha>"
+            if object["fileSize"] != nil { masked["fileSize"] = "<size>" }
+        }
+        for key in ["wallTimeSeconds", "durationSeconds"] where object[key] != nil {
+            masked[key] = "<seconds>"
+        }
+        return masked
+    }
+
+    private static func replacing(_ pattern: String, in text: String, with template: String) -> String {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+        return expression.stringByReplacingMatches(
+            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: NSRegularExpression.escapedTemplate(for: template)
+        )
+    }
+
+    private static func numberingUUIDs(in text: String) -> String {
+        let pattern = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+        var numbers: [String: Int] = [:]
+        var result = ""
+        var last = text.startIndex
+        for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range, in: text) else { continue }
+            let uuid = text[range].lowercased()
+            let number = numbers[uuid] ?? numbers.count + 1
+            numbers[uuid] = number
+            result += text[last..<range.lowerBound] + "<uuid\(number)>"
+            last = range.upperBound
+        }
+        return result + text[last...]
     }
 
     /// `path` with the side's analysis folder masked, so C and C' pair their records.
@@ -232,6 +309,77 @@ enum TaxTriageParityRawBytes {
         .x7: sample("sarscov2-pair", report: "92a3c5a349c279173d720fbb1b102717774d1a091e7615df8d00450a3b31c2a3"),
         .x8: sample("merge", report: "bf8f3cffde6e8c0d75b29729628535615a0c6e02404c3028488cbcf757661a70")
             .merging(sample("negative-control", report: negativeControlReport)) { $1 },
+    ]
+
+    /// Each case's record SHA-256 after `maskedRecordText` by the record's key, the same on C and C', taken at 0da983f38
+    /// on the stand-in, whose records BIO found equal to those of 8aa9193e9 under the same masks.
+    static let pinnedRecords: [TaxTriageParityCase: [String: String]] = [
+        .x1: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "8f1e952a93ea40058258d7623be572b29020dbb9a0a3ff78ea7e0faeacf6a984",
+            "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
+                "907417217c22370e18018b86b711a712e263ff6d1de117cb1b1a292712021fd9",
+            "Project.lungfish/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq/analyses-manifest.json":
+                "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
+        ],
+        .x2: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "9f2085bd1589602dc283a62fa53e5d6b8fb20c72dad9a34d60b8d3989426b694",
+            "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
+                "a423c7de41a26da415545abe2187cb9191360972a7966852fd466c17ac2e0386",
+            "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
+                "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
+        ],
+        .x3: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "c6fb402b57b3d36587946d99120141ae0cceaa90442f04d8f02a65a5038e54e7",
+            "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
+                "1e129d7f36d9c348cfa08d89c6a905dd5b9f2d5d72fd5531730fe3281aa36338",
+            "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
+                "ad13d8bd7b6132068081d4ab6be234b5aa60fb0229eabefde0311ea098551fad",
+            "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
+                "ae1981ae19b15cc5e50652befcc37fc9425d3c4c1f959e399b36208e76f3b9b1",
+            "Project.lungfish/Imports/two-samples/negative-control.lungfishfastq/analyses-manifest.json":
+                "138736c54fc2ddfa447d5cb959990857df0d5954edbe87e342955c3109968d15",
+            "Project.lungfish/Imports/two-samples/sarscov2-pair.lungfishfastq/analyses-manifest.json":
+                "138736c54fc2ddfa447d5cb959990857df0d5954edbe87e342955c3109968d15",
+        ],
+        .x4: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "94ec049a43e6d84cf1f28e51ce9622b0ddf291fb669fd5e77a28444f3f13909d",
+            "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
+                "d80e43664fe2b2327ee13c3eb65184da1bd2fc5064de29d19050260e4af6d9a1",
+            "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
+                "ad13d8bd7b6132068081d4ab6be234b5aa60fb0229eabefde0311ea098551fad",
+            "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
+                "01619b1fb06d52efd25c2361e8fac26c7217da3451784ceee489c36ce02768c3",
+            "Project.lungfish/Imports/two-samples/sarscov2-pair.lungfishfastq/analyses-manifest.json":
+                "043e3e7bbe5dfdbf602ae89d09a1bee3cf9727ddcf0e6bd94b06d3809a6e1e7f",
+        ],
+        .x5: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "cd56a1015504cd4726752d1ba3f7771f1faa609088107d8d77cb923b7889a66b",
+            "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
+                "a423c7de41a26da415545abe2187cb9191360972a7966852fd466c17ac2e0386",
+            "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
+                "9d72b0d6704ebfbfcbecb06ba0bd63ba162f482dc3d8333967b97109d75e93d2",
+        ],
+        .x6: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "a56a4a16e11b72461d5f9985eb00988db4d5a016d82cd68a925eb69141096881",
+        ],
+        .x7: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "312bda61367a3e3b35c36082dd721cfbff0bb02b7f2c4d89dc6314b4f2977abc",
+            "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
+                "bb7ee18b69755e2d49218766b80993b22f4d54145bc97339c6ea59b2057ed9d5",
+            "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
+                "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
+        ],
+        .x8: [
+            "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
+                "44f5eb82c551bc85ec35299835c273e2a2246c7d6d8e1919e412163903883d57",
+        ],
     ]
 
     private static let pairReport = "685b9348228b3f3dd060f4ec7197a0f800dc5a88adb456447daad90e09d3e432"
