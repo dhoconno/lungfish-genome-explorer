@@ -1,0 +1,61 @@
+verify: set=2026.2 manifest=7e812c4966d81884f8c5ce03a6aea1bf195aa1b94adff3edb8c225e1ef104c48 root=/Users/dho/.lungfish-verify tier=1
+==> Building lungfish-cli
+==> Provisioning /Users/dho/.lungfish-verify from Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json
+Target dependency set: 2026.2
+preserve  bracken  local install kept; pinned bioconda::bracken=1.0.0=1 not applied
+          remove the 'bracken' environment and reinstall the pack to take the pinned build
+reinstall esviritu  unknown -> bioconda::esviritu=1.3.3=pyhdfd78af_0  [lockMismatch]
+database  kraken2-viral  built-20260905-7872e5a8f683 -> 20260626  [advisory]
+pipeline  nf-core-viralrecon  3.0.0 -> 395079f1d24dce731ac22e03d7a5e71f110103fc
+Estimated download: 157.3 MB
+
+Completed: nf-core-viralrecon
+==> conda install --pack read-mapping
+Installing Tool Pack: Read Mapping
+Packages: minimap2, bwa-mem2, bowtie2
+
+ℹ Read Mapping ready
+✓ Tool pack 'Read Mapping' installed
+==> conda install --pack assembly
+Installing Tool Pack: Genome Assembly
+Packages: spades, megahit, skesa, flye, hifiasm
+
+ℹ Genome Assembly ready
+✓ Tool pack 'Genome Assembly' installed
+==> conda install --pack phylogenetics
+Installing Tool Pack: Phylogenetics
+Packages: iqtree
+
+ℹ Phylogenetics ready
+✓ Tool pack 'Phylogenetics' installed
+==> conda install --pack multiple-sequence-alignment
+Installing Tool Pack: Multiple Sequence Alignment
+Packages: mafft
+
+ℹ Multiple Sequence Alignment ready
+✓ Tool pack 'Multiple Sequence Alignment' installed
+==> conda install --pack metagenomics
+Installing Tool Pack: Metagenomics
+Packages: kraken2, bracken, esviritu, ribodetector
+
+ℹ Creating environment 'esviritu'…ℹ Environment 'esviritu' readyℹ Metagenomics ready
+✓ Tool pack 'Metagenomics' installed
+==> conda install --pack full-length-mhc-genotyping
+Installing Tool Pack: Full-length MHC Genotyping
+Packages: savont, blast
+
+ℹ Full-length MHC Genotyping ready
+✓ Tool pack 'Full-length MHC Genotyping' installed
+==> conda install --pack variant-calling
+Installing Tool Pack: Variant Calling
+Packages: lofreq, ivar, medaka, clair3
+
+ℹ Variant Calling ready
+✓ Tool pack 'Variant Calling' installed
+==> conda install --pack pcr-primer-design
+Installing Tool Pack: PCR Primer Design
+Packages: primer3, primalscheme3, olivar, varvamp
+
+ℹ Creating environment 'primer3'…ℹ Environment 'primer3' readyℹ Creating environment 'primalscheme3'…ℹ Environment 'primalscheme3' readyℹ Installing PrimalScheme Python runtime…
+✗ Tool pack 'PCR Primer Design' failed: Managed Python installation did not return a valid installed-file inventory.
+exit=126
