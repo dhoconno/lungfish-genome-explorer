@@ -200,6 +200,19 @@ final class GenotypeAIHaplotypingCommandRecordTests: XCTestCase {
         )
     }
 
+    /// Review fix 5 (BIO 4). The command names the provider that resolved,
+    /// not the one the settings prefer.
+    func testRecordedCommandNamesTheProviderThatResolvedWhenThePreferredOneHasNoKey() async throws {
+        let fixture = try await GenotypeAIHaplotypingRunFixture(
+            testCase: self, preferredProvider: AIProviderIdentifier.anthropic.rawValue)
+        try await fixture.makeService().run(bundleURL: fixture.bundleURL, mode: .aiDiscovery)
+        let command = try RecordedCLICommand.parse(
+            fixture.operationCenter.items.first?.cliCommand, as: GenotypeAIHaplotypingSubcommand.self)
+        XCTAssertEqual(command.provider, .openAI)
+        XCTAssertEqual(command.model, fixture.deployment)
+        XCTAssertEqual(fixture.server.requests.map(\.path), ["/openai/v1/responses"])
+    }
+
     private static func preview(_ argv: [String]) -> String {
         ViralReconWorkflowCommandPreview.build(executableName: argv[0], arguments: Array(argv.dropFirst()))
     }

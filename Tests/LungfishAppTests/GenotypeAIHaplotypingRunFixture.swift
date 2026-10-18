@@ -42,11 +42,13 @@ final class GenotypeAIHaplotypingRunFixture {
     ///   - providerStatus: The HTTP status the stand-in answers. 200 sends the recorded reply.
     ///   - specialistManifest: Whether the manifest names the MCM MiSeq preset, so the run
     ///     resolves the specialist prompt pins. Without them it resolves the general prompt.
+    ///   - preferredProvider: The provider the settings prefer, or nil for the settings default.
     init(
         testCase: XCTestCase,
         storesKey: Bool = true,
         providerStatus: Int = 200,
-        specialistManifest: Bool = true
+        specialistManifest: Bool = true,
+        preferredProvider: String? = nil
     ) async throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lane-12-19-ai-haplotyping-\(UUID().uuidString)", isDirectory: true)
@@ -69,6 +71,9 @@ final class GenotypeAIHaplotypingRunFixture {
         settings.openAIHostedEndpointKind = "azure"
         settings.openAIHostedEndpoint = server.baseURL.absoluteString
         settings.openAIHostedDeployment = deployment
+        if let preferredProvider {
+            settings.preferredAIProvider = preferredProvider
+        }
 
         secrets = InMemoryProviderSecrets(storesKey ? [KeychainSecretStorage.openAIAPIKey: throwawayKey] : [:])
     }
