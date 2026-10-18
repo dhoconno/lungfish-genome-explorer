@@ -36,8 +36,10 @@ extension TaxonomyViewController {
 
     /// Shows the newest saved verification of `node` in the BLAST Results tab.
     ///
-    /// Saved verifications live in `<result>/blast-verifications/` (see
-    /// ``BlastVerificationArchive``). Nothing changes while a run is in
+    /// Saved verifications live in `<result>/blast-verifications/`, the
+    /// folders `blast submit` writes since Phase 2.12 and the archive files
+    /// of the route before it (``newestSavedBlastVerification(forTaxId:in:)``).
+    /// Nothing changes while a run is in
     /// flight, when the drawer already shows this taxon, or when the taxon
     /// has no saved verification. The drawer is not opened or switched: the
     /// saved result is waiting in the BLAST Results tab when the user opens it.
@@ -49,14 +51,38 @@ extension TaxonomyViewController {
               !blastRunIsActive,
               lastBlastResult?.taxId != node.taxId,
               let directory = blastVerificationDirectoryResolver?(node),
-              let record = BlastVerificationArchive.latest(forTaxId: node.taxId, in: directory) else {
+              let result = Self.newestSavedBlastVerification(forTaxId: node.taxId, in: directory) else {
             return nil
         }
-        lastBlastResult = record.result
+        lastBlastResult = result
         lastBlastNode = node
-        taxaCollectionsDrawerView?.blastResultsTab.showResults(record.result)
+        taxaCollectionsDrawerView?.blastResultsTab.showResults(result)
         blastVCLogger.info("Restored saved BLAST verification for txid\(node.taxId, privacy: .public) from \(directory.path, privacy: .public)")
-        return record.result
+        return result
+    }
+
+    /// The newest saved verification of `taxId` in `<directory>/blast-verifications/`. That is a `blast submit`
+    /// record (`<folder>/blast-result.json`), which the Kraken2 row writes since Phase 2.12 lane 12.10, or a
+    /// ``BlastVerificationArchive`` file, which it wrote before and still writes on the in-process route that
+    /// ``ClassifierBlastRouteSettings`` keeps for one release (ARCH 4). The search that completed last wins, as
+    /// the archive orders its own files.
+    nonisolated static func newestSavedBlastVerification(forTaxId taxId: Int, in directory: URL) -> BlastVerificationResult? {
+        let archived = BlastVerificationArchive.latest(forTaxId: taxId, in: directory)
+        let folder = BlastVerificationArchive.directoryURL(for: directory)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        let submitted = names.compactMap { name in
+            try? BlastSubmissionRecord.load(
+                folder.appendingPathComponent(name, isDirectory: true).appendingPathComponent(BlastSubmissionRecord.recordFileName)
+            )
+        }
+        .filter { ($0.lineage.taxId ?? $0.result.taxId) == taxId }
+        .max { ($0.result.completedAt ?? $0.savedAt) < ($1.result.completedAt ?? $1.savedAt) }
+        guard let submitted else { return archived?.result }
+        guard let archived,
+              (archived.result.completedAt ?? archived.savedAt) > (submitted.result.completedAt ?? submitted.savedAt) else {
+            return submitted.result
+        }
+        return archived.result
     }
 
     /// Shows BLAST verification results in the drawer's BLAST tab.
