@@ -6,8 +6,9 @@
 // SIGTERM and gives the command `CLIProcessLauncher.operationGrace` before SIGKILL. The command runs
 // against a stand-in seqkit that writes its process ID and sleeps, with one busy thread for every
 // active processor, three times. Each run ends with exit 125 inside the grace, leaves a record that
-// reads `cancelled` with exit status 125, writes no taxon file and leaves no process of its tree. The
-// run is the one `ViewerViewController.taxaCollectionExtractionArguments` gives the Extract button.
+// reads `cancelled` with exit status 125, writes no taxon file, leaves no scratch folder in the
+// project's `.tmp` and leaves no process of its tree. The run is the one
+// `ViewerViewController.taxaCollectionExtractionArguments` gives the Extract button.
 //
 // The class launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the
 // integration tier. It needs no real tool.
@@ -51,6 +52,7 @@ final class TaxaCollectionExtractionSIGTERMReplayTests: XCTestCase {
         for repetition in 1...Self.repetitions {
             let root = scratch.appendingPathComponent("run-\(repetition)", isDirectory: true)
             let fixtures = try TaxaCollectionFixtures(in: root)
+            let scratchBefore = Self.projectScratch(fixtures)
             try Self.writeStandInSeqkit(in: root)
             let collection = TaxaCollectionFixtures.collection
             let outputDirectory = fixtures.singleEnd.appendingPathComponent("extracted-\(collection.id)", isDirectory: true)
@@ -79,8 +81,12 @@ final class TaxaCollectionExtractionSIGTERMReplayTests: XCTestCase {
                 "run \(repetition): the cancelled record names the command that ran, --format json included"
             )
             let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)) ?? [])
-                .filter { $0.hasPrefix(".kraken2-sources-") || $0.hasSuffix(".fastq") }
-            XCTAssertEqual(leftovers, [], "run \(repetition): a cancelled extraction leaves no scratch folder and no plain FASTQ file")
+                .filter { $0.hasSuffix(".fastq") }
+            XCTAssertEqual(leftovers, [], "run \(repetition): a cancelled extraction leaves no plain FASTQ file")
+            XCTAssertEqual(
+                Self.projectScratch(fixtures), scratchBefore,
+                "run \(repetition): a cancelled extraction removes its taxa-collection and kraken2-extract folders from the project's .tmp"
+            )
             let files = ((try? FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)) ?? [])
                 .filter { $0.hasSuffix(".fastq.gz") }
             XCTAssertEqual(files, [], "run \(repetition): a cancelled extraction writes no taxon file")
@@ -94,6 +100,11 @@ final class TaxaCollectionExtractionSIGTERMReplayTests: XCTestCase {
 
     nonisolated private static func seqkitPIDFile(in root: URL) -> URL {
         root.appendingPathComponent("conda/envs/seqkit/bin/seqkit.pid")
+    }
+
+    /// The entries of the project's `.tmp`, where the loop and the resolver make their scratch folders.
+    nonisolated private static func projectScratch(_ fixtures: TaxaCollectionFixtures) -> Set<String> {
+        Set((try? FileManager.default.contentsOfDirectory(atPath: ProjectTempDirectory.tempRoot(for: fixtures.projectURL).path)) ?? [])
     }
 
     /// A conda root whose seqkit answers a version probe and sleeps on any other call after it wrote
