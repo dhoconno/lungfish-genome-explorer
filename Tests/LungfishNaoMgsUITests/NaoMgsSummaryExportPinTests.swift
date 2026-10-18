@@ -136,6 +136,47 @@ final class NaoMgsSummaryExportPinTests: XCTestCase {
         XCTAssertEqual(try Self.inputNames(of: withoutColumn), ["hits.sqlite", "manifest.json"])
     }
 
+    /// Manager's answer to Q2 of 12.31 c6 (BIO 6). A filter on a metadata column reads the sample metadata table
+    /// though no column is shown, so the record names the table, as `nao-mgs export table` does when it reads the
+    /// store.
+    @MainActor func testAMetadataFilterNamesTheMetadataTableWithNoColumnShown() throws {
+        let bundleURL = folder.appendingPathComponent("filter.naomgs", isDirectory: true)
+        let metadataFolder = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataFolder, withIntermediateDirectories: true)
+        let manifest = NaoMgsManifest(
+            sampleName: "naomgs-pin", sourceFilePath: folder.appendingPathComponent("virus_hits.tsv").path,
+            hitCount: 2, taxonCount: 2, topTaxon: "Alpha virus", topTaxonId: 1
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let database = try NaoMgsDatabase.create(
+            at: bundleURL.appendingPathComponent("hits.sqlite"),
+            hits: [Self.hit(sample: "sample-A", taxId: 1), Self.hit(sample: "sample-B", taxId: 4)]
+        )
+        try Data("Sample\tCohort\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
+            .write(to: metadataFolder.appendingPathComponent("sample_metadata.tsv"))
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(database: database, manifest: manifest, bundleURL: bundleURL)
+        vc.applySampleMetadata(try XCTUnwrap(
+            SampleMetadataStore.load(from: bundleURL, knownSampleIds: ["sample-A", "sample-B"])
+        ))
+        vc.metadataColumnController.visibleColumns = []
+        vc.columnHeaderFilterMenu(
+            replaceFilterFor: "metadata_Cohort",
+            with: ColumnFilter(columnId: "metadata_Cohort", op: .contains, value: "case")
+        )
+        vc.columnHeaderFilterMenuFiltersDidChange()
+
+        let outputURL = folder.appendingPathComponent("filtered.tsv")
+        try vc.writeSummaryTSV(to: outputURL)
+        let lines = try String(contentsOf: outputURL, encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(lines.count, 2, "the filter keeps sample-A's row only, \(lines)")
+        XCTAssertTrue(lines.last?.hasPrefix("sample-A\t") == true, "\(lines)")
+        XCTAssertEqual(try Self.inputNames(of: outputURL), ["hits.sqlite", "manifest.json", "sample_metadata.tsv"])
+    }
+
     /// A failed write reaches `ResultExportCoordinator.reportFailure`, whose words UX 1 keeps.
     @MainActor func testFailureAlertWords() throws {
         let vc = try configuredController()

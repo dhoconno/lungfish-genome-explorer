@@ -2861,8 +2861,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
         if let bundleURL {
             urls.append(bundleURL.appendingPathComponent("manifest.json"))
-            let writesMetadata = !metadataColumnController.exportHeaders.isEmpty
-            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: writesMetadata)
+            // The export reads the sample metadata when it writes a column or a filter reads one, the rule of
+            // `nao-mgs export table` (BIO 6, manager's answer to Q2 of 12.31 c6).
+            let readsMetadata = metadataColumnController.store != nil && (
+                !metadataColumnController.exportHeaders.isEmpty
+                    || columnFilterSet.activeFilters.contains { $0.columnId.hasPrefix("metadata_") }
+            )
+            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: readsMetadata)
         }
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
