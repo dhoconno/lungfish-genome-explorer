@@ -371,6 +371,12 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         let load = BusyCores()
         load.start()
         defer { load.stop() }
+        let busy = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(10)) {
+            load.spinningCount == load.threadCount
+        }
+        XCTAssertTrue(busy, "\(load.spinningCount) of \(load.threadCount) busy threads spin")
+        XCTAssertEqual(load.threadCount, ProcessInfo.processInfo.activeProcessorCount, "one busy thread for every core")
+        let before = Set(ProcessTreeTerminator.descendantProcessIDs(of: getpid()))
         for attempt in 1...3 {
             let output = folder.appendingPathComponent("held-\(attempt).fa.gz")
             let earlier = Data("an earlier export \(UUID().uuidString)".utf8)
