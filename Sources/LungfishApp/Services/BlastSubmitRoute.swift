@@ -9,6 +9,22 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
+/// Why a viewer's BLAST action planned no search.
+enum BlastSubmitPlanError: Error, LocalizedError, Equatable {
+    /// No project is open, so the search has no project to keep its query and result in (2.12 lane 12.08,
+    /// A65-NOPROJECT, DEC Q-U8). The action shows the `No Project Open` refusal and starts nothing.
+    case noProject
+
+    /// The title of the refusal, the one the classifier launch and import refusals show.
+    static let noProjectTitle = "No Project Open"
+
+    var errorDescription: String? {
+        switch self {
+        case .noProject: return "Open or create a project before running BLAST."
+        }
+    }
+}
+
 /// One viewer BLAST action planned onto `blast submit` (plan decision C1). The query file the viewer
 /// writes under `<project>/.tmp/`, the result folder the leaf creates and the lineage the record
 /// names are fixed before the row begins, so the row records the command the run executes.
@@ -37,7 +53,8 @@ struct BlastSubmitPlan: Sendable {
     /// Plans the search of `sequences`. `sourceResultURL` is the result folder they came from, and
     /// `projectURL` the project whose `.tmp` takes the query. Each lineage value is recorded only when
     /// the viewer has it. `outputParentURL` holds the result folder in place of the source result, for
-    /// a source that is a file or a bundle.
+    /// a source that is a file or a bundle. With no project it throws ``BlastSubmitPlanError/noProject``
+    /// before it writes anything (DEC Q-U8), so no search lands where no row names it.
     static func make(
         sequences: [(id: String, sequence: String)],
         label: String,
@@ -53,11 +70,12 @@ struct BlastSubmitPlan: Sendable {
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         guard !sequences.isEmpty else { throw BlastServiceError.noSequences }
+        guard let projectURL else { throw BlastSubmitPlanError.noProject }
         let multiFASTA = BlastVerificationRequest(
             taxonName: label, taxId: taxId ?? 0, sequences: sequences, database: BlastDatabaseID.coreNT.rawValue
         ).toMultiFASTA()
         let stage = try ProjectTempDirectory.create(prefix: "blast-submit-", in: projectURL)
-        let parent = outputParentURL ?? sourceResultURL ?? projectURL ?? stage
+        let parent = outputParentURL ?? sourceResultURL ?? projectURL
         let output = parent.appendingPathComponent(resultsFolderName, isDirectory: true)
             .appendingPathComponent("\(folderStem(label))-\(stamp(date))-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         let request = BlastSubmitRequest(

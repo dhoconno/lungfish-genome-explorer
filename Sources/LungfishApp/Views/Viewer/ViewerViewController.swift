@@ -1863,10 +1863,9 @@ public class ViewerViewController: NSViewController {
             return
         }
 
-        let plan: BlastSubmitPlan?
-        do { plan = try fastaBlastSubmitPlan(sourceLabel: sourceLabel, sequences: sequences) } catch {
-            return controller.showBlastFailure(error.localizedDescription)
-        }
+        guard let plan = Self.blastSubmitPlan(window: view.window, failure: { controller.showBlastFailure($0) }, {
+            try fastaBlastSubmitPlan(sourceLabel: sourceLabel, sequences: sequences)
+        }) else { return }
         Self.beginGenericBlastVerificationOperation(sourceLabel: sourceLabel, cliCommand: plan?.cliCommand) { opID in
             cancelActiveFASTABlast()
             lastFASTABlastRequest = (sourceLabel, fastaRecords)

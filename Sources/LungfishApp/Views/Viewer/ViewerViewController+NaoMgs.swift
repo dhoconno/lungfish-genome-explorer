@@ -50,16 +50,12 @@ extension ViewerViewController {
             naoMgsDisplayLogger.info(
                 "BLAST verification requested for \(taxonName, privacy: .public), readCount=\(selectedReadCount, privacy: .public), availableReads=\(reads.count, privacy: .public)"
             )
-            let plan: BlastSubmitPlan
-            do {
-                plan = try Self.naoMgsBlastSubmitPlan(
+            guard let plan = Self.blastSubmitPlan(window: self?.view.window, failure: { controller?.showBlastFailure($0) }, {
+                try Self.naoMgsBlastSubmitPlan(
                     taxonName: taxonName, taxId: summary.taxId, readCount: selectedReadCount, reads: reads,
                     projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
                 )
-            } catch {
-                controller?.showBlastFailure(error.localizedDescription)
-                return
-            }
+            }) else { return }
             Self.beginNaoMgsBlastVerificationOperation(
                 taxonName: taxonName, taxId: summary.taxId, cliCommand: plan.cliCommand
             ) { opID in

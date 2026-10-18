@@ -37,16 +37,12 @@ extension ViewerViewController {
         controller.onBlastVerification = { [weak self] request in
             guard let self else { return }
             guard let blastController = self.assemblyResultController else { return }
-            let plan: BlastSubmitPlan
-            do {
-                plan = try Self.assemblyBlastSubmitPlan(
+            guard let plan = Self.blastSubmitPlan(window: self.view.window, failure: { blastController.showBlastFailure($0) }, {
+                try Self.assemblyBlastSubmitPlan(
                     sourceLabel: request.sourceLabel, taxId: request.taxId, fastaRecords: request.sequences,
                     resultURL: result.outputDirectory
                 )
-            } catch {
-                blastController.showBlastFailure(error.localizedDescription)
-                return
-            }
+            }) else { return }
             Self.beginAssemblyContigBlastVerificationOperation(
                 sourceLabel: request.sourceLabel, cliCommand: plan.cliCommand
             ) { opID in

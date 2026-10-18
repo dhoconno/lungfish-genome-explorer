@@ -24,6 +24,36 @@ extension ViewerViewController {
         return session?.projectURL ?? split?.sidebarController?.currentProjectURL
     }
 
+    /// Shows the `No Project Open` refusal of a BLAST action through ``AppDelegate/NoProjectPresenterSeam``,
+    /// a sheet on `window` or app-modal with none, with one OK button (2.12 lane 12.08, DEC Q-U8). The
+    /// action begins no row and writes nothing.
+    static func refuseBlastWithoutProject(window: NSWindow?) {
+        AppDelegate.NoProjectPresenterSeam.presenter.present(
+            title: BlastSubmitPlanError.noProjectTitle,
+            message: BlastSubmitPlanError.noProject.localizedDescription,
+            on: window
+        )
+    }
+
+    /// The plan `makePlan` gives a BLAST action, or nil once the action has said why it starts nothing.
+    /// With no project the plan refuses before it writes a byte and this shows the `No Project Open`
+    /// refusal on `window`. Any other error goes to `failure`, the drawer. Every site on `blast submit`
+    /// plans through here and begins its row only with a plan.
+    static func blastSubmitPlan<Plan>(
+        window: NSWindow?,
+        failure: (String) -> Void,
+        _ makePlan: () throws -> Plan
+    ) -> Plan? {
+        do {
+            return try makePlan()
+        } catch BlastSubmitPlanError.noProject {
+            refuseBlastWithoutProject(window: window)
+        } catch {
+            failure(error.localizedDescription)
+        }
+        return nil
+    }
+
     /// The FASTA selection's search on `blast submit`, or nil while a test's `fastaBlastVerificationRunner`
     /// stands in for it.
     func fastaBlastSubmitPlan(sourceLabel: String, sequences: [(id: String, sequence: String)]) throws -> BlastSubmitPlan? {
