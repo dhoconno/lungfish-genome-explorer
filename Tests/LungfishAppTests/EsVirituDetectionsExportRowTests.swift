@@ -16,6 +16,11 @@ import LungfishKitTestSupport
 import LungfishWorkflow
 
 @MainActor
+private final class FailureCalls {
+    var messages: [String] = []
+}
+
+@MainActor
 final class EsVirituDetectionsExportRowTests: XCTestCase {
     private let exportInvocation = EsVirituDetectionExport.invocation(
         resultURL: URL(fileURLWithPath: "/tmp/lane 12.31/Project.lungfish/Analyses/esviritu-batch", isDirectory: true),
@@ -83,5 +88,20 @@ final class EsVirituDetectionsExportRowTests: XCTestCase {
             reporter.items.first?.cliCommand, as: EsVirituCommand.ExportDetectionsSubcommand.self
         )
         XCTAssertEqual(try command.invocation(), exportInvocation)
+    }
+
+    /// The words of the deleted `testFailureAlertWords`. A leaf that fails fails the run, and `onFailure` gets its
+    /// message once. `exportDelimited` passes that to `ResultExportCoordinator.reportFailure` unchanged (UX 1).
+    func testAFailedLeafReachesTheFailureHandlerWithItsMessage() async throws {
+        let calls = FailureCalls()
+        let begun = try XCTUnwrap(EsVirituResultViewController.beginEsVirituDetectionsExportOperation(
+            invocation: exportInvocation,
+            runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/false")),
+            reporter: RecordingOperationReporter()
+        ) { failure in calls.messages.append(failure.message) })
+        let outcome = await begun.task.value
+        guard case .failed(let failure) = outcome else { return XCTFail("the leaf failed, the run ended \(outcome)") }
+        XCTAssertFalse(failure.message.isEmpty)
+        XCTAssertEqual(calls.messages, [failure.message])
     }
 }
