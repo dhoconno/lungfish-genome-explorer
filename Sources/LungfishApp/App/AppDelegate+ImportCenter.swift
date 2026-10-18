@@ -1137,21 +1137,10 @@ extension AppDelegate {
         panel.message = "\(AnnotationExportSourceChoice(source: source, annotations: nil).displayTitle)\n\(annotations.count) annotations from one source."
         panel.beginSheetModal(for: window) { [weak self, weak window] response in
             guard response == .OK, let url = panel.url else { return }
-
-            Task {
-                do {
-                    try await AnnotationExportService.export(.init(source: source, annotations: annotations, outputURL: url))
-
-                    await MainActor.run {
-                        debugLog("exportGFF3: Successfully exported \(annotations.count) annotations to \(url.path)")
-                        if let window { self?.showAnnotationExportMessage("Export complete", detail: "Exported \(annotations.count) annotations from \(source.name) to \(url.lastPathComponent).", window: window) }
-                    }
-                } catch {
-                    await MainActor.run {
-                        debugLog("exportGFF3: Export failed - \(error.localizedDescription)")
-                        if let window { self?.showAnnotationExportMessage("Annotation export failed", detail: error.localizedDescription, window: window) }
-                    }
-                }
+            // `bundle export-gff3` writes the file and its record behind an Operations row (lane 12.39).
+            self?.startAnnotationGFF3Export(annotations: annotations, source: source, outputURL: url) { [weak self, weak window] title, detail in
+                debugLog("exportGFF3: \(title) - \(detail)")
+                if let window { self?.showAnnotationExportMessage(title, detail: detail, window: window) }
             }
         }
     }
