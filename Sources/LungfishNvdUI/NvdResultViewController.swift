@@ -139,7 +139,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var manifestSamplesByID: [String: NvdSampleSummary] = [:]
 
     /// Currently selected sample IDs for filtering.
-    private var selectedSamples: Set<String> = []
+    private(set) var selectedSamples: Set<String> = []
 
     /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
@@ -258,7 +258,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
     /// This viewport owns the typography observation for standard and metadata
     /// cells, so the embedded metadata controller must not observe separately.
-    private let metadataColumnController = MetadataColumnController(
+    let metadataColumnController = MetadataColumnController(
         contentTypographyOwnership: .embedded,
         userDefaults: {
             #if DEBUG
@@ -402,7 +402,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - Search
 
-    private var searchQuery: String = ""
+    private(set) var searchQuery: String = ""
     private var filterWorkItem: DispatchWorkItem?
 
     // MARK: - Split View State
@@ -2358,7 +2358,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Export
 
     public func exportResults() {
-        guard let window = view.window else { return }
+        // The leaf reads no --sample as every sample, so an empty picker returns before the panel (12.31 Fix 7).
+        guard !selectedSamples.isEmpty, let window = view.window else { return }
         let experiment = manifest?.experiment ?? "nvd"
 
         let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
@@ -2368,17 +2369,17 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }
-
-            do {
-                try self.writeContigsTSV(to: url)
-                logger.info("Exported NVD contigs to \(url.lastPathComponent, privacy: .public)")
-            } catch {
-                logger.error("Failed to export NVD contigs: \(error.localizedDescription, privacy: .public)")
+            guard let invocation = self.contigsExportInvocation(outputURL: url) else {
+                logger.warning("Cannot export: the result has no folder")
+                return
+            }
+            Self.beginNvdContigsExportOperation(invocation: invocation) { [weak self] failure in
+                logger.error("Failed to export NVD contigs: \(failure.message, privacy: .public)")
                 ResultExportCoordinator.reportFailure(
                     fileName: url.lastPathComponent,
-                    error: error,
+                    error: failure,
                     window: window,
-                    presenter: self.exportFailurePresenter
+                    presenter: self?.exportFailurePresenter ?? DefaultExportFailurePresenter()
                 )
             }
         }
