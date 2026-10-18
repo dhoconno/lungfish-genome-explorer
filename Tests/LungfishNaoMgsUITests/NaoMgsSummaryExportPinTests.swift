@@ -56,7 +56,7 @@ final class NaoMgsSummaryExportPinTests: XCTestCase {
     }
 
     /// The record facts lane 12.31 predicts will move (tool, kind, argv, workflow name), the `resolved` keys and
-    /// the inputs, which name the manifest's source file.
+    /// the inputs, which name only files the export reads (BIO ruling on 12.31 M4).
     @MainActor func testRecordNamesTheAppWriterAndTheViewState() throws {
         let vc = try configuredController()
         let outputURL = folder.appendingPathComponent("summary.tsv")
@@ -90,10 +90,52 @@ final class NaoMgsSummaryExportPinTests: XCTestCase {
         XCTAssertEqual(resolved["sampleName"]?.stringValue, "naomgs-pin")
         XCTAssertEqual(envelope.options.explicit.keys.sorted(), ["format", "outputPath"])
         XCTAssertEqual(envelope.options.defaults["format"]?.stringValue, "tsv")
+        // This fixture opens no bundle, so the export reads no file.
         XCTAssertEqual(
             envelope.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent },
-            ["virus_hits.tsv"]
+            []
         )
+    }
+
+    /// BIO ruling on 12.31 M4 (M4-2). With the bundle open as the app opens it, the record names the database, the
+    /// manifest and, when a metadata column is written, the sample metadata table, and never the import's source
+    /// file, which no payload byte comes from.
+    @MainActor func testInputsAreTheBundleFilesTheTableReads() throws {
+        let source = folder.appendingPathComponent("virus_hits.tsv")
+        try Data("source\n".utf8).write(to: source)
+        let bundleURL = folder.appendingPathComponent("fixture.naomgs", isDirectory: true)
+        let metadataFolder = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataFolder, withIntermediateDirectories: true)
+        let manifest = NaoMgsManifest(
+            sampleName: "naomgs-pin", sourceFilePath: source.path, hitCount: 2, taxonCount: 2,
+            topTaxon: "Alpha virus", topTaxonId: 1
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let database = try NaoMgsDatabase.create(
+            at: bundleURL.appendingPathComponent("hits.sqlite"),
+            hits: [Self.hit(sample: "sample-A", taxId: 1), Self.hit(sample: "sample-B", taxId: 4)]
+        )
+        try Data("Sample\tCohort\nsample-A\tcase\nsample-B\tcontrol\nsample-C\tcase\n".utf8)
+            .write(to: metadataFolder.appendingPathComponent("sample_metadata.tsv"))
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(database: database, manifest: manifest, bundleURL: bundleURL)
+        vc.applySampleMetadata(try XCTUnwrap(
+            SampleMetadataStore.load(from: bundleURL, knownSampleIds: ["sample-A", "sample-B"])
+        ))
+        vc.metadataColumnController.visibleColumns = ["Cohort"]
+
+        let withColumn = folder.appendingPathComponent("with-column.tsv")
+        try vc.writeSummaryTSV(to: withColumn)
+        XCTAssertEqual(try Self.inputNames(of: withColumn), ["hits.sqlite", "manifest.json", "sample_metadata.tsv"])
+
+        vc.metadataColumnController.visibleColumns = []
+        let withoutColumn = folder.appendingPathComponent("without-column.tsv")
+        try vc.writeSummaryTSV(to: withoutColumn)
+        XCTAssertEqual(try Self.inputNames(of: withoutColumn), ["hits.sqlite", "manifest.json"])
     }
 
     /// A failed write reaches `ResultExportCoordinator.reportFailure`, whose words UX 1 keeps.
@@ -151,6 +193,25 @@ final class NaoMgsSummaryExportPinTests: XCTestCase {
         vc.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
         XCTAssertEqual(vc.testDisplayedTaxonOrder, ["sample-B:4", "sample-A:1"])
         return vc
+    }
+
+    private static func inputNames(of outputURL: URL) throws -> [String] {
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        )
+        return envelope.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
+            .sorted()
+    }
+
+    private static func hit(sample: String, taxId: Int) -> NaoMgsVirusHit {
+        NaoMgsVirusHit(
+            sample: sample, seqId: "\(sample)-read-\(taxId)", taxId: taxId,
+            bestAlignmentScore: 120, cigar: "100M", queryStart: 0, queryEnd: 100, refStart: 0, refEnd: 100,
+            readSequence: String(repeating: "A", count: 100), readQuality: String(repeating: "I", count: 100),
+            subjectSeqId: "NC_\(taxId)", subjectTitle: "Taxon \(taxId)",
+            bitScore: 210, eValue: 1e-40, percentIdentity: 99, editDistance: 1, fragmentLength: 100,
+            isReverseComplement: false, pairStatus: "CP", queryLength: 100
+        )
     }
 
     private static func row(sample: String, taxId: Int, name: String, hits: Int) -> NaoMgsTaxonSummaryRow {

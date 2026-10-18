@@ -2841,9 +2841,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
         if let bundleURL {
             urls.append(bundleURL.appendingPathComponent("manifest.json"))
-        }
-        if let sourceFilePath = manifest?.sourceFilePath, !sourceFilePath.isEmpty {
-            urls.append(URL(fileURLWithPath: sourceFilePath))
+            let writesMetadata = !metadataColumnController.exportHeaders.isEmpty
+            urls += EsVirituDetectionExport.metadataInputURLs(in: bundleURL, writesMetadata: writesMetadata)
         }
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
