@@ -248,6 +248,8 @@ final class FastqTranslateMateIdTests: XCTestCase {
             ])
         )
         let bundle = try writeBundle(text, named: "mixed-single-end", metadata: metadata)
+        // The resolver alone numbers these pairs, so the recorded label is what keeps the bytes.
+        XCTAssertEqual(resolvedLayoutPin(bundle), .mixedMergedAndPairs)
 
         let frame1 = try await translated(bundle, to: "mixed-single-end.fa")
 
