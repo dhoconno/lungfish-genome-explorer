@@ -1,0 +1,10 @@
+{"event":"start","message":"Preparing primer design…","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Checking Primer3 runtime…","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Validating selected templates","progress":0.05,"schemaVersion":2}
+{"event":"progress","message":"Running Primer3","progress":0.25,"schemaVersion":2}
+{"event":"log","level":"info","message":"Native command: \/work\/conda\/envs\/primer3\/bin\/primer3_core --about","schemaVersion":2}
+{"event":"log","level":"info","message":"libprimer3 release 2.6.1","schemaVersion":2}
+{"event":"log","level":"info","message":"Native command: \/work\/conda\/envs\/primer3\/bin\/primer3_core --output=\/work\/project\/Analyses\/.lungfish-primer3-1A1D5E68-DD3A-43B9-B0CB-43191847ACD6\/native\/primer3-output.boulder \/work\/project\/Analyses\/.lungfish-primer3-1A1D5E68-DD3A-43B9-B0CB-43191847ACD6\/native\/primer3-input.boulder","schemaVersion":2}
+{"event":"progress","message":"Publishing Primer3 analysis","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"Primer3 analysis complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Primer analysis saved.","output":"\/work\/project\/Analyses\/primers-design-primer3.lungfishprimeranalysis","outputs":["\/work\/project\/Analyses\/primers-design-primer3.lungfishprimeranalysis"],"progress":1,"schemaVersion":2}

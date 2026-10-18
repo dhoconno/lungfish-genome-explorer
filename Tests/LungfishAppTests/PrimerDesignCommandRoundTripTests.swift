@@ -98,14 +98,46 @@ final class PrimerDesignCommandRoundTripTests: XCTestCase {
         XCTAssertEqual(command.bindingSitePolicy, "template-only")
     }
 
-    func testPrimer3HasNoCommandForAPresetRuleTheDialogCleared() throws {
+    /// A rule the assay preset sets and the dialog leaves blank goes to Primer3's own default. The command takes the
+    /// preset's value for a missing flag, so it names the rule `primer3-default` (UX ruling on lane 12.17, state 1).
+    func testPrimer3CommandLeavesAClearedPresetRuleToPrimer3() throws {
         let state = dialog(.primer3)
         state.chemistry = .intercalatingDye
         state.primerMaxPolyX = ""
-        // The command takes the preset's value for a missing flag and cannot clear it.
-        XCTAssertNil(PrimerDesignCLIArguments.primer3(
-            selections: [.fastaRecord(inputURL: Self.input, recordIndex: 0)],
-            output: Self.output, options: try state.primer3Options()))
+        let options = try state.primer3Options()
+        let args = try XCTUnwrap(PrimerDesignCLIArguments.primer3(
+            selections: [.fastaRecord(inputURL: Self.input, recordIndex: 0)], output: Self.output, options: options))
+        XCTAssertTrue(args.contains("--primer-max-poly-x=primer3-default"), "\(args)")
+        let parsed = try RecordedCLICommand.parse(
+            OperationCenter.buildCLICommand(subcommand: "primers design primer3", args: args),
+            as: PrimerDesignCommand.Primer3Subcommand.self)
+        let resolved = try parsed.makeOptions()
+        XCTAssertNil(resolved.primerMaxPolyX)
+        XCTAssertEqual(resolved, options, "every other value is the dialog's")
+    }
+
+    /// Every assay at its defaults and with each of the eight preset rules blank, and Olivar and varVAMP at their
+    /// defaults, have a command, so the dialog states with no command (a probe group unlike the preset, a scheme engine
+    /// without its block) are out of the dialog's reach (UX ruling on lane 12.17, states 2 and 3).
+    func testEveryDialogAssayAndSchemeEngineHasACommand() throws {
+        let rules: [ReferenceWritableKeyPath<PrimerDesignDialogState, String>] = [
+            \.pairMaxTmDifference, \.primerMaxEndGC, \.primerGCClamp, \.primerMaxPolyX,
+            \.primerMaxSelfAnyTh, \.primerMaxSelfEndTh, \.pairMaxComplAnyTh, \.pairMaxComplEndTh,
+        ]
+        for chemistry in PrimerDesignChemistry.allCases {
+            let state = dialog(.primer3)
+            state.chemistry = chemistry
+            try assertPrimer3RoundTrip(state)
+            for rule in rules {
+                let cleared = dialog(.primer3)
+                cleared.chemistry = chemistry
+                cleared[keyPath: rule] = ""
+                try assertPrimer3RoundTrip(cleared)
+            }
+        }
+        for engine in [PrimerDesignEngine.olivar, .varVAMP] {
+            XCTAssertNotNil(PrimerDesignOperation.cliArgv(state: dialog(engine), destination: Self.output), "\(engine)")
+        }
     }
 
     // MARK: - PrimalScheme3

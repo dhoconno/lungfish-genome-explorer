@@ -201,10 +201,14 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
         try makeOptions(supplied: suppliedNames(argv))
     }
 
+    @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
     func run() async throws {
-        let output = try await execute(argv: CommandLine.arguments)
-        print("varVAMP primer analysis written to \(output.path)")
-        for line in Self.advisoryLines(analysisURL: output) { print(line) }
+        try await PrimerDesignCommand.runDesign(
+            outputPath: outputPath, globalOptions: globalOptions,
+            design: { argv, progress in try await execute(argv: argv, progress: progress) },
+            summary: { ["varVAMP primer analysis written to \($0.path)"] + Self.advisoryLines(analysisURL: $0) }
+        )
     }
 
     /// The same coverage explanations the GUI shows on each saved target.
@@ -219,7 +223,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
         }
     }
 
-    private func execute(argv: [String]) async throws -> URL {
+    private func execute(argv: [String], progress: (@Sendable (Double, String) -> Void)? = nil) async throws -> URL {
         try PrimerDesignCommand.refuseExistingOutput(outputPath)
         let inputs = try primerSchemeInputs(msaPaths)
         let options = try makeOptions(argv: argv)
@@ -235,7 +239,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
         return try await PrimerSchemeDesignPipeline().run(request: .init(
             inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath),
             options: options, invocation: invocation, expectedInputChecksums: checksums,
-            executableURL: pythonPath.map(URL.init(fileURLWithPath:))))
+            executableURL: pythonPath.map(URL.init(fileURLWithPath:))), progress: progress)
     }
 
     private func suppliedNames(_ argv: [String]) -> Set<String> {

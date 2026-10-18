@@ -74,14 +74,15 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("primer-max-tm"), help: "Preset default: 63 for pcr, 62 for qpcr-dye and qpcr-probe.") var primerMaxTm: Double?
         @Option(name: .customLong("primer-min-gc"), help: "Preset default: 20 for pcr, 40 for qpcr-dye and qpcr-probe.") var primerMinGC: Double?
         @Option(name: .customLong("primer-max-gc"), help: "Preset default: 80 for pcr, 60 for qpcr-dye and qpcr-probe.") var primerMaxGC: Double?
-        @Option(name: .customLong("pair-max-tm-difference"), help: "PRIMER_PAIR_MAX_DIFF_TM. Preset default: Primer3's own for pcr, 1 for qpcr-dye and qpcr-probe.") var pairMaxTmDifference: Double?
-        @Option(name: .customLong("primer-max-end-gc"), help: "PRIMER_MAX_END_GC. Preset default: Primer3's own for pcr, 2 for qpcr-dye and qpcr-probe.") var primerMaxEndGC: Int?
-        @Option(name: .customLong("primer-gc-clamp"), help: "PRIMER_GC_CLAMP. Preset default: Primer3's own for pcr, 1 for qpcr-dye and qpcr-probe.") var primerGCClamp: Int?
-        @Option(name: .customLong("primer-max-poly-x"), help: "PRIMER_MAX_POLY_X. Preset default: Primer3's own for pcr, 4 for qpcr-dye and qpcr-probe.") var primerMaxPolyX: Int?
-        @Option(name: .customLong("primer-max-self-any-th"), help: "PRIMER_MAX_SELF_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye and qpcr-probe.") var primerMaxSelfAnyTh: Double?
-        @Option(name: .customLong("primer-max-self-end-th"), help: "PRIMER_MAX_SELF_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye and qpcr-probe.") var primerMaxSelfEndTh: Double?
-        @Option(name: .customLong("pair-max-compl-any-th"), help: "PRIMER_PAIR_MAX_COMPL_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye and qpcr-probe.") var pairMaxComplAnyTh: Double?
-        @Option(name: .customLong("pair-max-compl-end-th"), help: "PRIMER_PAIR_MAX_COMPL_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye and qpcr-probe.") var pairMaxComplEndTh: Double?
+        // The eight rules an assay preset sets. `primer3-default` leaves a rule to Primer3, as a blank dialog field does.
+        @Option(name: .customLong("pair-max-tm-difference"), help: "PRIMER_PAIR_MAX_DIFF_TM. Preset default: Primer3's own for pcr, 1 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var pairMaxTmDifference: Primer3PresetRule<Double>?
+        @Option(name: .customLong("primer-max-end-gc"), help: "PRIMER_MAX_END_GC. Preset default: Primer3's own for pcr, 2 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var primerMaxEndGC: Primer3PresetRule<Int>?
+        @Option(name: .customLong("primer-gc-clamp"), help: "PRIMER_GC_CLAMP. Preset default: Primer3's own for pcr, 1 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var primerGCClamp: Primer3PresetRule<Int>?
+        @Option(name: .customLong("primer-max-poly-x"), help: "PRIMER_MAX_POLY_X. Preset default: Primer3's own for pcr, 4 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var primerMaxPolyX: Primer3PresetRule<Int>?
+        @Option(name: .customLong("primer-max-self-any-th"), help: "PRIMER_MAX_SELF_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var primerMaxSelfAnyTh: Primer3PresetRule<Double>?
+        @Option(name: .customLong("primer-max-self-end-th"), help: "PRIMER_MAX_SELF_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var primerMaxSelfEndTh: Primer3PresetRule<Double>?
+        @Option(name: .customLong("pair-max-compl-any-th"), help: "PRIMER_PAIR_MAX_COMPL_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var pairMaxComplAnyTh: Primer3PresetRule<Double>?
+        @Option(name: .customLong("pair-max-compl-end-th"), help: "PRIMER_PAIR_MAX_COMPL_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye and qpcr-probe. Pass primer3-default to use Primer3's own.") var pairMaxComplEndTh: Primer3PresetRule<Double>?
 
         // PRIMER_INTERNAL_* hydrolysis-probe rules. They apply only to qpcr-probe, the
         // one preset that asks Primer3 for an internal oligo.
@@ -108,10 +109,14 @@ struct PrimerDesignCommand: AsyncParsableCommand {
 
         @Option(name: .customLong("probe-min-tm-offset-over-primers"), help: "Raise the probe minimum Tm to the highest primer Tm plus this many C, so a hydrolysis probe is bound before extension reaches it. Default 5, varVAMP's QPROBE_TEMP_DIFF lower bound. Pass 0 to leave the probe window exactly as configured.") var probeMinTmOffsetOverPrimers: Double?
 
+        @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
         func run() async throws {
-            let output = try await execute(argv: CommandLine.arguments)
-            print("Primer3 analysis written to \(output.path)")
-            Self.summaryLines(forAnalysisAt: output).forEach { print($0) }
+            try await PrimerDesignCommand.runDesign(
+                outputPath: outputPath, globalOptions: globalOptions,
+                design: { argv, progress in try await execute(argv: argv, progress: progress) },
+                summary: { ["Primer3 analysis written to \($0.path)"] + Self.summaryLines(forAnalysisAt: $0) }
+            )
         }
 
         /// Per-template pair counts and Primer3's EXPLAIN lines.
@@ -146,7 +151,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
 
         func executeForTesting(argv: [String]) async throws -> URL { try await execute(argv: argv) }
 
-        private func execute(argv: [String]) async throws -> URL {
+        private func execute(argv: [String], progress: (@Sendable (Double, String) -> Void)? = nil) async throws -> URL {
             try PrimerDesignCommand.refuseExistingOutput(outputPath)
             let policy: Primer3BindingSitePolicy
             switch bindingSitePolicy {
@@ -174,7 +179,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             let explicit = Self.explicitOptions(options, selections: selections)
             try PrimerDesignCommand.createOutputParent(outputPath)
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
-            return try await Primer3DesignPipeline().run(request: .init(inputURLs: inputs, selections: selections, destinationURL: URL(fileURLWithPath: outputPath), options: options, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
+            return try await Primer3DesignPipeline().run(request: .init(inputURLs: inputs, selections: selections, destinationURL: URL(fileURLWithPath: outputPath), options: options, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums), progress: progress)
         }
 
         /// Resolves the parsed flags onto the shared assay preset so the CLI and
@@ -198,14 +203,14 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 primerMinGC: primerMinGC ?? defaults.primerMinGC,
                 primerMaxGC: primerMaxGC ?? defaults.primerMaxGC,
                 pickInternalOligo: pickInternalOligo || mode.picksInternalOligo,
-                pairMaxTmDifference: pairMaxTmDifference ?? defaults.pairMaxTmDifference,
-                primerMaxEndGC: primerMaxEndGC ?? defaults.primerMaxEndGC,
-                primerGCClamp: primerGCClamp ?? defaults.primerGCClamp,
-                primerMaxPolyX: primerMaxPolyX ?? defaults.primerMaxPolyX,
-                primerMaxSelfAnyTh: primerMaxSelfAnyTh ?? defaults.primerMaxSelfAnyTh,
-                primerMaxSelfEndTh: primerMaxSelfEndTh ?? defaults.primerMaxSelfEndTh,
-                pairMaxComplAnyTh: pairMaxComplAnyTh ?? defaults.pairMaxComplAnyTh,
-                pairMaxComplEndTh: pairMaxComplEndTh ?? defaults.pairMaxComplEndTh,
+                pairMaxTmDifference: Primer3PresetRule.resolve(pairMaxTmDifference, preset: defaults.pairMaxTmDifference),
+                primerMaxEndGC: Primer3PresetRule.resolve(primerMaxEndGC, preset: defaults.primerMaxEndGC),
+                primerGCClamp: Primer3PresetRule.resolve(primerGCClamp, preset: defaults.primerGCClamp),
+                primerMaxPolyX: Primer3PresetRule.resolve(primerMaxPolyX, preset: defaults.primerMaxPolyX),
+                primerMaxSelfAnyTh: Primer3PresetRule.resolve(primerMaxSelfAnyTh, preset: defaults.primerMaxSelfAnyTh),
+                primerMaxSelfEndTh: Primer3PresetRule.resolve(primerMaxSelfEndTh, preset: defaults.primerMaxSelfEndTh),
+                pairMaxComplAnyTh: Primer3PresetRule.resolve(pairMaxComplAnyTh, preset: defaults.pairMaxComplAnyTh),
+                pairMaxComplEndTh: Primer3PresetRule.resolve(pairMaxComplEndTh, preset: defaults.pairMaxComplEndTh),
                 probe: resolvedProbeDefaults(defaults.probe),
                 fixedOligos: Primer3FixedOligos(
                     leftPrimer: leftPrimer, rightPrimer: rightPrimer, probe: fixedProbe,
@@ -361,9 +366,14 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("gap-expansion-max-anchors-per-msa")) var gapExpansionMaxAnchorsPerMSA: Int?
         @Option(name: .customLong("gap-expansion-max-pairs-per-msa")) var gapExpansionMaxPairsPerMSA: Int?
 
+        @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
         func run() async throws {
-            let output = try await execute(argv: CommandLine.arguments)
-            print("PrimalScheme analysis written to \(output.path)")
+            try await PrimerDesignCommand.runDesign(
+                outputPath: outputPath, globalOptions: globalOptions,
+                design: { argv, progress in try await execute(argv: argv, progress: progress) },
+                summary: { ["PrimalScheme analysis written to \($0.path)"] }
+            )
         }
         func validatedInputURLs(paths: [String]) throws -> [URL] {
             guard !paths.isEmpty else { throw ValidationError("Provide at least one --msa input.") }
@@ -375,7 +385,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 return url
             }
         }
-        private func execute(argv: [String]) async throws -> URL {
+        private func execute(argv: [String], progress: (@Sendable (Double, String) -> Void)? = nil) async throws -> URL {
             try PrimerDesignCommand.refuseExistingOutput(outputPath)
             let inputs = try validatedInputURLs(paths: msaPaths)
             let resolved = try makeOptions()
@@ -386,7 +396,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
             try PrimerDesignCommand.createOutputParent(outputPath)
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
-            return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
+            return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums), progress: progress)
         }
 
         /// Resolves the parsed flags into the same typed options the GUI dialog

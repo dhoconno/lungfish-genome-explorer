@@ -15,26 +15,23 @@ public enum PrimerDesignCLIArguments {
 
     // MARK: - Primer3
 
+    /// The value of a preset rule's option that leaves the rule to Primer3's own default.
+    public static let primer3DefaultWord = "primer3-default"
+
     /// The arguments of `primers design primer3`, or nil when the command cannot say the
-    /// options. The command cannot clear a rule the assay preset sets, nor drop the probe
-    /// group of a probe assay, so options that do either have no command.
+    /// options. A rule the assay preset sets and the options leave to Primer3 is written as
+    /// `--<rule>=primer3-default` (UX ruling on lane 12.17 of Phase 2.12). The command cannot
+    /// drop the probe group of a probe assay nor its internal oligo, which the dialog never
+    /// does, so options that do either have no command.
     public static func primer3(
         selections: [Primer3TemplateSelection], output: URL, options: Primer3DesignOptions
     ) -> [String]? {
         let preset = Primer3AssayDefaults.defaults(for: options.assayMode)
-        let clearsPresetRule = [
-            options.pairMaxTmDifference == nil && preset.pairMaxTmDifference != nil,
-            options.primerMaxEndGC == nil && preset.primerMaxEndGC != nil,
-            options.primerGCClamp == nil && preset.primerGCClamp != nil,
-            options.primerMaxPolyX == nil && preset.primerMaxPolyX != nil,
-            options.primerMaxSelfAnyTh == nil && preset.primerMaxSelfAnyTh != nil,
-            options.primerMaxSelfEndTh == nil && preset.primerMaxSelfEndTh != nil,
-            options.pairMaxComplAnyTh == nil && preset.pairMaxComplAnyTh != nil,
-            options.pairMaxComplEndTh == nil && preset.pairMaxComplEndTh != nil,
+        let dropsPresetProbe = [
             (options.probe == nil) != (preset.probe == nil),
             !options.pickInternalOligo && options.assayMode.picksInternalOligo,
         ]
-        guard !selections.isEmpty, !clearsPresetRule.contains(true) else { return nil }
+        guard !selections.isEmpty, !dropsPresetProbe.contains(true) else { return nil }
         // A path is a word of its own, so a replay that moves the project folder can rebase it
         // (RouteParityHarness.rebased only moves a word that starts with the folder).
         var args = ["--assay=\(options.assayMode.rawValue)"]
@@ -67,17 +64,25 @@ public enum PrimerDesignCLIArguments {
             "--primer-max-tm=\(number(options.primerMaxTm))",
             "--primer-min-gc=\(number(options.primerMinGC))", "--primer-max-gc=\(number(options.primerMaxGC))",
         ]
-        let optional: [(String, String?)] = [
-            ("pair-max-tm-difference", options.pairMaxTmDifference.map(number)),
-            ("primer-max-end-gc", options.primerMaxEndGC.map(String.init)),
-            ("primer-gc-clamp", options.primerGCClamp.map(String.init)),
-            ("primer-max-poly-x", options.primerMaxPolyX.map(String.init)),
-            ("primer-max-self-any-th", options.primerMaxSelfAnyTh.map(number)),
-            ("primer-max-self-end-th", options.primerMaxSelfEndTh.map(number)),
-            ("pair-max-compl-any-th", options.pairMaxComplAnyTh.map(number)),
-            ("pair-max-compl-end-th", options.pairMaxComplEndTh.map(number)),
+        // Each rule with the preset's value beside it. A rule the options leave to Primer3 while
+        // the preset sets it is named primer3-default, since a missing flag takes the preset's value.
+        let rules: [(String, String?, Bool)] = [
+            ("pair-max-tm-difference", options.pairMaxTmDifference.map(number), preset.pairMaxTmDifference != nil),
+            ("primer-max-end-gc", options.primerMaxEndGC.map(String.init), preset.primerMaxEndGC != nil),
+            ("primer-gc-clamp", options.primerGCClamp.map(String.init), preset.primerGCClamp != nil),
+            ("primer-max-poly-x", options.primerMaxPolyX.map(String.init), preset.primerMaxPolyX != nil),
+            ("primer-max-self-any-th", options.primerMaxSelfAnyTh.map(number), preset.primerMaxSelfAnyTh != nil),
+            ("primer-max-self-end-th", options.primerMaxSelfEndTh.map(number), preset.primerMaxSelfEndTh != nil),
+            ("pair-max-compl-any-th", options.pairMaxComplAnyTh.map(number), preset.pairMaxComplAnyTh != nil),
+            ("pair-max-compl-end-th", options.pairMaxComplEndTh.map(number), preset.pairMaxComplEndTh != nil),
         ]
-        for (name, value) in optional { if let value { args.append("--\(name)=\(value)") } }
+        for (name, value, presetSetsIt) in rules {
+            if let value {
+                args.append("--\(name)=\(value)")
+            } else if presetSetsIt {
+                args.append("--\(name)=\(primer3DefaultWord)")
+            }
+        }
         if options.pickInternalOligo, !options.assayMode.picksInternalOligo { args.append("--pick-internal-oligo") }
         if let probe = options.probe {
             args += [

@@ -40,6 +40,9 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // `bam consensus` runs samtools. Its transcripts are runs of the built CLI on the sarscov2 BAM
         // (lane A51 of Phase 2.10).
         "bam consensus",
+        // `primers design primer3`, `primalscheme3` and `varvamp` run their engines. Each transcript pair is a run of the
+        // built CLI with `--format json`, a saved design and a refused existing `--output` (lane 12.17 M2 of Phase 2.12).
+        "primers design primer3", "primers design primalscheme3", "primers design varvamp",
         // `extract reads` runs samtools. Its transcripts are runs of the built CLI on the sarscov2 BAM,
         // `--by-region` to a FASTQ and a refused missing BAM (lane A51 of Phase 2.10).
         "extract reads",
