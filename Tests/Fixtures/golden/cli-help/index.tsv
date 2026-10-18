@@ -124,7 +124,6 @@ lungfish-cli conda db remove	shown	0	lungfish-cli.conda.db.remove.txt
 lungfish-cli conda db recommend	shown	0	lungfish-cli.conda.db.recommend.txt
 lungfish-cli conda db update	shown	0	lungfish-cli.conda.db.update.txt
 lungfish-cli conda db install-managed	shown	0	lungfish-cli.conda.db.install-managed.txt
-lungfish-cli conda extract	shown	0	lungfish-cli.conda.extract.txt
 lungfish-cli blast	shown	0	lungfish-cli.blast.txt
 lungfish-cli blast verify	shown	0	lungfish-cli.blast.verify.txt
 lungfish-cli blast submit	shown	0	lungfish-cli.blast.submit.txt
