@@ -300,7 +300,6 @@ final class TaxTriageCLIRouteRowTests: XCTestCase {
             config: config,
             viewerController: viewer,
             routeContext: OperationRouteContext(projectURL: project, windowStateScopeID: nil),
-            route: .cli,
             cliURLOverride: cli
         )
         let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }

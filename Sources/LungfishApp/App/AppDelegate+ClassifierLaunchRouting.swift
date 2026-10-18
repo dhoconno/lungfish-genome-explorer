@@ -10,7 +10,7 @@ import LungfishWorkflow
 /// The Tools menu's Kraken2, EsViritu and TaxTriage launches go through here (AppDelegate+ToolsMenu.swift).
 /// Every Kraken2 and EsViritu launch runs `lungfish-cli` through the CLI route (AppDelegate+ClassificationCLIRoute.swift),
 /// since the in-process route and the hidden keys that chose between them went in Phase 2.9 (E14).
-/// TaxTriage takes the route its hidden key names, for one Preview (Phase 2.11 K1).
+/// TaxTriage runs `lungfish-cli taxtriage run --project` the same way since Phase 2.12 (K1).
 /// A launch with no project open is refused, because the command writes its result into the project
 /// (decision L1). A classifier item chosen with no main window to open the dialog on takes the same
 /// refusal, app-modal (decision A4).
@@ -33,24 +33,17 @@ extension AppDelegate {
         runEsVirituThroughCLI(configs: configs, viewerController: viewerController, routeContext: routeContext)
     }
 
-    /// Runs the TaxTriage config the dialog hands over on the route the hidden key
-    /// `TaxTriageLaunchRoute` names (Phase 2.11 lane U30, decision K1). `cli`, the default since the
-    /// flip (U30 M4), runs `lungfish-cli taxtriage run --project` (AppDelegate+TaxTriageCLIRoute.swift).
-    /// `legacy`, kept for one Preview, runs `runTaxTriage` in this process unchanged. Either route
-    /// refuses a launch with no project open in the same words.
+    /// Runs the TaxTriage config the dialog hands over through `lungfish-cli taxtriage run --project`
+    /// (AppDelegate+TaxTriageCLIRoute.swift), the route the default of 2.11's hidden key took since
+    /// U30 M4. The key and the in-process route went in Phase 2.12 (K1). A launch with no project
+    /// open is refused.
     func launchTaxTriage(
         config: TaxTriageConfig,
         viewerController: ViewerViewController,
         routeContext: OperationRouteContext? = nil,
-        route: TaxTriageLaunchRoute = TaxTriageLaunchRouteSettings.currentRoute,
         cliURLOverride: URL? = nil
     ) {
-        switch route {
-        case .legacy:
-            runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)
-        case .cli:
-            runTaxTriageThroughCLI(config: config, viewerController: viewerController, routeContext: routeContext, cliURLOverride: cliURLOverride)
-        }
+        runTaxTriageThroughCLI(config: config, viewerController: viewerController, routeContext: routeContext, cliURLOverride: cliURLOverride)
     }
 
     /// The one refusal of a classifier launch that has no project to write into, the `No Project

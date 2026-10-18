@@ -72,16 +72,18 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         cli: URL? = nil
     ) -> OperationCenter.Item? {
         let existing = Set(OperationCenter.shared.items.map(\.id))
-        // A runner that ends the legacy launch at once, so it never reaches the managed Nextflow.
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
-            TaxTriageSerialBatchRunner(runPipeline: { _, _ in throw CancellationError() })
-        }) {
+        switch route {
+        case .legacy:
+            // Since 2.12 K1 M2 the launch runs the CLI route only, so a legacy case calls the legacy route
+            // itself, with a runner that ends it at once, so it never reaches the managed Nextflow.
+            AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
+                TaxTriageSerialBatchRunner(runPipeline: { _, _ in throw CancellationError() })
+            }) {
+                makeAppDelegateWithTemporaryState().runTaxTriage(config: config, viewerController: viewer, routeContext: routeContext)
+            }
+        case .cli:
             makeAppDelegateWithTemporaryState().launchTaxTriage(
-                config: config,
-                viewerController: viewer,
-                routeContext: routeContext,
-                route: route,
-                cliURLOverride: cli
+                config: config, viewerController: viewer, routeContext: routeContext, cliURLOverride: cli
             )
         }
         let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
@@ -153,8 +155,8 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
                 throw CancellationError()
             })
         }) {
-            makeAppDelegateWithTemporaryState().launchTaxTriage(
-                config: config(inputs: [bundle]), viewerController: viewer, routeContext: routeContext, route: .legacy
+            makeAppDelegateWithTemporaryState().runTaxTriage(
+                config: config(inputs: [bundle]), viewerController: viewer, routeContext: routeContext
             )
         }
         let row = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) })
@@ -167,19 +169,11 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
         XCTAssertEqual(configs.flatMap(\.samples).map(\.platform), [.illumina], "and so does its sample")
     }
 
-    // MARK: - The key's values at the launch (U30 M4)
+    // MARK: - The launch (2.12 K1)
 
-    /// The route a key in a defaults suite of the test's own names, read as the Tools menu's launch
-    /// reads the user's defaults (`TaxTriageLaunchRouteSettings.currentRoute`).
-    private func route(ofAKeyHolding value: String?) -> TaxTriageLaunchRoute {
-        let suite = makeTestDefaultsSuite(prefix: "taxtriage-launch-run")
-        if let value { suite.defaults.set(value, forKey: TaxTriageLaunchRouteSettings.defaultsKey) }
-        return TaxTriageLaunchRouteSettings(defaults: suite.defaults).route
-    }
-
-    /// U30 M4. Since the flip an unset key launches `lungfish-cli taxtriage run --project`, so the row
+    /// 2.12 K1. The launch runs `lungfish-cli taxtriage run --project` with no key to read, so the row
     /// records the command's argv and not the in-process command.
-    func testAnUnsetKeyLaunchesTheCLIRouteSinceTheFlip() async throws {
+    func testTheLaunchRunsTheCLIRouteWithNoKeyToRead() async throws {
         let made = try ClassifierRouteFixtures.makeProject(in: root)
         let routeContext = OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
         let expected = try XCTUnwrap(try ClassifierCLIRouteLaunch.taxTriage(config: config(inputs: made.inputs), projectURL: made.project))
@@ -191,12 +185,10 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
             ],
             exitStatus: 64
         )
-        let keyRoute = route(ofAKeyHolding: nil)
-        XCTAssertEqual(keyRoute, .cli, "an unset key takes the CLI route")
         let (viewer, window) = makeViewerInWindow()
         defer { close(window) }
 
-        let row = try XCTUnwrap(launch(config(inputs: made.inputs), route: keyRoute, viewer: viewer, routeContext: routeContext, cli: cli))
+        let row = try XCTUnwrap(launch(config(inputs: made.inputs), route: .cli, viewer: viewer, routeContext: routeContext, cli: cli))
         XCTAssertEqual(row.cliCommand, expected.cliCommand)
         XCTAssertTrue(expected.cliCommand.hasPrefix("lungfish-cli taxtriage run --input \(made.inputs[0].path) "), expected.cliCommand)
         XCTAssertTrue(expected.cliCommand.contains(" --project \(made.project.path) "), expected.cliCommand)
@@ -206,24 +198,6 @@ final class TaxTriageLaunchRouteRunTests: XCTestCase {
     }
 
     /// U30 M4. An explicit `legacy` still runs `runTaxTriage` in this process for one Preview, so the row
-    /// records the in-process command, with `--output` into the batch folder it made (K1).
-    func testAnExplicitLegacyKeyStillRunsTheInProcessRouteForOnePreview() async throws {
-        let made = try ClassifierRouteFixtures.makeProject(in: root)
-        let routeContext = OperationRouteContext(projectURL: made.project, windowStateScopeID: nil)
-        let keyRoute = route(ofAKeyHolding: "legacy")
-        XCTAssertEqual(keyRoute, .legacy, "an explicit legacy keeps the in-process route")
-        let (viewer, window) = makeViewerInWindow()
-        defer { close(window) }
-
-        let row = try XCTUnwrap(launch(config(inputs: made.inputs), route: keyRoute, viewer: viewer, routeContext: routeContext))
-        let command = try XCTUnwrap(row.cliCommand)
-        XCTAssertTrue(command.hasPrefix("lungfish-cli taxtriage --input "), command)
-        XCTAssertTrue(command.contains(" --output \(made.project.path)/Analyses/taxtriage-batch-"), command)
-        XCTAssertFalse(command.contains("--project"), command)
-        let finished = await waitUntil(timeout: .seconds(30)) { self.item(row.id).map { !$0.state.isActive } ?? true }
-        XCTAssertTrue(finished, "the legacy row did not finish")
-    }
-
     // MARK: - cli
 
     /// `cli` begins a row with today's title and first detail that records the argv it runs, runs

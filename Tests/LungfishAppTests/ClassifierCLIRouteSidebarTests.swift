@@ -402,7 +402,7 @@ private extension ClassifierCLIRouteSidebarTests {
         let routeContext = rig.delegate.currentOperationRouteContext(for: rig.controller)
 
         let existing = Set(OperationCenter.shared.items.map(\.id))
-        rig.delegate.launchTaxTriage(config: config, viewerController: rig.viewer, routeContext: routeContext, route: .cli, cliURLOverride: cli)
+        rig.delegate.launchTaxTriage(config: config, viewerController: rig.viewer, routeContext: routeContext, cliURLOverride: cli)
         let started = try XCTUnwrap(OperationCenter.shared.items.first { !existing.contains($0.id) }, "the route started no row")
         let tracking = await waitUntil(timeout: .seconds(30)) { OperationCenter.shared.isTrackingAnalysisOutput(folder) }
         XCTAssertTrue(tracking, "the row never tracked the folder the output line named")

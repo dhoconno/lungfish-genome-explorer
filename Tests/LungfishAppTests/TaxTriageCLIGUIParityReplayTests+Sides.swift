@@ -393,12 +393,13 @@ extension TaxTriageParityHarness {
         let routeContext = OperationRouteContext(projectURL: project, windowStateScopeID: nil)
         switch route {
         case .legacy:
+            // Since 2.12 K1 M2 the launch runs the CLI route only, so side A calls the legacy route itself until K1 deletes it.
             AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue(engine.makeRunner) {
-                delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: routeContext, route: .legacy)
+                delegate.runTaxTriage(config: config, viewerController: viewer, routeContext: routeContext)
             }
         case .cli:
             let cli = try cliRouteExecutable(engine: engine)
-            delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: routeContext, route: .cli, cliURLOverride: cli)
+            delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: routeContext, cliURLOverride: cli)
         }
         let started = try XCTUnwrap(
             OperationCenter.shared.items.first { !existing.contains($0.id) },

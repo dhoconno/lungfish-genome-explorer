@@ -57,12 +57,8 @@ final class TaxTriageNoProjectRefusalTests: XCTestCase {
         let viewer = ViewerViewController()
         let recorder = RecordingNoProjectPresenter()
         let existing = Set(OperationCenter.shared.items.map(\.id))
-        AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
-            TaxTriageSerialBatchRunner(runPipeline: { _, _ in throw CancellationError() })
-        }) {
-            AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
-                delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: nil, route: .cli)
-            }
+        AppDelegate.NoProjectPresenterSeam.$presenter.withValue(recorder) {
+            delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: nil)
         }
         let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
         rowIDs.append(contentsOf: started.map(\.id))
@@ -97,13 +93,7 @@ final class TaxTriageNoProjectRefusalTests: XCTestCase {
             }
 
             let existing = Set(OperationCenter.shared.items.map(\.id))
-            // A runner that ends the launch at once, so a launch that gets past the refusal never
-            // reaches the managed Nextflow.
-            AppDelegate.TaxTriageLaunchSeam.$makeRunner.withValue({
-                TaxTriageSerialBatchRunner(runPipeline: { _, _ in throw CancellationError() })
-            }) {
-                delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: context, route: .cli)
-            }
+            delegate.launchTaxTriage(config: config, viewerController: viewer, routeContext: context)
             let started = OperationCenter.shared.items.filter { !existing.contains($0.id) }
             rowIDs.append(contentsOf: started.map(\.id))
             _ = await waitUntil(timeout: .seconds(5)) { window.attachedSheet != nil }
