@@ -49,6 +49,9 @@ extension OutputEquivalence {
     static func normalizedPayload(_ url: URL, masks: MaskPolicy, context: MaskContext, dumpDatabases: Bool) throws -> String {
         let data = try Data(contentsOf: url)
         var name = url.lastPathComponent.lowercased()
+        if masks.comparesPNGByPresence, name.hasSuffix(".png"), data.starts(with: pngSignature) {
+            return "png present"
+        }
         var bytes = data
         if isGzip(data) {
             bytes = try run("/usr/bin/gzip", ["-dc", url.path]).stdout
@@ -84,6 +87,10 @@ extension OutputEquivalence {
 
     /// Binary indexes compared through the file they index.
     static let indexExtensions = [".bai", ".csi", ".tbi", ".crai"]
+
+    /// The eight bytes every PNG starts with. A policy with `comparesPNGByPresence` compares a `.png` that starts with
+    /// them on its name and presence. Any other file under that name keeps its own compare.
+    static let pngSignature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
 
     /// An index records the byte offsets of the file it indexes, which a
     /// header line changes, so it is never compared byte for byte. A BAM

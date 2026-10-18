@@ -210,4 +210,60 @@ final class PrimerAnalysisMaskPolicyTests: XCTestCase {
         }
         try assertHides("logs/run.json", record("[13:11:20]", exit: 0), record("[13:12:21]", exit: 0), butNot: record("[13:11:20]", exit: 1))
     }
+
+    // MARK: - A PNG (comparesPNGByPresence, the manager's grant to lane 12.16 c2)
+
+    /// A PNG signature followed by `count` bytes of `fill`. The signature's first byte is no UTF-8 lead byte, so the
+    /// standard compare reads the file as binary.
+    private static func png(_ fill: UInt8, count: Int = 16) -> Data {
+        Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] + [UInt8](repeating: fill, count: count))
+    }
+
+    /// The differences of two trees that hold the given binary files, under the primer analysis policy and the standard one.
+    private func compareData(_ filesA: [String: Data], _ filesB: [String: Data]) throws -> (primer: [String], standard: [String]) {
+        pairs += 1
+        let a = scratch.appendingPathComponent("\(pairs)/A", isDirectory: true)
+        let b = scratch.appendingPathComponent("\(pairs)/B", isDirectory: true)
+        for (root, files) in [(a, filesA), (b, filesB)] {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            for (relative, data) in files {
+                let file = root.appendingPathComponent(relative)
+                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: file)
+            }
+        }
+        return (
+            try OutputEquivalence.differences(a, b, kind: .bundle, masks: .primerAnalysis),
+            try OutputEquivalence.differences(a, b, kind: .bundle)
+        )
+    }
+
+    func testOnlyThePrimerAnalysisPolicyComparesAPNGByPresence() {
+        XCTAssertTrue(OutputEquivalence.MaskPolicy.primerAnalysis.comparesPNGByPresence)
+        XCTAssertFalse(OutputEquivalence.MaskPolicy.standard.comparesPNGByPresence)
+        XCTAssertFalse(OutputEquivalence.MaskPolicy.gatk.comparesPNGByPresence)
+    }
+
+    func testAPNGsPixelsAreHiddenAndAPNGOnOneSideOrUnderAnotherNameStillDiffers() throws {
+        let plot = "native/run/input_row_0.png"
+        let pixels = try compareData([plot: Self.png(1)], [plot: Self.png(2)])
+        XCTAssertEqual(pixels.primer, [], "the policy compares the PNG by name and presence")
+        XCTAssertEqual(pixels.standard.count, 1, "\(pixels.standard)")
+        XCTAssertTrue(pixels.standard.first?.hasPrefix("differs: \(plot)") == true, "\(pixels.standard)")
+        XCTAssertTrue(pixels.standard.first?.contains("binary sha256") == true, "the standard policy compares it by digest")
+        let oneSided = try compareData([plot: Self.png(1)], ["native/run/input_row_0.bed": Data("row\t0\t10\n".utf8)])
+        XCTAssertTrue(oneSided.primer.contains("only in A: \(plot)"), "\(oneSided.primer)")
+        let renamed = try compareData([plot: Self.png(1)], ["native/run/input_row_1.png": Self.png(1)])
+        XCTAssertTrue(renamed.primer.contains("only in A: \(plot)"), "\(renamed.primer)")
+        XCTAssertTrue(renamed.primer.contains("only in B: native/run/input_row_1.png"), "\(renamed.primer)")
+    }
+
+    func testAFileThatIsNoPNGKeepsItsCompareUnderThePolicy() throws {
+        let fake = try compareData(["plot.png": Data([0xFF, 0xFE, 0x00, 0x01])], ["plot.png": Data([0xFF, 0xFE, 0x00, 0x02])])
+        XCTAssertEqual(fake.primer.count, 1, "a .png without the signature is compared by digest: \(fake.primer)")
+        XCTAssertTrue(fake.primer.first?.hasPrefix("differs: plot.png") == true, "\(fake.primer)")
+        let other = try compareData(["plot.bin": Self.png(1)], ["plot.bin": Self.png(2)])
+        XCTAssertEqual(other.primer.count, 1, "a PNG under another name is compared by digest: \(other.primer)")
+        XCTAssertTrue(other.primer.first?.hasPrefix("differs: plot.bin") == true, "\(other.primer)")
+    }
 }

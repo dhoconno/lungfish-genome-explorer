@@ -80,6 +80,11 @@ extension OutputEquivalence.MaskPolicy {
             undashed, OutputEquivalence.Masks.primerAnalysisSchemeIDs, OutputEquivalence.Masks.primerAnalysisNativeDigests,
             OutputEquivalence.Masks.primerAnalysisConsole,
         ])
+        // primalscheme3 titles its row plot (`native/<id>/input_<UUID>_row_<n>.png`) with the row name, so the fresh
+        // input ID is drawn into its pixels and no text mask reaches it. The PNG is compared by name and presence, and
+        // the plot's data stays compared in the bundle's BED, CSV and `work/plotdata.json.gz` files (the manager's grant
+        // to lane 12.16, option 1 of its M1 ruling).
+        policy.comparesPNGByPresence = true
         return policy
     }
 }

@@ -97,6 +97,11 @@ extension OutputEquivalence {
         /// (`Masks.gatkCommandLineUUIDs`), so a changed command, folder or track still differs.
         public var keepsGATKCommandLine = false
 
+        /// Whether a PNG, a file named `.png` that starts with the PNG signature, is compared by its name and presence
+        /// alone. Only `primerAnalysis` sets it, since primalscheme3 draws the row name, which holds the run's fresh
+        /// input ID, into its row plot. Every other policy compares a PNG by its sha256.
+        public var comparesPNGByPresence = false
+
         func masks(for role: TextRole) -> [Mask] {
             switch role {
             case .provenance: return provenance
