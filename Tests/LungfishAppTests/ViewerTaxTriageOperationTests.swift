@@ -97,6 +97,24 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         XCTAssertEqual(String(decoding: plan.queryData, as: UTF8.self).components(separatedBy: ">").count - 1, 4)
     }
 
+    /// A row without a tax ID records no taxon and is judged by its name alone (BIO 3).
+    func testAnOrganismWithoutATaxIDIsPlannedWithNoTaxonAndItsNameAsTheClade() throws {
+        let project = folder.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let result = project.appendingPathComponent("Analyses/taxtriage-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        let organism = TaxTriageOrganism(name: "Unclassified phage", score: 0.5, reads: 10, coverage: nil, taxId: nil, rank: nil)
+        let plan = try ViewerViewController.taxTriageBlastSubmitPlan(
+            organism: organism, reads: Self.reads, readCount: 2, accessions: ["NC_000001.1"],
+            projectURL: project, sourceResultURL: result
+        )
+        let command = try RecordedCLICommand.parse(plan.cliCommand, as: BlastCommand.SubmitSubcommand.self)
+        XCTAssertNil(command.taxId, "a tax ID of 0 is no taxon")
+        XCTAssertEqual(command.acceptedTaxIds, [])
+        XCTAssertEqual(command.acceptedNames, ["Unclassified phage"])
+        XCTAssertEqual(command.relatedNames, [])
+        XCTAssertEqual(command.label, "Unclassified phage")
+    }
+
     // MARK: - The row begins before the extraction (the order of lane 12.08, review fix 4)
 
     /// While the reads are extracted the Operations panel shows one running BLAST row with the stage word and
