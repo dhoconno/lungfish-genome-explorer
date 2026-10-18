@@ -27,15 +27,16 @@ struct ViewerExportLeafOutcome: Sendable {
 /// The run every viewer export leaf shares (Phase 2.12 lane 12.31, ARCH ruling 1.6).
 ///
 /// The leaf's export runs under `runCancellingOnSIGTERM`, the scope every SIGTERM-converting leaf shares. A refusal
-/// exits 3, a failure exits 64 and a cancel exits 125. The export writes its payload and record in one `ScientificFileExportProvenance.writeAtomically`
-/// transaction, so a cancel rolls both back and leaves no output and no sidecar. With `--format json` standard output
-/// holds only events.
+/// exits 3, a failure exits 64 and a cancel exits 125. The export writes its payload and record in one
+/// `writeAtomically` transaction, so a cancel rolls both back and leaves no output and no sidecar. With
+/// `--format json` standard output holds only events.
 enum ViewerExportLeaf {
     /// The words of a cancelled export.
     static let cancelledMessage = "The export was cancelled. No file was written."
 
-    /// A test seam. When this variable names a file, the export creates that file once its payload is staged and
-    /// then waits up to 30 seconds for its cancel, so a SIGTERM test reaches the leaf inside its transaction.
+    /// A test seam, compiled into debug builds only. When this variable names a file, the export creates that file
+    /// once its payload is staged and then waits up to 120 seconds for its cancel, so a SIGTERM test reaches the leaf
+    /// inside its transaction. A release build ignores the variable.
     static let holdFileVariable = "LUNGFISH_VIEWER_EXPORT_HOLD_FILE"
 
     /// Runs `export` and turns how it ended into the events, the human line and the exit status.
