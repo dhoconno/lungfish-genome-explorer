@@ -96,7 +96,9 @@ enum CrossProjectCopyRoute: String, Sendable, Equatable, CaseIterable {
         let run = try await launch(arguments, operationID)
         guard let path = run.outputs.first else { throw RouteError() }
         let destination = URL(fileURLWithPath: path, isDirectory: true)
-        return Landed(destinationURL: destination, record: ProjectItemCopyRecord.load(from: destination))
+        // project-copy.json lists every source file of the item, so it is read off the main actor.
+        let record = await Task.detached(priority: .userInitiated) { ProjectItemCopyRecord.load(from: destination) }.value
+        return Landed(destinationURL: destination, record: record)
     }
 
     /// The `legacy` route, the copier in this process off the main actor, as the sidebar ran it before 2.12.
