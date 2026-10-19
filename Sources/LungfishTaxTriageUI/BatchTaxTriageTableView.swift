@@ -8,6 +8,7 @@ import LungfishIO
 import SwiftUI
 import os.log
 import LungfishKit
+import LungfishWorkflow
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "BatchTaxTriageTableView")
 
