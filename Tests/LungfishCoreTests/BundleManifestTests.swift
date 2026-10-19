@@ -568,6 +568,134 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(reloaded.browserSummary?.sequences.map(\.name), ["chr1"])
     }
 
+    // MARK: - Stored form (lane 12.37, F5a)
+
+    /// A genome manifest whose browser summary synthesis can give back from its chromosomes and tracks.
+    func makeStoredFormManifest() -> BundleManifest {
+        BundleManifest(
+            name: "Stored Form",
+            identifier: "test.stored-form",
+            createdDate: Date(timeIntervalSince1970: 1_760_000_000),
+            modifiedDate: Date(timeIntervalSince1970: 1_760_000_000),
+            source: SourceInfo(organism: "Test", assembly: "TestAsm"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 150,
+                chromosomes: [
+                    ChromosomeInfo(
+                        name: "chr1", length: 100, offset: 6, lineBases: 100, lineWidth: 101,
+                        aliases: ["1"], fastaDescription: "first sequence"
+                    ),
+                    ChromosomeInfo(
+                        name: "chrM", length: 50, offset: 113, lineBases: 50, lineWidth: 51,
+                        aliases: ["MT"], isPrimary: false, isMitochondrial: true
+                    ),
+                ]
+            ),
+            annotations: [AnnotationTrackInfo(id: "genes", name: "Genes", path: "annotations/genes.db")],
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "reads", name: "reads.bam", format: .bam, sourcePath: "alignments/reads.bam",
+                    indexPath: "alignments/reads.bam.bai",
+                    // Whole seconds, since ISO 8601 dates round-trip without fractions.
+                    addedDate: Date(timeIntervalSince1970: 1_760_000_000), mappedReadCount: 7
+                )
+            ]
+        )
+    }
+
+    func storedFormBundle(_ name: String) throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("\(name).lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        return bundleURL
+    }
+
+    func savedManifestJSON(in bundleURL: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: bundleURL.appendingPathComponent(BundleManifest.filename))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// BIO 4. A saved and loaded manifest equals the one saved, with the same summary in memory.
+    func testSlimManifestDecodesToEqualManifest() throws {
+        let manifest = makeStoredFormManifest()
+        let bundleURL = try storedFormBundle("equal")
+        try manifest.save(to: bundleURL)
+        let loaded = try BundleManifest.load(from: bundleURL)
+
+        XCTAssertEqual(loaded, manifest)
+        XCTAssertEqual(loaded, manifest.withSynthesizedBrowserSummaryIfNeeded())
+        XCTAssertEqual(
+            loaded.withSynthesizedBrowserSummaryIfNeeded().browserSummary,
+            manifest.withSynthesizedBrowserSummaryIfNeeded().browserSummary
+        )
+    }
+
+    /// BIO 1. A stored summary that synthesis cannot give is written as it is: one with measured
+    /// per-sequence metrics, and one whose aggregate differs from the manifest's tracks.
+    func testSaveKeepsSummaryThatSynthesisCannotGive() throws {
+        let manifest = makeStoredFormManifest()
+        let derivable = try XCTUnwrap(manifest.withSynthesizedBrowserSummaryIfNeeded().browserSummary)
+        let metrics = BundleBrowserSequenceMetrics(
+            mappedReads: 7, mappedPercent: 50, meanDepth: 2.5, coverageBreadth: 0.9, medianMAPQ: 60, meanIdentity: 0.99
+        )
+        let measured = BundleBrowserSummary(
+            schemaVersion: 1,
+            aggregate: derivable.aggregate,
+            sequences: derivable.sequences.map {
+                BundleBrowserSequenceSummary(
+                    name: $0.name, displayDescription: $0.displayDescription, length: $0.length, aliases: $0.aliases,
+                    isPrimary: $0.isPrimary, isMitochondrial: $0.isMitochondrial, metrics: metrics
+                )
+            }
+        )
+        let stale = BundleBrowserSummary(
+            schemaVersion: 1,
+            aggregate: .init(annotationTrackCount: 0, variantTrackCount: 0, alignmentTrackCount: 0, totalMappedReads: nil),
+            sequences: derivable.sequences
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        for (label, summary) in [("measured", measured), ("stale", stale)] {
+            let stored = BundleManifest(
+                name: manifest.name, identifier: manifest.identifier,
+                createdDate: manifest.createdDate, modifiedDate: manifest.modifiedDate,
+                source: manifest.source, genome: manifest.genome, annotations: manifest.annotations,
+                alignments: manifest.alignments, browserSummary: summary
+            )
+            let bundleURL = try storedFormBundle(label)
+            try stored.save(to: bundleURL)
+
+            XCTAssertNotNil(try savedManifestJSON(in: bundleURL)["browser_summary"], label)
+            XCTAssertEqual(try BundleManifest.load(from: bundleURL).browserSummary, summary, label)
+            XCTAssertEqual(
+                try Data(contentsOf: bundleURL.appendingPathComponent(BundleManifest.filename)),
+                try encoder.encode(stored),
+                label
+            )
+        }
+    }
+
+    /// BIO 2. An older bundle's manifest that stores the derivable summary keeps it, and reading it
+    /// rewrites no byte.
+    func testLoadKeepsAStoredSummaryAndItsBytes() throws {
+        let stored = makeStoredFormManifest().withSynthesizedBrowserSummaryIfNeeded()
+        let bundleURL = try storedFormBundle("older")
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let bytes = try encoder.encode(stored)
+        try bytes.write(to: manifestURL)
+
+        let loaded = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(loaded.browserSummary, stored.browserSummary)
+        XCTAssertEqual(loaded.withSynthesizedBrowserSummaryIfNeeded().browserSummary, stored.browserSummary)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), bytes)
+    }
+
     // MARK: - Validation Tests
 
     func testValidManifest() {

@@ -55,6 +55,33 @@ final class BundleBrowserLoaderTests: XCTestCase {
         XCTAssertEqual(result.summary, manifestSummary)
     }
 
+    /// Lane 12.37 pin. A genome bundle that stores its summary is read from the manifest, and the
+    /// project mirror is neither read nor written.
+    func testStoredSummaryBundleTouchesNoMirror() throws {
+        let fixture = try makeProjectBundle(name: "StoredSummary")
+        let stored = fixture.manifestWithGenome(browserSummary: nil).withSynthesizedBrowserSummaryIfNeeded()
+        let before = try projectSnapshot(fixture.projectURL)
+
+        let result = try BundleBrowserLoader().load(bundleURL: fixture.bundleURL, manifest: stored)
+
+        XCTAssertEqual(result.source, .manifest)
+        XCTAssertEqual(result.summary, stored.browserSummary)
+        XCTAssertEqual(try projectSnapshot(fixture.projectURL), before, "reading a stored summary wrote to the project")
+    }
+
+    /// Every path under the project with its bytes, folders as empty data.
+    private func projectSnapshot(_ projectURL: URL) throws -> [String: Data] {
+        let fileManager = FileManager.default
+        var snapshot: [String: Data] = [:]
+        for path in try fileManager.subpathsOfDirectory(atPath: projectURL.path) {
+            let url = projectURL.appendingPathComponent(path)
+            var isDirectory: ObjCBool = false
+            _ = fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            snapshot[path] = isDirectory.boolValue ? Data() : try Data(contentsOf: url)
+        }
+        return snapshot
+    }
+
     func testLoadFallsBackToMirrorThenSynthesizedSummaryAfterMirrorDeletion() throws {
         let fixture = try makeProjectBundle(name: "MirrorFallback")
         let manifest = fixture.manifestWithGenome(browserSummary: nil)
