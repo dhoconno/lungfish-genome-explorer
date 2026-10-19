@@ -90,3 +90,43 @@ final class GenotypeWorkbookSnapshotReplayTests: XCTestCase {
     }
 }
 
+// MARK: - The receipt
+
+extension GenotypeWorkbookSnapshotReplayTests {
+    /// Condition 4 and BIO. The receipt carries the original request's options, defaults and runtime context under
+    /// the leaf's own keys. A key both hold takes the leaf's value and keeps the original's under `original.<key>`.
+    func testSnapshotReplayReceiptCarriesTheCapturedThresholds() async throws {
+        let original = [
+            "matrixMinimumReads": "5",
+            "matrixMinimumPercent": "2.5",
+            "minimumSupportPercent": "7.5",
+            "matrixMinimumPrevalencePercent": "10",
+            "annotationsInBundle": "the bundle has no annotations.json",
+            "quickFilterPredicate": #"{"field":"sample","value":"AnimalA"}"#,
+            "replacingExisting": "false",
+            "output": outputURL.path,
+            "snapshot": "/elsewhere/capture.json",
+        ]
+        let invocation = try writeInputs(options: original)
+        let receipt = try await replay(invocation)
+        let options = try XCTUnwrap(receipt["options"] as? [String: String])
+        for key in ["matrixMinimumReads", "matrixMinimumPercent", "minimumSupportPercent", "matrixMinimumPrevalencePercent",
+                    "annotationsInBundle", "quickFilterPredicate", "replacingExisting", "output"] {
+            XCTAssertEqual(options[key], original[key], key)
+        }
+        XCTAssertEqual(options["snapshot"], invocation.capture, "the leaf's key wins")
+        XCTAssertEqual(options["original.snapshot"], "/elsewhere/capture.json", "the original's value is kept")
+        XCTAssertEqual(options["original.output"], outputURL.path)
+        XCTAssertEqual(options["provenanceRequest"], invocation.request)
+        XCTAssertEqual(options["force"], "false")
+        let defaults = try XCTUnwrap(receipt["resolvedDefaults"] as? [String: String])
+        XCTAssertEqual(defaults, ["worksheets": "all and current filtered view", "format": "xlsx", "force": "false"])
+        let context = try XCTUnwrap(receipt["runtimeContext"] as? [String: String])
+        XCTAssertEqual(context["entryPoint"], "Inspector Export to Excel")
+        XCTAssertEqual(context["condaEnvironment"], "openpyxl")
+        XCTAssertNotNil(context["python"])
+        XCTAssertEqual(context["originalWorkflowName"], GenotypeWorkbookExport.requestWorkflowName)
+        XCTAssertEqual(context["captureMode"], "durable-scientific-snapshot")
+    }
+}
+

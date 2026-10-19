@@ -61,6 +61,20 @@ public enum GenotypeWorkbookExport {
         }
     }
 
+    /// The original request's values with the leaf's own laid over them, for the receipt's options, defaults and
+    /// runtime context (ARCH-12.35-B1 condition 4, BIO). A key both hold takes the leaf's value and keeps the
+    /// original's under `original.<key>`, so the receipt carries the view's thresholds and filters in plain text.
+    public static func merging(_ original: [String: String], under leaf: [String: String]) -> [String: String] {
+        var merged = original
+        for (key, value) in leaf {
+            if let kept = original[key] {
+                merged["original." + key] = kept
+            }
+            merged[key] = value
+        }
+        return merged
+    }
+
     /// The capture and request files of a new `.lungfish-export-inputs/<UUID>/` folder beside `outputURL`. Nothing is
     /// written, so the request can name its own path before it is written.
     public static func inputURLs(besideOutput outputURL: URL) -> (capture: URL, request: URL) {

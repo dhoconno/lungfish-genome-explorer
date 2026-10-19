@@ -129,9 +129,12 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
         let argv = CommandLine.arguments
         let request = GenotypeExcelExportService.ProvenanceRequest(workflowName: "genotype.export.excel.replay",
             toolVersion: LungfishAppVersion.short, argv: argv,
-            options: ["snapshot": snapshotURL.path, "provenanceRequest": requestURL.path, "output": outputURL.path,
-                "python": pythonURL.path, "force": String(force)], defaults: ["force": "false"],
-            runtimeContext: ["originalWorkflowName": original.workflowName, "captureMode": "durable-scientific-snapshot"],
+            options: GenotypeWorkbookExport.merging(original.options, under: ["snapshot": snapshotURL.path,
+                "provenanceRequest": requestURL.path, "output": outputURL.path, "python": pythonURL.path,
+                "force": String(force)]),
+            defaults: GenotypeWorkbookExport.merging(original.defaults, under: ["force": "false"]),
+            runtimeContext: GenotypeWorkbookExport.merging(original.runtimeContext, under: [
+                "originalWorkflowName": original.workflowName, "captureMode": "durable-scientific-snapshot"]),
             inputs: [.init(path: snapshotURL.path, data: snapshotData), .init(path: requestURL.path, data: requestData)])
         let service = GenotypeExcelExportService(pythonExecutableURL: pythonURL, replayExecutableURL: Bundle.main.executableURL)
         let result = try await service.export(snapshot: decoded, outputURL: outputURL, provenance: request, replacingExisting: force)
