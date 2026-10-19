@@ -132,4 +132,14 @@ final class ExtractSequenceLineWidthCommandTests: XCTestCase {
             FASTARecordsExport.rewrapped(Data(">x\nACGTAC\n".utf8), lineWidth: 4), Data(">x\nACGT\nAC\n".utf8)
         )
     }
+
+    /// The wrap adds line feeds and drops only the line ends it finds in the bases, so a soft-masked, ambiguous,
+    /// gapped, stop-coded or protein sequence keeps every byte in its order (BIO 1).
+    func testTheWrapKeepsEveryBaseByte() {
+        let mixed = Data(">x desc\nacgtNRYKM-*acgt\n".utf8)
+        XCTAssertEqual(FASTARecordsExport.rewrapped(mixed, lineWidth: 5), Data(">x desc\nacgtN\nRYKM-\n*acgt\n".utf8))
+        let bases = Data((0...255).filter { $0 != 0x0A && $0 != 0x0D }.map { UInt8($0) })
+        let wrapped = FASTARecordsExport.rewrapped(Data(">x\n".utf8) + bases + Data("\n".utf8), lineWidth: 7)
+        XCTAssertEqual(Data(wrapped.dropFirst(3).filter { $0 != 0x0A }), bases)
+    }
 }
