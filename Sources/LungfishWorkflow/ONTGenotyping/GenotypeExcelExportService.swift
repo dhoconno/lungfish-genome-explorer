@@ -182,11 +182,10 @@ public struct GenotypeExcelExportService: Sendable {
         let stagedReceipt = durable.appendingPathComponent("receipt.json")
         let stdoutURL = durable.appendingPathComponent("stdout.json")
         let stderrURL = durable.appendingPathComponent("stderr.txt")
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let snapshotBytes = try encoder.encode(snapshot)
+        let snapshotBytes = try Self.replayEncoded(snapshot)
         _ = try writeArtifact(snapshotBytes, to: snapshotURL)
         _ = try writeArtifact(Data(Self.rendererScript.utf8), to: scriptURL)
-        let requestBytes = try encoder.encode(provenance)
+        let requestBytes = try Self.replayEncoded(provenance)
         _ = try writeArtifact(requestBytes, to: requestURL)
         let executable = replayExecutableURL?.path ?? Self.resolvedCLIExecutable()
         let replayPrefix = [executable, "genotype", "export-xlsx", "--snapshot", snapshotURL.path,
@@ -266,6 +265,15 @@ public struct GenotypeExcelExportService: Sendable {
                 sheetNames: checkedRuntime.renderer.sheets.map(\.name)),
             artifactDirectoryURL: durable, artifactURLs: artifactURLs,
             artifactDirectoryIdentity: directoryIdentity, artifactIdentities: artifactIdentities)
+    }
+
+    /// The one encoder of the durable capture and request, pretty printed with sorted keys and unescaped slashes. The
+    /// genotype viewer writes `capture.json` and `request.json` with it, so the digest of the capture it hands the
+    /// `--snapshot` leaf equals the receipt's `snapshot.sha256` (Phase 2.12 lane 12.35, ARCH-12.35-B1 condition 1).
+    public static func replayEncoded<Value: Encodable>(_ value: Value) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(value)
     }
 
     private func verify(_ inputs: [InputWitness]) throws {
