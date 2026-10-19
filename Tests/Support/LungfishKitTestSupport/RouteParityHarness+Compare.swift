@@ -83,7 +83,42 @@ extension RouteParityHarness {
         for line in comparison.differences {
             found += parse(line, reference.side, candidate.side, files: files)
         }
+        found += Self.modeDifferences(reference, candidate)
         return found
+    }
+
+    // MARK: - File modes (lane 12.23, QA 2)
+
+    /// One difference for each file both side roots hold whose permission bits differ, such as a record one route
+    /// wrote 0600 where the other route's read 0644. `OutputEquivalence` compares content only, so no parity class
+    /// compared modes before. A file only one side holds is `OutputEquivalence`'s difference and not this one.
+    static func modeDifferences(_ reference: RouteParitySideRun, _ candidate: RouteParitySideRun) -> [RouteParityDifference] {
+        let referenceModes = fileModes(under: reference.root)
+        let candidateModes = fileModes(under: candidate.root)
+        return referenceModes.keys.sorted().compactMap { name in
+            guard let own = referenceModes[name], let other = candidateModes[name], own != other else { return nil }
+            return RouteParityDifference(
+                id: "mode: \(maskedID(name))",
+                detail: "\(reference.side) \(octal(own)), \(candidate.side) \(octal(other))"
+            )
+        }
+    }
+
+    /// The permission bits of every regular file under `root`, by relative path.
+    static func fileModes(under root: URL) -> [String: mode_t] {
+        let base = root.resolvingSymlinksInPath().standardizedFileURL
+        var modes: [String: mode_t] = [:]
+        for name in relativeFiles(under: root) {
+            var information = stat()
+            if lstat(base.appendingPathComponent(name).path, &information) == 0 {
+                modes[name] = information.st_mode & 0o777
+            }
+        }
+        return modes
+    }
+
+    private static func octal(_ mode: mode_t) -> String {
+        "0" + String(mode, radix: 8)
     }
 
     /// One `OutputEquivalence` line as differences, with A and B named as the two sides.
