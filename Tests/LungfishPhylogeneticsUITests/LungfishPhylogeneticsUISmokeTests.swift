@@ -4,6 +4,7 @@
 
 import XCTest
 import AppKit
+import CryptoKit
 @testable import LungfishCore
 import LungfishKit
 import LungfishWorkflow
@@ -333,10 +334,11 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
         XCTAssertEqual(envelope.options.defaults["outputFormat"]?.stringValue, "newick")
         XCTAssertEqual(envelope.options.resolvedDefaults["descendantTipCount"]?.integerValue, 2)
         XCTAssertTrue(envelope.argv.contains("--node"))
-        let hasSourceInput = envelope.files.contains { descriptor in
-            descriptor.path == sourceBundleURL.path && descriptor.role == FileRole.input
-        }
-        XCTAssertTrue(hasSourceInput)
+        XCTAssertEqual(
+            envelope.files.filter { $0.role == FileRole.input }.map(\.path),
+            TreeSubtreeExport.inputURLs(bundleURL: sourceBundleURL).map(\.path),
+            "the files the bundle load reads, never the folder (BIO-12.31-G3)"
+        )
     }
 
     func testSubtreeExportRemovesPayloadWhenProvenanceSidecarFails() throws {
@@ -396,6 +398,39 @@ final class LungfishPhylogeneticsUISmokeTests: XCTestCase {
         XCTAssertEqual(envelope.output?.fileSize, UInt64(bytes.count))
         let reimported = tempDir.appendingPathComponent("reimported.lungfishtree", isDirectory: true)
         XCTAssertNoThrow(try PhylogeneticTreeBundleImporter.importTree(from: outputURL, to: reimported))
+    }
+
+    /// BIO-12.31-G3 on lane 12.35 row A15. The record names the two files `PhylogeneticTreeBundle.load` decodes,
+    /// each with its digest and size, and never the bundle folder. It fails at d775e6a57, where the view named the
+    /// whole folder.
+    func testSubtreeExportNamesTheFilesTheBundleLoadReads() throws {
+        let tempDir = try TestTempDirectory.make(prefix: "LungfishPhylogeneticsSubtreeInputs")
+        defer { TestTempDirectory.cleanup(tempDir) }
+        let newick = tempDir.appendingPathComponent("source.nwk")
+        try "((A:0.1,B:0.2)Clade:0.3,C:0.4);".write(to: newick, atomically: true, encoding: .utf8)
+        let bundleURL = tempDir.appendingPathComponent("Tree.lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(from: newick, to: bundleURL)
+        let export = try PhylogeneticTreeBundle.load(from: bundleURL).subtreeExport(label: "Clade")
+        let outputURL = tempDir.appendingPathComponent("clade.nwk")
+
+        let sidecarURL = try PhylogeneticTreeViewController.writeSubtreeExport(
+            export,
+            sourceBundleURL: bundleURL,
+            to: outputURL,
+            runClock: ProvenanceRunClock()
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        let inputs = envelope.files.filter { $0.role == FileRole.input }
+        XCTAssertEqual(inputs.map(\.path), ["manifest.json", "tree/primary.normalized.json"].map {
+            bundleURL.appendingPathComponent($0).standardizedFileURL.path
+        })
+        for input in inputs {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: input.path))
+            let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(input.checksumSHA256, digest, input.path)
+            XCTAssertEqual(input.fileSize, UInt64(bytes.count), input.path)
+        }
     }
 }
 

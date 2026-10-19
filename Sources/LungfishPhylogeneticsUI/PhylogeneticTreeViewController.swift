@@ -1138,7 +1138,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         do {
             return try ScientificFileExportProvenance.writeAtomically(.init(
                 workflowName: "lungfish app phylogenetic subtree export",
-                sourceURLs: sourceURLs,
+                sourceURLs: sourceBundleURL.map(TreeSubtreeExport.inputURLs(bundleURL:)) ?? [],
                 outputURL: outputURL,
                 outputFormat: .text,
                 argv: argv,
