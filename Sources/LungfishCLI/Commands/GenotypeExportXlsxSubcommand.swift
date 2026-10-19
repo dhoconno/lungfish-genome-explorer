@@ -126,7 +126,9 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
         let snapshotData = try Data(contentsOf: snapshotURL), requestData = try Data(contentsOf: requestURL)
         let decoded = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: snapshotData)
         let original = try JSONDecoder().decode(GenotypeExcelExportService.ProvenanceRequest.self, from: requestData)
-        let argv = CommandLine.arguments
+        // The canonical argv, the row's command, never the binary's own path (ARCH-12.35-B1 condition 5).
+        let argv = GenotypeWorkbookExport.Invocation(captureURL: snapshotURL, requestURL: requestURL, pythonURL: pythonURL,
+            outputURL: outputURL, force: force).canonicalArgv()
         let request = GenotypeExcelExportService.ProvenanceRequest(workflowName: "genotype.export.excel.replay",
             toolVersion: LungfishAppVersion.short, argv: argv,
             options: GenotypeWorkbookExport.merging(original.options, under: ["snapshot": snapshotURL.path,

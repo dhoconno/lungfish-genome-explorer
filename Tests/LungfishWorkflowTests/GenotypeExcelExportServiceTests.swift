@@ -443,7 +443,8 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
         XCTAssertEqual(descriptor["sizeBytes"] as? Int, bytes.count)
         XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel.replay")
         XCTAssertEqual(receipt["toolVersion"] as? String, LungfishAppVersion.short)
-        if let expectedArgv { XCTAssertEqual(receipt["argv"] as? [String], expectedArgv) }
+        // The replay records the canonical argv, `lungfish-cli` and the arguments it ran (ARCH-12.35-B1 condition 5).
+        if let expectedArgv { XCTAssertEqual(receipt["argv"] as? [String], ["lungfish-cli"] + expectedArgv.dropFirst()) }
         XCTAssertEqual((receipt["options"] as? [String: String])?["output"], output.path)
     }
 

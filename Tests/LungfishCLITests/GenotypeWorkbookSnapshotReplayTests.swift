@@ -128,5 +128,14 @@ extension GenotypeWorkbookSnapshotReplayTests {
         XCTAssertEqual(context["originalWorkflowName"], GenotypeWorkbookExport.requestWorkflowName)
         XCTAssertEqual(context["captureMode"], "durable-scientific-snapshot")
     }
+
+    /// Condition 5. The receipt records the canonical argv, the row's command, and never the binary's own path.
+    func testSnapshotReplayRecordsTheCanonicalArgv() async throws {
+        let invocation = try writeInputs(options: [:])
+        let receipt = try await replay(invocation)
+        XCTAssertEqual(receipt["argv"] as? [String], invocation.canonicalArgv())
+        XCTAssertEqual((receipt["argv"] as? [String])?.first, CLICommandIdentity.executableName)
+        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel.replay")
+    }
 }
 
