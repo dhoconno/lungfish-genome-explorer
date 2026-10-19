@@ -105,6 +105,28 @@ final class TaxTriageExportRowTests: XCTestCase {
         XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
 
+    /// Both wrappers begin their row through `beginTaxTriageExportOperation`, which takes the row's title from its
+    /// caller, so a third TaxTriage export begins its row the same way.
+    func testTheSharedBodyTakesTheRowTitleFromItsCaller() async throws {
+        let reporter = RecordingOperationReporter()
+        let begun = try XCTUnwrap(TaxTriageResultViewController.beginTaxTriageExportOperation(
+            title: "Export TaxTriage Results",
+            invocation: reportInvocation,
+            runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
+            reporter: reporter,
+            environmentAdditions: [:]
+        ) { _ in })
+        _ = await begun.task.value
+
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(item.title, "Export TaxTriage Results")
+        XCTAssertEqual(item.operationType, .export)
+        let command = try RecordedCLICommand.parse(
+            item.cliCommand, as: TaxTriageCommand.ExportBatchReportSubcommand.self
+        )
+        XCTAssertEqual(try command.invocation(), reportInvocation)
+    }
+
     /// The leaf reads no `--sample` as every sample, so an empty Sample Filter must begin no row. Both Export actions
     /// return before the save panel.
     func testAnEmptySampleSelectionBeginsNoRow() async throws {

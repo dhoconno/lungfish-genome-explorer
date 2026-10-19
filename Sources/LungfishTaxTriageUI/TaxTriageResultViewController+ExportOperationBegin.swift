@@ -60,8 +60,8 @@ extension TaxTriageResultViewController {
     /// `invocation`, so the row and the leaf's record name one command (ARCH 2). The row takes no bundle lock, as the
     /// in-app exports took none. The leaf writes the file and its record, and the app writes no byte after it exits.
     /// A failure fails the row and reaches `onFailure`, which shows today's alert. A cancel reads Cancelled and shows
-    /// nothing (UX 4).
-    private static func beginTaxTriageExportOperation(
+    /// nothing (UX 4). It is internal so that a row test names the begin site (`cli-parity-gaps` rule 5).
+    static func beginTaxTriageExportOperation(
         title: String,
         invocation: ViewerExportInvocation,
         runner: CLIViewerExportRunner,
