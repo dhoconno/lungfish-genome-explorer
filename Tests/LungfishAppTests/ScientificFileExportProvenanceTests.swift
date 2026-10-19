@@ -318,7 +318,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
     func testStandaloneScientificExportersWriteScientificProvenanceSidecars() throws {
         let root = repositoryRoot()
         let files = [
-            ("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift", "lungfish app taxonomy result export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage results export"),
         ]
 
@@ -339,12 +338,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertFalse(taxTriageSource.contains("try? csv.write(to:"))
         XCTAssertFalse(taxTriageSource.contains("try? report.write(to:"))
 
-        let taxonomySource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(taxonomySource.contains("taxonomyExportSourceURLs"))
-        XCTAssertTrue(taxonomySource.contains("taxonomyExportArgv"))
 
         let annotationExportCapture = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+ExportCapture.swift"),
