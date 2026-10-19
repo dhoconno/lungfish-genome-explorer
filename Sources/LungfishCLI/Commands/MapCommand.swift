@@ -459,7 +459,9 @@ struct MapCommand: AsyncParsableCommand {
         // reference bundle in the result directory with the BAM attached as
         // a track, the sidecars rewritten to point at it, and the run
         // recorded in the source bundle's analysis history.
-        if !noViewerBundle {
+        // The step shows only when a viewer bundle will be made. `publishViewerBundle` returns nil, and writes nothing,
+        // exactly when `sourceReferenceBundleURL` does (Phase 2.12 lane 12.26, U-W4).
+        if !noViewerBundle, MappingResultLayoutService.sourceReferenceBundleURL(result: pipelineResult, request: request) != nil {
             reporter.step(MappingRunProgress.preparingViewer)
         }
         let published = try await Self.publishLayout(

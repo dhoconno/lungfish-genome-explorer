@@ -48,7 +48,7 @@ public enum MappingRunProgress {
         Step(fraction: fraction, message: message)
     }
 
-    /// The step before the reference viewer bundle is published.
+    /// The step before the reference viewer bundle is published, shown only when the reference is inside a .lungfishref bundle.
     public static let preparingViewer = Step(fraction: viewerStart, message: "Preparing reference mapping viewer...")
 
     /// A step of the viewer bundle's publication, from 0.93 to 0.99.

@@ -5,5 +5,4 @@
 {"event":"progress","message":"Normalizing sorted BAM...","progress":0.7,"schemaVersion":2}
 {"event":"progress","message":"Summarizing mapped contigs...","progress":0.9,"schemaVersion":2}
 {"event":"progress","message":"Mapping complete.","progress":1,"schemaVersion":2}
-{"event":"progress","message":"Preparing reference mapping viewer...","progress":0.93,"schemaVersion":2}
 {"event":"complete","message":"Mapping complete: 197\/200 reads mapped","output":"\/work\/out","outputs":["\/work\/out"],"progress":1,"schemaVersion":2}
