@@ -12,6 +12,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishOperations
 import LungfishTestSupport
 
 @MainActor
@@ -22,7 +23,8 @@ final class ReferenceCopySequencesPreparedBundleTests: XCTestCase {
     }
 
     /// Opens a reference, runs the sequence list's Copy Sequences for both rows, and counts the builds. The open
-    /// builds one name index and one reader, and the copy builds none, and copies each sequence in full.
+    /// builds one name index and one reader, and the copy builds none, and copies each sequence in full with the bytes
+    /// the provider of the old path fetches.
     func testCopySequencesBuildsNoSecondBundleOrIndex() async throws {
         let root = try TestTempDirectory.make(prefix: "ReferenceCopyPrepared")
         defer { TestTempDirectory.cleanup(root) }
@@ -64,12 +66,26 @@ final class ReferenceCopySequencesPreparedBundleTests: XCTestCase {
         copy(rows, false)
         let copied = await waitUntil(timeout: .seconds(30)) { pasteboard.string(forType: .string) != marker }
         XCTAssertTrue(copied, "Copy Sequences never wrote the pasteboard")
-        XCTAssertEqual(
-            pasteboard.string(forType: .string)?.count, 80 + 1 + 100,
-            "both sequences in full, joined by a line feed"
-        )
+        let copiedText = pasteboard.string(forType: .string)
 
         XCTAssertEqual(builds.count(.nameIndex), 1, "Copy Sequences built a second name index")
         XCTAssertEqual(builds.count(.reader), 1, "Copy Sequences built a second sequence reader")
+
+        // The bytes (review 12.34 fix 5). The provider the copy used before the fix has no shared bundle, so it builds
+        // its own and reads the same rows. The copy has to equal what it fetches, row by row in the order of the rows
+        // and joined by a line feed. It runs after the build counts above, which it would raise. The fixture's index
+        // points each record at its header line, so the fetched text holds header bytes, and the test compares bytes
+        // without assuming what they are.
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let unshared = BundleDataProvider(bundleURL: bundleURL, manifest: manifest)
+        var fetched: [String] = []
+        for row in rows {
+            let length = Int(row.summary.length)
+            fetched.append(try await unshared.fetchSequence(chromosome: row.summary.name, start: 0, end: length))
+        }
+        XCTAssertEqual(fetched.map(\.count), rows.map { Int($0.summary.length) }, "each sequence in full")
+        XCTAssertEqual(
+            copiedText, fetched.joined(separator: "\n"), "the bytes of both sequences, in the order of the rows"
+        )
     }
 }
