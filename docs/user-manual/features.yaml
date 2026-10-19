@@ -35,7 +35,9 @@ features:
     sources:
       - Sources/LungfishIO/Formats/VCF/VCFReader.swift
       - Sources/LungfishIO/Formats/VCF/VCFReferenceInference.swift
-      - Sources/LungfishApp/App/VCFImportHelper.swift
+      - Sources/LungfishCLI/Commands/ImportCommand+VCF.swift
+      - Sources/LungfishCLI/Commands/ImportCommand+VCFModes.swift
+      - Sources/LungfishApp/Services/VCFImportCLICommand.swift
       - Sources/LungfishApp/App/VCFAutoIngestor.swift
       - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
@@ -204,7 +206,6 @@ features:
       - Sources/LungfishCLI/Commands/MapCommand+Events.swift
       - Sources/LungfishWorkflow/Mapping/MappingSummaryBuilder.swift
       - Sources/LungfishApp/Views/Results/Reference/MappingReferenceCountText.swift
-      - Sources/LungfishApp/Views/Results/Reference/MappingResultExportBuilder.swift
     module: [LungfishWorkflow, LungfishCLI, LungfishApp]
     cli:
       - lungfish-cli map
@@ -289,10 +290,8 @@ features:
       records the cancel under provenance/cancelled as
       lungfish-variants-call-<id>.lungfish-provenance.json and exits 125.
       The Call Variants dialog's GATK row runs variants call --caller gatk,
-      and its attach record names that command. The hidden key
-      GATKVariantCallingRoute set to legacy keeps the in-process route for
-      one release. A later GATK run in a bundle replaces the bundle's GATK
-      execution record.
+      and its attach record names that command. A later GATK run in a
+      bundle replaces the bundle's GATK execution record.
   bam.primer-trim:
     title: Primer-trim a BAM with iVar
     entry_points:
@@ -389,18 +388,27 @@ features:
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplayOperationBegin.swift
       - Sources/LungfishApp/Services/CLIBundleBuildRunner.swift
+      - Sources/LungfishApp/Services/RegionExtractionWithoutBundleRoute.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli extract sequence
     tests:
       - Tests/LungfishAppTests/RegionBundleExtractionParityReplayTests.swift
+      - Tests/LungfishAppTests/RegionExtractionWithoutBundleParityReplayTests.swift
     notes: >-
       Extracting a region to a new bundle from a viewer that shows a reference
       bundle runs lungfish-cli extract sequence --bundle. Its row in the
       Operations panel records the command, which Copy Command shows, and
       Cancel stops it before it publishes anything. A viewer that shows a
-      document still builds the bundle in the app and records no command. A
-      region extracted with only spaces typed as its bundle name is saved as
+      document with no reference bundle runs lungfish-cli extract sequence
+      <fasta> <region> -o <name>.lungfishref --source-document, so its row
+      also shows the command and Cancel stops it. A bundle extracted from a
+      GenBank file keeps no annotations, as before, and its record says so.
+      Each such extraction keeps its staged FASTA under the project's .tmp
+      folder so that its record stays true. The hidden key
+      RegionExtractionWithoutBundleRoute set to legacy keeps the in-app
+      route for one release, and 2.13 deletes it. A region extracted with
+      only spaces typed as its bundle name is saved as
       extracted_sequence. Two extractions given the same bundle name at the
       same time keep both bundles, and with --next-free-name the one that
       finishes second is saved under the next free name, such as Name_1.
@@ -449,6 +457,7 @@ features:
     sources:
       - Sources/LungfishApp/App/AppDelegate+ImportCenterSequenceExport.swift
       - Sources/LungfishApp/Services/SequenceExportRoute.swift
+      - Sources/LungfishApp/Services/SequenceExportStaging.swift
       - Sources/LungfishWorkflow/Native/SequenceExportCompressor.swift
       - Sources/LungfishCLI/Commands/ConvertCommand.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
@@ -457,16 +466,21 @@ features:
     tests:
       - Tests/LungfishAppTests/AppDelegateImportCenterOperationTests.swift
       - Tests/LungfishAppTests/SequenceExportRouteTests.swift
+      - Tests/LungfishAppTests/SequenceExportStagingDurabilityTests.swift
       - Tests/LungfishCLITests/ConvertCompressTests.swift
       - Tests/LungfishWorkflowTests/SequenceExportCompressorTests.swift
     notes: >-
       lungfish-cli convert takes several input files and writes them to one
       output, and --compress gzip or --compress zstd writes the output
-      compressed. A selection of files that convert reads, reference bundles
-      included, exports by running it, so the Operations row shows the
-      command to copy, including the compressor. A selection with a captured
-      document snapshot, or a file convert does not read, is written in the
-      app and records no command. A zstd export looks for zstd in /usr/bin,
+      compressed. Every selection exports by running it, so the Operations
+      row shows the command to copy, including the compressor. An open
+      document or a project sequence is saved first as a copy in the
+      project's .tmp folder, or in the system temporary folder when no
+      project is in reach, and a file Lungfish cannot read by name (.seq or
+      .txt) is copied there as FASTA. convert runs on the copy, and the
+      export's record names it. A GenBank file that Lungfish writes holds
+      no /_lf_raw_feature_type or /_lf_raw_genbank_location qualifier. A
+      zstd export looks for zstd in /usr/bin,
       in /usr/local/bin and in the bin folder of the folder that
       HOMEBREW_PREFIX names, and not on the PATH. When it finds none, it
       stops with a message that
@@ -556,6 +570,28 @@ features:
       add-annotation and sequence attach-track leaves, and a refusal reaches
       the failed event. The attach rows have a working Cancel and a Copy CLI
       Command that names --format json.
+  annotation.export-table:
+    title: Export the annotation table
+    entry_points:
+      - "Export from the annotation table drawer"
+      - "CLI: lungfish bundle export-annotation-table"
+    inputs: [reference-bundle]
+    outputs: [csv, tsv, xlsx, json]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableExportBegin.swift
+      - Sources/LungfishCLI/Commands/BundleExportAnnotationTableSubcommand.swift
+    module: [LungfishApp, LungfishCLI]
+    cli:
+      - lungfish-cli bundle export-annotation-table
+    tests:
+      - Tests/LungfishAppTests/AnnotationTableExportCLIGUIParityReplayTests.swift
+    notes: >-
+      The annotation table export of every tab, as csv, tsv, xlsx or json,
+      runs lungfish-cli bundle export-annotation-table behind an Operations
+      row, and Copy CLI Command replays it from the selection file beside
+      the output. A row that no annotation database stores is refused with a
+      message that says so.
   sequence.extract-features:
     title: Extract annotation feature sequences
     entry_points:
@@ -1202,20 +1238,33 @@ features:
       - Sources/LungfishCLI/Commands/MetadataCommand.swift
       - Sources/LungfishCLI/Commands/MetadataExportBioSampleSubcommand.swift
       - Sources/LungfishApp/Views/Sidebar/FolderMetadataEditorSheet.swift
+      - Sources/LungfishApp/App/AppDelegate+MetadataExportOperationBegin.swift
+      - Sources/LungfishWorkflow/ViewerExport/FolderMetadataExport.swift
+      - Sources/LungfishCLI/Commands/MetadataExportSubcommand+Output.swift
       - Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+OperationBegin.swift
       - Sources/LungfishCLI/Commands/VariantsEditSubcommands.swift
       - Sources/LungfishWorkflow/Variants/VariantEditTargets.swift
     module: [LungfishCLI, LungfishApp, LungfishWorkflow]
     cli:
       - lungfish-cli variants import-sample-metadata
+      - lungfish-cli metadata export
     tests:
       - Tests/LungfishAppTests/VariantSampleMetadataCLIGUIParityReplayTests.swift
+      - Tests/LungfishCLITests/MetadataExportOutputTests.swift
+      - Tests/LungfishAppTests/MetadataExportRowTests.swift
+      - Tests/LungfishAppTests/MetadataExportCLIGUIParityReplayTests.swift
     notes: >-
       Imports a CSV or TSV metadata table into variant tracks or FASTQ folders
       and can export folder metadata as NCBI BioSample submission TSV.
       The import launches lungfish-cli variants import-sample-metadata with
       --format json events. A cancel leaves the bundle as it was, within one
       chunk of the file's hash.
+      The folder sheet's and the project export's Export CSV run
+      lungfish-cli metadata export --output behind an Operations row, and
+      Copy CLI Command replays it. A failed export of the folder sheet ends
+      its row failed and shows an Export Failed alert, where it only logged
+      before. Each CSV has a visible <file>.lungfish-provenance.json beside
+      it and a hidden .lungfish-export-inputs/<UUID>/selection.json.
 
   # --- Classification and metagenomics (taxonomy viewport) ---
   classify.kraken2:
@@ -1362,10 +1411,8 @@ features:
       In 2.10 lungfish-cli taxtriage run takes a repeated --input, a
       repeated --negative-control and writes taxtriage-result.json at the
       root of a batch, and build-db taxtriage keeps top/ on every completed
-      result. In 2.11 the Tools > Classification launch runs lungfish-cli
-      taxtriage run --project by default, and the hidden key
-      TaxTriageLaunchRoute set to legacy keeps the in-app route for one
-      Preview.
+      result. Since 2.12 the Tools > Classification launch runs
+      lungfish-cli taxtriage run --project and reads no key (K1).
   classify.esviritu-cli-route:
     title: Run EsViritu from the command line into a project
     entry_points:
@@ -1560,7 +1607,6 @@ features:
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
       - Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift
       - Sources/LungfishApp/Views/Metagenomics/TaxonomyBreadcrumbBar.swift
-      - Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift
     module: [LungfishApp]
     notes: >-
       Shared taxonomy viewport with a sortable hit table, sunburst chart,
@@ -1583,12 +1629,31 @@ features:
       - Sources/LungfishApp/Services/CLIBlastSubmitRunner.swift
       - Sources/LungfishCLI/Commands/BlastSubmitCommand.swift
       - Sources/LungfishCLI/Commands/BlastSubmitCommand+Record.swift
+      - Sources/LungfishApp/Services/ClassifierBlastRoute.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+Kraken2BlastSubmit.swift
+      - Sources/LungfishCLI/Commands/BlastCommand+ExportTable.swift
+      - Sources/LungfishKit/BlastResultsDrawerTab+ExportOperationBegin.swift
     module: [LungfishApp, LungfishKit, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli blast submit
+      - lungfish-cli blast export table
     tests:
       - Tests/LungfishAppTests/CLIBlastSubmitRunnerTests.swift
       - Tests/LungfishCLITests/BlastSubmitCommandTests.swift
+      - Tests/LungfishAppTests/BlastSubmitNvdParityReplayTests.swift
+      - Tests/LungfishAppTests/BlastSubmitEsVirituParityReplayTests.swift
+      - Tests/LungfishAppTests/BlastSubmitNoProjectTests.swift
+      - Tests/LungfishAppTests/EsVirituBlastReadsTests.swift
+      - Tests/LungfishAppTests/BlastSubmitTaxTriageParityReplayTests.swift
+      - Tests/LungfishAppTests/BlastSubmitTwelveSParityReplayTests.swift
+      - Tests/LungfishAppTests/TaxTriageBlastReadsTests.swift
+      - Tests/LungfishAppTests/BlastSubmitKraken2ParityReplayTests.swift
+      - Tests/LungfishAppTests/Kraken2BlastSubmitRowTests.swift
+      - Tests/LungfishAppTests/Kraken2BlastRestoreTests.swift
+      - Tests/LungfishCoreTests/Services/BlastReadLookupNotesTests.swift
+      - Tests/LungfishCLITests/BlastExportTableCommandTests.swift
+      - Tests/LungfishAppTests/BlastTableExportRowTests.swift
+      - Tests/LungfishAppTests/BlastTableExportCLIGUIParityReplayTests.swift
     notes: >-
       Verifies a classified sequence or taxon against NCBI BLAST and shows the
       hits in a results drawer. Kraken2 verification reads R1, R2 and the
@@ -1597,8 +1662,16 @@ features:
       The NAO-MGS, assembly and FASTA selection BLAST actions run
       lungfish-cli blast submit, so their rows show the command, Cancel
       stops the whole tool tree, and the result is saved with a copy of the
-      query. The hidden key BlastReadActionRoute set to legacy keeps the
-      in-process search for one release.
+      query. The BLAST Verify actions of the NVD, EsViritu, TaxTriage, 12S
+      and Kraken2 results run lungfish-cli blast submit too, their record
+      names the SHA-256 of the query, and a failed search leaves a failed
+      record beside the query copy. A BLAST action with no project open
+      shows the No Project Open alert and starts nothing. The hidden key
+      ClassifierBlastRoute set to legacy keeps the in-process search of
+      those five actions for one release, and 2.13 deletes it. The
+      drawer's Export as CSV and Export as TSV run lungfish-cli blast
+      export table behind an Operations row, Copy CLI Command replays it,
+      and a failed export now ends its row failed and shows an alert.
   classify.extract-reads:
     title: Extract reads by taxon
     entry_points:
@@ -1636,8 +1709,14 @@ features:
       folder and asks for a copy in place of the link.
       A taxa collection extraction records the lungfish-cli extract
       taxa-collection command that Copy CLI Command copies, and the command
-      writes extracted-<collection id>/<name>_taxid<id>.fastq.gz. Clipboard
-      and share extraction follow in a later release.
+      writes extracted-<collection id>/<name>_taxid<id>.fastq.gz. A
+      clipboard or share extraction records an extract reads
+      --by-classifier command, which Copy CLI Command replays. A collection
+      extraction picks reads the same way as the other classifiers, and
+      extract reads --by-classifier --tool kraken2 takes --taxon-scope exact
+      for the reads classified to a taxon itself. lungfish-cli conda extract
+      is gone, and its notice names extract reads --by-classifier --tool
+      kraken2.
 
   # --- Assembly (assembly viewport) ---
   assemble:
@@ -2267,7 +2346,8 @@ features:
       - Sources/LungfishApp/App/ProvenanceExportMenuModel.swift
       - Sources/LungfishApp/App/AppDelegate+ImportExport.swift
       - Sources/LungfishApp/App/AppProvenanceExportSourceResolver.swift
-      - Sources/LungfishApp/App/AppProvenanceExportCommandBuilder.swift
+      - Sources/LungfishApp/App/AppDelegate+ProvenanceExportOperationBegin.swift
+      - Sources/LungfishWorkflow/ViewerExport/ProvenanceReportExport.swift
       - Sources/LungfishApp/App/MainMenu.swift
       - Sources/LungfishCLI/Commands/ProvenanceCommand.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceExporter.swift
@@ -2286,6 +2366,7 @@ features:
       - Tests/LungfishWorkflowTests/ProvenanceExportFidelityTests.swift
       - Tests/LungfishOperationsTests/ProvenancePathRehydratorTests.swift
       - Tests/LungfishAppTests/SidebarMoveOfABuiltResultFolderReplayTests.swift
+      - Tests/LungfishAppTests/ProvenanceExportCancelReplayTests.swift
     notes: >-
       File > Export > Provenance holds the six ProvenanceExportMenuModel
       items. Each exports the record of the current viewer or sidebar
@@ -2309,6 +2390,14 @@ features:
       whose signature had already failed stays as it was, so a result
       renamed by an earlier release still fails verify, since a rename
       cannot tell an old rename from an edit.
+      The six items and the Inspector's export menu run lungfish-cli
+      provenance export behind an Operations row, and Copy CLI Command
+      replays it. The command builds the report in a hidden staging folder
+      and publishes it when the report is complete, so Cancel leaves the
+      output folder as it was, and an existing folder keeps the files the
+      export does not write. If Cancel is pressed twice or the app
+      force-quits during an export, a hidden .<name>.<id>.export.tmp folder
+      can remain beside the output, or inside it for an existing folder.
   provenance.inspector:
     title: Read a result's provenance in the Inspector
     entry_points:
@@ -2499,6 +2588,32 @@ features:
     notes: >-
       Opens project folders, creates and removes project-local lock records, and
       migrates bundles for shared multi-user projects.
+  project.copy-item:
+    title: Copy an item from another project
+    entry_points:
+      - "Drop a project item from another project"
+      - "CLI: lungfish project copy-item"
+    inputs: [project-item]
+    outputs: [project-item]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Services/CrossProjectCopyRoute.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+CrossProjectCopy.swift
+      - Sources/LungfishCLI/Commands/ProjectCopyItemSubcommand.swift
+    module: [LungfishApp, LungfishCLI]
+    cli:
+      - lungfish-cli project copy-item
+    tests:
+      - Tests/LungfishAppTests/CrossProjectCopyRouteTests.swift
+      - Tests/LungfishAppTests/MainSplitCrossProjectCopyOperationTests.swift
+      - Tests/LungfishCLITests/ProjectCopyItemSIGTERMTests.swift
+    notes: >-
+      A project item dropped from another project runs lungfish-cli project
+      copy-item, so the Operations row shows the command to copy, and Cancel
+      stops the copy and leaves no partial item. The hidden key
+      CrossProjectCopyRoute set to legacy keeps the in-app copy for one
+      release, and 2.13 deletes it. A record replay of a cross-project copy
+      needs the source project on this Mac.
   project.demo-projects:
     title: Download ready-made demo projects for the manual
     entry_points:
@@ -2788,6 +2903,34 @@ features:
       --min-compatibility, so a PrimalScheme order exported from a filtered
       view records a command that carries them. A parse test alone covers
       the compatibility options.
+  primer-analysis.export-selection:
+    title: Save a primer FASTA bundle or extract a reference amplicon
+    entry_points:
+      - "Primer review context menu > Save Primer FASTA Bundle in Project"
+      - "Primer review context menu > Extract Reference Amplicon Bundle in Project"
+      - "CLI: lungfish primers analysis export-selection"
+    inputs: [lungfishprimeranalysis]
+    outputs: [primer-fasta-bundle, reference-amplicon-bundle]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerAnalysis/PrimerReviewContextMenu.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysis.swift
+      - Sources/LungfishCLI/Commands/PrimerAnalysisExportSelectionCommand.swift
+      - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
+    module: [LungfishApp, LungfishCLI]
+    cli:
+      - lungfish-cli primers analysis export-selection
+    tests:
+      - Tests/LungfishCLITests/PrimerAnalysisExportSelectionCommandTests.swift
+      - Tests/LungfishAppTests/PrimerSelectionExportParityTests.swift
+    notes: >-
+      primers analysis export-selection reproduces Save Primer FASTA Bundle
+      and Extract Reference Amplicon for a primer, an amplicon, a numbered
+      pool or a native pool, with --kind primer-fasta or --kind
+      reference-amplicon. The Operations row records the command, and the
+      export's provenance argv is that command. The command takes the IDs
+      the saved analysis stores, which Copy CLI Command gives on an export
+      made in the app.
   primer-analysis.scheme-from-analysis:
     title: Save a designed scheme as a primer scheme bundle
     entry_points:
