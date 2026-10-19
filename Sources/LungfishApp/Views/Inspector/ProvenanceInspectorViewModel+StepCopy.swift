@@ -14,7 +14,8 @@ struct ProvenanceRenamedCommand: Equatable, Sendable {
     let label: String
     /// What Copy Command copies, the recorded command with each moved path in its new folder.
     let copyCommand: String
-    /// The note beside the Command row, `Paths that the rename of <old> moved now name <new>.`
+    /// The note beside the Command row, `This command ran in <old>. The row and Copy Command name <new>, where the
+    /// record is now.` It reads the same after a rename and after the sidebar's Duplicate.
     let note: String
 }
 

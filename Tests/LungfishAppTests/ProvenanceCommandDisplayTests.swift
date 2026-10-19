@@ -68,7 +68,7 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
     // MARK: - The Command row and Copy Command of a renamed record
 
     /// R-B2 in UX's placement (T4). The Command row and Copy Command name the renamed folder, the note beside the row
-    /// says which rename moved them, the row's tooltip and Copy Step keep the command as it ran, and the copied text
+    /// says where the command ran, the row's tooltip and Copy Step keep the command as it ran, and the copied text
     /// holds no note. At the base the row and Copy Command named the old folder, which is gone, and there was no note.
     func testARenamedRecordsCommandRowAndCopyCommandNameTheRenamedFolder() async throws {
         let renamed = try renamedRecord()
@@ -96,7 +96,8 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
         let note = try element("provenance-step-command-rename-note", in: window)
         XCTAssertEqual(
             AccessibilityTreeProbe.label(note) ?? AccessibilityTreeProbe.value(note),
-            "Paths that the rename of Analyses/fastq-trim moved now name Analyses/fastq-trim renamed."
+            "This command ran in Analyses/fastq-trim. "
+                + "The row and Copy Command name Analyses/fastq-trim renamed, where the record is now."
         )
         let command = try element("provenance-step-command", in: window)
         XCTAssertEqual(
@@ -117,6 +118,32 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
             copyStep.contains("\nCommand: lungfish-cli fastq trim <project>/Inputs/reads.fastq --output "
                 + "<project>/Analyses/fastq-trim/trimmed.fastq\n"),
             copyStep
+        )
+    }
+
+    // MARK: - The note of a duplicated folder (UX ruling 3, the new finding)
+
+    /// The sidebar's Duplicate copies a result folder and rebinds the copy's record, which then names the copy's files
+    /// while its command names the source. That is the trace a rename leaves, so the step gets a note, and Copy Command
+    /// names the copy, whose files a pasted run reads. Nothing was renamed, so the note never says so. At the base it
+    /// read "Paths that the rename of Analyses/fastq-trim moved now name Analyses/fastq-trim copy."
+    func testADuplicatedFoldersNoteDoesNotSayRename() async throws {
+        let duplicated = try renamedRecord(duplicating: true)
+        let model = try await loadedModel(folder: duplicated.newFolder)
+        let step = try XCTUnwrap(model.lineageRuns.last?.steps.first)
+        let redact = ProvenanceDisplayRedaction(projectURL: duplicated.project)
+        let built = await model.renamedCommands()
+        let moved = try XCTUnwrap(built[step.id], "the copy's command names the source folder, so the step has a note")
+
+        XCTAssertFalse(moved.note.localizedCaseInsensitiveContains("rename"), moved.note)
+        XCTAssertEqual(
+            moved.note,
+            "This command ran in Analyses/fastq-trim. "
+                + "The row and Copy Command name Analyses/fastq-trim copy, where the record is now."
+        )
+        XCTAssertEqual(
+            redact(moved.copyCommand),
+            "lungfish-cli fastq trim <project>/Inputs/reads.fastq --output '<project>/Analyses/fastq-trim copy/trimmed.fastq'"
         )
     }
 
@@ -151,13 +178,16 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
     }
 
     /// The cancelled `fastq trim` record written into `Analyses/fastq-trim`, with its input and output on disk, and the
-    /// folder renamed to `fastq-trim renamed` as the sidebar renames it.
-    func renamedRecord() throws -> RenamedRecord {
+    /// folder renamed to `fastq-trim renamed` as the sidebar renames it. With `duplicating` the folder is copied to
+    /// `fastq-trim copy` as the sidebar's Duplicate copies it, and the source stays where it is.
+    func renamedRecord(duplicating: Bool = false) throws -> RenamedRecord {
         let root = try TestTempDirectory.make(prefix: "provenance-command-display")
         addTeardownBlock { TestTempDirectory.cleanup(root) }
         let project = root.appendingPathComponent("Commands.lungfish", isDirectory: true)
         let oldFolder = project.appendingPathComponent("Analyses/fastq-trim", isDirectory: true)
-        let newFolder = project.appendingPathComponent("Analyses/fastq-trim renamed", isDirectory: true)
+        let newFolder = project.appendingPathComponent(
+            duplicating ? "Analyses/fastq-trim copy" : "Analyses/fastq-trim renamed", isDirectory: true
+        )
         let template = try String(
             contentsOf: ProvenanceDisplayFixtures.directory
                 .appendingPathComponent("Analyses/fastq-trim-cancelled/.lungfish-provenance.json"),
@@ -170,7 +200,11 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
         try Data(template.replacingOccurrences(of: "fastq-trim-cancelled", with: "fastq-trim").utf8)
             .write(to: oldFolder.appendingPathComponent(".lungfish-provenance.json"))
 
-        try FileManager.default.moveItem(at: oldFolder, to: newFolder)
+        if duplicating {
+            try FileManager.default.copyItem(at: oldFolder, to: newFolder)
+        } else {
+            try FileManager.default.moveItem(at: oldFolder, to: newFolder)
+        }
         SidebarViewController().rehydrateScientificProvenance(from: oldFolder, to: newFolder)
         return RenamedRecord(
             project: project, newFolder: newFolder, recordURL: newFolder.appendingPathComponent(".lungfish-provenance.json")

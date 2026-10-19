@@ -106,13 +106,15 @@ extension ProvenanceCommandPresentation {
     }
 
     /// The note beside the Command row of a step whose command a rename moved, each folder named as the row names a
-    /// project path: `Paths that the rename of <old> moved now name <new>.` Nil with no rename.
+    /// project path: `This command ran in <old>. The row and Copy Command name <new>, where the record is now.` The
+    /// sidebar's Duplicate leaves the trace a rename leaves, and the record alone cannot tell the two apart, so the
+    /// words hold for both (UX ruling 3 on lane 12.25). Nil when `renames` is empty.
     public static func renameNote(_ renames: [ProvenanceFolderRename], projectURL: URL?) -> String? {
         guard !renames.isEmpty else { return nil }
         return renames.map { rename in
             let old = displayPath(rename.oldPath, projectURL: projectURL, fileExists: { _ in false })
             let new = displayPath(rename.newPath, projectURL: projectURL, fileExists: { _ in true })
-            return "Paths that the rename of \(old) moved now name \(new)."
+            return "This command ran in \(old). The row and Copy Command name \(new), where the record is now."
         }.joined(separator: " ")
     }
 

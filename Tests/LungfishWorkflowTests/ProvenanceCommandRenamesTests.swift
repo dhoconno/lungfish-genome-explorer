@@ -27,7 +27,7 @@ struct ProvenanceCommandRenamesTests {
         #expect(ProvenanceCommandPresentation.movingRenamedPaths(command, renames: found, projectURL: project)
             == "fastp -i /Volumes/Lab/Runs.lungfish/Inputs/r.fq -o '/Volumes/Lab/Runs.lungfish/Analyses/trim renamed/out.fq'")
         #expect(ProvenanceCommandPresentation.renameNote(found, projectURL: project)
-            == "Paths that the rename of Analyses/trim moved now name Analyses/trim renamed.")
+            == "This command ran in Analyses/trim. The row and Copy Command name Analyses/trim renamed, where the record is now.")
     }
 
     @Test func noFileAtTheSamePathBelowTheNewFolderMeansNoRename() {
