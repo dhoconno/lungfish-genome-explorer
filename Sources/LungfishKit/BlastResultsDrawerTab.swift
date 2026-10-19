@@ -1566,58 +1566,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         to url: URL,
         separator: String
     ) {
-        var lines: [String] = []
-
-        // Header
-        let header = [
-            "Read ID", "Verdict", "LCA Flag", "Hit Rank", "Accession",
-            "Organism", "TaxId", "Identity%", "Coverage%", "E-value",
-            "Bit Score", "Alignment Length"
-        ]
-        lines.append(header.joined(separator: separator))
-
-        // Data rows
-        for readResult in result.readResults {
-            if readResult.topHits.isEmpty {
-                // Read with no hits: single row with top-level fields
-                let row = [
-                    escapeField(readResult.id, separator: separator),
-                    readResult.verdict.rawValue,
-                    readResult.hasLCADisagreement ? "true" : "false",
-                    "1",
-                    escapeField(readResult.topHitAccession ?? "", separator: separator),
-                    escapeField(readResult.topHitOrganism ?? "", separator: separator),
-                    "",
-                    readResult.percentIdentity.map { String(format: "%.2f", $0) } ?? "",
-                    readResult.queryCoverage.map { String(format: "%.2f", $0) } ?? "",
-                    readResult.eValue.map { String($0) } ?? "",
-                    readResult.bitScore.map { String(format: "%.1f", $0) } ?? "",
-                    readResult.alignmentLength.map { String($0) } ?? "",
-                ]
-                lines.append(row.joined(separator: separator))
-            } else {
-                // One row per hit
-                for hit in readResult.topHits {
-                    let row = [
-                        escapeField(readResult.id, separator: separator),
-                        readResult.verdict.rawValue,
-                        readResult.hasLCADisagreement ? "true" : "false",
-                        String(hit.rank),
-                        escapeField(hit.accession, separator: separator),
-                        escapeField(hit.organism ?? "", separator: separator),
-                        hit.taxId.map { String($0) } ?? "",
-                        String(format: "%.2f", hit.percentIdentity),
-                        String(format: "%.2f", hit.queryCoverage),
-                        String(hit.eValue),
-                        String(format: "%.1f", hit.bitScore),
-                        String(hit.alignmentLength),
-                    ]
-                    lines.append(row.joined(separator: separator))
-                }
-            }
-        }
-
-        let content = lines.joined(separator: "\n") + "\n"
+        let content = BlastVerificationTableExport.tableContent(result: result, separator: separator)
         // This export previously wrote only the CSV/TSV payload, with
         // no provenance sidecar recording which BLAST verification produced
         // it. Writes atomically through `ScientificFileExportProvenance`, the
@@ -1653,16 +1602,6 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         } catch {
             blastLogger.error("Failed to export BLAST results: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// Escapes a field for CSV output by quoting if it contains the separator,
-    /// quotes, or newlines.
-    private func escapeField(_ value: String, separator: String) -> String {
-        if value.contains(separator) || value.contains("\"") || value.contains("\n") {
-            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
-            return "\"\(escaped)\""
-        }
-        return value
     }
 
     // MARK: - Actions
