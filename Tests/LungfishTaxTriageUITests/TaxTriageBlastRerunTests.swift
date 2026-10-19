@@ -27,7 +27,10 @@ final class TaxTriageBlastFixture {
     private(set) var forwarded: [Forwarded] = []
     private var runPopover: ((Int) -> Void)?
 
-    init() throws {
+    /// - Parameter extraGammaAccession: When given, sample-2 holds a second organism under tax ID 2001 with this
+    ///   accession. The database form builds its accession maps from the rows, so the tax ID map of sample-2 then
+    ///   gives 2001 two accessions where the name map gives `Gamma virus` one.
+    init(extraGammaAccession: String? = nil) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TaxTriageBlast-\(UUID().uuidString)", isDirectory: true)
         for sample in Self.samples {
@@ -36,12 +39,16 @@ final class TaxTriageBlastFixture {
             try Data().write(to: folder.appendingPathComponent("\(sample).bam"))
             try Data().write(to: folder.appendingPathComponent("\(sample).bam.bai"))
         }
+        var rows = [
+            Self.row(sample: "sample-1", organism: "Alpha virus", taxId: 1001, accession: "NC_1001"),
+            Self.row(sample: "sample-2", organism: "Gamma virus", taxId: 2001, accession: "NC_2001"),
+        ]
+        if let extraGammaAccession {
+            rows.append(Self.row(sample: "sample-2", organism: "Gamma virus subtype B", taxId: 2001, accession: extraGammaAccession))
+        }
         let database = try TaxTriageDatabase.create(
             at: root.appendingPathComponent("taxtriage.sqlite"),
-            rows: [
-                Self.row(sample: "sample-1", organism: "Alpha virus", taxId: 1001, accession: "NC_1001"),
-                Self.row(sample: "sample-2", organism: "Gamma virus", taxId: 2001, accession: "NC_2001"),
-            ],
+            rows: rows,
             metadata: ["tool": "taxtriage"]
         )
         _ = controller.view
@@ -52,10 +59,10 @@ final class TaxTriageBlastFixture {
         controller.blastConfigPopoverPresenter = { [weak self] _, _, _, onRun in self?.runPopover = onRun }
         // A ceiling, not a speed check: the rows load on a detached task and the loop returns as soon as they show.
         let deadline = Date().addingTimeInterval(60)
-        while controller.testBatchFlatTableView.displayedRows.count < 2 && Date() < deadline {
+        while controller.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
-        XCTAssertEqual(controller.testBatchFlatTableView.displayedRows.count, 2, "the rows did not load")
+        XCTAssertEqual(controller.testBatchFlatTableView.displayedRows.count, rows.count, "the rows did not load")
     }
 
     func bamURL(for sample: String) -> URL {
@@ -164,5 +171,25 @@ final class TaxTriageBlastRerunTests: XCTestCase {
         XCTAssertEqual(rerun.bamURL, first.bamURL, "the re-run searches the BAM of the request it repeats")
         XCTAssertNotEqual(rerun.bamURL, fixture.bamURL(for: "sample-1"), "the re-run does not send the BAM the view holds")
         XCTAssertEqual(rerun.bamIndexURL, first.bamIndexURL)
+    }
+
+    /// Review 12.09b, Fix 4. The first request takes its accessions from the tax ID map before the name map, so the two
+    /// lists can differ for one organism. Sample-2 holds tax ID 2001 under two organisms, so its tax ID map gives 2001
+    /// two accessions and its name map gives `Gamma virus` one. The re-run sends the list of the request it repeats
+    /// and does not look the organism up by name again.
+    func testTheDrawerRerunSendsTheAccessionsOfTheLastRequest() throws {
+        let fixture = try TaxTriageBlastFixture(extraGammaAccession: "NC_2002")
+        defer { fixture.cleanUp() }
+
+        try fixture.request(organism: "Gamma virus", sample: "sample-2")
+        let first = try XCTUnwrap(fixture.forwarded.last)
+        XCTAssertEqual(first.accessions?.count, 2, "the tax ID map gives 2001 two accessions")
+
+        try fixture.pick(sample: "sample-1")
+        try fixture.rerun(taxonName: "Gamma virus", taxId: 2001)
+
+        XCTAssertEqual(fixture.forwarded.count, 2, "the re-run reaches the host")
+        let rerun = try XCTUnwrap(fixture.forwarded.last)
+        XCTAssertEqual(rerun.accessions, first.accessions, "the re-run sends the accessions of the request it repeats")
     }
 }

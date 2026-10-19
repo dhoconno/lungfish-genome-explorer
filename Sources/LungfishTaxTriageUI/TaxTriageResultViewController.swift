@@ -232,10 +232,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Path to the resolved BAM index (.bai or .csi).
     private var bamIndexURL: URL?
 
-    /// The sample and BAM of the last BLAST request this view forwarded to its host. The drawer's re-run sends
-    /// them again and not the BAM the view holds by then, since a changed selection between the two could send
-    /// another sample's reads, or none (2.12 lane 12.09b, review 12.09 note 1).
-    private var lastBlastBAM: (sample: String?, bamURL: URL?, bamIndexURL: URL?)?
+    /// The sample, accessions and BAM of the last BLAST request this view forwarded to its host. The drawer's re-run
+    /// sends them again, so it repeats the request and not the BAM the view holds by then (2.12 lane 12.09b).
+    private var lastBlastRequest: (sample: String?, accessions: [String]?, bamURL: URL?, bamIndexURL: URL?)?
 
     /// All discovered BAM files keyed by sample ID substring.
     private var bamFilesBySample: [String: URL] = [:]
@@ -2795,17 +2794,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         blastDrawer.onRerunBlast = { [weak self] in
             guard let self, let result = self.lastBlastResult else { return }
-            // The sample and BAM of the request this repeats, not the BAM the view holds now (2.12 lane 12.09b).
-            let last = self.lastBlastBAM ?? (
-                sample: Self.sample(owning: self.bamURL, in: self.bamFilesBySample),
+            // The request this repeats, with its own sample, accessions, BAM and index (2.12 lane 12.09b).
+            let heldSample = Self.sample(owning: self.bamURL, in: self.bamFilesBySample)
+            let last = self.lastBlastRequest ?? (
+                sample: heldSample, accessions: self.accessions(for: result.taxonName, sampleId: heldSample),
                 bamURL: self.bamURL, bamIndexURL: self.bamIndexURL
             )
             let organism = TaxTriageOrganism(
                 name: result.taxonName, score: 0, reads: result.totalReads,
                 coverage: nil, taxId: result.taxId, rank: nil, sample: last.sample
             )
-            let orgAccessions = self.accessions(for: result.taxonName, sampleId: last.sample)
-            self.forwardBlastVerification(organism, result.totalReads, orgAccessions, last.bamURL, last.bamIndexURL)
+            self.forwardBlastVerification(organism, result.totalReads, last.accessions, last.bamURL, last.bamIndexURL)
         }
     }
 
@@ -3822,11 +3821,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         forwardBlastVerification(organism, readCount, rowAccessions, bamURL, bamIndexURL)
     }
 
-    /// Hands a BLAST request to the host and keeps its sample and BAM for the drawer's re-run.
+    /// Hands a BLAST request to the host and keeps its sample, accessions and BAM for the drawer's re-run.
     private func forwardBlastVerification(
         _ organism: TaxTriageOrganism, _ readCount: Int, _ accessions: [String]?, _ bamURL: URL?, _ bamIndexURL: URL?
     ) {
-        lastBlastBAM = (organism.sample, bamURL, bamIndexURL)
+        lastBlastRequest = (organism.sample, accessions, bamURL, bamIndexURL)
         onBlastVerification?(organism, readCount, accessions, bamURL, bamIndexURL)
     }
 
