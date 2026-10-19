@@ -100,7 +100,7 @@ extension GenotypeResultViewController {
         let python: URL
         if let pythonURL { python = pythonURL }
         else { python = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl") }
-        let invocation = try GenotypeViewportExportService.writeWorkbookInputs(
+        let invocation = try await GenotypeViewportExportService.writeWorkbookInputs(
             snapshot: snapshot, outputURL: outputURL, pythonURL: python,
             force: FileManager.default.fileExists(atPath: outputURL.path)
         )

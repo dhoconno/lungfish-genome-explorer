@@ -11,12 +11,16 @@ struct GenotypeViewportExportService {
     /// its provenance request to `capture.json` and `request.json` in a new `.lungfish-export-inputs/<UUID>/` folder
     /// beside the output, and returns the leaf's invocation (Phase 2.12 lane 12.35, ARCH-12.35-B1 conditions 2 and
     /// 3). The request's argv is the row's command, so no file the record names says `Lungfish` as a tool.
+    ///
+    /// The decode of the capture, the pretty and sorted encodes of the capture and the request, and the two writes
+    /// cost more as the matrix grows, so this runs off the main actor (SWIFT 2). The caller awaits it.
+    @concurrent
     static func writeWorkbookInputs(
         snapshot: GenotypeViewportExportSnapshot,
         outputURL: URL,
         pythonURL: URL,
         force: Bool
-    ) throws -> GenotypeWorkbookExport.Invocation {
+    ) async throws -> GenotypeWorkbookExport.Invocation {
         let capture = try decodedCapture(snapshot)
         let urls = GenotypeWorkbookExport.inputURLs(besideOutput: outputURL)
         let invocation = GenotypeWorkbookExport.Invocation(
