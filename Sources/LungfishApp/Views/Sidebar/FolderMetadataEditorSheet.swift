@@ -252,12 +252,12 @@ final class FolderMetadataEditorSheet: NSViewController {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     let orderedSamples = self.sampleNames.compactMap { self.metadata[$0] }
-                    let csv = FASTQSampleMetadata.serializeMultiSampleCSV(orderedSamples)
-                    do {
-                        try csv.write(to: url, atomically: true, encoding: .utf8)
-                        logger.info("Exported metadata to \(url.lastPathComponent)")
-                    } catch {
-                        logger.error("Failed to export CSV: \(error.localizedDescription)")
+                    let window = self.view.window
+                    AppDelegate.runMetadataExport(
+                        folderURL: self.folderURL, samples: orderedSamples, outputURL: url
+                    ) { message in
+                        logger.error("Failed to export CSV: \(message)")
+                        AppDelegate.presentMetadataExportFailure(message, window: window)
                     }
                 }
             }

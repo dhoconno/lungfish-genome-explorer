@@ -23,7 +23,7 @@ SUBCOMMANDS:
   get (default)           Display metadata for a FASTQ bundle
   set                     Set a metadata field on a FASTQ bundle
   import                  Import folder-level metadata from a CSV file
-  export                  Export folder metadata as CSV to stdout
+  export                  Export folder metadata as CSV to stdout or a file
   export-biosample        Export folder metadata as NCBI BioSample submission
                           TSV
 

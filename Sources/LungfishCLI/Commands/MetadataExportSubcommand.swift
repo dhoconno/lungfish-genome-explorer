@@ -10,29 +10,61 @@ import LungfishWorkflow
 
 // MARK: - Export Subcommand
 
-/// Export folder metadata as CSV to stdout
+/// Export folder metadata as CSV to stdout, or with `--output` to a file with a provenance record
 struct MetadataExportSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export",
-        abstract: "Export folder metadata as CSV to stdout",
+        abstract: "Export folder metadata as CSV to stdout or a file",
         discussion: """
             Reads metadata from all .lungfishfastq bundles in a folder and outputs
             a combined CSV to stdout. Uses resolved metadata (per-bundle metadata.csv
             takes precedence over folder-level samples.csv).
 
+            With --output the CSV goes to a file instead, with a provenance
+            record beside it. --format json then prints events, as every
+            export command does, and the tsv format has no file form.
+            --selection names a file the app wrote for rows it holds in
+            memory. Its rows replace the folder's metadata files.
+
             Examples:
               lungfish-cli metadata export ./RunFolder
               lungfish-cli metadata export ./RunFolder > samples.csv
               lungfish-cli metadata export ./RunFolder --format tsv
+              lungfish-cli metadata export ./RunFolder --output ./samples.csv
             """
     )
 
     @Argument(help: "Path to the folder containing .lungfishfastq bundles")
     var folderPath: String
 
+    @Option(
+        name: [.customLong(ViewerExportOption.output.rawValue), .customShort("o")],
+        help: "Write the CSV to this file instead of standard output. An existing file is refused without --force"
+    )
+    var outputPath: String?
+
+    @Option(
+        name: .customLong(ViewerExportOption.selection.rawValue),
+        help: "With --output, the selection file the app wrote for rows it holds in memory"
+    )
+    var selectionPath: String?
+
+    @Flag(name: .customLong(ViewerExportOption.force.rawValue), help: "With --output, overwrite an existing output file")
+    var force = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
+    func validate() throws {
+        if outputPath == nil, selectionPath != nil || force {
+            throw ValidationError("Pass --selection and --force only with --output.")
+        }
+    }
+
     func run() async throws {
+        if outputPath != nil {
+            try await runOutputExport()
+            return
+        }
         let folderURL = URL(fileURLWithPath: folderPath)
         guard FileManager.default.fileExists(atPath: folderPath) else {
             throw CLIError.inputFileNotFound(path: folderPath)

@@ -1,20 +1,32 @@
-OVERVIEW: Export folder metadata as CSV to stdout
+OVERVIEW: Export folder metadata as CSV to stdout or a file
 
 Reads metadata from all .lungfishfastq bundles in a folder and outputs
 a combined CSV to stdout. Uses resolved metadata (per-bundle metadata.csv
 takes precedence over folder-level samples.csv).
 
+With --output the CSV goes to a file instead, with a provenance
+record beside it. --format json then prints events, as every
+export command does, and the tsv format has no file form.
+--selection names a file the app wrote for rows it holds in
+memory. Its rows replace the folder's metadata files.
+
 Examples:
   lungfish-cli metadata export ./RunFolder
   lungfish-cli metadata export ./RunFolder > samples.csv
   lungfish-cli metadata export ./RunFolder --format tsv
+  lungfish-cli metadata export ./RunFolder --output ./samples.csv
 
-USAGE: lungfish-cli metadata export <folder-path> [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+USAGE: lungfish-cli metadata export [<options>] <folder-path>
 
 ARGUMENTS:
   <folder-path>           Path to the folder containing .lungfishfastq bundles
 
 OPTIONS:
+  -o, --output <output>   Write the CSV to this file instead of standard
+                          output. An existing file is refused without --force
+  --selection <selection> With --output, the selection file the app wrote for
+                          rows it holds in memory
+  --force                 With --output, overwrite an existing output file
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

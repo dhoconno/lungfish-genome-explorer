@@ -241,19 +241,16 @@ final class MetadataExportSheet: NSViewController {
             return discoveredSamples[idx].metadata
         }
 
-        let csv = FASTQSampleMetadata.serializeMultiSampleCSV(samples)
-        do {
-            try csv.write(to: url, atomically: true, encoding: .utf8)
-            logger.info("Exported metadata for \(samples.count) samples to \(url.lastPathComponent)")
-            dismiss(nil)
-        } catch {
-            logger.error("Failed to export metadata CSV: \(error.localizedDescription)")
-            let alert = NSAlert()
-            alert.messageText = "Export Failed"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            if let window = view.window {
-                alert.beginSheetModal(for: window)
+        let window = view.window
+        let begun = AppDelegate.runMetadataExport(folderURL: folderURL, samples: samples, outputURL: url) { message in
+            logger.error("Failed to export metadata CSV: \(message)")
+            AppDelegate.presentMetadataExportFailure(message, window: window)
+        }
+        guard let begun else { return }
+        Task { @MainActor [weak self] in
+            if case .completed = await begun.task.value {
+                logger.info("Exported metadata for \(samples.count) samples to \(url.lastPathComponent)")
+                self?.dismiss(nil)
             }
         }
     }
