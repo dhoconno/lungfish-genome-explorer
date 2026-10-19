@@ -9,6 +9,7 @@
 // parses it with the real `msa annotate add` or `msa annotate project` leaf, and compares the parsed values with the
 // request.
 
+import AppKit
 import XCTest
 import LungfishKit
 import LungfishKitTestSupport
@@ -23,6 +24,11 @@ final class ViewerViewControllerRunMSAInPlaceAnnotationActionParseTests: XCTestC
 
     override func setUp() async throws {
         try await super.setUp()
+        // `runMSAInPlaceAnnotationAction` asks `canWriteProjectOutputs`, which reads `AppDelegate.shared`, and that
+        // reads `NSApp`. `NSApp` is nil until the application exists, so a process that runs this class before any
+        // other test made the application traps at AppDelegate.swift:37. The application has no delegate here, so
+        // `AppDelegate.shared` is nil and the check passes, as in the sibling viewer tests.
+        _ = NSApplication.shared
         OperationCenter.useTemporaryFailureReportsForTesting()
         root = try TestTempDirectory.make(prefix: "viewer-msa-annotation-action")
         standIn = BeginSiteCLIStandIn(root: root)
