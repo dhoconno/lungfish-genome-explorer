@@ -332,26 +332,9 @@ extension AnnotationTableDrawerView {
         callerSettingsByTrack: [String: String],
         resolverSnapshot: VariantTableExportResolverSnapshot
     ) -> [String: [String: String]] {
-        Dictionary(uniqueKeysWithValues: rows.map { row in
-            let resolved = resolverSnapshot.resolve(row)
-            let identity = "\(row.trackId):\(row.variantRowId.map(String.init) ?? row.id.uuidString)"
-            let values = Dictionary(uniqueKeysWithValues: columns.map { column -> (String, String) in
-                let value: String
-                switch column.id {
-                case Self.callerSettingsColumn.rawValue:
-                    value = callerSettingsByTrack[row.trackId] ?? "Not recorded"
-                case Self.codingFeatureColumn.rawValue:
-                    value = resolved.codingFeature
-                case Self.consequenceColumn.rawValue:
-                    value = resolved.consequence
-                case Self.aaChangeColumn.rawValue:
-                    value = resolved.aaChange
-                default: value = ""
-                }
-                return (column.id, value)
-            })
-            return (identity, values)
-        })
+        AnnotationTableExport.variantResolvedText(
+            rows: rows, columns: columns, callerSettingsByTrack: callerSettingsByTrack, resolverSnapshot: resolverSnapshot
+        )
     }
 
     private func annotationExportQueryDescription(sortKey: String?, ascending: Bool) -> [String: String] {

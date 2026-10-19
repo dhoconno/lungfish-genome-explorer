@@ -94,6 +94,7 @@ package enum CLIEventContractTable {
         // Events since 2.12 lane 12.18, a new leaf over the cross-project copier that the sidebar ran in the app.
         "project copy-item": .events(flag: formatJSON, channel: .standardOutput),
         "bundle export-gff3": .events(flag: formatJSON, channel: .standardOutput),
+        "bundle export-annotation-table": .events(flag: formatJSON, channel: .standardOutput),
         "conda classify": .events(flag: formatJSON, channel: .standardOutput),
         "conda db update": .events(flag: formatJSON, channel: .standardOutput),
         "conda install": .events(flag: formatJSON, channel: .standardOutput),

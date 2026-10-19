@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the annotations table.","progress":0,"schemaVersion":2}
+{"error":"No bundle manifest can be read at \/work\/missing.lungfishref\/manifest.json. Pass a reference bundle (.lungfishref).","event":"failed","schemaVersion":2}
