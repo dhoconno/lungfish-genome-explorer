@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the BLAST table.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported the hits of 2 reads to blast.tsv","output":"\/work\/blast.tsv","outputs":["\/work\/blast.tsv"],"progress":1,"schemaVersion":2}

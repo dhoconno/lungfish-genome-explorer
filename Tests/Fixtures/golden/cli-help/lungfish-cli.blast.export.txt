@@ -1,0 +1,13 @@
+OVERVIEW: Export BLAST result tables with provenance
+
+USAGE: lungfish-cli blast export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  table                   Write the hit table of a saved BLAST search as TSV or
+                          CSV with provenance
+
+  See 'lungfish-cli help blast export <subcommand>' for detailed help.

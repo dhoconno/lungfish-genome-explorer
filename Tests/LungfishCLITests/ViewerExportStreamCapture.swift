@@ -55,6 +55,32 @@ enum ViewerExportStreamCapture {
                 ])
                 return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
             },
+            // The app's BLAST drawer Export of a saved search, one read with a hit and one with none.
+            ImportStreamCapture.Case(leaf: "blast export table", name: "complete") { scratch in
+                let result = BlastVerificationResult(
+                    taxonName: "Escherichia coli",
+                    taxId: 562,
+                    readResults: [
+                        BlastReadResult(
+                            id: "read_1", verdict: .verified, topHitOrganism: "Escherichia coli",
+                            topHitAccession: "NC_000001.1", percentIdentity: 99.0, eValue: 0.0, matchesQueriedTaxon: true
+                        ),
+                        BlastReadResult(id: "read_2", verdict: .unverified),
+                    ],
+                    submittedAt: Date(timeIntervalSince1970: 1_790_000_000),
+                    completedAt: Date(timeIntervalSince1970: 1_790_000_060),
+                    rid: "RID-1",
+                    blastProgram: "megablast",
+                    database: "core_nt"
+                )
+                let archive = try BlastVerificationArchive.save(result, request: nil, in: scratch.root)
+                let command = try BlastCommand.ExportTableSubcommand.parse([
+                    archive.path, "--output-format", "tsv",
+                    "--output", scratch.root.appendingPathComponent("blast.tsv").path,
+                    "--format", "json",
+                ])
+                return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+            },
             // The app's NAO-MGS Export, samples A and B with the `Cohort` metadata column.
             ImportStreamCapture.Case(leaf: "nao-mgs export table", name: "complete") { scratch in
                 let result = try naoMgsResult(in: scratch.root)

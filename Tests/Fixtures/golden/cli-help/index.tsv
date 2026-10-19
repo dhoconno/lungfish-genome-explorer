@@ -133,6 +133,8 @@ lungfish-cli conda db install-managed	shown	0	lungfish-cli.conda.db.install-mana
 lungfish-cli blast	shown	0	lungfish-cli.blast.txt
 lungfish-cli blast verify	shown	0	lungfish-cli.blast.verify.txt
 lungfish-cli blast submit	shown	0	lungfish-cli.blast.submit.txt
+lungfish-cli blast export	shown	0	lungfish-cli.blast.export.txt
+lungfish-cli blast export table	shown	0	lungfish-cli.blast.export.table.txt
 lungfish-cli kraken2	shown	0	lungfish-cli.kraken2.txt
 lungfish-cli kraken2 classify	shown	0	lungfish-cli.kraken2.classify.txt
 lungfish-cli kraken2 export	shown	0	lungfish-cli.kraken2.export.txt

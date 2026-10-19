@@ -13,5 +13,6 @@ OPTIONS:
 SUBCOMMANDS:
   verify (default)        Verify a taxon classification via NCBI BLAST
   submit                  BLAST the sequences of a FASTA file against NCBI
+  export                  Export BLAST result tables with provenance
 
   See 'lungfish-cli help blast <subcommand>' for detailed help.
