@@ -47,6 +47,10 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     public var exitStatus: Int?
     public var stderr: String?
     public var signatures: [ProvenanceSignatureReference]
+    /// The signatures LGE removed from this file when a write with no key replaced it, oldest first. It is written
+    /// only when it is not empty, so a record that never lost a verified pair keeps its bytes. See
+    /// ``ProvenancePriorSignature``.
+    public var priorSignatures: [ProvenancePriorSignature]
     /// How the run ended. The exit status cannot say it, because a cancelled run
     /// can end on a step that exited 0 and only the status says the result is
     /// partial. It is written under the `status` key.
@@ -93,6 +97,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         case exitStatus
         case stderr
         case signatures
+        case priorSignatures
         case legacyRun = "legacyWorkflowRun"
     }
 
@@ -119,6 +124,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         exitStatus: Int? = nil,
         stderr: String? = nil,
         signatures: [ProvenanceSignatureReference] = [],
+        priorSignatures: [ProvenancePriorSignature] = [],
         status: RunStatus? = nil,
         legacyWorkflowRun: WorkflowRun? = nil
     ) {
@@ -149,6 +155,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.exitStatus = exitStatus
         self.stderr = stderr
         self.signatures = signatures
+        self.priorSignatures = priorSignatures
         self.status = status ?? legacyWorkflowRun?.status ?? Self.derivedStatus(exitStatus: exitStatus)
         self.legacyRun = legacyWorkflowRun
     }
@@ -238,6 +245,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
         stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
         signatures = try container.decodeIfPresent([ProvenanceSignatureReference].self, forKey: .signatures) ?? []
+        priorSignatures = try container.decodeIfPresent([ProvenancePriorSignature].self, forKey: .priorSignatures) ?? []
         legacyRun = try container.decodeIfPresent(WorkflowRun.self, forKey: .legacyRun)
         status = Self.decodedStatus(from: container) ?? legacyRun?.status ?? Self.derivedStatus(exitStatus: exitStatus)
     }
@@ -270,6 +278,9 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(exitStatus, forKey: .exitStatus)
         try container.encodeIfPresent(stderr, forKey: .stderr)
         try container.encode(signatures, forKey: .signatures)
+        if !priorSignatures.isEmpty {
+            try container.encode(priorSignatures, forKey: .priorSignatures)
+        }
     }
 
     private static func decodeFileDescriptorIfPresent(

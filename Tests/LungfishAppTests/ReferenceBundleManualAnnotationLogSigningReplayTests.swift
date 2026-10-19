@@ -141,6 +141,83 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
         XCTAssertEqual(try entryCount(of: log), 3)
     }
 
+    // MARK: - The prior key on the entry of a keyless append
+
+    /// The entry whose append removed a verified pair states the provider, the key fingerprint, the digest the
+    /// signature covered (the SHA-256 of the raw log before the append) and its signing time. Earlier entries keep
+    /// their bytes, and a later keyed append signs the whole file, the stated key included (ruling SWIFT-12.22-fingerprint).
+    func testKeylessAppendNamesThePriorKeyOnItsEntry() async throws {
+        let scratch = try TestTempDirectory.make(prefix: "add-annotation-log-prior-key")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let bundle = try makeBundle(in: scratch)
+        let log = Self.log(in: bundle)
+        let service = ReferenceBundleManualAnnotationService()
+
+        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        _ = try await service.addAnnotation(Self.annotation("signed"), toBundleAt: bundle)
+        saved.restore()
+        XCTAssertTrue(RouteParityHarness.isSigned(log), "the first append left no signature, so there is nothing to name")
+        let verified = try ProvenanceSignatureVerifier.verify(provenanceURL: log)
+        let digestBefore = SHA256.hash(data: try Data(contentsOf: log)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(verified.provenanceSHA256, digestBefore, "a log is signed over its raw bytes")
+        let signature = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: ProvenanceSigningConfiguration.signatureURL(for: log))
+            ) as? [String: Any]
+        )
+        let expected = [
+            verified.provider, try XCTUnwrap(signature["publicKeySHA256"] as? String), digestBefore,
+            try XCTUnwrap(signature["signedAt"] as? String),
+        ]
+
+        XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the second append")
+        _ = try await service.addAnnotation(Self.annotation("keyless"), toBundleAt: bundle)
+
+        var entries = try entryObjects(of: log)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertNil(entries[0]["priorSignatures"], "the first entry names a pair though no earlier append removed one")
+        XCTAssertEqual(statedPair(entries[1]), expected, "the entry of the keyless append does not state the pair it removed")
+
+        // A later keyed append signs the whole file, and the earlier entry keeps its key.
+        let again = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        defer { again.restore() }
+        _ = try await service.addAnnotation(Self.annotation("signed again"), toBundleAt: bundle)
+        XCTAssertTrue(try ProvenanceSignatureVerifier.verify(provenanceURL: log).isValid)
+        entries = try entryObjects(of: log)
+        XCTAssertEqual(entries.count, 3)
+        XCTAssertNil(entries[0]["priorSignatures"])
+        XCTAssertEqual(statedPair(entries[1]), expected, "the later append lost the key of the second entry")
+        XCTAssertNil(entries[2]["priorSignatures"], "the keyed append names a pair though it removed none")
+    }
+
+    /// A keyless append into a log that was never signed adds no key, and the bytes of an entry stay as they were.
+    func testKeylessAppendIntoUnsignedLogAddsNoKey() async throws {
+        let scratch = try TestTempDirectory.make(prefix: "add-annotation-log-unsigned")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let bundle = try makeBundle(in: scratch)
+        let log = Self.log(in: bundle)
+        let service = ReferenceBundleManualAnnotationService()
+
+        XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the appends")
+        _ = try await service.addAnnotation(Self.annotation("first"), toBundleAt: bundle)
+        _ = try await service.addAnnotation(Self.annotation("second"), toBundleAt: bundle)
+
+        XCTAssertEqual(try entryCount(of: log), 2)
+        XCTAssertFalse(try String(contentsOf: log, encoding: .utf8).contains("priorSignatures"))
+    }
+
+    /// The four values of an entry's one prior signature, in the order of the ruling, or nil.
+    private func statedPair(_ entry: [String: Any]) -> [String]? {
+        guard let prior = entry["priorSignatures"] as? [[String: Any]], prior.count == 1 else { return nil }
+        let values = ["provider", "publicKeySHA256", "provenanceSHA256", "signedAt"].compactMap { prior[0][$0] as? String }
+        return values.count == 4 && prior[0].count == 4 ? values : nil
+    }
+
+    private func entryObjects(of log: URL) throws -> [[String: Any]] {
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: log)) as? [String: Any])
+        return try XCTUnwrap(json["entries"] as? [[String: Any]])
+    }
+
     // MARK: - The sides and the fixture
 
     private func makeBundle(in scratch: URL) throws -> URL {

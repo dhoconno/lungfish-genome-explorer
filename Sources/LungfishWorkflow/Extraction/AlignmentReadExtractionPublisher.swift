@@ -255,8 +255,15 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             try beforeFinalInstall?()
             // The record is written, and signed when a key is set, at the name it keeps. A signature made at a
             // staged sibling name would name that file inside the record and could not verify after the rename.
+            // `promoteFilePair` moves the previous record and its signature aside before the write, so the writer
+            // would find no old file. The history of a signature this run removes is taken while they still sit at
+            // their final names (ruling SWIFT-12.22-fingerprint).
+            let writer = ProvenanceWriter()
+            let recordedEnvelope = try writer.envelopeKeepingSignatureHistory(
+                envelope, replacing: ProvenanceRecorder.fileSidecarURL(for: finalURL)
+            )
             try promoteFilePair(stagedPayloadURL: stagedPayloadURL, finalURL: finalURL) { recordURL in
-                _ = try ProvenanceWriter().write(envelope, toSidecar: recordURL)
+                _ = try writer.write(recordedEnvelope, toSidecar: recordURL)
             }
             request.transaction.appendExecutionRecord(record)
             request.transaction.cleanup()

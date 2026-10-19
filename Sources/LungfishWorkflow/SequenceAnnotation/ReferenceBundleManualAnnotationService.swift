@@ -429,6 +429,7 @@ public final class ReferenceBundleManualAnnotationService {
             "--type", annotation.type.rawValue,
             "--strand", annotation.strand.rawValue,
         ]
+        let writer = ProvenanceWriter()
         let entry = ManualAnnotationProvenanceEntry(
             workflowName: "lungfish manual annotation",
             workflowVersion: appVersionString(),
@@ -466,7 +467,10 @@ public final class ReferenceBundleManualAnnotationService {
             exitStatus: 0,
             wallTimeSeconds: completedAt.timeIntervalSince(runClock.startedAt),
             stderr: nil,
-            recordedAt: completedAt
+            recordedAt: completedAt,
+            // A write with no key removes the signature of an earlier append. The check runs on the log as it is now,
+            // before the write below publishes the new bytes.
+            priorSignatures: writer.signatureThisWriteDrops(at: provenanceURL).map { [$0] }
         )
         log.entries.append(entry)
 
@@ -476,7 +480,7 @@ public final class ReferenceBundleManualAnnotationService {
         let data = try encoder.encode(log)
         // The log keeps its schema and its name. The writer publishes it as a record is published and signs it when a
         // key is set, and a write with no key removes the signature an earlier write left (decision S5).
-        try ProvenanceWriter().writeDocument(data, to: provenanceURL)
+        try writer.writeDocument(data, to: provenanceURL)
     }
 
     private func loadProvenanceLog(from url: URL) throws -> ManualAnnotationProvenanceLog {
@@ -524,6 +528,9 @@ private struct ManualAnnotationProvenanceEntry: Codable {
     let wallTimeSeconds: TimeInterval
     let stderr: String?
     let recordedAt: Date
+    /// The signature that the append of this entry removed from the log, when it verified against the log as it was
+    /// (ruling SWIFT-12.22-fingerprint). Written only when present, so an entry without it keeps its bytes.
+    let priorSignatures: [ProvenancePriorSignature]?
 }
 
 private struct ManualAnnotationFileSnapshot: Codable {

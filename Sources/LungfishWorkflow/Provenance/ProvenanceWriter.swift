@@ -140,10 +140,10 @@ public struct ProvenanceWriter: Sendable {
         try DurableReplace.transaction { try writeSidecar(envelope, to: provenanceURL) }
     }
 
-    private func writeSidecar(_ envelope: ProvenanceEnvelope, to provenanceURL: URL) throws -> URL {
+    private func writeSidecar(_ callerEnvelope: ProvenanceEnvelope, to provenanceURL: URL) throws -> URL {
         let directory = provenanceURL.deletingLastPathComponent()
         try prepareDirectory(directory, withIntermediateDirectories: true)
-
+        let envelope = try envelopeKeepingSignatureHistory(callerEnvelope, replacing: provenanceURL)
         try writeUnsigned(envelope, toSidecar: provenanceURL)
 
         guard let signingProvider else {
@@ -1507,7 +1507,7 @@ extension ProvenanceEnvelope {
             wallTimeSeconds: wallTimeSeconds,
             exitStatus: exitStatus,
             stderr: stderr,
-            signatures: signatures,
+            signatures: signatures, priorSignatures: priorSignatures,
             status: status, legacyWorkflowRun: legacyRun
         )
     }

@@ -9,11 +9,12 @@
 // SequenceAnnotationTrackSigningReplayTests and ReferenceBundleManualAnnotationLogSigningReplayTests). What stays
 // here is the run with no key, which the lane must leave as it is, and the keyless write into a signed record.
 //
-// The last test reads what `ProvenanceWriter.writeSidecar` does today when a keyless write replaces a signed
-// record. The new record carries no signature, the writer removes `<record>.signature.json` and `<record>.pub`,
-// and the record reads as unsigned and never as tampered. The prior signature's key fingerprint is the value the
-// signature file already holds as `publicKeySHA256`, and the digest it covered is `provenanceSHA256`. The new
-// record states neither, which is the gap the plan's row 12.22 asks to close (BIO memo check 7).
+// The last test reads what `ProvenanceWriter.writeSidecar` does when a keyless write replaces a signed record. The
+// new record carries no signature, the writer removes `<record>.signature.json` and `<record>.pub`, and the record
+// reads as unsigned and never as tampered. The prior signature's key fingerprint is the value the signature file
+// holds as `publicKeySHA256`, and the digest it covered is `provenanceSHA256`. M3 step 6 closed the gap that the
+// plan's row 12.22 named (BIO memo check 7). The new record states both, with the provider and the signing time,
+// under `priorSignatures` (ruling SWIFT-12.22-fingerprint), and the test name keeps its wording from the base.
 //
 // It sets a process variable, so its name ends in ReplayTests and it runs in the integration tier.
 
@@ -121,10 +122,20 @@ final class NamedUnsignedRecordsPinReplayTests: XCTestCase {
             )
         }
 
-        // The gap: the new record names neither the prior key nor the digest it covered.
+        // The record states the key and the digest of the pair it removed under `priorSignatures` (ruling
+        // SWIFT-12.22-fingerprint), as the signature file stated them, and holds no key text and no file name.
         let text = try String(contentsOf: record, encoding: .utf8)
-        XCTAssertFalse(text.contains(fingerprint), "the record already names the prior key, so this pin is out of date")
-        XCTAssertFalse(text.contains(covered), "the record already names the covered digest, so this pin is out of date")
+        XCTAssertTrue(text.contains(fingerprint), "the record does not name the prior key")
+        XCTAssertTrue(text.contains(covered), "the record does not name the covered digest")
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: record)) as? [String: Any])
+        let prior = try XCTUnwrap(json["priorSignatures"] as? [[String: Any]], "the record has no priorSignatures")
+        XCTAssertEqual(prior.count, 1)
+        XCTAssertEqual(prior.first?["provider"] as? String, "lungfish-local-deterministic-v1")
+        XCTAssertEqual(prior.first?["publicKeySHA256"] as? String, fingerprint)
+        XCTAssertEqual(prior.first?["provenanceSHA256"] as? String, covered)
+        XCTAssertEqual(prior.first?["signedAt"] as? String, signature["signedAt"] as? String)
+        XCTAssertFalse(text.contains("lfed25519:"), "the record holds public key text")
+        XCTAssertFalse(text.contains(".signature.json"), "the record names a signature file")
     }
 
     // MARK: - The actions

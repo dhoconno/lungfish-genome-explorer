@@ -34,6 +34,7 @@ LGE writes every new record as an envelope. The encoder sorts the keys, writes d
 | `steps` | One entry for each tool the run invoked |
 | `wallTimeSeconds`, `exitStatus`, `stderr` | How long it took, the exit status and the bounded standard error |
 | `signatures` | References to signature files, empty unless a signer is set |
+| `priorSignatures` | Written only when not empty. The signatures LGE removed from this file when a write with no key replaced it, oldest first. Each is `{ provider, publicKeySHA256, provenanceSHA256, signedAt }`, and LGE checked it against the bytes it covered when it removed it. `signedAt` is the time the signature file stated. The Add Annotation log puts the same key on the entry whose append removed the pair. An older build that rewrites the record drops the key |
 
 A step holds `id`, `toolName`, `toolVersion`, `argv`, `reproducibleCommand`, `resolvedOptions`, `inputs`, `outputs`, `exitStatus`, `wallTimeSeconds`, `peakMemoryBytes`, `stderr`, `dependsOn`, `startedAt` and `completedAt`, and a `runtimeIdentity` of its own when it ran somewhere else. Version 2 adds four step fields, each written only when the writer fills it.
 

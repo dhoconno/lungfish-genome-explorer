@@ -95,6 +95,52 @@ final class AlignmentReadExtractionPublisherSigningReplayTests: XCTestCase {
         XCTAssertEqual(hiddenLeftovers(in: destination.deletingLastPathComponent()), [])
     }
 
+    /// A key-less run that replaces a signed output states the signature it removed, though `promoteFilePair` moves the
+    /// previous record, signature and public key aside before the new record is written. A later run with a key carries
+    /// the statement forward and signs it (ruling SWIFT-12.22-fingerprint).
+    func testAKeylessFileRunNamesThePriorKeyOfTheSignedRecordItReplaced() throws {
+        let scratch = try TestTempDirectory.make(prefix: "reads-file-prior-key")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        defer { saved.restore() }
+
+        let destination = scratch.appendingPathComponent("out/reads.fastq")
+        let record = ProvenanceRecorder.fileSidecarURL(for: destination)
+        _ = try publishFile(to: destination)
+        try assertSignedAndVerifies(record)
+        let verified = try ProvenanceSignatureVerifier.verify(provenanceURL: record)
+        let signature = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: ProvenanceSigningConfiguration.signatureURL(for: record))
+            ) as? [String: Any]
+        )
+        let expected = [
+            verified.provider, try XCTUnwrap(signature["publicKeySHA256"] as? String), verified.provenanceSHA256,
+            try XCTUnwrap(signature["signedAt"] as? String),
+        ]
+
+        saved.restore()
+        XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the second run")
+        _ = try publishFile(to: destination)
+        XCTAssertEqual(try statedPriorSignatures(in: record), [expected], "the keyless run does not state the pair it removed")
+
+        let again = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        defer { again.restore() }
+        _ = try publishFile(to: destination)
+        try assertSignedAndVerifies(record)
+        XCTAssertEqual(try statedPriorSignatures(in: record), [expected], "the keyed run lost the statement")
+        XCTAssertEqual(hiddenLeftovers(in: destination.deletingLastPathComponent()), [])
+    }
+
+    /// The four values of each element of the record's `priorSignatures`, in the order of the ruling.
+    private func statedPriorSignatures(in record: URL) throws -> [[String]] {
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: record)) as? [String: Any])
+        let prior = json["priorSignatures"] as? [[String: Any]] ?? []
+        return prior.map { entry in
+            ["provider", "publicKeySHA256", "provenanceSHA256", "signedAt"].map { entry[$0] as? String ?? "" }
+        }
+    }
+
     /// A signed run that fails after its record and signature are written gives back the previous payload, record,
     /// signature and public key. The previous pair moved aside before the new one was written, and the new record and
     /// its signature files must not stay beside the restored ones.

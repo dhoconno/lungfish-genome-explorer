@@ -60,6 +60,10 @@ public struct ProvenanceSignatureVerificationResult: Sendable, Equatable {
     public let isValid: Bool
     public let provider: String
     public let provenanceSHA256: String
+    /// The SHA-256 of the public key text, as the signature file states it after it matched the `.pub`.
+    public let publicKeySHA256: String
+    /// The signing time as the signature file states it. The signature does not cover it.
+    public let signedAt: Date
     public let publicKeyURL: URL
     public let signatureURL: URL
 }
@@ -304,6 +308,8 @@ public enum ProvenanceSignatureVerifier {
             isValid: true,
             provider: envelope.provider,
             provenanceSHA256: actualDigest,
+            publicKeySHA256: envelope.publicKeySHA256,
+            signedAt: envelope.signedAt,
             publicKeyURL: resolvedPublicKeyURL,
             signatureURL: resolvedSignatureURL
         )
