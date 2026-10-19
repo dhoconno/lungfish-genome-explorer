@@ -204,10 +204,15 @@ final class Kraken2ClassifyCommandTests: XCTestCase {
             "the root command registers no kraken2 group"
         )
         XCTAssertEqual(group.configuration.abstract, Self.abstract)
-        XCTAssertEqual(group.configuration.subcommands.count, 1)
+        // 2.12 added `kraken2 export` (73e58c3fc) beside `classify`.
+        XCTAssertEqual(group.configuration.subcommands.count, 2)
         XCTAssertTrue(
             group.configuration.subcommands.first == ClassifyCommand.self,
             "kraken2 classify must be ClassifyCommand itself, not \(String(describing: group.configuration.subcommands.first))"
+        )
+        XCTAssertEqual(
+            group.configuration.subcommands.map { $0.configuration.commandName },
+            ["classify", "export"]
         )
     }
 

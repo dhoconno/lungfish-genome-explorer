@@ -1246,11 +1246,12 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 46 subcommands registered
-    /// (`ribodetector` was re-registered beside `deacon-ribo`, and A47's `fastq ingest` is the 46th).
+    /// Verifies that FastqCommand has all 47 subcommands registered
+    /// (`ribodetector` was re-registered beside `deacon-ribo`, A47's `fastq ingest` is the 46th,
+    /// and 2.12's `fastq export` (5353c958a) is the 47th).
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 46, "FastqCommand should have 46 subcommands")
+        XCTAssertEqual(subcommands.count, 47, "FastqCommand should have 47 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.
@@ -1264,7 +1265,7 @@ final class FastqCommandTests: XCTestCase {
             "pbaa-cluster", "savont-cluster", "full-length-ont-mhc-genotype", "genotype", "genotype-cohort", "ont-genotype", "ont-barcode-genotype", "search-text", "search-motif", "orient", "scrub-human",
             "sequence-filter", "deacon-ribo", "reverse-complement", "translate",
             "mhc-reference-bundle", "12s-reference-metadata", "12s-reference-bundle",
-            "12s-match", "12s-export", "12s-export-unresolved", "platform",
+            "12s-match", "12s-export", "12s-export-unresolved", "platform", "export",
         ]
         for name in expected {
             XCTAssertTrue(names.contains(name), "Missing subcommand: \(name)")

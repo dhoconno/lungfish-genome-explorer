@@ -1708,7 +1708,12 @@ final class BundleCommandRegressionTests: XCTestCase {
     func testSubcommands() {
         let subs = BundleCommand.configuration.subcommands
         let names = subs.map { $0.configuration.commandName }
-        XCTAssertEqual(subs.count, 9)
+        // 2.12 added `export-gff3` (14a6ebeca) and `export-annotation-table` (061e2dccd) beside `export`.
+        XCTAssertEqual(subs.count, 11)
+        XCTAssertEqual(
+            names.filter { $0.hasPrefix("export") }.sorted(),
+            ["export", "export-annotation-table", "export-gff3"]
+        )
         XCTAssertTrue(names.contains("mark-duplicates"))
         XCTAssertTrue(names.contains("deduplicate-alignments"))
         XCTAssertTrue(names.contains("merge"))
@@ -1780,8 +1785,9 @@ final class BlastCommandRegressionTests: XCTestCase {
     func testSubcommands() {
         let subs = BlastCommand.configuration.subcommands
         let names = subs.compactMap { $0.configuration.commandName }
-        XCTAssertEqual(subs.count, 2)
-        XCTAssertEqual(names.sorted(), ["submit", "verify"])
+        // 2.12 added `blast export` (914079c2f) beside `verify` and `submit`.
+        XCTAssertEqual(subs.count, 3)
+        XCTAssertEqual(names.sorted(), ["export", "submit", "verify"])
     }
 
     func testDefaultSubcommand() {

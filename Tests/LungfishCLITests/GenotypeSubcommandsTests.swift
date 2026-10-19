@@ -23,7 +23,9 @@ final class GenotypeSubcommandsTests: XCTestCase {
                 "replay-call-overrides", "replay-matrix-annotation",
                 "replay-manual-haplotype-assignments",
                 "export", "export-xlsx",
-                "export-pivot-xlsx", "export-labkey"
+                "export-pivot-xlsx", "export-labkey",
+                // 2.12 added `genotype export-manual-definitions` (14aa766b7).
+                "export-manual-definitions"
             ]
         )
     }
