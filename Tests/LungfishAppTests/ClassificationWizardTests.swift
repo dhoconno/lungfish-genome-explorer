@@ -286,7 +286,6 @@ final class ClassificationWizardTests: XCTestCase {
             catalogID: "kraken2-special-silva",
             installationRecipe: .kraken2Special(type: .silva),
             payloadDigest: "sha256:silva-fixture",
-            canonicalReceiptSHA256: "receipt-fixture",
             description: "SILVA fixture",
             path: databasePath,
             status: .ready,

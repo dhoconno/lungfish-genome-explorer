@@ -333,14 +333,17 @@ extension MetagenomicsDatabaseInfo {
         availableUpdateVersion != nil
     }
 
-    /// Whether nothing checked this ready catalog row's files against a catalog build (UX ruling U-W5).
+    /// Whether nothing checked this ready catalog row's files against a catalog build (U-W5).
     ///
-    /// The row has a catalog identity (``resolvedCatalogID``) but lacks the install receipt's digest
-    /// (``canonicalReceiptSHA256``) or the payload digest (``payloadDigest``). A folder an older build adopted under a
-    /// catalog name and a download made before receipts existed read this way. A row with no catalog identity claims no
-    /// build, so it is not unverified.
+    /// The row has a catalog identity (``resolvedCatalogID``) and no payload digest (``payloadDigest``), so the
+    /// registry has nothing to check its files against. A folder an older build adopted under a catalog name, a
+    /// download made before receipts existed and a row recovered from a staged copy read this way. A row with a
+    /// payload digest is re-checked by the registry's verify even when it stores no receipt digest, as a legacy
+    /// built database that the registry migrated against its on-disk receipt does, so it is not unverified. The
+    /// wider unbound test of the conformance check is a separate question. A row with no catalog identity claims no
+    /// build.
     public var isUnverified: Bool {
-        status == .ready && resolvedCatalogID != nil && (canonicalReceiptSHA256 == nil || payloadDigest == nil)
+        status == .ready && resolvedCatalogID != nil && payloadDigest == nil
     }
 
     /// The version this row may claim, which is `nil` for an unverified row. The Databases tab, `db list`, `db info`,

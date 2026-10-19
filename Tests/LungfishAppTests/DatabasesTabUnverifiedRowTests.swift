@@ -7,7 +7,7 @@ import XCTest
 @testable import LungfishWorkflow
 
 /// Phase 2.12 lane 12.26, B5 (UX ruling U-W5 and U-W7, BIO's line). A ready row that records the catalog identity of
-/// `Standard-8` and lacks either digest is a folder an older build adopted (its version label is the catalog's), a
+/// `Standard-8` and has no payload digest is a folder an older build adopted (its version label is the catalog's), a
 /// build that adopts one now (`registerExisting` records no version) or a download made before receipts existed.
 /// Nothing checked its files against a catalog build, so the tab, the update gate, the new classification records and
 /// the reconciler read it as unverified. The words below are the ruling's, written out so a change to them shows here.
@@ -88,6 +88,30 @@ final class DatabasesTabUnverifiedRowTests: XCTestCase {
         XCTAssertFalse(row.isUnverified)
         XCTAssertEqual(row.checkedVersion, version)
         XCTAssertEqual(row.currentVersionLabel, version)
+    }
+
+    /// A legacy built database that the registry migrated against its on-disk receipt keeps its payload digest and
+    /// stores no receipt digest. The registry's verify re-checks its files against the payload digest, so the row is
+    /// checked and keeps its version. A row with a receipt digest alone has nothing to check its files against, so it
+    /// is unverified.
+    func testARowWithAPayloadDigestAndNoReceiptDigestIsCheckedAndKeepsItsVersion() throws {
+        let version = try catalogVersion()
+        var row = adoptedRow(version: version)
+        row.payloadDigest = "sha256:payload-fixture"
+        XCTAssertNil(row.canonicalReceiptSHA256)
+        XCTAssertFalse(row.isUnverified)
+        XCTAssertEqual(row.checkedVersion, version)
+        XCTAssertEqual(row.currentVersionLabel, version)
+        let summary = PluginManagerViewModel.databaseTrackingSummary(for: row)
+        XCTAssertTrue(summary.contains("Version \(version)"), summary)
+        XCTAssertFalse(summary.contains("Unverified"), summary)
+        XCTAssertEqual(PluginManagerViewModel.databaseTrackingHelp(for: row), "")
+        XCTAssertFalse(PluginManagerViewModel(automaticallyRefresh: false).canUpdateDatabase(row))
+        XCTAssertEqual(ReconcilerServices.metagenomicsDatabaseVersions(from: [row]), [Self.catalogID: version])
+
+        var other = adoptedRow(version: version)
+        other.canonicalReceiptSHA256 = "receipt-fixture"
+        XCTAssertTrue(other.isUnverified, "a receipt digest alone gives the registry nothing to check the files against")
     }
 
     /// A row with no catalog identity keeps today's display, and so does a catalog entry nobody installed.
