@@ -236,10 +236,10 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 + bundle.copiedSidecarURLs.map { "Wrote provenance artifact to \($0.path)" }
         }
 
-        /// Builds in a hidden sibling of `outputURL`, named as the shared export code names its temporary files, reaches
-        /// the cancel checkpoint, then publishes (decision MGR-12.38-B9, items 2 and 3). A new folder takes one exclusive
-        /// rename. An existing folder keeps today's merge, so the files the report does not write stay. The staging
-        /// folder is removed on every end.
+        /// Builds in a hidden sibling of a new `outputURL`, or in a hidden folder inside an existing one, named as the
+        /// shared export code names its temporary files, reaches the cancel checkpoint, then publishes (decision
+        /// MGR-12.38-B9, items 2 and 3). A new folder takes one exclusive rename. An existing folder keeps today's
+        /// merge, so the files the report does not write stay. The staging folder is removed on every end.
         static func stageAndPublish<Staged>(outputURL: URL, stage: (URL) throws -> Staged) throws -> Staged {
             let fileManager = FileManager.default
             var isDirectory: ObjCBool = false
@@ -247,9 +247,13 @@ struct ProvenanceCommand: AsyncParsableCommand {
             if exists, !isDirectory.boolValue {
                 throw CLIError.validationFailed(errors: ["The output \(outputURL.path) is a file. Choose a folder."])
             }
-            let stagingURL = outputURL.deletingLastPathComponent().appendingPathComponent(
-                ".\(outputURL.lastPathComponent).\(UUID().uuidString).export.tmp", isDirectory: true
-            )
+            // A new folder stages beside itself, so that one rename publishes it. An existing folder stages inside
+            // itself, on the volume the files land on and where the user could already write, so a parent that is not
+            // writable (a volume root, the home folder) or a symlink to another volume works as it did when the leaf
+            // wrote straight into the folder.
+            let stagingName = ".\(outputURL.lastPathComponent).\(UUID().uuidString).export.tmp"
+            let stagingURL = (exists ? outputURL : outputURL.deletingLastPathComponent())
+                .appendingPathComponent(stagingName, isDirectory: true)
             defer { try? fileManager.removeItem(at: stagingURL) }
             let staged = try stage(stagingURL)
             try ViewerExportLeaf.checkpointAfterStaging()
