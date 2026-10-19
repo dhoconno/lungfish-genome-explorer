@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the TaxTriage batch report.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported the batch report to batch_report.txt","output":"\/work\/batch_report.txt","outputs":["\/work\/batch_report.txt"],"progress":1,"schemaVersion":2}

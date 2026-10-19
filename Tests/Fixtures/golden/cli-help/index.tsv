@@ -141,6 +141,9 @@ lungfish-cli esviritu export detections	shown	0	lungfish-cli.esviritu.export.det
 lungfish-cli taxtriage	shown	0	lungfish-cli.taxtriage.txt
 lungfish-cli taxtriage run	shown	0	lungfish-cli.taxtriage.run.txt
 lungfish-cli taxtriage check-prerequisites	shown	0	lungfish-cli.taxtriage.check-prerequisites.txt
+lungfish-cli taxtriage export	shown	0	lungfish-cli.taxtriage.export.txt
+lungfish-cli taxtriage export organism-matrix	shown	0	lungfish-cli.taxtriage.export.organism-matrix.txt
+lungfish-cli taxtriage export batch-report	shown	0	lungfish-cli.taxtriage.export.batch-report.txt
 lungfish-cli align	shown	0	lungfish-cli.align.txt
 lungfish-cli align mafft	shown	0	lungfish-cli.align.mafft.txt
 lungfish-cli msa	shown	0	lungfish-cli.msa.txt

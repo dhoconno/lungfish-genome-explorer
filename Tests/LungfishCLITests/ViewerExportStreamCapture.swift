@@ -57,6 +57,26 @@ enum ViewerExportStreamCapture {
                 ])
                 return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
             },
+            // The app's TaxTriage Export Organism Matrix, both samples (lane 12.32).
+            ImportStreamCapture.Case(leaf: "taxtriage export organism-matrix", name: "complete") { scratch in
+                let result = try taxTriageResult(in: scratch.root)
+                let command = try TaxTriageCommand.ExportOrganismMatrixSubcommand.parse([
+                    result.path, "--sample", "sample-1", "--sample", "sample-2",
+                    "--output", scratch.root.appendingPathComponent("organism_matrix.csv").path,
+                    "--format", "json",
+                ])
+                return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+            },
+            // The app's TaxTriage Export Batch Report, both samples (lane 12.32).
+            ImportStreamCapture.Case(leaf: "taxtriage export batch-report", name: "complete") { scratch in
+                let result = try taxTriageResult(in: scratch.root)
+                let command = try TaxTriageCommand.ExportBatchReportSubcommand.parse([
+                    result.path, "--sample", "sample-1", "--sample", "sample-2",
+                    "--output", scratch.root.appendingPathComponent("batch_report.txt").path,
+                    "--format", "json",
+                ])
+                return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+            },
         ]
     }
 
@@ -161,6 +181,54 @@ enum ViewerExportStreamCapture {
             phylum: nil, tclass: nil, torder: nil, family: "Testviridae", genus: nil, species: nil, subspecies: nil,
             rpkmf: 1, readCount: reads, uniqueReads: reads, coveredBases: 90, meanCoverage: 2,
             avgReadIdentity: 99, pi: 0, filteredReadsInSample: 1_000, bamPath: nil, bamIndexPath: nil
+        )
+    }
+
+    /// A TaxTriage result folder with a database of two samples, the second a negative control, and the run's sidecar.
+    private static func taxTriageResult(in root: URL) throws -> URL {
+        let result = root.appendingPathComponent("taxtriage-batch", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        _ = try TaxTriageDatabase.create(
+            at: result.appendingPathComponent(TaxTriageExportLoader.databaseFileName),
+            rows: [
+                taxTriageRow("sample-1", "Alpha virus", 1001, 0.91, 42, "High"),
+                taxTriageRow("sample-1", "Beta virus", 1002, 0.76, 24, "High"),
+                taxTriageRow("sample-2", "Gamma virus", 2001, 0.50, 12, "Medium"),
+                taxTriageRow("sample-2", "Alpha virus", 1001, 0.20, 3, "Low"),
+            ],
+            metadata: ["tool": "taxtriage"]
+        )
+        let config = TaxTriageConfig(
+            samples: ["sample-1", "sample-2"].map {
+                TaxTriageSample(
+                    sampleId: $0,
+                    fastq1: result.appendingPathComponent("\($0).fastq.gz"),
+                    isNegativeControl: $0 == "sample-2"
+                )
+            },
+            outputDirectory: result
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(TaxTriageResult(config: config, runtime: 61, exitCode: 0, outputDirectory: result))
+            .write(to: result.appendingPathComponent(TaxTriageExportLoader.sidecarFileName))
+        return result
+    }
+
+    private static func taxTriageRow(
+        _ sample: String, _ organism: String, _ taxId: Int, _ tass: Double, _ reads: Int, _ confidence: String
+    ) -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: sample, organism: organism, taxId: taxId, status: nil, tassScore: tass,
+            readsAligned: reads, uniqueReads: reads / 2, pctReads: nil, pctAlignedReads: nil,
+            coverageBreadth: 50, meanCoverage: nil, meanDepth: nil, confidence: confidence,
+            k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil, meanBaseQ: nil, meanMapQ: nil,
+            mapqScore: nil, disparityScore: nil, minhashScore: nil, diamondIdentity: nil,
+            k2DisparityScore: nil, siblingsScore: nil, breadthWeightScore: nil, hhsPercentile: nil,
+            isAnnotated: nil, annClass: nil, microbialCategory: nil, highConsequence: nil,
+            isSpecies: nil, pathogenicSubstrains: nil, sampleType: nil, bamPath: nil,
+            bamIndexPath: nil, primaryAccession: "NC_\(taxId)", accessionLength: 1000
         )
     }
 }

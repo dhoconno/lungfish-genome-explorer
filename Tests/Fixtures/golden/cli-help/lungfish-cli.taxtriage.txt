@@ -17,5 +17,6 @@ OPTIONS:
 SUBCOMMANDS:
   run (default)           Execute TaxTriage classification on FASTQ files
   check-prerequisites     Verify Nextflow and container runtime availability
+  export                  Export TaxTriage result tables with provenance
 
   See 'lungfish-cli help taxtriage <subcommand>' for detailed help.

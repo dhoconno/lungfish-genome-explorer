@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the TaxTriage organism matrix.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 3 organisms to organism_matrix.csv","output":"\/work\/organism_matrix.csv","outputs":["\/work\/organism_matrix.csv"],"progress":1,"schemaVersion":2}

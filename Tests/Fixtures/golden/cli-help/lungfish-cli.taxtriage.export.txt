@@ -1,0 +1,15 @@
+OVERVIEW: Export TaxTriage result tables with provenance
+
+USAGE: lungfish-cli taxtriage export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  organism-matrix         Write the cross-sample organism matrix of a TaxTriage
+                          result as CSV with provenance
+  batch-report            Write the batch report of a TaxTriage result as text
+                          with provenance
+
+  See 'lungfish-cli help taxtriage export <subcommand>' for detailed help.

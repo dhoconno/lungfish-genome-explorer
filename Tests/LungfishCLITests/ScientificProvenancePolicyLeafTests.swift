@@ -471,6 +471,8 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "storage dedupe": nil,
         "storage info": nil,
         "taxtriage check-prerequisites": "cli.taxtriage",
+        "taxtriage export batch-report": "cli.taxtriage",
+        "taxtriage export organism-matrix": "cli.taxtriage",
         "taxtriage run": "cli.taxtriage",
         "tools update": "cli.tools",
         "translate": "cli.translate",

@@ -45,6 +45,7 @@ struct TaxTriageCommand: AsyncParsableCommand {
         subcommands: [
             RunSubcommand.self,
             CheckPrerequisitesSubcommand.self,
+            ExportSubcommand.self,
         ],
         defaultSubcommand: RunSubcommand.self
     )
