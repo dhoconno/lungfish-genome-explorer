@@ -4,7 +4,6 @@
 
 import Foundation
 import LungfishCore
-import LungfishWorkflow
 
 /// The chromosome alias groups `AnnotationSearchIndex` uses to find annotation and
 /// variant rows filed under another spelling of a bundle's chromosome name, such as
