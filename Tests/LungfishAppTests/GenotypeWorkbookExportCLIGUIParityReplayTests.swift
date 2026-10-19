@@ -13,11 +13,15 @@
 // - Side C' is the harness's replay of the command side C's row recorded, with side C's inputs folder copied to
 //   root C' as the region extraction parity class copies its stage.
 //
-// A against C compares the workbook byte for byte, the receipt's scientific witnesses, snapshot and output digests
-// and sizes, `generatedAt`, `toolName`, and every key of A's options, defaults and runtime context with A's value.
-// The argv, workflow name, durable replay argv, inputs and the leaf's own keys are prediction rows of the lane report
-// (BIO 7), pinned by `assertPredictedRecordChanges`. C against C' compares everything under the contract's masks.
-// Nothing is declared, so the old writer goes in the lane with no key (R-A1, C4).
+// A against C compares the workbook through the goldens' XLSX normalization (`workbookDifferences`, manager decision
+// MGR-12.35-B1C item 1), the receipt's scientific witnesses, snapshot digest and size, output size, `generatedAt`,
+// `toolName`, and every key of A's options, defaults and runtime context with A's value (item 3). The argv, workflow
+// name, durable replay argv, inputs and the leaf's own keys are prediction rows of the lane report (BIO 7), pinned by
+// `assertPredictedRecordChanges`. C against C' compares everything under the contract's masks, the workbook as A
+// against C does, and the Excel service's `<out>.export-<UUID>/` folders paired by this class
+// (`exportFolderDifferences`, item 2). Each side's receipt states the digest and size of its own workbook, replay
+// script and request. A negative control fails each of the two compares. Nothing is declared, so the old writer goes
+// in the lane with no key (R-A1, C4).
 //
 // Each case root sits five folders below the temporary folder (SCR/lanes/12.31/12.31-cancel.md). The cancel runs
 // through the real transport. The leaf holds inside its transaction on `LUNGFISH_VIEWER_EXPORT_HOLD_FILE`, the row's
@@ -51,8 +55,6 @@ final class GenotypeWorkbookExportCLIGUIParityReplayTests: XCTestCase {
     static let holdFileVariable = "LUNGFISH_VIEWER_EXPORT_HOLD_FILE"
     static let timestamp = "2026-10-18T00:00:00Z"
     static let outputName = "report.xlsx"
-    /// True until the compare ruling lands (see `assertParity`). The cancel test runs either way.
-    static let awaitingCompareRuling = true
 
     private var scratch: URL!
     private var harness: RouteParityHarness!
@@ -277,13 +279,6 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
     /// Runs the case on its three sides and checks it as 1.4 reads it.
     @discardableResult
     private func assertParity(_ parityCase: Case) async throws -> RouteParityRuns {
-        // A ruling is pending (SCR/lanes/12.35/12.35-c4.md, "Stop for a ruling"). At 2338d3b76 A against C differs
-        // only in the workbook's zip run time, which the goldens' `Normalizer.xlsx_parts` masks, and C against C'
-        // cannot pair the Excel service's `<out>.export-<UUID>/` folders, so the receipt's replayScript and request
-        // digests differ too. The next continuation removes this skip once the ruling says how the class compares.
-        if Self.awaitingCompareRuling {
-            throw XCTSkip("ARCH-12.35-B1 1.4 compare ruling pending, see SCR/lanes/12.35/12.35-c4.md")
-        }
         let snapshot = try Self.snapshot(for: parityCase, bundleURL: fixtureBundleURL)
         let runs = try await harness.run(
             in: Self.caseFolder(in: scratch).appendingPathComponent(parityCase.rawValue, isDirectory: true),
@@ -301,21 +296,69 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
         for side in RouteParitySide.allCases {
             XCTAssertEqual(found[.side(side)]?.map(\.description) ?? [], [], "side \(side) names no other side's root")
         }
-        XCTAssertEqual(found[.cAgainstCPrime]?.map(\.description) ?? [], [], "C against C' declares nothing")
+        let harnessCAgainstCPrime = (found[.cAgainstCPrime] ?? []).filter { !Self.isComparedByThisClass($0) }
+        XCTAssertEqual(harnessCAgainstCPrime.map(\.description), [], "C against C' declares nothing")
+        for run in runs.all {
+            try Self.assertDescriptorsMatchOwnFiles(in: run.root)
+        }
         try assertAEqualsC(runs)
+        try assertCEqualsCPrime(runs)
         try assertPredictedRecordChanges(runs)
+        try assertNegativeControls(runs, parityCase: parityCase)
         return runs
+    }
+
+    /// How two sides' workbooks differ under the goldens' XLSX normalization (decision item 1).
+    private func workbookDifferences(_ a: RouteParitySideRun, _ b: RouteParitySideRun) throws -> [String] {
+        try Self.workbookDifferences(Self.outputURL(in: a.root), root: a.root, Self.outputURL(in: b.root), root: b.root,
+            python: python)
+    }
+
+    /// C against C' on what the harness cannot pair. The workbook as A against C compares it, the Excel service's
+    /// folders paired by this class, and the workbook's size (decision items 1 and 2).
+    private func assertCEqualsCPrime(_ runs: RouteParityRuns) throws {
+        XCTAssertEqual(try workbookDifferences(runs.c, runs.cPrime), [], "the workbook, C against C' (item 1)")
+        XCTAssertEqual(try Self.exportFolderDifferences(runs.c.root, runs.cPrime.root), [],
+            "the Excel service's folder, C against C' (item 2)")
+        let c = try XCTUnwrap(try Self.receipt(in: runs.c.root)["output"] as? [String: Any])
+        let cPrime = try XCTUnwrap(try Self.receipt(in: runs.cPrime.root)["output"] as? [String: Any])
+        XCTAssertEqual(c["sizeBytes"] as? Int, cPrime["sizeBytes"] as? Int, "output size")
+    }
+
+    /// Each compare fails on a change it must catch (decision items 1 and 2). One cell value changed in side C's
+    /// workbook fails the workbook compare against side A, and one byte of side C''s request changed outside the root
+    /// path fails the folder compare against side C. Run last, since the second control edits root C'.
+    private func assertNegativeControls(_ runs: RouteParityRuns, parityCase: Case) throws {
+        let controls = scratch.appendingPathComponent("controls/\(parityCase.rawValue)", isDirectory: true)
+        try FileManager.default.createDirectory(at: controls, withIntermediateDirectories: true)
+        let changed = controls.appendingPathComponent(Self.outputName)
+        let part = try Self.runPython(python, script: Self.changeOneCellScript,
+            arguments: [Self.outputURL(in: runs.c.root).path, changed.path]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let cell = try Self.workbookDifferences(Self.outputURL(in: runs.a.root), root: runs.a.root, changed,
+            root: runs.c.root, python: python)
+        XCTAssertFalse(part.isEmpty)
+        XCTAssertTrue(cell.contains("\(part) differs under xlsx_parts"), "one changed cell fails item 1's compare: \(cell)")
+
+        let folder = try XCTUnwrap(try Self.exportFolders(in: runs.cPrime.root).values.first?.first)
+        let request = folder.appendingPathComponent("request.json")
+        var bytes = try Data(contentsOf: request)
+        XCTAssertEqual(bytes.first, UInt8(ascii: "{"), "the changed byte is the request's first, outside the root path")
+        bytes[bytes.startIndex] = UInt8(ascii: "[")
+        try bytes.write(to: request)
+        let folders = try Self.exportFolderDifferences(runs.c.root, runs.cPrime.root)
+        XCTAssertEqual(folders.count, 1, "\(folders)")
+        XCTAssertEqual(folders.first?.hasSuffix("/request.json differs at line 1: { | ["), true,
+            "one changed byte fails item 2's compare: \(folders)")
     }
 
     /// A against C on the compare column of 1.4, with each path read relative to its side root.
     private func assertAEqualsC(_ runs: RouteParityRuns) throws {
         let others = try harness.differences(runs.a, runs.c).filter {
             !$0.id.contains(Self.outputName + ".provenance.json") && !$0.id.contains(Self.outputName + ".export-")
-                && !$0.id.contains(ViewerExportSelection.inputsFolderName)
+                && !$0.id.contains(ViewerExportSelection.inputsFolderName) && $0.id != Self.workbookDifferenceID
         }
-        XCTAssertEqual(others.map(\.description), [], "only the receipt, its export folder and the inputs may differ")
-        XCTAssertEqual(try Data(contentsOf: Self.outputURL(in: runs.a.root)), try Data(contentsOf: Self.outputURL(in: runs.c.root)),
-            "the workbook byte for byte")
+        XCTAssertEqual(others.map(\.description), [], "only the workbook, the receipt, its export folder and the inputs may differ")
+        XCTAssertEqual(try workbookDifferences(runs.a, runs.c), [], "the workbook under the goldens' XLSX normalization (item 1)")
         let a = try Self.receipt(in: runs.a.root)
         let c = try Self.receipt(in: runs.c.root)
         let witnesses = try XCTUnwrap(a["scientificInputWitnesses"] as? [String: String])
@@ -323,7 +366,9 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
         for key in ["snapshot", "output"] {
             let descriptorA = try XCTUnwrap(a[key] as? [String: Any])
             let descriptorC = try XCTUnwrap(c[key] as? [String: Any])
-            XCTAssertEqual(descriptorA["sha256"] as? String, descriptorC["sha256"] as? String, "\(key) sha256")
+            if key == "snapshot" {
+                XCTAssertEqual(descriptorA["sha256"] as? String, descriptorC["sha256"] as? String, "\(key) sha256")
+            }
             XCTAssertEqual(descriptorA["sizeBytes"] as? Int, descriptorC["sizeBytes"] as? Int, "\(key) size")
         }
         for key in ["generatedAt", "toolName", "toolVersion", "status"] {
@@ -384,7 +429,7 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
         }
     }
 
-    private static func relative(_ path: String?, under root: URL) -> String? {
+    static func relative(_ path: String?, under root: URL) -> String? {
         guard let path else { return nil }
         let rootPaths = [root.standardizedFileURL.path, root.resolvingSymlinksInPath().standardizedFileURL.path]
         return rootPaths.first { path.hasPrefix($0 + "/") }.map { String(path.dropFirst($0.count)) } ?? path
