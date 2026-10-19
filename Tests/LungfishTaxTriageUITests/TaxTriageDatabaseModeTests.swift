@@ -110,15 +110,6 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         XCTAssertTrue(vc.validateMenuItem(reportItem))
         let copyItem = try XCTUnwrap(menu.items.first { $0.title == "Copy Summary" })
         XCTAssertTrue(vc.validateMenuItem(copyItem))
-
-        let outputURL = fixture.root.appendingPathComponent("batch_report.txt")
-        try vc.writeBatchReport(
-            to: outputURL,
-            result: try XCTUnwrap(vc.testResult),
-            config: try XCTUnwrap(vc.testResult?.config)
-        )
-        let report = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(report.contains("Alpha virus"), report)
     }
 
     func testBatchReportIsDisabledWithoutASidecar() throws {

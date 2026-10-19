@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.32 M1 (QA 1). The organism matrix CSV, the batch report text and the results CSV or TSV are
-// written by `TaxTriageResultViewController` itself. Each pin sets the view state a user can set (the Sample Filter,
+// Phase 2.12 lane 12.32 M1 (QA 1). The results CSV or TSV is written by `TaxTriageResultViewController` itself, and
+// until lane 12.32 A4 and A5 so were the organism matrix and the batch report, which now run `taxtriage export` and are
+// pinned by TaxTriageExportCLIGUIParityReplayTests. Each pin sets the view state a user can set (the Sample Filter,
 // the organism search and the flat table's sort) and pins the bytes and the provenance record the writer produces
 // with it. Every production TaxTriage result opens through `configureFromDatabase`, so `tableMode` is `batchGroup`
 // in every record below. No Sources edit stands behind these pins, and they pass at the lane base.
@@ -188,8 +189,6 @@ final class TaxTriageExportPinTests: XCTestCase {
         let columns = vc.testBatchFlatTableView.metadataColumns
         columns.visibleColumns = ["Group"]
         columns.update(store: store, sampleId: nil)
-        let result = try XCTUnwrap(vc.testResult)
-
         func inputs(_ url: URL) throws -> [(name: String, digest: String?)] {
             let envelope = try XCTUnwrap(
                 ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: url))
@@ -207,12 +206,8 @@ final class TaxTriageExportPinTests: XCTestCase {
         )
         XCTAssertTrue(shownInputs.allSatisfy { $0.digest != nil })
 
-        let matrix = fixture.root.appendingPathComponent("matrix.csv")
-        try vc.writeBatchMatrixCSV(to: matrix)
-        XCTAssertEqual(try inputs(matrix).map(\.name), ["taxtriage-result.json", "taxtriage.sqlite"])
-        let report = fixture.root.appendingPathComponent("report.txt")
-        try vc.writeBatchReport(to: report, result: result, config: result.config)
-        XCTAssertEqual(try inputs(report).map(\.name), ["taxtriage-result.json", "taxtriage.sqlite"])
+        // The matrix and report leaves name only the database and the sidecar, with these metadata files on disk
+        // (TaxTriageExportCLIGUIParityReplayTests).
 
         columns.visibleColumns = []
         let hidden = fixture.root.appendingPathComponent("hidden.tsv")
@@ -220,185 +215,25 @@ final class TaxTriageExportPinTests: XCTestCase {
         XCTAssertEqual(try inputs(hidden).map(\.name), ["taxtriage-result.json", "taxtriage.sqlite"])
     }
 
-    // MARK: - Organism matrix CSV (A4)
+    // MARK: - Builders for a result of one sample (A4 and A5)
 
-    private static let matrixKeys = [
-        "exportedOrganismCount", "metricCount", "negativeControlSampleIds", "rowCount", "sampleCount", "sampleIds",
-        "tableMode",
-    ]
-    private static let matrixHeader = "Organism,Mean TASS,Samples Detected,Contamination Risk"
-    private static let deltaField = "\"Delta, \"\"quoted\"\" virus\""
-
-    /// The matrix reads the metrics the view holds for the ticked samples and the search, so the Sample Filter and the
-    /// search reach its bytes and the flat table's sort does not. The negative control comes from the run's config.
-    func testBatchMatrixFollowsTheSampleSelectionAndTheSearchButNotTheSort() throws {
-        let fixture = try Fixture(samples: ["sample-1", "sample-2"], negativeControl: "sample-2")
-        defer { fixture.cleanUp() }
-        let vc = makeController(fixture)
-        sort("tt_reads", ascending: true, in: vc)
-
-        let all = fixture.root.appendingPathComponent("matrix-all.csv")
-        try vc.writeBatchMatrixCSV(to: all)
-        XCTAssertEqual(try text(all), [
-            Self.matrixHeader + ",sample-1,sample-2",
-            "Alpha virus,0.5550,2/2,Yes,0.9100,0.2000",
-            "Beta virus,0.7600,1/2,No,0.7600,",
-            "\(Self.deltaField),0.6000,1/2,No,0.6000,",
-            "Gamma virus,0.5000,1/2,Yes,,0.5000",
-        ].joined(separator: "\n") + "\n")
-        let resolved = try assertRecord(
-            all, fixture: fixture, workflow: "lungfish app taxtriage organism matrix export",
-            argvTail: ["export-taxtriage-organism-matrix"], format: "csv", defaultFormat: "csv",
-            resolvedKeys: Self.matrixKeys
-        )
-        XCTAssertEqual(resolved["rowCount"]?.integerValue, 4)
-        XCTAssertEqual(resolved["exportedOrganismCount"]?.integerValue, 4)
-        XCTAssertEqual(resolved["metricCount"]?.integerValue, 5)
-        XCTAssertEqual(resolved["sampleCount"]?.integerValue, 2)
-        XCTAssertEqual(resolved["sampleIds"]?.arrayValue?.compactMap(\.stringValue), ["sample-1", "sample-2"])
-        XCTAssertEqual(resolved["negativeControlSampleIds"]?.arrayValue?.compactMap(\.stringValue), ["sample-2"])
-        XCTAssertEqual(resolved["tableMode"]?.stringValue, "batchGroup")
-
-        // One ticked sample narrows the metrics to its rows, so the matrix loses the control's flags.
-        selectSegment(1, in: vc) { $0.count == 3 && $0.allSatisfy { $0.sample == "sample-1" } }
-        let one = fixture.root.appendingPathComponent("matrix-one.csv")
-        try vc.writeBatchMatrixCSV(to: one)
-        XCTAssertEqual(try text(one), [
-            Self.matrixHeader + ",sample-1,sample-2",
-            "Alpha virus,0.9100,1/2,No,0.9100,",
-            "Beta virus,0.7600,1/2,No,0.7600,",
-            "\(Self.deltaField),0.6000,1/2,No,0.6000,",
-        ].joined(separator: "\n") + "\n")
-        let narrowed = try assertRecord(
-            one, fixture: fixture, workflow: "lungfish app taxtriage organism matrix export",
-            argvTail: ["export-taxtriage-organism-matrix"], format: "csv", defaultFormat: "csv",
-            resolvedKeys: Self.matrixKeys
-        )
-        XCTAssertEqual(narrowed["metricCount"]?.integerValue, 3)
-        XCTAssertEqual(narrowed["sampleCount"]?.integerValue, 2)
-
-        // The search narrows it again.
-        search("beta", in: vc) { $0.count == 1 }
-        let searched = fixture.root.appendingPathComponent("matrix-search.csv")
-        try vc.writeBatchMatrixCSV(to: searched)
-        XCTAssertEqual(try text(searched), [
-            Self.matrixHeader + ",sample-1,sample-2",
-            "Beta virus,0.7600,1/2,No,0.7600,",
-        ].joined(separator: "\n") + "\n")
-    }
-
+    /// The matrix and the report of a result of one sample are the builders' output for the rows the view loaded. The
+    /// two-sample cases, the sample selection, the search and the records are held by the parity class
+    /// (`TaxTriageExportCLIGUIParityReplayTests`) and the leaf tests (`TaxTriageExportCommandsTests`).
     func testSingleSampleMatrixHasOneSampleColumn() throws {
         let fixture = try Fixture(samples: ["sample-1"])
         defer { fixture.cleanUp() }
         let vc = makeController(fixture)
 
-        let output = fixture.root.appendingPathComponent("matrix.csv")
-        try vc.writeBatchMatrixCSV(to: output)
-        XCTAssertEqual(try text(output), [
-            Self.matrixHeader + ",sample-1",
+        let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
+            metrics: vc.testBatchFlatTableView.displayedRows, sampleIds: ["sample-1"], negativeControlSampleIds: []
+        )
+        XCTAssertEqual(csv, [
+            "Organism,Mean TASS,Samples Detected,Contamination Risk,sample-1",
             "Alpha virus,0.9100,1/1,No,0.9100",
             "Beta virus,0.7600,1/1,No,0.7600",
-            "\(Self.deltaField),0.6000,1/1,No,0.6000",
+            "\"Delta, \"\"quoted\"\" virus\",0.6000,1/1,No,0.6000",
         ].joined(separator: "\n") + "\n")
-        let resolved = try assertRecord(
-            output, fixture: fixture, workflow: "lungfish app taxtriage organism matrix export",
-            argvTail: ["export-taxtriage-organism-matrix"], format: "csv", defaultFormat: "csv",
-            resolvedKeys: Self.matrixKeys
-        )
-        XCTAssertEqual(resolved["rowCount"]?.integerValue, 3)
-        XCTAssertEqual(resolved["sampleIds"]?.arrayValue?.compactMap(\.stringValue), ["sample-1"])
-        XCTAssertEqual(resolved["negativeControlSampleIds"]?.arrayValue?.count, 0)
-    }
-
-    // MARK: - Batch report text (A5)
-
-    private static let reportKeys = [
-        "classifierCount", "exportedOrganismCount", "metricCount", "negativeControlSampleIds", "reportLineCount",
-        "sampleCount", "sampleIds", "tableMode",
-    ]
-    private static let bar = "============================================================"
-
-    /// The report the writer produces, with the clock of the export masked.
-    private static func expectedReport(
-        platform: String,
-        sampleCount: Int,
-        negativeControls: String? = nil,
-        perSample: [String],
-        crossSample: [String],
-        contamination: [String]? = nil,
-        highConfidence: [String]
-    ) -> String {
-        var lines = [
-            bar, "TaxTriage Batch Analysis Report", bar, "",
-            "Date: <masked>", "Samples: \(sampleCount)", "Platform: \(platform)", "Runtime: 61.0 seconds", "Exit Code: 0",
-        ]
-        if let negativeControls { lines.append("Negative Controls: \(negativeControls)") }
-        lines += ["", "--- Per-Sample Summary ---", ""] + perSample.map { "  " + $0 }
-        lines += ["", "--- Cross-Sample Organisms ---", ""] + crossSample.map { "  " + $0 }
-        if let contamination {
-            lines += ["", "--- Contamination Risk Organisms ---", ""] + contamination.map { "  " + $0 }
-        }
-        lines += ["", "--- High-Confidence Organisms (TASS >= 0.8) ---", ""] + highConfidence.map { "  " + $0 }
-        lines += ["", bar, ""]
-        return lines.joined(separator: "\n")
-    }
-
-    private func maskedText(_ url: URL) throws -> String {
-        try text(url).split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.hasPrefix("Date: ") ? "Date: <masked>" : String($0) }
-            .joined(separator: "\n")
-    }
-
-    /// Like the matrix, the report reads the metrics of the ticked samples and the search, and the sample ids of the
-    /// whole result. The flat table's sort never reaches it.
-    func testBatchReportFollowsTheSampleSelectionAndNamesEveryResultSample() throws {
-        let fixture = try Fixture(samples: ["sample-1", "sample-2"], negativeControl: "sample-2")
-        defer { fixture.cleanUp() }
-        let vc = makeController(fixture)
-        sort("tt_organism", ascending: false, in: vc)
-        let result = try XCTUnwrap(vc.testResult)
-        let platform = fixture.config.platform.displayName
-
-        let all = fixture.root.appendingPathComponent("report-all.txt")
-        try vc.writeBatchReport(to: all, result: result, config: result.config)
-        let allExpected = Self.expectedReport(
-            platform: platform, sampleCount: 2, negativeControls: "sample-2",
-            perSample: ["sample-1: 3 organisms (1 high confidence)", "sample-2 [NTC]: 2 organisms (0 high confidence)"],
-            crossSample: ["Alpha virus: 2/2 samples, mean TASS=0.555 [CONTAMINATION RISK]"],
-            contamination: ["Alpha virus (detected in: sample-1, sample-2)", "Gamma virus (detected in: sample-2)"],
-            highConfidence: ["None."]
-        )
-        XCTAssertEqual(try maskedText(all), allExpected)
-        let resolved = try assertRecord(
-            all, fixture: fixture, workflow: "lungfish app taxtriage batch report export",
-            argvTail: ["export-taxtriage-batch-report"], format: "txt", defaultFormat: "txt",
-            resolvedKeys: Self.reportKeys
-        )
-        XCTAssertEqual(resolved["reportLineCount"]?.integerValue, allExpected.split(separator: "\n", omittingEmptySubsequences: false).count)
-        XCTAssertEqual(resolved["metricCount"]?.integerValue, 5)
-        XCTAssertEqual(resolved["exportedOrganismCount"]?.integerValue, 4)
-        XCTAssertEqual(resolved["sampleCount"]?.integerValue, 2)
-        XCTAssertEqual(resolved["classifierCount"]?.integerValue, fixture.config.classifiers.count)
-        XCTAssertEqual(resolved["negativeControlSampleIds"]?.arrayValue?.compactMap(\.stringValue), ["sample-2"])
-        XCTAssertEqual(resolved["tableMode"]?.stringValue, "batchGroup")
-
-        selectSegment(1, in: vc) { $0.count == 3 && $0.allSatisfy { $0.sample == "sample-1" } }
-        let one = fixture.root.appendingPathComponent("report-one.txt")
-        try vc.writeBatchReport(to: one, result: result, config: result.config)
-        XCTAssertEqual(try maskedText(one), Self.expectedReport(
-            platform: platform, sampleCount: 2, negativeControls: "sample-2",
-            perSample: ["sample-1: 3 organisms (1 high confidence)", "sample-2 [NTC]: 0 organisms (0 high confidence)"],
-            crossSample: ["No organisms detected in multiple samples."],
-            contamination: ["No organisms detected in negative controls."],
-            highConfidence: ["Alpha virus: mean TASS=0.910, 1 sample(s)"]
-        ))
-        let narrowed = try assertRecord(
-            one, fixture: fixture, workflow: "lungfish app taxtriage batch report export",
-            argvTail: ["export-taxtriage-batch-report"], format: "txt", defaultFormat: "txt",
-            resolvedKeys: Self.reportKeys
-        )
-        XCTAssertEqual(narrowed["metricCount"]?.integerValue, 3)
-        XCTAssertEqual(narrowed["exportedOrganismCount"]?.integerValue, 3)
     }
 
     func testSingleSampleReportHasNoControlSections() throws {
@@ -407,22 +242,15 @@ final class TaxTriageExportPinTests: XCTestCase {
         let vc = makeController(fixture)
         let result = try XCTUnwrap(vc.testResult)
 
-        let output = fixture.root.appendingPathComponent("report.txt")
-        try vc.writeBatchReport(to: output, result: result, config: result.config)
-        let expected = Self.expectedReport(
-            platform: fixture.config.platform.displayName, sampleCount: 1,
-            perSample: ["sample-1: 3 organisms (1 high confidence)"],
-            crossSample: ["No organisms detected in multiple samples."],
-            highConfidence: ["Alpha virus: mean TASS=0.910, 1 sample(s)"]
+        let report = TaxTriageBatchExporter.generateSummaryReport(
+            result: result, config: result.config, metrics: vc.testBatchFlatTableView.displayedRows, sampleIds: ["sample-1"]
         )
-        XCTAssertEqual(try maskedText(output), expected)
-        let resolved = try assertRecord(
-            output, fixture: fixture, workflow: "lungfish app taxtriage batch report export",
-            argvTail: ["export-taxtriage-batch-report"], format: "txt", defaultFormat: "txt",
-            resolvedKeys: Self.reportKeys
-        )
-        XCTAssertEqual(resolved["sampleCount"]?.integerValue, 1)
-        XCTAssertEqual(resolved["negativeControlSampleIds"]?.arrayValue?.count, 0)
+        XCTAssertTrue(report.contains("Samples: 1"), report)
+        XCTAssertTrue(report.contains("sample-1: 3 organisms (1 high confidence)"), report)
+        XCTAssertTrue(report.contains("No organisms detected in multiple samples."), report)
+        XCTAssertTrue(report.contains("Alpha virus: mean TASS=0.910, 1 sample(s)"), report)
+        XCTAssertFalse(report.contains("Negative Controls:"), report)
+        XCTAssertFalse(report.contains("--- Contamination Risk Organisms ---"), report)
     }
 
     // MARK: - Fixture

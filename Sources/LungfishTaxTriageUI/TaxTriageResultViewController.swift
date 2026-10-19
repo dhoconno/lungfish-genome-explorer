@@ -4337,44 +4337,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func writeBatchMatrixCSV(to url: URL) throws {
-        let runClock = ProvenanceRunClock()
-        let negativeControlIds = negativeControlSampleIds()
-        let matrixMetrics = exportMetrics
-        let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
-            metrics: matrixMetrics,
-            sampleIds: sampleIds,
-            negativeControlSampleIds: negativeControlIds
-        )
-        let exportedOrganismCount = taxTriageCrossSampleOrganismCount(in: matrixMetrics)
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app taxtriage organism matrix export",
-            sourceURLs: exportProvenanceSourceURLs(),
-            outputURL: url,
-            outputFormat: .text,
-            argv: ["Lungfish.app", "export-taxtriage-organism-matrix", "--output", url.path],
-            explicitOptions: [
-                "outputPath": .file(url),
-                "format": .string("csv"),
-            ],
-            defaults: [
-                "format": .string("csv"),
-            ],
-            resolved: [
-                "rowCount": .integer(exportedOrganismCount),
-                "exportedOrganismCount": .integer(exportedOrganismCount),
-                "metricCount": .integer(matrixMetrics.count),
-                "sampleCount": .integer(sampleIds.count),
-                "sampleIds": .array(sampleIds.map { .string($0) }),
-                "negativeControlSampleIds": .array(negativeControlIds.sorted().map { .string($0) }),
-                "tableMode": .string(exportTableModeName),
-            ],
-            runClock: runClock
-        )) { outputURL in
-            try csv.write(to: outputURL, atomically: true, encoding: .utf8)
-        }
-    }
-
     /// Exports the batch report by running `taxtriage export batch-report` behind an Operations row
     /// (`beginTaxTriageBatchReportExportOperation`). The report needs the run's sidecar, as the menu item does, and
     /// an empty Sample Filter returns before the save panel.
@@ -4418,46 +4380,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             outputURL: outputURL,
             force: FileManager.default.fileExists(atPath: outputURL.path)
         )
-    }
-
-    func writeBatchReport(to url: URL, result: TaxTriageResult, config: TaxTriageConfig) throws {
-        let runClock = ProvenanceRunClock()
-        let negativeControlIds = negativeControlSampleIds()
-        let reportMetrics = exportMetrics
-        let report = TaxTriageBatchExporter.generateSummaryReport(
-            result: result,
-            config: config,
-            metrics: reportMetrics,
-            sampleIds: sampleIds
-        )
-        let reportLineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app taxtriage batch report export",
-            sourceURLs: exportProvenanceSourceURLs(),
-            outputURL: url,
-            outputFormat: .text,
-            argv: ["Lungfish.app", "export-taxtriage-batch-report", "--output", url.path],
-            explicitOptions: [
-                "outputPath": .file(url),
-                "format": .string("txt"),
-            ],
-            defaults: [
-                "format": .string("txt"),
-            ],
-            resolved: [
-                "reportLineCount": .integer(reportLineCount),
-                "metricCount": .integer(reportMetrics.count),
-                "sampleCount": .integer(sampleIds.count),
-                "exportedOrganismCount": .integer(taxTriageCrossSampleOrganismCount(in: reportMetrics)),
-                "sampleIds": .array(sampleIds.map { .string($0) }),
-                "negativeControlSampleIds": .array(negativeControlIds.sorted().map { .string($0) }),
-                "classifierCount": .integer(config.classifiers.count),
-                "tableMode": .string(exportTableModeName),
-            ],
-            runClock: runClock
-        )) { outputURL in
-            try report.write(to: outputURL, atomically: true, encoding: .utf8)
-        }
     }
 
     // MARK: - Delimited Export
@@ -4590,12 +4512,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private var exportMetrics: [TaxTriageMetric] {
         metrics.isEmpty ? allBatchGroupRows : metrics
-    }
-
-    private func taxTriageCrossSampleOrganismCount(in metrics: [TaxTriageMetric]) -> Int {
-        Set(metrics.map {
-            $0.organism.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        }).count
     }
 
     /// Whether CSV/TSV export reads the database flat table (every
