@@ -213,6 +213,27 @@ final class FastqExportReadsCommandTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: bundle.appendingPathComponent("reads.fastq"), encoding: .utf8), Self.reads)
     }
 
+    /// A failed export over an existing file keeps the old file and its record, and leaves no staged file behind. This
+    /// is the rollback the in-app writer's backup gave, which is now the leaf's transaction.
+    func testAFailedExportOverAnExistingFileKeepsTheOldFileAndItsRecord() async throws {
+        let bundle = try chunkedBundle()
+        try FileManager.default.removeItem(at: bundle.appendingPathComponent("chunks/sample_1.fastq"))
+        let output = folder.appendingPathComponent("again.fastq")
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        try "old payload\n".write(to: output, atomically: true, encoding: .utf8)
+        try "old provenance\n".write(to: sidecar, atomically: true, encoding: .utf8)
+        do {
+            try await export(bundle, to: output, extra: ["--force"])
+            XCTFail("an export whose manifest chunk is missing must fail")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "old payload\n")
+        XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), "old provenance\n")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        XCTAssertFalse(entries.contains { $0.hasPrefix(".again") }, "no staged file is left: \(entries)")
+    }
+
     /// The arguments the sidebar's begin helper builds parse through the root into the leaf, whose canonical argv is
     /// the executable name and the same array.
     func testFastqExportReadsParsesTheGUIArguments() throws {

@@ -5,8 +5,8 @@
 // Phase 2.12 lane 12.38, ARCH ruling on the export shape 1.7, on lane Q30's harness. Each case runs on three sides
 // that start as copies of one root that holds a plain bundle, a bundle of three source chunks and a derived bundle.
 //
-// - Side A is the in-app writer, `exportFASTQBundleForSidebar` as AppDelegate held it at add9b0713, frozen in
-//   FASTQBundleExportFrozenWriter since the lane deletes it from AppDelegate.
+// - Side A is the in-app writer as AppDelegate held it at add9b0713, frozen in
+//   FASTQBundleExportFrozenWriter since the lane deleted it from AppDelegate.
 // - Side C is `AppDelegate.runFASTQBundleExports`, which begins the row and runs the built
 //   `lungfish-cli fastq export reads` on `CLIViewerExportRunner`.
 // - Side C' is the harness's replay of the command side C's row recorded.
@@ -66,7 +66,7 @@ final class FASTQBundleExportCLIGUIParityReplayTests: XCTestCase {
         var expectedBytes: String {
             self == .severalChunks
                 ? "@c0\nACGT\n+\nIIII\n@c1\nACGT\n+\nIIII\n@c2\nACGT\n+\nIIII\n"
-                : FASTQBundleExportPinTests.reads
+                : FASTQBundleExportFixtures.reads
         }
     }
 
@@ -179,9 +179,9 @@ extension FASTQBundleExportCLIGUIParityReplayTests {
 
     /// The root every side starts from, the three bundles and the folder the exports go in.
     static func makeFixture(_ root: URL) throws {
-        _ = try FASTQBundleExportPinTests.makePlainBundle(in: root)
-        _ = try FASTQBundleExportPinTests.makeChunkedBundle(in: root)
-        _ = try FASTQBundleExportPinTests.makeDerivedBundle(in: root)
+        _ = try FASTQBundleExportFixtures.makePlainBundle(in: root)
+        _ = try FASTQBundleExportFixtures.makeChunkedBundle(in: root)
+        _ = try FASTQBundleExportFixtures.makeDerivedBundle(in: root)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("out", isDirectory: true), withIntermediateDirectories: true)
     }
 

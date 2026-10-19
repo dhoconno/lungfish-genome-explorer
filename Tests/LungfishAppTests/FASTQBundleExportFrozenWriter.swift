@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Side A of FASTQBundleExportCLIGUIParityReplayTests. The writer is the body of
-// `AppDelegate.exportFASTQBundleForSidebar` and `makeFASTQExportProvenanceEnvelope` at add9b0713, frozen here since
+// Side A of FASTQBundleExportCLIGUIParityReplayTests. The writer is the sidebar's export function and its envelope
+// builder in `AppDelegate+ImportExport.swift` at add9b0713, frozen here since
 // the lane deletes it from AppDelegate. It keeps the payload branches (copy, join the chunks' bytes, materialize and
 // copy) and the record, and drops the atomic backup of an output that already exists, which no case has. A derived
 // bundle goes through `FASTQCLIMaterializer`, which `FASTQDerivativeService.materializeDatasetFASTQ` wraps in one
@@ -78,7 +78,7 @@ enum FASTQBundleExportFrozenWriter {
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
     }
 
-    /// `makeFASTQExportProvenanceEnvelope` of add9b0713.
+    /// The envelope builder of add9b0713.
     private static func makeEnvelope(
         sourceBundleURL: URL,
         inputFASTQURLs: [URL],

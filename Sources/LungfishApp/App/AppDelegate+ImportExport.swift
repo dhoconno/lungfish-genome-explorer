@@ -317,65 +317,35 @@ extension AppDelegate {
         }
     }
 
-    /// Exports one or more FASTQ bundles in the background.
+    /// Exports one or more FASTQ bundles. Each bundle begins an Operations row and runs
+    /// `lungfish-cli fastq export reads` on the shared viewer export runner, one after another in the order of the
+    /// selection (Phase 2.12 lane 12.38, ARCH ruling 1.5). The alert after the batch keeps the words the in-app
+    /// writer showed, and a cancel shows none (UX 4).
     private func performFASTQExports(
         bundles: [(bundleURL: URL, outputURL: URL, isDerived: Bool, title: String)],
         window: NSWindow
     ) {
-        let total = bundles.count
-        Task.detached {
-            var succeeded = 0
-            var failed: [(title: String, error: String)] = []
-
-            for (bundleURL, outputURL, isDerived, title) in bundles {
-                do {
-                    try await Self.exportFASTQBundleForSidebar(
-                        bundleURL: bundleURL,
-                        outputURL: outputURL,
-                        isDerived: isDerived,
-                        progress: { message in
-                            debugLog("Export FASTQ (\(title)): \(message)")
-                        }
-                    )
-                    succeeded += 1
-                } catch {
-                    debugLog("Export FASTQ failed for \(title): \(error)")
-                    failed.append((title, error.localizedDescription))
-                }
+        let exports = bundles.map {
+            FASTQBundleExport(bundleURL: $0.bundleURL, outputURL: $0.outputURL, isDerived: $0.isDerived, title: $0.title)
+        }
+        Task { @MainActor in
+            let results = await AppDelegate.runFASTQBundleExports(exports)
+            guard let summary = AppDelegate.fastqExportSummary(for: results) else { return }
+            let alert = NSAlert()
+            alert.messageText = summary.title
+            alert.informativeText = summary.message
+            switch summary.style {
+            case .informational: alert.alertStyle = .informational
+            case .warning: alert.alertStyle = .warning
+            case .critical: alert.alertStyle = .critical
             }
-
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    let alert = NSAlert()
-                    if failed.isEmpty {
-                        alert.messageText = "Export Complete"
-                        if total == 1 {
-                            alert.informativeText = "\(bundles[0].title) exported as \(bundles[0].outputURL.lastPathComponent)."
-                        } else {
-                            alert.informativeText = "Successfully exported \(succeeded) FASTQ file(s)."
-                        }
-                        alert.alertStyle = .informational
-                        alert.addButton(withTitle: "OK")
-                        if total == 1 {
-                            alert.addButton(withTitle: "Show in Finder")
-                        }
-                    } else if succeeded == 0 {
-                        alert.messageText = "Export Failed"
-                        alert.informativeText = failed.map { "\($0.title): \($0.error)" }.joined(separator: "\n")
-                        alert.alertStyle = .critical
-                        alert.addButton(withTitle: "OK")
-                    } else {
-                        alert.messageText = "Export Partially Complete"
-                        alert.informativeText = "\(succeeded) succeeded, \(failed.count) failed.\n\n"
-                            + failed.map { "\($0.title): \($0.error)" }.joined(separator: "\n")
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                    }
-                    alert.beginSheetModal(for: window) { response in
-                        if total == 1 && failed.isEmpty && response == .alertSecondButtonReturn {
-                            NSWorkspace.shared.activateFileViewerSelecting([bundles[0].outputURL])
-                        }
-                    }
+            alert.addButton(withTitle: "OK")
+            if summary.revealURL != nil {
+                alert.addButton(withTitle: "Show in Finder")
+            }
+            alert.beginSheetModal(for: window) { response in
+                if response == .alertSecondButtonReturn, let revealURL = summary.revealURL {
+                    NSWorkspace.shared.activateFileViewerSelecting([revealURL])
                 }
             }
         }
@@ -394,318 +364,6 @@ extension AppDelegate {
             return primaryURL.lastPathComponent
         }
         return baseName + ".fastq"
-    }
-
-    nonisolated static func exportFASTQBundleForSidebar(
-        bundleURL: URL,
-        outputURL: URL,
-        isDerived: Bool,
-        progress: (@Sendable (String) -> Void)? = nil
-    ) async throws {
-        let runClock = ProvenanceRunClock()
-        try FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        if isDerived {
-            try await writeFASTQExportAtomically(
-                sourceBundleURL: bundleURL,
-                inputFASTQURLs: [],
-                outputURL: outputURL,
-                isDerived: true,
-                runClock: runClock
-            ) { stagedOutputURL in
-                try await FASTQDerivativeService.shared.exportMaterializedFASTQ(
-                    fromDerivedBundle: bundleURL,
-                    to: stagedOutputURL,
-                    progress: { message in
-                        if !message.hasPrefix("Export complete:") {
-                            progress?(message)
-                        }
-                    }
-                )
-            }
-            progress?("Export complete: \(outputURL.lastPathComponent)")
-            return
-        }
-
-        guard let fastqURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL), !fastqURLs.isEmpty else {
-            throw NSError(domain: "com.lungfish.browser", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "No FASTQ file found inside bundle"])
-        }
-
-        if fastqURLs.count == 1 {
-            progress?("Copying \(fastqURLs[0].lastPathComponent)...")
-            try await writeFASTQExportAtomically(
-                sourceBundleURL: bundleURL,
-                inputFASTQURLs: fastqURLs,
-                outputURL: outputURL,
-                isDerived: false,
-                runClock: runClock
-            ) { stagedOutputURL in
-                try FileManager.default.copyItem(at: fastqURLs[0], to: stagedOutputURL)
-            }
-            progress?("Export complete: \(outputURL.lastPathComponent)")
-            return
-        }
-
-        progress?("Exporting \(fastqURLs.count) FASTQ chunks...")
-        try await writeFASTQExportAtomically(
-            sourceBundleURL: bundleURL,
-            inputFASTQURLs: fastqURLs,
-            outputURL: outputURL,
-            isDerived: false,
-            runClock: runClock
-        ) { stagedOutputURL in
-            try await concatenateFASTQChunks(fastqURLs, to: stagedOutputURL)
-        }
-        progress?("Export complete: \(outputURL.lastPathComponent)")
-    }
-
-    nonisolated private static func concatenateFASTQChunks(_ inputURLs: [URL], to outputURL: URL) async throws {
-        let outputIsGzip = outputURL.isGzipCompressed
-        let allInputsAreGzip = inputURLs.allSatisfy(\.isGzipCompressed)
-        let noInputsAreGzip = inputURLs.allSatisfy { !$0.isGzipCompressed }
-
-        if outputIsGzip && allInputsAreGzip || !outputIsGzip && noInputsAreGzip {
-            try concatenateBytes(inputURLs, to: outputURL)
-            return
-        }
-
-        if outputIsGzip {
-            let tempDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("fastq-export-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: tempDirectory) }
-            let uncompressedURL = tempDirectory.appendingPathComponent(outputURL.deletingPathExtension().lastPathComponent)
-            try await writeUncompressedFASTQ(inputURLs, to: uncompressedURL)
-            try await gzipFile(uncompressedURL, to: outputURL)
-            return
-        }
-
-        try await writeUncompressedFASTQ(inputURLs, to: outputURL)
-    }
-
-    nonisolated private static func concatenateBytes(_ inputURLs: [URL], to outputURL: URL) throws {
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-
-        for inputURL in inputURLs {
-            let inputHandle = try FileHandle(forReadingFrom: inputURL)
-            do {
-                defer { try? inputHandle.close() }
-                while true {
-                    let chunk = try inputHandle.read(upToCount: 1 << 20) ?? Data()
-                    if chunk.isEmpty { break }
-                    try outputHandle.write(contentsOf: chunk)
-                }
-            }
-        }
-    }
-
-    nonisolated private static func writeUncompressedFASTQ(_ inputURLs: [URL], to outputURL: URL) async throws {
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-
-        for try await line in URL.multiFileLinesAutoDecompressing(inputURLs) {
-            try outputHandle.write(contentsOf: Data((line + "\n").utf8))
-        }
-    }
-
-    /// Compresses `inputURL` into `outputURL` with the system gzip, run through ``ToolProcess``.
-    /// Cancelling the task stops the gzip tree and throws `CancellationError`, and no thread waits for the child.
-    nonisolated static func gzipFile(_ inputURL: URL, to outputURL: URL) async throws {
-        let result: ToolProcessResult
-        do {
-            result = try await ToolProcess.run(ToolProcessSpec(
-                executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
-                arguments: ["-c", inputURL.path],
-                environment: ["PATH": "/usr/bin:/bin"],
-                stdout: .file(outputURL),
-                stderr: .discard,
-                label: "gzip -c"
-            ))
-        } catch let error as ToolProcessError {
-            if case .cancelled = error { throw CancellationError() }
-            throw error
-        }
-        guard result.isSuccess else {
-            throw NSError(domain: "com.lungfish.browser", code: Int(result.status),
-                          userInfo: [NSLocalizedDescriptionKey: "Compression failed for \(outputURL.lastPathComponent)."])
-        }
-    }
-
-    nonisolated private static func writeFASTQExportAtomically(
-        sourceBundleURL: URL,
-        inputFASTQURLs: [URL],
-        outputURL: URL,
-        isDerived: Bool,
-        runClock: ProvenanceRunClock,
-        writeOutput: (URL) async throws -> Void
-    ) async throws {
-        let fileManager = FileManager.default
-        guard !isExistingDirectory(outputURL, fileManager: fileManager) else {
-            throw CocoaError(.fileWriteFileExists)
-        }
-
-        let outputDirectoryURL = outputURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: outputDirectoryURL, withIntermediateDirectories: true)
-
-        let token = UUID().uuidString
-        let tempOutputURL = temporaryFASTQExportPayloadURL(for: outputURL, token: token)
-        let tempSidecarURL = outputDirectoryURL
-            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).lungfish-provenance.tmp")
-        let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        let backupOutputURL = outputDirectoryURL
-            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).backup")
-        let backupSidecarURL = outputDirectoryURL
-            .appendingPathComponent(".\(finalSidecarURL.lastPathComponent).\(token).backup")
-        var outputBackedUp = false
-        var sidecarBackedUp = false
-        var outputInstalled = false
-
-        do {
-            try await writeOutput(tempOutputURL)
-            let tempRecord = ProvenanceRecorder.fileRecord(
-                url: tempOutputURL,
-                format: .fastq,
-                role: .output
-            )
-            let outputRecord = FileRecord(
-                path: outputURL.standardizedFileURL.path,
-                sha256: tempRecord.sha256,
-                sizeBytes: tempRecord.sizeBytes,
-                format: tempRecord.format,
-                role: tempRecord.role
-            )
-            let envelope = makeFASTQExportProvenanceEnvelope(
-                sourceBundleURL: sourceBundleURL,
-                inputFASTQURLs: inputFASTQURLs,
-                outputURL: outputURL,
-                outputRecord: outputRecord,
-                isDerived: isDerived,
-                startedAt: runClock.startedAt,
-                completedAt: runClock.now
-            )
-            try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: tempSidecarURL)
-
-            if fileManager.fileExists(atPath: outputURL.path) {
-                try fileManager.moveItem(at: outputURL, to: backupOutputURL)
-                outputBackedUp = true
-            }
-            if fileManager.fileExists(atPath: finalSidecarURL.path) {
-                try fileManager.moveItem(at: finalSidecarURL, to: backupSidecarURL)
-                sidecarBackedUp = true
-            }
-
-            try fileManager.moveItem(at: tempOutputURL, to: outputURL)
-            outputInstalled = true
-            try fileManager.moveItem(at: tempSidecarURL, to: finalSidecarURL)
-
-            try? fileManager.removeItem(at: backupOutputURL)
-            try? fileManager.removeItem(at: backupSidecarURL)
-        } catch {
-            if outputInstalled {
-                try? fileManager.removeItem(at: outputURL)
-            }
-            if outputBackedUp {
-                try? fileManager.moveItem(at: backupOutputURL, to: outputURL)
-            }
-            if sidecarBackedUp {
-                try? fileManager.moveItem(at: backupSidecarURL, to: finalSidecarURL)
-            }
-            try? fileManager.removeItem(at: tempOutputURL)
-            try? fileManager.removeItem(at: tempSidecarURL)
-            throw error
-        }
-    }
-
-    nonisolated private static func temporaryFASTQExportPayloadURL(for outputURL: URL, token: String) -> URL {
-        let outputDirectoryURL = outputURL.deletingLastPathComponent()
-        let pathExtension = outputURL.pathExtension
-        let baseName = pathExtension.isEmpty
-            ? outputURL.lastPathComponent
-            : outputURL.deletingPathExtension().lastPathComponent
-        let hiddenName = ".\(baseName).\(token).export"
-        let hiddenURL = outputDirectoryURL.appendingPathComponent(hiddenName)
-        return pathExtension.isEmpty ? hiddenURL : hiddenURL.appendingPathExtension(pathExtension)
-    }
-
-    nonisolated private static func isExistingDirectory(_ url: URL, fileManager: FileManager) -> Bool {
-        var isDirectory: ObjCBool = false
-        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    nonisolated private static func makeFASTQExportProvenanceEnvelope(
-        sourceBundleURL: URL,
-        inputFASTQURLs: [URL],
-        outputURL: URL,
-        outputRecord: FileRecord,
-        isDerived: Bool,
-        startedAt: Date,
-        completedAt: Date
-    ) -> ProvenanceEnvelope {
-        var inputRecords: [FileRecord]
-        if inputFASTQURLs.isEmpty {
-            inputRecords = [ProvenanceRecorder.fileRecord(url: sourceBundleURL, format: .unknown, role: .input)]
-        } else {
-            inputRecords = inputFASTQURLs.map {
-                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
-            }
-        }
-
-        let sourceManifestURL = sourceBundleURL.appendingPathComponent(FASTQSourceFileManifest.filename)
-        if FileManager.default.fileExists(atPath: sourceManifestURL.path) {
-            inputRecords.append(ProvenanceRecorder.fileRecord(url: sourceManifestURL, format: .json, role: .input))
-        }
-        let derivedManifestURL = FASTQBundle.derivedManifestURL(in: sourceBundleURL)
-        if FileManager.default.fileExists(atPath: derivedManifestURL.path) {
-            inputRecords.append(ProvenanceRecorder.fileRecord(url: derivedManifestURL, format: .json, role: .input))
-        }
-
-        var argv = [
-            "Lungfish Genome Explorer",
-            "export-fastq",
-            sourceBundleURL.path,
-            "--output",
-            outputURL.path,
-        ]
-        if isDerived {
-            argv.append("--materialize-derived")
-        }
-        if inputFASTQURLs.count > 1 {
-            argv.append(contentsOf: ["--source-chunks", "\(inputFASTQURLs.count)"])
-        }
-
-        let step = StepExecution(
-            toolName: "Lungfish Genome Explorer FASTQ Export",
-            toolVersion: WorkflowRun.currentAppVersion,
-            command: argv,
-            inputs: inputRecords,
-            outputs: [outputRecord],
-            exitCode: 0,
-            wallTime: completedAt.timeIntervalSince(startedAt),
-            startTime: startedAt,
-            endTime: completedAt
-        )
-        let run = WorkflowRun(
-            name: "FASTQ Export",
-            startTime: startedAt,
-            endTime: completedAt,
-            status: .completed,
-            steps: [step],
-            parameters: [
-                "sourceBundle": .file(sourceBundleURL),
-                "output": .file(outputURL),
-                "isDerived": .boolean(isDerived),
-                "inputChunkCount": .integer(inputFASTQURLs.count),
-                "outputGzipCompressed": .boolean(outputURL.isGzipCompressed),
-            ]
-        )
-        return run.canonicalEnvelope()
     }
 
     // MARK: - Project-Level Metadata Export/Import

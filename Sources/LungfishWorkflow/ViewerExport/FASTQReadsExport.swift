@@ -173,7 +173,8 @@ public enum FASTQReadsExport {
 
     /// Compresses `inputURL` into `outputURL` with the system gzip, run through ``ToolProcess``.
     /// Cancelling the task stops the gzip tree and throws `CancellationError`, and no thread waits for the child.
-    private static func gzipFile(_ inputURL: URL, to outputURL: URL) async throws {
+    /// It is internal so `FASTQExportGzipCancelTests` can reach it.
+    static func gzipFile(_ inputURL: URL, to outputURL: URL) async throws {
         let result: ToolProcessResult
         do {
             result = try await ToolProcess.run(ToolProcessSpec(

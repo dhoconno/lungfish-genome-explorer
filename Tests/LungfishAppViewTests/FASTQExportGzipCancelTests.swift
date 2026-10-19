@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
-@testable import LungfishApp
+@testable import LungfishWorkflow
 import LungfishCore
 import LungfishTestSupport
 import Security
@@ -31,7 +31,7 @@ final class FASTQExportGzipCancelTests: XCTestCase {
         try SystemToolProbe.writeRepeating(block, times: 128, to: input)
         let output = temp.appendingPathComponent("big.fastq.gz")
 
-        let task = Task { try await AppDelegate.gzipFile(input, to: output) }
+        let task = Task { try await FASTQReadsExport.gzipFile(input, to: output) }
         let started = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
             let pids = await SystemToolProbe.childPIDs(commandLineHolding: input.path)
             return !pids.isEmpty
@@ -61,7 +61,7 @@ final class FASTQExportGzipCancelTests: XCTestCase {
     func testAFailedCompressionKeepsItsWords() async throws {
         let output = temp.appendingPathComponent("missing.fastq.gz")
         do {
-            try await AppDelegate.gzipFile(temp.appendingPathComponent("missing.fastq"), to: output)
+            try await FASTQReadsExport.gzipFile(temp.appendingPathComponent("missing.fastq"), to: output)
             XCTFail("A missing input must fail the compression")
         } catch let error as NSError {
             XCTAssertEqual(error.domain, "com.lungfish.browser")
