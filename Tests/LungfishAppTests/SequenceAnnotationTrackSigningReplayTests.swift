@@ -73,6 +73,88 @@ final class SequenceAnnotationTrackSigningReplayTests: XCTestCase {
         await harness.assertSignaturesVerify(runs, opening: Self.openingRecord)
     }
 
+    // MARK: - A failed signed run
+
+    /// Phase 2.10 fix FX-QSIGN, ARCH Fix 3, for the two commands that now sign. A signed run publishes the record, then
+    /// its signature, then its public key. A failure on the key reaches the run's rollback, which must give back the
+    /// record and leave no signature beside it. A non-empty folder at the key's name makes the key's publication fail
+    /// after the signature's. Before this lane the two commands never touched the key, so the run succeeded.
+    func testAFailedSignedTrackDeletionLeavesNoSignatureBesideTheRestoredRecord() async throws {
+        let scratch = try TestTempDirectory.make(prefix: "delete-track-signing-rollback")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let (root, bundle, record) = try rollbackFixture(in: scratch)
+        XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the first run")
+        let created = await orfsSideA(root)
+        XCTAssertEqual(created.end, .completed, created.detail)
+        let before = try Data(contentsOf: record)
+        let manifestBefore = try Data(contentsOf: bundle.appendingPathComponent("manifest.json"))
+
+        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        defer { saved.restore() }
+        let keyURL = try blockPublicKey(of: record)
+        do {
+            _ = try await SequenceAnnotationTrackWorkflow.deleteTrack(.init(
+                bundleURL: bundle, trackID: "orfs_chr1",
+                command: [CLICommandIdentity.executableName] + Self.deleteArguments(bundle),
+                explicitOptions: [:], defaultOptions: [:], resolvedOptions: [:], toolVersion: "test"
+            ))
+            XCTFail("the deletion succeeded though the public key could not be published")
+        } catch {
+            XCTAssertTrue("\(error)".contains(keyURL.lastPathComponent), "the deletion failed for another reason: \(error)")
+        }
+
+        XCTAssertEqual(try Data(contentsOf: record), before, "the failed deletion did not give back the record it replaced")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: record).path),
+            "the signature stays beside the restored record, a signature over bytes the record no longer holds"
+        )
+        XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent("manifest.json")), manifestBefore)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("annotations/orfs_chr1.db").path))
+    }
+
+    func testAFailedSignedORFRunLeavesNoSignatureBesideTheRestoredRecord() async throws {
+        let scratch = try TestTempDirectory.make(prefix: "annotate-orfs-signing-rollback")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let (root, bundle, record) = try rollbackFixture(in: scratch)
+        XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the first run")
+        let created = await deleteSideA(root)
+        XCTAssertEqual(created.end, .completed, created.detail)
+        let before = try Data(contentsOf: record)
+        let manifestBefore = try Data(contentsOf: bundle.appendingPathComponent("manifest.json"))
+
+        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
+        defer { saved.restore() }
+        let keyURL = try blockPublicKey(of: record)
+        let failed = await orfsSideA(root)
+        XCTAssertEqual(failed.end, .failed, "the run succeeded though the public key could not be published")
+        XCTAssertTrue(failed.detail.contains(keyURL.lastPathComponent), "the run failed for another reason: \(failed.detail)")
+
+        XCTAssertEqual(try Data(contentsOf: record), before, "the failed run did not give back the record it replaced")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: record).path),
+            "the signature stays beside the restored record, a signature over bytes the record no longer holds"
+        )
+        XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent("manifest.json")), manifestBefore)
+        for leftover in ["annotations/orfs_chr1.bed", "annotations/orfs_chr1.db"] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.appendingPathComponent(leftover).path), leftover)
+        }
+    }
+
+    private func rollbackFixture(in scratch: URL) throws -> (root: URL, bundle: URL, record: URL) {
+        let root = scratch.appendingPathComponent("root", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeFixture(root, inputs: scratch)
+        return (root, Self.bundle(in: root), Self.openingRecord(in: root))
+    }
+
+    /// Puts a non-empty folder where the record's public key goes, and returns that path.
+    private func blockPublicKey(of record: URL) throws -> URL {
+        let keyURL = ProvenanceSigningConfiguration.publicKeyURL(for: record)
+        try FileManager.default.createDirectory(at: keyURL, withIntermediateDirectories: true)
+        try "blocks the key".write(to: keyURL.appendingPathComponent("blocker.txt"), atomically: true, encoding: .utf8)
+        return keyURL
+    }
+
     // MARK: - The sides
 
     private func builtCLI() throws -> URL {
