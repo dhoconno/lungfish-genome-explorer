@@ -1546,25 +1546,33 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// The export writes all nodes from the tree in depth-first order with columns:
     /// Name, Rank, Reads (Clade), Reads (Direct), Clade %, Direct %.
     private func exportCSV() {
-        exportDelimited(separator: ",", fileExtension: "csv", fileTypeName: "CSV")
+        exportDelimited(format: .csv, fileTypeName: "CSV")
     }
 
     /// Exports the taxonomy table as TSV via an NSSavePanel.
     ///
     /// Same columns as CSV but tab-separated.
     private func exportTSV() {
-        exportDelimited(separator: "\t", fileExtension: "tsv", fileTypeName: "TSV")
+        exportDelimited(format: .tsv, fileTypeName: "TSV")
     }
 
     /// Shared implementation for CSV/TSV export.
     ///
+    /// The panel names the file and then the export runs `lungfish-cli kraken2 export table` behind an Operations
+    /// row (Phase 2.12 lane 12.33, ARCH ruling on F1, C5). The leaf rebuilds the table from the file the shown tree
+    /// came from and writes it with its record, so the view writes no byte after the panel. A failure shows today's
+    /// alert.
+    ///
     /// - Parameters:
-    ///   - separator: Column separator character.
-    ///   - fileExtension: File extension without dot (e.g., "csv").
+    ///   - format: The delimited format, which also names the file extension.
     ///   - fileTypeName: Human-readable format name for the panel.
-    private func exportDelimited(separator: String, fileExtension: String, fileTypeName: String) {
-        guard let tree, let window = view.window else {
+    private func exportDelimited(format: ViewerExportDelimitedFormat, fileTypeName: String) {
+        guard tree != nil, let window = view.window else {
             logger.warning("Cannot export: no tree or window")
+            return
+        }
+        guard taxonomyExportSource() != nil else {
+            logger.warning("Cannot export: no result file to read or no sample picked")
             return
         }
 
@@ -1573,21 +1581,21 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             .deletingPathExtension().lastPathComponent ?? "classification"
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Taxonomy as \(fileTypeName)",
-            suggestedName: "\(baseName)_classification.\(fileExtension)"
+            suggestedName: "\(baseName)_classification.\(format.rawValue)"
         )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
-
-            do {
-                try self.writeDelimitedExport(tree: tree, separator: separator, to: url)
-                logger.info("Exported taxonomy \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
-            } catch {
-                logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
+            guard let invocation = self.taxonomyExportInvocation(format: format, outputURL: url) else {
+                logger.warning("Cannot export: no result file to read or no sample picked")
+                return
+            }
+            Self.beginTaxonomyTableExportOperation(invocation: invocation) { [weak self] failure in
+                logger.error("Export failed: \(failure.message, privacy: .public)")
                 NSSound.beep()
                 ResultExportCoordinator.reportFailure(
                     fileName: url.lastPathComponent,
-                    error: error,
+                    error: failure,
                     window: window,
                     presenter: WarningPresenterExportAdapter { [weak self] title, message in
                         self?.presentWarning(title: title, message: message)
@@ -1595,6 +1603,37 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
                 )
             }
         }
+    }
+
+    /// What the `kraken2 export table` leaf reads for the shown table (Phase 2.12 lane 12.33, ARCH ruling on F1, C5).
+    /// On the database route that is `kraken2.sqlite` and the picked samples, sorted, which the leaf reads as the
+    /// table's samples. On the sidecar route it is the sidecar of the folder the result was loaded from, with no
+    /// sample. The folder is the report's, since `ClassificationResult.load(from:)` sets it to the loaded folder
+    /// while `config.outputDirectory` keeps the absolute path the run was saved with, which a moved or copied
+    /// folder no longer holds. Nil when the view holds neither route, or when no sample is picked, since the leaf
+    /// reads no `--sample` as every sample.
+    func taxonomyExportSource() -> (sourceURL: URL, samples: [String])? {
+        if let kraken2Database {
+            guard let state = samplePickerState, !state.selectedSamples.isEmpty else { return nil }
+            return (kraken2Database.databaseURL, state.selectedSamples.sorted())
+        }
+        guard let result = classificationResult else { return nil }
+        let folder = result.reportURL.deletingLastPathComponent()
+        return (folder.appendingPathComponent(Kraken2TaxonomyTableExport.sidecarFileName), [])
+    }
+
+    /// The `kraken2 export table` invocation for the view's state with the metadata columns shown, or nil when
+    /// `taxonomyExportSource()` is nil. The output exists only when the user chose to replace it, so `force` follows.
+    func taxonomyExportInvocation(format: ViewerExportDelimitedFormat, outputURL: URL) -> ViewerExportInvocation? {
+        guard let source = taxonomyExportSource() else { return nil }
+        return Kraken2TaxonomyTableExport.invocation(
+            sourceURL: source.sourceURL,
+            samples: source.samples,
+            metadataColumns: taxonomyTableView.metadataColumns.exportHeaders,
+            format: format,
+            outputURL: outputURL,
+            force: FileManager.default.fileExists(atPath: outputURL.path)
+        )
     }
 
     /// Builds and writes the delimited export content. Extracted from the
@@ -1861,4 +1900,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     /// Returns the batch table view for testing.
     var testBatchTableView: BatchClassificationTableView { batchTableView }
+
+    /// Renders the table for the picker's current selection, which the Inspector's picker does by notification.
+    func testApplyBatchSampleFilter() {
+        applyBatchSampleFilter()
+    }
 }
