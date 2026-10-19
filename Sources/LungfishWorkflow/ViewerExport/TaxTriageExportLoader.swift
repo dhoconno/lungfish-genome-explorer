@@ -67,6 +67,49 @@ public enum TaxTriageBatchReportExport {
     }
 }
 
+/// The TaxTriage results export (Phase 2.12 lane 12.32, ARCH ruling X-1 row A6).
+///
+/// The viewer and `taxtriage export results` build their invocation with this enum, so the Operations row, the
+/// runner and the leaf's record name one command (ARCH 2).
+public enum TaxTriageResultsExport {
+    /// The leaf's path under `lungfish-cli`.
+    public static let commandPath = ["taxtriage", "export", "results"]
+    /// The workflow name the leaf's record carries (ARCH ruling 1.4).
+    public static let workflowName = "lungfish taxtriage export results"
+
+    /// The leaf's invocation for a view state, with absolute standardized paths. `samples` names the ticked samples
+    /// as the result records them, `searchText` the organism search, `sortKeys` the flat table's sort descriptors,
+    /// `filters` its column filters and `metadataColumns` the metadata columns it shows.
+    public static func invocation(
+        resultURL: URL,
+        samples: [String],
+        searchText: String?,
+        sortKeys: [ViewerExportSortKey],
+        filters: ColumnFilterSet,
+        metadataColumns: [String],
+        format: ViewerExportDelimitedFormat,
+        outputURL: URL,
+        force: Bool,
+        emitsEvents: Bool = true
+    ) -> ViewerExportInvocation {
+        ViewerExportInvocation(
+            commandPath: commandPath,
+            input: resultURL.standardizedFileURL.path,
+            state: ViewerTableExportState(
+                samples: samples,
+                searchText: searchText,
+                sortKeys: sortKeys,
+                filters: filters,
+                metadataColumns: metadataColumns
+            ),
+            outputFormat: format.rawValue,
+            output: outputURL.standardizedFileURL.path,
+            force: force,
+            emitsEvents: emitsEvents
+        )
+    }
+}
+
 /// What an export of a TaxTriage result reads, as the viewer holds it after it opens the result
 /// (`TaxTriageResultViewController.configureFromDatabase`).
 ///

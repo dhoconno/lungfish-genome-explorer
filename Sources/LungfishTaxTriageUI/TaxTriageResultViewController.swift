@@ -4536,43 +4536,23 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Delimited export of the database flat table: the rows it currently
     /// shows (Sample Filter, organism search and column filters applied), in
-    /// its current sort order.
+    /// its current sort order. The table's state goes to the builder as values.
     private func buildDatabaseDelimitedExport(separator: String) -> String {
-        var headers = [
-            "Sample", "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
-            "Tax ID", "Rank", "Abundance", "Contamination Risk",
-        ]
         let metadataColumns = batchFlatTableView.metadataColumns
-        headers.append(contentsOf: metadataColumns.exportHeaders)
-        var lines = [headers.map { escapeField($0, separator: separator) }.joined(separator: separator)]
-
-        for row in batchFlatTableView.displayedRows {
-            let sample = row.sample ?? ""
-            let key = "\(sample)\t\(row.organism)"
-            let reads = batchFlatTableView.totalReadsByKey[key] ?? row.reads
-            let unique = ClassifierUniqueReads.normalized(
-                stored: batchFlatTableView.uniqueReadsByKey[key],
-                readCount: reads
-            )
-            var fields: [String] = [
-                escapeField(sample, separator: separator),
-                escapeField(row.organism, separator: separator),
-                String(format: "%.4f", row.tassScore),
-                "\(reads)",
-                unique.map(String.init) ?? "",
-                row.coverageBreadth.map { String(format: "%.2f", $0) } ?? "",
-                escapeField(row.confidence ?? "", separator: separator),
-                row.taxId.map { "\($0)" } ?? "",
-                escapeField(row.rank ?? "", separator: separator),
-                row.abundance.map { String(format: "%.6f", $0) } ?? "",
-                batchFlatTableView.isContaminationRisk(row) ? "yes" : "",
-            ]
-            for value in metadataColumns.exportValues(for: sample) {
-                fields.append(escapeField(value, separator: separator))
-            }
-            lines.append(fields.joined(separator: separator))
+        let rows = batchFlatTableView.displayedRows
+        var metadataValuesBySample: [String: [String]] = [:]
+        for sample in Set(rows.map { $0.sample ?? "" }) {
+            metadataValuesBySample[sample] = metadataColumns.exportValues(for: sample)
         }
-        return lines.joined(separator: "\n") + "\n"
+        return TaxTriageResultsExport.buildDelimitedExport(
+            rows: rows,
+            totalReadsByKey: batchFlatTableView.totalReadsByKey,
+            uniqueReadsByKey: batchFlatTableView.uniqueReadsByKey,
+            contaminationRiskOrganismKeys: batchFlatTableView.contaminationRiskOrganismKeys,
+            metadataHeaders: metadataColumns.exportHeaders,
+            metadataValuesBySample: metadataValuesBySample,
+            separator: separator
+        )
     }
 
     /// Builds delimited export content from all table rows.
@@ -5786,5 +5766,72 @@ struct TaxTriageProvenanceView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+    }
+}
+
+// MARK: - Delimited results builder
+
+extension TaxTriageResultsExport {
+    /// Delimited export of the database flat table: the rows it shows (Sample Filter, organism search and column
+    /// filters applied), in its sort order, each with its own sample's values for the metadata columns it writes
+    /// (BIO ruling on 12.32, F3 and F7). The state of the table comes in as values.
+    ///
+    /// Unique Reads holds the stored database count, normalized by ``ClassifierUniqueReads``, and is empty when the
+    /// database stores none.
+    public static func buildDelimitedExport(
+        rows: [TaxTriageMetric],
+        totalReadsByKey: [String: Int],
+        uniqueReadsByKey: [String: Int],
+        contaminationRiskOrganismKeys: Set<String>,
+        metadataHeaders: [String],
+        metadataValuesBySample: [String: [String]],
+        separator: String
+    ) -> String {
+        var headers = [
+            "Sample", "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
+            "Tax ID", "Rank", "Abundance", "Contamination Risk",
+        ]
+        headers.append(contentsOf: metadataHeaders)
+        var lines = [headers.map { escapeField($0, separator: separator) }.joined(separator: separator)]
+
+        for row in rows {
+            let sample = row.sample ?? ""
+            let key = "\(sample)\t\(row.organism)"
+            let reads = totalReadsByKey[key] ?? row.reads
+            let unique = ClassifierUniqueReads.normalized(
+                stored: uniqueReadsByKey[key],
+                readCount: reads
+            )
+            let isContaminationRisk = !contaminationRiskOrganismKeys.isEmpty
+                && contaminationRiskOrganismKeys.contains(OrganismNameNormalizer.normalizedKey(row.organism))
+            var fields: [String] = [
+                escapeField(sample, separator: separator),
+                escapeField(row.organism, separator: separator),
+                String(format: "%.4f", row.tassScore),
+                "\(reads)",
+                unique.map(String.init) ?? "",
+                row.coverageBreadth.map { String(format: "%.2f", $0) } ?? "",
+                escapeField(row.confidence ?? "", separator: separator),
+                row.taxId.map { "\($0)" } ?? "",
+                escapeField(row.rank ?? "", separator: separator),
+                row.abundance.map { String(format: "%.6f", $0) } ?? "",
+                isContaminationRisk ? "yes" : "",
+            ]
+            for value in metadataValuesBySample[sample] ?? [] {
+                fields.append(escapeField(value, separator: separator))
+            }
+            lines.append(fields.joined(separator: separator))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Escapes a field for CSV output.
+    private static func escapeField(_ value: String, separator: String) -> String {
+        guard separator == "," else { return value }
+        if value.contains(",") || value.contains("\"") || value.contains("\n") {
+            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+            return "\"\(escaped)\""
+        }
+        return value
     }
 }
