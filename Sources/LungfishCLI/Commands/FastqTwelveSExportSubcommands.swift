@@ -48,9 +48,25 @@ struct FastqTwelveSExportSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("force"), help: "Replace an existing output file")
     var force: Bool = false
 
+    /// A SIGTERM before the export writes cancels it. The leaf prints the cancel line, exits 125 and leaves no report
+    /// and no record, so the 12S viewer's row reads Cancelled (Phase 2.12 lane 12.35 B3, ARCH ruling 1.6). The
+    /// workflow checks for no cancel once it runs, so a SIGTERM after the check lets it finish, and the row then reads
+    /// Cancelled by user. A debug build holds at the check on `LUNGFISH_VIEWER_EXPORT_HOLD_FILE`.
     func run() async throws {
-        let result = try await TwelveSResultExportWorkflow().export(configurationForTesting())
-        TwelveSCLISuccessLine.export(result.outputURL).write()
+        let configuration = configurationForTesting()
+        let outcome = await runCancellingOnSIGTERM {
+            try ViewerExportLeaf.checkpointAfterStaging()
+            return try await TwelveSResultExportWorkflow().export(configuration)
+        }
+        switch outcome {
+        case .success(let result):
+            TwelveSCLISuccessLine.export(result.outputURL).write()
+        case .failure(let error) where error is CancellationError:
+            print(ViewerExportLeaf.cancelledMessage)
+            throw CLIExitCode.cancelled.exitCode
+        case .failure(let error):
+            throw error
+        }
     }
 
     func configurationForTesting() -> TwelveSResultExportConfiguration {
