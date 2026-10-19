@@ -33,29 +33,8 @@ final class NamedUnsignedRecordsPinReplayTests: XCTestCase {
 
     // MARK: - With a key set
 
-    func testTheAnnotateORFsRecordIsUnsignedWhenAKeyIsSetAtTheBase() async throws {
-        let scratch = try TestTempDirectory.make(prefix: "named-unsigned-orfs")
-        defer { TestTempDirectory.cleanup(scratch) }
-        let bundle = try makeBundle(in: scratch)
-        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
-        defer { saved.restore() }
-
-        try await annotateORFs(in: bundle)
-
-        assertUnsignedRecord(bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename))
-    }
-
-    func testTheDeleteAnnotationTrackRecordIsUnsignedWhenAKeyIsSetAtTheBase() async throws {
-        let scratch = try TestTempDirectory.make(prefix: "named-unsigned-delete-track")
-        defer { TestTempDirectory.cleanup(scratch) }
-        let bundle = try makeBundle(in: scratch)
-        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
-        defer { saved.restore() }
-
-        try await deleteTrack(in: bundle)
-
-        assertUnsignedRecord(bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename))
-    }
+    // The pins of the annotate-orfs record and the delete-annotation-track record flipped in M2 step 1. Their
+    // cases are in SequenceAnnotationTrackSigningReplayTests, and the no-key test below still covers both.
 
     func testTheAddAnnotationLogIsUnsignedWhenAKeyIsSetAtTheBase() async throws {
         let scratch = try TestTempDirectory.make(prefix: "named-unsigned-log")

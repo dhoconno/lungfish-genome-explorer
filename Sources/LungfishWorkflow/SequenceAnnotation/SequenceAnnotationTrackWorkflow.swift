@@ -1114,7 +1114,7 @@ public enum SequenceAnnotationTrackWorkflow {
         .step(step)
         .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
 
-        return try ProvenanceWriter(signingProvider: nil).write(envelope, to: request.bundleURL)
+        return try ProvenanceWriter().write(envelope, to: request.bundleURL)
     }
 
     private static func writeDeletionProvenance(
@@ -1161,7 +1161,7 @@ public enum SequenceAnnotationTrackWorkflow {
         .step(step)
         .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
 
-        return try ProvenanceWriter(signingProvider: nil).write(envelope, to: request.bundleURL)
+        return try ProvenanceWriter().write(envelope, to: request.bundleURL)
     }
 
     private static func writeDeleteAnnotationsProvenance(
