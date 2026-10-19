@@ -49,34 +49,6 @@ TTGGCCAATTGGCCAATTGG
       "path" : "annotations/beta_genes.db"
     }
   ],
-  "browser_summary" : {
-    "aggregate" : {
-      "alignmentTrackCount" : 0,
-      "annotationTrackCount" : 2,
-      "variantTrackCount" : 0
-    },
-    "schemaVersion" : 1,
-    "sequences" : [
-      {
-        "aliases" : [
-
-        ],
-        "isMitochondrial" : false,
-        "isPrimary" : true,
-        "length" : 20,
-        "name" : "chrA"
-      },
-      {
-        "aliases" : [
-
-        ],
-        "isMitochondrial" : false,
-        "isPrimary" : true,
-        "length" : 20,
-        "name" : "chrB"
-      }
-    ]
-  },
   "format_version" : "1.0",
   "genome" : {
     "chromosomes" : [
