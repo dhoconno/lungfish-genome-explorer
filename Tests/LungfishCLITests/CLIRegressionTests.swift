@@ -1711,7 +1711,7 @@ final class BundleCommandRegressionTests: XCTestCase {
         // 2.12 added `export-gff3` (14a6ebeca) and `export-annotation-table` (061e2dccd) beside `export`.
         XCTAssertEqual(subs.count, 11)
         XCTAssertEqual(
-            names.filter { $0.hasPrefix("export") }.sorted(),
+            names.compactMap { $0 }.filter { $0.hasPrefix("export") }.sorted(),
             ["export", "export-annotation-table", "export-gff3"]
         )
         XCTAssertTrue(names.contains("mark-duplicates"))
