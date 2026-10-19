@@ -67,7 +67,7 @@ final class Kraken2BlastRestoreTests: XCTestCase {
         XCTAssertEqual(archived.tab.currentRecordURL?.resolvingSymlinksInPath(), archiveURL.resolvingSymlinksInPath())
         XCTAssertEqual(
             archived.controller.lastBlastRecordURL?.resolvingSymlinksInPath(), archiveURL.resolvingSymlinksInPath(),
-            "the view replays the same file into a drawer made later"
+            "the view keeps the URL of the file it restored from"
         )
 
         try writeSubmitRecord(rid: "RID-SUBMIT", taxId: 562, savedAt: Self.later, in: result, folder: "Escherichia-coli-a")
@@ -77,6 +77,32 @@ final class Kraken2BlastRestoreTests: XCTestCase {
         let submitted = restoreIntoDrawer(taxId: 562, from: result)
         XCTAssertEqual(submitted.tab.currentResult?.rid, "RID-SUBMIT")
         XCTAssertEqual(submitted.tab.currentRecordURL?.resolvingSymlinksInPath(), recordURL.resolvingSymlinksInPath())
+    }
+
+    /// Review 12.33-A9 Fix 1 (T5 condition 1c). A verification restored while no drawer exists keeps the URL of its file
+    /// in the view, and a drawer made later gets that URL with the result, so its table export reads the file.
+    func testARestoredVerificationWaitingForAMissingDrawerReplaysItsFileURL() throws {
+        let result = try resultFolder()
+        let archiveURL = try BlastVerificationArchive.save(
+            Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result
+        )
+        let controller = TaxonomyViewController()
+        controller.blastVerificationDirectoryResolver = { _ in result }
+        let node = TaxonNode(
+            taxId: 562, name: "taxon 562", rank: .species, depth: 7,
+            readsDirect: 10, readsClade: 10, fractionClade: 0.1, fractionDirect: 0.1, parentTaxId: 1
+        )
+        _ = controller.restoreSavedBlastVerification(for: node)
+        XCTAssertEqual(controller.lastBlastRecordURL?.resolvingSymlinksInPath(), archiveURL.resolvingSymlinksInPath())
+
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        controller.taxaCollectionsDrawerView = drawer
+        controller.wireBlastDrawerCallbacks()
+        XCTAssertEqual(drawer.blastResultsTab.currentResult?.rid, "RID-ARCHIVE")
+        XCTAssertEqual(
+            drawer.blastResultsTab.currentRecordURL?.resolvingSymlinksInPath(), archiveURL.resolvingSymlinksInPath(),
+            "the drawer made after the restore gets the file's URL with the result"
+        )
     }
 
     // MARK: - Fixtures
