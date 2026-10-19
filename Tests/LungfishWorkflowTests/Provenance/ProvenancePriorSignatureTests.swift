@@ -15,6 +15,7 @@
 import CryptoKit
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ProvenancePriorSignatureTests: XCTestCase {
@@ -22,13 +23,11 @@ final class ProvenancePriorSignatureTests: XCTestCase {
     private let signer = LocalProvenanceSigningProvider(privateKey: "prior-signature-test-key")
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lungfish-prior-signature-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        root = try TestTempDirectory.make(prefix: "prior-signature")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        TestTempDirectory.cleanup(root)
     }
 
     // MARK: - A keyless write into a signed record
