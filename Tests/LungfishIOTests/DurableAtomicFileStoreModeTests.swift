@@ -9,6 +9,7 @@
 import Darwin
 import Foundation
 import LungfishCore
+import LungfishTestSupport
 import XCTest
 @testable import LungfishIO
 
@@ -18,15 +19,14 @@ final class DurableAtomicFileStoreModeTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("store-mode-\(UUID().uuidString)", isDirectory: true)
+        scratch = try TestTempDirectory.make(prefix: "store-mode")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         previousUmask = umask(0o022)
     }
 
     override func tearDownWithError() throws {
         umask(previousUmask)
-        if let scratch { try? FileManager.default.removeItem(at: scratch) }
+        if let scratch { TestTempDirectory.cleanup(scratch) }
         try super.tearDownWithError()
     }
 
