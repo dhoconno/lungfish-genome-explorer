@@ -19,6 +19,8 @@ struct ProvenanceSection: View {
     @State private var isOptionsExpanded = false
     @State private var isRuntimeExpanded = false
     @State private var isRawJSONExpanded = false
+    /// The steps whose command a rename moved, built off the main actor for each record the tab shows (R-B2).
+    @State private var renamedCommands: [UUID: ProvenanceRenamedCommand] = [:]
 
     init(
         viewModel: ProvenanceInspectorViewModel,
@@ -33,7 +35,9 @@ struct ProvenanceSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
+            header.task(id: [viewModel.resolvedSidecarURL?.path, viewModel.lineageRuns.last?.id.uuidString]) {
+                renamedCommands = await viewModel.renamedCommands()
+            }
 
             if viewModel.sources.count > 1 {
                 Picker("Source", selection: Binding(
@@ -397,17 +401,28 @@ struct ProvenanceSection: View {
             identifier: "provenance-run-\(runOrdinal)-step-\(step.ordinal)",
             accessibilityName: "Step \(step.ordinal), \(step.toolName)",
             copyText: viewModel.stepClipboardText(of: step),
-            copyActions: viewModel.stepCopyActions(step, in: run)
+            copyActions: viewModel.stepCopyActions(step, in: run, renamed: renamedCommands[step.id])
         ) {
             VStack(alignment: .leading, spacing: 6) {
                 if !step.command.isEmpty {
+                    let renamed = renamedCommands[step.id]
                     summaryRow(
                         "Command",
-                        value: step.displayCommand,
+                        value: renamed?.label ?? step.displayCommand,
                         recorded: step.command,
                         accessibilityIdentifier: "provenance-step-command"
                     )
-                    .contextActions(viewModel.stepCopyActions(step, in: run))
+                    .contextActions(viewModel.stepCopyActions(step, in: run, renamed: renamed))
+                    if let renamed {
+                        // T4: the note sits beside the row, never in the copied text.
+                        Text(renamed.note)
+                            .font(LungfishInspectorStyle.controlFont)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.leading, usesGenotypePresentation ? 0 : 104)
+                            .help(renamed.note)
+                            .accessibilityIdentifier("provenance-step-command-rename-note")
+                    }
                 }
                 stepObservationRow(.environment, of: step)
                 if !step.inputPaths.isEmpty {

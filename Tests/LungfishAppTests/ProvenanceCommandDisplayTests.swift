@@ -67,17 +67,50 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
 
     // MARK: - The Command row and Copy Command of a renamed record
 
-    /// At the base the Command row and Copy Command name the folder as it was, which no longer exists.
-    func testARenamedRecordsCommandRowAndCopyCommandNameTheFolderAsItWas() async throws {
+    /// R-B2 in UX's placement (T4). The Command row and Copy Command name the renamed folder, the note beside the row
+    /// says which rename moved them, the row's tooltip and Copy Step keep the command as it ran, and the copied text
+    /// holds no note. At the base the row and Copy Command named the old folder, which is gone, and there was no note.
+    func testARenamedRecordsCommandRowAndCopyCommandNameTheRenamedFolder() async throws {
         let renamed = try renamedRecord()
         let model = try await loadedModel(folder: renamed.newFolder)
         let step = try XCTUnwrap(model.lineageRuns.last?.steps.first)
         let redact = ProvenanceDisplayRedaction(projectURL: renamed.project)
-
-        XCTAssertEqual(step.displayCommand, "lungfish-cli fastq trim Inputs/reads.fastq --output Analyses/fastq-trim/trimmed.fastq")
+        let envelope = try XCTUnwrap(model.resolvedEnvelope)
+        let built = await model.renamedCommands()
         XCTAssertEqual(
-            try copied("Copy Command", of: step, in: model).map { redact($0) },
+            built.keys.sorted(), [step.id],
+            "\(String(describing: model.resolvedSidecarURL)) \(envelope.steps.map(\.reproducibleCommand)) \(envelope.outputs.map(\.path))"
+        )
+        let board = NSPasteboard(name: NSPasteboard.Name("ProvenanceCommandDisplayTests-\(UUID().uuidString)"))
+        pasteboard = board
+        model.pasteboard = board
+        let window = AccessibilityTreeProbe.host(ProvenanceSection(viewModel: model))
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(AccessibilityTreeProbe.press(try element("provenance-run-1", in: window)))
+        XCTAssertTrue(AccessibilityTreeProbe.press(try element("provenance-run-1-step-1", in: window)))
+        // The tab builds the renamed command in a task, which runs once this test yields the main actor.
+        _ = await waitUntil(timeout: .seconds(30)) {
+            AccessibilityTreeProbe.element(in: window, identifier: "provenance-step-command-rename-note") != nil
+        }
+        let note = try element("provenance-step-command-rename-note", in: window)
+        XCTAssertEqual(
+            AccessibilityTreeProbe.label(note) ?? AccessibilityTreeProbe.value(note),
+            "Paths that the rename of Analyses/fastq-trim moved now name Analyses/fastq-trim renamed."
+        )
+        let command = try element("provenance-step-command", in: window)
+        XCTAssertEqual(
+            AccessibilityTreeProbe.label(command),
+            "lungfish-cli fastq trim Inputs/reads.fastq --output 'Analyses/fastq-trim renamed/trimmed.fastq'"
+        )
+        XCTAssertEqual(
+            AccessibilityTreeProbe.help(command).map { redact($0) },
             "lungfish-cli fastq trim <project>/Inputs/reads.fastq --output <project>/Analyses/fastq-trim/trimmed.fastq"
+        )
+        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Command", on: command))
+        XCTAssertEqual(
+            board.string(forType: .string).map { redact($0) },
+            "lungfish-cli fastq trim <project>/Inputs/reads.fastq --output '<project>/Analyses/fastq-trim renamed/trimmed.fastq'"
         )
         let copyStep = try XCTUnwrap(try copied("Copy Step", of: step, in: model).map { redact($0) })
         XCTAssertTrue(
@@ -153,6 +186,14 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         XCTAssertNotNil(model.resolvedEnvelope, "The record was not found.")
         return model
+    }
+
+    private func element(_ identifier: String, in window: NSWindow) throws -> NSObject {
+        AccessibilityTreeProbe.waitUntil(timeout: 10) { AccessibilityTreeProbe.element(in: window, identifier: identifier) != nil }
+        return try XCTUnwrap(
+            AccessibilityTreeProbe.element(in: window, identifier: identifier),
+            "no \(identifier); tree:\n" + AccessibilityTreeProbe.dump(window)
+        )
     }
 
     /// The text one of a Lineage step's copy commands writes, on a private pasteboard.

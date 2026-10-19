@@ -3,7 +3,20 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
+import LungfishWorkflow
 import SwiftUI
+
+/// A Lineage step's command after a rename moved a folder it names (R-B2). The record keeps the command as it ran,
+/// which the Command row's tooltip and Copy Step still give.
+struct ProvenanceRenamedCommand: Equatable, Sendable {
+    /// The Command row's text, each moved path in its new folder and shortened as the row shortens any path.
+    let label: String
+    /// What Copy Command copies, the recorded command with each moved path in its new folder.
+    let copyCommand: String
+    /// The note beside the Command row, `Paths that the rename of <old> moved now name <new>.`
+    let note: String
+}
 
 extension ProvenanceInspectorViewModel {
     /// Copy Step on the Provenance tab: the step's title line, then its lines in the order its disclosure shows them
@@ -28,14 +41,61 @@ extension ProvenanceInspectorViewModel {
 
     /// The commands a Lineage step's label and Command row offer, in the context menu and, under the same titles and
     /// in the same order, as VoiceOver actions. Copy Command copies the recorded command whole, not the shortened
-    /// form the row shows.
-    func stepCopyActions(_ step: ProvenanceLineageStep, in run: ProvenanceLineageRun) -> [ContextAction] {
+    /// form the row shows, with each path a rename moved in its new folder when `renamed` says so (R-B2). Copy Step
+    /// keeps the command as it ran.
+    func stepCopyActions(
+        _ step: ProvenanceLineageStep,
+        in run: ProvenanceLineageRun,
+        renamed: ProvenanceRenamedCommand? = nil
+    ) -> [ContextAction] {
         [
             .command("Copy Step") { self.writeStepCopy(self.stepClipboardText(of: step)) },
-            .command("Copy Command", isEnabled: !step.command.isEmpty) { self.writeStepCopy(step.command) },
+            .command("Copy Command", isEnabled: !step.command.isEmpty) {
+                self.writeStepCopy(renamed?.copyCommand ?? step.command)
+            },
             .divider(),
             .command("Copy All Steps") { self.writeStepCopy(self.allStepsCopyText(of: run)) },
         ]
+    }
+
+    /// The steps of the shown record whose command names a folder a rename moved, by step id. It is built off the main
+    /// actor, because the Command row's shortening asks the file system whether each path exists (SWIFT 6).
+    func renamedCommands() async -> [UUID: ProvenanceRenamedCommand] {
+        guard let envelope = resolvedEnvelope, let recordURL = resolvedSidecarURL else { return [:] }
+        return await Task.detached(priority: .userInitiated) {
+            Self.renamedCommands(of: envelope, recordURL: recordURL)
+        }.value
+    }
+
+    /// The renamed commands of `envelope`, read at `recordURL`. The record is only read, never written.
+    nonisolated static func renamedCommands(
+        of envelope: ProvenanceEnvelope,
+        recordURL: URL
+    ) -> [UUID: ProvenanceRenamedCommand] {
+        let projectURL = PortablePath.anchors(for: recordURL).project
+        let files = envelope.files + envelope.outputs + [envelope.output].compactMap { $0 }
+            + envelope.steps.flatMap { $0.inputs + $0.outputs }
+        let renames = ProvenanceCommandPresentation.folderRenames(
+            commands: envelope.steps.map(\.reproducibleCommand),
+            filePaths: files.map(\.path),
+            recordURL: recordURL,
+            projectURL: projectURL
+        )
+        guard let note = ProvenanceCommandPresentation.renameNote(renames, projectURL: projectURL) else { return [:] }
+        var commands: [UUID: ProvenanceRenamedCommand] = [:]
+        for step in envelope.steps {
+            let recorded = ProvenanceCommandPresentation.quotingProjectPath(step.reproducibleCommand, projectURL: projectURL)
+            let copy = ProvenanceCommandPresentation.movingRenamedPaths(
+                step.reproducibleCommand, renames: renames, projectURL: projectURL
+            )
+            guard copy != recorded else { continue }
+            commands[step.id] = ProvenanceRenamedCommand(
+                label: ProvenanceCommandPresentation.display(copy, projectURL: projectURL),
+                copyCommand: copy,
+                note: note
+            )
+        }
+        return commands
     }
 
     private func writeStepCopy(_ text: String) {

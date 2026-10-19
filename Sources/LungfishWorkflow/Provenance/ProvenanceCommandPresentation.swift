@@ -123,12 +123,12 @@ public enum ProvenanceCommandPresentation {
     private static let shellNames: Set<String> = ["sh", "bash", "zsh", "dash"]
 
     /// True when `word` names a shell by the last component of its path, as `/bin/sh` and `bash` do.
-    private static func isShell(_ word: String) -> Bool {
+    static func isShell(_ word: String) -> Bool {
         word.split(separator: "/").last.map { shellNames.contains(String($0)) } ?? false
     }
 
     /// True for `-c` and for a cluster of single-letter options that holds `c`, such as `-lc` or `-ec`.
-    private static func isCommandFlag(_ word: String) -> Bool {
+    static func isCommandFlag(_ word: String) -> Bool {
         guard word.hasPrefix("-"), !word.hasPrefix("--") else { return false }
         let letters = word.dropFirst()
         return letters.contains("c") && letters.allSatisfy { $0.isASCII && $0.isLetter }
@@ -142,7 +142,7 @@ public enum ProvenanceCommandPresentation {
     }
 
     /// The spellings of the project's path that hold white space, longest first.
-    private static func spacedPaths(of projectURL: URL) -> [String] {
+    static func spacedPaths(of projectURL: URL) -> [String] {
         Set([projectURL.standardizedFileURL.path, projectURL.path])
             .filter { $0.contains(where: \.isWhitespace) }
             .sorted { $0.count > $1.count }
@@ -163,7 +163,7 @@ public enum ProvenanceCommandPresentation {
 
     /// The path inside a word and whatever precedes it: nothing for a bare
     /// path, a redirection operator, or a `key=` or `--flag=` prefix.
-    private static func pathPart(of value: String) -> (prefix: String, path: String, isRedirect: Bool)? {
+    static func pathPart(of value: String) -> (prefix: String, path: String, isRedirect: Bool)? {
         if looksLikePath(value) { return ("", value, false) }
         if let operatorLength = redirectionOperatorLength(of: value) {
             let rest = String(value.dropFirst(operatorLength))
