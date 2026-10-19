@@ -239,7 +239,7 @@
       },
       "databaseVersion" : {
         "type" : "string",
-        "value" : "20260626"
+        "value" : "unknown"
       },
       "executionInputs" : {
         "type" : "array",
