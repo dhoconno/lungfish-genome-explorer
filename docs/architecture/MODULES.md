@@ -26,7 +26,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 7 | 2504 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 7991 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 900 | 256861 | 1472 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 900 | 256940 | 1472 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1902 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 68 | 14753 | 69 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -52,7 +52,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1037 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 14 | 3743 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 11 | 2401 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 607 | 212108 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 607 | 212133 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1834,7 +1834,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 900, lines 256861
+- Swift files. 900, lines 256940
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1851,7 +1851,7 @@ None.
 | Assembly | 23 | 6067 |
 | Bundles | 12 | 3227 |
 | CLIEvents | 5 | 1145 |
-| Conda | 31 | 8680 |
+| Conda | 31 | 8759 |
 | Containers | 9 | 3557 |
 | Databases | 1 | 1708 |
 | DemoProjects | 5 | 1065 |
@@ -2597,10 +2597,10 @@ None.
 - `ManagedMappingPipelineError` enum, `Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift:34`
 - `ManagedMetagenomicsDatabaseToolRunner` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:105`
 - `ManagedMSACommand` struct, `Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift:5`
-- `ManagedPythonRuntimeCommandResult` struct, `Sources/LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift:23`
-- `ManagedPythonRuntimeInstaller` struct, `Sources/LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift:283`
+- `ManagedPythonRuntimeCommandResult` struct, `Sources/LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift:25`
+- `ManagedPythonRuntimeInstaller` struct, `Sources/LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift:329`
 - `ManagedPythonRuntimeInstallerError` enum, `Sources/LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift:5`
-- `ManagedPythonRuntimeReceipt` struct, `Sources/LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift:37`
+- `ManagedPythonRuntimeReceipt` struct, `Sources/LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift:39`
 - `ManagedPythonRuntimeSpec` struct, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:49`
 - `ManagedPythonRuntimeWheelSource` struct, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:13`
 - `ManagedSavontProcessRunner` struct, `Sources/LungfishWorkflow/Savont/SavontClusteringPipeline.swift:37`
