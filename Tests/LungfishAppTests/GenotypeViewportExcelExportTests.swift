@@ -172,17 +172,17 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         let nativeBytes = try Data(contentsOf: annotationURL)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: bundleURL.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundleURL.path) }
-        let exported = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: outputURL, pythonExecutableURL: python)
+        let exported = try await Self.runWorkbookLeaf(snapshot, to: outputURL, python: python, cli: resolvedCLI)
+        guard case .completed = exported else { return XCTFail("the leaf behind the row ended \(exported)") }
+        let provenanceURL = outputURL.appendingPathExtension("provenance.json")
         XCTAssertEqual(try Data(contentsOf: annotationURL), nativeBytes)
         let publishedBytes = try Data(contentsOf: outputURL)
-        let publishedReceipt = try Data(contentsOf: exported.provenanceURL)
-        do {
-            _ = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: outputURL,
-                pythonExecutableURL: URL(fileURLWithPath: "/usr/bin/false"))
-            XCTFail("Failed renderer must reject publication")
-        } catch {}
+        let publishedReceipt = try Data(contentsOf: provenanceURL)
+        let failed = try await Self.runWorkbookLeaf(snapshot, to: outputURL, python: URL(fileURLWithPath: "/usr/bin/false"),
+            cli: resolvedCLI)
+        guard case .failed = failed else { return XCTFail("Failed renderer must reject publication, it ended \(failed)") }
         XCTAssertEqual(try Data(contentsOf: outputURL), publishedBytes)
-        XCTAssertEqual(try Data(contentsOf: exported.provenanceURL), publishedReceipt)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), publishedReceipt)
         let dumped = try runPython(python, script: Self.dumpScientificFilteredWorkbookScript, arguments: [outputURL.path])
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(dumped.utf8)) as? [String: Any])
         XCTAssertEqual(payload["sheets"] as? [String], ["Haplotype Calls", "Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
@@ -198,8 +198,10 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(metadata["matrixPercentDenominator"], "Source Locus")
         XCTAssertEqual(payload["formulaCount"] as? Int, 0)
 
-        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.provenanceURL)) as? [String: Any])
-        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel")
+        let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: provenanceURL)) as? [String: Any])
+        // The prediction rows of lane 12.35 (BIO 7). The leaf records its replay and names the request's workflow.
+        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel.replay")
+        XCTAssertEqual((receipt["runtimeContext"] as? [String: String])?["originalWorkflowName"], "genotype.export.excel")
         XCTAssertEqual(receipt["toolVersion"] as? String, LungfishAppVersion.short)
         XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
         // The capture holds the sidecar the viewer showed. The comment edited
@@ -239,6 +241,18 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// The view's begin helper running the built `lungfish-cli genotype export-xlsx --snapshot` behind its row to its
+    /// end. The in-app writer this test drove before is deleted (Phase 2.12 lane 12.35, ARCH-12.35-B1 condition 9).
+    @MainActor
+    private static func runWorkbookLeaf(
+        _ snapshot: GenotypeViewportExportSnapshot, to outputURL: URL, python: URL, cli: URL
+    ) async throws -> CLIViewerExportRunner.Outcome {
+        let begun = try await GenotypeResultViewController.runWorkbookExport(snapshot: snapshot, outputURL: outputURL,
+            pythonURL: python, runner: CLIViewerExportRunner(cliURLOverride: cli), onFailure: { _ in })
+        let row = try XCTUnwrap(begun, "the row did not start")
+        return await row.task.value
+    }
 
     private func temporaryDirectory() throws -> URL {
         let root = FileManager.default.temporaryDirectory

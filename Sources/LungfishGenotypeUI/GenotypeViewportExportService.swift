@@ -4,53 +4,9 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
-struct GenotypeViewportExportResult: Equatable {
-    let outputURL: URL
-    let provenanceURL: URL
-}
-
-/// Publishes the frozen scientific XLSX capture through the shared export owner.
+/// Writes the frozen scientific XLSX capture and its provenance request for `lungfish-cli genotype export-xlsx
+/// --snapshot`, which publishes the workbook through the shared export owner (Phase 2.12 lane 12.35).
 struct GenotypeViewportExportService {
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
-    }
-
-    /// XLSX has one publication owner: the shared scientific export service.
-    /// Its receipt and replay directory witness the retained native capture.
-    func exportExcel(
-        snapshot: GenotypeViewportExportSnapshot,
-        to outputURL: URL,
-        pythonExecutableURL: URL? = nil,
-        replacingExisting: Bool? = nil
-    ) async throws -> GenotypeViewportExportResult {
-        let capture = try Self.decodedCapture(snapshot)
-        let python: URL
-        if let pythonExecutableURL { python = pythonExecutableURL }
-        else { python = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl") }
-        guard let replayExecutable = LungfishCLIRunner.findCLI() else {
-            throw LungfishCLIRunner.RunError.cliNotFound
-        }
-        let output = outputURL.standardizedFileURL
-        // The save panel confirmed a replace only when its file exists, so a new file replaces nothing and the
-        // receipt says so (ARCH-12.35-B1 condition 6).
-        let replacing = replacingExisting ?? fileManager.fileExists(atPath: output.path)
-        let result = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: replayExecutable).export(
-            snapshot: capture, outputURL: output,
-            provenance: Self.provenanceRequest(snapshot: snapshot, capture: capture, outputURL: output, python: python,
-                replacingExisting: replacing,
-                argv: ["Lungfish", "genotype.export.excel", "--captured-at", capture.generatedAt, "--output", output.path]),
-            replacingExisting: replacing)
-        // The shared owner has committed both files. Do not layer a GUI
-        // restore over its receipt or overwrite a concurrent publication.
-        guard fileManager.fileExists(atPath: result.outputURL.path),
-              fileManager.fileExists(atPath: result.receiptURL.path) else {
-            throw GenotypeViewportExportError.missingProvenance(result.receiptURL.path)
-        }
-        return .init(outputURL: result.outputURL, provenanceURL: result.receiptURL)
-    }
-
     /// Writes the capture `presentViewExportPanel` froze before the save panel opened, never a second capture, and
     /// its provenance request to `capture.json` and `request.json` in a new `.lungfish-export-inputs/<UUID>/` folder
     /// beside the output, and returns the leaf's invocation (Phase 2.12 lane 12.35, ARCH-12.35-B1 conditions 2 and
