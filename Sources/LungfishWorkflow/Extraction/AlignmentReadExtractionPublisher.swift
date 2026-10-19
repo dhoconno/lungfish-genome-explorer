@@ -211,7 +211,6 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
         let finalURL = request.destination.finalURL
         let publicationStartedAt = request.transaction.runClock.now
         let stagedPayloadURL = siblingStagingFile(for: finalURL)
-        let stagedSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedPayloadURL)
         do {
             guard request.transaction.stagedFiles.count == 1 else {
                 throw AlignmentReadExtractionPublicationValidationError(
@@ -253,17 +252,12 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 startedAt: request.transaction.startedAt,
                 completedAt: completedAt
             )
-            _ = try ProvenanceWriter(signingProvider: nil).write(
-                envelope,
-                toSidecar: stagedSidecarURL
-            )
-
             try beforeFinalInstall?()
-            try promoteFilePair(
-                stagedPayloadURL: stagedPayloadURL,
-                stagedSidecarURL: stagedSidecarURL,
-                finalURL: finalURL
-            )
+            // The record is written, and signed when a key is set, at the name it keeps. A signature made at a
+            // staged sibling name would name that file inside the record and could not verify after the rename.
+            try promoteFilePair(stagedPayloadURL: stagedPayloadURL, finalURL: finalURL) { recordURL in
+                _ = try ProvenanceWriter().write(envelope, toSidecar: recordURL)
+            }
             request.transaction.appendExecutionRecord(record)
             request.transaction.cleanup()
             return AlignmentReadExtractionPublicationResult(
@@ -278,7 +272,6 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             )
         } catch {
             try? fileManager.removeItem(at: stagedPayloadURL)
-            try? fileManager.removeItem(at: stagedSidecarURL)
             let completedAt = request.transaction.runClock.now
             let record = publicationRecord(
                 request: request,
@@ -595,59 +588,57 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
         }
     }
 
+    /// Installs the staged payload at `finalURL` and has `writeRecord` write the record beside it, as one
+    /// rollback-safe unit. The record is written at the name it keeps, since a signature made at a staged sibling
+    /// name names that file and cannot verify after the rename. The previous payload, record, signature and public
+    /// key move aside first and come back whole when anything fails. A run with no key leaves none of the previous
+    /// signature beside its new, unsigned record.
     private func promoteFilePair(
         stagedPayloadURL: URL,
-        stagedSidecarURL: URL,
-        finalURL: URL
+        finalURL: URL,
+        writeRecord: (URL) throws -> Void
     ) throws {
         let fileManager = FileManager.default
         let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: finalURL)
-        let backupPayloadURL = siblingBackupURL(for: finalURL)
-        let backupSidecarURL = siblingBackupURL(for: finalSidecarURL)
-        var payloadBackedUp = false
-        var sidecarBackedUp = false
+        // The final names this run replaces, in the order they come back, each with the event that precedes its restore.
+        let held: [(url: URL, label: String, beforeRestore: AlignmentReadExtractionPromotionEvent?)] = [
+            (finalURL, "file", .fileBeforePayloadBackupRestore),
+            (finalSidecarURL, "sidecar", .fileBeforeSidecarBackupRestore),
+            (ProvenanceSigningConfiguration.signatureURL(for: finalSidecarURL), "signature", nil),
+            (ProvenanceSigningConfiguration.publicKeyURL(for: finalSidecarURL), "public key", nil),
+        ]
+        var backups: [URL: URL] = [:]
         var payloadInstalled = false
-        var sidecarInstalled = false
 
         do {
-            if fileManager.fileExists(atPath: finalURL.path) {
-                try fileManager.moveItem(at: finalURL, to: backupPayloadURL)
-                payloadBackedUp = true
-            }
-            if fileManager.fileExists(atPath: finalSidecarURL.path) {
-                try fileManager.moveItem(at: finalSidecarURL, to: backupSidecarURL)
-                sidecarBackedUp = true
+            for item in held where fileManager.fileExists(atPath: item.url.path) {
+                let backupURL = siblingBackupURL(for: item.url)
+                try fileManager.moveItem(at: item.url, to: backupURL)
+                backups[item.url] = backupURL
             }
             try fileManager.moveItem(at: stagedPayloadURL, to: finalURL)
             payloadInstalled = true
             try promotionEvent?(.fileAfterPayloadInstall)
-            try fileManager.moveItem(at: stagedSidecarURL, to: finalSidecarURL)
-            sidecarInstalled = true
-            if payloadBackedUp { try fileManager.removeItem(at: backupPayloadURL) }
-            if sidecarBackedUp { try fileManager.removeItem(at: backupSidecarURL) }
+            try writeRecord(finalSidecarURL)
+            try promotionEvent?(.fileAfterRecordWrite)
+            for backupURL in backups.values { try fileManager.removeItem(at: backupURL) }
         } catch {
             var rollbackErrors: [String] = []
-            if sidecarInstalled, fileManager.fileExists(atPath: finalSidecarURL.path) {
-                do { try fileManager.removeItem(at: finalSidecarURL) }
-                catch { rollbackErrors.append("remove new sidecar: \(error.localizedDescription)") }
-            }
-            if payloadInstalled, fileManager.fileExists(atPath: finalURL.path) {
-                do { try fileManager.removeItem(at: finalURL) }
-                catch { rollbackErrors.append("remove new file: \(error.localizedDescription)") }
-            }
-            if payloadBackedUp, fileManager.fileExists(atPath: backupPayloadURL.path) {
-                do {
-                    try promotionEvent?(.fileBeforePayloadBackupRestore)
-                    try fileManager.moveItem(at: backupPayloadURL, to: finalURL)
+            if payloadInstalled {
+                // The previous files moved aside, so whatever sits at a final name now is new.
+                for item in held.reversed() where fileManager.fileExists(atPath: item.url.path) {
+                    do { try fileManager.removeItem(at: item.url) }
+                    catch { rollbackErrors.append("remove new \(item.label): \(error.localizedDescription)") }
                 }
-                catch { rollbackErrors.append("restore previous file: \(error.localizedDescription)") }
             }
-            if sidecarBackedUp, fileManager.fileExists(atPath: backupSidecarURL.path) {
+            for item in held {
+                guard let backupURL = backups[item.url], fileManager.fileExists(atPath: backupURL.path) else { continue }
                 do {
-                    try promotionEvent?(.fileBeforeSidecarBackupRestore)
-                    try fileManager.moveItem(at: backupSidecarURL, to: finalSidecarURL)
+                    if let event = item.beforeRestore { try promotionEvent?(event) }
+                    try fileManager.moveItem(at: backupURL, to: item.url)
+                } catch {
+                    rollbackErrors.append("restore previous \(item.label): \(error.localizedDescription)")
                 }
-                catch { rollbackErrors.append("restore previous sidecar: \(error.localizedDescription)") }
             }
             if rollbackErrors.isEmpty {
                 throw error
@@ -693,6 +684,7 @@ enum AlignmentReadExtractionPromotionEvent: Sendable, Equatable {
     case directoryAfterInstall
     case directoryBeforeBackupRestore
     case fileAfterPayloadInstall
+    case fileAfterRecordWrite
     case fileBeforePayloadBackupRestore
     case fileBeforeSidecarBackupRestore
 }
