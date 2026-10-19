@@ -1093,15 +1093,9 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
             )
             let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
                 guard response == .OK, let url = panel.url else { return }
-                do {
-                    try Self.writeSubtreeExport(
-                        export,
-                        sourceBundleURL: bundle.url,
-                        to: url,
-                        runClock: ProvenanceRunClock()
-                    )
-                } catch {
-                    self?.presentSubtreeExportFailure(error)
+                // The leaf writes the file and its record behind an Operations row (lane 12.35, row A15).
+                Self.runSubtreeExport(bundleURL: bundle.url, nodeID: export.selectedNodeID, outputURL: url) {
+                    [weak self] failure in self?.presentSubtreeExportFailure(failure)
                 }
             }
             if let window = view.window {
