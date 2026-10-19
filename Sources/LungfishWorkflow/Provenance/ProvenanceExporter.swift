@@ -106,6 +106,8 @@ public struct ProvenanceExporter: Sendable {
     public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
         self.signingProvider = signingProvider
     }
+    /// Writes the report in `outputDirectory`. A caller that stages it there and publishes it by rename passes the
+    /// folder it publishes as `recordedAs`, which the record and the returned bundle name (decision MGR-12.38-B9, 1).
     public func exportBundle(
         _ envelope: ProvenanceEnvelope,
         format: ProvenanceExportFormat,
@@ -113,11 +115,13 @@ public struct ProvenanceExporter: Sendable {
         sourceSidecarURL: URL?,
         sourceRootURL: URL? = nil,
         exportArgv: [String] = [],
-        allowUnpinned: Bool = false
+        allowUnpinned: Bool = false,
+        recordedAs publishedDirectory: URL? = nil
     ) throws -> ProvenanceExportBundle {
         let runClock = ProvenanceRunClock()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let recordedDirectory = publishedDirectory ?? outputDirectory
 
         let (chainExpansion, run) = scriptSource(envelope, sourceSidecarURL: sourceSidecarURL, sourceRootURL: sourceRootURL)
         let expandedEnvelope = chainExpansion.envelope
@@ -137,29 +141,17 @@ public struct ProvenanceExporter: Sendable {
             primaryArtifactURL = outputDirectory.appendingPathComponent("main.nf")
             try exportNextflow(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             let nextflowConfigURL = outputDirectory.appendingPathComponent("nextflow.config")
-            try exportNextflowConfig(run).write(
-                to: nextflowConfigURL,
-                atomically: true,
-                encoding: .utf8
-            )
+            try exportNextflowConfig(run).write(to: nextflowConfigURL, atomically: true, encoding: .utf8)
             let containersDirectory = outputDirectory.appendingPathComponent("containers", isDirectory: true)
             try fileManager.createDirectory(at: containersDirectory, withIntermediateDirectories: true)
             let containerManifestURL = containersDirectory.appendingPathComponent("manifest.json")
-            try exportContainerManifest(run).write(
-                to: containerManifestURL,
-                atomically: true,
-                encoding: .utf8
-            )
+            try exportContainerManifest(run).write(to: containerManifestURL, atomically: true, encoding: .utf8)
             generatedArtifactURLs.append(contentsOf: [nextflowConfigURL, containerManifestURL])
         case .snakemake:
             primaryArtifactURL = outputDirectory.appendingPathComponent("Snakefile")
             try exportSnakemake(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             let configURL = outputDirectory.appendingPathComponent("config.yaml")
-            try exportSnakemakeConfig(run).write(
-                to: configURL,
-                atomically: true,
-                encoding: .utf8
-            )
+            try exportSnakemakeConfig(run).write(to: configURL, atomically: true, encoding: .utf8)
             generatedArtifactURLs.append(configURL)
             generatedArtifactURLs.append(contentsOf: try writeEnvironmentFiles(plan, in: outputDirectory))
         case .methods:
@@ -178,13 +170,14 @@ public struct ProvenanceExporter: Sendable {
         let copiedSourceArtifacts = try copySourceArtifacts(
             sourceSidecarURL: sourceSidecarURL,
             sourceRootURL: sourceRootURL,
-            outputDirectory: outputDirectory,
+            outputDirectories: [outputDirectory, recordedDirectory],
             provenanceDirectory: provenanceDirectory,
             additionalSourceURLs: chainExpansion.sourceArtifactURLs
         )
         let exportSidecarURL = try writeExportProvenanceSidecar(
             format: format,
             outputDirectory: outputDirectory,
+            recordedDirectory: recordedDirectory,
             provenanceDirectory: provenanceDirectory,
             sourceInputURL: sourceRootURL ?? sourceSidecarURL,
             sourceArtifacts: copiedSourceArtifacts,
@@ -194,13 +187,17 @@ public struct ProvenanceExporter: Sendable {
             startedAt: runClock.startedAt,
             endedAt: runClock.now
         )
+        func recorded(_ url: URL) -> URL {
+            guard let publishedDirectory, let path = relativePath(for: url, relativeTo: outputDirectory) else { return url }
+            return publishedDirectory.appendingPathComponent(path)
+        }
         return ProvenanceExportBundle(
-            rootURL: outputDirectory,
-            primaryArtifactURL: primaryArtifactURL,
-            copiedSidecarURLs: [exportSidecarURL] + copiedSourceArtifacts
+            rootURL: recordedDirectory,
+            primaryArtifactURL: recorded(primaryArtifactURL),
+            copiedSidecarURLs: ([exportSidecarURL] + copiedSourceArtifacts
                 .map(\.destinationURL)
-                .filter(isProvenanceOrSignatureArtifact),
-            signedReportArtifactURLs: signedReportArtifactURLs
+                .filter(isProvenanceOrSignatureArtifact)).map(recorded),
+            signedReportArtifactURLs: signedReportArtifactURLs.map(recorded)
         )
     }
 
@@ -343,6 +340,7 @@ public struct ProvenanceExporter: Sendable {
     private func writeExportProvenanceSidecar(
         format: ProvenanceExportFormat,
         outputDirectory: URL,
+        recordedDirectory: URL,
         provenanceDirectory: URL,
         sourceInputURL: URL?,
         sourceArtifacts: [CopiedSourceArtifact],
@@ -363,14 +361,14 @@ public struct ProvenanceExporter: Sendable {
                 provided: argv,
                 sourceInputURL: sourceInputURL,
                 format: format,
-                outputDirectory: outputDirectory
+                outputDirectory: recordedDirectory
             ) + pins.defaultArgvSuffix(provided: argv)
         )
         .options(
             explicit: exportOptions(
                 sourceInputURL: sourceInputURL,
                 format: format,
-                outputDirectory: outputDirectory
+                outputDirectory: recordedDirectory
             ).merging(pins.explicitOptions) { current, _ in current },
             defaults: [
                 "preserveSourceProvenance": .boolean(true)
@@ -391,7 +389,8 @@ public struct ProvenanceExporter: Sendable {
             startedAt: startedAt,
             endedAt: endedAt
         )
-        return try ProvenanceWriter(signingProvider: signingProvider).write(envelope, to: provenanceDirectory)
+        let recorded = recordedDirectory.path == outputDirectory.path ? envelope : envelope.relocated(from: outputDirectory, to: recordedDirectory)
+        return try ProvenanceWriter(signingProvider: signingProvider).write(recorded, to: provenanceDirectory)
     }
 
     private func exportArgv(
@@ -427,7 +426,7 @@ public struct ProvenanceExporter: Sendable {
     private func copySourceArtifacts(
         sourceSidecarURL: URL?,
         sourceRootURL: URL?,
-        outputDirectory: URL,
+        outputDirectories: [URL],
         provenanceDirectory: URL,
         additionalSourceURLs: [URL] = []
     ) throws -> [CopiedSourceArtifact] {
@@ -438,7 +437,7 @@ public struct ProvenanceExporter: Sendable {
         let sourceURLs = try sourceArtifactURLs(
             sourceSidecarURL: sourceSidecarURL,
             sourceRootURL: sourceRootURL,
-            outputDirectory: outputDirectory
+            outputDirectories: outputDirectories
         ) + additionalSourceURLs
 
         return try uniqueExistingURLs(sourceURLs).map { sourceURL in
@@ -464,7 +463,7 @@ public struct ProvenanceExporter: Sendable {
     private func sourceArtifactURLs(
         sourceSidecarURL: URL?,
         sourceRootURL: URL?,
-        outputDirectory: URL
+        outputDirectories: [URL]
     ) throws -> [URL] {
         let fileManager = FileManager.default
         var sidecars: [URL] = []
@@ -475,7 +474,7 @@ public struct ProvenanceExporter: Sendable {
             if let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) {
                 for case let url as URL in enumerator {
                     let standardizedURL = url.standardizedFileURL
-                    guard !isDescendant(standardizedURL, of: outputDirectory.standardizedFileURL),
+                    guard !outputDirectories.contains(where: { isDescendant(standardizedURL, of: $0.standardizedFileURL) }),
                           try isRegularFile(standardizedURL) else {
                         continue
                     }

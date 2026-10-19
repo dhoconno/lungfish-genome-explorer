@@ -135,4 +135,81 @@ final class ProvenanceExporterTests: XCTestCase {
             "the chain the pin gate reads is whole"
         )
     }
+
+    // MARK: - A staged export records the folder it is published as
+
+    /// Each output a record names as `relative path, digest, size`, with `folder` taken off the path.
+    private func outputs(of record: ProvenanceEnvelope, under folder: URL) -> [String] {
+        record.files.filter { $0.role == .output }.map { file in
+            let path = file.path.hasPrefix(folder.path + "/") ? String(file.path.dropFirst(folder.path.count + 1)) : file.path
+            return "\(path) \(file.checksumSHA256 ?? "none") \(file.fileSize.map(String.init) ?? "none")"
+        }.sorted()
+    }
+
+    /// A report built in a staging folder and published by rename records the published folder and never the staging
+    /// one (decision MGR-12.38-B9, item 1). The record bytes, the returned bundle and the record's outputs name the
+    /// published folder, and the outputs equal the files and digests a direct export records.
+    func testAStagedExportRecordsThePublishedFolderAndNoStagingPath() throws {
+        let sidecar = try writeChain()
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        let direct = root.appendingPathComponent("direct", isDirectory: true)
+        let published = root.appendingPathComponent("published", isDirectory: true)
+        let staging = root.appendingPathComponent(".published.STAGING-FOLDER.export.tmp", isDirectory: true)
+
+        _ = try exporter.exportBundle(envelope, format: .json, to: direct, sourceSidecarURL: sidecar)
+        let staged = try exporter.exportBundle(
+            envelope, format: .json, to: staging, sourceSidecarURL: sidecar, recordedAs: published
+        )
+
+        XCTAssertEqual(staged.rootURL.path, published.path)
+        XCTAssertEqual(staged.primaryArtifactURL.path, published.appendingPathComponent("provenance.json").path)
+        XCTAssertFalse(staged.copiedSidecarURLs.isEmpty)
+        for url in staged.copiedSidecarURLs {
+            XCTAssertTrue(url.path.hasPrefix(published.path + "/"), "\(url.path) lies under the published folder")
+        }
+
+        let recordURL = staging.appendingPathComponent("provenance/.lungfish-provenance.json")
+        let text = try String(contentsOf: recordURL, encoding: .utf8).replacingOccurrences(of: "\\/", with: "/")
+        XCTAssertTrue(text.contains(published.path), "the record bytes name the published folder")
+        XCTAssertFalse(text.contains("STAGING-FOLDER"), "the record bytes name no staging path")
+
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: recordURL))
+        let directRecord = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: direct.appendingPathComponent("provenance/.lungfish-provenance.json")
+        ))
+        XCTAssertFalse(outputs(of: record, under: published).isEmpty)
+        XCTAssertEqual(
+            outputs(of: record, under: published), outputs(of: directRecord, under: direct),
+            "a staged export records the files and digests a direct export records"
+        )
+        guard case .file(let recordedOutput)? = record.options.explicit["output"] else {
+            return XCTFail("the record has no output option")
+        }
+        XCTAssertEqual(recordedOutput.path, published.path)
+    }
+
+    /// A signed report moves with its signatures. They name no folder, so a staged and signed export verifies once the
+    /// staging folder is renamed to the folder it is published as.
+    func testASignedStagedExportVerifiesAfterItIsPublishedByRename() throws {
+        let sidecar = try writeChain()
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let exporter = ProvenanceExporter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "lane-12-38-staging-key")
+        )
+        let published = root.appendingPathComponent("signed", isDirectory: true)
+        let staging = root.appendingPathComponent(".signed.STAGING-FOLDER.export.tmp", isDirectory: true)
+
+        _ = try exporter.exportBundle(
+            envelope, format: .json, to: staging, sourceSidecarURL: sidecar, recordedAs: published
+        )
+        try FileManager.default.moveItem(at: staging, to: published)
+
+        let record = published.appendingPathComponent("provenance/.lungfish-provenance.json")
+        XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: record), "the record verifies where it was published")
+        XCTAssertNoThrow(
+            try ProvenanceSignatureVerifier.verify(provenanceURL: published.appendingPathComponent("provenance.json")),
+            "the report artifact verifies where it was published"
+        )
+    }
 }
