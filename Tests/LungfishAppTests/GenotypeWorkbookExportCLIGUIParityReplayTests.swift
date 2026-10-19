@@ -314,15 +314,14 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
             python: python)
     }
 
-    /// C against C' on what the harness cannot pair. The workbook as A against C compares it, the Excel service's
-    /// folders paired by this class, and the workbook's size (decision items 1 and 2).
+    /// C against C' on what the harness cannot pair. The workbook as A against C compares it, and the Excel service's
+    /// folders paired by this class (decision items 1 and 2). The workbook's size is not compared across sides, since
+    /// the zip holds run times and its deflated size moves by a byte between runs. `assertDescriptorsMatchOwnFiles`
+    /// checks each side's recorded size against that side's own workbook instead.
     private func assertCEqualsCPrime(_ runs: RouteParityRuns) throws {
         XCTAssertEqual(try workbookDifferences(runs.c, runs.cPrime), [], "the workbook, C against C' (item 1)")
         XCTAssertEqual(try Self.exportFolderDifferences(runs.c.root, runs.cPrime.root), [],
             "the Excel service's folder, C against C' (item 2)")
-        let c = try XCTUnwrap(try Self.receipt(in: runs.c.root)["output"] as? [String: Any])
-        let cPrime = try XCTUnwrap(try Self.receipt(in: runs.cPrime.root)["output"] as? [String: Any])
-        XCTAssertEqual(c["sizeBytes"] as? Int, cPrime["sizeBytes"] as? Int, "output size")
     }
 
     /// Each compare fails on a change it must catch (decision items 1 and 2). One cell value changed in side C's
@@ -363,14 +362,13 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
         let c = try Self.receipt(in: runs.c.root)
         let witnesses = try XCTUnwrap(a["scientificInputWitnesses"] as? [String: String])
         XCTAssertEqual(witnesses, c["scientificInputWitnesses"] as? [String: String], "the scientific witnesses")
-        for key in ["snapshot", "output"] {
-            let descriptorA = try XCTUnwrap(a[key] as? [String: Any])
-            let descriptorC = try XCTUnwrap(c[key] as? [String: Any])
-            if key == "snapshot" {
-                XCTAssertEqual(descriptorA["sha256"] as? String, descriptorC["sha256"] as? String, "\(key) sha256")
-            }
-            XCTAssertEqual(descriptorA["sizeBytes"] as? Int, descriptorC["sizeBytes"] as? Int, "\(key) size")
-        }
+        // The snapshot is the same bytes on both sides. The workbook's digest and size are not compared across sides,
+        // since its zip holds run times and its deflated size moves by a byte between runs. The descriptor checks of
+        // `assertDescriptorsMatchOwnFiles` read each side's recorded digest and size against that side's own workbook.
+        let snapshotA = try XCTUnwrap(a["snapshot"] as? [String: Any])
+        let snapshotC = try XCTUnwrap(c["snapshot"] as? [String: Any])
+        XCTAssertEqual(snapshotA["sha256"] as? String, snapshotC["sha256"] as? String, "snapshot sha256")
+        XCTAssertEqual(snapshotA["sizeBytes"] as? Int, snapshotC["sizeBytes"] as? Int, "snapshot size")
         for key in ["generatedAt", "toolName", "toolVersion", "status"] {
             XCTAssertEqual(a[key] as? String, c[key] as? String, key)
         }

@@ -31,8 +31,11 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
     static var workbookDifferenceID: String { "differs: \(outputName)" }
 
     /// The receipt values that this class checks against each side's own file instead of across sides (items 1, 2).
+    /// The workbook's digest and size are among them, since its zip holds run times and so its deflated size moves by a
+    /// byte between runs.
     static let receiptValuesCheckedPerSide = [
-        "output.sha256", "replayScript.sha256", "replayScript.sizeBytes", "request.sha256", "request.sizeBytes",
+        "output.sha256", "output.sizeBytes", "replayScript.sha256", "replayScript.sizeBytes", "request.sha256",
+        "request.sizeBytes",
     ]
 
     /// Whether a difference the harness found C against C' is one this class compares itself (items 1 and 2). The
