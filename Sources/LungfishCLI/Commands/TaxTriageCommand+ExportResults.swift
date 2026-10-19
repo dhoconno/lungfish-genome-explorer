@@ -15,7 +15,7 @@ extension TaxTriageCommand {
     /// holds the negative controls, and, when a metadata column is written, filtered or sorted by, the sample
     /// metadata table and its edit journal under `metadata/`. It names only those files as inputs (BIO 6). It writes
     /// the rows of the samples given (every sample without `--sample`) that match `--search`, keeps the rows the
-    /// column filters keep, and orders them by the first `--sort` key, as the viewer's flat table does. Unique Reads
+    /// column filters keep, and orders them by the one `--sort` key it takes, as the viewer's flat table does. Unique Reads
     /// holds the count the database stores and is empty where it stores none (BIO ruling on 12.32, F3). No result
     /// opens in another table mode, so the leaf takes no `--mode` (F1).
     struct ExportResultsSubcommand: AsyncParsableCommand {
@@ -73,6 +73,11 @@ extension TaxTriageCommand {
             let runClock = ProvenanceRunClock()
             let invocation = try invocation()
             let state = invocation.state
+            guard state.sortKeys.count <= 1 else {
+                throw ViewerExportRefusal(
+                    "The results table orders by one sort key, the first. Give one --sort, not \(state.sortKeys.count)."
+                )
+            }
             let resultURL = URL(fileURLWithPath: invocation.input, isDirectory: true)
             let outputURL = URL(fileURLWithPath: invocation.output)
             let metadataInputs = EsVirituDetectionExport.metadataInputURLs(

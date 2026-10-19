@@ -241,4 +241,25 @@ final class TaxTriageResultsExportCommandTests: XCTestCase {
         }
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "keep", "an existing output is kept without --force")
     }
+
+    /// The table orders by its first sort descriptor only, so a second `--sort` would be recorded and never applied.
+    /// The leaf refuses it before it writes a byte, as the NAO-MGS leaf does.
+    func testTheLeafRefusesASecondSortKey() throws {
+        let result = try makeResult()
+        let output = root.appendingPathComponent("two-sorts.tsv")
+        XCTAssertThrowsError(
+            try run([
+                result.path, "--output-format", "tsv", "--sort", "tt_reads:descending", "--sort", "tt_organism:ascending",
+                "--output", output.path,
+            ])
+        ) { error in
+            XCTAssertTrue(error is ViewerExportRefusal, "\(error)")
+            XCTAssertTrue("\(error)".contains("one sort key"), "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "no output")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path),
+            "no record"
+        )
+    }
 }

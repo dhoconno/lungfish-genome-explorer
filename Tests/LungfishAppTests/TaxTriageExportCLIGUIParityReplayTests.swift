@@ -215,6 +215,23 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertTrue(lines[3].hasSuffix("\tcase"), "\(lines)")
     }
 
+    /// BIO review of 12.32 A6, Fix 1. The table orders by its first sort descriptor only, and AppKit keeps the earlier
+    /// header sorts behind it, so the view passes the first descriptor and the record never names a sort that was
+    /// not applied.
+    func testTheViewPassesOnlyItsFirstSortDescriptor() async throws {
+        let root = scratch.appendingPathComponent("first-sort-descriptor", isDirectory: true)
+        try Self.makeResult(root)
+        let view = try await Self.configuredView(root)
+        view.testBatchFlatTableView.tableView.sortDescriptors = [
+            NSSortDescriptor(key: "tt_reads", ascending: false),
+            NSSortDescriptor(key: "tt_organism", ascending: true),
+        ]
+        let invocation = try XCTUnwrap(
+            view.resultsExportInvocation(format: .tsv, outputURL: root.appendingPathComponent("two-descriptors.tsv"))
+        )
+        XCTAssertEqual(invocation.state.sortKeys, [ViewerExportSortKey(column: "tt_reads", ascending: false)])
+    }
+
     /// ARCH ruling 1.6 and X14, for the three leaves.
     func testACancelledExportExits125AndLeavesNoFileAndNoRecord() async throws {
         try await assertCancelled(.matrix)

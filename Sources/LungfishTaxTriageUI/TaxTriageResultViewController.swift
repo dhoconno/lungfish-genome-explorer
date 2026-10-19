@@ -4426,8 +4426,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     /// The `taxtriage export results` invocation for the view's state: the ticked samples as the result records
-    /// them, the organism search, the flat table's sort descriptors and column filters, and the metadata columns it
-    /// shows, or nil when the view holds no result folder, which the database route always sets.
+    /// them, the organism search, the flat table's first sort descriptor only, as the table orders by it, its column
+    /// filters, and the metadata columns it shows, or nil when the view holds no result folder, which the database
+    /// route always sets.
     func resultsExportInvocation(format: ViewerExportDelimitedFormat, outputURL: URL) -> ViewerExportInvocation? {
         guard let batchGroupURL else { return nil }
         let table = batchFlatTableView
@@ -4435,7 +4436,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             resultURL: batchGroupURL,
             samples: exportSelectedSampleIds(),
             searchText: exportSearchText,
-            sortKeys: table.tableView.sortDescriptors.compactMap { descriptor in
+            sortKeys: table.tableView.sortDescriptors.prefix(1).compactMap { descriptor in
                 descriptor.key.map { ViewerExportSortKey(column: $0, ascending: descriptor.ascending) }
             },
             filters: table.columnFilterSet,
