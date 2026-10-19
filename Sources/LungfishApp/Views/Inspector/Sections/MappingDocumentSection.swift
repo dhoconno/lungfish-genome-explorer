@@ -104,7 +104,8 @@ struct MappingDocumentSection: View {
         }
         .task(id: viewModel.mappingDocument?.shownCommandsID) {
             guard let mapping = viewModel.mappingDocument else { return }
-            shownCommands = await MappingDocumentStateBuilder.shownCommands(for: mapping)
+            let built = await MappingDocumentStateBuilder.shownCommands(for: mapping)
+            if !Task.isCancelled { shownCommands = built }
         }
     }
 

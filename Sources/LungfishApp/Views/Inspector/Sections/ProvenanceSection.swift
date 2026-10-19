@@ -36,7 +36,8 @@ struct ProvenanceSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header.task(id: [viewModel.resolvedSidecarURL?.path, viewModel.lineageRuns.last?.id.uuidString]) {
-                renamedCommands = await viewModel.renamedCommands()
+                let built = await viewModel.renamedCommands()
+                if !Task.isCancelled { renamedCommands = built }
             }
 
             if viewModel.sources.count > 1 {
