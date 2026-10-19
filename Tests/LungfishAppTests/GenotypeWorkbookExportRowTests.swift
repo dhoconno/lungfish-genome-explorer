@@ -75,6 +75,8 @@ final class GenotypeWorkbookExportRowTests: XCTestCase {
             backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
+        // A window that was never ordered front attaches no alert sheet, so a missing sheet would prove nothing.
+        window.orderFrontRegardless()
         defer { window.close() }
         controller.configure(result: GenotypeTestFixtures.makeResult(bundleURL: root, calls: [
             GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "Mafa-A*001", reads: 9),
@@ -155,6 +157,106 @@ final class GenotypeWorkbookExportRowTests: XCTestCase {
         try Data("workbook".utf8).write(to: output)
         let second = try await runAndParse(snapshot: snapshot, output: output)
         XCTAssertTrue(second.command.force, "the save panel's Replace replaces the file")
+    }
+
+    /// The positive control of the cancel test (X14, QA 1 and 4). The setup is the cancel test's, with an export task
+    /// that throws a leaf failure, which the coordinator shows as an alert sheet on the controller's window. While this
+    /// test passes, the cancel test's missing sheet is a measurement and not a harness that never shows an alert.
+    func testAFailedExportShowsItsAlert() async throws {
+        let root = try TestTempDirectory.make(prefix: "WorkbookExportFailureAlert")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
+            backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        // A window that was never ordered front attaches no alert sheet, so a missing sheet would prove nothing.
+        window.orderFrontRegardless()
+        defer { window.close() }
+        controller.configure(result: GenotypeTestFixtures.makeResult(bundleURL: root, calls: [
+            GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "Mafa-A*001", reads: 9),
+        ]))
+        controller.excelSavePanelPresenter = { _, _, completion in completion(root.appendingPathComponent("report.xlsx")) }
+        controller.viewportExportRunner = { _, _ in throw CLIViewerExportRunner.Failure(message: "The leaf failed.") }
+        var events: [String] = []
+        let settled = expectation(description: "the export settled")
+        controller.onExcelExportEvent = { event in
+            switch event {
+            case .started: events.append("started")
+            case .succeeded: events.append("succeeded"); settled.fulfill()
+            case .failed(let message): events.append(message); settled.fulfill()
+            }
+        }
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        await fulfillment(of: [settled], timeout: 5)
+        XCTAssertEqual(events, ["started", "The leaf failed."])
+        XCTAssertNotNil(window.attachedSheet, "a failed export shows its alert")
+        if let sheet = window.attachedSheet { window.endSheet(sheet) }
+    }
+
+    /// `runWorkbookExportToEnd` is the seam's production default and the one place where a cancelled run becomes
+    /// `CancellationError` and a failed run becomes the leaf's `Failure`. A leaf that exits 0 returns.
+    func testTheExportTaskReturnsWhenTheLeafSucceeds() async throws {
+        let root = try TestTempDirectory.make(prefix: "genotype-workbook-to-end-ok")
+        defer { TestTempDirectory.cleanup(root) }
+        let reporter = RecordingOperationReporter()
+        try await GenotypeResultViewController.runWorkbookExportToEnd(
+            snapshot: try exportSnapshot(in: root),
+            outputURL: root.appendingPathComponent("report.xlsx"),
+            pythonURL: URL(fileURLWithPath: "/usr/bin/python3"),
+            runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
+            reporter: reporter
+        )
+        XCTAssertEqual(reporter.items.count, 1, "the task began one row")
+    }
+
+    /// A leaf that exits 1 throws a `Failure` that carries a message, which the coordinator's alert shows.
+    func testTheExportTaskThrowsTheLeafFailureWithAMessage() async throws {
+        let root = try TestTempDirectory.make(prefix: "genotype-workbook-to-end-failed")
+        defer { TestTempDirectory.cleanup(root) }
+        do {
+            try await GenotypeResultViewController.runWorkbookExportToEnd(
+                snapshot: try exportSnapshot(in: root),
+                outputURL: root.appendingPathComponent("report.xlsx"),
+                pythonURL: URL(fileURLWithPath: "/usr/bin/python3"),
+                runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/false")),
+                reporter: RecordingOperationReporter()
+            )
+            XCTFail("a leaf that exits 1 fails the export task")
+        } catch let failure as CLIViewerExportRunner.Failure {
+            XCTAssertFalse(failure.message.isEmpty, "the alert shows the leaf's message")
+        } catch {
+            XCTFail("the export task throws the leaf's Failure, not \(error)")
+        }
+    }
+
+    /// A runner cancelled before the call covers the run about to start (the runner's doc), so the task throws
+    /// `CancellationError`, which the coordinator publishes with no alert.
+    func testTheExportTaskThrowsCancellationErrorForACancelledRun() async throws {
+        let root = try TestTempDirectory.make(prefix: "genotype-workbook-to-end-cancelled")
+        defer { TestTempDirectory.cleanup(root) }
+        let runner = CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true"))
+        runner.cancel()
+        do {
+            try await GenotypeResultViewController.runWorkbookExportToEnd(
+                snapshot: try exportSnapshot(in: root),
+                outputURL: root.appendingPathComponent("report.xlsx"),
+                pythonURL: URL(fileURLWithPath: "/usr/bin/python3"),
+                runner: runner,
+                reporter: RecordingOperationReporter()
+            )
+            XCTFail("a cancelled run throws CancellationError")
+        } catch is CancellationError {
+            // The coordinator reads this error as a cancel and shows no alert.
+        } catch {
+            XCTFail("a cancelled run throws CancellationError, not \(error)")
+        }
+    }
+
+    private func exportSnapshot(in root: URL) throws -> GenotypeViewportExportSnapshot {
+        try GenotypeWorkbookExportCLIGUIParityReplayTests.snapshot(
+            for: .oneCallWithThresholds, bundleURL: root.appendingPathComponent("run.lungfishgenotype", isDirectory: true)
+        )
     }
 
     private func runAndParse(

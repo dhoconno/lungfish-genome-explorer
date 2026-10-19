@@ -155,9 +155,19 @@ extension GenotypeResultViewController {
     }
 
     /// The coordinator's export task (ARCH-12.35-B1 condition 8). It runs the workbook's row to its end and throws the
-    /// leaf's failure, or `CancellationError` for a cancel, so the coordinator keeps its events and its alert.
-    static func runWorkbookExportToEnd(snapshot: GenotypeViewportExportSnapshot, outputURL: URL) async throws {
-        guard let begun = try await runWorkbookExport(snapshot: snapshot, outputURL: outputURL, onFailure: { _ in }) else {
+    /// leaf's failure, or `CancellationError` for a cancel, so the coordinator keeps its events and its alert. The
+    /// defaulted parameters are the seams the row tests use, so the production default is the code they run.
+    static func runWorkbookExportToEnd(
+        snapshot: GenotypeViewportExportSnapshot,
+        outputURL: URL,
+        pythonURL: URL? = nil,
+        runner: CLIViewerExportRunner = CLIViewerExportRunner(),
+        reporter: any OperationReporting = OperationCenter.shared
+    ) async throws {
+        guard let begun = try await runWorkbookExport(
+            snapshot: snapshot, outputURL: outputURL, pythonURL: pythonURL, runner: runner, reporter: reporter,
+            onFailure: { _ in }
+        ) else {
             throw CLIViewerExportRunner.Failure(message: "The workbook export did not start.")
         }
         switch await begun.task.value {
