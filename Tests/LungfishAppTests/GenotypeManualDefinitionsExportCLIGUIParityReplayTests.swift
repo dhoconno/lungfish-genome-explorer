@@ -95,7 +95,8 @@ final class GenotypeManualDefinitionsExportCLIGUIParityReplayTests: XCTestCase {
     /// no alert, and the row's command, cancelled on the launcher every CLI route uses, exits 125 inside the grace.
     /// Neither leaves the output or its record.
     func testACancelledExportExits125AndLeavesNoFileAndNoRecord() async throws {
-        let root = scratch.appendingPathComponent("cancel", isDirectory: true)
+        let root = scratch.appendingPathComponent("cases/of/the/manual/cancel", isDirectory: true)
+        XCTAssertGreaterThanOrEqual(root.pathComponents.count - FileManager.default.temporaryDirectory.pathComponents.count, 5, "the case root sits at least five folders below the temporary folder")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Self.makeFixture(root, case: .scenarioBFiveAssignments)
         let output = Self.outputURL(in: root)
@@ -294,7 +295,7 @@ extension GenotypeManualDefinitionsExportCLIGUIParityReplayTests {
     @discardableResult
     private func assertParity(_ parityCase: Case) async throws -> RouteParityRuns {
         let runs = try await harness.run(
-            in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
+            in: scratch.appendingPathComponent("cases/of/the/manual/\(parityCase.rawValue)", isDirectory: true),
             fixture: { root in try Self.makeFixture(root, case: parityCase) },
             sideA: { root in try self.sideA(root) },
             sideC: { root in try await self.sideC(root) }
