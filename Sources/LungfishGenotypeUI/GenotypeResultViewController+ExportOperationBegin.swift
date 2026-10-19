@@ -81,4 +81,92 @@ extension GenotypeResultViewController {
             return outcome
         })
     }
+
+    /// Writes the workbook's capture and request beside the output, then begins its row (Phase 2.12 lane 12.35,
+    /// ARCH-12.35-B1 route (a), conditions 2, 3, 6 and 8). The capture is the one the coordinator froze before the
+    /// save panel opened. `--force` is set only when the file the save panel returned exists.
+    ///
+    /// - Returns: The row's id and the task that runs the leaf, or nil when the row did not start.
+    @discardableResult
+    static func runWorkbookExport(
+        snapshot: GenotypeViewportExportSnapshot,
+        outputURL: URL,
+        pythonURL: URL? = nil,
+        runner: CLIViewerExportRunner = CLIViewerExportRunner(),
+        reporter: any OperationReporting = OperationCenter.shared,
+        environmentAdditions: [String: String] = [:],
+        onFailure: @escaping @MainActor @Sendable (CLIViewerExportRunner.Failure) -> Void
+    ) async throws -> (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>)? {
+        let python: URL
+        if let pythonURL { python = pythonURL }
+        else { python = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl") }
+        let invocation = try GenotypeViewportExportService.writeWorkbookInputs(
+            snapshot: snapshot, outputURL: outputURL, pythonURL: python,
+            force: FileManager.default.fileExists(atPath: outputURL.path)
+        )
+        return beginWorkbookExportOperation(
+            invocation: invocation, runner: runner, reporter: reporter,
+            environmentAdditions: environmentAdditions, onFailure: onFailure
+        )
+    }
+
+    /// Begins the Operations row of the workbook export and runs `lungfish-cli genotype export-xlsx --snapshot` for
+    /// it on the shared viewer export runner (ARCH ruling 1.5, rules 3 and 4, ARCH-12.35-B1 condition 8).
+    ///
+    /// The leaf's contract row is `.result(schemaID: "genotype-export-xlsx")`, so it runs without `--format json`
+    /// and its row completes on exit 0. The row records the command the runner runs, which `request.json` records
+    /// too. The row takes no bundle lock. The leaf writes the workbook and its receipt in one transaction, and the
+    /// app writes no byte after it exits. A failure fails the row and reaches `onFailure`. A cancel reads Cancelled.
+    @discardableResult
+    static func beginWorkbookExportOperation(
+        invocation: GenotypeWorkbookExport.Invocation,
+        runner: CLIViewerExportRunner = CLIViewerExportRunner(),
+        reporter: any OperationReporting = OperationCenter.shared,
+        environmentAdditions: [String: String] = [:],
+        onFailure: @escaping @MainActor @Sendable (CLIViewerExportRunner.Failure) -> Void
+    ) -> (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>)? {
+        let arguments = invocation.arguments()
+        let outputURL = URL(fileURLWithPath: invocation.output)
+        let start = reporter.begin(
+            title: "Export Genotype Workbook",
+            detail: "Writing \(outputURL.lastPathComponent)",
+            operationType: .export,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: GenotypeWorkbookExport.commandPath.joined(separator: " "),
+                args: Array(arguments.dropFirst(GenotypeWorkbookExport.commandPath.count))
+            ),
+            onCancel: { runner.cancel() }
+        )
+        guard case .started(let operationID) = start else { return nil }
+        return (operationID, Task { @MainActor in
+            let outcome = await runner.run(
+                arguments: arguments,
+                outputURL: outputURL,
+                operationID: operationID,
+                completionDetail: "Exported \(outputURL.lastPathComponent)",
+                emitsEvents: false,
+                environmentAdditions: environmentAdditions
+            )
+            if case .failed(let failure) = outcome {
+                onFailure(failure)
+            }
+            return outcome
+        })
+    }
+
+    /// The coordinator's export task (ARCH-12.35-B1 condition 8). It runs the workbook's row to its end and throws the
+    /// leaf's failure, or `CancellationError` for a cancel, so the coordinator keeps its events and its alert.
+    static func runWorkbookExportToEnd(snapshot: GenotypeViewportExportSnapshot, outputURL: URL) async throws {
+        guard let begun = try await runWorkbookExport(snapshot: snapshot, outputURL: outputURL, onFailure: { _ in }) else {
+            throw CLIViewerExportRunner.Failure(message: "The workbook export did not start.")
+        }
+        switch await begun.task.value {
+        case .completed:
+            return
+        case .cancelled:
+            throw CancellationError()
+        case .failed(let failure):
+            throw failure
+        }
+    }
 }
