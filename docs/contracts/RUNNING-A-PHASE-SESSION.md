@@ -114,7 +114,8 @@ until rg -q '^exit=' build/lane/build.log; do sleep 5; done; tail -n 20 build/la
 ## The manager's context budget
 
 Every spawn prompt, brief, final message and tool result stays in the manager's context. Set `"autoCompactWindow":
-600000` in the settings before the session starts, or have the owner type `/autocompact 600000`, since a saved value
+600000` in the user settings, `~/.claude/settings.json`, before the session starts, and never in the tracked
+`.claude/settings.json`, or have the owner type `/autocompact 600000`, since a saved value
 waits for the next session. The manager then compacts near 567K, where a turn costs about twice what it costs after,
 and with a current STATE block a compaction repeats no work. These habits keep the context lean.
 
