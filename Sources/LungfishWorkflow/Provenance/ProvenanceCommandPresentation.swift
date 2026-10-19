@@ -41,11 +41,13 @@ public enum ProvenanceCommandPresentation {
     /// `projectURL`. The word after a shell and its `-c` (or a cluster such as
     /// `-lc`) is a script and is presented as a command of its own. A command
     /// that cannot be split into shell words, or one read outside any project,
-    /// is returned as recorded.
+    /// is returned as recorded. A path under the reader's own managed tool root, `toolRoot`, shows the tool's name, so
+    /// a record reads the same whatever storage root the Mac keeps (Phase 2.12 lane 12.25, SW17 (a), Q-U6).
     public static func display(
         _ command: String,
         projectURL: URL?,
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        toolRoot: URL? = PortablePath.defaultManagedRoots.toolRoot
     ) -> String {
         guard let projectURL, let pieces = split(command, keeping: spacedPaths(of: projectURL)) else { return command }
         var shown = ""
@@ -58,8 +60,8 @@ public enum ProvenanceCommandPresentation {
             case .word(let word):
                 let isScript = recent.count == 2 && isShell(recent[0]) && isCommandFlag(recent[1])
                 shown += isScript
-                    ? presentScript(word, projectURL: projectURL, fileExists: fileExists)
-                    : present(word, projectURL: projectURL, fileExists: fileExists)
+                    ? presentScript(word, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot)
+                    : present(word, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot)
                 recent = Array((recent + [word.value]).suffix(2))
             }
         }
@@ -68,12 +70,17 @@ public enum ProvenanceCommandPresentation {
 
     /// One path on its own, without shell quoting: project-relative inside
     /// the open project or under a foreign project root, by name for a
-    /// scratch file the project did not keep, otherwise as recorded.
+    /// scratch file the project did not keep, by the tool's name under `toolRoot`, otherwise as recorded.
     public static func displayPath(
         _ path: String,
         projectURL: URL?,
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        toolRoot: URL? = nil
     ) -> String {
+        if let toolRoot, !path.hasSuffix("/"),
+           Set([toolRoot.path, toolRoot.standardizedFileURL.path]).contains(where: { path.hasPrefix($0 + "/") }) {
+            return URL(fileURLWithPath: path).lastPathComponent
+        }
         let shown = ProvenancePathPresentation.present(path, projectURL: projectURL, fileExists: fileExists)
         switch shown.location {
         case .project, .otherProject:
@@ -107,13 +114,13 @@ public enum ProvenanceCommandPresentation {
 
     // MARK: - Words
 
-    private static func present(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool) -> String {
+    private static func present(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool, toolRoot: URL?) -> String {
         guard let part = pathPart(of: word.value) else { return word.raw }
         // A path glued to the `;` that ends its command, as in the guards of an older Kraken2 batch script, keeps
         // that `;` outside the shortened path and its quotes.
         let terminator = part.path.hasSuffix(";") ? ";" : ""
         let path = String(part.path.dropLast(terminator.count))
-        let label = displayPath(path, projectURL: projectURL, fileExists: fileExists)
+        let label = displayPath(path, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot)
         guard label != path || word.joinedProjectPath else { return word.raw }
         let shown = part.isRedirect ? part.prefix + shellEscape(label) : shellEscape(part.prefix + label)
         return shown + terminator
@@ -136,8 +143,8 @@ public enum ProvenanceCommandPresentation {
 
     /// A shell's script as one word. `display` runs on its value, so the program stays and each path shortens, and the
     /// result is quoted again as one word. A script that nothing changed goes back out as recorded.
-    private static func presentScript(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool) -> String {
-        let shown = display(word.value, projectURL: projectURL, fileExists: fileExists)
+    private static func presentScript(_ word: Word, projectURL: URL?, fileExists: (String) -> Bool, toolRoot: URL?) -> String {
+        let shown = display(word.value, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot)
         return shown == word.value ? word.raw : shellEscape(shown)
     }
 

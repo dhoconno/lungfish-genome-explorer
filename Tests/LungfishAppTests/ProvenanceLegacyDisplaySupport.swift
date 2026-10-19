@@ -338,12 +338,10 @@ struct ProvenanceDisplayRedaction {
 /// Gives each display test case a managed storage root of its own, so no snapshot depends on where the Mac keeps
 /// its tools (Phase 2.11 SW17 a).
 ///
-/// The tab shows a recorded `<tool-root>/envs/htslib/bin/bgzip` under the reader's own tool root. With
-/// `LUNGFISH_STORAGE_ROOT` at `/Users/dho/.lungfish`, the root folder looks like a project to the path presentation,
-/// and the tab shows `conda/envs/htslib/bin/bgzip` where the expected files read `bgzip`. Whether a tool under the
-/// reader's own storage root should read as the tool's name is a display rule in `PortablePath.swift` that waits for
-/// the words pass of Phase 2.12, so the case sets `LUNGFISH_STORAGE_ROOT` to a new folder in the temporary directory
-/// and clears `LUNGFISH_CONDA_ROOT` until XCTest reports the case finished, and then puts both back.
+/// The tab shows a recorded `<tool-root>/envs/htslib/bin/bgzip` under the reader's own tool root, by the tool's name
+/// since Phase 2.12 lane 12.25 (Q-U6, `ProvenanceCommandDisplayTests`). The case still sets `LUNGFISH_STORAGE_ROOT`
+/// to a new folder in the temporary directory and clears `LUNGFISH_CONDA_ROOT` until XCTest reports the case
+/// finished, and then puts both back, so the `<storage-root>` and `<tool-root>` redactions name a folder of the test.
 final class ProvenanceDisplayStorageRoot: NSObject, XCTestObservation, @unchecked Sendable {
     /// The observer, registered with XCTest the first time a case is named.
     static let shared: ProvenanceDisplayStorageRoot = {

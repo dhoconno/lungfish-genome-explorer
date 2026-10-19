@@ -122,19 +122,19 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
 
     // MARK: - A managed tool under the reader's storage root (SW17 (a))
 
-    /// The released 2026.9.58 record names `<tool-root>/envs/htslib/bin/bgzip`. At the base its Command row reads
-    /// `conda/envs/htslib/bin/bgzip` under a storage root named `.lungfish`, which the path presentation takes for a
-    /// project, and `bgzip` under one with another name, so one record reads two ways. The reading with the variable
-    /// unset follows this Mac's own storage root and is printed for the lane report.
-    func testTheReleasedBgzipCommandReadsOneWayPerStorageRoot() async throws {
+    /// The released 2026.9.58 record names `<tool-root>/envs/htslib/bin/bgzip`, and a tool under the reader's own tool
+    /// root shows its name (Q-U6), so the record reads one way under every storage root. At the base it read
+    /// `conda/envs/htslib/bin/bgzip` under a root named `.lungfish`, which the path presentation took for a project,
+    /// `bgzip` under a temporary root with another name, and the whole path on this Mac with the variable unset.
+    func testTheReleasedBgzipCommandReadsTheSameUnderEveryStorageRoot() async throws {
         let roots = try TestTempDirectory.make(prefix: "provenance-command-display-roots")
         addTeardownBlock { TestTempDirectory.cleanup(roots) }
         let unset = try await bgzipCommand(storageRoot: nil)
         let named = try await bgzipCommand(storageRoot: roots.appendingPathComponent("a/.lungfish", isDirectory: true))
         let other = try await bgzipCommand(storageRoot: roots.appendingPathComponent("b/lungfish-storage", isDirectory: true))
-        print("lane 12.25 SW17 (a) reading with LUNGFISH_STORAGE_ROOT unset: \(unset)")
 
-        XCTAssertEqual(named, "conda/envs/htslib/bin/bgzip " + Self.bgzipArguments)
+        XCTAssertEqual(unset, "bgzip " + Self.bgzipArguments)
+        XCTAssertEqual(named, "bgzip " + Self.bgzipArguments)
         XCTAssertEqual(other, "bgzip " + Self.bgzipArguments)
     }
 
