@@ -8,10 +8,13 @@
 // process behind.
 //
 // What holds the command. The copy runs no tool, so no stand-in can hold it. The item holds a sparse file
-// of 2 GiB instead, as `VariantsImportSampleMetadataSIGTERMTests` does. The copier hashes it once before
-// it makes its stage, and the native copy clones it (instant on APFS) and hashes the source and the clone
-// inside the stage, about a second of work. The test sends SIGTERM when the stage appears, so the signal
-// lands while the native copy hashes, and the copier takes the cancel at its next check, before the rename.
+// of 512 MiB instead, the way `VariantsImportSampleMetadataSIGTERMTests` holds its command. The copier
+// hashes it once, with a check between chunks, before it makes its stage. The native copy then hashes the
+// source, clones it (instant on APFS) and hashes the clone inside the stage with no check, so the leaf's
+// time after SIGTERM grows with the item's size (2.13 row COPY-CANCEL-CHECKS). The test sends SIGTERM when
+// the stage appears, so the signal lands while the native copy hashes, and the copier takes the cancel at
+// its next check, before the rename. At 2 GiB a loaded Mac needed 9.4 s, past the 6.0 s grace, and 512 MiB
+// keeps the signal inside the native copy with a quarter of that work.
 
 import Foundation
 import XCTest
@@ -40,7 +43,7 @@ final class ProjectCopyItemSIGTERMTests: XCTestCase {
         let sparse = item.appendingPathComponent("padding.bin")
         XCTAssertTrue(FileManager.default.createFile(atPath: sparse.path, contents: nil))
         let handle = try FileHandle(forWritingTo: sparse)
-        try handle.truncate(atOffset: 2 << 30)
+        try handle.truncate(atOffset: 512 << 20)
         try handle.close()
 
         let run = try CLISIGTERMHarness.launchCLI(
