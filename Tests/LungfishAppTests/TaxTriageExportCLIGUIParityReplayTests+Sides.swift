@@ -139,10 +139,23 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             let columns = view.testBatchFlatTableView.metadataColumns
             // `configureFromDatabase` gave the controller a persistence key that names this throwaway result, and a
             // keyed controller writes its layout to `UserDefaults.standard`.
+            let throwawayKey = columns.persistenceKey
             columns.persistenceKey = nil
             XCTAssertNil(columns.persistenceKey)
             columns.visibleColumns = ["Group"]
             columns.update(store: store, sampleId: nil)
+            // Clearing the key stops later writes, but the controller wrote its layout under the key it held. Remove
+            // that entry, which names only this throwaway result, and check that none is left.
+            if let throwawayKey {
+                let defaults = UserDefaults.standard
+                for key in defaults.dictionaryRepresentation().keys where key.hasSuffix(throwawayKey) {
+                    defaults.removeObject(forKey: key)
+                }
+                XCTAssertFalse(
+                    defaults.dictionaryRepresentation().keys.contains { $0.hasSuffix(throwawayKey) },
+                    "no defaults key names the throwaway result"
+                )
+            }
         }
         if let sortKey {
             view.testBatchFlatTableView.columnHeaderFilterMenu(sortByKey: sortKey, ascending: sortAscending)
