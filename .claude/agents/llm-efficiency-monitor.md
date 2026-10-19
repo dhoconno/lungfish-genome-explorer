@@ -54,7 +54,8 @@ today. A hash equal to the last one costs two calls, and a changed page makes a 
 2. Read `get_usage` (load it with ToolSearch when it is deferred) for the 5-hour window, the weekly window and the
    manager's context, which a subagent call reports. Read `df -h ~` and the size of the worktree build folders.
 3. Check that the briefs in `SCR/briefs/` carry the contract's values (the wait timeouts for opus and sonnet, named
-   milestone stops, the documentation lane budget, the command forms). A rule that never reached a brief was not
+   milestone stops, the documentation lane budget, the command forms, and the files, the out-of-scope line and the
+   pass check of each lane file). A rule that never reached a brief was not
    followed.
 4. Check every threshold in the contract's checkpoint table and score each action of the last checkpoint against a
    measurement (followed or not, and what changed).
