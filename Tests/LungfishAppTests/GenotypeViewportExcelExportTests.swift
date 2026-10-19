@@ -214,6 +214,9 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
             receiptOptions["annotationsInBundle"],
             "annotations.json differs from the captured sidecar"
         )
+        // ARCH-12.35-B1 condition 6. The save panel returned a new file, so the export replaces nothing.
+        XCTAssertEqual(receiptOptions["replacingExisting"], "false", "a new file is not replaced")
+        XCTAssertEqual(receipt["replacingExisting"] as? Bool, false)
         let descriptor = try XCTUnwrap(receipt["output"] as? [String: Any])
         XCTAssertEqual(descriptor["path"] as? String, outputURL.path)
         XCTAssertEqual(descriptor["sha256"] as? String, try ProvenanceFileHasher.sha256(of: outputURL))

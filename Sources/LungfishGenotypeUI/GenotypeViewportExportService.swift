@@ -23,7 +23,7 @@ struct GenotypeViewportExportService {
         snapshot: GenotypeViewportExportSnapshot,
         to outputURL: URL,
         pythonExecutableURL: URL? = nil,
-        replacingExisting: Bool = true
+        replacingExisting: Bool? = nil
     ) async throws -> GenotypeViewportExportResult {
         let capture = try Self.decodedCapture(snapshot)
         let python: URL
@@ -33,12 +33,15 @@ struct GenotypeViewportExportService {
             throw LungfishCLIRunner.RunError.cliNotFound
         }
         let output = outputURL.standardizedFileURL
+        // The save panel confirmed a replace only when its file exists, so a new file replaces nothing and the
+        // receipt says so (ARCH-12.35-B1 condition 6).
+        let replacing = replacingExisting ?? fileManager.fileExists(atPath: output.path)
         let result = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: replayExecutable).export(
             snapshot: capture, outputURL: output,
             provenance: Self.provenanceRequest(snapshot: snapshot, capture: capture, outputURL: output, python: python,
-                replacingExisting: replacingExisting,
+                replacingExisting: replacing,
                 argv: ["Lungfish", "genotype.export.excel", "--captured-at", capture.generatedAt, "--output", output.path]),
-            replacingExisting: replacingExisting)
+            replacingExisting: replacing)
         // The shared owner has committed both files. Do not layer a GUI
         // restore over its receipt or overwrite a concurrent publication.
         guard fileManager.fileExists(atPath: result.outputURL.path),
