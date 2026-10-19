@@ -258,6 +258,49 @@ class OrchestrationTests(LedgerTestCase):
         self.assertEqual(role('anything', 'main'), 'main')
 
 
+class RoleRuleTests(LedgerTestCase):
+    """Roles for the descriptions a manager gave its agents in 2.12 (monitor cp5 action 9, cp6 action 6, 2.11 proposal 11)."""
+
+    def roles(self, *labels):
+        return [self.ledger.role_of(label, 'sub') for label in labels]
+
+    def test_fix_agent_labels_are_fix_agents(self):
+        self.assertEqual(self.roles('Fix agent 12.31 TaxTriage parity prefs leak fix', 'Fix agent 12.13 review fixes 1-6',
+                                    'Fix agent 12.07 ruling applied'), ['fix', 'fix', 'fix'])
+
+    def test_a_lane_label_naming_review_fixes_is_a_fix(self):
+        self.assertEqual(self.roles('Lane 12.15 review fixes', 'Lane 12.31 M4 review fixes',
+                                    'Lane 12.39 branch 1 review fix'), ['fix', 'fix', 'fix'])
+        # other lane work stays lane, among it a continuation that applies a ruling or publishes and fixes
+        self.assertEqual(self.roles('Lane 12.27 c2 ruling applied', 'Lane 12.06 c3 staged publish + fixes',
+                                    'Lane 12.17 M2 real-tool parity'), ['lane', 'lane', 'lane'])
+
+    def test_a_diagnose_label_is_a_fix_but_a_diagnosis_by_an_expert_is_design(self):
+        self.assertEqual(self.roles('Diagnose NAO-MGS cancel test flake', 'Diagnose the Viral Recon open timeout'),
+                         ['fix', 'fix'])
+        self.assertEqual(self.roles('Expert diagnosis of the cancel flake'), ['design'])
+
+    def test_a_ruling_is_a_ruling_whatever_its_first_word(self):
+        self.assertEqual(self.roles(
+            'Ruling on the export shape', 'ARCH ruling export shape and census', 'BIO ruling 12.31 G3 with ARCH line',
+            'UX ruling 12.17 refusal words, M2 states', 'QA ruling on A46 M3 parity masks', 'UX words ruling for lane 12.26',
+            'ARCH ruling on viewer graphics B10'), ['ruling'] * 7)
+        # work that only mentions a ruling keeps its role: a brief writer, a plan commit, a review, a ruling applied
+        self.assertEqual(self.roles('Brief writer W8 export ruling', 'Plan docs commit: rulings, O12, keys',
+                                    'Review of the ARCH ruling', 'Lane 12.27 c2 ruling applied'),
+                         ['design', 'design', 'review', 'lane'])
+
+    def test_release_operators_are_operators_but_lane_milestones_are_not(self):
+        self.assertEqual(self.roles(
+            'Live window 1 operator', 'Window 1 part A operator', 'M3: push main, publish 2026.10.20',
+            'M3 rerun: resume publish, finish', 'Q36 M3 push main and publish', 'Q66 reruns at H2 and M2 package',
+            'Package the candidate', 'Publish Preview 2026.10.21'), ['operator'] * 8)
+        # a milestone of a lane, a review or a plan of the release and a lane that publishes keep their roles
+        self.assertEqual(self.roles('Lane A51 M2-M3 continuation', 'A48 M3 fix group B', 'QA review of the package step',
+                                    'Q66 M1 plan (final candidate)', 'Lane 12.06 c3 staged publish + fixes'),
+                         ['lane', 'lane', 'review', 'design', 'lane'])
+
+
 class SpendByRoleModelAndEffortTests(LedgerTestCase):
     """The model and effort each spawn asked for, beside the model its turns ran on, in two tables of the report."""
     LANE = '| lane | claude-sonnet-5-5 | max | 1 | 2 | 30K | 16K | 0 | 53.3 | 0 | 1.12 |'

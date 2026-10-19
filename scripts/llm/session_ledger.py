@@ -56,12 +56,19 @@ PRICES = {
     "fable": {"in": 2.05, "out": 19.2, "read": 0.205, "w5m": 5.05, "w1h": 5.05},
     "haiku": {"in": 0.8, "out": 4.0, "read": 0.08, "w5m": 1.0, "w1h": 1.6},
 }
-ROLE_RULES = [  # first match wins, so fix agents, landings and monitors stay out of the lane and review rows
+ROLE_RULES = [  # first match wins, so fix agents, rulings, landings and monitors stay out of the lane and review rows
+    ("fix", re.compile(r"^lane\b.*\breview fix(?:es)?\b|^diagnos", re.I)),  # fix work, so ahead of the "Lane" rule
     ("lane", re.compile(r"^lane\b", re.I)),
     ("fix", re.compile(r"^fix(?:es)?\b|\bfix agent", re.I)),
     ("landing", re.compile(r"^land(?:ing)?\b", re.I)),
     ("llm", re.compile(r"\bllm\b|efficien|\bmonitor\b", re.I)),
+    # "ruling" in the first three words ("ARCH ruling ...", "UX words ruling ..."), so a brief writer, a plan commit that
+    # mentions one, a review of one and a ruling applied by a lane keep their roles
+    ("ruling", re.compile(r"^(?!review\b)(?:\S+\s+){0,2}rulings?\b(?! applied)", re.I)),
     ("review", re.compile(r"\breview|\baudit|\bverif|\bcheck(?:er)?\b|second opinion", re.I)),
+    # a release step: the word operator, a label that opens with M1 to M3, package or publish, push main, or "M2 package".
+    # M1 to M3 inside a lane label are that lane's milestones, so they do not count
+    ("operator", re.compile(r"\boperators?\b|^(?:M[123]|package|publish)\b|\bpush main\b|\bM[123] (?:package|publish)\b", re.I)),
     ("gate", re.compile(r"\bgate\b|golden|full.suite|unit tier|ratchet", re.I)),
     ("walk", re.compile(r"gui walk|\bwalk\b|computer.use|screenshot", re.I)),
     ("design", re.compile(r"inventor|expert|design|memo|\bplan\b|planning|panel|question|survey|scope|research|investigat|triage|diagnos|\bbriefs?\b", re.I)),
