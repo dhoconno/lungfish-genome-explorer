@@ -291,19 +291,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
     func testStandaloneScientificExportersWriteScientificProvenanceSidecars() throws {
         let root = repositoryRoot()
-        let files = [
-            ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage results export"),
-        ]
-
-        for (path, workflowName) in files {
-            let source = try readRepositorySource(root.appendingPathComponent(path))
-            XCTAssertTrue(
-                source.contains("ScientificFileExportProvenance.write(.init(")
-                    || source.contains("ScientificFileExportProvenance.writeAtomically(.init("),
-                path
-            )
-            XCTAssertTrue(source.contains(#"workflowName: "\#(workflowName)""#), path)
-        }
 
         let taxTriageSource = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift"),
