@@ -1542,8 +1542,14 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     }
 
     /// Exports results to a delimited file using NSSavePanel.
+    ///
+    /// A result read from a file runs `lungfish-cli blast export table` on that file behind an Operations row, and a
+    /// leaf that fails ends the row failed and shows the failure alert (UX 4). If the file has gone, the leaf fails
+    /// the row, and the drawer never falls back to the old writer, which would record no input for a result that
+    /// had a file. A result no file holds, which only the in-process routes under `ClassifierBlastRoute` show,
+    /// keeps `writeExportFile` until 13.03 deletes those routes (ARCH ruling T5 of lane 12.33).
     private func exportResults(separator: String, fileExtension: String) {
-        guard case .results(let result, _) = displayState else { return }
+        guard case .results(let result, let recordURL) = displayState else { return }
 
         let panel = MetagenomicsFilePanelFactory.blastDelimitedExportPanel(fileExtension: fileExtension)
 
@@ -1554,11 +1560,31 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
         panel.beginSheetModal(for: parentWindow) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            self?.writeExportFile(result: result, to: url, separator: separator)
+            guard let recordURL else {
+                // 13.03 deletes this branch with the in-process routes that show a result no file holds.
+                self?.writeExportFile(result: result, to: url, separator: separator)
+                return
+            }
+            let invocation = BlastVerificationTableExport.invocation(
+                recordURL: recordURL,
+                format: separator == "\t" ? .tsv : .csv,
+                outputURL: url,
+                force: FileManager.default.fileExists(atPath: url.path)
+            )
+            Self.beginBlastTableExportOperation(invocation: invocation) { failure in
+                blastLogger.error("BLAST table export failed: \(failure.message, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: failure,
+                    window: parentWindow,
+                    presenter: DefaultExportFailurePresenter()
+                )
+            }
         }
     }
 
-    /// Writes the export file to disk.
+    /// Writes the export file to disk. Only a result no file holds reaches this writer (ARCH ruling T5 of lane
+    /// 12.33), and 13.03 deletes it with the in-process routes that show such a result.
     ///
     /// CSV/TSV columns: Read ID, Verdict, LCA Flag, Hit Rank, Accession,
     /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length.
