@@ -135,7 +135,11 @@ struct TwelveSAmpliconResultExportService {
         if snapshot.filters.chimeraFilter != .all {
             arguments += ["--chimera-status", snapshot.filters.chimeraFilter.rawValue]
         }
-        arguments.append("--force")
+        // ARCH 1.2. Only the save panel's Replace replaces a file, so the record's `forceOverwrite` states a replace
+        // that happened (Phase 2.12 lane 12.35 B3).
+        if fileManager.fileExists(atPath: standardizedOutputURL.path) {
+            arguments.append("--force")
+        }
 
         do {
             _ = try await runner.run(arguments: arguments)

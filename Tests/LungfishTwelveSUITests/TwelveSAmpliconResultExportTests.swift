@@ -35,7 +35,25 @@ final class TwelveSAmpliconResultExportTests: XCTestCase {
         XCTAssertTrue(arguments.contains("--require-alternate-matches"))
         XCTAssertEqual(try value(after: "--min-unresolved-reads", in: arguments), "5")
         XCTAssertEqual(try value(after: "--chimera-status", in: arguments), "candidate")
-        XCTAssertTrue(arguments.contains("--force"))
+        XCTAssertFalse(arguments.contains("--force"), "a new file is not replaced, so no --force (ARCH 1.2)")
+    }
+
+    /// ARCH 1.2. `--force` is passed only when the file the save panel returned exists, so the record's
+    /// `forceOverwrite` states a replace that happened (Phase 2.12 lane 12.35 B3, the side A fix).
+    func testForceIsPassedOnlyWhenTheOutputExists() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outputURL = root.appendingPathComponent("hilo-12s.csv")
+        try Data("old\n".utf8).write(to: outputURL)
+        let runner = StubTwelveSExportCLIRunner(writesOutput: true, writesProvenance: true)
+
+        _ = try await TwelveSAmpliconResultExportService(runner: runner).export(
+            snapshot: try makeSnapshot(in: root),
+            format: .csv,
+            to: outputURL
+        )
+
+        XCTAssertEqual(runner.invocations.first?.last, "--force", "the save panel's Replace replaces the file")
     }
 
     func testExportFailsIfCLIOmitsProvenanceSidecar() async throws {
