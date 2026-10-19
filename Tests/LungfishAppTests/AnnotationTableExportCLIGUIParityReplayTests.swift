@@ -224,6 +224,35 @@ final class AnnotationTableExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertEqual(zip(first, second).enumerated().filter { $0.element.0 != $0.element.1 }.map(\.offset), [3])
     }
 
+    /// ARCH ruling on 12.39 R1 item 6 (the review of 12.39 B2, Fix 2). A selection whose feature count differs from
+    /// the coding features the bundle gives is a failure, and the leaf says so in the ruling's words and writes
+    /// nothing. The selection is written directly, since `annotationTableExportInvocation` replaces its `query` with
+    /// the snapshot's description. The class fixture holds no coding feature, so the selection's count of 1 differs.
+    func testADifferingCodingFeatureCountFailsWithTheRulingsWords() async throws {
+        let root = deepRoot("feature-count")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Self.makeFixture(root)
+        let output = Self.outputURL(in: root, .csv)
+        let collected = try Self.collect(.variants, in: root)
+        var table = collected.table
+        table.codingFeatureRegion = AnnotationTableFeatureRegion(chromosome: "", start: 0, end: 0, trackIDs: [])
+        table.query = ["derivedVariantFeatureCount": "1"]
+        let selection = try ViewerExportSelection(identities: collected.snapshot.rowIdentities, annotationTable: table)
+            .write(besideOutput: output)
+        let invocation = AnnotationTableExport.invocation(
+            bundleURL: Self.bundleURL(in: root), tab: .variants, format: .csv,
+            selectionURL: selection, outputURL: output, force: true
+        )
+        let run = await RouteParityHarness.runCLI(harness.cliBinary, arguments: invocation.arguments(), timeout: .seconds(60))
+        XCTAssertEqual(run.status, 64, "a failure exits 64, \(run.detail)")
+        XCTAssertTrue(
+            (run.stdout + run.stderr).contains("The coding features read from the bundle do not match the ones the table showed."),
+            "the ruling's words, \(run.stdout) \(run.stderr)"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a refused export leaves no output")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path), "and no record")
+    }
+
     /// ARCH ruling 1.6 and X14. The row's Cancel stops the leaf inside its transaction, the row reads Cancelled with
     /// no alert, and the row's command, cancelled on the launcher every CLI route uses, exits 125 inside the grace.
     /// Neither leaves the output or its record. The case root sits five folders below the temporary folder.
