@@ -182,6 +182,41 @@ final class SequenceFASTAExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a cancel leaves no output")
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path), "a cancel leaves no record")
     }
+
+    /// Review 12.34 fix 4. A replace passes `--force` because the panel confirmed it, so a cancel leaves the user's old
+    /// file in place. No record names the staged copy of the sequence then, so the copy goes all the same. The folder
+    /// stays only when the record beside the output names it.
+    func testACancelledReplaceKeepsTheOldFileAndRemovesTheStagedInputs() async throws {
+        let root = scratch.appendingPathComponent("replace-cancel", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Self.makeFixture(root)
+        let output = Self.outputURL(in: root)
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        let hold = root.appendingPathComponent("held")
+        let sequence = try Case.describedSequence.sequence()
+        let old = Data("old\n".utf8)
+        try old.write(to: output)
+
+        let reports = SequenceFASTAExportReports()
+        let begun = try unwrapStarted(await SequenceViewerView.runSequenceFASTAExport(
+            name: sequence.name, description: sequence.description, bases: sequence.asString(), outputURL: output,
+            runner: CLIViewerExportRunner(cliURLOverride: harness.cliBinary),
+            environmentAdditions: [Self.holdFileVariable: hold.path]
+        ) { reports.messages.append($0) })
+        let held = try await FASTARecordsExportCLIGUIParityReplayTests.waitForFile(hold)
+        XCTAssertTrue(held, "the leaf reached its transaction")
+        OperationCenter.shared.cancel(id: begun.operationID)
+        let outcome = await begun.task.value
+        XCTAssertEqual(outcome, .cancelled)
+        XCTAssertEqual(reports.messages, [], "a cancel shows nothing")
+        XCTAssertEqual(try Data(contentsOf: output), old, "a cancelled replace leaves the old file")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path), "a cancel leaves no record")
+        let staged = root.appendingPathComponent(ViewerExportSelection.inputsFolderName)
+        XCTAssertEqual(
+            (try? FileManager.default.contentsOfDirectory(atPath: staged.path)) ?? [], [],
+            "a cancel removes the staged input although the old file stays"
+        )
+    }
 }
 
 // MARK: - The sides and the comparison

@@ -113,8 +113,9 @@ final class FASTARecordsExportRowTests: XCTestCase {
     }
 
     /// The run stages the records as given and the headers as the selection in one new folder beside the output,
-    /// names both in the row's command, and asks for `--force` only when the chosen file exists. A failed leaf that
-    /// published nothing removes the folder, and one that failed over an existing file keeps it.
+    /// names both in the row's command, and asks for `--force` only when the chosen file exists. A failed leaf removes
+    /// the folder, over an existing file as well, since no record of the run names it. The test reads the staged files
+    /// before it awaits the run, because the run and its clean-up start at the first suspension.
     func testTheRunStagesTheRecordsAndTheSelectionBesideTheOutput() async throws {
         let output = scratch.appendingPathComponent("selected.fa")
         let calls = FASTARecordsExportCalls()
@@ -136,7 +137,6 @@ final class FASTARecordsExportRowTests: XCTestCase {
             records: Self.records, outputURL: output,
             runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")), reporter: replace
         ) { calls.messages.append($0) })
-        _ = await second.task.value
         let replaced = try RecordedCLICommand.parse(replace.items.first?.cliCommand, as: ExtractSequenceSubcommand.self)
         XCTAssertTrue(replaced.force, "an existing file is replaced with --force")
 
@@ -158,6 +158,10 @@ final class FASTARecordsExportRowTests: XCTestCase {
         XCTAssertEqual(try ViewerExportSelection.read(from: selectionURL).identities, ["a one", "b"])
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "old", "the app writes no byte of the output")
         XCTAssertNotEqual(replaced.input, command.input, "each export stages its own folder")
+        _ = await second.task.value
+        XCTAssertEqual(
+            try inputFolders(besides: output), [], "a failed replace removes its inputs, since no record names them"
+        )
     }
 
     /// Records with no header, and a refused row, start nothing and leave no staged file.

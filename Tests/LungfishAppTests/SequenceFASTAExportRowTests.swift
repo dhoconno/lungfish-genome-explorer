@@ -44,7 +44,8 @@ final class SequenceFASTAExportRowTests: XCTestCase {
 
     /// The run stages the sequence as the data (the bases on one line) beside the output, and the row's command names
     /// the staged file, the sequence by its name and the width. The chosen file exists, so the command asks for
-    /// `--force` and the staged file stays after the leaf (a stand-in that fails) left the old output.
+    /// `--force`. The test reads the staged file before it awaits the run, which starts at the first suspension. The
+    /// leaf (a stand-in that fails) leaves the old output and no record, so the run then removes the staged file.
     func testTheRunStagesOneSequenceAndRecordsTheCommandItRuns() async throws {
         let output = scratch.appendingPathComponent("selected.fasta")
         try Data("old".utf8).write(to: output)
@@ -54,7 +55,6 @@ final class SequenceFASTAExportRowTests: XCTestCase {
             name: "chr1", description: "visible track", bases: "ACGTACGT", outputURL: output,
             runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")), reporter: reporter
         ) { calls.messages.append($0) })
-        _ = await begun.task.value
 
         let item = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(item.id, begun.operationID)
@@ -86,6 +86,10 @@ final class SequenceFASTAExportRowTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: stagedURL, encoding: .utf8), ">chr1 visible track\nACGTACGT\n", "the data and not the wrapping")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), ["sequence.fa"], "no selection file")
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "old", "the app writes no byte of the output")
+        _ = await begun.task.value
+        XCTAssertEqual(
+            try inputFolders(besides: output), [], "a failed replace removes its inputs, since no record names them"
+        )
     }
 
     /// A failed leaf that published nothing removes the staged file, and a new file needs no `--force`.
@@ -129,9 +133,9 @@ final class SequenceFASTAExportRowTests: XCTestCase {
             name: "my seq", description: "circular", bases: "GATTACA", outputURL: output,
             runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")), reporter: reporter
         ) { _ in })
-        _ = await begun.task.value
         let command = try RecordedCLICommand.parse(reporter.items.first?.cliCommand, as: ExtractSequenceSubcommand.self)
         XCTAssertEqual(command.sequenceNames, ["my seq circular"])
         XCTAssertEqual(try String(contentsOf: URL(fileURLWithPath: command.input), encoding: .utf8), ">my seq circular\nGATTACA\n")
+        _ = await begun.task.value
     }
 }

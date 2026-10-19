@@ -141,8 +141,10 @@ extension ViewerViewController {
     }
 
     /// Settles the staged inputs once the row's task ends. A run that published goes on keeping them, since the record
-    /// names them. A run that failed, was cancelled or was refused removes them when it left no output, since no
-    /// record names them and the staged text can be large.
+    /// names them. Any other run keeps them only when the record beside the output names them, and removes them
+    /// otherwise, since the staged text can be large. The output's existence cannot tell, because a replace passes
+    /// `--force` and a cancel or a failure then leaves the user's old file in place with no record of this run
+    /// (review 12.34 fix 4).
     static func settleStagedExport(
         _ begun: (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>),
         outputURL: URL,
@@ -153,11 +155,25 @@ extension ViewerViewController {
             if case .completed = outcome {
                 return outcome
             }
-            if !FileManager.default.fileExists(atPath: outputURL.path) {
+            if !recordNames(folder, besideOutput: outputURL) {
                 try? FileManager.default.removeItem(at: folder)
             }
             return outcome
         }
         return (begun.operationID, settled)
+    }
+
+    /// Whether the record beside `outputURL` lists a file inside `folder` as an input. The record of an earlier export
+    /// that sits beside the output names another folder and does not count. Both paths are compared with their
+    /// symlinks resolved, since the record keeps the spelling the leaf was given and the folder may be spelled through
+    /// `/var` where the record says `/private/var`.
+    static func recordNames(_ folder: URL, besideOutput outputURL: URL) -> Bool {
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        guard let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: sidecar) else { return false }
+        let prefix = folder.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        return envelope.files.contains { file in
+            file.role == .input
+                && URL(fileURLWithPath: file.path).resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(prefix)
+        }
     }
 }
