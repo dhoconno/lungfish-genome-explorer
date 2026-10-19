@@ -79,7 +79,7 @@ extension AnnotationTableDrawerView {
         guard let request = sender.representedObject as? ScientificTableExportMenuRequest else { return }
         let captured: AnnotationTablePendingExport
         do {
-            captured = try captureScientificTableExport(scope: request.scope)
+            captured = try captureAnnotationTableExport(scope: request.scope)
         } catch {
             presentScientificExportError(error)
             return
@@ -134,15 +134,18 @@ extension AnnotationTableDrawerView {
         progress.accessoryView = indicator
         progress.beginSheetModal(for: window) { _ in token.cancel() }
 
+        // ARCH ruling on 12.39 R1 item 1. The rows are resolved under this sheet and its Cancel, then the selection
+        // is written and the row begins. A cancel before the row writes and begins nothing.
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result: Result<(Int, String), Error>
+            let result: Result<(Int, ViewerExportInvocation), Error>
             do {
                 let snapshot = try captured.collect { token.isCancelled }
-                try AnnotationTableExportService.export(
-                    snapshot: snapshot, format: format, outputURL: outputURL,
-                    runClock: captured.runClock, shouldCancel: { token.isCancelled }
+                if token.isCancelled { throw CancellationError() }
+                let invocation = try AnnotationTableDrawerView.annotationTableExportInvocation(
+                    snapshot: snapshot, bundleURL: captured.bundleURL, tableSelection: captured.tableSelection,
+                    editedValues: captured.editedValues, format: format, outputURL: outputURL
                 )
-                result = .success((snapshot.table.rows.count, outputURL.lastPathComponent))
+                result = .success((snapshot.table.rows.count, invocation))
             } catch {
                 result = .failure(error)
             }
@@ -159,11 +162,34 @@ extension AnnotationTableDrawerView {
                 self.exportButton.isEnabled = true
                 switch result {
                 case .success(let value):
-                    self.queryProgressLabel.stringValue = "Exported \(value.0) rows to \(value.1)"
+                    if token.isCancelled {
+                        if let selection = value.1.selection {
+                            try? FileManager.default.removeItem(at: URL(fileURLWithPath: selection).deletingLastPathComponent())
+                        }
+                        return
+                    }
+                    self.startAnnotationTableExport(invocation: value.1, rowCount: value.0)
                 case .failure(let error):
                     if error is CancellationError || token.isCancelled { return }
                     self.presentScientificExportError(error)
                 }
+            }
+        }
+    }
+
+    /// Begins the export's row. Its end shows the base's words, "Exported N rows to <file>" on the drawer's label,
+    /// or "Export Failed" with the leaf's message.
+    private func startAnnotationTableExport(invocation: ViewerExportInvocation, rowCount: Int) {
+        let fileName = URL(fileURLWithPath: invocation.output).lastPathComponent
+        guard let begun = Self.beginAnnotationTableExportOperation(
+            invocation: invocation, rowCount: rowCount,
+            onFailure: { [weak self] failure in
+                self?.presentScientificExportError(AnnotationTableExportLeafFailure(message: failure.message))
+            }
+        ) else { return }
+        Task { @MainActor [weak self] in
+            if case .completed = await begun.task.value {
+                self?.queryProgressLabel.stringValue = "Exported \(rowCount) rows to \(fileName)"
             }
         }
     }

@@ -46,6 +46,10 @@ extension SequenceViewerView {
         snapshot.codingFeatureTrackIDs = Set(
             cachedBundleAnnotations.compactMap { $0.qualifier("annotation_db_track_id") }
         ).sorted()
+        let trackIDs = snapshot.codingFeatureTrackIDs
+        snapshot.codingFeatureRegion = cachedAnnotationRegion.map {
+            AnnotationTableFeatureRegion(chromosome: $0.chromosome, start: $0.start, end: $0.end, trackIDs: trackIDs)
+        }
         return snapshot
     }
 }

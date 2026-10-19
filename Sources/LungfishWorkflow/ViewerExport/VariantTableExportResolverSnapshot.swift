@@ -70,6 +70,9 @@ package struct VariantTableExportResolverSnapshot: Sendable {
     /// The annotation tracks of the annotations the viewer cached for its region, sorted, which the table export
     /// names as the derived columns' inputs (Phase 2.12 lane 12.39, ARCH ruling on 12.39 R1 item 4).
     package var codingFeatureTrackIDs: [String] = []
+    /// The viewer's cached annotation region with those track ids, which the table export's selection file names so
+    /// the leaf reads the same coding features (ARCH ruling on 12.39 R1 item 4). Nil when the viewer cached none.
+    package var codingFeatureRegion: AnnotationTableFeatureRegion?
 
     package static let empty = VariantTableExportResolverSnapshot(
         features: [], variantChromosomeAliasMap: [:], referenceChromosomeAliases: [:], referenceBundle: nil,

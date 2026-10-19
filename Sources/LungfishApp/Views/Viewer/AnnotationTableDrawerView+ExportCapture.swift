@@ -9,6 +9,11 @@ struct AnnotationTablePendingExport: @unchecked Sendable {
     let tab: String
     let scope: AnnotationTableExportScope
     let collect: @Sendable (@escaping @Sendable () -> Bool) throws -> AnnotationTableExportSnapshot
+    /// The bundle the rows come from, and the click's columns, region and sample edits, which the selection file
+    /// carries (ARCH ruling on 12.39 R1 items 1 to 4). `captureAnnotationTableExport(scope:)` sets them.
+    var bundleURL: URL?
+    var tableSelection = AnnotationTableExportSelection(scope: "", columns: [])
+    var editedValues: [String: [String: String]] = [:]
 }
 
 func validatedScientificTableExportSourceURLs(
@@ -37,14 +42,7 @@ extension AnnotationTableDrawerView {
         }
         let selected = tableView.selectedRowIndexes
         let sources = try scientificTableExportSources(columns: columns)
-        let numericInfoIDs = Set(infoColumnKeys.compactMap { info -> String? in
-            let type = info.type.lowercased()
-            return (type.contains("float") || type.contains("number") || type.contains("real"))
-                ? "info_\(info.key)" : nil
-        })
-        let integerInfoIDs = Set(infoColumnKeys.compactMap { info -> String? in
-            info.type.lowercased().contains("integer") ? "info_\(info.key)" : nil
-        })
+        let (numericInfoIDs, integerInfoIDs) = exportNumericInfoColumnIDs()
         let numericGenotypeInfoIDs = Set(numericInfoIDs.map { "gt\($0)" })
         let integerGenotypeInfoIDs = Set(integerInfoIDs.map { "gt\($0)" })
         let sortKey = tableView.sortDescriptors.first?.key
