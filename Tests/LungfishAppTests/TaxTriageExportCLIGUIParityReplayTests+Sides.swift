@@ -120,6 +120,9 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let view = TaxTriageResultViewController()
         _ = view.view
         view.configureFromDatabase(database, resultURL: resultURL)
+        // The configure keyed the metadata controllers of the organism table and the batch table by this throwaway
+        // result, so clear both keys before any layout event can save under them.
+        let throwawayPaths = clearMetadataPersistence(of: view, resultURL: resultURL)
         await waitForRows(view) { $0.count == 5 }
         if segment > 0 {
             let control = view.testSampleFilterControl
@@ -137,25 +140,9 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         if showsGroup {
             let store = try XCTUnwrap(SampleMetadataStore.load(from: resultURL, knownSampleIds: Set(sampleIds)))
             let columns = view.testBatchFlatTableView.metadataColumns
-            // `configureFromDatabase` gave the controller a persistence key that names this throwaway result, and a
-            // keyed controller writes its layout to `UserDefaults.standard`.
-            let throwawayKey = columns.persistenceKey
-            columns.persistenceKey = nil
-            XCTAssertNil(columns.persistenceKey)
+            XCTAssertNil(columns.persistenceKey, "the clear above left the batch table unkeyed")
             columns.visibleColumns = ["Group"]
             columns.update(store: store, sampleId: nil)
-            // Clearing the key stops later writes, but the controller wrote its layout under the key it held. Remove
-            // that entry, which names only this throwaway result, and check that none is left.
-            if let throwawayKey {
-                let defaults = UserDefaults.standard
-                for key in defaults.dictionaryRepresentation().keys where key.hasSuffix(throwawayKey) {
-                    defaults.removeObject(forKey: key)
-                }
-                XCTAssertFalse(
-                    defaults.dictionaryRepresentation().keys.contains { $0.hasSuffix(throwawayKey) },
-                    "no defaults key names the throwaway result"
-                )
-            }
         }
         if let sortKey {
             view.testBatchFlatTableView.columnHeaderFilterMenu(sortByKey: sortKey, ascending: sortAscending)
@@ -164,7 +151,42 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             view.testBatchFlatTableView.setColumnFilter(filter, for: filter.columnId)
         }
         await waitForContaminationKeys(view)
+        XCTAssertEqual(defaultsKeys(endingWith: throwawayPaths), [], "the view saved a layout under a throwaway key")
         return view
+    }
+
+    /// Clears the persistence keys of the organism table's and the batch table's metadata controllers, removes the
+    /// defaults entries that name this throwaway result and returns the folders it matched them by. A keyed
+    /// controller writes its column layout to `UserDefaults.standard`, which in the test host is the domain
+    /// `com.apple.dt.xctest.tool` that outlives the run, and every case builds its view on a throwaway folder, so
+    /// each entry would stay there for good. A nil key stops every later write, but two writes happen before it can.
+    /// Clearing a key makes the controller save its layout under the key it held. And side C opens a copy of side
+    /// A's folder, whose sidecar still names side A's folder as the output folder, so `configureFromDatabase` keys
+    /// the organism table by that folder first and by the opened one second, which saves a layout under side A's
+    /// key (`taxtriage.organisms:` plus side A's folder). This removes the entries of both folders and checks that
+    /// none is left. The Sources fix that avoids the writes, a defaults suite for the controller, is 2.13 row
+    /// TAXTRIAGE-DEFAULTS-SUITE.
+    static func clearMetadataPersistence(of view: TaxTriageResultViewController, resultURL: URL) -> [String] {
+        for controller in [view.testOrganismTableView.metadataColumns, view.testBatchFlatTableView.metadataColumns] {
+            controller.persistenceKey = nil
+            XCTAssertNil(controller.persistenceKey)
+        }
+        let throwawayPaths = [resultURL, view.taxTriageConfig?.outputDirectory].compactMap {
+            $0?.standardizedFileURL.path
+        }
+        for key in defaultsKeys(endingWith: throwawayPaths) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        XCTAssertEqual(defaultsKeys(endingWith: throwawayPaths), [], "no defaults key names the throwaway result")
+        return throwawayPaths
+    }
+
+    /// The keys of `UserDefaults.standard` that end with one of the folders. The controller names each key by the
+    /// folder it was given, so a key that ends with one of them names the throwaway result.
+    private static func defaultsKeys(endingWith folders: [String]) -> [String] {
+        UserDefaults.standard.dictionaryRepresentation().keys
+            .filter { key in folders.contains { key.hasSuffix($0) } }
+            .sorted()
     }
 
     /// The view flags the organisms the negative control holds on a task of the main actor, so a wait yields it.
