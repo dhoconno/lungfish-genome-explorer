@@ -25,6 +25,36 @@ enum ViewerExportStreamCapture {
                 ])
                 return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
             },
+            // The app's Kraken2 Export of a database, samples A and B with the `Group` metadata column.
+            ImportStreamCapture.Case(leaf: "kraken2 export table", name: "complete") { scratch in
+                let result = scratch.root.appendingPathComponent("kraken2-batch", isDirectory: true)
+                let metadata = result.appendingPathComponent("metadata", isDirectory: true)
+                try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
+                var rows: [Kraken2ClassificationRow] = []
+                for (sample, name, reads) in [("sample-A", "Virus A", 40), ("sample-B", "Virus B", 20)] {
+                    rows.append(Kraken2ClassificationRow(
+                        sample: sample, taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
+                        readsDirect: 0, readsClade: reads, percentage: 100, parentTaxId: nil, depth: 0
+                    ))
+                    rows.append(Kraken2ClassificationRow(
+                        sample: sample, taxonName: name, taxId: reads, rank: "S", rankDisplayName: "Species",
+                        readsDirect: reads, readsClade: reads, percentage: 100, parentTaxId: 1, depth: 1
+                    ))
+                }
+                try Kraken2Database.create(
+                    at: result.appendingPathComponent(Kraken2TaxonomyTableExport.databaseFileName),
+                    rows: rows,
+                    metadata: ["total_reads_sample-A": "40", "total_reads_sample-B": "20"]
+                )
+                try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
+                    .write(to: metadata.appendingPathComponent("sample_metadata.tsv"))
+                let command = try Kraken2Command.ExportTableSubcommand.parse([
+                    result.path, "--sample", "sample-A", "--sample", "sample-B", "--metadata-column", "Group",
+                    "--output-format", "tsv", "--output", scratch.root.appendingPathComponent("taxonomy.tsv").path,
+                    "--format", "json",
+                ])
+                return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+            },
             // The app's NAO-MGS Export, samples A and B with the `Cohort` metadata column.
             ImportStreamCapture.Case(leaf: "nao-mgs export table", name: "complete") { scratch in
                 let result = try naoMgsResult(in: scratch.root)

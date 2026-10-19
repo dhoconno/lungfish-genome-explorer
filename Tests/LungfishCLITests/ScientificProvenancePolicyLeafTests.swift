@@ -416,6 +416,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "import vcf": "cli.import",
         "import-fastq": "cli.import-fastq",
         "kraken2 classify": "cli.kraken2.classify",
+        "kraken2 export table": "cli.kraken2.export.table",
         "map": "cli.map",
         "markdup": "cli.markdup",
         "metadata export": "cli.metadata",

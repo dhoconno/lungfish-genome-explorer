@@ -17,5 +17,6 @@ OPTIONS:
 SUBCOMMANDS:
   classify                Run Kraken2 taxonomic classification on FASTQ or
                           FASTA inputs
+  export                  Export Kraken2 result tables with provenance
 
   See 'lungfish-cli help kraken2 <subcommand>' for detailed help.

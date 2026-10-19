@@ -4,7 +4,7 @@
 
 import ArgumentParser
 
-/// The `kraken2` group, whose one subcommand is `classify`.
+/// The `kraken2` group, whose subcommands are `classify` and `export`.
 ///
 /// `kraken2 classify` is `ClassifyCommand`, the type that `conda` has always
 /// registered as `conda classify` (plan decision S19, vote V14). The group lists
@@ -28,6 +28,7 @@ struct Kraken2Command: AsyncParsableCommand {
         """,
         subcommands: [
             ClassifyCommand.self,
+            ExportSubcommand.self,
         ]
     )
 }

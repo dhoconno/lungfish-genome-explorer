@@ -1,0 +1,13 @@
+OVERVIEW: Export Kraken2 result tables with provenance
+
+USAGE: lungfish-cli kraken2 export <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  table                   Write the taxonomy table of a Kraken2 result as TSV
+                          or CSV with provenance
+
+  See 'lungfish-cli help kraken2 export <subcommand>' for detailed help.

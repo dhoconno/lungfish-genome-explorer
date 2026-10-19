@@ -21,7 +21,7 @@ public enum Kraken2TaxonomyTableExport {
     /// The leaf's invocation for a view state, with absolute standardized paths. The begin helper passes its
     /// `arguments()` to the runner and to the row's command, and the leaf records its `canonicalArgv()`.
     public static func invocation(
-        resultURL: URL,
+        sourceURL: URL,
         samples: [String],
         metadataColumns: [String],
         format: ViewerExportDelimitedFormat,
@@ -31,7 +31,7 @@ public enum Kraken2TaxonomyTableExport {
     ) -> ViewerExportInvocation {
         ViewerExportInvocation(
             commandPath: commandPath,
-            input: resultURL.standardizedFileURL.path,
+            input: sourceURL.standardizedFileURL.path,
             state: ViewerTableExportState(samples: samples, metadataColumns: metadataColumns),
             outputFormat: format.rawValue,
             output: outputURL.standardizedFileURL.path,
@@ -67,6 +67,72 @@ public enum Kraken2TaxonomyTableExport {
             folder.appendingPathComponent("sample_metadata.tsv"),
             folder.appendingPathComponent("sample_metadata_edits.json"),
         ]
+    }
+
+    /// The file a table is read from and the form it selects (ARCH ruling on 12.33 F1, section 2).
+    public enum Source: Equatable, Sendable {
+        /// `kraken2.sqlite`, which holds every sample of a batch or an indexed result.
+        case database(URL)
+        /// `classification-result.json`, which holds the one sample of a run.
+        case sidecar(URL)
+
+        /// The form a path selects. The two file names select by name, and a folder selects the database when it
+        /// holds one and else the sidecar, as the sidebar opens it. Nil for a missing path, a file with another name
+        /// and a folder that holds neither file.
+        public init?(url: URL, fileManager: FileManager = .default) {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
+            if isDirectory.boolValue {
+                let database = url.appendingPathComponent(Kraken2TaxonomyTableExport.databaseFileName)
+                let sidecar = url.appendingPathComponent(Kraken2TaxonomyTableExport.sidecarFileName)
+                if fileManager.fileExists(atPath: database.path) {
+                    self = .database(database)
+                } else if fileManager.fileExists(atPath: sidecar.path) {
+                    self = .sidecar(sidecar)
+                } else {
+                    return nil
+                }
+            } else if url.lastPathComponent == Kraken2TaxonomyTableExport.databaseFileName {
+                self = .database(url)
+            } else if url.lastPathComponent == Kraken2TaxonomyTableExport.sidecarFileName {
+                self = .sidecar(url)
+            } else {
+                return nil
+            }
+        }
+
+        /// The file the table is read from.
+        public var fileURL: URL {
+            switch self {
+            case .database(let url), .sidecar(let url): return url
+            }
+        }
+
+        /// The result folder, which also holds the `metadata` folder.
+        public var folderURL: URL { fileURL.deletingLastPathComponent() }
+    }
+
+    /// The tree the viewer shows for the picked samples, which is the one sample's tree as it is and a merged tree
+    /// for more. Nil with no sample.
+    public static func displayTree(for sampleTrees: [(sampleId: String, tree: TaxonTree)]) -> TaxonTree? {
+        guard let first = sampleTrees.first else { return nil }
+        return sampleTrees.count == 1 ? first.tree : mergedTree(for: sampleTrees)
+    }
+
+    /// The visible metadata columns in the store's column order and each sample's values in that order, as
+    /// `MetadataColumnController.exportHeaders` and `exportValues(for:)` give them. Empty with no store.
+    public static func metadataTable(
+        store: SampleMetadataStore?,
+        visibleColumns: Set<String>,
+        sampleIds: some Swift.Sequence<String>
+    ) -> (headers: [String], valuesBySample: [String: [String]]) {
+        guard let store else { return ([], [:]) }
+        let headers = store.columnNames.filter { visibleColumns.contains($0) }
+        var valuesBySample: [String: [String]] = [:]
+        for sampleId in sampleIds {
+            valuesBySample[sampleId] = headers.map { store.records[sampleId]?[$0] ?? "" }
+        }
+        return (headers, valuesBySample)
     }
 }
 

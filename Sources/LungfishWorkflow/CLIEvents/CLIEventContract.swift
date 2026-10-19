@@ -133,6 +133,7 @@ package enum CLIEventContractTable {
         "import tree": .events(flag: formatJSON, channel: .standardOutput),
         "import-fastq": .events(flag: formatJSON, channel: .standardOutput),
         "kraken2 classify": .events(flag: formatJSON, channel: .standardOutput),
+        "kraken2 export table": .events(flag: formatJSON, channel: .standardOutput),
         "map": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate add": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate delete": .events(flag: formatJSON, channel: .standardOutput),

@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the Kraken2 taxonomy table.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 5 taxa to taxonomy.tsv","output":"\/work\/taxonomy.tsv","outputs":["\/work\/taxonomy.tsv"],"progress":1,"schemaVersion":2}
