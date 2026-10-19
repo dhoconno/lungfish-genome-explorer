@@ -125,7 +125,7 @@ and with a current STATE block a compaction repeats no work. These habits keep t
 | Write the spawn settings (model, effort, isolation and the wait timeouts) into the STATE block. | After the first compaction of 2.10 every expert spawn ran without effort max until the settings went into the STATE. |
 | Never load a skill in the manager. Edit a known settings key with Edit, or give the change to a sonnet agent. | Claude Code puts a loaded skill's text back after every compaction. |
 | Keep the cwd inside the program worktree for the whole session and run git there, where `git rev-parse worktree-agent-<id>` reads any lane's head. | The guard refuses `git -C` into another worktree, and a landing agent spawned without isolation works in the manager's worktree. |
-| Run one phase or one named task in a session, and start unrelated work in a fresh session or with a fresh agent. After two failed corrections of one issue, hand it to a fresh agent whose brief names the files and what the two attempts showed | Unrelated work and failed attempts stay in the manager's context, and every later turn rereads them, which the Manager context row of the Evidence measures |
+| Run one phase or one named task in a session, and start unrelated work in a fresh session or with a fresh agent. After two failed corrections of one issue, hand it to a fresh agent whose brief names the files and what the two attempts showed | Unrelated work and failed attempts stay in the manager's context, and every later turn rereads them, which the Manager context row of `docs/contracts/LLM-EVIDENCE.md` measures |
 
 ## Limits of Claude Code to state in every brief
 
@@ -165,11 +165,11 @@ final message under 200 words.
 
 The direct cost of a lane is its lane agents, its review, its fix agent and its share of the landing agent, and the
 all-in cost adds the panel, the manager and the monitor. `docs/contracts/LLM-EVIDENCE.md` holds the measurement behind
-each rule.
+each rule. A manager reads it only to question or change a rule, and the monitor adds to it at its last checkpoint.
 
 | Session | Date | Spend and wall time | Lanes landed | Direct cost per landed lane | All-in per landed lane |
 |---|---|---|---|---|---|
-| 2.7 to 2.10, four sessions, each to its last landing or monitor checkpoint, old table | 2026-10-11 to 14 | $4,733 over 56h47m, about $169 of it the panel | 126, and 3 more in the last landing of 2.9 | medians $13.03 to $23.86, means $17.54 to $37.24 | $25.16 to $48.62 |
+| 2.7 to 2.10, four sessions, each to its last landing or monitor checkpoint, old table | 2026-10-11 to 14 | $4,733 over 56h47m, about $169 of it the panel in 2.9 and 2.10 (the 2.7 and 2.8 rows gave none) | 126, and 3 more in the last landing of 2.9 | medians $13.03 to $23.86, means $17.54 to $37.24 | $25.16 to $48.62 |
 | The two effort and model tests and the release of Preview 2026.10.19, three sessions, old table | 2026-10-15 | $459.50 over 11h28m (the tests $83.03 and $328.43, the release $48.04), the week 60% to 79% | none, 64 graded runs and 7 release agents | not a phase | not a phase |
 | 2.11, one session, to its last monitor checkpoint, after the final candidate and the release of Preview 2026.10.20, old table | 2026-10-16 and 17 | $1,009 over 35h04m, 8h13m of it overnight with no builder, $34 the panel, $34 the final candidate and release, the week 0% to 44% at $22.9 a point | 38 | median $14.83, mean $21.33 | $26.54 |
 | Pre-2.12 fixes, one session, to its end checkpoint, before the unit tier and the push, old table | 2026-10-17 and 18 | $250 over 5h22m, $42.60 of it six rulings, the week 45% to 56% at $22.9 a point | 10, one a documentation lane, with 4 test batches of review follow-ups charged to their lanes | median $17.94, mean $18.19 | $24.95 |
@@ -186,7 +186,7 @@ evidence. The next session's checkpoint 0 records the closing figures of the ses
 - Add the session to the session table, and its measurements to `docs/contracts/LLM-EVIDENCE.md` in place of older ones.
 - Change or remove a rule that a before-and-after measurement contradicts. Add a rule only when a measurement supports
   it, or when it comes from `docs/contracts/CLAUDE-CODE-PRACTICES.md` with the basis `page`, and keep this file under
-  about 200 lines.
+  about 200 lines. The same checkpoint prunes this file and folds the accepted best-practice proposals.
 - Update `.claude/agents/llm-efficiency-monitor.md` and the ledger with its test when they changed, commit any agent
   type the session proposed, since types load only at a session's start, and copy the helpers to `build/llm/`.
 - Apply the line test to this file and `CLAUDE.md`. A line stays when removing it would cause a mistake, and this file

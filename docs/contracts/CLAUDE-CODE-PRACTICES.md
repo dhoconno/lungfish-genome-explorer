@@ -8,7 +8,7 @@ check.
 
 ## Basis of a rule
 
-A rule of `docs/contracts/RUNNING-A-PHASE-SESSION.md` rests on a measurement in its Evidence tables. A rule that comes
+A rule of `docs/contracts/RUNNING-A-PHASE-SESSION.md` rests on a measurement in the rows of `docs/contracts/LLM-EVIDENCE.md`. A rule that comes
 from the page rests on the page, and it has the basis `page` until a session of the monitor measures it. The monitor
 then keeps, changes or removes the rule as the End-of-session duty of that contract sets. A measurement that
 contradicts the page wins, and the Decisions and trials table records it.
