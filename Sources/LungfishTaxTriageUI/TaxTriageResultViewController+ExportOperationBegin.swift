@@ -56,6 +56,26 @@ extension TaxTriageResultViewController {
         )
     }
 
+    /// Begins the Operations row of the results export and runs `lungfish-cli taxtriage export results` for it. The
+    /// parameters and the result are those of `beginTaxTriageOrganismMatrixExportOperation`.
+    @discardableResult
+    static func beginTaxTriageResultsExportOperation(
+        invocation: ViewerExportInvocation,
+        runner: CLIViewerExportRunner = CLIViewerExportRunner(),
+        reporter: any OperationReporting = OperationCenter.shared,
+        environmentAdditions: [String: String] = [:],
+        onFailure: @escaping @MainActor @Sendable (CLIViewerExportRunner.Failure) -> Void
+    ) -> (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>)? {
+        beginTaxTriageExportOperation(
+            title: "Export TaxTriage Results",
+            invocation: invocation,
+            runner: runner,
+            reporter: reporter,
+            environmentAdditions: environmentAdditions,
+            onFailure: onFailure
+        )
+    }
+
     /// The row every TaxTriage export begins. The row records the command the runner runs, both built from
     /// `invocation`, so the row and the leaf's record name one command (ARCH 2). The row takes no bundle lock, as the
     /// in-app exports took none. The leaf writes the file and its record, and the app writes no byte after it exits.

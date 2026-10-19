@@ -4252,11 +4252,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     @objc private func exportCSVAction(_ sender: Any) {
-        exportDelimited(separator: ",", fileExtension: "csv", fileTypeName: "CSV")
+        exportDelimited(fileExtension: "csv", fileTypeName: "CSV")
     }
 
     @objc private func exportTSVAction(_ sender: Any) {
-        exportDelimited(separator: "\t", fileExtension: "tsv", fileTypeName: "TSV")
+        exportDelimited(fileExtension: "tsv", fileTypeName: "TSV")
     }
 
     @objc private func copySummaryAction(_ sender: Any) {
@@ -4384,12 +4384,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Delimited Export
 
-    /// Exports the organism table as a delimited file via an `NSSavePanel` sheet.
-    private func exportDelimited(separator: String, fileExtension: String, fileTypeName: String) {
+    /// Exports the flat table as CSV or TSV by running `taxtriage export results` behind an Operations row
+    /// (`beginTaxTriageResultsExportOperation`). The leaf reads no `--sample` as every sample, so an empty Sample
+    /// Filter returns before the save panel.
+    private func exportDelimited(fileExtension: String, fileTypeName: String) {
         guard let window = view.window else {
             logger.warning("Cannot export: no window")
             return
         }
+        guard !exportSelectedSampleIds().isEmpty,
+              let format = ViewerExportDelimitedFormat(rawValue: fileExtension) else { return }
 
         let baseName: String
         if isBatchGroupMode {
@@ -4405,21 +4409,41 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
-
-            let content = self.buildDelimitedExport(separator: separator)
-            do {
-                try self.writeDelimitedResults(separator: separator, fileExtension: fileExtension, to: url, content: content)
-                logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
-            } catch {
-                logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
+            guard let invocation = self.resultsExportInvocation(format: format, outputURL: url) else {
+                logger.warning("Cannot export the results table: the result has no folder")
+                return
+            }
+            Self.beginTaxTriageResultsExportOperation(invocation: invocation) { [weak self] failure in
+                logger.error("Failed to export TaxTriage results: \(failure.message, privacy: .public)")
                 ResultExportCoordinator.reportFailure(
                     fileName: url.lastPathComponent,
-                    error: error,
+                    error: failure,
                     window: window,
-                    presenter: self.exportFailurePresenter
+                    presenter: self?.exportFailurePresenter ?? DefaultExportFailurePresenter()
                 )
             }
         }
+    }
+
+    /// The `taxtriage export results` invocation for the view's state: the ticked samples as the result records
+    /// them, the organism search, the flat table's sort descriptors and column filters, and the metadata columns it
+    /// shows, or nil when the view holds no result folder, which the database route always sets.
+    func resultsExportInvocation(format: ViewerExportDelimitedFormat, outputURL: URL) -> ViewerExportInvocation? {
+        guard let batchGroupURL else { return nil }
+        let table = batchFlatTableView
+        return TaxTriageResultsExport.invocation(
+            resultURL: batchGroupURL,
+            samples: exportSelectedSampleIds(),
+            searchText: exportSearchText,
+            sortKeys: table.tableView.sortDescriptors.compactMap { descriptor in
+                descriptor.key.map { ViewerExportSortKey(column: $0, ascending: descriptor.ascending) }
+            },
+            filters: table.columnFilterSet,
+            metadataColumns: table.metadataColumns.exportHeaders,
+            format: format,
+            outputURL: outputURL,
+            force: FileManager.default.fileExists(atPath: outputURL.path)
+        )
     }
 
     func writeDelimitedResults(
