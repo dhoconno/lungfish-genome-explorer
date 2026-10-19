@@ -51,12 +51,16 @@ CTX_BUCKETS = [(100e3, "<100K"), (200e3, "100-200K"), (400e3, "200-400K"), (600e
 COMMIT_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?commit\b")
 BIG_RESULT = 20 * 1024
 HANG_SECONDS = 15 * 60
-# $ per million tokens. Sonnet 5.5 fits Claude Code cost-state records exactly (in 2, out 10,
-# read 0.2, 5m write 2.5; 1h write assumed 2x input). Opus 5.5 is a least-squares fit over 17
-# sessions (large sessions within 1%, small main-only sessions about 10-15% low).
+# $ per million tokens, from the model catalog inside Claude Code 2.1.299, the version that priced the cost-state record of
+# 2.12 session 1. These tables reproduce that record to the cent for opus ($491.24) and sonnet ($321.94). Opus 5.5 is
+# tier_4_20_cache_read_0_20 (in 4, out 20, 5m write 5, 1h write 8, read 0.2) in 2.1.286 to 2.1.299, which replaces the
+# least-squares fit used before (it ran 1.4% under on session 1 and 10-18% under on small sessions). Sonnet 5.5 is
+# tier_2_10_cache_read_0_10 (read 0.1) in 2.1.299 and tier_2_10 (read 0.2) in 2.1.295 and older, so a sonnet record that an
+# older version finished is higher than this table by 0.1 dollar for each million cache read tokens. Fable keeps the old
+# opus fit and haiku the 3.5 tier, since no cost-state record has checked either.
 PRICES = {
-    "opus": {"in": 2.05, "out": 19.2, "read": 0.205, "w5m": 5.05, "w1h": 5.05},
-    "sonnet": {"in": 2.0, "out": 10.0, "read": 0.20, "w5m": 2.5, "w1h": 4.0},
+    "opus": {"in": 4.0, "out": 20.0, "read": 0.20, "w5m": 5.0, "w1h": 8.0},
+    "sonnet": {"in": 2.0, "out": 10.0, "read": 0.10, "w5m": 2.5, "w1h": 4.0},
     "fable": {"in": 2.05, "out": 19.2, "read": 0.205, "w5m": 5.05, "w1h": 5.05},
     "haiku": {"in": 0.8, "out": 4.0, "read": 0.08, "w5m": 1.0, "w1h": 1.6},
 }

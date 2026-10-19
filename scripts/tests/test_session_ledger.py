@@ -144,10 +144,28 @@ class UsageAndCostTests(LedgerTestCase):
         self.sub.prompt(0, 'brief')
         self.sub.turn(5, 'msg_1', usage(inp=1000, write=1000000, read=1000000, out=100000), [], stop='end_turn')
         lane = self.agent(self.run_ledger(), AID)
-        # sonnet: input 2.00, 5-minute cache write 2.50, cache read 0.20, output 10.00 dollars per million tokens
-        self.assertAlmostEqual(lane['cost'], 0.002 + 2.5 + 0.2 + 1.0, places=6)
+        # sonnet: input 2.00, 5-minute cache write 2.50, cache read 0.10, output 10.00 dollars per million tokens
+        self.assertAlmostEqual(lane['cost'], 0.002 + 2.5 + 0.1 + 1.0, places=6)
         self.assertEqual(self.ledger.price_for('claude-opus-5-5'), self.ledger.PRICES['opus'])
         self.assertIsNone(self.ledger.price_for('unknown-model'))
+
+    def record_cost(self, model, inp, out, read, write_5m, write_1h):
+        """The ledger's cost for the tokens of one model in Claude Code's cost-state record of session 8abd61c3 (2.12
+        session 1, written by 2.1.299). The record does not split its cache writes, so the 1 hour share is the ledger's."""
+        use = {'in': inp, 'out': out, 'cr': read, 'cc': write_5m + write_1h, 'w5m': write_5m, 'w1h': write_1h}
+        return self.ledger.cost_of(use, model)[0]
+
+    def test_opus_prices_are_the_catalog_prices_and_reproduce_the_cost_state_record(self):
+        # Opus 5.5 is tier_4_20_cache_read_0_20 in the model catalog of Claude Code 2.1.286, 2.1.295 and 2.1.299
+        self.assertEqual(self.ledger.PRICES['opus'], {'in': 4.0, 'out': 20.0, 'read': 0.20, 'w5m': 5.0, 'w1h': 8.0})
+        self.assertAlmostEqual(self.record_cost('claude-opus-5-5', 19338, 8046216, 1082615627, 19500214, 2026932),
+                               491.24, delta=0.01)
+
+    def test_sonnet_prices_are_the_2_1_299_catalog_prices_and_reproduce_the_cost_state_record(self):
+        # Sonnet 5.5 is tier_2_10_cache_read_0_10 in Claude Code 2.1.299 (tier_2_10 with cache read 0.20 in 2.1.295 and older)
+        self.assertEqual(self.ledger.PRICES['sonnet'], {'in': 2.0, 'out': 10.0, 'read': 0.10, 'w5m': 2.5, 'w1h': 4.0})
+        self.assertAlmostEqual(self.record_cost('claude-sonnet-5-5', 9716, 16030762, 772615054, 33742412, 0),
+                               321.94, delta=0.01)
 
     def test_main_transcript_copied_into_two_project_folders_counts_once(self):
         self.main.prompt(0, 'start')
@@ -303,9 +321,9 @@ class RoleRuleTests(LedgerTestCase):
 
 class SpendByRoleModelAndEffortTests(LedgerTestCase):
     """The model and effort each spawn asked for, beside the model its turns ran on, in two tables of the report."""
-    LANE = '| lane | claude-sonnet-5-5 | max | 1 | 2 | 30K | 16K | 0 | 53.3 | 0 | 1.12 |'
+    LANE = '| lane | claude-sonnet-5-5 | max | 1 | 2 | 30K | 16K | 0 | 53.3 | 0 | 0.91 |'
     REVIEW = '| review | claude-opus-5-5 | %s | 1 | 2 | 16K | 5K | 8K | 81.8 | 1 | 0.78 |'
-    MAIN = '| main | claude-opus-5-5 | unset | 1 | 2 | 90 | 0 | 0 | 0.0 | 0 | 0.02 |'
+    MAIN = '| main | claude-opus-5-5 | unset | 1 | 2 | 90 | 0 | 0 | 0.0 | 0 | 0.03 |'
     OPUS, SONNET = 'claude-opus-5-5', 'claude-sonnet-5-5'
 
     def write_meta(self, agent_id, **fields):
@@ -361,8 +379,8 @@ class SpendByRoleModelAndEffortTests(LedgerTestCase):
              ('main', self.OPUS, 'unset', 1, 2, 90, 0, 0, 0)])
         self.assertAlmostEqual(rows[0]['think_share'], 16000 / 30000)
         self.assertAlmostEqual(rows[1]['think_share'], (5000 + estimated) / (8000 + estimated))
-        # opus: input 2.05, 5-minute cache write 5.05, cache read 0.205, output 19.20 dollars per million tokens
-        self.assertAlmostEqual(rows[1]['cost'], 0.4581 + 0.1066 + 0.0505 + estimated * 19.2 / 1e6, places=5)
+        # opus: input 4.00, 5-minute cache write 5.00, 1-hour write 8.00, cache read 0.20, output 20.00 dollars per million tokens
+        self.assertAlmostEqual(rows[1]['cost'], 0.46 + 0.104 + 0.05 + estimated * 20 / 1e6, places=5)
         self.assertAlmostEqual(sum(x['cost'] for x in rows), self.ledger.aggregate(session['agents'])['cost'], places=5)
         self.assertEqual(session['spawns_without_model_or_effort'], [
             {'key': BID, 'label': 'Swift review of lane A1', 'agent_type': 'general-purpose',
