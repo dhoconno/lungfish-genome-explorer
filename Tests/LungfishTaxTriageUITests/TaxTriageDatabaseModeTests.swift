@@ -127,7 +127,16 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         defer { fixture.cleanUp() }
         let vc = fixture.makeController()
 
-        let tsv = vc.buildDelimitedExport(separator: "\t")
+        let table = vc.testBatchFlatTableView
+        let tsv = TaxTriageResultsExport.buildDelimitedExport(
+            rows: table.displayedRows,
+            totalReadsByKey: table.totalReadsByKey,
+            uniqueReadsByKey: table.uniqueReadsByKey,
+            contaminationRiskOrganismKeys: table.contaminationRiskOrganismKeys,
+            metadataHeaders: [],
+            metadataValuesBySample: [:],
+            separator: "\t"
+        )
         let lines = tsv.split(separator: "\n").map(String.init)
         XCTAssertEqual(lines.count, 5, tsv)
         XCTAssertEqual(
@@ -136,12 +145,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         )
         XCTAssertTrue(lines.contains { $0.hasPrefix("sample-1\tAlpha virus\t0.9100\t42\t21\t") }, tsv)
 
-        let outputURL = fixture.root.appendingPathComponent("rows.csv")
-        try vc.writeDelimitedResults(separator: ",", fileExtension: "csv", to: outputURL)
-        let envelope = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
-        )
-        XCTAssertEqual(envelope.options.resolvedDefaults["rowCount"]?.integerValue, 4)
+        XCTAssertEqual(table.displayedRows.count, 4)
         let csvItem = try XCTUnwrap(vc.buildExportMenu().items.first { $0.title == "Export as CSV\u{2026}" })
         XCTAssertTrue(vc.validateMenuItem(csvItem))
     }

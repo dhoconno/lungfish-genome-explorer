@@ -4446,67 +4446,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         )
     }
 
-    func writeDelimitedResults(
-        separator: String,
-        fileExtension: String,
-        to url: URL,
-        content: String? = nil
-    ) throws {
-        let runClock = ProvenanceRunClock()
-        let exportContent = content ?? buildDelimitedExport(separator: separator)
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app taxtriage results export",
-            sourceURLs: exportProvenanceSourceURLs(writesMetadata: !delimitedExportMetadataHeaders.isEmpty),
-            outputURL: url,
-            outputFormat: .text,
-            argv: ["Lungfish.app", "export-taxtriage-results", "--format", fileExtension, "--output", url.path],
-            explicitOptions: [
-                "outputPath": .file(url),
-                "format": .string(fileExtension),
-            ],
-            defaults: [
-                "format": .string("tsv"),
-            ],
-            resolved: [
-                "rowCount": .integer(delimitedExportRowCount),
-                "sampleIds": .array(sampleIds.map { .string($0) }),
-                "selectedSamples": .array(exportSelectedSampleIds().map(ParameterValue.string)),
-                "organismSearchText": .string(organismSearchText),
-                "tableMode": .string(exportTableModeName),
-                "sortDescriptors": .array(exportSortDescriptorParameters(delimitedExportSortDescriptors)),
-                "metadataColumns": .array(delimitedExportMetadataHeaders.map { .string($0) }),
-            ],
-            runClock: runClock
-        )) { outputURL in
-            try exportContent.write(to: outputURL, atomically: true, encoding: .utf8)
-        }
-    }
-
-    /// The files an export reads (BIO 6): the result database and, when the view loaded it, the run's sidecar,
-    /// which holds the negative controls and the run facts. The results export also reads the sample metadata table
-    /// and its edit journal when it writes a metadata column (`writesMetadata`, BIO ruling on 12.32 F7-2). The batch
-    /// manifest and the result folder are not read.
-    private func exportProvenanceSourceURLs(writesMetadata: Bool = false) -> [URL] {
-        var urls: [URL] = []
-        if let databaseURL = taxTriageDatabase?.databaseURL {
-            urls.append(databaseURL)
-        }
-        if taxTriageResult != nil, let batchGroupURL {
-            urls.append(batchGroupURL.appendingPathComponent("taxtriage-result.json"))
-        }
-        if let batchGroupURL {
-            urls += EsVirituDetectionExport.metadataInputURLs(in: batchGroupURL, writesMetadata: writesMetadata)
-        }
-        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    private var exportTableModeName: String {
-        if isBatchGroupMode { return "batchGroup" }
-        if isMultiSampleSingleResultMode { return "multiSampleFlat" }
-        if selectedSampleIndex == 0, sampleIds.count > 1 { return "batchOverview" }
-        return "organismTable"
-    }
-
     private func exportSelectedSampleIds() -> [String] {
         if (isBatchGroupMode || isMultiSampleSingleResultMode), let samplePickerState {
             return sampleIds.filter { samplePickerState.selectedSamples.contains($0) }
@@ -4524,16 +4463,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return sampleIds[selectedSampleIndex - 1]
     }
 
-    private func exportSortDescriptorParameters(_ descriptors: [NSSortDescriptor]) -> [ParameterValue] {
-        descriptors.map { descriptor in
-            .dictionary([
-                "key": descriptor.key.map(ParameterValue.string) ?? .null,
-                "ascending": .boolean(descriptor.ascending),
-                "selector": descriptor.selector.map { .string(NSStringFromSelector($0)) } ?? .null,
-            ])
-        }
-    }
-
     private var exportMetrics: [TaxTriageMetric] {
         metrics.isEmpty ? allBatchGroupRows : metrics
     }
@@ -4546,86 +4475,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private var delimitedExportRowCount: Int {
         exportsDatabaseFlatTable ? batchFlatTableView.displayedRows.count : organismTableView.exportRows.count
-    }
-
-    private var delimitedExportSortDescriptors: [NSSortDescriptor] {
-        exportsDatabaseFlatTable ? batchFlatTableView.tableView.sortDescriptors : organismTableView.exportSortDescriptors
-    }
-
-    private var delimitedExportMetadataHeaders: [String] {
-        exportsDatabaseFlatTable
-            ? batchFlatTableView.metadataColumns.exportHeaders
-            : organismTableView.metadataColumns.exportHeaders
-    }
-
-    /// Delimited export of the database flat table: the rows it currently
-    /// shows (Sample Filter, organism search and column filters applied), in
-    /// its current sort order. The table's state goes to the builder as values.
-    private func buildDatabaseDelimitedExport(separator: String) -> String {
-        let metadataColumns = batchFlatTableView.metadataColumns
-        let rows = batchFlatTableView.displayedRows
-        var metadataValuesBySample: [String: [String]] = [:]
-        for sample in Set(rows.map { $0.sample ?? "" }) {
-            metadataValuesBySample[sample] = metadataColumns.exportValues(for: sample)
-        }
-        return TaxTriageResultsExport.buildDelimitedExport(
-            rows: rows,
-            totalReadsByKey: batchFlatTableView.totalReadsByKey,
-            uniqueReadsByKey: batchFlatTableView.uniqueReadsByKey,
-            contaminationRiskOrganismKeys: batchFlatTableView.contaminationRiskOrganismKeys,
-            metadataHeaders: metadataColumns.exportHeaders,
-            metadataValuesBySample: metadataValuesBySample,
-            separator: separator
-        )
-    }
-
-    /// Builds delimited export content from all table rows.
-    func buildDelimitedExport(separator: String) -> String {
-        if exportsDatabaseFlatTable {
-            return buildDatabaseDelimitedExport(separator: separator)
-        }
-        var lines: [String] = []
-
-        var headers = [
-            "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
-            "Tax ID", "Rank", "Abundance",
-        ]
-        // Append visible metadata column headers
-        let metaHeaders = organismTableView.metadataColumns.exportHeaders
-        headers.append(contentsOf: metaHeaders)
-        lines.append(headers.joined(separator: separator))
-
-        for row in organismTableView.exportRows {
-            var fields: [String] = []
-            fields.append(escapeField(row.organism, separator: separator))
-            fields.append(String(format: "%.4f", row.tassScore))
-            fields.append("\(row.reads)")
-            fields.append(row.uniqueReads.map(String.init) ?? "")
-            fields.append(row.coverage.map { String(format: "%.2f", $0) } ?? "")
-            fields.append(row.confidence ?? "")
-            fields.append(row.taxId.map { "\($0)" } ?? "")
-            fields.append(row.rank ?? "")
-            fields.append(row.abundance.map { String(format: "%.6f", $0) } ?? "")
-
-            // Append visible metadata column values
-            let metaValues = organismTableView.metadataColumns.exportValues
-            for value in metaValues {
-                fields.append(escapeField(value, separator: separator))
-            }
-            lines.append(fields.joined(separator: separator))
-        }
-
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    /// Escapes a field for CSV output.
-    private func escapeField(_ value: String, separator: String) -> String {
-        guard separator == "," else { return value }
-        if value.contains(",") || value.contains("\"") || value.contains("\n") {
-            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
-            return "\"\(escaped)\""
-        }
-        return value
     }
 
     // MARK: - Metadata Column Updates
