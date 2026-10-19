@@ -187,6 +187,7 @@ features:
       - "Tools > Mapping…"
       - "CLI: lungfish map"
       - "CLI: lungfish bam adopt-mapping"
+      - "Inspector > Document > Run Settings"
     inputs: [fastq, fasta, reference-bundle]
     outputs: [bam, bai, mapping-result, alignment-track, mapping-provenance]
     viewport_class: alignment
@@ -206,6 +207,10 @@ features:
       - Sources/LungfishCLI/Commands/MapCommand+Events.swift
       - Sources/LungfishWorkflow/Mapping/MappingSummaryBuilder.swift
       - Sources/LungfishApp/Views/Results/Reference/MappingReferenceCountText.swift
+      - Sources/LungfishApp/Views/Inspector/MappingDocumentStateBuilder.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/MappingDocumentSection.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/MappingDocumentStepRow.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorStepCopyText.swift
     module: [LungfishWorkflow, LungfishCLI, LungfishApp]
     cli:
       - lungfish-cli map
@@ -222,6 +227,8 @@ features:
       - Tests/LungfishAppTests/ReadsLaunchRouteTests.swift
       - Tests/LungfishWorkflowTests/Mapping/MappingResultTests.swift
       - Tests/LungfishAppViewTests/MappingReferenceCountTextTests.swift
+      - Tests/LungfishAppTests/MappingDocumentStateBuilderTests.swift
+      - Tests/LungfishAppTests/MappingDocumentStepRowTests.swift
     notes: >-
       Runs minimap2 or the selected mapper, normalizes the resulting BAM, writes
       a mapping-result sidecar, and can attach the mapping outputs to a
@@ -236,6 +243,10 @@ features:
       left some out, the summary bar above the list says how many have
       alignments, for example 94 of 905,628. Results made by earlier versions
       show as before.
+      On the Inspector's Document tab, Run Settings lists each recorded command
+      as a step that expands to its whole command. Copy Step, Copy Command and
+      Copy All Steps copy steps as plain text from a step's copy button, its
+      context menu, its VoiceOver actions or Command-C.
   variants.call:
     title: Call variants from a bundle alignment track
     entry_points:
@@ -440,12 +451,15 @@ features:
       - Tests/LungfishAppTests/ReferenceBundleMergeParityReplayTests.swift
       - Tests/LungfishAppTests/ReferenceBundleMergeSIGTERMReplayTests.swift
       - Tests/LungfishCLITests/BundleMergeSIGTERMTests.swift
+      - Tests/LungfishAppTests/ReferenceBundleMergeRecordConformanceTests.swift
     notes: >-
       lungfish-cli bundle merge merges two or more reference bundles into one
       new bundle, with events on --format json. The sidebar's Merge into New
       Bundle for reference bundles runs it, so Cancel stops the merge before
       it publishes, the bundle appears under its name in one step, and the
       Operations row shows the command to copy.
+      The record of the merged bundle names lungfish-cli bundle merge and the
+      arguments that the merge process started with.
   export.sequences:
     title: Export sequences from a bundle
     entry_points:
@@ -2422,6 +2436,7 @@ features:
       - Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel+StepTermination.swift
       - Sources/LungfishApp/Views/Inspector/Sections/ProvenanceSection+StepTermination.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceCommandPresentation.swift
+      - Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel+StepCopy.swift
     module: [LungfishApp, LungfishWorkflow]
     tests:
       - Tests/LungfishAppTests/ProvenanceInspectorViewModelTests.swift
@@ -2433,6 +2448,7 @@ features:
       - Tests/LungfishAppTests/ProvenanceStepTerminationDisplayTests.swift
       - Tests/LungfishWorkflowTests/ProvenanceCommandPresentationTests.swift
       - Tests/LungfishCoreTests/PortablePathRerootSpanTests.swift
+      - Tests/LungfishAppTests/ProvenanceStepCopyTests.swift
     notes: >-
       View > Provenance Inspector (Option-Command-V) shows the Inspector on
       its Provenance tab. InspectorViewModel.availableTabs offers the tab in
@@ -2465,6 +2481,10 @@ features:
       project did not keep by its name, any other path as recorded), and a
       shell's -c or -lc script keeps its program with each path inside it
       shortened the same way. Copy Command copies the full recorded command.
+      Each Lineage step offers Copy Step, Copy Command and Copy All Steps from
+      its copy icon, its context menu and its VoiceOver actions, and Command-C
+      copies a focused step. Copy Step copies the step's own block of what Copy
+      All Steps copies.
   provenance.result-popovers:
     title: Show a result viewer's pipeline information popover
     entry_points:
@@ -2670,6 +2690,26 @@ features:
       extension. Section headers offer no Copy Name. Command-C does the same
       while the sidebar has keyboard focus, and each row offers Copy Name as a
       VoiceOver action.
+  sidebar.copy-path:
+    title: Copy the paths of sidebar items
+    entry_points:
+      - "Sidebar context menu > Copy Path"
+      - "Selection > Sidebar Item > Copy Path"
+    inputs: [bundle, folder, file]
+    outputs: [clipboard-text]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Sidebar/SidebarItemAction.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+ItemActions.swift
+    module: [LungfishApp]
+    tests:
+      - Tests/LungfishAppTests/SidebarItemActionAccessibilityTests.swift
+      - Tests/LungfishAppViewTests/SelectionMenuTests.swift
+    notes: >-
+      Copy Path puts the file system path of each selected row on the clipboard
+      as plain text, one path per line in sidebar order. With several rows
+      selected the context menu reads Copy 2 Paths, counting the rows. A row
+      with no file adds no line.
   tools.provision:
     title: Provision managed tools
     entry_points:

@@ -1643,12 +1643,14 @@ operations:
     entry_points:
       - "File > Import Center... > Variants > VCF Variants"
       - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <project>"
-      - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <bundle.lungfishref> [--name <track>] [--import-profile <profile>] [--replace <track-id>]"
+      - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <bundle.lungfishref> [--name <track>] [--import-profile <profile>] [--replace <track-id>] [--resume | --materialize]"
     gating: []
     sources:
       - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
       - Sources/LungfishApp/App/AppDelegate+ImportCenter.swift
-      - Sources/LungfishApp/App/VCFImportHelper.swift
+      - Sources/LungfishCLI/Commands/ImportCommand+VCF.swift
+      - Sources/LungfishCLI/Commands/ImportCommand+VCFModes.swift
+      - Sources/LungfishApp/Services/VCFImportCLICommand.swift
       - Sources/LungfishApp/Views/Settings/GeneralSettingsTab.swift
       - docs/user-manual/reviews/fidelity-2026-09/cli-help/import.txt
       - docs/user-manual/reviews/fidelity-2026-09/ground-truth/05-variants.md
