@@ -137,6 +137,10 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         if showsGroup {
             let store = try XCTUnwrap(SampleMetadataStore.load(from: resultURL, knownSampleIds: Set(sampleIds)))
             let columns = view.testBatchFlatTableView.metadataColumns
+            // `configureFromDatabase` gave the controller a persistence key that names this throwaway result, and a
+            // keyed controller writes its layout to `UserDefaults.standard`.
+            columns.persistenceKey = nil
+            XCTAssertNil(columns.persistenceKey)
             columns.visibleColumns = ["Group"]
             columns.update(store: store, sampleId: nil)
         }
