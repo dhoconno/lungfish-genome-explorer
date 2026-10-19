@@ -1636,51 +1636,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         )
     }
 
-    /// Builds and writes the delimited export content. Extracted from the
-    /// NSSavePanel callback so the write-failure path is directly testable.
-    ///
-    /// This export previously wrote only the CSV/TSV payload, with no
-    /// provenance sidecar recording which classification result and inputs
-    /// produced it. Writes atomically through
-    /// `ScientificFileExportProvenance`, the same helper used by sequence and
-    /// alignment exports, so a crash mid-write cannot leave a payload with no
-    /// (or a stale) sidecar.
-    @discardableResult
-    func writeDelimitedExport(tree: TaxonTree, separator: String, to url: URL, runClock: ProvenanceRunClock = ProvenanceRunClock()) throws -> URL {
-        let content = buildDelimitedExport(tree: tree, separator: separator)
-        let sourceURLs = exportSourceURLs()
-        let fileExtension = url.pathExtension.isEmpty ? "csv" : url.pathExtension
-        let separatorName = separator == "\t" ? "tsv" : "csv"
-        return try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app taxonomy table export",
-            sourceURLs: sourceURLs,
-            outputURL: url,
-            outputFormat: .text,
-            argv: [
-                CLICommandIdentity.executableName,
-                "export", "taxonomy-table",
-                "--separator", separatorName,
-                "--output", url.path,
-            ],
-            explicitOptions: [
-                "sourcePaths": .array(sourceURLs.map { .file($0) }),
-                "outputPath": .file(url),
-                "separator": .string(separatorName),
-            ],
-            defaults: [
-                "outputFormat": .string(fileExtension),
-            ],
-            resolved: [
-                "nodeCount": .integer(tree.allNodes().count),
-                "outputByteCount": .integer(content.utf8.count),
-                "selectedSamples": .array(exportSelectedSampleIds().map(ParameterValue.string)),
-            ],
-            runClock: runClock
-        )) { staged in
-            try content.write(to: staged, atomically: true, encoding: .utf8)
-        }
-    }
-
     private func presentWarning(title: String, message: String) {
         if let warningPresenter {
             warningPresenter(title, message)
@@ -1688,53 +1643,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
 
         WarningPresenter.present(title: title, message: message, in: view.window)
-    }
-
-    /// Builds the delimited text content for export from the tree and the visible metadata columns, with
-    /// ``Kraken2TaxonomyTableExport/buildDelimitedExport(tree:separator:metadataHeaders:metadataValues:)``.
-    func buildDelimitedExport(tree: TaxonTree, separator: String) -> String {
-        let metadata = taxonomyTableView.metadataColumns
-        // A merged tree names its samples in the nodes under its Root, and each sample gets its own values.
-        let mergedSampleIds = tree.root.children.filter { $0.taxId < 0 }.map(\.name)
-        return Kraken2TaxonomyTableExport.buildDelimitedExport(
-            tree: tree,
-            separator: separator,
-            metadataHeaders: metadata.exportHeaders,
-            metadataValues: metadata.exportValues,
-            metadataValuesBySample: Dictionary(
-                mergedSampleIds.map { ($0, metadata.exportValues(for: $0)) },
-                uniquingKeysWith: { first, _ in first }
-            )
-        )
-    }
-
-    /// The files the shown tree came from, which a table export reads (Phase 2.12 lane 12.33, ARCH ruling on F1,
-    /// C2). That is `kraken2.sqlite` on the database route, and the sidecar, the report and the Bracken file on the
-    /// sidecar route, with the metadata files when a metadata column is written. Only files that exist.
-    private func exportSourceURLs() -> [URL] {
-        let writesMetadata = !taxonomyTableView.metadataColumns.exportHeaders.isEmpty
-        var urls: [URL] = []
-        if let kraken2Database {
-            urls = [kraken2Database.databaseURL]
-                + Kraken2TaxonomyTableExport.metadataInputURLs(
-                    in: kraken2Database.databaseURL.deletingLastPathComponent(), writesMetadata: writesMetadata
-                )
-        } else if let result = classificationResult {
-            let folder = result.config.outputDirectory
-            urls = Kraken2TaxonomyTableExport.sidecarInputURLs(folder: folder, result: result)
-                + Kraken2TaxonomyTableExport.metadataInputURLs(in: folder, writesMetadata: writesMetadata)
-        }
-        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    /// The sample ids whose trees the shown table holds, sorted. They are the picked samples on the database route
-    /// and the one sample of a sidecar result.
-    private func exportSelectedSampleIds() -> [String] {
-        if kraken2Database != nil, let state = samplePickerState {
-            return state.selectedSamples.sorted()
-        }
-        guard let result = classificationResult else { return [] }
-        return [Kraken2TaxonomyTableExport.sidecarSampleId(config: result.config)]
     }
 
     /// Copies the classification summary text to the system pasteboard.

@@ -29,120 +29,17 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
 
     // MARK: - The taxonomy table (census A7)
 
-    func testTheTaxonomyTableBytesAndRecordAtTheBase() throws {
+    /// The taxonomy builder's bytes for a quoted field and an unclassified row, in both separators. The record these
+    /// pins carried at the base is pinned by Kraken2TableExportCLIGUIParityReplayTests on its frozen side A and on
+    /// the leaf, and the recorded command is parsed by TaxonomyTableExportRowTests.
+    func testTheTaxonomyTableBytes() {
+        let tree = taxonomyTree()
         for (separator, format) in [(",", "csv"), ("\t", "tsv")] {
-            let export = try writeTaxonomyTable(separator: separator, fileName: "table.\(format)")
-            let content = try String(contentsOf: export.outputURL, encoding: .utf8)
-            XCTAssertEqual(content, expectedTaxonomyTable(separator: separator, tree: export.tree), format)
-
-            let envelope = export.envelope
-            XCTAssertEqual(envelope.toolName, "Lungfish.app", format)
-            XCTAssertEqual(envelope.tool.kind, "gui", format)
-            XCTAssertEqual(envelope.workflowName, "lungfish app taxonomy table export", format)
-            XCTAssertEqual(
-                envelope.argv,
-                [CLICommandIdentity.executableName, "export", "taxonomy-table", "--separator", format, "--output", export.outputURL.path],
-                format
+            let content = Kraken2TaxonomyTableExport.buildDelimitedExport(
+                tree: tree, separator: separator, metadataHeaders: [], metadataValues: []
             )
-            XCTAssertEqual(envelope.durableReplayArgv ?? envelope.argv, envelope.argv, format)
-            XCTAssertEqual(
-                Set(envelope.files.filter { $0.role == .input }.map(\.path)),
-                Set(export.inputs.map(\.path)),
-                "\(format): the record names the sidecar and the kreport the shown tree came from, never config.inputFiles"
-            )
-            XCTAssertEqual(Set(envelope.options.explicit.keys), ["outputPath", "separator", "sourcePaths"], format)
-            XCTAssertEqual(envelope.options.explicit["separator"]?.stringValue, format)
-            XCTAssertEqual(envelope.options.defaults["outputFormat"]?.stringValue, format)
-            XCTAssertEqual(
-                Set(envelope.options.resolvedDefaults.keys), ["nodeCount", "outputByteCount", "selectedSamples"], format
-            )
-            XCTAssertEqual(
-                envelope.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
-                ["reads_1"],
-                "\(format): the one sample id of a sidecar result"
-            )
-            XCTAssertEqual(envelope.options.resolvedDefaults["nodeCount"]?.integerValue, export.tree.allNodes().count, format)
-            XCTAssertEqual(envelope.options.resolvedDefaults["outputByteCount"]?.integerValue, content.utf8.count, format)
+            XCTAssertEqual(content, expectedTaxonomyTable(separator: separator, tree: tree), format)
         }
-    }
-
-    // MARK: - The database route (ARCH ruling on F1, C2 and C3)
-
-    /// A folder with a Kraken2 database of two samples and a sample metadata table that gives them different groups,
-    /// shown as the sidebar shows it (`configureFromDatabase`, every sample picked) with the `Group` column visible.
-    private func makeDatabaseView() throws -> (view: TaxonomyViewController, folder: URL) {
-        let folder = scratch.appendingPathComponent("kraken2-batch", isDirectory: true)
-        let metadata = folder.appendingPathComponent("metadata", isDirectory: true)
-        try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
-        var rows: [Kraken2ClassificationRow] = []
-        for (sample, name, reads) in [("sample-A", "Virus A", 40), ("sample-B", "Virus B", 20)] {
-            rows.append(Kraken2ClassificationRow(
-                sample: sample, taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
-                readsDirect: 0, readsClade: reads, percentage: 100, parentTaxId: nil, depth: 0
-            ))
-            rows.append(Kraken2ClassificationRow(
-                sample: sample, taxonName: name, taxId: reads, rank: "S", rankDisplayName: "Species",
-                readsDirect: reads, readsClade: reads, percentage: 100, parentTaxId: 1, depth: 1
-            ))
-        }
-        let database = try Kraken2Database.create(
-            at: folder.appendingPathComponent("kraken2.sqlite"),
-            rows: rows,
-            metadata: ["total_reads_sample-A": "40", "total_reads_sample-B": "20"]
-        )
-        try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
-            .write(to: metadata.appendingPathComponent("sample_metadata.tsv"))
-        let view = TaxonomyViewController()
-        _ = view.view
-        view.configureFromDatabase(database)
-        view.applySampleMetadata(SampleMetadataStore.load(from: folder, knownSampleIds: ["sample-A", "sample-B"]))
-        view.testTableView.metadataColumns.persistenceKey = nil
-        view.testTableView.metadataColumns.visibleColumns = ["Group"]
-        XCTAssertEqual(view.testTableView.metadataColumns.exportHeaders, ["Group"])
-        return (view, folder)
-    }
-
-    /// The database route (every batch and every indexed result) has no `classificationResult`, so the base record
-    /// names no input and no sample. It names the database the tree came from, the metadata table behind the shown
-    /// column, and the samples whose trees the table holds.
-    func testTheDatabaseRouteRecordNamesTheDatabaseTheMetadataAndTheSamples() throws {
-        let shown = try makeDatabaseView()
-        let outputURL = scratch.appendingPathComponent("database.tsv")
-        try shown.view.writeDelimitedExport(tree: try XCTUnwrap(shown.view.tree), separator: "\t", to: outputURL)
-        let envelope = try envelope(of: outputURL)
-        XCTAssertEqual(
-            Set(envelope.files.filter { $0.role == .input }.map(\.path)),
-            [
-                shown.folder.appendingPathComponent("kraken2.sqlite").path,
-                shown.folder.appendingPathComponent("metadata/sample_metadata.tsv").path,
-            ],
-            "the database the tree came from and the metadata table the shown column came from"
-        )
-        XCTAssertEqual(
-            envelope.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
-            ["sample-A", "sample-B"]
-        )
-    }
-
-    /// C3. A merged table puts each sample's own metadata on the rows at and under its sample node, and nothing on
-    /// the Root row. The base appends the first sample's values to every row
-    /// (`build/lane/tie-order-fails-at-base.log`, `Optional("case")` on the Root row and on sample-B's rows).
-    func testTheMergedTableGivesEachSampleItsOwnMetadata() throws {
-        let shown = try makeDatabaseView()
-        let outputURL = scratch.appendingPathComponent("merged.tsv")
-        try shown.view.writeDelimitedExport(tree: try XCTUnwrap(shown.view.tree), separator: "\t", to: outputURL)
-        let rows = try String(contentsOf: outputURL, encoding: .utf8).split(separator: "\n")
-            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
-        XCTAssertEqual(rows.count, 6, "the header, Root, and two samples with one taxon each")
-        for row in rows {
-            XCTAssertEqual(row.count, 7, "every row is as long as the header: \(row)")
-        }
-        let groups = Dictionary(uniqueKeysWithValues: rows.dropFirst().map { ($0[0], $0.last ?? "") })
-        XCTAssertEqual(groups["Root"], "")
-        XCTAssertEqual(groups["sample-A"], "case")
-        XCTAssertEqual(groups["Virus A"], "case")
-        XCTAssertEqual(groups["sample-B"], "control")
-        XCTAssertEqual(groups["Virus B"], "control")
     }
 
     // MARK: - The BLAST drawer table (census A9)
@@ -183,18 +80,10 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
 
     // MARK: - The recorded commands parse (QA 1)
 
-    /// A recorded command must parse through the real CLI parser (`CLI-EQUIVALENCE.md`, rule 5). Neither
-    /// `export taxonomy-table` nor `export blast-verification-table` has a leaf at the base, so both parses fail
-    /// there (`build/lane/m1-base.log` in the lane's worktree holds the failures). The expectation keeps this pin
-    /// green at its base and goes in the commit that adds the leaf, which turns the parse green and makes the
-    /// strict expectation fail until it is removed.
-    func testTheTaxonomyTableRecordsACommandThatParses() throws {
-        let argv = try writeTaxonomyTable(separator: ",", fileName: "table.csv").envelope.argv
-        try XCTExpectFailure("export taxonomy-table has no leaf at the base. The kraken2 export table commit removes this") {
-            XCTAssertNoThrow(try RecordedCLICommand.parse(Self.command(of: argv)), "recorded: \(argv.joined(separator: " "))")
-        }
-    }
-
+    /// A recorded command must parse through the real CLI parser (`CLI-EQUIVALENCE.md`, rule 5).
+    /// `export blast-verification-table` has no leaf at the base, so the parse fails there. The expectation keeps this
+    /// pin green at its base and goes in the commit that adds the leaf. The taxonomy table's recorded command is
+    /// parsed by TaxonomyTableExportRowTests and the parity class since `kraken2 export table` exists.
     func testTheBlastTableRecordsACommandThatParses() throws {
         let argv = try writeBlastTable(separator: ",", fileName: "blast.csv").envelope.argv
         try XCTExpectFailure("export blast-verification-table has no leaf at the base. The blast export table commit removes this") {
@@ -208,13 +97,6 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
     }
 
     // MARK: - Taxonomy fixture
-
-    private struct TaxonomyExport {
-        let outputURL: URL
-        let envelope: ProvenanceEnvelope
-        let inputs: [URL]
-        let tree: TaxonTree
-    }
 
     /// A tree with a root, a taxon whose name holds a comma and quotes, a plain taxon and an unclassified node.
     private func taxonomyTree() -> TaxonTree {
@@ -242,41 +124,6 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
             parentTaxId: nil
         )
         return TaxonTree(root: root, unclassifiedNode: unclassified, totalReads: 400)
-    }
-
-    private func writeTaxonomyTable(separator: String, fileName: String) throws -> TaxonomyExport {
-        let fastqs = ["reads_1.fastq", "reads_2.fastq"].map { scratch.appendingPathComponent($0) }
-        for input in fastqs {
-            try "@r1\nACGT\n+\n!!!!\n".write(to: input, atomically: true, encoding: .utf8)
-        }
-        let tree = taxonomyTree()
-        let config = ClassificationConfig(
-            inputFiles: fastqs,
-            isPairedEnd: true,
-            databaseName: "pin-db",
-            databasePath: scratch.appendingPathComponent("db"),
-            outputDirectory: scratch
-        )
-        let result = ClassificationResult(
-            config: config,
-            tree: tree,
-            reportURL: scratch.appendingPathComponent("classification.kreport"),
-            outputURL: scratch.appendingPathComponent("classification.kraken"),
-            brackenURL: nil,
-            runtime: 1,
-            toolVersion: "2.1.3",
-            provenanceId: nil
-        )
-        // The sidecar and the kreport are the files the shown tree comes from (ARCH ruling on F1, C2).
-        try "100.00\t300\t0\tR\t1\troot\n".write(to: result.reportURL, atomically: true, encoding: .utf8)
-        try result.save(to: scratch)
-        let inputs = [scratch.appendingPathComponent(ClassificationResult.sidecarFilename), result.reportURL]
-        let controller = TaxonomyViewController()
-        _ = controller.view
-        controller.configure(result: result)
-        let outputURL = scratch.appendingPathComponent(fileName)
-        try controller.writeDelimitedExport(tree: tree, separator: separator, to: outputURL)
-        return TaxonomyExport(outputURL: outputURL, envelope: try envelope(of: outputURL), inputs: inputs, tree: tree)
     }
 
     private func expectedTaxonomyTable(separator: String, tree: TaxonTree) -> String {

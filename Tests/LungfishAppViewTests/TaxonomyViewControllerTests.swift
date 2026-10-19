@@ -250,59 +250,6 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertTrue(vc.testBreadcrumbBar.isAtRoot)
     }
 
-    func testDelimitedExportWriteFailureIsDetected() throws {
-        // Regression test for AS27: the CSV/TSV kebab-menu export's
-        // NSSavePanel write-failure catch block used to only log.error(),
-        // leaving the user believing the export succeeded. The catch block
-        // now beeps and calls presentWarning(); this verifies the write
-        // failure the catch block guards against actually occurs and is
-        // surfaced as a thrown error rather than swallowed.
-        let vc = TaxonomyViewController()
-        _ = vc.view
-
-        let result = makeTestResult()
-        vc.configure(result: result)
-
-        // A path inside a non-existent directory always fails to write.
-        let unwritableURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("nonexistent-dir-\(UUID().uuidString)")
-            .appendingPathComponent("export.csv")
-
-        XCTAssertThrowsError(try vc.writeDelimitedExport(tree: result.tree, separator: ",", to: unwritableURL))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: unwritableURL.path))
-    }
-
-    /// The kebab-menu CSV/TSV taxonomy export used to write only the
-    /// payload with no provenance sidecar at all. Asserts the sidecar now exists and
-    /// records the source classification inputs.
-    func testDelimitedExportWritesProvenanceSidecar() throws {
-        let vc = TaxonomyViewController()
-        _ = vc.view
-
-        let result = makeTestResult()
-        let resultDirectory = result.config.outputDirectory
-        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
-        try "@r1\nACGT\n+\n!!!!\n".write(to: result.config.inputFiles[0], atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: resultDirectory) }
-
-        // The files the shown tree comes from are the sidecar and the report (12.33 ARCH ruling on F1, C2).
-        try "100.00\t10\t0\tR\t1\troot\n".write(to: result.reportURL, atomically: true, encoding: .utf8)
-        try result.save(to: resultDirectory)
-        vc.configure(result: result)
-        let outputURL = resultDirectory.appendingPathComponent("classification.csv")
-
-        _ = try vc.writeDelimitedExport(tree: result.tree, separator: ",", to: outputURL)
-
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
-        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
-        XCTAssertEqual(envelope.workflowName, "lungfish app taxonomy table export")
-        let inputPaths = Set(envelope.files.filter { $0.role == .input }.map(\.path))
-        XCTAssertTrue(inputPaths.contains(result.reportURL.path))
-        XCTAssertTrue(inputPaths.contains(resultDirectory.appendingPathComponent(ClassificationResult.sidecarFilename).path))
-        XCTAssertFalse(inputPaths.contains(result.config.inputFiles[0].path), "the table never opens the classified reads")
-    }
-
     func testDelimitedExportWarningPresenterSeamIsInvoked() throws {
         // Verifies the warningPresenter test seam used by the export
         // write-failure path actually fires when invoked.

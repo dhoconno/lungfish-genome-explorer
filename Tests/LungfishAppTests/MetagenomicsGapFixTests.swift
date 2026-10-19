@@ -110,7 +110,7 @@ final class TaxonomyExportTests: XCTestCase {
         let result = makeExportTestResult()
         vc.configure(result: result)
 
-        let csv = vc.buildDelimitedExport(tree: result.tree, separator: ",")
+        let csv = Kraken2TaxonomyTableExport.buildDelimitedExport(tree: result.tree, separator: ",", metadataHeaders: [], metadataValues: [])
         let lines = csv.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         XCTAssertFalse(lines.isEmpty, "CSV export should have at least a header")
@@ -126,7 +126,7 @@ final class TaxonomyExportTests: XCTestCase {
         let result = makeExportTestResult()
         vc.configure(result: result)
 
-        let csv = vc.buildDelimitedExport(tree: result.tree, separator: ",")
+        let csv = Kraken2TaxonomyTableExport.buildDelimitedExport(tree: result.tree, separator: ",", metadataHeaders: [], metadataValues: [])
         let lines = csv.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         // Header + root + Bacteria + E. coli + S. aureus + Viruses + unclassified = 7
@@ -146,7 +146,7 @@ final class TaxonomyExportTests: XCTestCase {
         let result = makeExportTestResult()
         vc.configure(result: result)
 
-        let csv = vc.buildDelimitedExport(tree: result.tree, separator: ",")
+        let csv = Kraken2TaxonomyTableExport.buildDelimitedExport(tree: result.tree, separator: ",", metadataHeaders: [], metadataValues: [])
 
         // E. coli has 2000 clade reads and 2000 direct reads
         XCTAssertTrue(csv.contains("Escherichia coli,Species,2000,2000"))
@@ -161,7 +161,7 @@ final class TaxonomyExportTests: XCTestCase {
         let result = makeExportTestResult()
         vc.configure(result: result)
 
-        let csv = vc.buildDelimitedExport(tree: result.tree, separator: ",")
+        let csv = Kraken2TaxonomyTableExport.buildDelimitedExport(tree: result.tree, separator: ",", metadataHeaders: [], metadataValues: [])
         let lines = csv.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         // E. coli: 2000/6000 = 33.3333%
@@ -178,7 +178,7 @@ final class TaxonomyExportTests: XCTestCase {
         let result = makeExportTestResult()
         vc.configure(result: result)
 
-        let tsv = vc.buildDelimitedExport(tree: result.tree, separator: "\t")
+        let tsv = Kraken2TaxonomyTableExport.buildDelimitedExport(tree: result.tree, separator: "\t", metadataHeaders: [], metadataValues: [])
         let firstLine = tsv.components(separatedBy: "\n").first!
 
         // Header should use tabs
@@ -192,8 +192,8 @@ final class TaxonomyExportTests: XCTestCase {
         let result = makeExportTestResult()
         vc.configure(result: result)
 
-        let csv = vc.buildDelimitedExport(tree: result.tree, separator: ",")
-        let tsv = vc.buildDelimitedExport(tree: result.tree, separator: "\t")
+        let csv = Kraken2TaxonomyTableExport.buildDelimitedExport(tree: result.tree, separator: ",", metadataHeaders: [], metadataValues: [])
+        let tsv = Kraken2TaxonomyTableExport.buildDelimitedExport(tree: result.tree, separator: "\t", metadataHeaders: [], metadataValues: [])
 
         let csvLines = csv.components(separatedBy: "\n").filter { !$0.isEmpty }
         let tsvLines = tsv.components(separatedBy: "\n").filter { !$0.isEmpty }
