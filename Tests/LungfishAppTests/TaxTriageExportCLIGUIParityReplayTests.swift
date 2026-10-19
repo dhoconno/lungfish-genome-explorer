@@ -73,6 +73,7 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
         case resultsTSVOfTwoSamplesSortedByReads
         case resultsCSVOfOneSampleWithSearchSortAndFilter
         case resultsTSVWithAMetadataColumnSortedByIt
+        case resultsTSVSortedByConfidenceDescending
 
         var scenario: Scenario {
             switch self {
@@ -94,6 +95,11 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
                 Scenario(
                     export: .resultsTSV, segment: 0, search: nil, searchRows: 0, sortKey: "metadata_Group",
                     sortAscending: false, showsGroup: true
+                )
+            case .resultsTSVSortedByConfidenceDescending:
+                Scenario(
+                    export: .resultsTSV, segment: 0, search: nil, searchRows: 0, sortKey: "tt_confidence",
+                    sortAscending: false
                 )
             }
         }
@@ -213,6 +219,19 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertTrue(lines[0].hasSuffix("\tGroup"), "\(lines)")
         XCTAssertTrue(lines[1].hasSuffix("\tcontrol") && lines[2].hasSuffix("\tcontrol"), "\(lines)")
         XCTAssertTrue(lines[3].hasSuffix("\tcase"), "\(lines)")
+    }
+
+    /// BIO review of 12.32 A6, Fix 3. No other case sorts a column with ties. Confidence descending ties twice (two
+    /// Medium rows and two High rows), and a descending comparator is `ascending ? result : !result`, which is not a
+    /// strict weak order, so the order of tied rows rests on both sides sorting the same input. A equals C byte for
+    /// byte, and the copy of the comparator in the leaf is then the table's.
+    func testResultsTSVSortedByConfidenceDescendingMatches() async throws {
+        let runs = try await assertParity(.resultsTSVSortedByConfidenceDescending)
+        let lines = try Self.payload(.resultsTSV, in: runs.c.root).split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 6, "\(lines)")
+        XCTAssertTrue(lines[1].contains("\tMedium\t") && lines[2].contains("\tMedium\t"), "\(lines)")
+        XCTAssertTrue(lines[3].contains("\tLow\t"), "\(lines)")
+        XCTAssertTrue(lines[4].contains("\tHigh\t") && lines[5].contains("\tHigh\t"), "\(lines)")
     }
 
     /// BIO review of 12.32 A6, Fix 1. The table orders by its first sort descriptor only, and AppKit keeps the earlier
