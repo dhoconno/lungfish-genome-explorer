@@ -120,7 +120,8 @@ struct BundleMergeSubcommand: AsyncParsableCommand {
             outputDirectory: directory,
             bundleName: bundleName,
             provenanceWriter: .live,
-            reporter: reporter
+            reporter: reporter,
+            observedArguments: Self.observedArguments()
         )
     }
 
@@ -147,13 +148,13 @@ struct BundleMergeSubcommand: AsyncParsableCommand {
         guard let first = sources.first else { return }
         let directory = destination(sources: [first])
         _ = try? await CLIProvenanceSupport.recordSingleStepRun(
-            name: "lungfish bundle merge",
+            name: ReferenceBundleMergeService.commandName,
             parameters: [
                 "bundles": .array(sources.map { .file($0) }),
                 "name": .string(name),
                 "outputDirectory": .file(directory),
             ],
-            toolName: "lungfish bundle merge",
+            toolName: ReferenceBundleMergeService.commandName,
             toolVersion: LungfishCLI.configuration.version,
             command: Self.observedArguments() ?? [CLICommandIdentity.executableName, "bundle", "merge"] + bundles,
             inputs: [],

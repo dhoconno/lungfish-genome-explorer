@@ -181,12 +181,17 @@ package enum ReferenceBundleMergeService {
     /// keeps `mergeRecordStores`' SQLite union and `writeMergeProvenance`'s whole-bundle
     /// enumeration plus SHA256 hashing off the main thread. All captured values are
     /// `Sendable` snapshots taken at the call site.
+    ///
+    /// - Parameter observedArguments: The words the process was started with, when `bundle merge` runs the
+    ///   merge. The record keeps them unmapped, so it names the command that ran. Nil for a run in process,
+    ///   whose record states the equivalent `bundle merge` command (2.12 lane 12.14).
     package static func runDetached(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String,
         provenanceWriter: BundleMergeProvenanceSidecarWriter,
-        reporter: ProgressReporter
+        reporter: ProgressReporter,
+        observedArguments: [String]? = nil
     ) async throws -> URL {
         let task = Task<URL, Error>.detached(priority: .userInitiated) {
             try await mergeOffMain(
@@ -194,7 +199,8 @@ package enum ReferenceBundleMergeService {
                 outputDirectory: outputDirectory,
                 bundleName: bundleName,
                 provenanceWriter: provenanceWriter,
-                reporter: reporter
+                reporter: reporter,
+                observedArguments: observedArguments
             )
         }
         // The task is detached, so a cancel of the caller reaches it only when it is passed on.
@@ -213,6 +219,7 @@ package enum ReferenceBundleMergeService {
         bundleName: String,
         provenanceWriter: BundleMergeProvenanceSidecarWriter,
         reporter: ProgressReporter,
+        observedArguments: [String]? = nil,
         beforePublish: (@Sendable (URL) -> Void)? = nil
     ) async throws -> URL {
         #if DEBUG
@@ -342,12 +349,14 @@ package enum ReferenceBundleMergeService {
                 sourceBundleURLs: sourceBundleURLs,
                 inputPayloadURLs: sourceFASTAURLs,
                 bundleURL: builtBundleURL,
+                outputDirectory: outputDirectory,
                 requestedBundleName: bundleName,
                 resolvedBundleName: resolvedBundleName,
                 nestedProvenance: builderProvenance,
                 mergedAnnotationTrackCount: annotationInputs.count,
                 startedAt: runClock.startedAt,
                 completedAt: runClock.now,
+                observedArguments: observedArguments,
                 provenanceWriter: provenanceWriter,
                 stageRewrites: stagePathRewrites(stage: stageDirectory, output: outputDirectory)
             )

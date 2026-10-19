@@ -9,9 +9,15 @@ package struct BundleMergeProvenanceSidecarWriter: Sendable {
 }
 
 package enum BundleMergeProvenance {
+    /// What a merge records. `commandArguments` are the words of the command that ran, which the record keeps
+    /// unmapped (R-B2). A merge that was not started from a command line gives none, and the record then keeps
+    /// the argv this type builds from `toolName` and `workflowName`, as the FASTQ bundle merge does. `toolName`
+    /// has no default, since a default named the app on every record whose writer did not say what ran
+    /// (2.12 lane 12.14).
     package struct Request: Sendable {
         let workflowName: String
         let toolName: String
+        let commandArguments: [String]?
         let sourceBundleURLs: [URL]
         let inputPayloadURLs: [URL]
         let outputBundleURL: URL
@@ -28,7 +34,8 @@ package enum BundleMergeProvenance {
 
         package init(
             workflowName: String,
-            toolName: String = "lungfish-app",
+            toolName: String,
+            commandArguments: [String]? = nil,
             sourceBundleURLs: [URL],
             inputPayloadURLs: [URL],
             outputBundleURL: URL,
@@ -45,6 +52,7 @@ package enum BundleMergeProvenance {
         ) {
             self.workflowName = workflowName
             self.toolName = toolName
+            self.commandArguments = commandArguments
             self.sourceBundleURLs = sourceBundleURLs
             self.inputPayloadURLs = inputPayloadURLs
             self.outputBundleURL = outputBundleURL
@@ -113,7 +121,7 @@ package enum BundleMergeProvenance {
             tool: ProvenanceToolIdentity(
                 name: request.toolName,
                 version: WorkflowRun.currentAppVersion,
-                kind: "app"
+                kind: request.commandArguments == nil ? "app" : "cli"
             ),
             argv: argv,
             durableReplayArgv: argv,
@@ -168,6 +176,7 @@ package enum BundleMergeProvenance {
     }
 
     private static func reproducibleArgv(for request: Request) -> [String] {
+        if let commandArguments = request.commandArguments { return commandArguments }
         var argv = [
             request.toolName,
             request.workflowName,

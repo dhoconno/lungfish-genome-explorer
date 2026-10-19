@@ -94,12 +94,19 @@ final class ReferenceBundleMergeParityReplayTests: XCTestCase {
         return (["Alpha", "Beta"].map { project.appendingPathComponent("\($0).lungfishref", isDirectory: true) }, project)
     }
 
-    /// Side A. The service in process, as the sidebar ran it before the route moved.
+    /// Side A. The service in process, as the sidebar ran it before the route moved. It is given the words the
+    /// route starts the command with, as the leaf is by its process, so both records name the same command
+    /// (2.12 lane 12.14, A49-REC). Without them the record states the equivalent command, which
+    /// `ReferenceBundleMergeRecordConformanceTests` pins.
     private func sideA(_ root: URL) async -> RouteParitySideOutcome {
         let (urls, project) = Self.sources(root)
         do {
-            _ = try await ReferenceBundleMergeService.merge(
+            let started = [harness.cliBinary.path] + ReferenceBundleMergeRoute.arguments(
                 sourceBundleURLs: urls, outputDirectory: project, bundleName: "Merged"
+            )
+            _ = try await ReferenceBundleMergeService.runDetached(
+                sourceBundleURLs: urls, outputDirectory: project, bundleName: "Merged",
+                provenanceWriter: .live, reporter: .none, observedArguments: started
             )
             return RouteParitySideOutcome(end: .completed, detail: "Merged \(urls.count) reference bundles")
         } catch {

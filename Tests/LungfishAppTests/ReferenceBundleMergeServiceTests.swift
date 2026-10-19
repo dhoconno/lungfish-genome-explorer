@@ -83,8 +83,8 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertNotNil(manifest.genome)
 
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
-        XCTAssertEqual(provenance.workflowName, "lungfish reference merge")
-        XCTAssertEqual(provenance.toolName, "lungfish-app")
+        XCTAssertEqual(provenance.workflowName, "lungfish bundle merge")
+        XCTAssertEqual(provenance.toolName, "lungfish bundle merge")
         XCTAssertFalse(provenance.toolVersion.isEmpty)
         XCTAssertEqual(provenance.exitStatus, 0)
         XCTAssertNotNil(provenance.wallTimeSeconds)
@@ -137,7 +137,7 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertNotEqual(builderStep.argv, builderReplayArgv)
         XCTAssertTrue(builderStep.argv.joined(separator: "\n").contains("reference-merge-"))
         XCTAssertTrue(
-            provenance.steps.contains { $0.toolName == "lungfish reference merge" },
+            provenance.steps.contains { $0.toolName == "lungfish bundle merge" },
             "Reference merge provenance must include the wrapping merge workflow step"
         )
 
@@ -220,7 +220,7 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         let observed = try XCTUnwrap(seen.snapshot, "the merge published without calling the seam")
         XCTAssertTrue(observed.rootRecordFileExists, "the staged bundle holds a record at its root when it is published")
         XCTAssertEqual(
-            observed.rootRecordWorkflow, "lungfish reference merge",
+            observed.rootRecordWorkflow, "lungfish bundle merge",
             "the root record of the staged bundle is the merge record, not the builder's"
         )
         XCTAssertEqual(
@@ -228,7 +228,7 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
             "no record of the staged bundle names the stage when it is published"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: mergedURL.path), "the bundle is published")
-        XCTAssertEqual(try ProvenanceEnvelopeReader.load(from: mergedURL)?.workflowName, "lungfish reference merge")
+        XCTAssertEqual(try ProvenanceEnvelopeReader.load(from: mergedURL)?.workflowName, "lungfish bundle merge")
     }
 
     func testMergeProvenanceUsesResolvedReferenceNameWhenOutputNameIsUniquified() async throws {
@@ -269,8 +269,8 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertEqual(provenance.options.explicit["requestedBundleName"]?.stringValue, "Merged Reference")
         XCTAssertEqual(provenance.options.explicit["resolvedBundleName"]?.stringValue, "Merged Reference 2")
         XCTAssertEqual(provenance.options.explicit["bundleName"]?.stringValue, "Merged Reference 2")
-        XCTAssertTrue(provenance.argv.contains("Merged Reference 2"))
-        XCTAssertFalse(provenance.argv.contains("Merged Reference.lungfishref"))
+        XCTAssertTrue(provenance.argv.contains("--name=Merged Reference"), "the command holds the name that was asked for")
+        XCTAssertFalse(provenance.argv.contains("Merged Reference 2"), "the resolved name is in the options above (12.14)")
     }
 
     func testMergeRejectsSourceBundleWithVariantTracks() async throws {

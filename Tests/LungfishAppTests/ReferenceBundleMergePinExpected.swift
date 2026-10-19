@@ -130,36 +130,24 @@ TTGGCCAATTGGCCAATTGG
 == record ==
 {
   "argv" : [
-    "lungfish-app",
-    "lungfish reference merge",
-    "--requested-bundle-name",
-    "Merged Pin",
-    "--resolved-bundle-name",
-    "Merged Pin",
-    "--merge-mode",
-    "sequence-and-annotations",
-    "--output-bundle",
-    "@/Merged_Pin.lungfishref",
-    "--source-bundle",
+    "lungfish-cli",
+    "bundle",
+    "merge",
     "@/Alpha.lungfishref",
-    "--source-bundle",
-    "@/Beta.lungfishref"
+    "@/Beta.lungfishref",
+    "--name=Merged Pin",
+    "--output-dir",
+    "@/"
   ],
   "durableReplayArgv" : [
-    "lungfish-app",
-    "lungfish reference merge",
-    "--requested-bundle-name",
-    "Merged Pin",
-    "--resolved-bundle-name",
-    "Merged Pin",
-    "--merge-mode",
-    "sequence-and-annotations",
-    "--output-bundle",
-    "@/Merged_Pin.lungfishref",
-    "--source-bundle",
+    "lungfish-cli",
+    "bundle",
+    "merge",
     "@/Alpha.lungfishref",
-    "--source-bundle",
-    "@/Beta.lungfishref"
+    "@/Beta.lungfishref",
+    "--name=Merged Pin",
+    "--output-dir",
+    "@/"
   ],
   "exitStatus" : 0,
   "files" : [
@@ -357,7 +345,7 @@ TTGGCCAATTGGCCAATTGG
       "role" : "output"
     }
   ],
-  "reproducibleCommand" : "lungfish-app 'lungfish reference merge' --requested-bundle-name 'Merged Pin' --resolved-bundle-name 'Merged Pin' --merge-mode sequence-and-annotations --output-bundle @/Merged_Pin.lungfishref --source-bundle @/Alpha.lungfishref --source-bundle @/Beta.lungfishref",
+  "reproducibleCommand" : "lungfish-cli bundle merge @/Alpha.lungfishref @/Beta.lungfishref '--name=Merged Pin' --output-dir @/",
   "schemaVersion" : 2,
   "signatures" : [
 
@@ -465,39 +453,27 @@ TTGGCCAATTGGCCAATTGG
     },
     {
       "argv" : [
-        "lungfish-app",
-        "lungfish reference merge",
-        "--requested-bundle-name",
-        "Merged Pin",
-        "--resolved-bundle-name",
-        "Merged Pin",
-        "--merge-mode",
-        "sequence-and-annotations",
-        "--output-bundle",
-        "@/Merged_Pin.lungfishref",
-        "--source-bundle",
+        "lungfish-cli",
+        "bundle",
+        "merge",
         "@/Alpha.lungfishref",
-        "--source-bundle",
-        "@/Beta.lungfishref"
+        "@/Beta.lungfishref",
+        "--name=Merged Pin",
+        "--output-dir",
+        "@/"
       ],
       "dependsOn" : [
 
       ],
       "durableReplayArgv" : [
-        "lungfish-app",
-        "lungfish reference merge",
-        "--requested-bundle-name",
-        "Merged Pin",
-        "--resolved-bundle-name",
-        "Merged Pin",
-        "--merge-mode",
-        "sequence-and-annotations",
-        "--output-bundle",
-        "@/Merged_Pin.lungfishref",
-        "--source-bundle",
+        "lungfish-cli",
+        "bundle",
+        "merge",
         "@/Alpha.lungfishref",
-        "--source-bundle",
-        "@/Beta.lungfishref"
+        "@/Beta.lungfishref",
+        "--name=Merged Pin",
+        "--output-dir",
+        "@/"
       ],
       "exitStatus" : 0,
       "id" : "<UUID>",
@@ -545,20 +521,20 @@ TTGGCCAATTGGCCAATTGG
           "role" : "output"
         }
       ],
-      "reproducibleCommand" : "lungfish-app 'lungfish reference merge' --requested-bundle-name 'Merged Pin' --resolved-bundle-name 'Merged Pin' --merge-mode sequence-and-annotations --output-bundle @/Merged_Pin.lungfishref --source-bundle @/Alpha.lungfishref --source-bundle @/Beta.lungfishref",
+      "reproducibleCommand" : "lungfish-cli bundle merge @/Alpha.lungfishref @/Beta.lungfishref '--name=Merged Pin' --output-dir @/",
       "resolvedOptions" : {
 
       },
-      "toolName" : "lungfish reference merge"
+      "toolName" : "lungfish bundle merge"
     }
   ],
   "tool" : {
-    "kind" : "app",
-    "name" : "lungfish-app",
+    "kind" : "cli",
+    "name" : "lungfish bundle merge",
     "version" : "Lungfish 2026.10.10 (dev)"
   },
-  "toolName" : "lungfish-app",
-  "workflowName" : "lungfish reference merge"
+  "toolName" : "lungfish bundle merge",
+  "workflowName" : "lungfish bundle merge"
 }
 """#
 }

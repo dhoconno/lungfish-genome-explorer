@@ -111,16 +111,36 @@ extension ReferenceBundleMergeService {
         }
     }
 
+    /// The name the merged bundle's record gives its workflow, its tool and its merge step. It is the name
+    /// `bundle merge` gives the record of a cancelled run, so a run and its cancel name the same command.
+    package static let commandName = "lungfish bundle merge"
+
+    /// The `bundle merge` command that is equivalent to a merge that was not started from a command line, one
+    /// run in process. A merge that `bundle merge` started records the words its process was started with
+    /// instead (2.12 lane 12.14, A49-REC).
+    static func equivalentCommand(
+        sourceBundleURLs: [URL], outputDirectory: URL, requestedBundleName: String
+    ) -> [String] {
+        [CLICommandIdentity.executableName, "bundle", "merge"]
+            + sourceBundleURLs.map { $0.standardizedFileURL.path }
+            + ["--name=\(requestedBundleName)", "--output-dir", outputDirectory.standardizedFileURL.path]
+    }
+
+    /// Writes the merge record. `observedArguments` are the words the process was started with when it ran
+    /// `bundle merge`, which the record keeps unmapped (R-B2), and nil for a run in process, which records
+    /// `equivalentCommand`.
     static func writeMergeProvenance(
         sourceBundleURLs: [URL],
         inputPayloadURLs: [URL],
         bundleURL: URL,
+        outputDirectory: URL,
         requestedBundleName: String,
         resolvedBundleName: String,
         nestedProvenance: ProvenanceEnvelope?,
         mergedAnnotationTrackCount: Int,
         startedAt: Date,
         completedAt: Date,
+        observedArguments: [String]?,
         provenanceWriter: BundleMergeProvenanceSidecarWriter,
         stageRewrites: [(String, String)] = []
     ) throws {
@@ -135,7 +155,13 @@ extension ReferenceBundleMergeService {
         )
         try BundleMergeProvenance.write(
             request: BundleMergeProvenance.Request(
-                workflowName: "lungfish reference merge",
+                workflowName: commandName,
+                toolName: commandName,
+                commandArguments: observedArguments ?? equivalentCommand(
+                    sourceBundleURLs: sourceBundleURLs,
+                    outputDirectory: outputDirectory,
+                    requestedBundleName: requestedBundleName
+                ),
                 sourceBundleURLs: sourceBundleURLs,
                 inputPayloadURLs: inputPayloadURLs,
                 outputBundleURL: bundleURL,
