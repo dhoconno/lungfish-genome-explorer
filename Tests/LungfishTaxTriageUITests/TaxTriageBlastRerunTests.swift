@@ -109,7 +109,8 @@ final class TaxTriageBlastFixture {
             BlastVerificationResult(
                 taxonName: taxonName, taxId: taxId, readResults: [], submittedAt: Date(), completedAt: Date(),
                 rid: "RID0001", blastProgram: "megablast", database: "core_nt"
-            )
+            ),
+            recordURL: nil
         )
         let rerun = try XCTUnwrap(drawer.onRerunBlast, "the drawer offers Re-run")
         rerun()
