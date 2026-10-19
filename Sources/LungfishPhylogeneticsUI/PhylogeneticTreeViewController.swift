@@ -1115,49 +1115,6 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         return panel
     }
 
-    @discardableResult
-    static func writeSubtreeExport(
-        _ export: PhylogeneticTreeSubtreeExport,
-        sourceBundleURL: URL?,
-        to outputURL: URL,
-        runClock: ProvenanceRunClock = ProvenanceRunClock()
-    ) throws -> URL {
-        let sourceURLs = sourceBundleURL.map { [$0] } ?? []
-        var argv = ["Lungfish Genome Explorer", "export-tree-subtree"]
-        for sourceURL in sourceURLs {
-            argv.append(contentsOf: ["--source", sourceURL.path])
-        }
-        argv.append(contentsOf: ["--node", export.selectedNodeID, "--output", outputURL.path])
-
-        do {
-            return try ScientificFileExportProvenance.writeAtomically(.init(
-                workflowName: "lungfish app phylogenetic subtree export",
-                sourceURLs: sourceBundleURL.map(TreeSubtreeExport.inputURLs(bundleURL:)) ?? [],
-                outputURL: outputURL,
-                outputFormat: .text,
-                argv: argv,
-                explicitOptions: [
-                    "sourceBundlePath": sourceBundleURL.map(ParameterValue.file) ?? .string("none"),
-                    "outputPath": .file(outputURL),
-                    "selectedNodeID": .string(export.selectedNodeID),
-                    "selectedLabel": .string(export.selectedLabel),
-                ],
-                defaults: [
-                    "outputFormat": .string("newick"),
-                ],
-                resolved: [
-                    "descendantTipCount": .integer(export.descendantTipCount),
-                    "outputByteCount": .integer(export.newick.utf8.count + 1),
-                ],
-                runClock: runClock
-            )) { staged in
-                try Data((export.newick + "\n").utf8).write(to: staged, options: .atomic)
-            }
-        } catch {
-            throw error
-        }
-    }
-
     @objc func centerSelectedNodeFromMenu(_ sender: Any?) {
         adoptContextTarget(sender: sender)
         centerSelectedNode()
