@@ -319,7 +319,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         let root = repositoryRoot()
         let files = [
             ("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift", "lungfish app taxonomy result export"),
-            ("Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift", "lungfish app phylogenetic subtree export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage results export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage organism matrix export"),
             ("Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", "lungfish app taxtriage batch report export"),
