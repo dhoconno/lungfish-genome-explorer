@@ -374,6 +374,18 @@ public enum ProjectItemLinkRewriter {
         return nil
     }
 
+    /// `url` as a plain path from `root`, nil when `url` is `root` itself or is not inside it. The path of `url` is
+    /// only standardized, so a symlink inside an item keeps the spelling the project shows, and `root` matches under
+    /// both of its spellings (`pathVariants(of:)`). The GUI route and `project copy-item` both name an item and a
+    /// folder through this one function, so a copy reads the same from either side (lane 12.18). It is not
+    /// `CanonicalFilePath.relativePath(of:within:)`, which answers "" for `root` itself and resolves a symlink at
+    /// the end of `url`.
+    public static func descendantPath(of url: URL, in root: URL) -> String? {
+        guard let relative = relative(path: url.standardizedFileURL.path, toAny: pathVariants(of: root)),
+              !relative.isEmpty else { return nil }
+        return relative
+    }
+
     // MARK: JSON walk
 
     private static func rewriteValue(

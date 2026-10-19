@@ -270,4 +270,25 @@ final class ProjectItemCopyRecordTests: XCTestCase {
         XCTAssertEqual(loaded, record)
         XCTAssertNil(ProjectItemCopyRecord.load(from: targetProject))
     }
+
+    /// The one helper `project copy-item` and the GUI route both use to name an item or a folder from a project
+    /// (lane 12.18). The project itself and anything outside it are nil, and a project given as `/var` takes the
+    /// physical spelling of a path inside it.
+    func testDescendantPathNamesOnlyWhatLiesInsideTheProject() throws {
+        let item = targetProject.appendingPathComponent("Reference Sequences/A.lungfishref", isDirectory: true)
+        XCTAssertEqual(
+            ProjectItemLinkRewriter.descendantPath(of: item, in: targetProject), "Reference Sequences/A.lungfishref"
+        )
+        XCTAssertNil(ProjectItemLinkRewriter.descendantPath(of: targetProject, in: targetProject), "the project itself")
+        XCTAssertNil(ProjectItemLinkRewriter.descendantPath(of: sourceProject, in: targetProject), "a sibling project")
+        let sharesThePrefix = root.appendingPathComponent("Target.lungfish-copy/A.lungfishref", isDirectory: true)
+        XCTAssertNil(
+            ProjectItemLinkRewriter.descendantPath(of: sharesThePrefix, in: targetProject), "a name that starts like it"
+        )
+        let physical = targetProject.resolvingSymlinksInPath()
+            .appendingPathComponent("Imports/B.lungfishfastq", isDirectory: true)
+        XCTAssertEqual(
+            ProjectItemLinkRewriter.descendantPath(of: physical, in: targetProject), "Imports/B.lungfishfastq"
+        )
+    }
 }

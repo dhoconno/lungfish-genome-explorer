@@ -53,7 +53,7 @@ extension ProjectCopyItemSubcommand {
 
         var argv = [CLICommandIdentity.executableName, "project", "copy-item"]
         var explicit: [String: ParameterValue] = ["project": .file(target)]
-        if let holder, let relative = Self.relativePath(of: source, in: holder) {
+        if let holder, let relative = ProjectItemLinkRewriter.descendantPath(of: source, in: holder) {
             argv += [relative, "--source-project", holder.path]
             explicit["item"] = .string(relative)
             explicit["sourceProject"] = .file(holder)
@@ -68,7 +68,9 @@ extension ProjectCopyItemSubcommand {
             let url = folder.hasPrefix("/")
                 ? URL(fileURLWithPath: folder, isDirectory: true).standardizedFileURL
                 : target.appendingPathComponent(folder, isDirectory: true).standardizedFileURL
-            let relative = url.path == target.path ? "." : Self.relativePath(of: url, in: target)
+            let relative = url.path == target.path
+                ? "."
+                : ProjectItemLinkRewriter.descendantPath(of: url, in: target)
             guard let relative else {
                 throw ProjectCopyItemRefusal("--folder \(folder) is not inside \(target.path). Give a folder inside the project.")
             }
@@ -103,14 +105,5 @@ extension ProjectCopyItemSubcommand {
         var isDirectory: ObjCBool = false
         return url.pathExtension.lowercased() == "lungfish"
             && FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    /// `url` as a plain path from `root`, nil when it is not inside `root`.
-    private static func relativePath(of url: URL, in root: URL) -> String? {
-        guard let relative = ProjectItemLinkRewriter.relative(
-            path: url.standardizedFileURL.path,
-            toAny: ProjectItemLinkRewriter.pathVariants(of: root)
-        ), !relative.isEmpty else { return nil }
-        return relative
     }
 }

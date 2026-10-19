@@ -55,7 +55,7 @@ enum CrossProjectCopyRoute: String, Sendable, Equatable, CaseIterable {
         let target = projectURL.standardizedFileURL
         var arguments = ["project", "copy-item"]
         if let holder = ProjectTempDirectory.findProjectRoot(item.deletingLastPathComponent())?.standardizedFileURL,
-           let relative = relativePath(of: item, in: holder) {
+           let relative = ProjectItemLinkRewriter.descendantPath(of: item, in: holder) {
             arguments += [relative, "--source-project", holder.path]
         } else {
             arguments.append(item.path)
@@ -63,7 +63,9 @@ enum CrossProjectCopyRoute: String, Sendable, Equatable, CaseIterable {
         arguments += ["--project", target.path]
         if let requestedFolder {
             let folder = requestedFolder.standardizedFileURL
-            let relative = folder.path == target.path ? "." : relativePath(of: folder, in: target)
+            let relative = folder.path == target.path
+                ? "."
+                : ProjectItemLinkRewriter.descendantPath(of: folder, in: target)
             arguments += ["--folder", relative ?? folder.path]
         }
         return arguments + ["--format", "json"]
@@ -107,15 +109,6 @@ enum CrossProjectCopyRoute: String, Sendable, Equatable, CaseIterable {
             try CrossProjectItemCopier.copy(itemAt: itemURL, intoProject: projectURL, requestedFolder: requestedFolder)
         }.value
         return Landed(destinationURL: outcome.destinationURL, record: outcome.record)
-    }
-
-    /// `url` as a plain path from `root`, nil when it is not inside `root`.
-    private static func relativePath(of url: URL, in root: URL) -> String? {
-        guard let relative = ProjectItemLinkRewriter.relative(
-            path: url.standardizedFileURL.path,
-            toAny: ProjectItemLinkRewriter.pathVariants(of: root)
-        ), !relative.isEmpty else { return nil }
-        return relative
     }
 }
 
