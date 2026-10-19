@@ -134,7 +134,12 @@ final class SequenceFASTAExportCLIGUIParityReplayTests: XCTestCase {
     /// no message, the staged input goes, and the row's command, cancelled on the launcher every CLI route uses,
     /// exits 125 inside the grace. Neither leaves the output or its record.
     func testACancelledExportExits125AndLeavesNoFileAndNoRecord() async throws {
-        let root = scratch.appendingPathComponent("cancel", isDirectory: true)
+        // The leaf's record looks for a sidecar of each input in the input's folder and the four folders above it, and
+        // lists each one (`ProvenanceRecorder.findProvenanceReading`). The staged input sits two folders under this
+        // root, so from `scratch/cancel` that walk reached the shared temporary folder (135,212 entries), 13 to 16
+        // seconds a run here and 20 to 40 under load, against the 30 second cancel wait. Two more levels keep it
+        // inside this case's folders, as in the FASTA records, NAO-MGS and NVD cancel cases.
+        let root = scratch.appendingPathComponent("cancel/case/run", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Self.makeFixture(root)
         let output = Self.outputURL(in: root)
@@ -187,7 +192,8 @@ final class SequenceFASTAExportCLIGUIParityReplayTests: XCTestCase {
     /// file in place. No record names the staged copy of the sequence then, so the copy goes all the same. The folder
     /// stays only when the record beside the output names it.
     func testACancelledReplaceKeepsTheOldFileAndRemovesTheStagedInputs() async throws {
-        let root = scratch.appendingPathComponent("replace-cancel", isDirectory: true)
+        // Two more levels below the temporary folder, for the reason the cancel case above gives.
+        let root = scratch.appendingPathComponent("replace-cancel/case/run", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Self.makeFixture(root)
         let output = Self.outputURL(in: root)
