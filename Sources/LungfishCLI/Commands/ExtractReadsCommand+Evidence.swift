@@ -194,7 +194,8 @@ extension ExtractReadsSubcommand {
             // A cancelled run's record beside the bundle no longer describes it.
             let cancelledRecord = ProvenanceRecorder.fileSidecarURL(for: invocation.outputURL)
             if AlignmentReadExtractionInvocation.isCancelledRecord(at: cancelledRecord) {
-                try? FileManager.default.removeItem(at: cancelledRecord)
+                // The signature and public key of a signed cancelled record go with it.
+                try? ProvenancePublicationArtifacts.removeSidecarArtifacts(for: cancelledRecord)
             }
             return result
         } catch {

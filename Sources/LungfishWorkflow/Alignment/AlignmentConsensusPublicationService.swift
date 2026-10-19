@@ -164,7 +164,8 @@ package struct AlignmentConsensusPublicationService {
             do {
                 let prepared = try prepare(request, at: stagingURL, finalURL: finalURL, stage: &stage)
                 if replacesCancelledRecord {
-                    try FileManager.default.removeItem(at: finalSidecarURL)
+                    // The signature and public key of a signed cancelled record go with it.
+                    try ProvenancePublicationArtifacts.removeSidecarArtifacts(for: finalSidecarURL)
                 }
             if isBundle(request.destination) {
                 stage = .payloadPublication

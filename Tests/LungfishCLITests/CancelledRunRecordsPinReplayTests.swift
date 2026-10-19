@@ -65,6 +65,44 @@ final class CancelledRunRecordsPinReplayTests: XCTestCase {
         }
     }
 
+    // MARK: - A later run
+
+    /// The next run of a consensus replaces the record a cancelled run left. With a key set that record holds a
+    /// signature and a public key, and a run with no key must take them away with it, since a signature that stays
+    /// beside the new record is over bytes the record no longer holds.
+    func testAKeylessRunReplacingASignedCancelledConsensusRecordLeavesNoSignatureBesideIt() async throws {
+        let output = root.appendingPathComponent("S1.fasta")
+        let record = try withThrowawayKey { try recordCancelledConsensus(output: output) }
+        try assertSigned(record)
+        XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the next run")
+
+        let bam = ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
+        let command = try BAMConsensusSubcommand.parse([
+            "--alignment", bam.path, "--index", bam.path + ".bai", "--scope", "wholeContig",
+            "--region", "MT192765.1:1-29829", "--min-depth", "1", "--name", "S1 MT192765.1 consensus",
+            "--result-id", "run-1", "--output", output.path, "--format", "json",
+        ])
+        try await command.execute(eventsOn: true, quiet: false) { _ in }
+
+        XCTAssertEqual(try ProvenanceEnvelopeReader.load(fromSidecar: record)?.status, .completed)
+        assertUnsigned(record)
+    }
+
+    /// The next published run of `extract reads` removes the record a cancelled run left beside the bundle
+    /// (`ExtractReadsCommand+Evidence.swift`) through the same helper. With a key set that record holds a signature
+    /// and a public key, and all three go together.
+    func testRemovingASignedCancelledReadExtractionRecordTakesItsSignatureAndPublicKeyWithIt() throws {
+        let record = try withThrowawayKey { try recordCancelledReadExtraction() }
+        try assertSigned(record)
+
+        try ProvenancePublicationArtifacts.removeSidecarArtifacts(for: record)
+
+        for artifact in ProvenancePublicationArtifacts.sidecarArtifacts(for: record) {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: artifact.path), "\(artifact.lastPathComponent) stays after the removal")
+        }
+        XCTAssertNoThrow(try ProvenancePublicationArtifacts.removeSidecarArtifacts(for: record), "a second removal finds nothing")
+    }
+
     // MARK: - The writers
 
     private func workflowRecord(_ url: URL) -> CancelledAlignmentWorkflowRecord {
@@ -150,11 +188,11 @@ final class CancelledRunRecordsPinReplayTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: record.path), "no record at \(record.path)", file: file, line: line)
         XCTAssertFalse(
             fileManager.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: record).path),
-            "\(record.lastPathComponent) has a signature at the base", file: file, line: line
+            "\(record.lastPathComponent) has a signature though no key is set", file: file, line: line
         )
         XCTAssertFalse(
             fileManager.fileExists(atPath: ProvenanceSigningConfiguration.publicKeyURL(for: record).path),
-            "\(record.lastPathComponent) has a public key at the base", file: file, line: line
+            "\(record.lastPathComponent) has a public key though no key is set", file: file, line: line
         )
     }
 }
