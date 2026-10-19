@@ -10,9 +10,9 @@
 // - Every side first collects the rows as the drawer's `collect` closure does, with the drawer's All Matching
 //   queries (`AnnotationTableAnnotationQueryRequest`, `AnnotationTableVariantQueryRequest`) and the drawer's genotype
 //   and sample rows, and names the inputs with `AnnotationTableExportSources`.
-// - Side A is `AnnotationTableExportService.export` with `RetainedSelectionExportSnapshot` as they stood at
-//   9d5378e3e (the retained folder, the payload, one `writeAtomically` with the `/bin/cp` replay), frozen in this
-//   file since the lane deletes them.
+// - Side A is `AnnotationTableExportService.export` and the retained-selection helper it called, frozen in this
+//   file as it stood at 9d5378e3e (the retained folder, the payload, one `writeAtomically` with the `/bin/cp`
+//   replay), since the lane deletes them.
 // - Side C is `AnnotationTableDrawerView.annotationTableExportInvocation` and `beginAnnotationTableExportOperation`,
 //   which write the selection file, begin the row and run the built `lungfish-cli bundle export-annotation-table` on
 //   `CLIViewerExportRunner`.

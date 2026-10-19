@@ -255,32 +255,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertEqual(try readRepositorySource(sidecarURL), "old provenance\n")
     }
 
-    func testRetainedSnapshotCanPreserveOriginalScientificSourcesAlongsideReplayInputs() throws {
-        let sourceURL = tempDir.appendingPathComponent("source.vcf")
-        let outputURL = tempDir.appendingPathComponent("variants.csv")
-        try "##fileformat=VCFv4.3\n".write(to: sourceURL, atomically: true, encoding: .utf8)
-        let snapshot = try RetainedSelectionExportSnapshot(
-            outputURL: outputURL,
-            selectionMetadata: Data("{\"rows\":[]}".utf8)
-        )
-        try Data("ID\nrs1\n".utf8).write(to: snapshot.payloadURL)
-
-        try snapshot.publish(.init(
-            workflowName: "table export",
-            sourceURLs: [sourceURL],
-            outputURL: outputURL,
-            outputFormat: .text,
-            argv: ["Lungfish.app", "export-annotation-table"],
-            runClock: ProvenanceRunClock()
-        ), preserveOriginalSources: true)
-
-        let sidecar = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
-        XCTAssertTrue(envelope.files.contains { $0.path == sourceURL.path && $0.role == .input })
-        XCTAssertTrue(envelope.files.contains { $0.path == snapshot.payloadURL.path && $0.role == .input })
-        XCTAssertEqual(envelope.durableReplayArgv, ["/bin/cp", snapshot.payloadURL.path, outputURL.path])
-    }
-
     func testWriteAtomicallyRefusesToReplaceExistingDirectory() throws {
         let sourceURL = tempDir.appendingPathComponent("source.tsv")
         let outputURL = tempDir.appendingPathComponent("Existing.lungfishref", isDirectory: true)

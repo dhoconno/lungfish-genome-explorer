@@ -246,7 +246,7 @@ extension AnnotationExportCLIGUIParityReplayTests {
         var annotations: [SequenceAnnotation]
     }
 
-    /// `AnnotationExportService.export` with `RetainedSelectionExportSnapshot` as they stood at c998d3ce1.
+    /// `AnnotationExportService.export` with its retained-selection helper inlined, as it stood at c998d3ce1.
     static func frozenExport(source: AnnotationExportService.Source, annotations: [SequenceAnnotation], outputURL: URL) async throws {
         let runClock = ProvenanceRunClock()
         let encoder = JSONEncoder()

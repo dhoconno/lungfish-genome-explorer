@@ -11,8 +11,8 @@ import Foundation
 import LungfishCore
 import LungfishWorkflow
 
-/// `AnnotationTableExportService.export` with `RetainedSelectionExportSnapshot.init` and `publish(_:
-/// preserveOriginalSources: true)` as they stood at 9d5378e3e. It retains the snapshot and the payload in a new
+/// `AnnotationTableExportService.export` with the retained-selection helper's `init` and `publish(_:
+/// preserveOriginalSources: true)`, inlined as it stood at 9d5378e3e. It retains the snapshot and the payload in a new
 /// `.lungfish-export-inputs/<UUID>/` folder beside the output, then publishes the payload and its record in one
 /// transaction with the `/bin/cp` replay, the old argv and the two replay keys.
 enum AnnotationTableExportFrozenSideA {
