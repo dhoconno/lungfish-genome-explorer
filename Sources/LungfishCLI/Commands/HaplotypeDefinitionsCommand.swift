@@ -308,16 +308,36 @@ struct HaplotypeDefinitionsExportSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("scope"), help: "project (the only supported scope)")
     var scope: String?
 
+    /// The record names the canonical command, `lungfish-cli` and every option given in one fixed order, so the
+    /// haplotype manager's row and the record name one command (Phase 2.12 lane 12.35 B7, ARCH 2). A SIGTERM before
+    /// the export writes cancels it. The leaf prints the cancel line and exits 125 with no file and no record. A
+    /// debug build holds there on `LUNGFISH_VIEWER_EXPORT_HOLD_FILE`.
     func run() async throws {
         let service = makeService(project: project)
-        try service.exportDefinition(
-            definitionID: definitionID,
-            assayID: assay,
-            scope: try parseOptionalScope(scope),
-            to: URL(fileURLWithPath: output),
-            argv: Array(CommandLine.arguments)
+        let parsedScope = try parseOptionalScope(scope)
+        let definitionID = definitionID, assay = assay, output = output
+        let argv = HaplotypeDefinitionExport.canonicalArgv(
+            definitionID: definitionID, outputPath: output, projectPath: project, assayID: assay, scope: scope
         )
-        try emitJSON(["output": URL(fileURLWithPath: output).standardizedFileURL.path])
+        let outcome = await runCancellingOnSIGTERM {
+            try ViewerExportLeaf.checkpointAfterStaging()
+            try service.exportDefinition(
+                definitionID: definitionID,
+                assayID: assay,
+                scope: parsedScope,
+                to: URL(fileURLWithPath: output),
+                argv: argv
+            )
+        }
+        switch outcome {
+        case .success:
+            try emitJSON(["output": URL(fileURLWithPath: output).standardizedFileURL.path])
+        case .failure(let error) where error is CancellationError:
+            print(ViewerExportLeaf.cancelledMessage)
+            throw CLIExitCode.cancelled.exitCode
+        case .failure(let error):
+            throw error
+        }
     }
 }
 
