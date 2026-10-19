@@ -455,10 +455,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         // Build single-sample picker entry from classification result.
         // Resolve human-readable display name via manifest lookup.
-        let rawSampleName = result.config.sampleDisplayName
-            ?? result.config.inputFiles.first?
-                .deletingPathExtension().lastPathComponent
-            ?? "sample"
+        let rawSampleName = Kraken2TaxonomyTableExport.sidecarSampleId(config: result.config)
         let sampleName = FASTQDisplayNameResolver.resolveDisplayName(
             sampleId: rawSampleName, projectURL: Self.projectURL(forClassificationOutput: result.config.outputDirectory))
         sampleEntries = [Kraken2SampleEntry(
@@ -1612,7 +1609,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     @discardableResult
     func writeDelimitedExport(tree: TaxonTree, separator: String, to url: URL, runClock: ProvenanceRunClock = ProvenanceRunClock()) throws -> URL {
         let content = buildDelimitedExport(tree: tree, separator: separator)
-        let sourceURLs = classificationResult?.config.inputFiles ?? []
+        let sourceURLs = exportSourceURLs()
         let fileExtension = url.pathExtension.isEmpty ? "csv" : url.pathExtension
         let separatorName = separator == "\t" ? "tsv" : "csv"
         return try ScientificFileExportProvenance.writeAtomically(.init(
@@ -1637,6 +1634,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             resolved: [
                 "nodeCount": .integer(tree.allNodes().count),
                 "outputByteCount": .integer(content.utf8.count),
+                "selectedSamples": .array(exportSelectedSampleIds().map(ParameterValue.string)),
             ],
             runClock: runClock
         )) { staged in
@@ -1662,6 +1660,35 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             metadataHeaders: taxonomyTableView.metadataColumns.exportHeaders,
             metadataValues: taxonomyTableView.metadataColumns.exportValues
         )
+    }
+
+    /// The files the shown tree came from, which a table export reads (Phase 2.12 lane 12.33, ARCH ruling on F1,
+    /// C2). That is `kraken2.sqlite` on the database route, and the sidecar, the report and the Bracken file on the
+    /// sidecar route, with the metadata files when a metadata column is written. Only files that exist.
+    private func exportSourceURLs() -> [URL] {
+        let writesMetadata = !taxonomyTableView.metadataColumns.exportHeaders.isEmpty
+        var urls: [URL] = []
+        if let kraken2Database {
+            urls = [kraken2Database.databaseURL]
+                + Kraken2TaxonomyTableExport.metadataInputURLs(
+                    in: kraken2Database.databaseURL.deletingLastPathComponent(), writesMetadata: writesMetadata
+                )
+        } else if let result = classificationResult {
+            let folder = result.config.outputDirectory
+            urls = Kraken2TaxonomyTableExport.sidecarInputURLs(folder: folder, result: result)
+                + Kraken2TaxonomyTableExport.metadataInputURLs(in: folder, writesMetadata: writesMetadata)
+        }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// The sample ids whose trees the shown table holds, sorted. They are the picked samples on the database route
+    /// and the one sample of a sidecar result.
+    private func exportSelectedSampleIds() -> [String] {
+        if kraken2Database != nil, let state = samplePickerState {
+            return state.selectedSamples.sorted()
+        }
+        guard let result = classificationResult else { return [] }
+        return [Kraken2TaxonomyTableExport.sidecarSampleId(config: result.config)]
     }
 
     /// Copies the classification summary text to the system pasteboard.

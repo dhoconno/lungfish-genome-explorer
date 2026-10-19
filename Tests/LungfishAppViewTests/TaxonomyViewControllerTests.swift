@@ -285,6 +285,9 @@ final class TaxonomyViewControllerTests: XCTestCase {
         try "@r1\nACGT\n+\n!!!!\n".write(to: result.config.inputFiles[0], atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
+        // The files the shown tree comes from are the sidecar and the report (12.33 ARCH ruling on F1, C2).
+        try "100.00\t10\t0\tR\t1\troot\n".write(to: result.reportURL, atomically: true, encoding: .utf8)
+        try result.save(to: resultDirectory)
         vc.configure(result: result)
         let outputURL = resultDirectory.appendingPathComponent("classification.csv")
 
@@ -295,7 +298,9 @@ final class TaxonomyViewControllerTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.workflowName, "lungfish app taxonomy table export")
         let inputPaths = Set(envelope.files.filter { $0.role == .input }.map(\.path))
-        XCTAssertTrue(inputPaths.contains(result.config.inputFiles[0].path))
+        XCTAssertTrue(inputPaths.contains(result.reportURL.path))
+        XCTAssertTrue(inputPaths.contains(resultDirectory.appendingPathComponent(ClassificationResult.sidecarFilename).path))
+        XCTAssertFalse(inputPaths.contains(result.config.inputFiles[0].path), "the table never opens the classified reads")
     }
 
     func testDelimitedExportWarningPresenterSeamIsInvoked() throws {

@@ -39,6 +39,35 @@ public enum Kraken2TaxonomyTableExport {
             emitsEvents: emitsEvents
         )
     }
+
+    /// The sidecar a Kraken2 run writes beside its report, which the sidecar form of the leaf reads.
+    public static var sidecarFileName: String { ClassificationResult.sidecarFilename }
+
+    /// The one sample id of a sidecar result. The view uses it as the table's metadata sample and the record names
+    /// it as the selected sample (ARCH ruling on 12.33 F1, C2).
+    public static func sidecarSampleId(config: ClassificationConfig) -> String {
+        config.sampleDisplayName
+            ?? config.inputFiles.first?.deletingPathExtension().lastPathComponent
+            ?? "sample"
+    }
+
+    /// The files the table of a sidecar result is read from, in the order the record lists them, which are the
+    /// sidecar, the Kraken2 report and the Bracken file when the result has one. A caller keeps only the files that
+    /// exist. The reads the run classified are not among them, since the table never opens them (BIO 6).
+    public static func sidecarInputURLs(folder: URL, result: ClassificationResult) -> [URL] {
+        [folder.appendingPathComponent(sidecarFileName), result.reportURL] + (result.brackenURL.map { [$0] } ?? [])
+    }
+
+    /// The sample metadata files of a result folder, the table and its edit journal, that an export reads when it
+    /// writes a metadata column. Empty when it writes none. A caller keeps only the files that exist.
+    public static func metadataInputURLs(in resultURL: URL, writesMetadata: Bool) -> [URL] {
+        guard writesMetadata else { return [] }
+        let folder = resultURL.appendingPathComponent("metadata", isDirectory: true)
+        return [
+            folder.appendingPathComponent("sample_metadata.tsv"),
+            folder.appendingPathComponent("sample_metadata_edits.json"),
+        ]
+    }
 }
 
 extension Kraken2TaxonomyTableExport {

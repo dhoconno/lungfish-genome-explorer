@@ -48,15 +48,80 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
             XCTAssertEqual(
                 Set(envelope.files.filter { $0.role == .input }.map(\.path)),
                 Set(export.inputs.map(\.path)),
-                "\(format): the record names config.inputFiles and none of the files the export reads from the result"
+                "\(format): the record names the sidecar and the kreport the shown tree came from, never config.inputFiles"
             )
             XCTAssertEqual(Set(envelope.options.explicit.keys), ["outputPath", "separator", "sourcePaths"], format)
             XCTAssertEqual(envelope.options.explicit["separator"]?.stringValue, format)
             XCTAssertEqual(envelope.options.defaults["outputFormat"]?.stringValue, format)
-            XCTAssertEqual(Set(envelope.options.resolvedDefaults.keys), ["nodeCount", "outputByteCount"], format)
+            XCTAssertEqual(
+                Set(envelope.options.resolvedDefaults.keys), ["nodeCount", "outputByteCount", "selectedSamples"], format
+            )
+            XCTAssertEqual(
+                envelope.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
+                ["reads_1"],
+                "\(format): the one sample id of a sidecar result"
+            )
             XCTAssertEqual(envelope.options.resolvedDefaults["nodeCount"]?.integerValue, export.tree.allNodes().count, format)
             XCTAssertEqual(envelope.options.resolvedDefaults["outputByteCount"]?.integerValue, content.utf8.count, format)
         }
+    }
+
+    // MARK: - The database route (ARCH ruling on F1, C2 and C3)
+
+    /// A folder with a Kraken2 database of two samples and a sample metadata table that gives them different groups,
+    /// shown as the sidebar shows it (`configureFromDatabase`, every sample picked) with the `Group` column visible.
+    private func makeDatabaseView() throws -> (view: TaxonomyViewController, folder: URL) {
+        let folder = scratch.appendingPathComponent("kraken2-batch", isDirectory: true)
+        let metadata = folder.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
+        var rows: [Kraken2ClassificationRow] = []
+        for (sample, name, reads) in [("sample-A", "Virus A", 40), ("sample-B", "Virus B", 20)] {
+            rows.append(Kraken2ClassificationRow(
+                sample: sample, taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
+                readsDirect: 0, readsClade: reads, percentage: 100, parentTaxId: nil, depth: 0
+            ))
+            rows.append(Kraken2ClassificationRow(
+                sample: sample, taxonName: name, taxId: reads, rank: "S", rankDisplayName: "Species",
+                readsDirect: reads, readsClade: reads, percentage: 100, parentTaxId: 1, depth: 1
+            ))
+        }
+        let database = try Kraken2Database.create(
+            at: folder.appendingPathComponent("kraken2.sqlite"),
+            rows: rows,
+            metadata: ["total_reads_sample-A": "40", "total_reads_sample-B": "20"]
+        )
+        try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
+            .write(to: metadata.appendingPathComponent("sample_metadata.tsv"))
+        let view = TaxonomyViewController()
+        _ = view.view
+        view.configureFromDatabase(database)
+        view.applySampleMetadata(SampleMetadataStore.load(from: folder, knownSampleIds: ["sample-A", "sample-B"]))
+        view.testTableView.metadataColumns.persistenceKey = nil
+        view.testTableView.metadataColumns.visibleColumns = ["Group"]
+        XCTAssertEqual(view.testTableView.metadataColumns.exportHeaders, ["Group"])
+        return (view, folder)
+    }
+
+    /// The database route (every batch and every indexed result) has no `classificationResult`, so the base record
+    /// names no input and no sample. It names the database the tree came from, the metadata table behind the shown
+    /// column, and the samples whose trees the table holds.
+    func testTheDatabaseRouteRecordNamesTheDatabaseTheMetadataAndTheSamples() throws {
+        let shown = try makeDatabaseView()
+        let outputURL = scratch.appendingPathComponent("database.tsv")
+        try shown.view.writeDelimitedExport(tree: try XCTUnwrap(shown.view.tree), separator: "\t", to: outputURL)
+        let envelope = try envelope(of: outputURL)
+        XCTAssertEqual(
+            Set(envelope.files.filter { $0.role == .input }.map(\.path)),
+            [
+                shown.folder.appendingPathComponent("kraken2.sqlite").path,
+                shown.folder.appendingPathComponent("metadata/sample_metadata.tsv").path,
+            ],
+            "the database the tree came from and the metadata table the shown column came from"
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["selectedSamples"]?.arrayValue?.compactMap(\.stringValue),
+            ["sample-A", "sample-B"]
+        )
     }
 
     // MARK: - The BLAST drawer table (census A9)
@@ -159,13 +224,13 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
     }
 
     private func writeTaxonomyTable(separator: String, fileName: String) throws -> TaxonomyExport {
-        let inputs = ["reads_1.fastq", "reads_2.fastq"].map { scratch.appendingPathComponent($0) }
-        for input in inputs {
+        let fastqs = ["reads_1.fastq", "reads_2.fastq"].map { scratch.appendingPathComponent($0) }
+        for input in fastqs {
             try "@r1\nACGT\n+\n!!!!\n".write(to: input, atomically: true, encoding: .utf8)
         }
         let tree = taxonomyTree()
         let config = ClassificationConfig(
-            inputFiles: inputs,
+            inputFiles: fastqs,
             isPairedEnd: true,
             databaseName: "pin-db",
             databasePath: scratch.appendingPathComponent("db"),
@@ -181,6 +246,10 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
             toolVersion: "2.1.3",
             provenanceId: nil
         )
+        // The sidecar and the kreport are the files the shown tree comes from (ARCH ruling on F1, C2).
+        try "100.00\t300\t0\tR\t1\troot\n".write(to: result.reportURL, atomically: true, encoding: .utf8)
+        try result.save(to: scratch)
+        let inputs = [scratch.appendingPathComponent(ClassificationResult.sidecarFilename), result.reportURL]
         let controller = TaxonomyViewController()
         _ = controller.view
         controller.configure(result: result)
