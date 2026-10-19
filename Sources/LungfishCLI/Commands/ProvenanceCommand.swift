@@ -157,56 +157,156 @@ struct ProvenanceCommand: AsyncParsableCommand {
         var allowUnpinned = false
 
         func run() async throws {
-            let inputURL = URL(fileURLWithPath: input)
-            let outputURL = URL(fileURLWithPath: output)
-            do {
-                let provenanceSource = try ProvenanceCommand.resolveProvenanceReading(inputURL)
-                let selectedExportFormat = try ProvenanceExportFormat.cliValue(exportFormat)
-                let exporter = ProvenanceExporter()
-                // Plan decision S7. The gate runs before anything is written, never inside exportBundle.
-                let gate = exporter.pinGate(
-                    for: provenanceSource.reading.envelope,
-                    shape: provenanceSource.reading.shape,
-                    format: selectedExportFormat,
-                    sourceSidecarURL: provenanceSource.sidecarURL,
-                    sourceRootURL: inputURL
-                )
-                guard gate.permitsExport(allowUnpinned: allowUnpinned) else {
-                    throw CLIError.validationFailed(errors: gate.refusalLines)
+            let request = ExportRequest(
+                input: input, exportFormat: exportFormat, output: output, allowUnpinned: allowUnpinned,
+                processArguments: CommandLine.arguments
+            )
+            // The first SIGTERM cancels the export. The report is built in a staging folder, so a cancel stops at the
+            // checkpoint before anything reaches the output, removes the staging folder and exits 125 (decision
+            // MGR-12.38-B9, item 4). `--format` names the report format here, so the leaf has no `GlobalOptions` and
+            // cannot run under `ViewerExportLeaf.run`.
+            let outcome = await runCancellingOnSIGTERM { try Self.exportReport(request) }
+            switch outcome {
+            case .success(let lines):
+                for line in lines {
+                    print(line)
                 }
-                var fallbackArgv = [
-                    CLICommandIdentity.executableName, "provenance", "export",
-                    input,
-                    "--export-format", exportFormat,
-                    "--output", output
-                ]
-                if allowUnpinned {
-                    fallbackArgv.append(ProvenanceExporter.allowUnpinnedFlag)
-                }
-                let exportArgv = Self.exportArgv(
-                    processArguments: CommandLine.arguments,
-                    fallback: fallbackArgv
-                )
-                let bundle = try exporter.exportBundle(
+            case .failure(let error) where error is CancellationError:
+                print(ViewerExportLeaf.cancelledMessage)
+                throw CLIExitCode.cancelled.exitCode
+            case .failure(let error as CLIError):
+                throw error
+            case .failure(let error):
+                throw CLIError.wrapping(error)
+            }
+        }
+
+        /// What `run()` hands the SIGTERM scope, which holds only values that can cross to its task.
+        struct ExportRequest: Sendable {
+            let input: String
+            let exportFormat: String
+            let output: String
+            let allowUnpinned: Bool
+            let processArguments: [String]
+        }
+
+        /// Resolves the source, runs the pin gate before anything is written, builds the report in a staging folder and
+        /// publishes it. Returns the lines the command prints.
+        static func exportReport(_ request: ExportRequest) throws -> [String] {
+            let inputURL = URL(fileURLWithPath: request.input)
+            let outputURL = URL(fileURLWithPath: request.output)
+            let provenanceSource = try ProvenanceCommand.resolveProvenanceReading(inputURL)
+            let selectedExportFormat = try ProvenanceExportFormat.cliValue(request.exportFormat)
+            let exporter = ProvenanceExporter()
+            // Plan decision S7. The gate runs before anything is written, never inside exportBundle.
+            let gate = exporter.pinGate(
+                for: provenanceSource.reading.envelope,
+                shape: provenanceSource.reading.shape,
+                format: selectedExportFormat,
+                sourceSidecarURL: provenanceSource.sidecarURL,
+                sourceRootURL: inputURL
+            )
+            guard gate.permitsExport(allowUnpinned: request.allowUnpinned) else {
+                throw CLIError.validationFailed(errors: gate.refusalLines)
+            }
+            var fallbackArgv = [
+                CLICommandIdentity.executableName, "provenance", "export",
+                request.input,
+                "--export-format", request.exportFormat,
+                "--output", request.output
+            ]
+            if request.allowUnpinned {
+                fallbackArgv.append(ProvenanceExporter.allowUnpinnedFlag)
+            }
+            let exportArgv = Self.exportArgv(processArguments: request.processArguments, fallback: fallbackArgv)
+            let bundle = try stageAndPublish(outputURL: outputURL) { stagingURL in
+                try exporter.exportBundle(
                     provenanceSource.reading.envelope,
                     format: selectedExportFormat,
-                    to: outputURL,
+                    to: stagingURL,
                     sourceSidecarURL: provenanceSource.sidecarURL,
                     sourceRootURL: inputURL,
                     exportArgv: exportArgv,
-                    allowUnpinned: allowUnpinned
+                    allowUnpinned: request.allowUnpinned,
+                    recordedAs: outputURL
                 )
-                print("Exported provenance \(selectedExportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
-                for artifact in bundle.signedReportArtifactURLs {
-                    print("Wrote signed report artifact to \(artifact.path)")
+            }
+            return ["Exported provenance \(selectedExportFormat.rawValue) to \(bundle.primaryArtifactURL.path)"]
+                + bundle.signedReportArtifactURLs.map { "Wrote signed report artifact to \($0.path)" }
+                + bundle.copiedSidecarURLs.map { "Wrote provenance artifact to \($0.path)" }
+        }
+
+        /// Builds in a hidden sibling of `outputURL`, named as the shared export code names its temporary files, reaches
+        /// the cancel checkpoint, then publishes (decision MGR-12.38-B9, items 2 and 3). A new folder takes one exclusive
+        /// rename. An existing folder keeps today's merge, so the files the report does not write stay. The staging
+        /// folder is removed on every end.
+        static func stageAndPublish<Staged>(outputURL: URL, stage: (URL) throws -> Staged) throws -> Staged {
+            let fileManager = FileManager.default
+            var isDirectory: ObjCBool = false
+            let exists = fileManager.fileExists(atPath: outputURL.path, isDirectory: &isDirectory)
+            if exists, !isDirectory.boolValue {
+                throw CLIError.validationFailed(errors: ["The output \(outputURL.path) is a file. Choose a folder."])
+            }
+            let stagingURL = outputURL.deletingLastPathComponent().appendingPathComponent(
+                ".\(outputURL.lastPathComponent).\(UUID().uuidString).export.tmp", isDirectory: true
+            )
+            defer { try? fileManager.removeItem(at: stagingURL) }
+            let staged = try stage(stagingURL)
+            try ViewerExportLeaf.checkpointAfterStaging()
+            if exists {
+                try publishMerging(stagingURL, into: outputURL)
+            } else {
+                _ = try PortableRename.exclusive(stagingURL, to: outputURL)
+            }
+            return staged
+        }
+
+        /// Moves each staged file to its relative path in the existing folder `outputURL`, replacing a file of the same
+        /// name and creating folders as needed, with the export record last. A staged folder against a file of the
+        /// same name in `outputURL`, or the reverse, fails before anything in `outputURL` changes.
+        static func publishMerging(_ stagingURL: URL, into outputURL: URL) throws {
+            let fileManager = FileManager.default
+            var folders: [String] = []
+            var files: [String] = []
+            for relative in try fileManager.subpathsOfDirectory(atPath: stagingURL.path).sorted() {
+                let attributes = try fileManager.attributesOfItem(atPath: stagingURL.appendingPathComponent(relative).path)
+                if (attributes[.type] as? FileAttributeType) == .typeDirectory {
+                    folders.append(relative)
+                } else {
+                    files.append(relative)
                 }
-                for sidecar in bundle.copiedSidecarURLs {
-                    print("Wrote provenance artifact to \(sidecar.path)")
+            }
+            func isFolder(_ relative: String) -> Bool? {
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: outputURL.appendingPathComponent(relative).path, isDirectory: &isDirectory) else {
+                    return nil
                 }
-            } catch let error as CLIError {
-                throw error
-            } catch {
-                throw CLIError.wrapping(error)
+                return isDirectory.boolValue
+            }
+            for relative in folders where isFolder(relative) == false {
+                throw CLIError.workflowFailed(reason: "The output holds a file named \(relative), where the export needs a folder.")
+            }
+            for relative in files where isFolder(relative) == true {
+                throw CLIError.workflowFailed(reason: "The output holds a folder named \(relative), where the export needs a file.")
+            }
+            let recordURL = stagingURL.appendingPathComponent("provenance", isDirectory: true)
+                .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            let last = [
+                ProvenanceSigningConfiguration.signatureURL(for: recordURL),
+                ProvenanceSigningConfiguration.publicKeyURL(for: recordURL),
+                recordURL,
+            ].map { "provenance/" + $0.lastPathComponent }
+            for relative in folders {
+                try fileManager.createDirectory(
+                    at: outputURL.appendingPathComponent(relative, isDirectory: true), withIntermediateDirectories: true
+                )
+            }
+            for relative in files.filter({ !last.contains($0) }) + last.filter({ files.contains($0) }) {
+                let source = stagingURL.appendingPathComponent(relative).path
+                let destination = outputURL.appendingPathComponent(relative).path
+                guard rename(source, destination) == 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
             }
         }
 
