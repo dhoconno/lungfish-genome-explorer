@@ -1091,7 +1091,7 @@ private struct DatabaseRow: View {
                     Text(PluginManagerViewModel.databaseTrackingSummary(for: database))
                         .font(.caption2)
                         .foregroundStyle(database.isUpdateAvailable ? Color.lungfishCreamsicleFallback : Color.lungfishSecondaryText)
-                        .lineLimit(1)
+                        .lineLimit(1).help(PluginManagerViewModel.databaseTrackingHelp(for: database))
                 }
 
                 Spacer()

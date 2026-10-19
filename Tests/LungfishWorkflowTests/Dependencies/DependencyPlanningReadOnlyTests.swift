@@ -52,7 +52,7 @@ final class DependencyPlanningReadOnlyTests: XCTestCase {
         try await currentPlan(root: root, registry: registry)
         let snapshot = try await registry.installedDatabaseSnapshot()
         XCTAssertEqual(snapshot.map(\.name), [record.name])
-        XCTAssertEqual(ReconcilerServices.metagenomicsDatabaseVersions(from: snapshot), ["viral": "1"])
+        XCTAssertEqual(ReconcilerServices.metagenomicsDatabaseVersions(from: snapshot), ["viral": "unknown"])
         XCTAssertEqual(try Data(contentsOf: manifestURL), bytes)
         XCTAssertFalse(FileManager.default.fileExists(atPath: installed.path))
         for directory in [retired, staged] {

@@ -695,7 +695,7 @@ struct ClassificationWizardSheet: View {
             interleavedInput: plan.format == .interleaved,
             inputLayout: plan.layout,
             databaseName: database.name,
-            databaseVersion: database.version ?? "unknown",
+            databaseVersion: database.checkedVersion ?? "unknown",
             databasePath: databasePath,
             databaseDigest: database.payloadDigest,
             databaseCatalogID: database.catalogID,

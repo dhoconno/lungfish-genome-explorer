@@ -609,13 +609,15 @@ final class DatabasesTabTests: XCTestCase {
         let outdated = try outdatedStandard8()
         XCTAssertTrue(vm.canUpdateDatabase(outdated))
 
-        let current = MetagenomicsDatabaseInfo(
+        var current = MetagenomicsDatabaseInfo(
             name: "Standard-8",
             tool: MetagenomicsTool.kraken2.rawValue,
             version: try XCTUnwrap(ManagedToolLock.bundled.database(id: "kraken2-standard-8")?.version),
             sizeBytes: 1024, description: "", collection: .standard8,
             path: URL(fileURLWithPath: "/tmp/standard-8"), status: .ready, recommendedRAM: 1024
         )
+        current.payloadDigest = "sha256:payload-fixture"  // An install receipt bound the row to the build, so it is checked.
+        current.canonicalReceiptSHA256 = "receipt-fixture"
         XCTAssertFalse(vm.canUpdateDatabase(current), "an up-to-date row offers nothing to apply")
 
         let imported = MetagenomicsDatabaseInfo(

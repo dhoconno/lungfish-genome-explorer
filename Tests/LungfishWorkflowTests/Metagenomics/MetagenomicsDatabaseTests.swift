@@ -931,7 +931,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let migratedResult = try await registry.database(named: catalog.name)
         let migrated = try XCTUnwrap(migratedResult)
         XCTAssertEqual(migrated.version, "kraken2-special-v1")
-        XCTAssertFalse(migrated.isUpdateAvailable)
+        XCTAssertTrue(migrated.isUnverified && migrated.isUpdateAvailable, "the row stores no receipt digest, so U-W5 reads it as unverified (Q-W2)")
 
         let manifestData = try Data(
             contentsOf: tempDir.appendingPathComponent("metagenomics-db-registry.json")

@@ -221,7 +221,7 @@ extension DbCommand {
             print(formatter.keyValueTable([
                 ("Tool", db.tool),
                 ("Status", db.status.rawValue),
-                ("Current version", db.version ?? "unknown"),
+                ("Current version", db.currentVersionLabel),
                 ("Installed", installed),
                 ("Last updated", lastUpdated),
                 ("Available update", availableUpdate),

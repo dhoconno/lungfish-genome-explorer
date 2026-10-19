@@ -83,7 +83,7 @@ extension Kraken2RunRequest {
             inputLayout: resolved.layout,
             databaseName: databaseName,
             inputFormat: inputFormat,
-            databaseVersion: databaseInfo?.version ?? "unknown",
+            databaseVersion: databaseInfo?.checkedVersion ?? "unknown",
             databasePath: databasePath,
             databaseDigest: databaseInfo?.payloadDigest,
             databaseCatalogID: databaseInfo?.catalogID,

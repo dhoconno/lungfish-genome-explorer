@@ -222,13 +222,20 @@ public extension ReconcilerServices {
     /// catalog-installed one, say), the row that records the identity itself wins: it is the
     /// one `resolveUpdateTarget` will actually replace, so the planned "installed version"
     /// must be its version and not the other row's.
+    ///
+    /// A ready row that nothing checked against a catalog build (``MetagenomicsDatabaseInfo/isUnverified``) has no
+    /// checked version and maps to `"unknown"`, so `tools update --include-databases` plans it as drift, as
+    /// `db update --all` and the Databases tab offer it.
     static func metagenomicsDatabaseVersions(
         from databases: [MetagenomicsDatabaseInfo]
     ) -> [String: String] {
         var versions: [String: String] = [:]
         var keyedByRecordedID: Set<String> = []
         for database in databases.sorted(by: { $0.name < $1.name }) where database.status == .ready {
-            guard let catalogID = database.resolvedCatalogID, let version = database.version else { continue }
+            guard let catalogID = database.resolvedCatalogID else { continue }
+            // Nothing checked an unverified row, so it plans as "unknown", the answer `registryDatabaseVersions`
+            // below gives a database of indeterminate age, and the planner treats that as drift (UX ruling U-W7).
+            let version = database.checkedVersion ?? "unknown"
             if database.catalogID != nil {
                 versions[catalogID] = version
                 keyedByRecordedID.insert(catalogID)

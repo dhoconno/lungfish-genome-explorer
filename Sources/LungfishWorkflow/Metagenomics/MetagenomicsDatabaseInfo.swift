@@ -324,7 +324,7 @@ extension MetagenomicsDatabaseInfo {
         guard status == .ready, path != nil else { return nil }
         guard let catalogEntry = resolvedCatalogEntry else { return nil }
         guard let latestVersion = catalogEntry.version else { return nil }
-        guard latestVersion != version else { return nil }
+        guard latestVersion != checkedVersion else { return nil }
         return latestVersion
     }
 
@@ -332,6 +332,37 @@ extension MetagenomicsDatabaseInfo {
     public var isUpdateAvailable: Bool {
         availableUpdateVersion != nil
     }
+
+    /// Whether nothing checked this ready catalog row's files against a catalog build (UX ruling U-W5).
+    ///
+    /// The row has a catalog identity (``resolvedCatalogID``) but lacks the install receipt's digest
+    /// (``canonicalReceiptSHA256``) or the payload digest (``payloadDigest``). A folder an older build adopted under a
+    /// catalog name and a download made before receipts existed read this way. A row with no catalog identity claims no
+    /// build, so it is not unverified.
+    public var isUnverified: Bool {
+        status == .ready && resolvedCatalogID != nil && (canonicalReceiptSHA256 == nil || payloadDigest == nil)
+    }
+
+    /// The version this row may claim, which is `nil` for an unverified row. The Databases tab, `db list`, `db info`,
+    /// ``availableUpdateVersion``, new classification records and the reconciler read this and not ``version``.
+    public var checkedVersion: String? {
+        isUnverified ? nil : version
+    }
+
+    /// The version label of an unverified row.
+    public static let unverifiedLabel = "Unverified"
+
+    /// The version `db info` prints, which is ``unverifiedLabel`` for an unverified row.
+    public var currentVersionLabel: String {
+        isUnverified ? Self.unverifiedLabel : version ?? "unknown"
+    }
+
+    /// First sentence of an unverified row's help text.
+    public static let unverifiedHelpNotChecked =
+        "LGE has not checked these files against a catalog build, so their version is not known."
+
+    /// Second sentence of an unverified row's help text, left out for a row that cannot be updated in place.
+    public static let unverifiedHelpUpdate = "Update the database to replace them with a checked copy."
 
     /// Complete built-in catalog of all metagenomics databases.
     ///

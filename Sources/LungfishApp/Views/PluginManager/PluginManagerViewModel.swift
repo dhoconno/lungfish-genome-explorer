@@ -745,7 +745,7 @@ final class PluginManagerViewModel {
             operationCenter.log(
                 id: operationID,
                 level: .info,
-                message: "Updating \(name) from \(database.version ?? "unknown") to \(targetVersion) (\(catalogID))"
+                message: "Updating \(name) from \(database.checkedVersion ?? "unknown") to \(targetVersion) (\(catalogID))"
             )
 
             Task {
@@ -871,7 +871,7 @@ final class PluginManagerViewModel {
             parts.append("Not installed")
         }
 
-        parts.append("Version \(database.version ?? "unknown")")
+        parts.append(database.isUnverified ? MetagenomicsDatabaseInfo.unverifiedLabel : "Version \(database.checkedVersion ?? "unknown")")
 
         if let availableUpdate = database.availableUpdateVersion {
             parts.append("Update available: \(availableUpdate)")

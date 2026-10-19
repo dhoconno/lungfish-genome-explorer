@@ -164,7 +164,8 @@ final class DependencyPlannerTests: XCTestCase {
         let update = plan.databaseUpdates.first { $0.id == "kraken2-viral" }
         XCTAssertNotNil(update, "plan: \(plan.databaseUpdates.map(\.id))")
         XCTAssertEqual(update?.managedBy, .metagenomicsRegistry)
-        XCTAssertEqual(update?.installedVersion, "20240904")
+        // Nothing checked the row against a catalog build, so the plan reads its version as unknown (UX ruling U-W7).
+        XCTAssertEqual(update?.installedVersion, "unknown")
         XCTAssertEqual(update?.targetVersion, spec.version)
     }
 
