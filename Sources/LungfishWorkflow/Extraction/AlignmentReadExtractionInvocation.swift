@@ -223,7 +223,7 @@ package struct AlignmentReadExtractionInvocation: Sendable, Equatable {
             startedAt: startedAt,
             endedAt: Date()
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: recordURL)
+        try ProvenanceWriter().write(envelope, toSidecar: recordURL)
         return recordURL
     }
 

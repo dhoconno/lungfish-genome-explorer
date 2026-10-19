@@ -1,14 +1,15 @@
-// CancelledRunRecordsPinReplayTests.swift - The cancelled-run records of three alignment writers, pinned unsigned at the base
+// CancelledRunRecordsPinReplayTests.swift - The cancelled-run records of three alignment writers, signed when a key is set
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.22 (S64), milestone M1. With `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` set, the record of a
-// cancelled alignment workflow (`CancelledAlignmentWorkflowRecord`, `AlignmentWorkflowLeaf.swift:92`), of a cancelled
-// consensus (`AlignmentConsensusInvocation.swift:196`) and of a cancelled read extraction
-// (`AlignmentReadExtractionInvocation.swift:226`) stay unsigned, since each builds
-// `ProvenanceWriter(signingProvider: nil)`. These pins hold that state so milestone M3 flips each one in a commit of
-// its own. The fourth M3 site, `AlignmentReadExtractionPublisher.publishFile` at `:256`, needs a staged payload, so
-// its pin sits with its flip in M3.
+// Phase 2.12 lane 12.22 (S64), milestones M1 and M3. With `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` set, the record of a
+// cancelled alignment workflow (`CancelledAlignmentWorkflowRecord`, `AlignmentWorkflowLeaf.swift`), of a cancelled
+// consensus (`AlignmentConsensusInvocation.recordCancelledRun`) and of a cancelled read extraction
+// (`AlignmentReadExtractionInvocation.recordCancelledRun`) each built `ProvenanceWriter(signingProvider: nil)`, so
+// each stayed unsigned (M1 pinned that state). M3 step 1 flipped the three pins into the positive tests below, and each
+// record now carries `<record>.signature.json` and `<record>.pub` that verify. A run with no key still leaves the
+// three records and no signature file. The fourth M3 site, `AlignmentReadExtractionPublisher.publishFile`, needs a
+// staged payload, so its test sits in `AlignmentReadExtractionPublisherSigningReplayTests`.
 //
 // It sets a process variable, so its name ends in ReplayTests and it runs in the integration tier.
 
@@ -33,26 +34,26 @@ final class CancelledRunRecordsPinReplayTests: XCTestCase {
 
     // MARK: - With a key set
 
-    func testTheCancelledWorkflowRecordIsUnsignedWhenAKeyIsSetAtTheBase() throws {
+    func testTheCancelledWorkflowRecordIsSignedWhenAKeyIsSet() throws {
         let url = root.appendingPathComponent("provenance/cancelled/run.lungfish-provenance.json")
         try withThrowawayKey { try workflowRecord(url).write() }
-        assertUnsigned(url)
+        try assertSigned(url)
     }
 
-    func testTheCancelledConsensusRecordIsUnsignedWhenAKeyIsSetAtTheBase() throws {
+    func testTheCancelledConsensusRecordIsSignedWhenAKeyIsSet() throws {
         let output = root.appendingPathComponent("S1.fasta")
         let record = try withThrowawayKey { try recordCancelledConsensus(output: output) }
-        assertUnsigned(record)
+        try assertSigned(record)
     }
 
-    func testTheCancelledReadExtractionRecordIsUnsignedWhenAKeyIsSetAtTheBase() throws {
+    func testTheCancelledReadExtractionRecordIsSignedWhenAKeyIsSet() throws {
         let record = try withThrowawayKey { try recordCancelledReadExtraction() }
-        assertUnsigned(record)
+        try assertSigned(record)
     }
 
     // MARK: - With no key
 
-    /// A run with no key leaves the three records and no signature file. M3 must leave this as it is.
+    /// A run with no key leaves the three records and no signature file. M3 leaves this as it was at the base.
     func testARunWithNoKeyLeavesTheSameRecordsAndNoSignatureFile() throws {
         XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the records")
         let workflow = root.appendingPathComponent("provenance/cancelled/run.lungfish-provenance.json")
@@ -125,6 +126,22 @@ final class CancelledRunRecordsPinReplayTests: XCTestCase {
             }
         }
         return try body()
+    }
+
+    /// The record exists, both files of a signature sit beside it, and the signature verifies against the record.
+    private func assertSigned(_ record: URL, file: StaticString = #filePath, line: UInt = #line) throws {
+        let fileManager = FileManager.default
+        XCTAssertTrue(fileManager.fileExists(atPath: record.path), "no record at \(record.path)", file: file, line: line)
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: record).path),
+            "\(record.lastPathComponent) has no signature though a key is set", file: file, line: line
+        )
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: ProvenanceSigningConfiguration.publicKeyURL(for: record).path),
+            "\(record.lastPathComponent) has no public key though a key is set", file: file, line: line
+        )
+        let verified = try ProvenanceSignatureVerifier.verify(provenanceURL: record)
+        XCTAssertTrue(verified.isValid, "\(record.lastPathComponent) does not verify", file: file, line: line)
     }
 
     /// The record exists and neither file of a signature sits beside it.

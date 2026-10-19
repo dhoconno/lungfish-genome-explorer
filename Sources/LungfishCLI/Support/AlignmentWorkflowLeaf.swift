@@ -89,7 +89,7 @@ struct CancelledAlignmentWorkflowRecord {
             endedAt: Date()
         )
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: url)
+        try ProvenanceWriter().write(envelope, toSidecar: url)
     }
 }
 
