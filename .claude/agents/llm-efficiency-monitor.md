@@ -29,11 +29,16 @@ primary checkout when they are there (git ignores the folder), and run the ledge
 the baseline (their ids are in the memory notes). When the previous session updated the contract before its final
 candidate, put that session's closing figures in the log for this session's update. Start `SCR/llm/notes.md`.
 
+At your first run of a session, which is checkpoint 0 of a phase session and the single end run of a short one, also
+run the best-practice check that `docs/contracts/CLAUDE-CODE-PRACTICES.md` sets under Weekly check. It is due when the
+newest date in the file names under `/Users/dho/lungfish-phase-records/best-practices/` is more than 7 days before
+today. A hash equal to the last one costs two calls, and a changed page makes a dated diff there.
+
 ## Rules for you
 
 | Rule | Detail |
 |---|---|
-| Write only under `SCR/llm/` | No repository edits, no commits, no subagents, no builds or tests, no pushes. The last checkpoint is the one exception, below |
+| Write only under `SCR/llm/` | No repository edits, no commits, no subagents, no builds or tests, no pushes. The best-practice check also writes under `/Users/dho/lungfish-phase-records/best-practices/`, and the last checkpoint is the one exception for the repository, below |
 | Never read a transcript | No `~/.claude/projects/**/*.jsonl` and no persisted tool-result file in your context. Write a script that prints numbers, then read its output with `sed -n` on the lines you need |
 | Batch | Independent reads and script runs go in one message. Put script output in files, not in your context |
 | Guard-safe commands | One command a call when it names an SCR path, since the guard refuses a `;` or `&&` chain that names a path under the checkout folder. Literal paths, no heredoc inside `$(...)`, no `python3 -`, no `( ... ) > file` around a command that names a repository path, timeout 270000 on long calls, `du` of the build folders in the background. A refusal because the auto mode classifier gave no verdict is a server error, so run the same command once more before changing it |

@@ -27,7 +27,7 @@ End-of-session duty folds what each session's numbers show into this contract.
 | Reviewer | sonnet at effort max, one fresh agent per lane that also carries the questions of the other fields the lane touches | after the lane's final message | the lane report and the diff | `reviews/<LANE>.md` with a verdict, numbered fixes as `path:line` and text, and rulings on the questions it carries |
 | Fix agent | sonnet, at effort high for fixes that paste given words into documentation and at effort max for code fixes, and opus at effort max when a fix needs judgment | fresh, `isolation: "worktree"`, then the guarded reset to the lane head | the review file and the lane report | commits, `lanes/<LANE>/<LANE>-fix.md` |
 | Landing agent | sonnet at effort max | fresh, in the program worktree | `land.md`, the ranges, the review files and the small fixes to fold in | cherry-picks, folded fixes, a build, targeted tests, the module map, ratchets, `land/land-N.md` |
-| LLM-efficiency monitor | opus at effort xhigh, one fresh agent per checkpoint, defined in `.claude/agents/llm-efficiency-monitor.md` | at the start, after each wave launch, about every two hours, and at the end | `llm/notes.md`, `llm/actions.md`, the last log entry, the session notes and event log | a ledger, a log entry, numbered actions, and at the end the update of this contract |
+| LLM-efficiency monitor | opus at effort xhigh, one fresh agent per checkpoint, defined in `.claude/agents/llm-efficiency-monitor.md` | at the start, after each wave launch, about every two hours, and at the end | `llm/notes.md`, `llm/actions.md`, the last log entry, the session notes and event log | a ledger, a log entry, numbered actions, a dated best-practice diff in `/Users/dho/lungfish-phase-records/best-practices/` when the last check is over 7 days old, and at the end the update of this contract |
 
 The manager plans, briefs, spawns and decides. It does not land lanes or edit code beyond a one-line fix, and its own
 context is the scarcest resource of the session.
@@ -207,8 +207,12 @@ only `docs/contracts/` is release-neutral and may follow the release as a fast-f
 
 - Add the session to the session table and replace measurements with newer ones.
 - Change or remove a rule that a before-and-after measurement contradicts. Add a rule only when a measurement supports
-  it, and keep this file under about 200 lines.
+  it, or when it comes from `docs/contracts/CLAUDE-CODE-PRACTICES.md` with the basis `page`, and keep this file under
+  about 200 lines.
 - Update `.claude/agents/llm-efficiency-monitor.md`, and `scripts/llm/session_ledger.py` with
   `scripts/tests/test_session_ledger.py`, when they changed. Commit any agent type the session proposed, since it loads
   only at the next session's start, and copy the helpers to `build/llm/`.
 - The next session's checkpoint 0 records the closing figures of the session before it, for its own update.
+- Fold each best-practice proposal that the owner or the panel accepted into `docs/contracts/CLAUDE-CODE-PRACTICES.md`
+  and the files it names, with the basis `page`, and record the measurement that keeps, changes or removes each row of
+  that basis.

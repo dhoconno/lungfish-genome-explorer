@@ -18,6 +18,7 @@ These documents are the written rules for extending Lungfish Genome Explorer (LG
 | `docs/contracts/MACHINES.md` | work on a Mac other than the golden runner, run or change the golden environment, or set up the self-hosted runner |
 | `docs/contracts/RUNNING-A-PHASE-SESSION.md` | run a phase session with subagents, write a lane, review, fix or landing brief, or measure a session's model spend with `scripts/llm/session_ledger.py` |
 | `docs/contracts/EXPERT-PANEL.md` | start any session in this repository, brief or spawn an expert, review a lane in a field, settle a question of scope or fact, or record or revisit a panel decision |
+| `docs/contracts/CLAUDE-CODE-PRACTICES.md` | run or read the weekly check of the Claude Code best practices page, or decide whether a practice from it enters a contract |
 | `docs/contracts/SCREENCASTS.md` | make a new screencast, change one after review, or publish one to the website's Videos page |
 | `docs/contracts/screencast-checklist.md` | need the copyable per-video checklist |
 
