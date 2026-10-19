@@ -936,25 +936,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            // `snapshot` and `format` are Sendable value inputs and `url` is a Sendable
-            // URL, so the export (which shells out to the CLI and blocks on
-            // process.waitUntilExit) runs off the main thread. The completion closure
-            // returns immediately; only error reporting hops back to the main actor.
-            let outputURL = url
-            Task { [weak self] in
-                do {
-                    _ = try await Task.detached {
-                        try await TwelveSAmpliconResultExportService().export(
-                            snapshot: snapshot,
-                            format: format,
-                            to: outputURL
-                        )
-                    }.value
-                } catch {
-                    await MainActor.run {
-                        self?.presentExportError(error, fileName: outputURL.lastPathComponent)
-                    }
-                }
+            // The leaf writes the report and its record behind an Operations row (lane 12.35, row B3), with the
+            // filters frozen above. A failure shows today's alert, and a cancel from the row shows none (UX 4).
+            Self.runResultExport(snapshot: snapshot, format: format, outputURL: url) { [weak self] failure in
+                self?.presentExportError(failure, fileName: url.lastPathComponent)
             }
         }
         if let window = view.window {
