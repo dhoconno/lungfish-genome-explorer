@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
 /// The Kraken2 taxonomy table export (Phase 2.12 lane 12.33, ARCH ruling 1.1 row A7).
 ///
