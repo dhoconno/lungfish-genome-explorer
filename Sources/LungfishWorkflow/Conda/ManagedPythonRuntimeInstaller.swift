@@ -381,7 +381,7 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.requirementsProvider = requirementsProvider ?? { name in
-            guard let url = RuntimeResourceLocator.path("ManagedTools/\(name)", in: .workflow) else {
+            guard let url = Self.bundledRequirementsURL(named: name) else {
                 throw ManagedPythonRuntimeInstallerError.invalidInventory(
                     "The bundled resource ManagedTools/\(name) was not found.")
             }
@@ -389,6 +389,24 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         }
         self.commandRunner = commandRunner ?? Self.run
         self.now = now
+    }
+
+    /// The bundled requirements file. A CLI outside an app bundle, such as the `.build/debug/lungfish-cli` that
+    /// `scripts/deps/verify.sh` runs, finds no resource root, so a debug build reads the source tree as
+    /// `ManagedToolLock.resourceURL()` does (PF11).
+    static func bundledRequirementsURL(
+        named name: String,
+        locate: (String) -> URL? = { RuntimeResourceLocator.path($0, in: .workflow) }
+    ) -> URL? {
+        if let url = locate("ManagedTools/\(name)") { return url }
+        #if DEBUG
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/ManagedTools/\(name)")
+        if FileManager.default.fileExists(atPath: source.path) { return source }
+        #endif
+        return nil
     }
 
     public func install(

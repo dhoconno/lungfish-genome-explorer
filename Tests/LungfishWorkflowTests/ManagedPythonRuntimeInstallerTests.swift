@@ -210,6 +210,17 @@ final class ManagedPythonRuntimeInstallerTests: XCTestCase {
                        "The file lib/python3.12/site-packages/primalscheme3/__init__.py holds 8 bytes, not the recorded 22.")
     }
 
+    /// PF11. A debug CLI outside an app bundle, as `scripts/deps/verify.sh` runs it, finds no resource root.
+    func testBundledRequirementsResolveWhenNoResourceRootIsFound() throws {
+        let runtime = try XCTUnwrap(
+            PluginPack.activeOptionalPacks.first { $0.id == "pcr-primer-design" }?
+                .toolRequirements.first { $0.id == "primalscheme3" }?.pythonRuntime)
+        let url = try XCTUnwrap(ManagedPythonRuntimeInstaller.bundledRequirementsURL(
+            named: runtime.requirementsResource, locate: { _ in nil }))
+        let hash = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(hash, runtime.requirementsSHA256)
+    }
+
     func testInvalidInventoryMessageKeepsItsFirstSentenceAndNamesTheReason() {
         XCTAssertEqual(
             ManagedPythonRuntimeInstallerError.invalidInventory("The wheelhouse holds no .whl file.").errorDescription,
