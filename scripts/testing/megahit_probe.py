@@ -426,7 +426,9 @@ def late_reports(folder: Path, records: list) -> list:
         start = set(json.loads((folder / "probe.json").read_text()).get("reports_at_start", []))
     except (OSError, ValueError):
         return []
-    held = {report.get("file") for record in records for report in record.get("crash_reports") or []}
+    # A record names its copy "<run tag>--<report name>", while the system folder lists "<report name>".
+    held = {str(report.get("file", "")).split("--", 1)[-1]
+            for record in records for report in record.get("crash_reports") or []}
     late = []
     for name in list_reports():
         if name in start or name in held:
