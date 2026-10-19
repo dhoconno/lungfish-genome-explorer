@@ -80,12 +80,15 @@ extension Kraken2TaxonomyTableExport {
     ///   - separator: Column separator character.
     ///   - metadataHeaders: The visible metadata column headers, appended to the header row.
     ///   - metadataValues: The values of those columns for the sample, appended to every row.
+    ///   - metadataValuesBySample: For a merged tree, the values of those columns for each sample id. A row at or
+    ///     under a sample's node carries that sample's values and the Root row carries empty fields.
     /// - Returns: The complete file content as a string.
     public static func buildDelimitedExport(
         tree: TaxonTree,
         separator: String,
         metadataHeaders: [String],
-        metadataValues: [String]
+        metadataValues: [String],
+        metadataValuesBySample: [String: [String]] = [:]
     ) -> String {
         var lines: [String] = []
 
@@ -95,9 +98,22 @@ extension Kraken2TaxonomyTableExport {
         headers.append(contentsOf: metadataHeaders)
         lines.append(headers.joined(separator: separator))
 
+        // Every row is as long as the header (12.33 ARCH ruling on F1, C3). A merged tree is a Root and then one node
+        // with a negative tax id per sample (see `mergedTree`), so a row takes the values of the sample node above it.
+        let emptyValues = Array(repeating: "", count: metadataHeaders.count)
+        func fitted(_ values: [String]) -> [String] {
+            Array((values + emptyValues).prefix(metadataHeaders.count))
+        }
+        let singleValues = fitted(metadataValues)
+        let isMerged = tree.root.children.contains { $0.taxId < 0 }
+        var rowValues = isMerged ? emptyValues : singleValues
+
         // Depth-first traversal
         let allNodes = tree.allNodes()
         for node in allNodes {
+            if isMerged, node.taxId < 0 {
+                rowValues = fitted(metadataValuesBySample[node.name] ?? [])
+            }
             let cladePercent = tree.totalReads > 0
                 ? String(format: "%.4f", Double(node.readsClade) / Double(tree.totalReads) * 100)
                 : "0.0000"
@@ -117,7 +133,7 @@ extension Kraken2TaxonomyTableExport {
                 cladePercent,
                 directPercent,
             ]
-            for value in metadataValues {
+            for value in rowValues {
                 row.append(escapeField(value, separator: separator))
             }
             lines.append(row.joined(separator: separator))
@@ -136,7 +152,7 @@ extension Kraken2TaxonomyTableExport {
                 cladePercent,
                 cladePercent,
             ]
-            for value in metadataValues {
+            for value in singleValues {
                 row.append(escapeField(value, separator: separator))
             }
             lines.append(row.joined(separator: separator))

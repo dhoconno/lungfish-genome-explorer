@@ -124,6 +124,27 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
         )
     }
 
+    /// C3. A merged table puts each sample's own metadata on the rows at and under its sample node, and nothing on
+    /// the Root row. The base appends the first sample's values to every row
+    /// (`build/lane/tie-order-fails-at-base.log`, `Optional("case")` on the Root row and on sample-B's rows).
+    func testTheMergedTableGivesEachSampleItsOwnMetadata() throws {
+        let shown = try makeDatabaseView()
+        let outputURL = scratch.appendingPathComponent("merged.tsv")
+        try shown.view.writeDelimitedExport(tree: try XCTUnwrap(shown.view.tree), separator: "\t", to: outputURL)
+        let rows = try String(contentsOf: outputURL, encoding: .utf8).split(separator: "\n")
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        XCTAssertEqual(rows.count, 6, "the header, Root, and two samples with one taxon each")
+        for row in rows {
+            XCTAssertEqual(row.count, 7, "every row is as long as the header: \(row)")
+        }
+        let groups = Dictionary(uniqueKeysWithValues: rows.dropFirst().map { ($0[0], $0.last ?? "") })
+        XCTAssertEqual(groups["Root"], "")
+        XCTAssertEqual(groups["sample-A"], "case")
+        XCTAssertEqual(groups["Virus A"], "case")
+        XCTAssertEqual(groups["sample-B"], "control")
+        XCTAssertEqual(groups["Virus B"], "control")
+    }
+
     // MARK: - The BLAST drawer table (census A9)
 
     func testTheBlastTableBytesAndRecordAtTheBase() throws {

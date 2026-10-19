@@ -1654,11 +1654,18 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Builds the delimited text content for export from the tree and the visible metadata columns, with
     /// ``Kraken2TaxonomyTableExport/buildDelimitedExport(tree:separator:metadataHeaders:metadataValues:)``.
     func buildDelimitedExport(tree: TaxonTree, separator: String) -> String {
-        Kraken2TaxonomyTableExport.buildDelimitedExport(
+        let metadata = taxonomyTableView.metadataColumns
+        // A merged tree names its samples in the nodes under its Root, and each sample gets its own values.
+        let mergedSampleIds = tree.root.children.filter { $0.taxId < 0 }.map(\.name)
+        return Kraken2TaxonomyTableExport.buildDelimitedExport(
             tree: tree,
             separator: separator,
-            metadataHeaders: taxonomyTableView.metadataColumns.exportHeaders,
-            metadataValues: taxonomyTableView.metadataColumns.exportValues
+            metadataHeaders: metadata.exportHeaders,
+            metadataValues: metadata.exportValues,
+            metadataValuesBySample: Dictionary(
+                mergedSampleIds.map { ($0, metadata.exportValues(for: $0)) },
+                uniquingKeysWith: { first, _ in first }
+            )
         )
     }
 
