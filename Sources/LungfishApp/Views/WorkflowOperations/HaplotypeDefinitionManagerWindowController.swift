@@ -201,21 +201,10 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
         begin(panel) { [weak self, panel] response in
             guard response == .OK, let url = panel.url else { return }
             guard let self else { return }
-            self.perform {
-                try self.service.exportDefinition(
-                    definitionID: record.definitionSet.id,
-                    assayID: record.definitionSet.assayID,
-                    scope: record.scope,
-                    to: url,
-                    argv: [
-                        CLICommandIdentity.executableName,
-                        "haplotypes",
-                        "export",
-                        record.definitionSet.id,
-                        "--output",
-                        url.path,
-                    ]
-                )
+            // The leaf writes the file and its record behind an Operations row with every option the export uses
+            // (lane 12.35, row B7). A failure shows in the window as before, and a cancel from the row shows none.
+            Self.runDefinitionExport(record: record, projectURL: self.projectURL, outputURL: url) { [weak self] failure in
+                self?.errorMessage = failure.message
             }
         }
     }
