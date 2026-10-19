@@ -118,8 +118,9 @@ coverage/
 !.claude/
 !.claude/agents/
 !.claude/agents/*.md
-# But ignore settings
-.claude/settings.json
+# Track the shared settings and the hook scripts, and nothing else under .claude/
+!.claude/settings.json
+!.claude/hooks/*.py
 
 # Large reference databases (>100 MB; cannot be stored in git)
 # Download from the source URLs in manifest.json and place in the same directory.
