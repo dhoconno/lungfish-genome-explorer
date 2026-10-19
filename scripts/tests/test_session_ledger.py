@@ -417,6 +417,81 @@ class SpendByRoleModelAndEffortTests(LedgerTestCase):
                          [self.LANE, self.REVIEW % 'unset', self.MAIN])
 
 
+class ManagerEffortTests(LedgerTestCase):
+    """The manager has no spawn, so its effort is the `effort` field of its own transcript (2.11 cp7 proposal 10)."""
+    OPUS = 'claude-opus-5-5'
+
+    def write_session(self, efforts):
+        self.main.prompt(0, 'start the phase')
+        for i, effort in enumerate(efforts):
+            entry = self.main.turn(5 + 10 * i, 'msg_m%d' % i, usage(read=30000, write=1000, out=50, w1h=1000), [],
+                                   model=self.OPUS, stop='end_turn')
+            if effort:
+                entry['effort'] = effort
+        self.sub.prompt(7, 'brief')
+        # a subagent's field reads the session's setting on every message, not the setting its spawn asked for
+        self.sub.turn(10, 'msg_1', usage(read=40000, write=3000, out=20), [], stop='end_turn')['effort'] = 'xhigh'
+        return self.run_ledger()
+
+    def test_main_effort_is_the_most_common_value_in_its_transcript(self):
+        session = self.write_session(['xhigh', 'xhigh', 'high'])
+        main = self.agent(session, 'main')
+        self.assertEqual(main['transcript_effort'], 'xhigh')
+        self.assertEqual(main['request']['effort'], 'xhigh')
+        self.assertIn(('main', self.OPUS, 'xhigh'),
+                      [(x['role'], x['model'], x['effort']) for x in session['by_role_model_effort']])
+
+    def test_a_subagent_keeps_its_spawn_setting_whatever_its_own_field_reads(self):
+        session = self.write_session(['xhigh'])
+        lane = self.agent(session, AID)
+        self.assertEqual(lane['transcript_effort'], 'xhigh')
+        self.assertEqual(lane['request']['effort'], 'unset')
+
+    def test_a_main_transcript_with_no_effort_field_stays_unset(self):
+        session = self.write_session([None])
+        main = self.agent(session, 'main')
+        self.assertIsNone(main['transcript_effort'])
+        self.assertEqual(main['request']['effort'], 'unset')
+
+
+class PathsTests(LedgerTestCase):
+    """`--paths` prints where a session's transcripts and subagents folder are (2.12 proposal 14), so no helper types a
+    project folder."""
+
+    def run_paths(self, *targets):
+        return subprocess.run([sys.executable, str(LEDGER), '--root', str(self.root), '--paths'] + list(targets),
+                              capture_output=True, text=True)
+
+    def test_paths_names_the_transcript_and_the_subagents_folder(self):
+        self.main.prompt(0, 'start')
+        self.sub.prompt(7, 'brief')
+        self.main.save()
+        self.sub.save()
+        run = self.run_paths(SID)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.splitlines(), [
+            'session ' + SID, 'transcript ' + str(self.main.path),
+            'subagents %s 1' % (self.root / 'proj' / SID / 'subagents')])
+
+    def test_paths_lists_every_project_folder_that_holds_the_session(self):
+        other = self.root / 'other-proj' / (SID + '.jsonl')
+        self.main.prompt(0, 'start')
+        self.main.save(self.main.path, other)
+        self.sub.prompt(7, 'brief')
+        self.sub.save()
+        run = self.run_paths(SID)
+        lines = run.stdout.splitlines()
+        self.assertEqual([x.split(' ')[0] for x in lines], ['session', 'transcript', 'transcript', 'subagents'])
+        self.assertEqual(sorted(x.split(' ', 1)[1] for x in lines if x.startswith('transcript')),
+                         sorted([str(self.main.path), str(other)]))
+
+    def test_paths_of_a_session_with_no_transcript_says_so_and_exits_1(self):
+        unknown = '99999999-0000-0000-0000-000000000000'
+        run = self.run_paths(unknown)
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.stdout.splitlines(), ['session ' + unknown, 'not found under ' + str(self.root)])
+
+
 class CommandLineTests(LedgerTestCase):
     def test_writes_markdown_and_json_without_message_text(self):
         self.main.prompt(0, 'start')

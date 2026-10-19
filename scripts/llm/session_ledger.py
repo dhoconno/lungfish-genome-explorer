@@ -3,7 +3,11 @@
 
 usage:
   python3 session_ledger.py [--root ~/.claude/projects] [--md OUT.md] [--json OUT.json]
-                            [--now ISO8601] [--top N] SESSION_ID_OR_JSONL [...]
+                            [--now ISO8601] [--top N] [--paths] SESSION_ID_OR_JSONL [...]
+
+With --paths the script reads no transcript. It prints, for each session, a `session ID` line, one `transcript PATH`
+line per main transcript found and one `subagents FOLDER COUNT` line per project folder holding the session's
+subagent transcripts, and exits 1 when a session has no transcript at all, so no helper types a project folder.
 
 Each argument is a session id (all `<root>/*/<id>.jsonl` main transcripts and all
 `<root>/*/<id>/subagents/**/agent-*.jsonl` subagent transcripts are found) or a path to a
@@ -272,6 +276,7 @@ class Agent:
         self.cost_state = None
         self.title = None
         self.order = 0
+        self.effort = Counter()  # the transcript's own `effort` field, counted per entry
 
 
 def load_file(path, agents, default_key, default_kind, sid):
@@ -302,6 +307,8 @@ def load_file(path, agents, default_key, default_kind, sid):
                 if uid in ag.seen_uuid:
                     continue
                 ag.seen_uuid.add(uid)
+            if isinstance(e.get("effort"), str) and e["effort"]:
+                ag.effort[e["effort"]] += 1
             ts = parse_ts(e.get("timestamp"))
             ag.order += 1
             o = ag.order
@@ -513,6 +520,31 @@ def discover(arg, root):
     return sid, sorted(mains), sorted(subs), titles
 
 
+def session_paths(arg, root):
+    """Where a session id (or a transcript path) resolves to under the root: its main transcripts and, per project
+    folder, the subagents folder with the number of subagent transcripts under it."""
+    sid, mains, subs, _titles = discover(arg, root)
+    folders = sorted(glob.glob(os.path.join(root, "*", sid, "subagents")))
+    return sid, mains, [(f, sum(1 for p in subs if p.startswith(f + os.sep))) for f in folders]
+
+
+def print_paths(targets, root):
+    """The `--paths` report, one block a session. Returns the number of sessions that have no transcript at all."""
+    missing = 0
+    for target in targets:
+        sid, mains, folders = session_paths(target, root)
+        print("session " + sid)
+        if not mains and not any(n for _, n in folders):
+            print("not found under " + root)
+            missing += 1
+            continue
+        for p in mains:
+            print("transcript " + p)
+        for folder, n in folders:
+            print("subagents %s %d" % (folder, n))
+    return missing
+
+
 def analyze_agent(ag, now, top):
     r = {"key": ag.key, "kind": ag.kind, "label": ag.label, "paths": ag.paths}
     msgs = sorted(ag.msgs.values(), key=lambda x: x["ts"] or 0)
@@ -586,6 +618,7 @@ def analyze_agent(ag, now, top):
         "first_turn": ({"cr": msgs[0]["u"]["cr"], "cc": msgs[0]["u"]["cc"]} if msgs else None),
         "rebuilds": rebuilds, "rebuild_tokens": sum(x["tokens"] for x in rebuilds), "cost_10min": buckets,
         "ctx_hist": ctx_hist,
+        "transcript_effort": ag.effort.most_common(1)[0][0] if ag.effort else None,
         "compactions": ag.compactions, "queued": ag.queued,
         "api_errors": dict(ag.api_errors), "synthetic": dict(ag.synthetic),
         "other_types": dict(ag.other_types),
@@ -775,11 +808,13 @@ def analyze_agent(ag, now, top):
 
 def request_of(r):
     """The model and effort an agent's spawn asked for, with the model its turns ran on beside them. Each setting comes
-    from the Agent call's input, else the subagent's meta, else UNSET. A transcript's own effort field is not used: it
-    reads the session's setting on every message, not the spawn's."""
+    from the Agent call's input, else the subagent's meta, else UNSET. A subagent's own transcript effort field is not
+    used: it reads the session's setting on every message, not the spawn's. The manager has no spawn, so its effort is
+    the field of its own transcript (the most common value)."""
     sp, meta = r.get("spawn") or {}, r.get("meta") or {}
+    own = r.get("transcript_effort") if r.get("kind") == "main" else None
     return {"model": sp.get("model") or meta.get("model") or UNSET,
-            "effort": sp.get("effort") or meta.get("effort") or UNSET,
+            "effort": sp.get("effort") or meta.get("effort") or own or UNSET,
             "agent_type": sp.get("subagent_type") or meta.get("agentType") or UNSET,
             "ran_on": r["model"]}
 
@@ -1131,7 +1166,12 @@ def main_cli():
     ap.add_argument("--json")
     ap.add_argument("--now", help="ISO time used to age pending tool calls (default: now for live sessions)")
     ap.add_argument("--top", type=int, default=12)
+    ap.add_argument("--paths", action="store_true",
+                    help="print each session's transcript files and subagents folder, read nothing else, and exit "
+                         "(1 when a session has no transcript)")
     a = ap.parse_args()
+    if a.paths:
+        sys.exit(1 if print_paths(a.targets, a.root) else 0)
     now = parse_ts(a.now) if a.now else time.time()
     sessions = [load_session(t, a.root, now, a.top) for t in a.targets]
     lines = [f"# Session ledger ({time.strftime('%Y-%m-%d %H:%M')} local)\n"]
