@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 
 /// The chromosome alias groups `AnnotationSearchIndex` uses to find annotation and
 /// variant rows filed under another spelling of a bundle's chromosome name, such as
@@ -13,23 +14,25 @@ import LungfishCore
 /// without annotation or variant tracks, whose lookups never read them. Building them
 /// whenever a bundle opened cost a reference with 905,628 sequences 5.5 seconds and
 /// 1,264 MB.
-struct BundleChromosomeAliasMaps {
+package struct BundleChromosomeAliasMaps {
 
     /// Alias groups keyed by exact lowercase token.
-    private(set) var byExactToken: [String: Set<String>] = [:]
+    package private(set) var byExactToken: [String: Set<String>] = [:]
 
     /// Alias groups keyed by canonical chromosome token.
-    private(set) var byCanonicalToken: [String: Set<String>] = [:]
+    package private(set) var byCanonicalToken: [String: Set<String>] = [:]
 
     /// How many times the groups were built. Tests read it.
-    private(set) var buildCount = 0
+    package private(set) var buildCount = 0
 
     /// The chromosomes the next lookup groups, `nil` when there is nothing to build.
     private var pendingChromosomes: [ChromosomeInfo]?
 
+    package init() {}
+
     /// Drops the groups. The next lookup builds them from `chromosomes`, and `nil`
     /// leaves them empty.
-    mutating func reset(chromosomes: [ChromosomeInfo]?) {
+    package mutating func reset(chromosomes: [ChromosomeInfo]?) {
         byExactToken = [:]
         byCanonicalToken = [:]
         pendingChromosomes = chromosomes
@@ -38,7 +41,7 @@ struct BundleChromosomeAliasMaps {
     /// Builds the groups on the first lookup after ``reset(chromosomes:)``. Each
     /// chromosome's name and aliases, with their common spellings, form one group
     /// that every member token finds.
-    mutating func prepare() {
+    package mutating func prepare() {
         guard let chromosomes = pendingChromosomes else { return }
         pendingChromosomes = nil
         buildCount += 1
@@ -54,7 +57,7 @@ struct BundleChromosomeAliasMaps {
             for token in group {
                 let lower = token.lowercased()
                 byExactToken[lower, default: []].formUnion(group)
-                let canonical = AnnotationSearchIndex.canonicalChromosomeName(token)
+                let canonical = canonicalVariantChromosomeLookupKey(token)
                 byCanonicalToken[canonical, default: []].formUnion(group)
             }
         }
