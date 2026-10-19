@@ -415,8 +415,10 @@ features:
       <fasta> <region> -o <name>.lungfishref --source-document, so its row
       also shows the command and Cancel stops it. A bundle extracted from a
       GenBank file keeps no annotations, as before, and its record says so.
-      Each such extraction keeps its staged FASTA under the project's .tmp
-      folder so that its record stays true. The hidden key
+      Each such extraction that finishes or is cancelled keeps its staged
+      FASTA under the project's .tmp folder, or under the system temporary
+      folder when no project is in reach, so that its record stays true. A
+      failed extraction removes it. The hidden key
       RegionExtractionWithoutBundleRoute set to legacy keeps the in-app
       route for one release, and 2.13 deletes it. A region extracted with
       only spaces typed as its bundle name is saved as
@@ -2409,9 +2411,10 @@ features:
       replays it. The command builds the report in a hidden staging folder
       and publishes it when the report is complete, so Cancel leaves the
       output folder as it was, and an existing folder keeps the files the
-      export does not write. If Cancel is pressed twice or the app
-      force-quits during an export, a hidden .<name>.<id>.export.tmp folder
-      can remain beside the output, or inside it for an existing folder.
+      export does not write. If the command does not stop within the 6
+      seconds that LGE gives it after Cancel, or a second SIGTERM reaches
+      it, a hidden .<name>.<id>.export.tmp folder can remain beside the
+      output, or inside it for an existing folder.
   provenance.inspector:
     title: Read a result's provenance in the Inspector
     entry_points:
