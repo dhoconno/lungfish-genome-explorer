@@ -61,8 +61,23 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
         managedPythonResolver: @escaping @Sendable () async throws -> URL
     ) async throws {
         if let snapshot {
-            try await replaySnapshot(at: snapshot)
-            return
+            // A SIGTERM cancels the replay, whose transaction rolls back, and exits 125 with no workbook, no receipt
+            // and no export folder (ARCH-12.35-B1 condition 7).
+            let provenanceRequest = self.provenanceRequest, python = self.python, output = self.output, force = self.force
+            let outcome = await runCancellingOnSIGTERM {
+                try await Self.replaySnapshot(
+                    at: snapshot, provenanceRequest: provenanceRequest, python: python, output: output, force: force
+                )
+            }
+            switch outcome {
+            case .success:
+                return
+            case .failure(let error) where error is CancellationError:
+                print(ViewerExportLeaf.cancelledMessage)
+                throw CLIExitCode.cancelled.exitCode
+            case .failure(let error):
+                throw error
+            }
         }
         guard let bundle else { throw ValidationError("--bundle is required.") }
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
@@ -117,7 +132,9 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
-    private func replaySnapshot(at path: String) async throws {
+    private static func replaySnapshot(
+        at path: String, provenanceRequest: String?, python: String?, output: String, force: Bool
+    ) async throws {
         guard let provenanceRequest, let python else { throw ValidationError("Snapshot replay requires its provenance request and Python executable.") }
         let snapshotURL = URL(fileURLWithPath: path).standardizedFileURL
         let requestURL = URL(fileURLWithPath: provenanceRequest).standardizedFileURL
@@ -138,7 +155,9 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
             runtimeContext: GenotypeWorkbookExport.merging(original.runtimeContext, under: [
                 "originalWorkflowName": original.workflowName, "captureMode": "durable-scientific-snapshot"]),
             inputs: [.init(path: snapshotURL.path, data: snapshotData), .init(path: requestURL.path, data: requestData)])
-        let service = GenotypeExcelExportService(pythonExecutableURL: pythonURL, replayExecutableURL: Bundle.main.executableURL)
+        // A SIGTERM test holds the replay inside its transaction, with the workbook and receipt staged.
+        let service = GenotypeExcelExportService(pythonExecutableURL: pythonURL, replayExecutableURL: Bundle.main.executableURL,
+            beforeOutputPublication: { try ViewerExportLeaf.checkpointAfterStaging() })
         let result = try await service.export(snapshot: decoded, outputURL: outputURL, provenance: request, replacingExisting: force)
         let summary = ["output": result.outputURL.path, "receipt": result.receiptURL.path, "snapshot": result.snapshotURL.path]
         FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]))

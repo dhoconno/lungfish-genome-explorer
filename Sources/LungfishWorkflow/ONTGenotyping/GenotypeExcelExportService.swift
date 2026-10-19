@@ -90,9 +90,10 @@ public struct GenotypeExcelExportService: Sendable {
         beforeOutputPublication = nil
     }
 
-    /// Test seam at the real publication ownership boundary. Production
-    /// callers use the public initializer above.
-    init(
+    /// Seam at the real publication ownership boundary, called inside the
+    /// transaction once the workbook and receipt are staged. Tests use it, and
+    /// `genotype export-xlsx --snapshot` holds there for a SIGTERM test.
+    public init(
         pythonExecutableURL: URL,
         replayExecutableURL: URL? = nil,
         beforeOutputPublication: @escaping @Sendable () throws -> Void
