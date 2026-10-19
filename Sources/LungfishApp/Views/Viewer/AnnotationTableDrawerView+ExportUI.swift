@@ -154,6 +154,9 @@ extension AnnotationTableDrawerView {
                 if let observer = ScientificTableExportUIState.windowCloseObserverByDrawer.removeValue(forKey: identity) {
                     NotificationCenter.default.removeObserver(observer)
                 }
+                // `endSheet` runs the progress sheet's handler, which cancels the token, so the user's cancel is read
+                // before the sheet ends and a finished export is not read as cancelled (review of 12.39 B2, Fix 1).
+                let cancelledByUser = token.isCancelled
                 let progressWindow = progress.window
                 if window.attachedSheet === progressWindow {
                     window.endSheet(progressWindow)
@@ -162,7 +165,7 @@ extension AnnotationTableDrawerView {
                 self.exportButton.isEnabled = true
                 switch result {
                 case .success(let value):
-                    if token.isCancelled {
+                    if cancelledByUser {
                         if let selection = value.1.selection {
                             try? FileManager.default.removeItem(at: URL(fileURLWithPath: selection).deletingLastPathComponent())
                         }
@@ -170,7 +173,7 @@ extension AnnotationTableDrawerView {
                     }
                     self.startAnnotationTableExport(invocation: value.1, rowCount: value.0)
                 case .failure(let error):
-                    if error is CancellationError || token.isCancelled { return }
+                    if error is CancellationError || cancelledByUser { return }
                     self.presentScientificExportError(error)
                 }
             }
