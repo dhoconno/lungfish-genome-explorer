@@ -73,6 +73,21 @@ final class SequenceIndexBuildLog: Sendable {
     }
 }
 
+/// Records the manifest identifier of every browser summary build. The seam traps the
+/// process at a build on the main queue (lane 12.37, PF10 note a).
+final class BrowserSummaryBuildLog: Sendable {
+    private let builds = Mutex<[String]>([])
+
+    func install() {
+        BrowserSummarySynthesisProbe.install { [self] identifier in
+            dispatchPrecondition(condition: .notOnQueue(.main))
+            builds.withLock { $0.append(identifier) }
+        }
+    }
+
+    var identifiers: [String] { builds.withLock { $0 } }
+}
+
 /// The manifest of a large reference is hundreds of megabytes and takes
 /// seconds to decode. Opening one decoded it three times on the main thread,
 /// for the route, for the embedded viewer and for the BAM metadata context.
@@ -80,6 +95,7 @@ final class SequenceIndexBuildLog: Sendable {
 final class ReferenceOpenManifestLoadTests: XCTestCase {
     override func tearDown() async throws {
         BundleLoadProbe.install(nil)
+        BrowserSummarySynthesisProbe.install(nil)
         ReferenceBundleSequenceCache.installBuildObserver(nil)
         BundleDecodeLane.overrideLargeFileBytes(nil)
         try await super.tearDown()
@@ -111,6 +127,52 @@ final class ReferenceOpenManifestLoadTests: XCTestCase {
         XCTAssertEqual(viewport.testDisplayedSequenceNames.sorted(), ["chr1", "chr2"])
         XCTAssertEqual(decodes.count(.bundleManifest), 1)
         XCTAssertEqual(try TreeDigest.of(root), digestBefore, "opening a reference wrote to its folder (UX 6)")
+    }
+
+    /// PF10 note a and F5a (lane 12.37). A genome bundle whose `manifest.json` stores no browser summary opens
+    /// with its summary built once, in the off-main load, and the open writes no mirror into its project (UX 6).
+    func testOpenSynthesizesBrowserSummaryOffMain() async throws {
+        let root = try TestTempDirectory.make(prefix: "ReferenceOpenSlimSummary")
+        defer { TestTempDirectory.cleanup(root) }
+        let projectURL = root.appendingPathComponent("Open.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Slim Summary",
+            chromosomes: [.init(name: "chr2", length: 80), .init(name: "chr1", length: 100)],
+            in: projectURL
+        )
+        try Self.removeStoredBrowserSummary(in: bundleURL)
+        let digestBefore = try TreeDigest.of(root)
+        let decodes = BundleDecodeLog()
+        decodes.install(offMainOnly: true)
+        let summaryBuilds = BrowserSummaryBuildLog()
+        summaryBuilds.install()
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+
+        let opened = await waitUntil(timeout: .seconds(30)) {
+            split.viewerController.referenceBundleViewportController?
+                .testEmbeddedViewerController.currentReferenceBundle?.url.standardizedFileURL
+                == bundleURL.standardizedFileURL
+        }
+        XCTAssertTrue(opened, "the embedded viewer never opened the bundle")
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+        XCTAssertEqual(viewport.testDisplayedSequenceNames.sorted(), ["chr1", "chr2"])
+        XCTAssertEqual(decodes.count(.bundleManifest), 1)
+        let manifest = try XCTUnwrap(viewport.currentInput?.manifest)
+        XCTAssertEqual(summaryBuilds.identifiers, [manifest.identifier], "the open did not build its summary once")
+        XCTAssertEqual(manifest.browserSummary?.sequences.map(\.name), ["chr2", "chr1"])
+        XCTAssertEqual(try TreeDigest.of(root), digestBefore, "opening a slim reference wrote to its project (UX 6)")
+    }
+
+    /// Rewrites the bundle's `manifest.json` without its `browser_summary`, as `save` writes a new bundle.
+    private static func removeStoredBrowserSummary(in bundleURL: URL) throws {
+        let url = bundleURL.appendingPathComponent(BundleManifest.filename)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        json.removeValue(forKey: "browser_summary")
+        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]).write(to: url)
     }
 
     /// UX ruling Q-S1. The decode of a bundle the user has left still runs to

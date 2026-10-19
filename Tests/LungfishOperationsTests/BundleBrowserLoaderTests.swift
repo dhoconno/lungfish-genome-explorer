@@ -82,8 +82,29 @@ final class BundleBrowserLoaderTests: XCTestCase {
         return snapshot
     }
 
-    func testLoadFallsBackToMirrorThenSynthesizedSummaryAfterMirrorDeletion() throws {
-        let fixture = try makeProjectBundle(name: "MirrorFallback")
+    /// F5a, ARCH ruling Q-S4 item 3 and UX 6. A genome bundle with no stored summary gets the one synthesized
+    /// from its manifest, in memory, and the project's bytes do not change.
+    func testGenomeBundleWithoutSummaryWritesNoMirror() throws {
+        let fixture = try makeProjectBundle(name: "SlimGenome")
+        let manifest = fixture.manifestWithGenome(browserSummary: nil)
+        let before = try projectSnapshot(fixture.projectURL)
+
+        let result = try BundleBrowserLoader().load(bundleURL: fixture.bundleURL, manifest: manifest)
+
+        XCTAssertEqual(result.source, .synthesized)
+        XCTAssertEqual(result.summary, manifest.withSynthesizedBrowserSummaryIfNeeded().browserSummary)
+        XCTAssertEqual(result.summary.aggregate.totalMappedReads, 25)
+        XCTAssertEqual(result.summary.sequences.map(\.length), [1000, 250])
+        XCTAssertEqual(try projectSnapshot(fixture.projectURL), before, "opening a slim genome bundle wrote to the project")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.projectURL.appendingPathComponent(".lungfish-cache", isDirectory: true).path
+        ))
+    }
+
+    /// Lane 12.37 replaces the genome bundle's mirror fallback. A mirror row that an older build wrote for a
+    /// genome bundle is not read, and it stays as it was.
+    func testGenomeBundleReadsNoMirrorRow() throws {
+        let fixture = try makeProjectBundle(name: "MirrorIgnored")
         let manifest = fixture.manifestWithGenome(browserSummary: nil)
         let mirrorSummary = makeSummary(
             annotationTrackCount: 5,
@@ -92,32 +113,15 @@ final class BundleBrowserLoaderTests: XCTestCase {
             namesAndLengths: [("chrMirror", 777)]
         )
         let key = BundleBrowserLoader.bundleKey(for: fixture.bundleURL, manifest: manifest)
+        try BundleBrowserMirrorStore(projectURL: fixture.projectURL).upsert(summary: mirrorSummary, bundleKey: key)
+        let before = try projectSnapshot(fixture.projectURL)
 
-        let store = try BundleBrowserMirrorStore(projectURL: fixture.projectURL)
-        try store.upsert(summary: mirrorSummary, bundleKey: key)
+        let result = try BundleBrowserLoader().load(bundleURL: fixture.bundleURL, manifest: manifest)
 
-        let fromMirror = try BundleBrowserLoader().load(bundleURL: fixture.bundleURL, manifest: manifest)
-        XCTAssertEqual(fromMirror.source, .mirror)
-        XCTAssertEqual(fromMirror.summary, mirrorSummary)
-
-        let mirrorDBURL = fixture.projectURL
-            .appendingPathComponent(".lungfish-cache", isDirectory: true)
-            .appendingPathComponent("bundle-browser.sqlite")
-        try FileManager.default.removeItem(at: mirrorDBURL)
-
-        let synthesized = try BundleBrowserLoader().load(bundleURL: fixture.bundleURL, manifest: manifest)
-
-        XCTAssertEqual(synthesized.source, .synthesized)
-        XCTAssertEqual(synthesized.summary.aggregate.annotationTrackCount, manifest.annotations.count)
-        XCTAssertEqual(synthesized.summary.aggregate.variantTrackCount, manifest.variants.count)
-        XCTAssertEqual(synthesized.summary.aggregate.alignmentTrackCount, manifest.alignments.count)
-        XCTAssertEqual(synthesized.summary.aggregate.totalMappedReads, 25)
-        XCTAssertEqual(synthesized.summary.sequences.map(\.name), ["chr1", "chrM"])
-        XCTAssertEqual(synthesized.summary.sequences.map(\.length), [1000, 250])
-
-        let reloadedStore = try BundleBrowserMirrorStore(projectURL: fixture.projectURL)
-        let persisted = try reloadedStore.fetch(bundleKey: key)
-        XCTAssertEqual(persisted, synthesized.summary)
+        XCTAssertEqual(result.source, .synthesized)
+        XCTAssertEqual(result.summary.sequences.map(\.name), ["chr1", "chrM"])
+        XCTAssertEqual(try projectSnapshot(fixture.projectURL), before)
+        XCTAssertEqual(try BundleBrowserMirrorStore(projectURL: fixture.projectURL).fetch(bundleKey: key), mirrorSummary)
     }
 
     func testLoadSynthesizesVariantOnlyRowsWhenGenomeMissing() throws {

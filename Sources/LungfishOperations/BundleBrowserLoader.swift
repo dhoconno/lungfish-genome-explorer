@@ -49,6 +49,14 @@ package struct BundleBrowserLoader {
             return BundleBrowserLoadResult(summary: summary, source: .manifest)
         }
 
+        // A genome bundle's summary follows from its manifest alone, so it is built in memory and the project
+        // mirror is neither read nor written (lane 12.37, ARCH ruling Q-S4 item 3, UX 6). A reference open passes
+        // a manifest that already holds it, built off the main actor. A variant-only bundle keeps the mirror,
+        // since its summary reads the variant databases.
+        if manifest.genome != nil, let summary = manifest.withSynthesizedBrowserSummaryIfNeeded().browserSummary {
+            return BundleBrowserLoadResult(summary: summary, source: .synthesized)
+        }
+
         if let projectURL = ProjectTempDirectory.findProjectRoot(bundleURL) {
             let key = Self.bundleKey(for: bundleURL, manifest: manifest)
             if let cached = ((try? loadFromMirror(projectURL: projectURL, bundleKey: key)) ?? nil) {

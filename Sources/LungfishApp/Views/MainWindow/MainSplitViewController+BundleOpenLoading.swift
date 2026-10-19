@@ -46,7 +46,7 @@ extension MainSplitViewController {
     ) async -> Result<ReferenceBundleOpenPayload, Error> {
         await BundleDecodeLane.offMain {
             try await BundleDecodeLane.decode(reading: [url.appendingPathComponent(BundleManifest.filename)]) {
-                let bundle = try decodeIndexedBundle(at: url)
+                let bundle = try decodeIndexedBundle(at: url, withBrowserSummary: true)
                 return ReferenceBundleOpenPayload(manifest: bundle.manifest, bundle: bundle)
             }
         }
@@ -84,12 +84,17 @@ extension MainSplitViewController {
     /// Decodes the manifest of the bundle at `url` and makes the bundle from it, with
     /// its chromosome name index and sequence reader built. It runs inside a
     /// ``BundleDecodeLane`` turn, so a large reference's decode and index builds are
-    /// one large open.
-    nonisolated private static func decodeIndexedBundle(at url: URL) throws -> ReferenceBundle {
-        let manifest = try BundleManifest.load(from: url)
-        let bundle = ReferenceBundle(url: url.standardizedFileURL, manifest: manifest)
-        // A cancelled open cannot stop its decode, but it can skip the index builds, which would hold the lane for seconds more.
+    /// one large open. With `withBrowserSummary`, a manifest that stores no browser summary gets the one synthesized
+    /// from it, in memory and in the same turn, so the direct open's rows build none on the main actor and write
+    /// no mirror (lane 12.37, PF10 note a). A mapping open shows no such rows and builds none.
+    nonisolated private static func decodeIndexedBundle(
+        at url: URL, withBrowserSummary: Bool = false
+    ) throws -> ReferenceBundle {
+        let decoded = try BundleManifest.load(from: url)
+        // A cancelled open cannot stop its decode, but it can skip the summary and index builds, which would hold the lane for seconds more.
         try Task.checkCancellation()
+        let manifest = withBrowserSummary ? decoded.withSynthesizedBrowserSummaryIfNeeded() : decoded
+        let bundle = ReferenceBundle(url: url.standardizedFileURL, manifest: manifest)
         // A genome that cannot be read is reported by the first fetch, as before the indexes were built here.
         try? bundle.prepareSequenceAccess()
         return bundle
