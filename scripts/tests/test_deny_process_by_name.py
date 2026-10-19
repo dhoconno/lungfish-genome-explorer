@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -160,10 +161,27 @@ class PatternKillHookTests(unittest.TestCase):
         self.assertEqual(entries[0]['matcher'], 'Bash')
         self.assertEqual(entries[0]['hooks'], [{
             'type': 'command',
-            'command': '/usr/bin/python3 -I "$CLAUDE_PROJECT_DIR/.claude/hooks/deny_process_by_name.py"',
+            'command': '/usr/bin/python3 -I "$CLAUDE_PROJECT_DIR/.claude/hooks/deny_process_by_name.py" || true',
             'timeout': 10,
         }])
         self.assertTrue(HOOK.is_file())
+
+    def test_registered_command_exits_zero_when_the_script_is_missing(self):
+        # Python exits with status 2 for a script file that is not there, and Claude Code treats exit 2 of a
+        # PreToolUse command as a block, so the registration ends in || true. A refusal travels as JSON on stdout.
+        settings = json.loads(SETTINGS.read_text(encoding='utf-8'))
+        command = settings['hooks']['PreToolUse'][0]['hooks'][0]['command']
+        with tempfile.TemporaryDirectory() as empty_project:
+            result = subprocess.run(
+                ['/bin/sh', '-c', command],
+                input=hook_input('ls'),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env={'CLAUDE_PROJECT_DIR': empty_project, 'PATH': '/usr/bin:/bin'},
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '')
 
 
 if __name__ == '__main__':
