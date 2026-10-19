@@ -25,10 +25,7 @@ struct GenotypeViewportExportService {
         pythonExecutableURL: URL? = nil,
         replacingExisting: Bool = true
     ) async throws -> GenotypeViewportExportResult {
-        guard let data = snapshot.excelSnapshotData else {
-            throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("Excel requires a frozen native scientific capture")
-        }
-        let capture = try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: data)
+        let capture = try Self.decodedCapture(snapshot)
         let python: URL
         if let pythonExecutableURL { python = pythonExecutableURL }
         else { python = try await CondaManager.shared.toolPath(name: "python", environment: "openpyxl") }
@@ -36,25 +33,11 @@ struct GenotypeViewportExportService {
             throw LungfishCLIRunner.RunError.cliNotFound
         }
         let output = outputURL.standardizedFileURL
-        let options = snapshot.filters.merging([
-            "sourceBundle": snapshot.bundleURL.path,
-            "analysis": snapshot.analysisName,
-            "lens": snapshot.lens,
-            "output": output.path,
-            "captureAuthority": "retained native result, annotations, analysis, definition and viewport projections",
-            "filteredEvidenceRowPolicy": GenotypeExcelSnapshotBuilder.filteredEvidenceRowPolicy,
-            "replacingExisting": String(replacingExisting),
-        ]) { _, resolved in resolved }
-        .merging(Self.annotationsRecord(
-            captured: capture.capturedScientificInputs?["annotations.json"],
-            bundleURL: snapshot.bundleURL
-        )) { _, resolved in resolved }
         let result = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: replayExecutable).export(
             snapshot: capture, outputURL: output,
-            provenance: .init(workflowName: "genotype.export.excel", toolVersion: LungfishAppVersion.short,
-                argv: ["Lungfish", "genotype.export.excel", "--captured-at", capture.generatedAt, "--output", output.path],
-                options: options, defaults: ["worksheets": "all and current filtered view", "format": "xlsx"],
-                runtimeContext: ["entryPoint": "Inspector Export to Excel", "condaEnvironment": "openpyxl", "python": python.path]),
+            provenance: Self.provenanceRequest(snapshot: snapshot, capture: capture, outputURL: output, python: python,
+                replacingExisting: replacingExisting,
+                argv: ["Lungfish", "genotype.export.excel", "--captured-at", capture.generatedAt, "--output", output.path]),
             replacingExisting: replacingExisting)
         // The shared owner has committed both files. Do not layer a GUI
         // restore over its receipt or overwrite a concurrent publication.
@@ -63,6 +46,63 @@ struct GenotypeViewportExportService {
             throw GenotypeViewportExportError.missingProvenance(result.receiptURL.path)
         }
         return .init(outputURL: result.outputURL, provenanceURL: result.receiptURL)
+    }
+
+    /// Writes the capture `presentViewExportPanel` froze before the save panel opened, never a second capture, and
+    /// its provenance request to `capture.json` and `request.json` in a new `.lungfish-export-inputs/<UUID>/` folder
+    /// beside the output, and returns the leaf's invocation (Phase 2.12 lane 12.35, ARCH-12.35-B1 conditions 2 and
+    /// 3). The request's argv is the row's command, so no file the record names says `Lungfish` as a tool.
+    static func writeWorkbookInputs(
+        snapshot: GenotypeViewportExportSnapshot,
+        outputURL: URL,
+        pythonURL: URL,
+        force: Bool
+    ) throws -> GenotypeWorkbookExport.Invocation {
+        let capture = try decodedCapture(snapshot)
+        let urls = GenotypeWorkbookExport.inputURLs(besideOutput: outputURL)
+        let invocation = GenotypeWorkbookExport.Invocation(
+            captureURL: urls.capture, requestURL: urls.request, pythonURL: pythonURL, outputURL: outputURL, force: force
+        )
+        let request = provenanceRequest(snapshot: snapshot, capture: capture, outputURL: outputURL, python: pythonURL,
+            replacingExisting: force, argv: invocation.canonicalArgv())
+        try GenotypeWorkbookExport.write(capture: capture, request: request, to: invocation)
+        return invocation
+    }
+
+    /// The scientific capture the coordinator froze, decoded.
+    static func decodedCapture(_ snapshot: GenotypeViewportExportSnapshot) throws -> GenotypeWorkbookPresentation.Snapshot {
+        guard let data = snapshot.excelSnapshotData else {
+            throw GenotypeExcelSnapshotBuilder.CaptureError.incoherent("Excel requires a frozen native scientific capture")
+        }
+        return try JSONDecoder().decode(GenotypeWorkbookPresentation.Snapshot.self, from: data)
+    }
+
+    /// The provenance request of a workbook export, with the view's filters, the capture's facts, the annotations
+    /// record and the run's context as options, defaults and runtime context, and workflow `genotype.export.excel`.
+    static func provenanceRequest(
+        snapshot: GenotypeViewportExportSnapshot,
+        capture: GenotypeWorkbookPresentation.Snapshot,
+        outputURL: URL,
+        python: URL,
+        replacingExisting: Bool,
+        argv: [String]
+    ) -> GenotypeExcelExportService.ProvenanceRequest {
+        let options = snapshot.filters.merging([
+            "sourceBundle": snapshot.bundleURL.path,
+            "analysis": snapshot.analysisName,
+            "lens": snapshot.lens,
+            "output": outputURL.standardizedFileURL.path,
+            "captureAuthority": "retained native result, annotations, analysis, definition and viewport projections",
+            "filteredEvidenceRowPolicy": GenotypeExcelSnapshotBuilder.filteredEvidenceRowPolicy,
+            "replacingExisting": String(replacingExisting),
+        ]) { _, resolved in resolved }
+        .merging(annotationsRecord(
+            captured: capture.capturedScientificInputs?["annotations.json"],
+            bundleURL: snapshot.bundleURL
+        )) { _, resolved in resolved }
+        return .init(workflowName: GenotypeWorkbookExport.requestWorkflowName, toolVersion: LungfishAppVersion.short,
+            argv: argv, options: options, defaults: ["worksheets": "all and current filtered view", "format": "xlsx"],
+            runtimeContext: ["entryPoint": "Inspector Export to Excel", "condaEnvironment": "openpyxl", "python": python.path])
     }
 
     /// The receipt options that say where the captured annotations came from
