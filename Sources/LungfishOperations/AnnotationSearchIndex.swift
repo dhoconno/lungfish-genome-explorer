@@ -262,24 +262,9 @@ public final class AnnotationSearchIndex {
     }
 
     private func startVariantFormatOverlayLoad(bundle: ReferenceBundle, expectedGeneration: Int) {
-        let sources: [VariantFormatOverlaySource] = variantDatabases.compactMap { handle in
-            guard let trackInfo = bundle.variantTrack(id: handle.trackId) else { return nil }
-            let isIVar = trackInfo.source?.localizedCaseInsensitiveContains("ivar") == true
-            guard isIVar else { return nil }
-            let sourceURL = try? bundle.memberURL(
-                for: trackInfo.path,
-                field: "variants[\(handle.trackId)].path"
-            )
-            bundleAliasMaps.prepare()
-            return VariantFormatOverlaySource(
-                trackID: handle.trackId,
-                database: handle.db,
-                vcfURL: sourceURL,
-                isIVar: isIVar,
-                aliasesByExactToken: bundleAliasMaps.byExactToken,
-                aliasesByCanonicalToken: bundleAliasMaps.byCanonicalToken
-            )
-        }
+        let sources = VariantFormatOverlaySource.iVarSources(
+            bundle: bundle, databases: variantDatabases, aliasMaps: &bundleAliasMaps
+        )
         guard !sources.isEmpty else { return }
 
         variantFormatOverlayLoaderTask = Task.detached(priority: .utility) { [weak self] in
