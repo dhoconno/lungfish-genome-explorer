@@ -24,11 +24,16 @@ extension SidebarViewController {
     /// (Delete Variant Tracks, Reassemble); `includingManifestChecks: false`
     /// skips them, which the row actions use so configuring a cell never
     /// touches the disk.
+    ///
+    /// With nothing selected, as when the context menu opens on an empty part
+    /// of the outline, New Folder… is the one command that applies, and only
+    /// while a project is open, since it creates at the project root. Every
+    /// other command needs a row.
     func availableSidebarItemActions(
         for items: [SidebarItem],
         includingManifestChecks: Bool = true
     ) -> [[SidebarItemAction]] {
-        guard !items.isEmpty else { return [] }
+        guard !items.isEmpty else { return projectURL != nil ? [[.newFolder]] : [] }
 
         let hasFiles = items.contains {
             $0.type != .group

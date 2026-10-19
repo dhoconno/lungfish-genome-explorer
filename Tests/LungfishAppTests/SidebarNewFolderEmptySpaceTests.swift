@@ -98,6 +98,58 @@ final class SidebarNewFolderEmptySpaceTests: XCTestCase {
         }
     }
 
+    // MARK: - New Folder… with nothing selected
+
+    func testRightClickOnEmptySpaceWithNothingSelectedEnablesNewFolderAndCreatesAtTheProjectRoot() throws {
+        let (sidebar, window) = makeSidebar()
+        defer { sidebar.closeProject() }
+        sidebar.outlineView.deselectAll(nil)
+        XCTAssertTrue(sidebar.selectedItems().isEmpty, "nothing is selected")
+
+        let before = try visibleEntries(of: projectURL)
+        let menu = try openContextMenu(sidebar)
+        XCTAssertEqual(menu.items.map(\.title), [Self.newFolderTitle], "empty space offers New Folder… and nothing else")
+        let item = try newFolderItem(in: menu)
+        XCTAssertTrue(item.isEnabled, "AppKit leaves the item enabled")
+        XCTAssertTrue(sidebar.validateMenuItem(item), "validateMenuItem agrees with the menu that offered the item")
+        XCTAssertEqual(try visibleEntries(of: projectURL), before, "opening the menu writes nothing")
+
+        try chooseNewFolder(item, named: "From Empty Space", in: window)
+        XCTAssertEqual(try visibleEntries(of: projectURL), ["From Empty Space", "Reads"], "one folder, at the project root")
+    }
+
+    /// The rule behind the context menu, Selection > Sidebar Item and the row
+    /// actions. With nothing selected in an open project the one command that
+    /// applies is New Folder…, and with no project nothing does.
+    func testNothingSelectedInAnOpenProjectOffersNewFolderAndNothingElse() {
+        let (open, _) = makeSidebar()
+        defer { open.closeProject() }
+        open.outlineView.deselectAll(nil)
+        XCTAssertEqual(open.availableSidebarItemActions(for: []), [[.newFolder]])
+        XCTAssertTrue(open.canPerformSidebarItemAction(.newFolder))
+
+        let (closed, _) = makeSidebar(openingProject: false)
+        XCTAssertEqual(closed.availableSidebarItemActions(for: []), [])
+        XCTAssertFalse(closed.canPerformSidebarItemAction(.newFolder))
+    }
+
+    /// The menu bar reads the same rule. With the outline focused and nothing
+    /// selected, Selection > Sidebar Item > New Folder… is enabled, and with no
+    /// click to name a parent it targets the project root.
+    func testMenuBarNewFolderWithNothingSelectedTargetsTheProjectRoot() throws {
+        let (sidebar, window) = makeSidebar()
+        defer { sidebar.closeProject() }
+        sidebar.outlineView.deselectAll(nil)
+        XCTAssertTrue(window.makeFirstResponder(sidebar.outlineView))
+        let menuBarItem = NSMenuItem(
+            title: Self.newFolderTitle, action: SidebarItemAction.newFolder.menuSelector, keyEquivalent: ""
+        )
+        XCTAssertTrue(sidebar.validateMenuItem(menuBarItem))
+        XCTAssertEqual(
+            sidebar.newFolderParentURL(clickedEmptySpace: false)?.standardizedFileURL, projectURL.standardizedFileURL
+        )
+    }
+
     // MARK: - Helpers
 
     /// A sidebar in a window of its own, with the fixture project open unless
