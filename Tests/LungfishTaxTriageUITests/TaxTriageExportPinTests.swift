@@ -21,8 +21,8 @@ final class TaxTriageExportPinTests: XCTestCase {
     // MARK: - Results CSV and TSV (A6)
 
     private static let resultsKeys = [
-        "metadataColumns", "organismSearchText", "rowCount", "sampleIds", "selectedSampleId",
-        "selectedSampleIndex", "selectedSamples", "sortDescriptors", "tableMode",
+        "metadataColumns", "organismSearchText", "rowCount", "sampleIds", "selectedSamples", "sortDescriptors",
+        "tableMode",
     ]
 
     /// Both samples ticked, the search "alpha" and the reads column sorted ascending. The negative control marks every
@@ -53,8 +53,6 @@ final class TaxTriageExportPinTests: XCTestCase {
         XCTAssertEqual(Self.sortKeys(resolved["sortDescriptors"]), ["tt_reads:ascending"])
         XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), ["sample-1", "sample-2"])
         XCTAssertEqual(resolved["sampleIds"]?.arrayValue?.compactMap(\.stringValue), ["sample-1", "sample-2"])
-        XCTAssertEqual(resolved["selectedSampleIndex"]?.integerValue, 0)
-        XCTAssertEqual(resolved["selectedSampleId"], ParameterValue.null)
         XCTAssertEqual(resolved["tableMode"]?.stringValue, "batchGroup")
         XCTAssertEqual(resolved["metadataColumns"]?.arrayValue?.count, 0)
     }
@@ -84,8 +82,6 @@ final class TaxTriageExportPinTests: XCTestCase {
         )
         XCTAssertEqual(resolved["rowCount"]?.integerValue, 3)
         XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), ["sample-1"])
-        XCTAssertEqual(resolved["selectedSampleIndex"]?.integerValue, 1)
-        XCTAssertEqual(resolved["selectedSampleId"]?.stringValue, "sample-1")
         XCTAssertEqual(resolved["organismSearchText"]?.stringValue, "")
         XCTAssertEqual(Self.sortKeys(resolved["sortDescriptors"]), ["tt_tassScore:ascending"])
     }
@@ -112,7 +108,6 @@ final class TaxTriageExportPinTests: XCTestCase {
             resolvedKeys: Self.resultsKeys
         )
         XCTAssertEqual(resolved["rowCount"]?.integerValue, 3)
-        XCTAssertEqual(resolved["selectedSampleId"]?.stringValue, "sample-1")
         XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), ["sample-1"])
         XCTAssertEqual(Self.sortKeys(resolved["sortDescriptors"]), ["tt_organism:descending"])
     }
@@ -149,6 +144,80 @@ final class TaxTriageExportPinTests: XCTestCase {
         )
         XCTAssertEqual(resolved["metadataColumns"]?.arrayValue?.compactMap(\.stringValue), ["Group"])
         XCTAssertEqual(resolved["rowCount"]?.integerValue, 5)
+    }
+
+    /// F7-1 (BIO ruling on 12.32). The record holds the sample set the rows were cut to and no Sample Filter segment.
+    /// `selectedSampleIndex` and `selectedSampleId` named view state the export never applies, so no key holds them
+    /// and `selectedSamples` follows the picker. In database mode the segment is the picker, so the ruling's
+    /// byte-equal check cannot hold. The check here is that the file's samples equal the recorded sample set.
+    func testResultsRecordHoldsTheAppliedSampleSetAndNoSegment() throws {
+        let fixture = try Fixture(samples: ["sample-1", "sample-2"])
+        defer { fixture.cleanUp() }
+        let vc = makeController(fixture)
+
+        for (segment, applied) in [(0, ["sample-1", "sample-2"]), (1, ["sample-1"]), (2, ["sample-2"])] {
+            selectSegment(segment, in: vc) { Set($0.compactMap(\.sample)) == Set(applied) }
+            let output = fixture.root.appendingPathComponent("segment-\(segment).tsv")
+            try vc.writeDelimitedResults(separator: "\t", fileExtension: "tsv", to: output)
+            let resolved = try assertRecord(
+                output, fixture: fixture, workflow: "lungfish app taxtriage results export",
+                argvTail: ["export-taxtriage-results", "--format", "tsv"], format: "tsv", defaultFormat: "tsv",
+                resolvedKeys: Self.resultsKeys
+            )
+            XCTAssertNil(resolved["selectedSampleIndex"], "segment \(segment)")
+            XCTAssertNil(resolved["selectedSampleId"], "segment \(segment)")
+            XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), applied)
+            let fileSamples = try text(output).split(separator: "\n").dropFirst()
+                .compactMap { $0.split(separator: "\t").first.map(String.init) }
+            XCTAssertEqual(Set(fileSamples), Set(applied), "segment \(segment)")
+        }
+    }
+
+    /// F7-2 (BIO ruling on 12.32). The results export names the sample metadata table and its edit journal, each with
+    /// its digest, when it writes a metadata column and none otherwise. The matrix and the report never name them.
+    func testMetadataFilesAreInputsOfTheResultsExportOnly() throws {
+        let fixture = try Fixture(samples: ["sample-1", "sample-2"])
+        defer { fixture.cleanUp() }
+        let metadataFolder = fixture.root.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataFolder, withIntermediateDirectories: true)
+        try Data("Sample\tGroup\nsample-1\tcase\nsample-2\tcontrol\n".utf8)
+            .write(to: metadataFolder.appendingPathComponent("sample_metadata.tsv"))
+        try Data("[]".utf8).write(to: metadataFolder.appendingPathComponent("sample_metadata_edits.json"))
+        let vc = makeController(fixture)
+        let store = try XCTUnwrap(SampleMetadataStore.load(from: fixture.root, knownSampleIds: ["sample-1", "sample-2"]))
+        let columns = vc.testBatchFlatTableView.metadataColumns
+        columns.visibleColumns = ["Group"]
+        columns.update(store: store, sampleId: nil)
+        let result = try XCTUnwrap(vc.testResult)
+
+        func inputs(_ url: URL) throws -> [(name: String, digest: String?)] {
+            let envelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: url))
+            )
+            return envelope.files.filter { $0.role == .input }
+                .map { (URL(fileURLWithPath: $0.path).lastPathComponent, $0.checksumSHA256) }
+                .sorted { $0.name < $1.name }
+        }
+        let shown = fixture.root.appendingPathComponent("shown.tsv")
+        try vc.writeDelimitedResults(separator: "\t", fileExtension: "tsv", to: shown)
+        let shownInputs = try inputs(shown)
+        XCTAssertEqual(
+            shownInputs.map(\.name),
+            ["sample_metadata.tsv", "sample_metadata_edits.json", "taxtriage-result.json", "taxtriage.sqlite"]
+        )
+        XCTAssertTrue(shownInputs.allSatisfy { $0.digest != nil })
+
+        let matrix = fixture.root.appendingPathComponent("matrix.csv")
+        try vc.writeBatchMatrixCSV(to: matrix)
+        XCTAssertEqual(try inputs(matrix).map(\.name), ["taxtriage-result.json", "taxtriage.sqlite"])
+        let report = fixture.root.appendingPathComponent("report.txt")
+        try vc.writeBatchReport(to: report, result: result, config: result.config)
+        XCTAssertEqual(try inputs(report).map(\.name), ["taxtriage-result.json", "taxtriage.sqlite"])
+
+        columns.visibleColumns = []
+        let hidden = fixture.root.appendingPathComponent("hidden.tsv")
+        try vc.writeDelimitedResults(separator: "\t", fileExtension: "tsv", to: hidden)
+        XCTAssertEqual(try inputs(hidden).map(\.name), ["taxtriage-result.json", "taxtriage.sqlite"])
     }
 
     // MARK: - Organism matrix CSV (A4)

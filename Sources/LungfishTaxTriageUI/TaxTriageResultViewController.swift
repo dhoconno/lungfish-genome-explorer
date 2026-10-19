@@ -4466,7 +4466,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let exportContent = content ?? buildDelimitedExport(separator: separator)
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage results export",
-            sourceURLs: exportProvenanceSourceURLs(),
+            sourceURLs: exportProvenanceSourceURLs(writesMetadata: !delimitedExportMetadataHeaders.isEmpty),
             outputURL: url,
             outputFormat: .text,
             argv: ["Lungfish.app", "export-taxtriage-results", "--format", fileExtension, "--output", url.path],
@@ -4481,8 +4481,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "rowCount": .integer(delimitedExportRowCount),
                 "sampleIds": .array(sampleIds.map { .string($0) }),
                 "selectedSamples": .array(exportSelectedSampleIds().map(ParameterValue.string)),
-                "selectedSampleIndex": .integer(selectedSampleIndex),
-                "selectedSampleId": exportSelectedSampleId().map(ParameterValue.string) ?? .null,
                 "organismSearchText": .string(organismSearchText),
                 "tableMode": .string(exportTableModeName),
                 "sortDescriptors": .array(exportSortDescriptorParameters(delimitedExportSortDescriptors)),
@@ -4495,14 +4493,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     /// The files an export reads (BIO 6): the result database and, when the view loaded it, the run's sidecar,
-    /// which holds the negative controls and the run facts. The batch manifest and the result folder are not read.
-    private func exportProvenanceSourceURLs() -> [URL] {
+    /// which holds the negative controls and the run facts. The results export also reads the sample metadata table
+    /// and its edit journal when it writes a metadata column (`writesMetadata`, BIO ruling on 12.32 F7-2). The batch
+    /// manifest and the result folder are not read.
+    private func exportProvenanceSourceURLs(writesMetadata: Bool = false) -> [URL] {
         var urls: [URL] = []
         if let databaseURL = taxTriageDatabase?.databaseURL {
             urls.append(databaseURL)
         }
         if taxTriageResult != nil, let batchGroupURL {
             urls.append(batchGroupURL.appendingPathComponent("taxtriage-result.json"))
+        }
+        if let batchGroupURL {
+            urls += EsVirituDetectionExport.metadataInputURLs(in: batchGroupURL, writesMetadata: writesMetadata)
         }
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
