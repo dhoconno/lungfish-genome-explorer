@@ -474,7 +474,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "taxtriage run": "cli.taxtriage",
         "tools update": "cli.tools",
         "translate": "cli.translate",
-        "tree export subtree": "cli.tree",
+        "tree export subtree": "cli.tree.export.subtree",
         "tree extract-subtree": "cli.tree",
         "tree infer iqtree": "cli.tree",
         "tree relabel": "cli.tree",

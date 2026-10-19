@@ -85,7 +85,8 @@ final class NativeRecordCLIDigestPinTests: XCTestCase {
         assertKeeps(try file(record, "runtime"), keys: ["executablePath", "operatingSystemVersion"])
     }
 
-    /// A tree command's directory digest covers every regular file, hidden ones included.
+    /// The subtree export writes the provenance envelope (Phase 2.12 lane 12.35, ARCH-export-shape.md:211). Its
+    /// record names the two bundle files the load reads, each by its own digest, and never the folder (BIO-12.31-G3).
     func testSubtreeExportRecordCitesTheTreeDigests() throws {
         let newick = root.appendingPathComponent("source.nwk")
         try "((A:0.1,B:0.2)Clade:0.3,C:0.4);".write(to: newick, atomically: true, encoding: .utf8)
@@ -97,18 +98,22 @@ final class NativeRecordCLIDigestPinTests: XCTestCase {
         ]).executeForTesting { _ in }
         let record = try jsonObject(output.appendingPathExtension("lungfish-provenance.json"))
 
-        XCTAssertEqual(try file(record, "inputBundle")["sha256"] as? String, try treeDirectoryDigest(bundle))
-        let tree = bundle.appendingPathComponent("tree/primary.nwk")
-        XCTAssertEqual(try file(record, "inputTreeFile")["sha256"] as? String, sha256(try Data(contentsOf: tree)))
-        XCTAssertEqual(try file(record, "outputFile")["sha256"] as? String, sha256(try Data(contentsOf: output)))
-        assertKeeps(record, keys: [
-            "schemaVersion", "workflowName", "actionID", "toolName", "toolVersion", "argv", "command",
-            "reproducibleCommand", "options", "runtime", "runtimeIdentity", "inputBundle", "inputTreeFile",
-            "outputFile", "exitStatus", "wallTimeSeconds", "warnings", "createdAt",
-        ])
-        for key in ["runtime", "runtimeIdentity"] {
-            assertKeeps(try file(record, key), keys: ["executablePath", "operatingSystem", "swiftRuntime"])
+        let files = try XCTUnwrap(record["files"] as? [[String: Any]])
+        let inputs = files.filter { $0["role"] as? String == "input" }
+        XCTAssertEqual(inputs.compactMap { $0["path"] as? String }, ["manifest.json", "tree/primary.normalized.json"].map {
+            bundle.appendingPathComponent($0).standardizedFileURL.path
+        })
+        for input in inputs {
+            let path = try XCTUnwrap(input["path"] as? String)
+            XCTAssertEqual(input["checksumSHA256"] as? String, sha256(try Data(contentsOf: URL(fileURLWithPath: path))), path)
         }
+        XCTAssertEqual(try file(record, "output")["checksumSHA256"] as? String, sha256(try Data(contentsOf: output)))
+        assertKeeps(record, keys: [
+            "schemaVersion", "createdAt", "status", "workflowName", "toolName", "toolVersion", "tool", "argv",
+            "durableReplayArgv", "reproducibleCommand", "options", "runtimeIdentity", "files", "output", "outputs",
+            "steps", "wallTimeSeconds", "exitStatus",
+        ])
+        assertKeeps(try file(record, "runtimeIdentity"), keys: ["executablePath", "operatingSystemVersion"])
     }
 
     func testInferenceRecordCitesTheTreeDigests() async throws {

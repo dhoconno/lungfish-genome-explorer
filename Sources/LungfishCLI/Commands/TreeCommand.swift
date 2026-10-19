@@ -38,7 +38,13 @@ struct TreeCommand: AsyncParsableCommand {
             ]
         )
 
-        struct SubtreeSubcommand: ParsableCommand {
+        /// Writes a selected subtree as Newick with its record beside it. The tree viewer's Export Subtree runs this
+        /// leaf behind its Operations row (Phase 2.12 lane 12.35, ARCH ruling 1.1 row A15).
+        ///
+        /// The payload and the record go in one `writeAtomically` transaction with the CLI identity
+        /// (`ARCH-export-shape.md:211`), so a failure or a cancel leaves neither. The record names the two bundle files
+        /// the load reads, each with its digest (BIO-12.31-G3), and the options side A records. A SIGTERM exits 125.
+        struct SubtreeSubcommand: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
                 commandName: "subtree",
                 abstract: "Export a selected .lungfishtree subtree as Newick with provenance"
@@ -64,8 +70,32 @@ struct TreeCommand: AsyncParsableCommand {
 
             @OptionGroup var globalOptions: GlobalOptions
 
-            func run() throws {
-                try execute(emit: { printEventLine($0) })
+            /// The invocation this parse stands for, which the record's argv comes from (ARCH 2).
+            func invocation() -> ViewerExportInvocation {
+                TreeSubtreeExport.invocation(
+                    bundleURL: URL(fileURLWithPath: bundlePath, isDirectory: true),
+                    nodeID: nodeID,
+                    label: label,
+                    outputFormat: outputFormat.lowercased(),
+                    outputURL: URL(fileURLWithPath: outputPath),
+                    force: force,
+                    emitsEvents: globalOptions.outputFormat == .json
+                )
+            }
+
+            func run() async throws {
+                let command = self
+                let outcome = await runCancellingOnSIGTERM {
+                    try command.execute(emit: { printEventLine($0) })
+                }
+                switch outcome {
+                case .success:
+                    return
+                case .failure(let error) where error is CancellationError:
+                    throw CLIExitCode.cancelled.exitCode
+                case .failure(let error):
+                    throw error
+                }
             }
 
             func executeForTesting(emit: @escaping (String) -> Void) throws {
@@ -78,10 +108,10 @@ struct TreeCommand: AsyncParsableCommand {
                     enabled: globalOptions.outputFormat == .json,
                     emit: emit
                 )
-                let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
-                let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
-                let provenanceURL = outputURL.appendingPathExtension("lungfish-provenance.json")
-                var didWriteOutput = false
+                let invocation = invocation()
+                let bundleURL = URL(fileURLWithPath: invocation.input, isDirectory: true)
+                let outputURL = URL(fileURLWithPath: invocation.output)
+                let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
                 emitter.emitStart(message: "Starting tree subtree export.")
 
                 do {
@@ -99,20 +129,14 @@ struct TreeCommand: AsyncParsableCommand {
                     if FileManager.default.fileExists(atPath: outputURL.path), force == false {
                         throw ValidationError("Output file already exists: \(outputURL.path). Use --force to overwrite.")
                     }
-                    if FileManager.default.fileExists(atPath: outputURL.path), force {
-                        try FileManager.default.removeItem(at: outputURL)
-                    }
 
                     emitter.emitProgress(0.18, message: "Loading tree bundle.")
                     let bundle = try PhylogeneticTreeBundle.load(from: bundleURL)
                     let subtree: PhylogeneticTreeSubtreeExport
-                    let selectionMode: String
                     if let nodeID {
                         subtree = try bundle.subtreeExport(nodeID: nodeID)
-                        selectionMode = "node"
                     } else if let label {
                         subtree = try bundle.subtreeExport(label: label)
-                        selectionMode = "label"
                     } else {
                         throw ValidationError("Pass exactly one of --node or --label for subtree export.")
                     }
@@ -122,108 +146,61 @@ struct TreeCommand: AsyncParsableCommand {
                         at: outputURL.deletingLastPathComponent(),
                         withIntermediateDirectories: true
                     )
-                    try Data((subtree.newick + "\n").utf8).write(to: outputURL, options: .atomic)
-                    didWriteOutput = true
-
-                    emitter.emitProgress(0.82, message: "Writing subtree export provenance.")
-                    let argv = canonicalArgv(bundleURL: bundleURL, outputURL: outputURL)
-                    let provenance = try subtreeExportProvenance(
-                        bundleURL: bundleURL,
+                    let payload = Data((subtree.newick + "\n").utf8)
+                    try Task.checkCancellation()
+                    try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
+                        workflowName: TreeSubtreeExport.workflowName,
+                        sourceURLs: TreeSubtreeExport.inputURLs(bundleURL: bundleURL),
                         outputURL: outputURL,
-                        argv: argv,
-                        selectionMode: selectionMode,
-                        subtree: subtree,
-                        wallTimeSeconds: runClock.elapsed
-                    )
-                    try writeJSONObject(provenance, to: provenanceURL)
+                        outputFormat: .text,
+                        argv: invocation.canonicalArgv(),
+                        explicitOptions: explicitOptions(bundleURL: bundleURL, outputURL: outputURL, subtree: subtree),
+                        defaults: ["outputFormat": .string(outputFormat.lowercased())],
+                        resolved: [
+                            "descendantTipCount": .integer(subtree.descendantTipCount),
+                            "outputByteCount": .integer(payload.count),
+                        ],
+                        runClock: runClock
+                    )) { stagedURL in
+                        try payload.write(to: stagedURL, options: .atomic)
+                        emitter.emitProgress(0.82, message: "Writing subtree export provenance.")
+                        try ViewerExportLeaf.checkpointAfterStaging()
+                    }
 
                     emitter.emitComplete(output: outputURL.path)
                     if globalOptions.outputFormat != .json && !globalOptions.quiet {
                         emit("Exported subtree: \(outputURL.path)")
                         emit("Provenance: \(provenanceURL.path)")
                     }
+                } catch is CancellationError {
+                    emitter.emitFailed(ViewerExportLeaf.cancelledMessage)
+                    throw CancellationError()
                 } catch {
                     emitter.emitFailed(treeCommandErrorDescription(error))
-                    if didWriteOutput {
-                        try? FileManager.default.removeItem(at: outputURL)
-                        try? FileManager.default.removeItem(at: provenanceURL)
-                    }
                     throw error
                 }
             }
 
-            private func canonicalArgv(bundleURL: URL, outputURL: URL) -> [String] {
-                var argv = [
-                    CLICommandIdentity.executableName,
-                    "tree",
-                    "export",
-                    "subtree",
-                    bundleURL.path,
-                    "--output-format",
-                    outputFormat.lowercased(),
-                    "--output",
-                    outputURL.path,
-                ]
-                if let nodeID {
-                    argv += ["--node", nodeID]
-                }
-                if let label {
-                    argv += ["--label", label]
-                }
-                if force {
-                    argv.append("--force")
-                }
-                if globalOptions.outputFormat == .json {
-                    argv += ["--format", "json"]
-                }
-                return argv
-            }
-
-            private func subtreeExportProvenance(
+            /// The options the record holds, the keys the tree viewer's export recorded (A against C, ARCH 1.7). The
+            /// selected node's ID and label stand as the user's choice, as they did in the view.
+            private func explicitOptions(
                 bundleURL: URL,
                 outputURL: URL,
-                argv: [String],
-                selectionMode: String,
-                subtree: PhylogeneticTreeSubtreeExport,
-                wallTimeSeconds: TimeInterval
-            ) throws -> [String: Any] {
-                var options: [String: Any] = [
-                    "outputFormat": outputFormat.lowercased(),
-                    "selectionMode": selectionMode,
-                    "selectedNodeID": subtree.selectedNodeID,
-                    "selectedLabel": subtree.selectedLabel,
-                    "selectedTipCount": subtree.descendantTipCount,
-                    "force": force,
+                subtree: PhylogeneticTreeSubtreeExport
+            ) -> [String: ParameterValue] {
+                var options: [String: ParameterValue] = [
+                    "sourceBundlePath": .file(bundleURL),
+                    "outputPath": .file(outputURL),
+                    "selectedNodeID": .string(subtree.selectedNodeID),
+                    "selectedLabel": .string(subtree.selectedLabel),
                 ]
-                if let nodeID {
-                    options["node"] = nodeID
-                }
                 if let label {
-                    options["label"] = label
+                    options["label"] = .string(label)
                 }
-
-                let primaryTreeURL = bundleURL.appendingPathComponent("tree/primary.nwk")
-                return [
-                    "schemaVersion": 1,
-                    "workflowName": "phylogenetic-tree-subtree-export",
-                    "actionID": "tree.export.subtree",
-                    "toolName": "lungfish tree export subtree",
-                    "toolVersion": PhylogeneticTreeBundleImporter.toolVersion,
-                    "argv": argv,
-                    "command": shellCommand(argv),
-                    "reproducibleCommand": shellCommand(argv),
-                    "options": options,
-                    "runtime": runtimeIdentityDictionary(),
-                    "runtimeIdentity": runtimeIdentityDictionary(),
-                    "inputBundle": try fileRecord(path: bundleURL.path, url: bundleURL),
-                    "inputTreeFile": try fileRecord(path: primaryTreeURL.path, url: primaryTreeURL),
-                    "outputFile": try fileRecord(path: outputURL.path, url: outputURL),
-                    "exitStatus": 0, "status": NativeProvenanceRecordFacts.completedStatus,
-                    "wallTimeSeconds": wallTimeSeconds,
-                    "warnings": [],
-                    "stderr": NSNull(),
-                    "createdAt": ISO8601DateFormatter().string(from: Date()),
-                ]
+                if force {
+                    options["force"] = .boolean(true)
+                }
+                return options
             }
         }
     }

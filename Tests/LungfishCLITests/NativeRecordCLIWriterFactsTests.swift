@@ -73,7 +73,8 @@ final class NativeRecordCLIWriterFactsTests: XCTestCase {
         try TreeCommand.ExportSubcommand.SubtreeSubcommand.parse([
             bundle.path, "--label", "Clade", "--output", output.path, "--quiet",
         ]).executeForTesting { _ in }
-        try assertNativeFacts(at: output.appendingPathExtension("lungfish-provenance.json"), runtimeKeys: ["runtime", "runtimeIdentity"])
+        // Phase 2.12 lane 12.35. The leaf writes the provenance envelope, which has no `runtime` alias.
+        try assertNativeFacts(at: output.appendingPathExtension("lungfish-provenance.json"), runtimeKeys: ["runtimeIdentity"])
     }
 
     func testInferenceRecord() async throws {

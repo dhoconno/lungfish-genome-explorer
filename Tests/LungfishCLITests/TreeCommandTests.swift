@@ -1,4 +1,6 @@
 import XCTest
+import LungfishCore
+import LungfishWorkflow
 @testable import LungfishCLI
 @testable import LungfishIO
 
@@ -491,14 +493,27 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: outputURL, encoding: .utf8), "(A:0.1,B:0.2)Clade:0.3;\n")
         let provenanceURL = outputURL.appendingPathExtension("lungfish-provenance.json")
         let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
-        let provenanceJSON = try jsonObject(at: provenanceURL)
-        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-subtree-export")
-        XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish tree export subtree")
-        XCTAssertEqual((provenanceJSON["inputBundle"] as? [String: Any])?["path"] as? String, bundleURL.path)
-        XCTAssertEqual((provenanceJSON["outputFile"] as? [String: Any])?["path"] as? String, outputURL.path)
-        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["selectionMode"] as? String, "label")
-        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["label"] as? String, "Clade")
-        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["selectedTipCount"] as? Int, 2)
+        // Phase 2.12 lane 12.35. The leaf writes the provenance envelope with the CLI identity, names the two bundle
+        // files the load reads and records the keys the tree viewer's export recorded.
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish tree export subtree")
+        XCTAssertEqual(envelope.toolName, CLICommandIdentity.executableName)
+        XCTAssertEqual(envelope.tool.kind, "cli")
+        XCTAssertEqual(envelope.argv, command.invocation().canonicalArgv())
+        XCTAssertEqual(envelope.argv, [
+            CLICommandIdentity.executableName, "tree", "export", "subtree", bundleURL.path, "--label", "Clade",
+            "--output-format", "newick", "--output", outputURL.path, "--format", "json",
+        ])
+        XCTAssertEqual(
+            envelope.files.filter { $0.role == .input }.map(\.path),
+            TreeSubtreeExport.inputURLs(bundleURL: bundleURL).map(\.path)
+        )
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertEqual(envelope.options.explicit["label"]?.stringValue, "Clade")
+        XCTAssertEqual(envelope.options.explicit["selectedLabel"]?.stringValue, "Clade")
+        XCTAssertEqual(envelope.options.defaults["outputFormat"]?.stringValue, "newick")
+        XCTAssertEqual(envelope.options.resolvedDefaults["descendantTipCount"]?.integerValue, 2)
+        XCTAssertEqual(envelope.options.resolvedDefaults["outputByteCount"]?.integerValue, 24)
         XCTAssertFalse(provenance.contains("/.tmp/"))
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
         XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))

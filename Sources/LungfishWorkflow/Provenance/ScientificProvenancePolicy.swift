@@ -205,6 +205,7 @@ public enum ScientificProvenancePolicy {
             "cli.genotype.export-manual-definitions",
             writer: "ScientificFileExportProvenance"
         ),
+        "tree export subtree": dataWriting("cli.tree.export.subtree", writer: "ScientificFileExportProvenance"),
         "variants delete": dataWriting("cli.variants.delete", writer: "VariantDeletionMutationService"),
         "variants import-sample-metadata": dataWriting("cli.variants.import-sample-metadata", writer: "VariantSampleMetadataImportService"),
         "primers analysis annotated-reference": dataWriting("cli.primers.analysis.annotated-reference"),
