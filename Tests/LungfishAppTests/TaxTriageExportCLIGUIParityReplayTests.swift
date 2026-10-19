@@ -325,7 +325,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             XCTAssertEqual(payloadA, payloadC, "the payload byte for byte")
             XCTAssertNotNil(outputA.checksumSHA256)
             XCTAssertEqual(outputA.checksumSHA256, outputC.checksumSHA256, "the output digest")
-            XCTAssertEqual(outputC.checksumSHA256, try ProvenanceFileHasher.sha256(of: Self.outputURL(.matrix, in: runs.c.root)), "the recorded output digest equals the file")
+            XCTAssertEqual(outputC.checksumSHA256, try ProvenanceFileHasher.sha256(of: Self.outputURL(export, in: runs.c.root)), "the recorded output digest equals the file")
         case .report:
             let textA = try Self.payload(.report, in: runs.a.root)
             let textC = try Self.payload(.report, in: runs.c.root)
