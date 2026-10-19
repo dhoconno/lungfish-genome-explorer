@@ -94,7 +94,12 @@ public enum FASTQReadsExport {
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws {
         if source.isDerived {
-            let tempDirectory = try makeTemporaryDirectory()
+            // The scratch for the materialized reads is the project's own temp folder when the bundle is inside a
+            // project, where the app kept it, since a materialized dataset can be many gigabytes. A bundle outside a
+            // project gets the system temp folder.
+            let tempDirectory = try ProjectTempDirectory.createFromContext(
+                prefix: "fastq-export-", contextURL: source.bundleURL
+            )
             defer { try? FileManager.default.removeItem(at: tempDirectory) }
             progress?("Materializing dataset...")
             let materializedURL = try await FASTQCLIMaterializer(runner: NativeToolRunner.shared).materialize(
