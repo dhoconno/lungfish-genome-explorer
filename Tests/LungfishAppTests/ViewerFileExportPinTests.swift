@@ -7,11 +7,14 @@
 //
 // - The sequence FASTA writer's pins ended with the writer (A12). Its bytes and its record are frozen in
 //   SequenceFASTAExportCLIGUIParityReplayTests.
-// - The FASTA records and FASTQ metadata writers sit inside a save panel completion, so no test reaches their record
-//   without driving the panel. A panel sheet answered from a test aborts the test process (malloc, "freed pointer was
-//   not the last allocation"), so these pins read the state each writer starts from and the bytes it writes. The
-//   FASTQ cases cover the Samples tab, the symmetric and the asymmetric Demux tab, each with and without a cell
-//   edited in the drawer and not saved. The record of each is pinned by the frozen writer of its parity class.
+// - The FASTA records writer ended with A11. Its bytes and its record are frozen in
+//   FASTARecordsExportCLIGUIParityReplayTests. The one pin left under "FASTA records" reads fastaExportSourceURLs,
+//   which BLAST submit and the annotated reference import still use.
+// - The FASTQ metadata writers sit inside a save panel completion, so no test reaches their record without driving the
+//   panel. A panel sheet answered from a test aborts the test process (malloc, "freed pointer was not the last
+//   allocation"), so these pins read the state each writer starts from and the CSV text it writes. The FASTQ cases
+//   cover the Samples tab, the symmetric and the asymmetric Demux tab, each with and without a cell edited in the
+//   drawer and not saved. The record of each is pinned by the frozen writer of its parity class.
 
 import AppKit
 import Foundation
@@ -37,8 +40,9 @@ final class ViewerFileExportPinTests: XCTestCase {
 
     // MARK: - FASTA records (A11)
 
-    /// The sources the FASTA records export names are the viewer's (`fastaExportSourceURLs`), which the leaf will have
-    /// to name as its inputs.
+    /// The sources a viewer names for a durable record are its bundle when it holds one, and a bundle that is gone is
+    /// left out. The FASTA records export no longer names them, since its record names the staged files the leaf reads
+    /// (lane 12.34, A11).
     func testFASTARecordsNameTheViewersBundleAsTheirSource() throws {
         let bundle = scratch.appendingPathComponent("assembly.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
