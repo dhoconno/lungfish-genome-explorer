@@ -131,7 +131,12 @@ final class FASTARecordsExportCLIGUIParityReplayTests: XCTestCase {
     /// no message, the staged inputs go, and the row's command, cancelled on the launcher every CLI route uses, exits
     /// 125 inside the grace. Neither leaves the output or its record.
     func testACancelledExportExits125AndLeavesNoFileAndNoRecord() async throws {
-        let root = scratch.appendingPathComponent("cancel", isDirectory: true)
+        // The leaf's record looks for a sidecar of each input in the input's folder and the four folders above it, and
+        // lists each one (`ProvenanceRecorder.findProvenanceReading`). The staged inputs sit two folders under this
+        // root, so from `scratch/cancel` that walk reached the shared temporary folder, whose listing (135,212
+        // entries) took the leaf 20 to 40 seconds to reach its hold, past the 30 second wait. Two more levels keep
+        // the walk inside this case's folders, as the NAO-MGS and NVD cancel cases do.
+        let root = scratch.appendingPathComponent("cancel/case/run", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Self.makeFixture(root)
         let output = Self.outputURL(in: root)
