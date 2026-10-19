@@ -385,7 +385,7 @@ public enum ProjectTempDirectory {
         _ = try? DurableAtomicFileStore().create(
             data,
             named: TempOriginMarker.fileName,
-            in: dirURL
+            in: dirURL, mode: DurableAtomicFileStore.privateMode
         )
     }
 

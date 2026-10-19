@@ -187,7 +187,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         try store.create(
             try encoder.encode(state),
             named: stateURL.lastPathComponent,
-            in: stateURL.deletingLastPathComponent()
+            in: stateURL.deletingLastPathComponent(), mode: DurableAtomicFileStore.privateMode
         )
     }
 
@@ -250,7 +250,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         try DurableAtomicFileStore().create(
             try encoder.encode(warning),
             named: name,
-            in: warningURL.deletingLastPathComponent()
+            in: warningURL.deletingLastPathComponent(), mode: DurableAtomicFileStore.privateMode
         )
         return warningURL
     }

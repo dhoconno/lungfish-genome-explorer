@@ -166,7 +166,8 @@ public struct ProjectOperationHistoryWriter: Sendable {
                     payloads[name]!,
                     named: name,
                     inOpenDirectory: operationDescriptor,
-                    displayedAt: stagingURL
+                    displayedAt: stagingURL,
+                    mode: DurableAtomicFileStore.privateMode
                 )
             }
             guard Darwin.fsync(operationDescriptor) == 0 else {
@@ -266,7 +267,8 @@ public struct ProjectOperationHistoryWriter: Sendable {
             portablePayload(data, named: payloadName),
             named: payloadName,
             inOpenDirectory: operationDescriptor,
-            displayedAt: operationDirectoryURL(for: operationID)
+            displayedAt: operationDirectoryURL(for: operationID),
+            mode: DurableAtomicFileStore.privateMode
         )
     }
 

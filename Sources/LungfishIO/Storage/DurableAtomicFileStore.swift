@@ -5,6 +5,14 @@ import LungfishCore
 /// Exclusively publishes immutable files and makes both file contents and the
 /// containing directory entry durable before returning.
 public struct DurableAtomicFileStore: Sendable {
+    /// The mode a file is created with before the umask applies, `0o666` as `DurableReplace` stages with.
+    /// A record the store creates then reads 0644 under umask 022 like the files beside it. The mode is the
+    /// caller's parameter and not a global default, so a caller whose file is private asks for `privateMode`.
+    public static let recordMode: mode_t = 0o666
+
+    /// The mode of a file that is private on purpose, such as a marker, a state file or an attestation.
+    public static let privateMode: mode_t = 0o600
+
     /// A durable publication bound to the exact inode created by the store.
     ///
     /// The descriptor remains open across publication so callers never need
@@ -154,7 +162,12 @@ public struct DurableAtomicFileStore: Sendable {
     /// exclusive rename, and parent-directory fsync. A failure removes only a
     /// filesystem object still proven to be this invocation's own file.
     @discardableResult
-    public func create(_ data: Data, named fileName: String, in directoryURL: URL) throws -> URL {
+    public func create(
+        _ data: Data,
+        named fileName: String,
+        in directoryURL: URL,
+        mode: mode_t = DurableAtomicFileStore.recordMode
+    ) throws -> URL {
         let directoryDescriptor: Int32
         do {
             directoryDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(directoryURL)
@@ -166,7 +179,8 @@ public struct DurableAtomicFileStore: Sendable {
             data,
             named: fileName,
             inOpenDirectory: directoryDescriptor,
-            displayedAt: directoryURL
+            displayedAt: directoryURL,
+            mode: mode
         )
     }
 
@@ -177,13 +191,15 @@ public struct DurableAtomicFileStore: Sendable {
         _ data: Data,
         named fileName: String,
         inOpenDirectory directoryDescriptor: Int32,
-        displayedAt directoryURL: URL
+        displayedAt directoryURL: URL,
+        mode: mode_t = DurableAtomicFileStore.recordMode
     ) throws -> URL {
         let publication = try createWitnessed(
             data,
             named: fileName,
             inOpenDirectory: directoryDescriptor,
-            displayedAt: directoryURL
+            displayedAt: directoryURL,
+            mode: mode
         )
         publication.close()
         return publication.url
@@ -195,7 +211,8 @@ public struct DurableAtomicFileStore: Sendable {
         _ data: Data,
         named fileName: String,
         inOpenDirectory directoryDescriptor: Int32,
-        displayedAt directoryURL: URL
+        displayedAt directoryURL: URL,
+        mode: mode_t = DurableAtomicFileStore.recordMode
     ) throws -> OpenPublishedFile {
         guard Self.isSinglePathComponent(fileName) else {
             throw StoreError.invalidFileName(fileName)
@@ -212,7 +229,7 @@ public struct DurableAtomicFileStore: Sendable {
                 directoryDescriptor,
                 $0,
                 O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
-                S_IRUSR | S_IWUSR
+                mode
             )
         }
         guard descriptor >= 0 else {

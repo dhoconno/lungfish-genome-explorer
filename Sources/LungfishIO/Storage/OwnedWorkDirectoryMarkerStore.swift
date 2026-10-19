@@ -191,7 +191,8 @@ public enum OwnedWorkDirectoryMarkerStore {
                 data,
                 named: OwnedWorkDirectoryMarker.fileName,
                 inOpenDirectory: childDescriptor,
-                displayedAt: childURL
+                displayedAt: childURL,
+                mode: DurableAtomicFileStore.privateMode
             )
             guard Darwin.fsync(parentDescriptor) == 0 else {
                 throw OwnedWorkDirectoryMarkerError.systemFailure(
@@ -345,7 +346,8 @@ public enum OwnedWorkDirectoryMarkerStore {
                 encoder.encode(marker),
                 named: OwnedWorkDirectoryMarker.fileName,
                 inOpenDirectory: directoryDescriptor,
-                displayedAt: directoryURL
+                displayedAt: directoryURL,
+                mode: DurableAtomicFileStore.privateMode
             )
             guard rollbackOperations.syncParent(parentDescriptor) == 0 else {
                 throw OwnedWorkDirectoryMarkerError.systemFailure(
@@ -427,7 +429,8 @@ public enum OwnedWorkDirectoryMarkerStore {
             encoder.encode(updated),
             named: replacementName,
             inOpenDirectory: directoryDescriptor,
-            displayedAt: directoryURL
+            displayedAt: directoryURL,
+            mode: DurableAtomicFileStore.privateMode
         )
         var replacementPublished = false
         defer {

@@ -986,7 +986,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                     payloads[name]!,
                     named: name,
                     inOpenDirectory: staging,
-                    displayedAt: stagingURL
+                    displayedAt: stagingURL, mode: DurableAtomicFileStore.privateMode
                 )
             }
             try syncDirectory(

@@ -170,7 +170,8 @@ public struct GenotypeExcelExportService: Sendable {
         }
         func writeArtifact(_ data: Data, to url: URL) throws -> DurableAtomicFileStore.OpenPublishedFile {
             let created = try DurableAtomicFileStore().createWitnessed(data,
-                named: url.lastPathComponent, inOpenDirectory: directory, displayedAt: durable)
+                named: url.lastPathComponent, inOpenDirectory: directory, displayedAt: durable,
+                mode: DurableAtomicFileStore.privateMode)
             createdFiles.append(created)
             artifactIdentities[url.lastPathComponent] = created.identity
             return created

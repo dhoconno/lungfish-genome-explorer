@@ -3614,8 +3614,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         defer { Darwin.close(directory) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try DurableAtomicFileStore().createWitnessed(encoder.encode(definitionSet),
-            named: url.lastPathComponent, inOpenDirectory: directory, displayedAt: parent)
+        return try DurableAtomicFileStore().createWitnessed(encoder.encode(definitionSet), named: url.lastPathComponent,
+            inOpenDirectory: directory, displayedAt: parent, mode: DurableAtomicFileStore.privateMode)
     }
 
     private func writeProvenance(
