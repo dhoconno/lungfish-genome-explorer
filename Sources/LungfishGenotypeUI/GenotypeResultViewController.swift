@@ -545,7 +545,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         panel.beginSheetModal(for: window) { response in completion(response == .OK ? panel.url : nil) }
     }
     var viewportExportRunner: (GenotypeViewportExportSnapshot, URL) async throws -> Void = { snapshot, url in
-        _ = try await GenotypeViewportExportService().exportExcel(snapshot: snapshot, to: url)
+        try await GenotypeResultViewController.runWorkbookExportToEnd(snapshot: snapshot, outputURL: url)
     }
     private lazy var viewportExportCoordinator = GenotypeViewportExportCoordinator(host: self)
     private var resultConfigurationGeneration: UInt64 = 0

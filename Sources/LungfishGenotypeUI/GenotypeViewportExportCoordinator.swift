@@ -10,7 +10,10 @@ import LungfishKit
 /// Owns the Excel export path of one GenotypeResultViewController, the one
 /// GUI export since 24fe49f05. It settles the view, freezes the Excel
 /// capture, presents the save panel, runs the export task and publishes the
-/// export events. The controller creates the coordinator once and holds it
+/// export events. The task's default runs `lungfish-cli genotype export-xlsx
+/// --snapshot` behind an Operations row (`runWorkbookExportToEnd`, Phase 2.12
+/// lane 12.35), and a cancel publishes a failure with no alert, since the row
+/// already reads Cancelled. The controller creates the coordinator once and holds it
 /// for its own lifetime, so the coordinator never outlives the controller it
 /// reads. It reads controller state only through the forwarders at the end of
 /// this file. New export logic belongs here and not in the controller
@@ -18,6 +21,9 @@ import LungfishKit
 /// which takes its calls from the same builder as the workbook.
 @MainActor
 final class GenotypeViewportExportCoordinator {
+    /// The failure event a cancelled workbook export publishes, with no alert.
+    static let cancelledExportMessage = "The export was cancelled. No file was written."
+
     /// The controller this coordinator reads, held without a retain because
     /// the controller is the coordinator's only owner. Two invariants keep
     /// that safe. The four `[weak self]` captures in presentExcelExportPanel,
@@ -194,6 +200,11 @@ final class GenotypeViewportExportCoordinator {
                     await MainActor.run {
                         guard let self, originStillCurrent(), self.representedBundleURL == origin,
                               self.ownsDesiredResultConfiguration(authority) else { return }
+                        // The row's Cancel already reads Cancelled in Operations (ARCH-12.35-B1 condition 8).
+                        guard !(error is CancellationError) else {
+                            self.publishExcelExportEvent(.failed(Self.cancelledExportMessage))
+                            return
+                        }
                         self.publishExcelExportEvent(.failed(error.localizedDescription))
                         if let window = self.view.window ?? NSApp.keyWindow {
                             NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })

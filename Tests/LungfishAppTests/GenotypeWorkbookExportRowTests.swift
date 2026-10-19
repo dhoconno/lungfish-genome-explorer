@@ -7,7 +7,9 @@
 // callback, records the `genotype export-xlsx --snapshot` command the runner runs, which carries no `--format json`,
 // and launches nothing when the row is refused. `runWorkbookExport` writes `capture.json` and `request.json` before
 // `begin` and passes `--force` only when the output exists. GenotypeWorkbookExportCLIGUIParityReplayTests runs it.
+// The view's export task runs it by default, and the coordinator publishes a cancel with no alert.
 
+import AppKit
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishGenotypeUI
@@ -61,6 +63,37 @@ final class GenotypeWorkbookExportRowTests: XCTestCase {
         XCTAssertEqual(command.output, exportInvocation.output)
         XCTAssertNil(command.bundle)
         XCTAssertTrue(command.force)
+    }
+
+    /// Condition 8. When the export task throws `CancellationError`, which `runWorkbookExportToEnd` throws for a
+    /// cancelled row, the coordinator publishes a failure that says no file was written and attaches no alert sheet.
+    func testACancelledExportPublishesNoFileWrittenWithNoAlert() async throws {
+        let root = try TestTempDirectory.make(prefix: "WorkbookExportCancelEvent")
+        defer { TestTempDirectory.cleanup(root) }
+        let controller = GenotypeResultViewController()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
+            backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        defer { window.close() }
+        controller.configure(result: GenotypeTestFixtures.makeResult(bundleURL: root, calls: [
+            GenotypeTestFixtures.makeCall(sample: "AnimalA", genotype: "Mafa-A*001", reads: 9),
+        ]))
+        controller.excelSavePanelPresenter = { _, _, completion in completion(root.appendingPathComponent("report.xlsx")) }
+        controller.viewportExportRunner = { _, _ in throw CancellationError() }
+        var events: [String] = []
+        let settled = expectation(description: "the export settled")
+        controller.onExcelExportEvent = { event in
+            switch event {
+            case .started: events.append("started")
+            case .succeeded: events.append("succeeded"); settled.fulfill()
+            case .failed(let message): events.append(message); settled.fulfill()
+            }
+        }
+        controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
+        await fulfillment(of: [settled], timeout: 5)
+        XCTAssertEqual(events, ["started", "The export was cancelled. No file was written."])
+        XCTAssertNil(window.attachedSheet, "a cancel shows no alert")
     }
 
     func testARefusedRowLaunchesNothing() throws {
