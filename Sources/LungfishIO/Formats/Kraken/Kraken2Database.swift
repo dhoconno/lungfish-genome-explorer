@@ -850,12 +850,9 @@ public final class Kraken2Database: @unchecked Sendable {
             }
         }
 
-        // Sort children by readsClade descending, then by taxId, so siblings with equal clade reads come out in
-        // one order in every process. The dictionary above iterates in a per-process order.
+        // Sort children by readsClade descending and then taxId, so tied siblings keep one order in every process.
         for (_, node) in nodesByTaxId {
-            node.children.sort {
-                $0.readsClade != $1.readsClade ? $0.readsClade > $1.readsClade : $0.taxId < $1.taxId
-            }
+            node.children.sort { ($1.readsClade, $0.taxId) < ($0.readsClade, $1.taxId) }
         }
 
         // Find root (depth 0)
