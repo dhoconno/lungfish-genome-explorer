@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishTestSupport
+import os
 import SwiftUI
 import XCTest
 @testable import LungfishApp
@@ -37,7 +38,9 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
 
     /// The sidebar renames the folder that holds a mapping result. The pin records what the Document tab's Run Settings
     /// command shows and copies, whether the rename rewrote `mapping-provenance.json`, the record the tab reads, and
-    /// what the Sorted BAM row names. At the base the row draws the step's command as it is (`Text(step.command)`).
+    /// what the Sorted BAM row names. At the base the row drew the step's command as recorded, and since Q-U7 it shows
+    /// it project-relative. Both name the folder that is gone, because the rename leaves `mapping-provenance.json` as it
+    /// was, which is the rehydrator's coverage and the 2.13 row SW2 R-REPLAY (UX ruling on 12.25, test 6).
     func testARenamedMappingResultsDocumentCommandAtTheBase() throws {
         let saved = try savedResult()
         let recordBytes = try Data(contentsOf: saved.folder.appendingPathComponent(MappingProvenance.filename))
@@ -53,7 +56,9 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
         XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Command", on: try element("mapping-step-1", in: window)))
 
         let facts: [String: String] = [
-            "shown": redact(state.steps[0].command),
+            "shown": MappingDocumentStateBuilder.shownCommands(
+                of: state.steps, projectURL: state.projectURL, fileExists: { FileManager.default.fileExists(atPath: $0) }, toolRoot: nil
+            )[state.steps[0].command] ?? "nil",
             "copied": pasteboard.string(forType: .string).map { redact($0) } ?? "nil",
             "mappingRecordUnchanged": String(
                 try Data(contentsOf: renamed.appendingPathComponent(MappingProvenance.filename)) == recordBytes
@@ -63,12 +68,93 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
         let mapper = "minimap2 -a -x sr -t 4 -o <project>/Analyses/minimap2-run/sample.raw.sam "
             + "<project>/References/ref.fa <project>/Analyses/m/reads.fastq"
         XCTAssertEqual(facts, [
-            "shown": mapper,
+            "shown": "minimap2 -a -x sr -t 4 -o Analyses/minimap2-run/sample.raw.sam References/ref.fa Analyses/m/reads.fastq",
             "copied": mapper,
             "mappingRecordUnchanged": "true",
             "sortedBAMRow": "<project>/Analyses/minimap2-run renamed/sample.sorted.bam",
         ])
         XCTAssertFalse(FileManager.default.fileExists(atPath: saved.folder.path), "the folder the command names is gone")
+    }
+
+    // MARK: - The shown command (PF6 Q-U7)
+
+    /// The row shows each project path relative to the project and a tool under the reader's tool root by its name,
+    /// through the mapper the Provenance tab's Command row uses. At the base it showed the command as recorded.
+    func testShownCommandIsProjectRelativeAndNamesAToolByName() {
+        let project = URL(fileURLWithPath: "/Volumes/Lab/Runs.lungfish", isDirectory: true)
+        let toolRoot = URL(fileURLWithPath: "/Volumes/Store/conda", isDirectory: true)
+        let step = MappingDocumentStep(
+            label: "minimap2",
+            command: "/Volumes/Store/conda/envs/minimap2/bin/minimap2 -a -t 4 " + project.path + "/Analyses/m/reads.fastq",
+            version: "2.31",
+            recorded: "Oct 18"
+        )
+        let shown = MappingDocumentStateBuilder.shownCommands(
+            of: [step], projectURL: project, fileExists: { _ in true }, toolRoot: toolRoot
+        )[step.command]
+
+        XCTAssertEqual(shown, "minimap2 -a -t 4 Analyses/m/reads.fastq")
+        XCTAssertFalse(shown?.contains(project.path) ?? true)
+    }
+
+    /// SWIFT's condition. The section's task builds the shown commands once per record in a detached task, so the
+    /// stat of each path and the read of the tool root never run on the main queue. A regression traps the process.
+    func testShownCommandsAreBuiltOffTheMainQueue() async throws {
+        let saved = try savedResult()
+        let stats = OSAllocatedUnfairLock(initialState: 0)
+        let shown = await MappingDocumentStateBuilder.shownCommands(
+            for: saved.state,
+            fileExists: { path in
+                dispatchPrecondition(condition: .notOnQueue(.main))
+                stats.withLock { $0 += 1 }
+                return FileManager.default.fileExists(atPath: path)
+            },
+            toolRoot: {
+                dispatchPrecondition(condition: .notOnQueue(.main))
+                return nil
+            }
+        )
+
+        XCTAssertGreaterThan(stats.withLock { $0 }, 0, "the shown form stats its paths")
+        XCTAssertEqual(Set(shown.keys), Set(saved.state.steps.map(\.command)))
+        XCTAssertEqual(saved.state.projectURL, saved.project)
+    }
+
+    /// The tooltip and the VoiceOver value of the Command give the whole command collapsed and expanded, as the
+    /// Provenance tab's Command row does. At the base the expanded command had no tooltip.
+    func testBothStatesGiveTheWholeCommandAsTooltipAndValue() throws {
+        let saved = try savedResult()
+        let step = saved.state.steps[0]
+        let window = hostSection(saved.state)
+        let collapsed = try element("mapping-step-1-command", in: window)
+        XCTAssertEqual(AccessibilityTreeProbe.help(collapsed), step.command)
+        XCTAssertEqual(AccessibilityTreeProbe.value(collapsed), step.command)
+
+        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Expand", on: try element("mapping-step-1-toggle", in: window)))
+        AccessibilityTreeProbe.waitUntil(timeout: 30) {
+            AccessibilityTreeProbe.element(in: window, identifier: "mapping-step-1-command")
+                .flatMap { AccessibilityTreeProbe.help($0) } != nil
+        }
+        let expanded = try element("mapping-step-1-command", in: window)
+        XCTAssertEqual(AccessibilityTreeProbe.help(expanded), step.command)
+        XCTAssertEqual(AccessibilityTreeProbe.value(expanded), step.command)
+    }
+
+    /// One mapping record that was never renamed reads in the same words on the Document tab and on the Provenance
+    /// tab's Command row for the mapper step.
+    func testTheDocumentAndProvenanceTabsShowOneMappingRecordsCommandInTheSameWords() async throws {
+        let saved = try savedResult()
+        let model = ProvenanceInspectorViewModel()
+        model.load(item: ProvenanceInspectableItem(
+            url: saved.folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: saved.folder.lastPathComponent
+        ))
+        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading && !model.lineageRuns.isEmpty }
+        XCTAssertTrue(finished, "The provenance lookup did not finish.")
+        let mapperStep = try XCTUnwrap(model.lineageRuns.last?.steps.first { $0.toolName == "minimap2" })
+        let shown = await MappingDocumentStateBuilder.shownCommands(for: saved.state)
+
+        XCTAssertEqual(shown[saved.state.steps[0].command], mapperStep.displayCommand)
+        XCTAssertEqual(mapperStep.displayCommand, "minimap2 -a -x sr -t 4 -o Analyses/minimap2-run/sample.raw.sam References/ref.fa Analyses/m/reads.fastq")
     }
 
     // MARK: - Fixtures

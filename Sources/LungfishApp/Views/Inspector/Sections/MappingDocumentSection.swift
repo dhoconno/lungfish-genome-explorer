@@ -40,6 +40,8 @@ struct MappingDocumentState: Equatable {
     let contextRows: [(String, String)]
     /// The run's commands in invocation order, drawn after the context rows.
     var steps: [MappingDocumentStep] = []
+    /// The project the steps' commands are shown relative to.
+    var projectURL: URL? = nil
     let artifactRows: [MappingDocumentArtifactRow]
 
     var visibleSectionOrder: [MappingDocumentSectionKind] {
@@ -53,6 +55,7 @@ struct MappingDocumentState: Equatable {
             lhs.sourceData == rhs.sourceData &&
             lhs.contextRows.elementsEqual(rhs.contextRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.steps == rhs.steps &&
+            lhs.projectURL == rhs.projectURL &&
             lhs.artifactRows == rhs.artifactRows
     }
 }
@@ -70,6 +73,8 @@ struct MappingDocumentSection: View {
     /// only, never saved, and cleared for each result, so every step of a
     /// newly shown result starts collapsed.
     @State private var expandedSteps: Set<Int> = []
+    /// Each step's shown command by its recorded command, built off the main actor once per record (PF6 Q-U7).
+    @State private var shownCommands: [String: String] = [:]
 
     var body: some View {
         Group {
@@ -96,6 +101,10 @@ struct MappingDocumentSection: View {
         }
         .onChange(of: viewModel.mappingDocument) {
             expandedSteps = []
+        }
+        .task(id: viewModel.mappingDocument?.shownCommandsID) {
+            guard let mapping = viewModel.mappingDocument else { return }
+            shownCommands = await MappingDocumentStateBuilder.shownCommands(for: mapping)
         }
     }
 
@@ -200,6 +209,7 @@ struct MappingDocumentSection: View {
                     ForEach(Array(mapping.steps.enumerated()), id: \.offset) { index, step in
                         MappingDocumentStepRow(
                             step: step,
+                            shownCommand: shownCommands[step.command] ?? step.command,
                             number: index + 1,
                             isExpanded: stepExpansion(index),
                             copyText: InspectorStepCopyText.mappingStep(step),

@@ -11,9 +11,13 @@ import SwiftUI
 /// cannot be selected, because selecting truncated text drew the whole
 /// command over the rows below. Expanded, the whole command wraps inside the
 /// row, which grows, and can be selected. No line break is inserted, so the
-/// shown text, a partial selection and Copy Command hold the same single-line
-/// command. Commands are code, so they read in the monospaced Inspector font,
-/// which follows View > Content Text Size.
+/// shown text and a partial selection hold one single-line command. The row
+/// shows each project path relative to the project and a tool under the
+/// reader's tool root by its name, as the Provenance tab's Command row does.
+/// Copy Command, Copy Step, the tooltip and VoiceOver give the whole command
+/// with every path in full, so a pasted command runs outside the project.
+/// Commands are code, so they read in the monospaced Inspector font, which
+/// follows View > Content Text Size.
 ///
 /// Copy Step runs from the copy icon, from the row's context menu, from the
 /// same VoiceOver actions and from Command-C while the disclosure control
@@ -26,6 +30,10 @@ struct MappingDocumentStepRow: View {
     static let columnSpacing: CGFloat = 8
 
     let step: MappingDocumentStep
+    /// The command as the row shows it, project-relative
+    /// (``MappingDocumentStateBuilder/shownCommands(of:projectURL:fileExists:toolRoot:)``).
+    /// It is `step.command` until that form is built.
+    let shownCommand: String
     /// The row's position among the steps, counting from 1, which names its
     /// identifiers.
     let number: Int
@@ -118,17 +126,18 @@ struct MappingDocumentStepRow: View {
     @ViewBuilder
     private var command: some View {
         if isExpanded {
-            Text(step.command)
+            Text(shownCommand)
                 .font(commandFont)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .help(ifPresent: shownCommand == step.command ? nil : step.command)
                 .accessibilityLabel("Command")
                 .accessibilityValue(step.command)
                 .accessibilityIdentifier("mapping-step-\(number)-command")
         } else {
-            Text(step.command)
+            Text(shownCommand)
                 .font(commandFont)
                 .lineLimit(3)
                 .truncationMode(.middle)
@@ -196,6 +205,18 @@ struct InspectorCopyButton: View {
         ZStack {
             Image(systemName: "doc.on.doc").opacity(showsCheckmark ? 0 : 1)
             Image(systemName: "checkmark").opacity(showsCheckmark ? 1 : 0)
+        }
+    }
+}
+
+private extension View {
+    /// A tooltip only when there is text for one, as the Provenance tab's rows set theirs.
+    @ViewBuilder
+    func help(ifPresent text: String?) -> some View {
+        if let text {
+            help(text)
+        } else {
+            self
         }
     }
 }

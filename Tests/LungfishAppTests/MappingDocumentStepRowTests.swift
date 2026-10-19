@@ -141,6 +141,36 @@ final class MappingDocumentStepRowTests: XCTestCase {
         XCTAssertFalse(copied.contains("\n"))
     }
 
+    /// PF6 Q-U7 under UX's ruling. The row shows the command project-relative, and Copy Command still copies the
+    /// recorded command with every path in full, so a pasted command runs outside the project.
+    func testCopyCommandStaysWholeWhenTheRowIsProjectRelative() throws {
+        let project = tempRoot.appendingPathComponent("Runs.lungfish", isDirectory: true)
+        let step = MappingDocumentStep(
+            label: "minimap2", command: "minimap2 -a " + project.path + "/Analyses/m/reads.fastq", version: "2.31", recorded: "Oct 18"
+        )
+        let board = pasteboard!
+        let row = MappingDocumentStepRow(
+            step: step,
+            shownCommand: "minimap2 -a Analyses/m/reads.fastq",
+            number: 1,
+            isExpanded: .constant(false),
+            copyText: InspectorStepCopyText.mappingStep(step),
+            copy: { text in
+                board.clearContents()
+                board.setString(text, forType: .string)
+            },
+            allStepsText: { InspectorStepCopyText.mappingSteps([step]) }
+        )
+        let window = AccessibilityTreeProbe.host(row)
+        windows.append(window)
+
+        XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Command", on: try stepRow(1, in: window)))
+
+        let copied = try XCTUnwrap(pasteboard.string(forType: .string))
+        XCTAssertEqual(copied, step.command)
+        XCTAssertTrue(copied.contains(project.path + "/Analyses/m/reads.fastq"), copied)
+    }
+
     func testCopyAllStepsJoinsEveryStepWithOneBlankLine() throws {
         let state = try fixtureState()
         let window = hostSection(state)

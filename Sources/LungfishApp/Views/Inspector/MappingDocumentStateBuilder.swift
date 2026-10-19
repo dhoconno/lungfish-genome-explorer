@@ -1,8 +1,51 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
+extension MappingDocumentState {
+    /// What the shown commands are built from, so the section builds them again only when a record's commands or its
+    /// project change.
+    var shownCommandsID: [String] {
+        [projectURL?.path ?? ""] + steps.map(\.command)
+    }
+}
+
 enum MappingDocumentStateBuilder {
+
+    /// Each step's command as its Run Settings row shows it, by the recorded command: each project path relative to
+    /// the project and a tool under `toolRoot` by its name, through the mapper the Provenance tab's Command row uses
+    /// (Phase 2.12 lane 12.25, PF6 Q-U7). Copy Command, Copy Step, the tooltip and VoiceOver keep the recorded command.
+    /// The mapper asks `fileExists` about each path argument, so this runs off the main actor.
+    nonisolated static func shownCommands(
+        of steps: [MappingDocumentStep],
+        projectURL: URL?,
+        fileExists: (String) -> Bool,
+        toolRoot: URL?
+    ) -> [String: String] {
+        var shown: [String: String] = [:]
+        for step in steps where shown[step.command] == nil {
+            shown[step.command] = ProvenanceCommandPresentation.display(
+                step.command, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot
+            )
+        }
+        return shown
+    }
+
+    /// The shown commands of `state`, built in a detached task, so neither a stat nor the read of the storage
+    /// configuration that names the tool root runs on the main actor. The mapping Document section's task awaits it
+    /// once for each record it shows.
+    static func shownCommands(
+        for state: MappingDocumentState,
+        fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        toolRoot: @escaping @Sendable () -> URL? = { PortablePath.defaultManagedRoots.toolRoot }
+    ) async -> [String: String] {
+        let steps = state.steps
+        let projectURL = state.projectURL
+        return await Task.detached(priority: .userInitiated) {
+            shownCommands(of: steps, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot())
+        }.value
+    }
 
     /// The Run Settings "Paired End" value.
     ///
@@ -82,6 +125,7 @@ enum MappingDocumentStateBuilder {
                 provenance: provenance
             ),
             steps: steps(provenance: provenance),
+            projectURL: projectURL,
             artifactRows: artifactRows(
                 result: result,
                 outputDirectory: outputDirectory
