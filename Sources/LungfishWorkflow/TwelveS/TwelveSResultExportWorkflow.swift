@@ -651,15 +651,15 @@ private func sourceInputs(for bundleURL: URL) throws -> [TwelveSExportSourceInpu
 
     append(TwelveSAmpliconResultBundle.manifestURL(in: bundleURL), format: .json, role: .input)
     let manifest = try TwelveSAmpliconResultBundle.loadManifest(from: bundleURL)
-    appendResolved(manifest.referencePath, format: .fasta, role: .reference)
     appendResolved(manifest.targetTablePath, format: .text, role: .input)
     appendResolved(manifest.alternateMatchesTablePath, format: .text, role: .input)
     appendResolved(manifest.countMatrixPath, format: .text, role: .input)
     appendResolved(manifest.sampleTablePath, format: .text, role: .input)
     appendResolved(manifest.readFatePath, format: .json, role: .input)
     appendResolved(manifest.unresolvedTablePath, format: .text, role: .input)
-    appendResolved(manifest.unresolvedFastaPath, format: .fasta, role: .input)
-    appendResolved(manifest.provenancePath, format: .json, role: .log)
+    appendResolved(manifest.reassignmentsTablePath, format: .text, role: .input)
+    appendResolved(manifest.resolvedSampleMetadataPath, format: .text, role: .input)
+    appendResolved(manifest.sampleMetadataManifestPath, format: .json, role: .input)
     return inputs
 }
 

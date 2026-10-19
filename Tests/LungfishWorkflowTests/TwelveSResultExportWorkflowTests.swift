@@ -145,7 +145,43 @@ final class TwelveSResultExportWorkflowTests: XCTestCase {
         XCTAssertTrue(provenance.argv.contains("--force"))
     }
 
-    private func makeBundle(includeTaxonGroups: Bool = true) throws -> URL {
+    /// BIO 4 and 6, ruling G3-1 (SCR/rulings/BIO-12.31-G3.md). The record names the files the loader opens and no
+    /// other. `loadResult(from:)` resolves `reference.fa`, the unresolved FASTA and the bundle log into its artifacts
+    /// without opening them, and it opens the reassignments table, the resolved sample metadata and its snapshot
+    /// manifest when the manifest names them and they exist.
+    func testRecordNamesExactlyTheFilesTheLoaderOpens() async throws {
+        let bundleURL = try makeBundle(includeOptionalInputs: true)
+        let outputURL = bundleURL.deletingLastPathComponent().appendingPathComponent("opened.csv")
+
+        let result = try await TwelveSResultExportWorkflow().export(
+            TwelveSResultExportConfiguration(bundleURL: bundleURL, outputURL: outputURL, format: .csv)
+        )
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        let outputPaths = Set(provenance.outputs.map(\.path))
+        let inputs = provenance.files.filter { !outputPaths.contains($0.path) }
+        let prefix = bundleURL.standardizedFileURL.path + "/"
+        let names = inputs.map { $0.path.hasPrefix(prefix) ? String($0.path.dropFirst(prefix.count)) : $0.path }.sorted()
+        let opened = [
+            "12s-result.json",
+            "targets.tsv",
+            "target-alternate-matches.tsv",
+            "sample-target-counts.tsv",
+            "samples.tsv",
+            "read-fate.json",
+            "unresolved-sequences.tsv",
+            "reassignments.tsv",
+            "metadata/resolved-sample-metadata.tsv",
+            "metadata/sample-metadata-manifest.json",
+        ]
+        XCTAssertEqual(names, opened.sorted(), "the record names the files the loader opens")
+        for unopened in ["reference.fa", "unresolved-sequences.fasta", ".lungfish-provenance.json"] {
+            XCTAssertFalse(names.contains(unopened), "\(unopened) is resolved by the loader and never opened")
+        }
+        XCTAssertTrue(inputs.allSatisfy { $0.checksumSHA256 != nil }, "every input has its digest")
+    }
+
+    private func makeBundle(includeTaxonGroups: Bool = true, includeOptionalInputs: Bool = false) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwelveSResultExportWorkflowTests-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
@@ -162,6 +198,9 @@ final class TwelveSResultExportWorkflowTests: XCTestCase {
             alternateMatchesTablePath: "target-alternate-matches.tsv",
             unresolvedTablePath: "unresolved-sequences.tsv",
             unresolvedFastaPath: "unresolved-sequences.fasta",
+            reassignmentsTablePath: includeOptionalInputs ? "reassignments.tsv" : nil,
+            resolvedSampleMetadataPath: includeOptionalInputs ? "metadata/resolved-sample-metadata.tsv" : nil,
+            sampleMetadataManifestPath: includeOptionalInputs ? "metadata/sample-metadata-manifest.json" : nil,
             provenancePath: ".lungfish-provenance.json"
         )
         try TwelveSAmpliconResultBundle.writeManifest(manifest, to: bundleURL)
@@ -198,6 +237,32 @@ final class TwelveSResultExportWorkflowTests: XCTestCase {
         >unresolved_1
         ACGTACGT
         """.write(to: bundleURL.appendingPathComponent("unresolved-sequences.fasta"), atomically: true, encoding: .utf8)
+        if includeOptionalInputs {
+            try """
+            sequence_id\tsample_id\tto_species\tto_target_id\treads\tdecided_by\tcandidate_species
+            unresolved_2\tSampleA\tCanis lupus familiaris\tdog\t2\tpooled\tCanis lupus familiaris; Canis lupus
+            """.write(to: bundleURL.appendingPathComponent("reassignments.tsv"), atomically: true, encoding: .utf8)
+            let metadataURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+            try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
+            try """
+            sample_id\tsample_name\tsite
+            SampleA\tSample A\tHilo WWTP
+            """.write(
+                to: metadataURL.appendingPathComponent("resolved-sample-metadata.tsv"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let snapshot = TwelveSSampleMetadataSnapshotManifest(
+                precedence: ["analysisOverride", "fastqBundle", "fastqFolder", "intrinsic"],
+                emptyOverrideCells: "empty analysis metadata cells do not clear lower-precedence values",
+                sampleCount: 1,
+                columns: ["sample_id", "sample_name", "site"],
+                sources: [],
+                warnings: []
+            )
+            try JSONEncoder().encode(snapshot)
+                .write(to: metadataURL.appendingPathComponent("sample-metadata-manifest.json"))
+        }
         return bundleURL
     }
 }
