@@ -65,6 +65,12 @@ final class ProvenanceEnvelopeCopyHelperTests: XCTestCase {
                     signaturePath: "/tmp/x.sig", publicKeyPath: "/tmp/x.pub"
                 )
             ],
+            priorSignatures: [
+                ProvenancePriorSignature(
+                    provider: "local", publicKeySHA256: String(repeating: "d", count: 64),
+                    provenanceSHA256: String(repeating: "e", count: 64), signedAt: Date(timeIntervalSince1970: 1_790_000_100)
+                )
+            ],
             status: status,
             legacyWorkflowRun: WorkflowRun(
                 name: "lungfish map", status: status, parameters: ["mode": .string("fast"), "quality": .integer(20)]
