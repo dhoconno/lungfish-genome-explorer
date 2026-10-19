@@ -84,7 +84,7 @@ extension ViewerViewController {
                 ) { opID in
                     Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
                         loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                        results: { controller?.showBlastResults($0) },
+                        results: { controller?.showBlastResults($0, recordURL: $1) },
                         failure: { controller?.showBlastFailure($0) }
                     )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
                 }
@@ -157,7 +157,7 @@ extension ViewerViewController {
                                     id: opID,
                                     detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
                                 ) else { return }
-                                blastController?.showBlastResults(blastResult)
+                                blastController?.showBlastResults(blastResult, recordURL: nil) // The in-process route saves no file (ARCH T5), and 13.03 deletes it.
                             }
                         }
                     } catch {

@@ -2,10 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
 
@@ -52,6 +54,31 @@ final class Kraken2BlastRestoreTests: XCTestCase {
         XCTAssertEqual(restore(taxId: 562, from: result).result?.rid, "RID-NEWER-ARCHIVE", "an older blast submit search gives way")
     }
 
+    /// ARCH ruling T5 of lane 12.33, condition 1. The drawer keeps the URL of the file its result was read from, since
+    /// the table export reads that file. An archive file gives its own URL, and once a `blast submit` record is newer
+    /// the record's URL takes its place.
+    func testARestoredVerificationKeepsTheURLOfTheFileItCameFrom() throws {
+        let result = try resultFolder()
+        let archiveURL = try BlastVerificationArchive.save(
+            Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result
+        )
+        let archived = restoreIntoDrawer(taxId: 562, from: result)
+        XCTAssertEqual(archived.tab.currentResult?.rid, "RID-ARCHIVE")
+        XCTAssertEqual(archived.tab.currentRecordURL?.resolvingSymlinksInPath(), archiveURL.resolvingSymlinksInPath())
+        XCTAssertEqual(
+            archived.controller.lastBlastRecordURL?.resolvingSymlinksInPath(), archiveURL.resolvingSymlinksInPath(),
+            "the view replays the same file into a drawer made later"
+        )
+
+        try writeSubmitRecord(rid: "RID-SUBMIT", taxId: 562, savedAt: Self.later, in: result, folder: "Escherichia-coli-a")
+        let recordURL = BlastVerificationArchive.directoryURL(for: result)
+            .appendingPathComponent("Escherichia-coli-a", isDirectory: true)
+            .appendingPathComponent(BlastSubmissionRecord.recordFileName)
+        let submitted = restoreIntoDrawer(taxId: 562, from: result)
+        XCTAssertEqual(submitted.tab.currentResult?.rid, "RID-SUBMIT")
+        XCTAssertEqual(submitted.tab.currentRecordURL?.resolvingSymlinksInPath(), recordURL.resolvingSymlinksInPath())
+    }
+
     // MARK: - Fixtures
 
     private static let earlier = Date(timeIntervalSince1970: 1_790_000_000)
@@ -62,6 +89,24 @@ final class Kraken2BlastRestoreTests: XCTestCase {
         let url = scratch.appendingPathComponent("Project.lungfish/Analyses/kraken2-run", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// A reopened result whose BLAST drawer exists, with the taxon selected. The restore shows the saved search in the
+    /// drawer's tab, which `currentRecordURL` reads.
+    private func restoreIntoDrawer(
+        taxId: Int,
+        from directory: URL
+    ) -> (tab: BlastResultsDrawerTab, controller: TaxonomyViewController) {
+        let controller = TaxonomyViewController()
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        controller.taxaCollectionsDrawerView = drawer
+        controller.blastVerificationDirectoryResolver = { _ in directory }
+        let node = TaxonNode(
+            taxId: taxId, name: "taxon \(taxId)", rank: .species, depth: 7,
+            readsDirect: 10, readsClade: 10, fractionClade: 0.1, fractionDirect: 0.1, parentTaxId: 1
+        )
+        _ = controller.restoreSavedBlastVerification(for: node)
+        return (drawer.blastResultsTab, controller)
     }
 
     /// A reopened result, a fresh controller with no BLAST state, and the taxon selected.

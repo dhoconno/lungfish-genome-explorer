@@ -380,7 +380,7 @@ final class AssemblyResultViewControllerTests: XCTestCase {
             rid: "RID-1",
             blastProgram: "megablast",
             database: "core_nt"
-        ))
+        ), recordURL: nil)
 
         let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
         drawer.blastResultsTab.rerunBlastButton.performClick(nil)

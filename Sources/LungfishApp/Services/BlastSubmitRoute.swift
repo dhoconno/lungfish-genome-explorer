@@ -127,20 +127,22 @@ struct BlastSubmitPlan: Sendable {
 
     /// Writes the query through `DurableReplace`, hashing its bytes once (SWIFT 4, 5), runs the leaf
     /// through `runner` with each event handed to `onEvent`, and returns the verdicts its record holds
-    /// once the record names that digest, so the drawer shows what the leaf searched.
+    /// once the record names that digest, so the drawer shows what the leaf searched. The record's URL comes with
+    /// them, since the drawer keeps it for its table export (ARCH ruling T5 of lane 12.33).
     @concurrent func run(
         runner: CLIBlastSubmitRunner,
         onEvent: @escaping @Sendable (CLIEvent) -> Void
-    ) async throws -> BlastVerificationResult {
+    ) async throws -> (result: BlastVerificationResult, recordURL: URL) {
         let stage = request.queryURL.deletingLastPathComponent()
         try DurableReplace.replace(queryData, named: request.queryURL.lastPathComponent, in: stage)
         let digest = SHA256.hash(data: queryData).map { String(format: "%02x", $0) }.joined()
         let completed = try await runner.run(arguments: arguments, onEvent: onEvent)
-        let record = try BlastSubmissionRecord.load(URL(fileURLWithPath: completed.recordPath))
+        let recordURL = URL(fileURLWithPath: completed.recordPath)
+        let record = try BlastSubmissionRecord.load(recordURL)
         guard record.query.sha256 == digest else {
             throw CLIBlastSubmitRunnerError.queryDigestMismatch(expected: digest, found: record.query.sha256)
         }
-        return record.result
+        return (record.result, recordURL)
     }
 
     /// The phase a BLAST drawer shows for a progress message of the search.

@@ -30,7 +30,7 @@ final class FASTACollectionViewerRoutingTests: XCTestCase {
         collection.onBlastRequested?([try Sequence(name: "seq1", alphabet: .dna, bases: "AACCGGTT")])
 
         await waitUntil {
-            guard case .results(let displayed)? = collection.testBlastDrawerTab?.displayState else { return false }
+            guard case .results(let displayed, _)? = collection.testBlastDrawerTab?.displayState else { return false }
             return displayed.rid == "RID-RESULT"
         }
         XCTAssertTrue(collection.testBlastDrawerIsOpen)
@@ -55,11 +55,11 @@ final class FASTACollectionViewerRoutingTests: XCTestCase {
         collection.onBlastRequested?([seq2])
 
         await waitUntil {
-            guard case .results(let displayed)? = collection.testBlastDrawerTab?.displayState else { return false }
+            guard case .results(let displayed, _)? = collection.testBlastDrawerTab?.displayState else { return false }
             return displayed.rid == "RID-NEW"
         }
         try? await Task.sleep(for: .milliseconds(180))
-        guard case .results(let displayed)? = collection.testBlastDrawerTab?.displayState else {
+        guard case .results(let displayed, _)? = collection.testBlastDrawerTab?.displayState else {
             return XCTFail("Expected BLAST results")
         }
         XCTAssertEqual(displayed.rid, "RID-NEW")

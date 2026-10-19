@@ -37,7 +37,7 @@ final class BlastDrawerRowAccessibilityTests: XCTestCase {
         window.contentView = tab
         tab.frame = window.contentView!.bounds
         tab.autoresizingMask = [.width, .height]
-        tab.showResults(makeResult())
+        tab.showResults(makeResult(), recordURL: nil)
         window.layoutIfNeeded()
         tab.layoutSubtreeIfNeeded()
         outline.layoutSubtreeIfNeeded()

@@ -283,7 +283,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     public enum DisplayState {
         case empty
         case loading(phase: BlastJobPhase, requestId: String?)
-        case results(BlastVerificationResult)
+        /// The result and the file it was read from, which is nil when no file holds it (ARCH ruling T5 of lane 12.33).
+        case results(BlastVerificationResult, recordURL: URL?)
     }
 
     /// The current display state.
@@ -454,8 +455,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         return text + " (\(result.totalReads) \(result.totalReads == 1 ? "read" : "reads"))"
     }
 
-    public func showResults(_ result: BlastVerificationResult) {
-        displayState = .results(result)
+    public func showResults(_ result: BlastVerificationResult, recordURL: URL?) {
+        displayState = .results(result, recordURL: recordURL)
         let total = result.totalReads
 
         switch presentationStyle {
@@ -526,7 +527,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         // Refresh header menu checkmarks
         refreshHeaderMenuCheckmarks()
 
-        showState(.results(result))
+        showState(.results(result, recordURL: recordURL))
 
         blastLogger.info(
             "Showing BLAST results for \(result.taxonName, privacy: .public) (\(total) queries)"
@@ -535,7 +536,13 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
     /// Returns the current result, if in the results state.
     public var currentResult: BlastVerificationResult? {
-        if case .results(let result) = displayState { return result }
+        if case .results(let result, _) = displayState { return result }
+        return nil
+    }
+
+    /// The file the shown result was read from, which the table export reads, or nil when no file holds it.
+    public var currentRecordURL: URL? {
+        if case .results(_, let recordURL) = displayState { return recordURL }
         return nil
     }
 
@@ -1396,8 +1403,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             showState(.empty)
         case .loading(let phase, let requestId):
             showLoading(phase: phase, requestId: requestId)
-        case .results(let result):
-            showResults(result)
+        case .results(let result, let recordURL):
+            showResults(result, recordURL: recordURL)
         }
     }
 
@@ -1536,7 +1543,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
     /// Exports results to a delimited file using NSSavePanel.
     private func exportResults(separator: String, fileExtension: String) {
-        guard case .results(let result) = displayState else { return }
+        guard case .results(let result, _) = displayState else { return }
 
         let panel = MetagenomicsFilePanelFactory.blastDelimitedExportPanel(fileExtension: fileExtension)
 
@@ -1607,7 +1614,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     // MARK: - Actions
 
     @objc private func openInBlastClicked(_ sender: NSButton) {
-        if case .results(let result) = displayState, let url = result.ncbiResultsURL {
+        if case .results(let result, _) = displayState, let url = result.ncbiResultsURL {
             blastLogger.info("Opening BLAST results in browser: \(url.absoluteString, privacy: .public)")
             if let callback = onOpenInBrowser { callback(url) } else { NSWorkspace.shared.open(url) }
         }

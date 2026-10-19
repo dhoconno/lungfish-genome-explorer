@@ -278,7 +278,7 @@ final class BlastResultsDrawerTests: XCTestCase {
 
         // Show results first, then reset to empty
         let result = makeHighConfidenceResult()
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         XCTAssertNotNil(tab.currentResult)
 
         tab.showEmpty()
@@ -296,7 +296,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         // Verify summary text shows taxon name and support/contradict counts
@@ -320,7 +320,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeLowConfidenceResult()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         // Verify summary text shows taxon name and support/contradict counts
@@ -362,7 +362,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         )
 
         tab.presentationStyle = .contigBlast
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(tab.summaryLabel.stringValue, "BLAST results for 2 contigs")
@@ -396,7 +396,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         // Use NSOutlineViewDataSource API: nil item = top-level children
@@ -411,7 +411,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeLowConfidenceResult()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         let topLevelCount = tab.outlineView(
@@ -427,7 +427,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeResultWithLCADisagreement()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         // 3 top-level items (reads)
@@ -471,7 +471,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeResultWithLCADisagreement()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         // Get read_lca_1 and its children
@@ -502,7 +502,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeResultWithLCADisagreement()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         // 2 reads have LCA disagreement
@@ -516,7 +516,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         // No LCA disagreements in high confidence result
@@ -530,7 +530,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(tab.exportButton.title, "Export")
@@ -584,7 +584,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeResultWithEmptyRID()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         XCTAssertFalse(tab.openInBlastButton.isEnabled, "Button should be disabled when RID is empty")
@@ -594,7 +594,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
 
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
         tab.layoutSubtreeIfNeeded()
 
         XCTAssertTrue(tab.openInBlastButton.isEnabled, "Button should be enabled when RID is present")
@@ -785,7 +785,7 @@ final class BlastResultsDrawerTests: XCTestCase {
 
         // Show BLAST results
         let result = makeHighConfidenceResult()
-        drawer.showBlastResults(result)
+        drawer.showBlastResults(result, recordURL: nil)
 
         // Should have switched to BLAST tab
         XCTAssertEqual(drawer.selectedTab, .blastResults)
@@ -808,7 +808,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         let container = BlastResultsDrawerContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 320))
         let result = makeHighConfidenceResult()
 
-        container.showResults(result)
+        container.showResults(result, recordURL: nil)
 
         XCTAssertTrue(container.subviews.contains(container.testDividerView))
         XCTAssertEqual(container.testDrawerTab.currentResult?.taxonName, "Escherichia coli")
@@ -916,7 +916,7 @@ final class BlastResultsDrawerTests: XCTestCase {
     func testOpenInBrowserCallback() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
 
         var receivedURL: URL?
         tab.onOpenInBrowser = { url in
@@ -934,7 +934,7 @@ final class BlastResultsDrawerTests: XCTestCase {
     func testRerunBlastCallback() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
 
         var rerunCalled = false
         tab.onRerunBlast = {
@@ -963,7 +963,7 @@ final class BlastResultsDrawerTests: XCTestCase {
     func testContextMenuExists() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
-        tab.showResults(result)
+        tab.showResults(result, recordURL: nil)
 
         let menu = tab.resultsOutlineView.menu
         XCTAssertNotNil(menu, "Outline view should have a context menu")

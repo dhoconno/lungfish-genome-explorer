@@ -860,10 +860,10 @@ public final class FASTACollectionViewController: NSViewController,
         openBlastDrawerIfNeeded()
     }
 
-    public func showBlastResults(_ result: BlastVerificationResult) {
+    public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
         collapseSelectionDetail()
         let drawer = ensureBlastDrawer()
-        drawer.showResults(result)
+        drawer.showResults(result, recordURL: recordURL)
         openBlastDrawerIfNeeded()
     }
 

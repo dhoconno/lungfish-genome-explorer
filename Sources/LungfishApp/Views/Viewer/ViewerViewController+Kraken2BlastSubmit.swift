@@ -45,7 +45,7 @@ extension ViewerViewController {
             controller?.currentBlastOperationID = operationID
             return BlastSubmitDrawer(
                 loading: { [weak controller] in controller?.showBlastLoading(phase: $0, requestId: nil, runID: runID) },
-                results: { [weak controller] in controller?.showBlastResults($0, runID: runID) },
+                results: { [weak controller] in controller?.showBlastResults($0, recordURL: $1, runID: runID) },
                 failure: { [weak controller] text in
                     controller?.showBlastFailure(message: text, runID: runID)
                     showBlastVerificationErrorAlert(text)

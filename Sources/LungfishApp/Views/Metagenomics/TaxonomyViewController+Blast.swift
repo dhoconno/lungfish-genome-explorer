@@ -30,6 +30,7 @@ extension TaxonomyViewController {
         currentBlastRunID = runID
         lastBlastNode = node
         lastBlastResult = nil
+        lastBlastRecordURL = nil
         isBlastRunInFlight = true
         return runID
     }
@@ -51,11 +52,11 @@ extension TaxonomyViewController {
               !blastRunIsActive,
               lastBlastResult?.taxId != node.taxId,
               let directory = blastVerificationDirectoryResolver?(node),
-              let result = Self.newestSavedBlastVerification(forTaxId: node.taxId, in: directory) else {
+              let saved = Self.newestSavedBlastVerification(forTaxId: node.taxId, in: directory) else {
             return nil
         }
-        applyRestoredBlastVerification(result, for: node, from: directory)
-        return result
+        applyRestoredBlastVerification(saved.result, recordURL: saved.recordURL, for: node, from: directory)
+        return saved.result
     }
 
     /// The selection path's form of ``restoreSavedBlastVerification(for:)`` (Phase 2.12 lane 12.33, review Fix 6 of
@@ -75,28 +76,37 @@ extension TaxonomyViewController {
             return nil
         }
         return Task { @MainActor [weak self] in
-            let result = await Self.savedBlastVerificationOffMain(forTaxId: node.taxId, in: directory)
+            let saved = await Self.savedBlastVerificationOffMain(forTaxId: node.taxId, in: directory)
             guard let self,
-                  let result,
+                  let saved,
                   !self.blastRunIsActive,
                   self.selectedTaxonNode?.taxId == node.taxId,
                   self.lastBlastResult?.taxId != node.taxId else {
                 return
             }
-            self.applyRestoredBlastVerification(result, for: node, from: directory)
+            self.applyRestoredBlastVerification(saved.result, recordURL: saved.recordURL, for: node, from: directory)
         }
     }
 
     /// The scan of a result's saved searches off the main actor.
-    @concurrent nonisolated static func savedBlastVerificationOffMain(forTaxId taxId: Int, in directory: URL) async -> BlastVerificationResult? {
+    @concurrent nonisolated static func savedBlastVerificationOffMain(
+        forTaxId taxId: Int,
+        in directory: URL
+    ) async -> (result: BlastVerificationResult, recordURL: URL)? {
         newestSavedBlastVerification(forTaxId: taxId, in: directory)
     }
 
     /// Shows a restored verification. The drawer is not opened or switched.
-    private func applyRestoredBlastVerification(_ result: BlastVerificationResult, for node: TaxonNode, from directory: URL) {
+    private func applyRestoredBlastVerification(
+        _ result: BlastVerificationResult,
+        recordURL: URL,
+        for node: TaxonNode,
+        from directory: URL
+    ) {
         lastBlastResult = result
+        lastBlastRecordURL = recordURL
         lastBlastNode = node
-        taxaCollectionsDrawerView?.blastResultsTab.showResults(result)
+        taxaCollectionsDrawerView?.blastResultsTab.showResults(result, recordURL: recordURL)
         blastVCLogger.info("Restored saved BLAST verification for txid\(node.taxId, privacy: .public) from \(directory.path, privacy: .public)")
     }
 
@@ -104,24 +114,32 @@ extension TaxonomyViewController {
     /// record (`<folder>/blast-result.json`), which the Kraken2 row writes since Phase 2.12 lane 12.10, or a
     /// ``BlastVerificationArchive`` file, which it wrote before and still writes on the in-process route that
     /// ``ClassifierBlastRouteSettings`` keeps for one release (ARCH 4). The search that completed last wins, as
-    /// the archive orders its own files.
-    nonisolated static func newestSavedBlastVerification(forTaxId taxId: Int, in directory: URL) -> BlastVerificationResult? {
-        let archived = BlastVerificationArchive.latest(forTaxId: taxId, in: directory)
+    /// the archive orders its own files. The file it was read from comes with it, since the drawer's table export
+    /// reads that file (ARCH ruling T5 of lane 12.33).
+    nonisolated static func newestSavedBlastVerification(
+        forTaxId taxId: Int,
+        in directory: URL
+    ) -> (result: BlastVerificationResult, recordURL: URL)? {
+        let archived = BlastVerificationArchive.latestEntry(forTaxId: taxId, in: directory)
         let folder = BlastVerificationArchive.directoryURL(for: directory)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        let submitted = names.compactMap { name in
-            try? BlastSubmissionRecord.load(
-                folder.appendingPathComponent(name, isDirectory: true).appendingPathComponent(BlastSubmissionRecord.recordFileName)
-            )
+        let submitted = names.compactMap { name -> (record: BlastSubmissionRecord, url: URL)? in
+            let url = folder.appendingPathComponent(name, isDirectory: true)
+                .appendingPathComponent(BlastSubmissionRecord.recordFileName)
+            guard let record = try? BlastSubmissionRecord.load(url) else { return nil }
+            return (record, url)
         }
-        .filter { ($0.lineage.taxId ?? $0.result.taxId) == taxId }
-        .max { ($0.result.completedAt ?? $0.savedAt) < ($1.result.completedAt ?? $1.savedAt) }
-        guard let submitted else { return archived?.result }
+        .filter { ($0.record.lineage.taxId ?? $0.record.result.taxId) == taxId }
+        .max {
+            ($0.record.result.completedAt ?? $0.record.savedAt) < ($1.record.result.completedAt ?? $1.record.savedAt)
+        }
+        guard let submitted else { return archived.map { ($0.record.result, $0.url) } }
         guard let archived,
-              (archived.result.completedAt ?? archived.savedAt) > (submitted.result.completedAt ?? submitted.savedAt) else {
-            return submitted.result
+              (archived.record.result.completedAt ?? archived.record.savedAt)
+                > (submitted.record.result.completedAt ?? submitted.record.savedAt) else {
+            return (submitted.record.result, submitted.url)
         }
-        return archived.result
+        return (archived.record.result, archived.url)
     }
 
     /// Shows BLAST verification results in the drawer's BLAST tab.
@@ -130,18 +148,22 @@ extension TaxonomyViewController {
     /// is not open, it is toggled open. The drawer then switches to the BLAST tab
     /// and populates the results view.
     ///
-    /// - Parameter result: The BLAST verification result to display.
-    func showBlastResults(_ result: BlastVerificationResult, runID: UUID? = nil) {
+    /// - Parameters:
+    ///   - result: The BLAST verification result to display.
+    ///   - recordURL: The file the result was read from, which the drawer's table export reads. Nil for a result no
+    ///     file holds, as the in-process routes under ``ClassifierBlastRouteSettings`` give.
+    func showBlastResults(_ result: BlastVerificationResult, recordURL: URL? = nil, runID: UUID? = nil) {
         guard isCurrentBlastRun(runID) else {
             blastVCLogger.info("Ignoring stale BLAST result from an older run")
             return
         }
         lastBlastResult = result
+        lastBlastRecordURL = recordURL
         isBlastRunInFlight = false
         ensureDrawerOpenOnBlastTab()
 
         // Switch to BLAST tab and show results
-        taxaCollectionsDrawerView?.showBlastResults(result)
+        taxaCollectionsDrawerView?.showBlastResults(result, recordURL: recordURL)
 
         blastVCLogger.info(
             "Showing BLAST results for \(result.taxonName, privacy: .public): \(result.verifiedCount)/\(result.readResults.count) verified"
@@ -155,8 +177,8 @@ extension TaxonomyViewController {
     /// and populates the results table.
     ///
     /// - Parameter result: The BLAST verification result to display.
-    func showBlastVerificationResults(_ result: BlastVerificationResult) {
-        showBlastResults(result)
+    func showBlastVerificationResults(_ result: BlastVerificationResult, recordURL: URL?) {
+        showBlastResults(result, recordURL: recordURL)
     }
 
     /// Shows the BLAST loading state in the drawer.
@@ -239,7 +261,7 @@ extension TaxonomyViewController {
 
         // A verification restored before the drawer existed is waiting.
         if let lastBlastResult, !blastRunIsActive {
-            blastTab.showResults(lastBlastResult)
+            blastTab.showResults(lastBlastResult, recordURL: lastBlastRecordURL)
         }
     }
 

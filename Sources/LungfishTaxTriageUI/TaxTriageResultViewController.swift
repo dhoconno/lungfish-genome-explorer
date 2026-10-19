@@ -2811,9 +2811,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - BLAST Drawer Public API
 
     /// Shows BLAST verification results in the bottom drawer, opening it if needed.
-    public func showBlastResults(_ result: BlastVerificationResult) {
+    public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
         lastBlastResult = result
-        blastDrawer.showResults(result)
+        blastDrawer.showResults(result, recordURL: recordURL)
         if !isBlastDrawerOpen {
             toggleBlastDrawer()
         }

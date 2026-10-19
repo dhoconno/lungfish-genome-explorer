@@ -113,7 +113,7 @@ extension ViewerViewController {
                                 )
                                 controller.onUnresolvedBlastCancelRequested = nil
                                 guard accepted else { return }
-                                controller.showBlastResults(result)
+                                controller.showBlastResults(result, recordURL: nil) // The in-process route saves no file (ARCH T5), and 13.03 deletes it.
                             }
                         }
                     } catch LungfishCLIRunner.RunError.cancelled {
@@ -259,7 +259,7 @@ extension ViewerViewController {
             loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
             results: {
                 controller?.onUnresolvedBlastCancelRequested = nil
-                controller?.showBlastResults($0)
+                controller?.showBlastResults($0, recordURL: $1)
             },
             failure: {
                 controller?.onUnresolvedBlastCancelRequested = nil

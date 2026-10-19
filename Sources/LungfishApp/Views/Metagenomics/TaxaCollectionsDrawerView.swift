@@ -206,8 +206,8 @@ public final class TaxaCollectionsDrawerView: NSView {
     /// and populating the results view.
     ///
     /// - Parameter result: The BLAST verification result to display.
-    func showBlastResults(_ result: BlastVerificationResult) {
-        blastResultsTab.showResults(result)
+    func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
+        blastResultsTab.showResults(result, recordURL: recordURL)
         switchToTab(.blastResults)
     }
 

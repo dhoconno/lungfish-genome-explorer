@@ -241,8 +241,8 @@ public final class MetagenomicsDrawerView: NSView {
     // MARK: - BLAST Results
 
     /// Switches to the BLAST Results tab and populates it.
-    func showBlastResults(_ result: BlastVerificationResult) {
-        blastResultsTab.showResults(result)
+    func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
+        blastResultsTab.showResults(result, recordURL: recordURL)
         switchToTab(.blastResults)
     }
 

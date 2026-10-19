@@ -295,7 +295,7 @@ final class NvdResultViewControllerTests: XCTestCase {
             rid: "RID-1",
             blastProgram: "megablast",
             database: "core_nt"
-        ))
+        ), recordURL: nil)
 
         let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
         drawer.blastResultsTab.rerunBlastButton.performClick(nil)

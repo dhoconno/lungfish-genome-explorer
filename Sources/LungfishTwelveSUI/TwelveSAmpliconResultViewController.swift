@@ -970,9 +970,9 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         openBlastDrawerIfNeeded()
     }
 
-    public func showBlastResults(_ result: BlastVerificationResult) {
+    public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
         let drawer = ensureBlastDrawer()
-        drawer.showResults(result)
+        drawer.showResults(result, recordURL: recordURL)
         openBlastDrawerIfNeeded()
     }
 

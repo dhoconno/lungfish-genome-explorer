@@ -41,7 +41,7 @@ final class FASTACollectionViewControllerTests: XCTestCase {
             sourceNames: [:]
         )
         vc.testSelectRows([0])
-        vc.showBlastResults(makeBlastResult(queryID: "seq1"))
+        vc.showBlastResults(makeBlastResult(queryID: "seq1"), recordURL: nil)
 
         guard case .results = vc.testBlastDrawerTab?.displayState else {
             return XCTFail("Expected the shared BLAST drawer result state")

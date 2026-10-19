@@ -220,7 +220,7 @@ extension ViewerViewController {
                             }
                         )
 
-                        saveBlastVerification(
+                        let blastArchiveURL = saveBlastVerification(
                             blastResult,
                             request: request,
                             resultDirectory: resultDirectory,
@@ -237,7 +237,7 @@ extension ViewerViewController {
                                     id: opID,
                                     detail: blastVerificationCompletionDetail(capturedResult)
                                 ) else { return }
-                                weakController?.showBlastResults(capturedResult, runID: blastRunID)
+                                weakController?.showBlastResults(capturedResult, recordURL: blastArchiveURL, runID: blastRunID)
                             }
                         }
                     } catch {
@@ -411,7 +411,7 @@ extension ViewerViewController {
                             }
                         )
 
-                        saveBlastVerification(
+                        let blastArchiveURL = saveBlastVerification(
                             blastResult,
                             request: request,
                             resultDirectory: sampleDirectory,
@@ -427,7 +427,7 @@ extension ViewerViewController {
                                     id: opID,
                                     detail: blastVerificationCompletionDetail(blastResult)
                                 ) else { return }
-                                weakController.showBlastResults(blastResult, runID: blastRunID)
+                                weakController.showBlastResults(blastResult, recordURL: blastArchiveURL, runID: blastRunID)
                             }
                         }
                     } catch {
@@ -715,7 +715,9 @@ func kraken2SampleResultDirectory(
 }
 
 /// Saves a finished verification into `<resultDirectory>/blast-verifications/`
-/// with a provenance sidecar. A failure is logged and never fails the run.
+/// with a provenance sidecar. A failure is logged and never fails the run. The file it wrote comes back, since the
+/// BLAST drawer keeps it for its table export (ARCH ruling T5 of lane 12.33), and nil comes back when the save failed.
+@discardableResult
 func saveBlastVerification(
     _ result: BlastVerificationResult,
     request: BlastVerificationRequest,
@@ -724,7 +726,7 @@ func saveBlastVerification(
     sourceInputs: [URL],
     readCount: Int,
     runClock: ProvenanceRunClock
-) {
+) -> URL? {
     let argv = [CLICommandIdentity.executableName, "blast", "verify"]
         + blastVerifyCLIArguments(
             classResult: classResult,
@@ -734,7 +736,7 @@ func saveBlastVerification(
             resultDirectory: resultDirectory
         )
     do {
-        try BlastVerificationArchive.save(
+        return try BlastVerificationArchive.save(
             result,
             request: request,
             in: resultDirectory,
@@ -744,6 +746,7 @@ func saveBlastVerification(
         )
     } catch {
         taxonomyLogger.warning("BLAST: could not save the verification to \(resultDirectory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        return nil
     }
 }
 

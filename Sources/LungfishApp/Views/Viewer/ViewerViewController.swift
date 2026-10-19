@@ -1894,7 +1894,7 @@ public class ViewerViewController: NSViewController {
 
             let task = Task { [weak self, weak controller] in
                 do {
-                    let result = try await runner(
+                    let (result, recordURL) = try await runner(
                         request,
                         { fraction, message in
                             progressRelay.report(fraction: fraction, message: message)
@@ -1908,7 +1908,7 @@ public class ViewerViewController: NSViewController {
                     guard let self, let controller,
                           self.activeFASTABlastRunID == runID else { return }
                     self.clearActiveFASTABlast(runID: runID)
-                    controller.showBlastResults(result)
+                    controller.showBlastResults(result, recordURL: recordURL)
                 } catch is CancellationError {
                     OperationCenter.shared.acknowledgeCancellation(id: opID)
                     self?.clearActiveFASTABlast(runID: runID)

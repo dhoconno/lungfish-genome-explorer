@@ -263,9 +263,16 @@ public enum BlastVerificationArchive {
 
     /// The newest readable verification of `taxId` in `resultDirectory`.
     public static func latest(forTaxId taxId: Int, in resultDirectory: URL) -> Record? {
+        latestEntry(forTaxId: taxId, in: resultDirectory)?.record
+    }
+
+    /// The newest readable verification of `taxId` with the file it was read from, which the BLAST drawer keeps for
+    /// its table export (Phase 2.12 lane 12.33, ARCH ruling T5).
+    public static func latestEntry(forTaxId taxId: Int, in resultDirectory: URL) -> (url: URL, record: Record)? {
         for entry in entries(in: resultDirectory, taxId: taxId) {
             do {
-                return try load(entry.url)
+                let record = try load(entry.url)
+                return (entry.url, record)
             } catch {
                 archiveLogger.warning("Skipping unreadable BLAST verification \(entry.url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }

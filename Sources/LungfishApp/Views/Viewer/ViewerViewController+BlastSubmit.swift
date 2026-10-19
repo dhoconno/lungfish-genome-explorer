@@ -11,11 +11,18 @@ import LungfishWorkflow
 /// What a BLAST drawer shows while its search runs and once it ends.
 struct BlastSubmitDrawer: Sendable {
     let loading: @MainActor @Sendable (BlastJobPhase) -> Void
-    let results: @MainActor @Sendable (BlastVerificationResult) -> Void
+    let results: @MainActor @Sendable (BlastVerificationResult, URL?) -> Void
     let failure: @MainActor @Sendable (String) -> Void
 }
 
 extension ViewerViewController {
+    /// A FASTA BLAST search as the viewer runs it. The result comes with the file of its `blast submit` record, which
+    /// the drawer keeps for its table export (ARCH ruling T5 of lane 12.33). A test's runner gives none.
+    typealias FASTABlastSearch = @MainActor (
+        _ request: BlastVerificationRequest,
+        _ progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> (result: BlastVerificationResult, recordURL: URL?)
+
     /// The project of this viewer's window, whose `.tmp` takes a BLAST query.
     func blastSubmitProjectURL() -> URL? {
         let windowController = view.window?.windowController as? MainWindowController
@@ -87,17 +94,23 @@ extension ViewerViewController {
         plan: BlastSubmitPlan?,
         operationID: UUID,
         override: FASTABlastVerificationRunner?
-    ) -> FASTABlastVerificationRunner {
-        if let override { return override }
+    ) -> FASTABlastSearch {
+        if let override {
+            return { request, progress in
+                let result = try await override(request, progress)
+                return (result, nil)
+            }
+        }
         guard let plan else {
             preconditionFailure("A FASTA BLAST search needs a plan or a test's runner")
         }
         let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
         return { _, progress in
-            try await plan.run(runner: CLIBlastSubmitRunner()) { event in
+            let completed = try await plan.run(runner: CLIBlastSubmitRunner()) { event in
                 bridge(event)
                 if case let .progress(fraction, message) = event { progress(fraction, message) }
             }
+            return (completed.result, completed.recordURL)
         }
     }
 
@@ -119,9 +132,9 @@ extension ViewerViewController {
         }
         let task = Task { @MainActor in
             do {
-                let result = try await plan.run(runner: runner, onEvent: onEvent)
-                guard OperationCenter.shared.complete(id: operationID, detail: completeDetail(result)) else { return }
-                drawer.results(result)
+                let completed = try await plan.run(runner: runner, onEvent: onEvent)
+                guard OperationCenter.shared.complete(id: operationID, detail: completeDetail(completed.result)) else { return }
+                drawer.results(completed.result, completed.recordURL)
             } catch is CancellationError {
                 OperationCenter.shared.acknowledgeCancellation(id: operationID)
             } catch {

@@ -117,7 +117,7 @@ enum BlastSubmitParity {
         do {
             let plan = try makePlan(root)
             begin(plan.cliCommand, reporter)
-            let result = try await plan.run(runner: CLIBlastSubmitRunner(cliURLOverride: cli)) { _ in }
+            let result = try await plan.run(runner: CLIBlastSubmitRunner(cliURLOverride: cli)) { _ in }.result
             try copyStage(of: plan, from: root)
             return RouteParitySideOutcome(end: .completed, detail: summary(result), recordedCommand: reporter.items.first?.cliCommand)
         } catch {

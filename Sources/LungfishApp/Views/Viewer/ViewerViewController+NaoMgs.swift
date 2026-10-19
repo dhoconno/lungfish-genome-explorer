@@ -61,7 +61,7 @@ extension ViewerViewController {
             ) { opID in
                 Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
                     loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                    results: { controller?.showBlastResults($0) },
+                    results: { controller?.showBlastResults($0, recordURL: $1) },
                     failure: { controller?.showBlastFailure($0) }
                 )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
             }

@@ -321,7 +321,7 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         var drawer: BlastSubmitDrawer {
             BlastSubmitDrawer(
                 loading: { [self] phase in phases.append(phase) },
-                results: { [self] result in results.append(result) },
+                results: { [self] result, _ in results.append(result) },
                 failure: { [self] text in failures.append(text) }
             )
         }

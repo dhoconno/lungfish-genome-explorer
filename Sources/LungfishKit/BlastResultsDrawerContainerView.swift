@@ -132,8 +132,8 @@ public final class BlastResultsDrawerContainerView: NSView {
         blastResultsTab.showLoading(phase: phase, requestId: requestId)
     }
 
-    public func showResults(_ result: BlastVerificationResult) {
-        blastResultsTab.showResults(result)
+    public func showResults(_ result: BlastVerificationResult, recordURL: URL?) {
+        blastResultsTab.showResults(result, recordURL: recordURL)
     }
 
     public func showFailure(message: String) {

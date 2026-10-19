@@ -1523,9 +1523,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     ///
     /// Creates a ``BlastResultsDrawerTab`` if needed, populates it with the
     /// results, and slides the drawer open with animation.
-    public func showBlastResults(_ result: BlastVerificationResult) {
+    public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
         let drawer = ensureBlastDrawer()
-        drawer.showResults(result)
+        drawer.showResults(result, recordURL: recordURL)
         openBlastDrawerIfNeeded()
 
         logger.info("Showing BLAST results: \(result.verifiedCount)/\(result.readResults.count) verified for \(result.taxonName)")
