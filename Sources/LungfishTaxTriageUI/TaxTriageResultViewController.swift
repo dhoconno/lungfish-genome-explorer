@@ -4912,7 +4912,7 @@ extension TaxTriageResultViewController: NSMenuItemValidation {
         case #selector(copySummaryAction(_:)):
             return summaryTextForCopy() != nil
         case #selector(exportBatchReportAction(_:)):
-            return taxTriageResult != nil && taxTriageConfig != nil
+            return taxTriageResult != nil && taxTriageConfig != nil && !exportSelectedSampleIds().isEmpty
         case #selector(exportBatchMatrixAction(_:)):
             return !exportMetrics.isEmpty
         default:

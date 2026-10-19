@@ -137,8 +137,11 @@ final class TaxTriageExportRowTests: XCTestCase {
         let window = NSWindow(contentViewController: view)
         window.isReleasedWhenClosed = false
         XCTAssertEqual(view.selectedDatabaseSampleIds, ["sample-1", "sample-2"])
+        let reportItem = NSMenuItem(title: "Export Batch Report", action: NSSelectorFromString("exportBatchReportAction:"), keyEquivalent: "")
+        XCTAssertTrue(view.validateMenuItem(reportItem))
         view.samplePickerState.selectedSamples = []
         XCTAssertEqual(view.selectedDatabaseSampleIds, [])
+        XCTAssertFalse(view.validateMenuItem(reportItem), "no ticked sample disables the report item")
 
         let rowsBefore = OperationCenter.shared.items.count
         for action in ["exportBatchMatrixAction:", "exportBatchReportAction:"] {
