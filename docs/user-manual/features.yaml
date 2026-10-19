@@ -456,8 +456,8 @@ features:
       - Tests/LungfishAppTests/ReferenceBundleMergeRecordConformanceTests.swift
     notes: >-
       lungfish-cli bundle merge merges two or more reference bundles into one
-      new bundle, with events on --format json. The sidebar's Merge into New
-      Bundle for reference bundles runs it, so Cancel stops the merge before
+      new bundle, with events on --format json. The sidebar's Merge Into New
+      Bundle… for reference bundles runs it, so Cancel stops the merge before
       it publishes, the bundle appears under its name in one step, and the
       Operations row shows the command to copy.
       The record of the merged bundle names lungfish-cli bundle merge and the
@@ -1428,7 +1428,7 @@ features:
       repeated --negative-control and writes taxtriage-result.json at the
       root of a batch, and build-db taxtriage keeps top/ on every completed
       result. Since 2.12 the Tools > Classification launch runs
-      lungfish-cli taxtriage run --project and reads no key (K1).
+      lungfish-cli taxtriage run --project and reads no key.
   classify.esviritu-cli-route:
     title: Run EsViritu from the command line into a project
     entry_points:
