@@ -316,7 +316,9 @@ struct ProvenanceCommand: AsyncParsableCommand {
                   processArguments[processArguments.index(after: provenanceIndex)] == "export" else {
                 return fallback
             }
-            return processArguments
+            // Every export leaf records `lungfish-cli` first (`ViewerExportInvocation.canonicalArgv()`), whatever path
+            // launched it, so a replay line reads the same on every machine.
+            return [CLICommandIdentity.executableName] + processArguments.dropFirst()
         }
     }
 

@@ -84,7 +84,8 @@ final class ProvenanceExportCommandTests: XCTestCase {
             fallback: fallback
         )
 
-        XCTAssertEqual(argv, observed)
+        // The record starts with `lungfish-cli` whatever path launched the binary, as every other export leaf does.
+        XCTAssertEqual(argv, [CLICommandIdentity.executableName] + observed.dropFirst())
     }
 
     func testShellExportWritesRunScriptAndRecordsExportProvenance() async throws {

@@ -13,12 +13,11 @@
 //
 // A pinned record is exported in each of the six formats with no flag, and an unpinned record in each of the four
 // script formats with `--allow-unpinned`, which is what Export Anyway… hands the command. A against C compares the
-// folder's files under the harness masks. Every file is equal except the export's own record, and the record differs
-// in its argv only (BIO 7, a prediction row of the lane report). The base's builder wrote `lungfish-cli` as the
-// executable, and the leaf writes the path of the binary the app launched, in `argv[0]` and in the
-// `reproducibleCommand` text it renders from argv. An override also differs in the place of `--allow-unpinned`, which
-// follows `--export-format` in the row's command and followed `--output` in the builder. The tool, kind, workflow name,
-// options and files of the record are the exporter's in both. C against C' compares everything under the contract's masks.
+// folder's files under the harness masks. A pinned export is equal in every file, the record included, since the leaf
+// records `lungfish-cli` first in argv as the builder did. An override differs in the export's own record only, in the
+// place of `--allow-unpinned`, which follows `--export-format` in the row's command and followed `--output` in the
+// builder (BIO 7, a prediction row of the lane report). The tool, kind, workflow name, options and files of the record
+// are the exporter's in both. C against C' compares everything under the contract's masks.
 
 import AppKit
 import Foundation
@@ -201,13 +200,20 @@ extension ProvenanceExportCLIGUIParityReplayTests {
             differences.filter { !$0.id.contains(recordPath) }.map(\.description), [],
             "\(parityCase): only the export record may differ between A and C"
         )
-        if !parityCase.override {
-            let moved = differences.filter {
-                $0.description.contains(" at argv[0]") || $0.description.contains(" at reproducibleCommand")
+        if parityCase.override {
+            // The place of `--allow-unpinned` still differs, in the last three tokens of argv and in the command line
+            // the record renders from them. The executable no longer does.
+            let placed = differences.filter {
+                $0.description.contains(" at argv[") || $0.description.contains(" at reproducibleCommand")
             }
             XCTAssertEqual(
-                differences.map(\.description), moved.map(\.description),
-                "\(parityCase): a pinned export differs only in the executable the record names"
+                differences.map(\.description), placed.map(\.description),
+                "\(parityCase): an override differs only in the place of --allow-unpinned"
+            )
+        } else {
+            XCTAssertEqual(
+                differences.map(\.description), [],
+                "\(parityCase): a pinned export is equal in every file, the record included"
             )
         }
 
@@ -226,7 +232,7 @@ extension ProvenanceExportCLIGUIParityReplayTests {
         let rowArguments = try RouteParityHarness.arguments(ofLine: try XCTUnwrap(runs.c.outcome.recordedCommand))
         XCTAssertEqual(Array(rowArguments.prefix(2)), ProvenanceReportExport.commandPath)
         XCTAssertEqual(Array(c.argv.dropFirst()), rowArguments, "\(parityCase) the record's argv is the row's command")
-        XCTAssertEqual(c.argv.first.map { URL(fileURLWithPath: $0).lastPathComponent }, CLICommandIdentity.executableName)
+        XCTAssertEqual(c.argv.first, CLICommandIdentity.executableName)
         XCTAssertEqual(a.argv.first, CLICommandIdentity.executableName)
         XCTAssertEqual(
             a.argv,
