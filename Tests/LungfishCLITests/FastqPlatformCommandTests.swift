@@ -95,14 +95,23 @@ final class FastqPlatformCommandTests: XCTestCase {
     }
 
     /// Backups the change snapshot made of a locked sidecar keep the lock, so
-    /// the snapshot cannot discard them. Unlocks and removes the ones made
-    /// since `existing` was listed.
-    private func removeLockedSnapshotBackups(in folder: URL, except existing: Set<String>) {
+    /// the snapshot cannot discard them. Unlocks and removes this test's own,
+    /// the folders whose copy of the sidecar holds `token`. The temporary
+    /// folder is shared with the tests that run at the same time, and a live
+    /// backup of another test must stay (`FastqPlatformSIGTERMTests` waits for
+    /// its command to restore from one), so no folder is removed by name alone.
+    private func removeLockedSnapshotBackups(in folder: URL, holding token: String) {
         let fileManager = FileManager.default
+        let marker = Data(token.utf8)
         let names = (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
-        for name in names where name.hasPrefix("lungfish-fastq-platform-") && !existing.contains(name) {
+        for name in names where name.hasPrefix("lungfish-fastq-platform-") {
             let backup = folder.appendingPathComponent(name, isDirectory: true)
-            for file in (try? fileManager.contentsOfDirectory(atPath: backup.path)) ?? [] {
+            let files = (try? fileManager.contentsOfDirectory(atPath: backup.path)) ?? []
+            let isOwn = files.contains { file in
+                ((try? Data(contentsOf: backup.appendingPathComponent(file))) ?? Data()).range(of: marker) != nil
+            }
+            guard isOwn else { continue }
+            for file in files {
                 try? fileManager.setAttributes([.immutable: false], ofItemAtPath: backup.appendingPathComponent(file).path)
             }
             try? fileManager.removeItem(at: backup)
@@ -117,13 +126,18 @@ final class FastqPlatformCommandTests: XCTestCase {
         let bundle = try makeLegacyMislabelledBundle()
         let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
         let sidecar = FASTQMetadataStore.metadataURL(for: fastq)
+        // A token that only this test writes into the sidecar marks the backup folders it makes, since the
+        // backup copies the sidecar. Only those are removed below.
+        let token = "locked-sidecar-\(UUID().uuidString)"
+        var stamped = try XCTUnwrap(FASTQMetadataStore.load(for: fastq))
+        stamped.downloadSource = token
+        FASTQMetadataStore.save(stamped, for: fastq)
         let before = try Data(contentsOf: sidecar)
         let temporary = FileManager.default.temporaryDirectory
-        let existingBackups = Set((try? FileManager.default.contentsOfDirectory(atPath: temporary.path)) ?? [])
         try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: sidecar.path)
         defer {
             try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: sidecar.path)
-            removeLockedSnapshotBackups(in: temporary, except: existingBackups)
+            removeLockedSnapshotBackups(in: temporary, holding: token)
         }
 
         do {
@@ -217,14 +231,20 @@ final class FastqPlatformCommandTests: XCTestCase {
     func testAFailedApplyIsReportedBeforeARestoreThatThrows() async throws {
         let first = try makeLegacyMislabelledBundle(named: "First")
         let second = try makeLegacyMislabelledBundle(named: "Second")
+        // A token that only this test writes into a sidecar marks the backup folders it makes, since the
+        // backup copies every sidecar the change covers. Only those are removed below.
+        let token = "failed-apply-\(UUID().uuidString)"
+        let firstFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: first))
+        var stamped = try XCTUnwrap(FASTQMetadataStore.load(for: firstFASTQ))
+        stamped.downloadSource = token
+        FASTQMetadataStore.save(stamped, for: firstFASTQ)
         let secondFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: second))
         let secondSidecar = FASTQMetadataStore.metadataURL(for: secondFASTQ)
         let temporary = FileManager.default.temporaryDirectory
-        let existingBackups = Set((try? FileManager.default.contentsOfDirectory(atPath: temporary.path)) ?? [])
         try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: secondSidecar.path)
         defer {
             try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: secondSidecar.path)
-            removeLockedSnapshotBackups(in: temporary, except: existingBackups)
+            removeLockedSnapshotBackups(in: temporary, holding: token)
         }
         let command = try FastqPlatformSubcommand.parse([first.path, second.path, "--set", "ont", "--format", "json"])
 
