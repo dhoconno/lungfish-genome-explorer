@@ -5,20 +5,6 @@
 import AppKit
 import LungfishCore
 
-// MARK: - Result Export Format
-
-/// Export format for result data from viewport controllers.
-///
-/// Each viewport class supports a subset of these formats. For example,
-/// taxonomy viewports typically export CSV/TSV/JSON, while assembly
-/// viewports may also offer FASTA for contig sequences.
-public enum ResultExportFormat: String, Sendable, CaseIterable {
-    case csv = "csv"
-    case tsv = "tsv"
-    case json = "json"
-    case fasta = "fasta"
-}
-
 // MARK: - BLAST Request
 
 /// A request to BLAST-verify sequences from a result viewport.
