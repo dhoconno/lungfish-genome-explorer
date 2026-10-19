@@ -98,7 +98,7 @@ final class AnnotationTableExportPinTests: XCTestCase {
     func testRecordAtTheBase() throws {
         let snapshot = variantSnapshot()
         let output = root.appendingPathComponent("variants-selected.csv")
-        try AnnotationTableExportService.export(
+        try AnnotationTableExportFrozenSideA.export(
             snapshot: snapshot, format: .csv, outputURL: output, shouldCancel: { false }
         )
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
@@ -158,7 +158,7 @@ final class AnnotationTableExportPinTests: XCTestCase {
             table: .init(name: "Variants", columns: [], rows: []), tab: "variants", scope: .selected,
             rowIdentities: [], sourceURLs: [], queryDescription: [:], coordinateConventions: [:]
         )
-        XCTAssertThrowsError(try AnnotationTableExportService.export(
+        XCTAssertThrowsError(try AnnotationTableExportFrozenSideA.export(
             snapshot: empty, format: .csv, outputURL: root.appendingPathComponent("none.csv"), shouldCancel: { false }
         )) { error in
             XCTAssertEqual(error.localizedDescription, AnnotationTableExportServiceError.noScientificSources.localizedDescription)
@@ -319,7 +319,7 @@ extension AnnotationTableExportPinTests {
     /// Writes the snapshot through the base service and returns the payload.
     func export(_ snapshot: AnnotationTableExportSnapshot, format: ScientificTableFormat) throws -> Data {
         let output = root.appendingPathComponent("\(snapshot.tab)-\(UUID().uuidString).\(format.rawValue)")
-        try AnnotationTableExportService.export(snapshot: snapshot, format: format, outputURL: output, shouldCancel: { false })
+        try AnnotationTableExportFrozenSideA.export(snapshot: snapshot, format: format, outputURL: output, shouldCancel: { false })
         XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
         return try Data(contentsOf: output)
     }
