@@ -35,16 +35,16 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// An EsViritu result of sample `S1`. With `linkedOut` its recorded BAM is a link to a file outside the result.
-    private func makeResult(linkedOut: Bool) throws -> URL {
-        let recorded = "S1/bams/S1.third.filt.sorted.bam"
+    /// An EsViritu result of sample `sampleId`. With `linkedOut` its recorded BAM is a link to a file outside the result.
+    private func makeResult(linkedOut: Bool, sampleId: String = "S1") throws -> URL {
+        let recorded = "\(sampleId)/bams/\(sampleId).third.filt.sorted.bam"
         let root = try TestTempDirectory.make(prefix: "refused-estimate")
         folders.append(root)
         let resultPath = root.appendingPathComponent("esviritu.sqlite")
         try EsVirituDatabase.create(
             at: resultPath,
             rows: [EsVirituDetectionRow(
-                sample: "S1", virusName: "Test virus", description: nil, contigLength: 1_000, segment: nil,
+                sample: sampleId, virusName: "Test virus", description: nil, contigLength: 1_000, segment: nil,
                 accession: "NC_000001.1", assembly: "ASM_S1", assemblyLength: 1_000, kingdom: nil,
                 phylum: nil, tclass: nil, torder: nil, family: nil, genus: nil, species: nil, subspecies: nil,
                 rpkmf: 1, readCount: 10, uniqueReads: 10, coveredBases: 900, meanCoverage: 5,
@@ -56,7 +56,7 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
         guard linkedOut else { return resultPath }
         let outside = try TestTempDirectory.make(prefix: "refused-estimate-outside")
         folders.append(outside)
-        let outsideBAM = outside.appendingPathComponent("S1.third.filt.sorted.bam")
+        let outsideBAM = outside.appendingPathComponent("\(sampleId).third.filt.sorted.bam")
         try Data([0x1F, 0x8B]).write(to: outsideBAM)
         let link = root.appendingPathComponent(recorded)
         try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -66,12 +66,12 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
 
     /// Presents the sheet over `resultPath` and returns its model once the estimate has ended in a message.
     private func presentAndWaitForTheEstimate(
-        resultPath: URL, host: NSWindow
+        resultPath: URL, host: NSWindow, sampleId: String = "S1"
     ) async throws -> ClassifierExtractionDialogViewModel {
         let context = TaxonomyReadExtractionAction.Context(
             tool: .esviritu,
             resultPath: resultPath,
-            selections: [ClassifierRowSelector(sampleId: "S1", accessions: ["NC_000001.1"], taxIds: [])],
+            selections: [ClassifierRowSelector(sampleId: sampleId, accessions: ["NC_000001.1"], taxIds: [])],
             suggestedName: "reads"
         )
         TaxonomyReadExtractionAction.shared.present(context: context, hostWindow: host)
@@ -127,6 +127,25 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
     func testABAMLinkedOutOfTheResultShowsItsWordsInFullAndTurnsOffExtract() async throws {
         let model = try await presentAndWaitForTheEstimate(resultPath: makeResult(linkedOut: true), host: makeHost())
         try assertRefusalShown(model, .bamOutsideResult(sampleId: "S1"))
+    }
+
+    /// U-W3, Q-W3. A long sample name makes a long refusal, which the sheet shows in full, and the panel grows to hold
+    /// it. The `S1` refusal is presented first in the same test, so the larger fitting height of the long one shows
+    /// that the message needed room.
+    func testALongSampleNameShowsItsRefusalInFullAndTheSheetGrows() async throws {
+        let short = try await presentAndWaitForTheEstimate(resultPath: makeResult(linkedOut: true), host: makeHost())
+        try assertRefusalShown(short, .bamOutsideResult(sampleId: "S1"))
+        let shortFittingHeight = panelFittingHeight
+
+        let id = String(repeating: "S", count: 200)
+        let long = try await presentAndWaitForTheEstimate(
+            resultPath: makeResult(linkedOut: true, sampleId: id), host: makeHost(), sampleId: id
+        )
+        try assertRefusalShown(long, .bamOutsideResult(sampleId: id))
+        XCTAssertGreaterThan(
+            panelFittingHeight, shortFittingHeight,
+            "the long refusal needs more room than the S1 refusal"
+        )
     }
 
     /// Negative control. Every other failed estimate keeps the prefix and Extract, shows no count and keeps the
