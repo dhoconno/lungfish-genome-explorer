@@ -15,8 +15,9 @@
 // not depend on, so the registry is built here the same way.
 //
 // `canonicalReceiptSHA256` is bound to the row's own receipt. The case verifies the row against its receipt
-// with `MetagenomicsDatabaseConformanceIdentity.verify`, and the receipt states the version the update
-// started from and the version it moved to.
+// with `MetagenomicsDatabaseConformanceIdentity.verify`. The receipt states the version it moved to. It
+// records no version the update started from ("unknown"), since the installed row was registered from disk
+// and nothing checked its label.
 //
 // The built CLI has no archive stand-in, so side C' and a cancel through the transport are covered by
 // `ManagedToolLeavesLiveConformanceTests`, which runs once with LUNGFISH_REQUIRE_TOOLS=1.
@@ -143,8 +144,8 @@ extension ManagedToolsCLIGUIParityReplayTests {
         let receipt = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: XCTUnwrap(row.path)))
         let options = receipt.options.resolvedDefaults
         XCTAssertEqual(
-            options["updatedFromVersion"]?.stringValue, installedViralVersion,
-            "the receipt names the version the update started from"
+            options["updatedFromVersion"]?.stringValue, "unknown",
+            "the receipt records no from-version for a row nothing checked"
         )
         XCTAssertEqual(
             options["updatedToVersion"]?.stringValue, row.version, "the receipt names the version the update moved to"

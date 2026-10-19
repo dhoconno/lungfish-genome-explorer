@@ -1481,7 +1481,7 @@ public actor MetagenomicsDatabaseRegistry {
     ) throws {
         let resolved: [String: ParameterValue] = [
             "databaseRoot": .file(finalURL),
-            "updatedFromVersion": .string(database.version ?? "unknown"),
+            "updatedFromVersion": .string(database.checkedVersion ?? "unknown"),
             "updatedToVersion": .string(catalogEntry.version ?? "unknown"),
             "archiveInstaller": .string("Lungfish archive update workflow"),
             "invocationKind": .string("swift-api"),
