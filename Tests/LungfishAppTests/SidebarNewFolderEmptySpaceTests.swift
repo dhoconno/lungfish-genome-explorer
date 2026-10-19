@@ -23,17 +23,22 @@ final class SidebarNewFolderEmptySpaceTests: XCTestCase {
     private var tempRoot: URL!
     private var projectURL: URL!
     private var readsURL: URL!
+    private var fastaURL: URL!
     private var windows: [NSWindow] = []
+    /// A pasteboard of this test's own, since the general one is shared by every process on the machine.
+    private var pasteboard: NSPasteboard!
 
     override func setUp() async throws {
         try await super.setUp()
         _ = NSApplication.shared
+        pasteboard = NSPasteboard.withUniqueName()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarNewFolderEmptySpaceTests-\(UUID().uuidString)", isDirectory: true)
         projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
         readsURL = projectURL.appendingPathComponent("Reads", isDirectory: true)
+        fastaURL = readsURL.appendingPathComponent("a.fasta")
         try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
-        try ">a\nACGT\n".write(to: readsURL.appendingPathComponent("a.fasta"), atomically: true, encoding: .utf8)
+        try ">a\nACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
     }
 
     override func tearDown() async throws {
@@ -42,6 +47,8 @@ final class SidebarNewFolderEmptySpaceTests: XCTestCase {
             window.orderOut(nil)
         }
         windows.removeAll()
+        pasteboard.releaseGlobally()
+        pasteboard = nil
         try? FileManager.default.removeItem(at: tempRoot)
         try await super.tearDown()
     }
@@ -150,12 +157,33 @@ final class SidebarNewFolderEmptySpaceTests: XCTestCase {
         )
     }
 
+    // MARK: - Copy Path with several rows
+
+    /// One row copies its path alone, with no line break after it.
+    func testCopyPathOfOneRowCopiesThePathAlone() throws {
+        let (sidebar, _) = makeSidebar()
+        defer { sidebar.closeProject() }
+        XCTAssertTrue(sidebar.selectItem(forURL: fastaURL), "could not select a.fasta")
+        pasteboard.clearContents()
+        sidebar.copySelectedSidebarItemPath(nil)
+        XCTAssertEqual(copiedPaths(), [fastaURL.resolvingSymlinksInPath().path])
+    }
+
+    /// The pasteboard's lines with their symlinks resolved, so a temporary
+    /// folder reached through a symlink reads the same. A line break after the
+    /// last path shows as an empty line.
+    private func copiedPaths() -> [String] {
+        (pasteboard.string(forType: .string) ?? "").split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.isEmpty ? "" : URL(fileURLWithPath: String($0)).resolvingSymlinksInPath().path }
+    }
+
     // MARK: - Helpers
 
     /// A sidebar in a window of its own, with the fixture project open unless
     /// `openingProject` is false. The window holds the sheet New Folder… shows.
     private func makeSidebar(openingProject: Bool = true) -> (SidebarViewController, NSWindow) {
         let sidebar = SidebarViewController()
+        sidebar.copyPasteboard = pasteboard
         sidebar.loadViewIfNeeded()
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         sidebar.view.frame = container.bounds
