@@ -201,8 +201,19 @@ final class ManagedPythonRuntimeInstallerTests: XCTestCase {
             requirementsResource: fixture.spec.requirementsResource,
             requirementsSHA256: fixture.spec.requirementsSHA256)
         XCTAssertFalse(receipt.validates(spec: other, environmentURL: fixture.environmentURL))
+        XCTAssertNil(receipt.firstFailedCondition(spec: fixture.spec, environmentURL: fixture.environmentURL))
+        XCTAssertEqual(receipt.firstFailedCondition(spec: other, environmentURL: fixture.environmentURL),
+                       "The receipt names another runtime request.")
         try Data("tampered".utf8).write(to: fixture.installedFile)
         XCTAssertFalse(receipt.validates(spec: fixture.spec, environmentURL: fixture.environmentURL))
+        XCTAssertEqual(receipt.firstFailedCondition(spec: fixture.spec, environmentURL: fixture.environmentURL),
+                       "The file lib/python3.12/site-packages/primalscheme3/__init__.py holds 8 bytes, not the recorded 22.")
+    }
+
+    func testInvalidInventoryMessageKeepsItsFirstSentenceAndNamesTheReason() {
+        XCTAssertEqual(
+            ManagedPythonRuntimeInstallerError.invalidInventory("The wheelhouse holds no .whl file.").errorDescription,
+            "Managed Python installation did not return a valid installed-file inventory. The wheelhouse holds no .whl file.")
     }
 
     func testReceiptRejectsInstalledFileReachedThroughSymlinkedAncestor() async throws {
@@ -220,6 +231,9 @@ final class ManagedPythonRuntimeInstallerTests: XCTestCase {
 
         XCTAssertFalse(receipt.validates(
             spec: fixture.spec, environmentURL: fixture.environmentURL))
+        XCTAssertEqual(
+            receipt.firstFailedCondition(spec: fixture.spec, environmentURL: fixture.environmentURL),
+            "The file lib/python3.12/site-packages/primalscheme3/__init__.py has a symbolic link or a missing folder among its parents.")
     }
 
     func testCancellationNeverPublishesReceipt() async throws {

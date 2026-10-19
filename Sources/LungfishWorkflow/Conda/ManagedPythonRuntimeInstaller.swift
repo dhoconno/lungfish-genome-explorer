@@ -6,7 +6,8 @@ public enum ManagedPythonRuntimeInstallerError: Error, LocalizedError, Sendable,
     case invalidEnvironment
     case requirementsChecksumMismatch(expected: String, actual: String)
     case processFailed([String], Int32, String)
-    case invalidInventory
+    /// The installation's inventory or receipt failed a check. The reason names the check, in one or two sentences.
+    case invalidInventory(String)
     case runtimeIdentityMismatch(expected: String, actual: String)
 
     public var errorDescription: String? {
@@ -14,7 +15,8 @@ public enum ManagedPythonRuntimeInstallerError: Error, LocalizedError, Sendable,
         case .invalidEnvironment: return "Managed Python environment is missing its isolated Python executable."
         case .requirementsChecksumMismatch: return "Bundled Python requirements did not match the manifest checksum."
         case .processFailed(let argv, let status, _): return "Managed Python command \(argv.first ?? "process") failed with exit status \(status)."
-        case .invalidInventory: return "Managed Python installation did not return a valid installed-file inventory."
+        case .invalidInventory(let reason):
+            return "Managed Python installation did not return a valid installed-file inventory. \(reason)"
         case .runtimeIdentityMismatch(let expected, let actual): return "Managed Python distribution is \(actual), but Lungfish requires \(expected)."
         }
     }
@@ -138,35 +140,68 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
     }
 
     public func validates(spec: ManagedPythonRuntimeSpec, environmentURL: URL) -> Bool {
-        guard schemaVersion == Self.schemaVersion, requested == spec, exitStatus == 0,
-              versionProbe.exitStatus == 0, helpProbe.exitStatus == 0,
-              versionProbe.output.localizedCaseInsensitiveContains(spec.distributionName),
-              versionProbe.output.contains(spec.version), !helpProbe.output.isEmpty,
-              spec.matches(pythonVersion: pythonVersion), commands.allSatisfy({ $0.exitStatus == 0 }),
-              !commands.isEmpty, !downloadedWheels.isEmpty,
-              !installedDistributions.isEmpty, !installedFiles.isEmpty,
-              requirements.sha256 == spec.requirementsSHA256 else { return false }
-        if let source = spec.releaseWheelSource {
-            guard downloadedWheels.contains(where: {
-                $0.relativePath.hasSuffix("/\(source.url.lastPathComponent)")
-                    && $0.sha256 == source.sha256
-            }) else { return false }
+        firstFailedCondition(spec: spec, environmentURL: environmentURL) == nil
+    }
+
+    /// The first condition `validates` fails, in words, or nil when the receipt validates.
+    public func firstFailedCondition(spec: ManagedPythonRuntimeSpec, environmentURL: URL) -> String? {
+        if schemaVersion != Self.schemaVersion { return "The receipt schema is \(schemaVersion), not \(Self.schemaVersion)." }
+        if requested != spec { return "The receipt names another runtime request." }
+        if exitStatus != 0 { return "The receipt exit status is \(exitStatus)." }
+        if versionProbe.exitStatus != 0 { return "The --version probe exited \(versionProbe.exitStatus)." }
+        if helpProbe.exitStatus != 0 { return "The --help probe exited \(helpProbe.exitStatus)." }
+        if !versionProbe.output.localizedCaseInsensitiveContains(spec.distributionName) {
+            return "The --version output does not name \(spec.distributionName). It reads \"\(Self.excerpt(versionProbe.output))\"."
+        }
+        if !versionProbe.output.contains(spec.version) {
+            return "The --version output does not hold \(spec.version). It reads \"\(Self.excerpt(versionProbe.output))\"."
+        }
+        if helpProbe.output.isEmpty { return "The --help output is empty." }
+        if !spec.matches(pythonVersion: pythonVersion) { return "Python \(pythonVersion) does not match \(spec.pythonABI)." }
+        if let failed = commands.first(where: { $0.exitStatus != 0 }) {
+            return "The command \(failed.argv.first ?? "process") exited \(failed.exitStatus)."
+        }
+        if commands.isEmpty { return "The receipt records no command." }
+        if downloadedWheels.isEmpty { return "The receipt records no downloaded wheel." }
+        if installedDistributions.isEmpty { return "The inventory lists no installed distribution." }
+        if installedFiles.isEmpty { return "The inventory lists no installed file." }
+        if requirements.sha256 != spec.requirementsSHA256 { return "The recorded requirements hash is not the manifest's." }
+        if let source = spec.releaseWheelSource, !downloadedWheels.contains(where: {
+            $0.relativePath.hasSuffix("/\(source.url.lastPathComponent)") && $0.sha256 == source.sha256
+        }) {
+            return "The downloaded wheels lack \(source.url.lastPathComponent) with its pinned hash."
         }
         let currentConda = Set(Self.condaRecords(in: environmentURL))
-        guard Set(condaPackages).isSubset(of: currentConda),
-              spec.basePackageSpecs.allSatisfy({ packageSpec in
-                  Self.condaRecord(in: currentConda, matches: packageSpec)
-              }) else { return false }
-        guard Self.validRelativePath(requirements.relativePath),
-              Self.fileMatches(requirements, environmentURL: environmentURL),
-              let requirementsData = try? Data(
-            contentsOf: environmentURL.appendingPathComponent(requirements.relativePath)),
-              Self.lockedDistributions(in: requirementsData) == Set(installedDistributions)
-        else { return false }
-        return ([requirements] + downloadedWheels + installedFiles).allSatisfy {
-            Self.validRelativePath($0.relativePath)
-                && Self.fileMatches($0, environmentURL: environmentURL)
+        if let gone = condaPackages.first(where: { !currentConda.contains($0) }) {
+            return "The conda record \(gone.name)=\(gone.version)=\(gone.build) is no longer in conda-meta."
         }
+        if let missing = spec.basePackageSpecs.first(where: { !Self.condaRecord(in: currentConda, matches: $0) }) {
+            let name = Self.unchanneled(missing).split(separator: "=").first.map(String.init) ?? missing
+            let found = currentConda.filter { $0.name == name }.map { "\($0.name)=\($0.version)=\($0.build)" }.sorted()
+            return "No conda record matches \(missing). conda-meta holds \(found.isEmpty ? "none" : found.joined(separator: ", "))."
+        }
+        if let mismatch = Self.fileMismatch(requirements, environmentURL: environmentURL) { return "The requirements file \(mismatch)" }
+        guard let requirementsData = try? Data(
+            contentsOf: environmentURL.appendingPathComponent(requirements.relativePath)) else {
+            return "The requirements file cannot be read."
+        }
+        let pinned = Self.lockedDistributions(in: requirementsData)
+        let installed = Set(installedDistributions)
+        if pinned != installed {
+            let words = { (set: Set<DistributionRecord>) -> String in
+                set.isEmpty ? "none" : set.map { "\($0.name)==\($0.version)" }.sorted().prefix(5).joined(separator: ", ")
+            }
+            return "The pins and the installed distributions differ. Pinned only \(words(pinned.subtracting(installed)))."
+                + " Installed only \(words(installed.subtracting(pinned)))."
+        }
+        for record in downloadedWheels + installedFiles {
+            if let mismatch = Self.fileMismatch(record, environmentURL: environmentURL) { return "The file \(mismatch)" }
+        }
+        return nil
+    }
+
+    private static func excerpt(_ text: String) -> String {
+        String(text.split(whereSeparator: \.isNewline).joined(separator: " ").prefix(160))
     }
 
     func replacingInstalledFiles(_ replacements: [FileRecord], environmentURL: URL? = nil) -> Self {
@@ -204,13 +239,16 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
     static func fileRecord(for url: URL, relativeTo root: URL) throws -> FileRecord {
         let rootPath = root.standardizedFileURL.path + "/"
         let path = url.standardizedFileURL.path
-        guard path.hasPrefix(rootPath) else { throw ManagedPythonRuntimeInstallerError.invalidInventory }
+        guard path.hasPrefix(rootPath) else {
+            throw ManagedPythonRuntimeInstallerError.invalidInventory("The file \(path) lies outside the environment.")
+        }
         let relative = String(path.dropFirst(rootPath.count))
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard validRelativePath(relative), values.isRegularFile == true,
               values.isSymbolicLink != true,
               let size = (try FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.uint64Value else {
-            throw ManagedPythonRuntimeInstallerError.invalidInventory
+            throw ManagedPythonRuntimeInstallerError.invalidInventory(
+                "The file \(relative) is a symbolic link, not a regular file or not a safe relative path.")
         }
         return FileRecord(relativePath: relative, sha256: sha256(url), sizeBytes: size)
     }
@@ -225,9 +263,12 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
         }.sorted { $0.name < $1.name }
     }
 
+    private static func unchanneled(_ spec: String) -> String {
+        spec.split(separator: ":").last.map(String.init) ?? spec
+    }
+
     private static func condaRecord(in records: Set<CondaRecord>, matches spec: String) -> Bool {
-        let unchanneled = spec.split(separator: ":").last.map(String.init) ?? spec
-        let fields = unchanneled.split(separator: "=", omittingEmptySubsequences: false).map(String.init)
+        let fields = unchanneled(spec).split(separator: "=", omittingEmptySubsequences: false).map(String.init)
         guard fields.count == 3 else { return false }
         return records.contains { $0.name == fields[0] && $0.version == fields[1] && $0.build == fields[2] }
     }
@@ -245,17 +286,22 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
         })
     }
 
-    private static func fileMatches(_ record: FileRecord, environmentURL: URL) -> Bool {
-        guard validRelativePath(record.relativePath),
-              !hasSymbolicLinkAncestor(
-                relativePath: record.relativePath, environmentURL: environmentURL) else { return false }
-        let url = environmentURL.appendingPathComponent(record.relativePath)
+    /// Why the file on disk does not match its record, as the end of a sentence that starts with the path, or nil.
+    private static func fileMismatch(_ record: FileRecord, environmentURL: URL) -> String? {
+        let path = record.relativePath
+        guard validRelativePath(path) else { return "\(path) is not a safe relative path." }
+        if hasSymbolicLinkAncestor(relativePath: path, environmentURL: environmentURL) {
+            return "\(path) has a symbolic link or a missing folder among its parents."
+        }
+        let url = environmentURL.appendingPathComponent(path)
         guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
               values.isRegularFile == true, values.isSymbolicLink != true,
               let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attributes[.size] as? NSNumber,
-              size.uint64Value == record.sizeBytes else { return false }
-        return sha256(url) == record.sha256
+              let size = attributes[.size] as? NSNumber else { return "\(path) is missing or not a regular file." }
+        if size.uint64Value != record.sizeBytes {
+            return "\(path) holds \(size.uint64Value) bytes, not the recorded \(record.sizeBytes)."
+        }
+        return sha256(url) == record.sha256 ? nil : "\(path) does not match its recorded sha256."
     }
 
     private static func hasSymbolicLinkAncestor(
@@ -336,7 +382,8 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
     ) {
         self.requirementsProvider = requirementsProvider ?? { name in
             guard let url = RuntimeResourceLocator.path("ManagedTools/\(name)", in: .workflow) else {
-                throw ManagedPythonRuntimeInstallerError.invalidInventory
+                throw ManagedPythonRuntimeInstallerError.invalidInventory(
+                    "The bundled resource ManagedTools/\(name) was not found.")
             }
             return try Data(contentsOf: url)
         }
@@ -385,7 +432,8 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
             contain: spec.distributionName,
             version: spec.version,
             sha256: source.sha256) {
-            throw ManagedPythonRuntimeInstallerError.invalidInventory
+            throw ManagedPythonRuntimeInstallerError.invalidInventory(
+                "The bundled requirements do not pin \(spec.distributionName)==\(spec.version) with the release wheel hash.")
         }
         try requirementsData.write(to: requirementsURL, options: .atomic)
 
@@ -424,9 +472,17 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
             let distributions: [ManagedPythonRuntimeReceipt.DistributionRecord]
             let files: [ManagedPythonRuntimeReceipt.FileRecord]
         }
-        guard let inventory = try? JSONDecoder().decode(Inventory.self, from: Data(inventoryResult.stdout.utf8)),
-              inventory.files.allSatisfy({ ManagedPythonRuntimeReceipt.validRelativePath($0.relativePath) }) else {
-            throw ManagedPythonRuntimeInstallerError.invalidInventory
+        let inventory: Inventory
+        do {
+            inventory = try JSONDecoder().decode(Inventory.self, from: Data(inventoryResult.stdout.utf8))
+        } catch {
+            throw ManagedPythonRuntimeInstallerError.invalidInventory(
+                "The inventory output of \(inventoryResult.stdout.utf8.count) bytes does not decode. "
+                    + String(String(describing: error).prefix(300)))
+        }
+        if let unsafe = inventory.files.first(where: { !ManagedPythonRuntimeReceipt.validRelativePath($0.relativePath) }) {
+            throw ManagedPythonRuntimeInstallerError.invalidInventory(
+                "The inventory lists the unsafe path \(unsafe.relativePath).")
         }
         let actualVersion = inventory.distributions.first {
             $0.name == spec.distributionName.lowercased().replacingOccurrences(of: "_", with: "-")
@@ -442,12 +498,17 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         let wheels = try FileManager.default.contentsOfDirectory(at: wheelhouse, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "whl" }.sorted { $0.path < $1.path }
             .map { try ManagedPythonRuntimeReceipt.fileRecord(for: $0, relativeTo: root) }
-        guard !wheels.isEmpty else { throw ManagedPythonRuntimeInstallerError.invalidInventory }
+        guard !wheels.isEmpty else {
+            throw ManagedPythonRuntimeInstallerError.invalidInventory("The wheelhouse holds no .whl file.")
+        }
         if let source = spec.releaseWheelSource {
             guard wheels.contains(where: {
                 $0.relativePath.hasSuffix("/\(source.url.lastPathComponent)")
                     && $0.sha256 == source.sha256
-            }) else { throw ManagedPythonRuntimeInstallerError.invalidInventory }
+            }) else {
+                throw ManagedPythonRuntimeInstallerError.invalidInventory(
+                    "The wheelhouse lacks \(source.url.lastPathComponent) with its pinned hash.")
+            }
         }
         let completed = runClock.now
         try Task.checkCancellation()
@@ -471,8 +532,8 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
             helpProbe: .init(argv: helpArgv, exitStatus: help.exitStatus, output: help.stdout + help.stderr),
             startedAt: runClock.startedAt, completedAt: completed,
             wallTimeSeconds: completed.timeIntervalSince(runClock.startedAt), stderr: stderr)
-        guard receipt.validates(spec: spec, environmentURL: root) else {
-            throw ManagedPythonRuntimeInstallerError.invalidInventory
+        if let failure = receipt.firstFailedCondition(spec: spec, environmentURL: root) {
+            throw ManagedPythonRuntimeInstallerError.invalidInventory("The receipt check failed. \(failure)")
         }
         try receipt.write(to: receiptURL)
         return receipt
