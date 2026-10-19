@@ -35,7 +35,9 @@ final class ProvenanceExportPinGateSourceTests: XCTestCase {
             XCTAssertEqual(source.components(separatedBy: "presentProvenanceSavePanel(").count, 3, path.file)
             // The panel's function writes with the override the sheet returned.
             XCTAssertNotNil(savePanel.range(of: "savePanel.beginSheetModal("), path.file)
-            XCTAssertNotNil(savePanel.range(of: "request.write(to: outputDirectory, allowUnpinned: allowUnpinned"), path.file)
+            XCTAssertNotNil(savePanel.range(of: "AppDelegate.runProvenanceExport("), path.file)
+            XCTAssertNotNil(savePanel.range(of: "request: request, allowUnpinned: allowUnpinned, outputDirectory: outputDirectory"), path.file)
+            XCTAssertNil(source.range(of: "request.write("), path.file)
             XCTAssertNil(source.range(of: "ProvenanceExporter().exportBundle("), path.file)
         }
     }

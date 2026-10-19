@@ -103,11 +103,12 @@ final class AppShellAccessibilityTests: XCTestCase {
         let sourceURL = URL(fileURLWithPath: "/tmp/project/read bundle.lungfishfastq")
         let outputDirectory = URL(fileURLWithPath: "/tmp/project/read bundle-provenance-shell")
 
-        let argv = AppProvenanceExportCommandBuilder.argv(
+        let argv = ProvenanceReportExport.invocation(
+            inputURL: sourceURL,
             format: .shell,
-            sourceURL: sourceURL,
-            outputDirectory: outputDirectory
-        )
+            outputDirectory: outputDirectory,
+            allowUnpinned: false
+        ).canonicalArgv()
 
         XCTAssertEqual(argv, [
             CLICommandIdentity.executableName,

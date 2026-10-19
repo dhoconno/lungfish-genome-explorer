@@ -156,16 +156,15 @@ extension AppDelegate {
                         "The selected path exists and is not a folder: \(outputDirectory.path)"
                     )
                 }
-                let bundle = try request.write(to: outputDirectory, allowUnpinned: allowUnpinned, exporter: ProvenanceExporter())
-                debugLog("Provenance exported to \(bundle.primaryArtifactURL.path)")
-                self.showProvenanceExportCompleteAlert(bundle: bundle, format: request.format, window: window)
+                // Phase 2.12 lane 12.38, B9. The row runs `lungfish-cli provenance export` and the leaf writes the folder.
+                AppDelegate.runProvenanceExport(
+                    request: request, allowUnpinned: allowUnpinned, outputDirectory: outputDirectory, window: window
+                )
             } catch {
-                debugLog("Provenance export write failed: \(error)")
-                let alert = NSAlert()
-                alert.messageText = "Export Failed"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.beginSheetModal(for: window)
+                debugLog("Provenance export refused: \(error)")
+                AppDelegate.presentProvenanceExportSummary(
+                    AppDelegate.provenanceExportFailureSummary(error.localizedDescription), window: window
+                )
             }
         }
     }
@@ -182,24 +181,6 @@ extension AppDelegate {
             return nil
         }
         return isDirectory.boolValue
-    }
-
-    private func showProvenanceExportCompleteAlert(
-        bundle: ProvenanceExportBundle,
-        format: ProvenanceExportFormat,
-        window: NSWindow
-    ) {
-        let alert = NSAlert()
-        alert.messageText = "Provenance Export Complete"
-        alert.informativeText = "\(format.rawValue) exported to \(bundle.primaryArtifactURL.lastPathComponent)."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Show in Finder")
-        alert.beginSheetModal(for: window) { response in
-            if response == .alertSecondButtonReturn {
-                NSWorkspace.shared.activateFileViewerSelecting([bundle.primaryArtifactURL])
-            }
-        }
     }
 
     private func showNoProvenanceAlert() {

@@ -115,7 +115,7 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
         XCTAssertEqual(alert.buttons[1].accessibilityIdentifier(), ProvenanceExportPinSheetModel.exportAnywayIdentifier)
     }
 
-    func testConfirmWritesTheExportAndCancelLeavesTheFolderUnchanged() throws {
+    func testConfirmHandsTheOverrideToTheLeafAndCancelLeavesTheFolderUnchanged() throws {
         let request = try request()
 
         // The folder already holds an earlier export, whose script Cancel must leave byte for byte.
@@ -126,37 +126,23 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
         try earlierBytes.write(to: earlierScript)
         let afterCancel = decide(request, answer: .cancel)
         XCTAssertEqual(afterCancel.shown.count, 1)
-        XCTAssertEqual(afterCancel.proceeded, [], "Cancel never reaches the save panel")
-        for allowUnpinned in afterCancel.proceeded {
-            _ = try request.write(to: cancelled, allowUnpinned: allowUnpinned, exporter: exporter)
-        }
+        XCTAssertEqual(afterCancel.proceeded, [], "Cancel never reaches the save panel, so no row begins")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cancelled.path), ["run.sh"])
         XCTAssertEqual(try Data(contentsOf: earlierScript), earlierBytes)
 
         let confirmed = directory.appendingPathComponent("confirmed", isDirectory: true)
         let afterConfirm = decide(request, answer: .exportAnyway)
         XCTAssertEqual(afterConfirm.proceeded, [true])
-        let bundles = try afterConfirm.proceeded.map { allowUnpinned in
-            try request.write(to: confirmed, allowUnpinned: allowUnpinned, exporter: exporter)
-        }
-        let bundle = try XCTUnwrap(bundles.first)
-        XCTAssertEqual(bundle.primaryArtifactURL.lastPathComponent, "run.sh")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.primaryArtifactURL.path))
-        let record = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(
-                fromSidecar: confirmed.appendingPathComponent("provenance", isDirectory: true)
-                    .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        // The leaf writes the export and its record, and ProvenanceExportCLIGUIParityReplayTests runs it. The
+        // override reaches it as the command's flag (plan decision S7).
+        let invocations = afterConfirm.proceeded.map { allowUnpinned in
+            ProvenanceReportExport.invocation(
+                inputURL: request.selectedURL, format: request.format, outputDirectory: confirmed, allowUnpinned: allowUnpinned
             )
-        )
-        // The recorded command carries the override (plan decision S7).
-        XCTAssertEqual(record.argv, request.exportArgv(outputDirectory: confirmed, allowUnpinned: true))
-        XCTAssertEqual(record.argv.last, "--allow-unpinned")
-        // The script and the record name the unpinned step.
-        let summary = "Step 1, minimap2 in lge-minimap2. Its version was not recorded."
-        let script = try String(contentsOf: bundle.primaryArtifactURL, encoding: .utf8)
-        XCTAssertTrue(script.contains("#   \(summary)\n"), script)
-        XCTAssertEqual(record.options.explicit["allowUnpinned"], .boolean(true))
-        XCTAssertEqual(record.options.resolvedDefaults["unpinnedSteps"], .array([.string(summary)]))
+        }
+        let invocation = try XCTUnwrap(invocations.first)
+        XCTAssertTrue(invocation.arguments().contains(ProvenanceExporter.allowUnpinnedFlag))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: confirmed.path), "the app itself writes no byte")
     }
 
     func testAnExportWithNothingUnpinnedGoesStraightToTheSavePanel() throws {
@@ -198,9 +184,21 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
     func testTheRecordedCommandCarriesTheFlagOnlyAfterExportAnyway() throws {
         let request = try request()
         let output = URL(fileURLWithPath: "/tmp/project/reads-provenance-shell")
-        let base = AppProvenanceExportCommandBuilder.argv(format: .shell, sourceURL: request.selectedURL, outputDirectory: output)
-        XCTAssertEqual(request.exportArgv(outputDirectory: output, allowUnpinned: false), base)
-        XCTAssertEqual(request.exportArgv(outputDirectory: output, allowUnpinned: true), base + ["--allow-unpinned"])
+        let base = [
+            CLICommandIdentity.executableName, "provenance", "export", request.selectedURL.standardizedFileURL.path,
+            "--export-format", "shell", "--output", output.path,
+        ]
+        let plain = ProvenanceReportExport.invocation(
+            inputURL: request.selectedURL, format: .shell, outputDirectory: output, allowUnpinned: false
+        )
+        XCTAssertEqual(plain.canonicalArgv(), base)
+        let override = ProvenanceReportExport.invocation(
+            inputURL: request.selectedURL, format: .shell, outputDirectory: output, allowUnpinned: true
+        )
+        XCTAssertEqual(
+            override.canonicalArgv(),
+            Array(base.prefix(6)) + [ProvenanceExporter.allowUnpinnedFlag, "--output", output.path]
+        )
     }
 
     // MARK: - The shape

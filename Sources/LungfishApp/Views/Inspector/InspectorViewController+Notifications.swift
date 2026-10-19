@@ -538,10 +538,14 @@ extension InspectorViewController {
                         "The selected path exists and is not a folder: \(outputDirectory.path)"
                     )
                 }
-                let bundle = try request.write(to: outputDirectory, allowUnpinned: allowUnpinned, exporter: ProvenanceExporter())
-                self?.presentProvenanceExportComplete(bundle: bundle, format: request.format, window: window)
+                // Phase 2.12 lane 12.38, B9. The row runs `lungfish-cli provenance export` and the leaf writes the folder.
+                AppDelegate.runProvenanceExport(
+                    request: request, allowUnpinned: allowUnpinned, outputDirectory: outputDirectory, window: window
+                )
             } catch {
-                self?.presentSimpleAlert(title: "Export Failed", message: error.localizedDescription)
+                AppDelegate.presentProvenanceExportSummary(
+                    AppDelegate.provenanceExportFailureSummary(error.localizedDescription), window: window
+                )
             }
         }
     }
@@ -552,24 +556,6 @@ extension InspectorViewController {
             return nil
         }
         return isDirectory.boolValue
-    }
-
-    private func presentProvenanceExportComplete(
-        bundle: ProvenanceExportBundle,
-        format: ProvenanceExportFormat,
-        window: NSWindow
-    ) {
-        let alert = NSAlert()
-        alert.messageText = "Provenance Export Complete"
-        alert.informativeText = "\(format.rawValue) exported to \(bundle.primaryArtifactURL.lastPathComponent)."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Show in Finder")
-        alert.beginSheetModal(for: window) { response in
-            if response == .alertSecondButtonReturn {
-                NSWorkspace.shared.activateFileViewerSelecting([bundle.primaryArtifactURL])
-            }
-        }
     }
 
     func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {

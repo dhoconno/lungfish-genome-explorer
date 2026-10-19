@@ -30,25 +30,6 @@ struct ProvenanceExportRequest {
         )
     }
 
-    /// The command the export record keeps, in the CLI's own spelling, with `--allow-unpinned` after Export Anyway….
-    func exportArgv(outputDirectory: URL, allowUnpinned: Bool) -> [String] {
-        AppProvenanceExportCommandBuilder.argv(format: format, sourceURL: selectedURL, outputDirectory: outputDirectory)
-            + (allowUnpinned ? [ProvenanceExporter.allowUnpinnedFlag] : [])
-    }
-
-    /// Writes the export into the folder the save panel chose, as both GUI paths do.
-    func write(to outputDirectory: URL, allowUnpinned: Bool, exporter: ProvenanceExporter) throws -> ProvenanceExportBundle {
-        try exporter.exportBundle(
-            envelope,
-            format: format,
-            to: outputDirectory,
-            sourceSidecarURL: sourceSidecarURL,
-            sourceRootURL: selectedURL,
-            exportArgv: exportArgv(outputDirectory: outputDirectory, allowUnpinned: allowUnpinned),
-            allowUnpinned: allowUnpinned
-        )
-    }
-
     /// The shape of the record the export reads, from the finder's walk for `selectedURL` when it
     /// finds that record, and otherwise from the sidecar read alone.
     ///
