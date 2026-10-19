@@ -127,7 +127,11 @@ final class NaoMgsExportCLIGUIParityReplayTests: XCTestCase {
     /// no alert, and the row's command, cancelled on the launcher every CLI route uses, exits 125 inside the grace.
     /// Neither leaves the output or its record.
     func testACancelledExportExits125AndLeavesNoFileAndNoRecord() async throws {
-        let root = scratch.appendingPathComponent("cancel", isDirectory: true)
+        // Before it stages, the leaf's record looks for a sidecar of each input in the input's folder and the four
+        // folders above it, and lists each one (`ProvenanceRecorder.findProvenanceReading`). Two more levels keep
+        // that walk inside this case's folders. From `scratch/cancel` it reached the shared temporary folder, whose
+        // listing (135,212 entries) took the leaf 20 to 40 seconds to reach its hold, past the 30 second wait.
+        let root = scratch.appendingPathComponent("cancel/case/run", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Self.makeResult(root)
         let output = Self.outputURL(in: root)
