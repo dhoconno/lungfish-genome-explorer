@@ -77,6 +77,29 @@ final class Kraken2DatabaseTests: XCTestCase {
         XCTAssertEqual(try legacy.searchPrunedHierarchy(taxonQuery: "virus", sampleIds: ["S"]).rows.count, 2)
     }
 
+    /// Phase 2.12 lane 12.33, ARCH ruling on F1, C1. Siblings with equal clade reads come out in tax id order, since
+    /// `fetchTree` links them while it iterates a dictionary that Swift seeds per process. Without the tie order this
+    /// passes by chance about once in 40,320 runs.
+    func testFetchTreeOrdersTiedSiblingsByTaxId() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("kraken2.sqlite")
+        let childIds = [57, 12, 91, 3, 44, 28, 70, 15]
+        var rows = [
+            Kraken2ClassificationRow(sample: "S", taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
+                                     readsDirect: 0, readsClade: 8, percentage: 100, parentTaxId: nil, depth: 0),
+        ]
+        for taxId in childIds {
+            rows.append(Kraken2ClassificationRow(
+                sample: "S", taxonName: "Taxon \(taxId)", taxId: taxId, rank: "S", rankDisplayName: "Species",
+                readsDirect: 1, readsClade: 1, percentage: 12.5, parentTaxId: 1, depth: 1
+            ))
+        }
+        try Kraken2Database.create(at: dbURL, rows: rows, metadata: ["total_reads_S": "8"])
+        let tree = try Kraken2Database(at: dbURL).fetchTree(sample: "S")
+        XCTAssertEqual(tree.root.children.map(\.taxId), childIds.sorted())
+    }
+
     func testCreateAndOpen() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
