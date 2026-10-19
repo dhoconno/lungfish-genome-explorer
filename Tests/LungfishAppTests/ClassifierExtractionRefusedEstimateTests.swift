@@ -18,6 +18,9 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
 
     private var folders: [URL] = []
     private var captureOnly = false
+    /// The sheet panel's content height and the height its content asks for, read after the estimate ended.
+    private var panelContentHeight: CGFloat = 0
+    private var panelFittingHeight: CGFloat = 0
 
     override func setUp() async throws {
         try await super.setUp()
@@ -78,6 +81,11 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
         for _ in 0..<300 where model.errorMessage == nil {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
+        // One pass of the run loop lets the sheet lay out the message, then the panel is measured against its content.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        sheet.layoutIfNeeded()
+        panelContentHeight = sheet.contentRect(forFrameRect: sheet.frame).height
+        panelFittingHeight = controller.view.fittingSize.height
         host.endSheet(sheet)
         return model
     }
@@ -91,26 +99,59 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
         try XCTUnwrap(error.errorDescription)
     }
 
-    /// Whether the sheet's Extract button is on, read from the model state that feeds it: not running, and a name
-    /// where the destination takes one.
-    private func extractIsEnabled(_ model: ClassifierExtractionDialogViewModel) -> Bool {
-        !(model.isRunning || (model.destination.showsNameField
-            && model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+    // MARK: - The sheet after a refusal (U-W1 to U-W3)
+
+    /// The refusal's own words in full with no prefix, no read count, Extract off and no line limit. These tests
+    /// fail at the base, where the sheet shows `Could not estimate read count: ` before the words, a count of 0 and
+    /// Extract on (the M1 pins of the previous commit passed there).
+    private func assertRefusalShown(
+        _ model: ClassifierExtractionDialogViewModel, _ error: ClassifierExtractionError,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        XCTAssertEqual(model.errorMessage, try words(error), file: file, line: line)
+        XCTAssertFalse(model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, file: file, line: line)
+        XCTAssertFalse(model.isPrimaryEnabled, "the run would only show the same refusal", file: file, line: line)
+        XCTAssertFalse(model.showsReadEstimate, "LGE measured no count, and 0 is a claim", file: file, line: line)
+        XCTAssertNil(model.errorLineLimit, "the refusal shows in full", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(
+            panelContentHeight + 1, panelFittingHeight,
+            "the sheet panel grows with its content, so a long refusal is not cut (Q-W3)", file: file, line: line
+        )
     }
 
-    // MARK: - The sheet after a refusal, as it is at the base (M1 pin)
-
-    func testAMissingBAMShowsThePrefixedWordsWithAZeroCountAndExtractOn() async throws {
+    func testAMissingBAMShowsItsWordsInFullAndTurnsOffExtract() async throws {
         let model = try await presentAndWaitForTheEstimate(resultPath: makeResult(linkedOut: false), host: makeHost())
-        XCTAssertEqual(model.errorMessage, "Could not estimate read count: " + (try words(.bamNotFound(sampleId: "S1"))))
-        XCTAssertEqual(model.estimatedReadCount, 0)
-        XCTAssertTrue(extractIsEnabled(model))
+        try assertRefusalShown(model, .bamNotFound(sampleId: "S1"))
     }
 
-    func testABAMLinkedOutOfTheResultShowsThePrefixedWordsWithAZeroCountAndExtractOn() async throws {
+    func testABAMLinkedOutOfTheResultShowsItsWordsInFullAndTurnsOffExtract() async throws {
         let model = try await presentAndWaitForTheEstimate(resultPath: makeResult(linkedOut: true), host: makeHost())
-        XCTAssertEqual(model.errorMessage, "Could not estimate read count: " + (try words(.bamOutsideResult(sampleId: "S1"))))
-        XCTAssertEqual(model.estimatedReadCount, 0)
-        XCTAssertTrue(extractIsEnabled(model))
+        try assertRefusalShown(model, .bamOutsideResult(sampleId: "S1"))
+    }
+
+    /// Negative control. Every other failed estimate keeps the prefix and Extract, shows no count and keeps the
+    /// three-line limit, since the run may still succeed and samtools stderr can be long.
+    func testAnotherFailedEstimateKeepsThePrefixAndExtract() throws {
+        let model = ClassifierExtractionDialogViewModel(tool: .esviritu, selectionCount: 1, suggestedName: "reads")
+        let error = ClassifierExtractionError.kraken2OutputMissing(URL(fileURLWithPath: "/work/classification.kraken"))
+        model.applyEstimateFailure(error)
+        XCTAssertEqual(model.errorMessage, "Could not estimate read count: " + (try words(error)))
+        XCTAssertTrue(model.isPrimaryEnabled)
+        XCTAssertFalse(model.showsReadEstimate)
+        XCTAssertEqual(model.errorLineLimit, 3)
+    }
+
+    /// The test that a refusal blocks the run is true for exactly the two BAM refusals.
+    func testOnlyTheTwoBAMRefusalsBlockTheExtraction() {
+        let url = URL(fileURLWithPath: "/work/x")
+        let others: [ClassifierExtractionError] = [
+            .unsupportedBAMTool(.kraken2), .kraken2OutputMissing(url), .kraken2TreeMissing(url), .kraken2SourceMissing,
+            .samtoolsFailed(sampleId: "S1", stderr: "e"), .clipboardCapExceeded(requested: 2, cap: 1),
+            .destinationNotWritable(url), .fastaConversionFailed("r"), .mixedSampleSelectionModes, .zeroReadsExtracted,
+            .allSamplesSkipped(["S1"]), .cancelled, .unsupportedCopyDestination,
+        ]
+        XCTAssertTrue(ClassifierExtractionError.bamNotFound(sampleId: "S1").blocksExtraction)
+        XCTAssertTrue(ClassifierExtractionError.bamOutsideResult(sampleId: "S1").blocksExtraction)
+        XCTAssertTrue(others.filter(\.blocksExtraction).isEmpty)
     }
 }

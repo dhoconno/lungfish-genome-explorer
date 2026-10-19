@@ -79,6 +79,48 @@ final class ClassifierExtractionDialogViewModel {
     var progressMessage: String = ""
     var errorMessage: String?
 
+    /// Set when the pre-flight estimate failed, so the count above is not a measurement (U-W2).
+    var estimateFailed: Bool = false
+
+    /// Set when the estimate ended in a refusal that the run would hit too (a missing BAM, or a BAM linked out of
+    /// the result), so the sheet shows the refusal's own words in full and turns off Extract (U-W1 to U-W3).
+    var estimateRefusalBlocksExtraction: Bool = false
+
+    // MARK: - Estimate failure
+
+    /// Records a failed pre-flight estimate. The two BAM refusals show their words as they are, and every other
+    /// failure keeps the `Could not estimate read count` prefix and leaves Extract on, since the run may still work.
+    func applyEstimateFailure(_ error: Error) {
+        estimatedReadCount = 0
+        estimateFailed = true
+        if let refusal = error as? ClassifierExtractionError, refusal.blocksExtraction {
+            estimateRefusalBlocksExtraction = true
+            errorMessage = refusal.errorDescription
+        } else {
+            estimateRefusalBlocksExtraction = false
+            errorMessage = "Could not estimate read count: \(error.localizedDescription)"
+        }
+    }
+
+    /// Whether the read-count line is drawn. LGE measured no count after a failed estimate, and 0 is a claim.
+    var showsReadEstimate: Bool {
+        !estimateFailed
+    }
+
+    /// Whether the primary button is on: not running, a name where the destination takes one, and no refusal
+    /// that the run would only repeat.
+    var isPrimaryEnabled: Bool {
+        !isRunning
+            && !estimateRefusalBlocksExtraction
+            && !(destination.showsNameField && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// The line limit of the error text. A refusal shows in full (`nil`), and other errors keep 3 lines, since
+    /// `samtoolsFailed` carries samtools stderr, which can be long.
+    var errorLineLimit: Int? {
+        estimateRefusalBlocksExtraction ? nil : 3
+    }
+
     // MARK: - Derived: computed properties
 
     /// Whether the unmapped-mates toggle row should be visible at all.
@@ -146,13 +188,15 @@ struct ClassifierExtractionDialog: View {
                     .font(.system(size: 12, weight: .medium))
                     .lungfishHelp(LungfishHelpContent.classifierExtractionSummary)
 
-                HStack(spacing: 4) {
-                    Text("≈")
-                    Text("\(model.estimatedReadCount) unique read\(model.estimatedReadCount == 1 ? "" : "s")")
+                if model.showsReadEstimate {
+                    HStack(spacing: 4) {
+                        Text("≈")
+                        Text("\(model.estimatedReadCount) unique read\(model.estimatedReadCount == 1 ? "" : "s")")
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lungfishHelp(LungfishHelpContent.classifierExtractionSummary)
                 }
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .lungfishHelp(LungfishHelpContent.classifierExtractionSummary)
 
                 Divider()
                     .padding(.vertical, 2)
@@ -262,7 +306,8 @@ struct ClassifierExtractionDialog: View {
                     Text(err)
                         .font(.caption)
                         .foregroundStyle(Color.lungfishDangerFallback)
-                        .lineLimit(3)
+                        .lineLimit(model.errorLineLimit)
+                        .fixedSize(horizontal: false, vertical: model.errorLineLimit == nil)
                 }
             }
             .padding(.horizontal, 20)
@@ -277,7 +322,7 @@ struct ClassifierExtractionDialog: View {
                 Button(model.primaryButtonTitle, action: onPrimary)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.isRunning || (model.destination.showsNameField && model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    .disabled(!model.isPrimaryEnabled)
                     .lungfishHelp(LungfishHelpContent.classifierExtractFASTQ)
             }
             .padding(.horizontal, 20)

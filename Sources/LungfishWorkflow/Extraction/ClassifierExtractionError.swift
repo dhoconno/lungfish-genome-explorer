@@ -101,4 +101,15 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
             return "Clipboard / share destinations are not supported from the CLI"
         }
     }
+
+    /// Whether the error is a refusal that the extraction itself would hit again, so a pre-flight estimate that
+    /// ends in it leaves nothing to run. True for exactly the two BAM refusals (Phase 2.12 lane 12.26, U-W2).
+    public var blocksExtraction: Bool {
+        switch self {
+        case .bamNotFound, .bamOutsideResult:
+            return true
+        default:
+            return false
+        }
+    }
 }

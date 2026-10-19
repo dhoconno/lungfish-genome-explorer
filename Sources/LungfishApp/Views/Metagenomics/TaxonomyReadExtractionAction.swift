@@ -211,10 +211,7 @@ public final class TaxonomyReadExtractionAction {
             } catch {
                 logger.error("Pre-flight estimate failed: \(error.localizedDescription, privacy: .public)")
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        model?.estimatedReadCount = 0
-                        model?.errorMessage = "Could not estimate read count: \(error.localizedDescription)"
-                    }
+                    MainActor.assumeIsolated { model?.applyEstimateFailure(error) }
                 }
             }
         }
