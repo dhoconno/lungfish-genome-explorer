@@ -84,14 +84,16 @@ enum SidebarItemAction: String, CaseIterable, RowCommand, Sendable {
     /// Finder counts the items it is about to trash, and the two bundle
     /// exports count the bundles they will write, so those three read
     /// "Move 3 Items to Trash", "Export 3 Sequences…" and "Export 3 as
-    /// FASTQ…" for more than one item. Copy Name counts the names it copies
-    /// and reads "Copy 3 Names", while the menu bar keeps "Copy Name" as it
-    /// keeps "Move to Trash". Every other command keeps ``title``.
+    /// FASTQ…" for more than one item. Copy Name and Copy Path count what
+    /// they copy and read "Copy 3 Names" and "Copy 3 Paths", while the menu
+    /// bar keeps "Copy Name" and "Copy Path" as it keeps "Move to Trash".
+    /// Every other command keeps ``title``.
     func contextTitle(selectionCount: Int) -> String {
         guard selectionCount > 1 else { return title }
         switch self {
         case .moveToTrash: return "Move \(selectionCount) Items to Trash"
         case .copyName: return "Copy \(selectionCount) Names"
+        case .copyPath: return "Copy \(selectionCount) Paths"
         case .exportSequences: return "Export \(selectionCount) Sequences\u{2026}"
         case .exportAsFASTQ: return "Export \(selectionCount) as FASTQ\u{2026}"
         default: return title
