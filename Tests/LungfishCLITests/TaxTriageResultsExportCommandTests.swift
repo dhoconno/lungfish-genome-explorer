@@ -219,6 +219,46 @@ final class TaxTriageResultsExportCommandTests: XCTestCase {
         )
     }
 
+    /// A filter on a metadata column the export does not write still reads the metadata store, so the record names the
+    /// table and its edit journal (F7-2, the rule 12.31 settled for NAO-MGS).
+    func testTheLeafNamesTheMetadataFilesForAFilterOnAHiddenMetadataColumn() throws {
+        let result = try makeResult()
+        let output = root.appendingPathComponent("hidden-filter.tsv")
+        let filter = ColumnFilter(columnId: "metadata_Group", op: .contains, value: "case")
+        _ = try run([
+            result.path, "--output-format", "tsv", "--filter", ViewerTableExportState.encodedFilter(filter),
+            "--output", output.path,
+        ])
+        let samples = try String(contentsOf: output, encoding: .utf8).split(separator: "\n").dropFirst()
+            .compactMap { $0.split(separator: "\t").first.map(String.init) }
+        XCTAssertEqual(samples, ["sample-1", "sample-1", "sample-1"], "only the case sample passes the filter")
+        XCTAssertEqual(
+            inputNames(try envelope(of: output)),
+            ["sample_metadata.tsv", "sample_metadata_edits.json", "taxtriage-result.json", "taxtriage.sqlite"]
+        )
+    }
+
+    /// A sort by a metadata column needs the sample metadata table. With the table missing the leaf refuses before it
+    /// writes a byte and names the file it could not read.
+    func testTheLeafRefusesAMetadataSortWhenTheResultHoldsNoMetadataTable() throws {
+        let result = try makeResult()
+        try FileManager.default.removeItem(at: result.appendingPathComponent("metadata"))
+        let output = root.appendingPathComponent("no-table.tsv")
+        XCTAssertThrowsError(
+            try run([
+                result.path, "--output-format", "tsv", "--sort", "metadata_Group:ascending", "--output", output.path,
+            ])
+        ) { error in
+            XCTAssertTrue(error is ViewerExportRefusal, "\(error)")
+            XCTAssertTrue("\(error)".contains("sample_metadata.tsv"), "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "no output")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path),
+            "no record"
+        )
+    }
+
     func testTheLeafRefusesWhatItCannotApplyBeforeItWritesAByte() throws {
         let result = try makeResult()
         let output = root.appendingPathComponent("refused.tsv")
