@@ -23,17 +23,38 @@ final class TaxTriageBlastSampleTests: XCTestCase {
         XCTAssertEqual(fixture.forwarded.map { $0.organism.sample }, ["sample-1", "sample-2"])
     }
 
-    /// The selection moves to the other sample between the request and the re-run, and the re-run still names the
-    /// sample of the request it repeats.
+    /// The view holds sample-1's BAM by the time of the re-run, since the user picked that sample after the request.
+    /// The re-run still names the sample of the request it repeats (sample-2), not the owner of the BAM held now.
     func testTheDrawerRerunNamesTheSampleOfTheLastRequest() throws {
         let fixture = try TaxTriageBlastFixture()
         defer { fixture.cleanUp() }
 
         try fixture.request(organism: "Gamma virus", sample: "sample-2")
-        try fixture.select(organism: "Alpha virus", sample: "sample-1")
+        try fixture.pick(sample: "sample-1")
         try fixture.rerun(taxonName: "Gamma virus", taxId: 2001)
 
         XCTAssertEqual(fixture.forwarded.map { $0.organism.sample }, ["sample-2", "sample-2"])
+        let rerun = try XCTUnwrap(fixture.forwarded.last)
+        XCTAssertEqual(rerun.organism.sample, "sample-2")
+        XCTAssertNotEqual(rerun.bamURL, fixture.bamURL(for: "sample-1"), "the re-run does not send the BAM the view holds")
+    }
+
+    /// The organism table sends the BAM of the sample picked in the view and names the sample that owns it. The
+    /// owner rule is pinned apart below. This pins the call that puts it on the request, which nothing covered, since
+    /// deleting the `sample:` argument of the organism-table request left every other test green (review 12.09b, Fix 3).
+    /// The request enters through the table's own BLAST callback, so no row selection loads the fixture's empty BAM.
+    func testTheOrganismTableRequestNamesTheSampleThatOwnsTheBAMItSends() throws {
+        let fixture = try TaxTriageBlastFixture()
+        defer { fixture.cleanUp() }
+
+        try fixture.pick(sample: "sample-2")
+        let row = TaxTriageTableRow(organism: "Gamma virus", tassScore: 0.9, reads: 20, uniqueReads: 10, taxId: 2001)
+        fixture.controller.testOrganismTableView.onBlastRequested?(row, 20)
+
+        let request = try XCTUnwrap(fixture.forwarded.last, "the organism table's request reaches the host")
+        XCTAssertEqual(request.organism.name, "Gamma virus")
+        XCTAssertEqual(request.bamURL, fixture.bamURL(for: "sample-2"), "the view holds the BAM of the sample it picked")
+        XCTAssertEqual(request.organism.sample, "sample-2")
     }
 
     /// The organism table sends the BAM the view holds, so it names the sample that BAM belongs to. A BAM that no

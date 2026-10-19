@@ -20,6 +20,8 @@ import LungfishKit
 final class TaxTriageBlastFixture {
     typealias Forwarded = (organism: TaxTriageOrganism, readCount: Int, accessions: [String]?, bamURL: URL?, bamIndexURL: URL?)
 
+    static let samples = ["sample-1", "sample-2"]
+
     let root: URL
     let controller = TaxTriageResultViewController()
     private(set) var forwarded: [Forwarded] = []
@@ -28,7 +30,7 @@ final class TaxTriageBlastFixture {
     init() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TaxTriageBlast-\(UUID().uuidString)", isDirectory: true)
-        for sample in ["sample-1", "sample-2"] {
+        for sample in Self.samples {
             let folder = root.appendingPathComponent("\(sample)/minimap2", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try Data().write(to: folder.appendingPathComponent("\(sample).bam"))
@@ -66,6 +68,18 @@ final class TaxTriageBlastFixture {
             controller.testBatchFlatTableView.displayedRows.firstIndex { $0.organism == organism && $0.sample == sample }
         )
         controller.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(index)
+    }
+
+    /// Picks `sample` in the result view's sample filter, so the view holds that sample's BAM. The database form
+    /// routes a pick to the Inspector's filter and holds no BAM at all, since `bamURL` is assigned only by the filter
+    /// that the batch-group flag bypasses. The helper turns the flag off and picks, as the form that holds a BAM does.
+    /// A request or a re-run after it can then tell the BAM of its own sample from the BAM the view holds.
+    func pick(sample: String) throws {
+        controller.isBatchGroupMode = false
+        let segment = try XCTUnwrap(Self.samples.firstIndex(of: sample), "the fixture has no \(sample)") + 1
+        let control = controller.testSampleFilterControl
+        control.selectedSegment = segment
+        _ = control.sendAction(control.action, to: control.target)
     }
 
     /// BLAST Verify on the row, as the action bar does it. The bar opens the read-count popover and the user runs
@@ -128,8 +142,9 @@ final class TaxTriageBlastRerunTests: XCTestCase {
         XCTAssertEqual(fixture.forwarded.map { $0.bamURL }, [fixture.bamURL(for: "sample-1"), fixture.bamURL(for: "sample-2")])
     }
 
-    /// Review 12.09, note 1. The selection moves to the other sample between the request and the re-run. The
-    /// re-run still searches the BAM and index of the request it repeats.
+    /// Review 12.09, note 1. The view holds sample-1's BAM by the time of the re-run, since the user picked that
+    /// sample after the request. The re-run still searches the BAM and index of the request it repeats (sample-2's).
+    /// A re-run that sent the BAM the view holds would send the reads of another sample (review 12.09b, Fix 3).
     func testTheDrawerRerunSearchesTheBAMOfTheLastRequestNotTheOneTheViewHoldsNow() throws {
         let fixture = try TaxTriageBlastFixture()
         defer { fixture.cleanUp() }
@@ -139,13 +154,15 @@ final class TaxTriageBlastRerunTests: XCTestCase {
         XCTAssertEqual(first.bamURL, fixture.bamURL(for: "sample-2"))
         XCTAssertNotNil(first.bamIndexURL, "the fixture's BAM has its index beside it")
 
-        try fixture.select(organism: "Alpha virus", sample: "sample-1")
+        try fixture.pick(sample: "sample-1")
         try fixture.rerun(taxonName: "Gamma virus", taxId: 2001)
 
         XCTAssertEqual(fixture.forwarded.count, 2, "the re-run reaches the host")
         let rerun = try XCTUnwrap(fixture.forwarded.last)
         XCTAssertEqual(rerun.organism.name, "Gamma virus")
+        XCTAssertEqual(rerun.organism.sample, "sample-2", "the re-run names the sample of the request it repeats")
         XCTAssertEqual(rerun.bamURL, first.bamURL, "the re-run searches the BAM of the request it repeats")
+        XCTAssertNotEqual(rerun.bamURL, fixture.bamURL(for: "sample-1"), "the re-run does not send the BAM the view holds")
         XCTAssertEqual(rerun.bamIndexURL, first.bamIndexURL)
     }
 }
