@@ -46,13 +46,7 @@ final class ImportCzIdSIGTERMTests: XCTestCase {
     func testImportCzIdTurnsSIGTERMIntoACancelWithEveryCoreBusy() async throws {
         let held = try await startOnALargeReport(arguments: ["--format", "json"])
         defer { held.run.stop() }
-        let burners = try (0..<ProcessInfo.processInfo.activeProcessorCount).map { _ in
-            try CLISIGTERMHarness.launch(
-                executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "while :; do :; done"],
-                environment: [:]
-            )
-        }
+        let burners = try CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount)
         defer { burners.forEach { $0.stop() } }
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
             held.run,
@@ -84,13 +78,7 @@ final class ImportCzIdSIGTERMTests: XCTestCase {
     func testImportCzIdCancelsDuringTheConversionWithEveryCoreBusy() async throws {
         let held = try await startOnAnExportFolder()
         defer { held.run.stop() }
-        let burners = try (0..<ProcessInfo.processInfo.activeProcessorCount).map { _ in
-            try CLISIGTERMHarness.launch(
-                executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "while :; do :; done"],
-                environment: [:]
-            )
-        }
+        let burners = try CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount)
         defer { burners.forEach { $0.stop() } }
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(
             held.run,

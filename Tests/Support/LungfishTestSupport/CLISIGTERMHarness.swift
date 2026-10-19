@@ -112,6 +112,45 @@ public enum CLISIGTERMHarness {
         return Run(processIdentifier: pid, run: run)
     }
 
+    /// Starts `count` CPU burners for a test that needs every core busy.
+    ///
+    /// Each burner is a `/bin/sh` loop that spins while the process `pid` exists and ends by itself within one
+    /// loop turn once that process is gone. A burner whose loop never tests anything ends only when its test
+    /// stops it, so a test process that dies first, by a crash or by a gate's kill, leaves it spinning for good
+    /// (the 29 orphans of the unit tier at H). A test still stops the returned runs in a `defer`, which ends the
+    /// burners at the end of the test and not at the end of the process.
+    ///
+    /// - Parameters:
+    ///   - count: How many burners to start.
+    ///   - pid: The process the burners live and die with, this process unless a test names another.
+    /// - Throws: The launch error, with the burners already started stopped first, or a `launchFailed` error
+    ///   when `pid` is not a process a burner can follow, since `kill -0 0` always succeeds.
+    public static func launchBurners(
+        count: Int,
+        whileRunning pid: Int32 = ProcessInfo.processInfo.processIdentifier
+    ) throws -> [Run] {
+        guard pid > 1 else {
+            throw ToolProcessError.launchFailed(
+                label: "sigterm-harness-burner", reason: "\(pid) is not a process a burner can follow", results: []
+            )
+        }
+        var burners: [Run] = []
+        do {
+            for _ in 0..<count {
+                let burner = try launch(
+                    executableURL: URL(fileURLWithPath: "/bin/sh"),
+                    arguments: ["-c", "while kill -0 \(pid) 2>/dev/null; do :; done"],
+                    environment: [:]
+                )
+                burners.append(burner)
+            }
+        } catch {
+            burners.forEach { $0.stop() }
+            throw error
+        }
+        return burners
+    }
+
     /// Sends one SIGTERM to `run` alone, as `kill <pid>` does, waits up to `timeout` for it to
     /// exit, and then up to `timeout` for the rest of its tree to go. The tree is read just before
     /// the signal, so it holds every process the run had started. A process of the tree that still

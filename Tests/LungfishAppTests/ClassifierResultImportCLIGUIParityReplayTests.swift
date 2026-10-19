@@ -93,9 +93,7 @@ final class ClassifierResultImportCLIGUIParityReplayTests: XCTestCase {
         let root = scratch.appendingPathComponent("cancel", isDirectory: true)
         let (input, imports, project) = try Self.writeFixture(.esviritu, in: root)
         try ClassifierImportAppFixtures.addLargeSparseFile(to: input)
-        let burners = try (0..<ProcessInfo.processInfo.activeProcessorCount).map { _ in
-            try CLISIGTERMHarness.launch(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "while :; do :; done"], environment: [:])
-        }
+        let burners = try CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount)
         defer { burners.forEach { $0.stop() } }
 
         let runner = CLIBundleBuildRunner(cliURLOverride: harness.cliBinary)

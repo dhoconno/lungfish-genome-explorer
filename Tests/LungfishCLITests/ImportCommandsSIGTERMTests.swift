@@ -69,13 +69,7 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
         let (run, project, bgzipPID) = try await startCollectionImport(["import", "application-export", "clc-workbench"])
         defer { run.stop() }
         XCTAssertNotNil(bgzipPID, "the command never reached bgzip")
-        let burners = try (0..<ProcessInfo.processInfo.activeProcessorCount).map { _ in
-            try CLISIGTERMHarness.launch(
-                executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "while :; do :; done"],
-                environment: [:]
-            )
-        }
+        let burners = try CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount)
         defer { burners.forEach { $0.stop() } }
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
         try Self.assertCancelledEvents(stop.standardOutput)

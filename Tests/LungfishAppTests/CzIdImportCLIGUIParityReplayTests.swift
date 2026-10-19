@@ -85,13 +85,7 @@ final class CzIdImportCLIGUIParityReplayTests: XCTestCase {
             when: { root in FileManager.default.fileExists(atPath: Self.classifications(root).path) },
             record: { root in ProvenanceRecorder.loadEnvelope(from: Self.paths(root).project)?.status.rawValue }
         )
-        let burners = try (0..<ProcessInfo.processInfo.activeProcessorCount).map { _ in
-            try CLISIGTERMHarness.launch(
-                executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "while :; do :; done"],
-                environment: [:]
-            )
-        }
+        let burners = try CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount)
         defer { burners.forEach { $0.stop() } }
         let cli = harness.cliBinary
         let runs = try await harness.run(
