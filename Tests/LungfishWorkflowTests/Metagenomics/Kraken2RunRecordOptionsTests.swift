@@ -108,6 +108,38 @@ final class Kraken2RunRecordOptionsTests: XCTestCase {
         )
     }
 
+    /// 2.12 lane 12.26, B5 (BIO 3 and 4). The CLI writes the same record as the wizard. A ready Standard-8 row that
+    /// nothing checked (the catalog identity and the catalog's version, no payload digest) records no version and no
+    /// digest. The same row with a payload digest records the catalog's version and that digest.
+    func testMakeConfigGivesAnUnverifiedDatabaseNoVersionAndACheckedOneItsVersion() throws {
+        let catalogID = "kraken2-standard-8"
+        let version = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID)?.version)
+        let databasePath = root.appendingPathComponent("db", isDirectory: true)
+        var row = MetagenomicsDatabaseInfo(
+            name: "Standard-8", tool: MetagenomicsTool.kraken2.rawValue, version: version, sizeBytes: 1024,
+            catalogID: catalogID, description: "Adopted from a folder", collection: .standard8,
+            path: databasePath, status: .ready, recommendedRAM: 1024
+        )
+        let request = Kraken2RunRequest(inputArguments: ["reads.fastq"], databaseName: "Standard-8", confidence: 0.3)
+        func config(for database: MetagenomicsDatabaseInfo) -> ClassificationConfig {
+            request.makeConfig(
+                inputURLs: [root.appendingPathComponent("reads.fastq")],
+                readFormat: Kraken2ResolvedReadFormat(format: .unpaired, layout: nil),
+                databaseInfo: database, databasePath: databasePath, inputFormat: .fastq,
+                outputDirectory: root, extraArguments: []
+            )
+        }
+
+        let unverified = config(for: row)
+        XCTAssertEqual(unverified.databaseVersion, "unknown")
+        XCTAssertNil(unverified.databaseDigest)
+
+        row.payloadDigest = "sha256:payload-fixture"
+        let checked = config(for: row)
+        XCTAssertEqual(checked.databaseVersion, version)
+        XCTAssertEqual(checked.databaseDigest, "sha256:payload-fixture")
+    }
+
     // MARK: - Helpers
 
     private func result(withBracken: Bool) throws -> (result: ClassificationResult, brackenURL: URL) {
