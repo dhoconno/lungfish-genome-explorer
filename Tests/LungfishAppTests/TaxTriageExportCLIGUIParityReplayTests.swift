@@ -48,6 +48,8 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
     enum Export: String, Sendable {
         case matrix
         case report
+        case resultsTSV
+        case resultsCSV
     }
 
     /// What a case sets in the view before it exports. `segment` is the Sample Filter, where 0 is All Samples, and
@@ -57,6 +59,10 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
         let segment: Int
         let search: String?
         let searchRows: Int
+        var sortKey: String? = nil
+        var sortAscending = true
+        var filter: ColumnFilter? = nil
+        var showsGroup = false
     }
 
     enum Case: String, Sendable {
@@ -64,6 +70,9 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
         case matrixOfOneSampleWithSearch
         case reportOfTwoSamplesWithControl
         case reportOfOneSampleWithSearch
+        case resultsTSVOfTwoSamplesSortedByReads
+        case resultsCSVOfOneSampleWithSearchSortAndFilter
+        case resultsTSVWithAMetadataColumnSortedByIt
 
         var scenario: Scenario {
             switch self {
@@ -71,6 +80,21 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
             case .matrixOfOneSampleWithSearch: Scenario(export: .matrix, segment: 1, search: "beta", searchRows: 1)
             case .reportOfTwoSamplesWithControl: Scenario(export: .report, segment: 0, search: nil, searchRows: 0)
             case .reportOfOneSampleWithSearch: Scenario(export: .report, segment: 1, search: "alpha", searchRows: 1)
+            case .resultsTSVOfTwoSamplesSortedByReads:
+                Scenario(
+                    export: .resultsTSV, segment: 0, search: nil, searchRows: 0, sortKey: "tt_reads",
+                    filter: ColumnFilter(columnId: "tt_reads", op: .greaterOrEqual, value: "5")
+                )
+            case .resultsCSVOfOneSampleWithSearchSortAndFilter:
+                Scenario(
+                    export: .resultsCSV, segment: 1, search: "e", searchRows: 2, sortKey: "tt_tassScore",
+                    filter: ColumnFilter(columnId: "tt_confidence", op: .contains, value: "medium")
+                )
+            case .resultsTSVWithAMetadataColumnSortedByIt:
+                Scenario(
+                    export: .resultsTSV, segment: 0, search: nil, searchRows: 0, sortKey: "metadata_Group",
+                    sortAscending: false, showsGroup: true
+                )
             }
         }
     }
@@ -83,6 +107,10 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
     static let reportKeys: Set<String> = [
         "classifierCount", "exportedOrganismCount", "metricCount", "negativeControlSampleIds", "reportLineCount",
         "sampleCount", "sampleIds", "tableMode",
+    ]
+    static let resultsKeys: Set<String> = [
+        "metadataColumns", "organismSearchText", "rowCount", "sampleIds", "selectedSamples", "sortDescriptors",
+        "tableMode",
     ]
     static let holdFileVariable = "LUNGFISH_VIEWER_EXPORT_HOLD_FILE"
 
@@ -154,10 +182,44 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertEqual(record.options.resolvedDefaults["metricCount"]?.integerValue, 1)
     }
 
-    /// ARCH ruling 1.6 and X14, for both leaves.
+    /// BIO ruling on 12.32 F3 and F5. Two samples, the reads column sorted ascending and a reads filter that drops
+    /// the row of 3 reads. The Delta row stores no Unique Reads, so its cell is empty on both sides, and the
+    /// organisms the negative control holds are flagged in every sample.
+    func testResultsTSVOfTwoSamplesSortedByReadsMatches() async throws {
+        let runs = try await assertParity(.resultsTSVOfTwoSamplesSortedByReads)
+        let lines = try Self.payload(.resultsTSV, in: runs.c.root).split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 5, "\(lines)")
+        XCTAssertTrue(lines[1].hasPrefix("sample-1\tDelta, \"quoted\" virus\t0.6000\t6\t\t"), "\(lines)")
+        XCTAssertTrue(lines[4].hasPrefix("sample-1\tAlpha virus\t0.9100\t42\t21\t"), "\(lines)")
+        XCTAssertTrue(lines[4].hasSuffix("\tyes"), "the organism the control holds is flagged: \(lines)")
+    }
+
+    /// One sample, the search "e", the TASS column sorted and a Confidence filter, written as CSV.
+    func testResultsCSVOfOneSampleWithSearchSortAndFilterMatches() async throws {
+        let runs = try await assertParity(.resultsCSVOfOneSampleWithSearchSortAndFilter)
+        let lines = try Self.payload(.resultsCSV, in: runs.c.root).split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 2, "\(lines)")
+        XCTAssertEqual(lines[1], "sample-1,\"Delta, \"\"quoted\"\" virus\",0.6000,6,,50.00,Medium,3001,,,")
+        let record = try Self.envelope(.resultsCSV, in: runs.c.root)
+        for flag in ["--sample", "--search", "--sort", "--filter"] {
+            XCTAssertEqual(record.argv.filter { $0 == flag }.count, 1, flag)
+        }
+    }
+
+    /// F7-2. A shown metadata column is written and sorted by, so the record names the metadata files.
+    func testResultsTSVWithAMetadataColumnSortedByItMatches() async throws {
+        let runs = try await assertParity(.resultsTSVWithAMetadataColumnSortedByIt)
+        let lines = try Self.payload(.resultsTSV, in: runs.c.root).split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines[0].hasSuffix("\tGroup"), "\(lines)")
+        XCTAssertTrue(lines[1].hasSuffix("\tcontrol") && lines[2].hasSuffix("\tcontrol"), "\(lines)")
+        XCTAssertTrue(lines[3].hasSuffix("\tcase"), "\(lines)")
+    }
+
+    /// ARCH ruling 1.6 and X14, for the three leaves.
     func testACancelledExportExits125AndLeavesNoFileAndNoRecord() async throws {
         try await assertCancelled(.matrix)
         try await assertCancelled(.report)
+        try await assertCancelled(.resultsTSV)
     }
 }
 
@@ -190,7 +252,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         // the masked text below and every other difference stands.
         let reportName = Self.outputURL(.report, in: runs.c.root).lastPathComponent
         let cAgainstCPrime = (found[.cAgainstCPrime] ?? []).filter {
-            scenario.export == .matrix || !$0.id.contains(reportName)
+            scenario.export != .report || !$0.id.contains(reportName)
         }
         XCTAssertEqual(cAgainstCPrime.map(\.description), [], "C against C' declares nothing")
         if scenario.export == .report {
@@ -212,7 +274,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let output = Self.outputURL(export, in: runs.a.root)
         let sidecarName = ProvenanceRecorder.fileSidecarURL(for: output).lastPathComponent
         let others = try harness.differences(runs.a, runs.c).filter {
-            !$0.id.contains(sidecarName) && (export == .matrix || !$0.id.contains(output.lastPathComponent))
+            !$0.id.contains(sidecarName) && (export != .report || !$0.id.contains(output.lastPathComponent))
         }
         XCTAssertEqual(others.map(\.description), [], "only the record may differ between A and C")
 
@@ -223,7 +285,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let outputA = try XCTUnwrap(a.output)
         let outputC = try XCTUnwrap(c.output)
         switch export {
-        case .matrix:
+        case .matrix, .resultsTSV, .resultsCSV:
             XCTAssertEqual(payloadA, payloadC, "the payload byte for byte")
             XCTAssertNotNil(outputA.checksumSHA256)
             XCTAssertEqual(outputA.checksumSHA256, outputC.checksumSHA256, "the output digest")
@@ -239,15 +301,26 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         }
         XCTAssertEqual(Self.inputs(of: a, under: runs.a.root), Self.inputs(of: c, under: runs.c.root), "inputs and digests")
         for (path, digest) in Self.inputs(of: c, under: runs.c.root) { XCTAssertEqual(digest, try ProvenanceFileHasher.sha256(of: runs.c.root.appendingPathComponent(String(path.dropFirst()))), "recorded digest of \(path)") }
+        var expectedInputs = ["/taxtriage-result/taxtriage-result.json", "/taxtriage-result/taxtriage.sqlite"]
+        if scenario.showsGroup {
+            expectedInputs += [
+                "/taxtriage-result/metadata/sample_metadata.tsv", "/taxtriage-result/metadata/sample_metadata_edits.json",
+            ]
+        }
         XCTAssertEqual(
             Self.inputs(of: c, under: runs.c.root).keys.sorted(),
-            ["/taxtriage-result/taxtriage-result.json", "/taxtriage-result/taxtriage.sqlite"],
-            "the database and the run's sidecar, never the batch manifest (BIO 6)"
+            expectedInputs.sorted(),
+            "the database and the run's sidecar, and the metadata files only when a metadata column is read, never the batch manifest (BIO 6, F7-2)"
         )
         XCTAssertEqual(outputA.fileSize, UInt64(payloadA.count))
         XCTAssertEqual(outputC.fileSize, UInt64(payloadC.count))
         XCTAssertEqual(outputA.fileSize, outputC.fileSize, "the output size")
-        let shared = export == .matrix ? Self.matrixKeys : Self.reportKeys
+        let shared: Set<String>
+        switch export {
+        case .matrix: shared = Self.matrixKeys
+        case .report: shared = Self.reportKeys
+        case .resultsTSV, .resultsCSV: shared = Self.resultsKeys
+        }
         let resolvedA = a.options.resolvedDefaults
         let resolvedC = c.options.resolvedDefaults
         XCTAssertEqual(Set(resolvedA.keys), shared)
@@ -264,35 +337,57 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let a = try Self.envelope(export, in: runs.a.root)
         let c = try Self.envelope(export, in: runs.c.root)
         let outputA = Self.outputURL(export, in: runs.a.root)
-        let isMatrix = export == .matrix
-        let argvA = ["Lungfish.app", isMatrix ? "export-taxtriage-organism-matrix" : "export-taxtriage-batch-report", "--output", outputA.path]
-        let format = isMatrix ? "csv" : "txt"
+        let ext = export == .resultsCSV ? "csv" : "tsv"
+        let argvA: [String]
+        let format: String
+        let defaultFormat: String
+        let workflowA: String
+        let workflowC: String
+        switch export {
+        case .matrix:
+            argvA = ["Lungfish.app", "export-taxtriage-organism-matrix", "--output", outputA.path]
+            format = "csv"
+            defaultFormat = "csv"
+            workflowA = "lungfish app taxtriage organism matrix export"
+            workflowC = TaxTriageOrganismMatrixExport.workflowName
+        case .report:
+            argvA = ["Lungfish.app", "export-taxtriage-batch-report", "--output", outputA.path]
+            format = "txt"
+            defaultFormat = "txt"
+            workflowA = "lungfish app taxtriage batch report export"
+            workflowC = TaxTriageBatchReportExport.workflowName
+        case .resultsTSV, .resultsCSV:
+            argvA = ["Lungfish.app", "export-taxtriage-results", "--format", ext, "--output", outputA.path]
+            format = ext
+            defaultFormat = "tsv"
+            workflowA = "lungfish app taxtriage results export"
+            workflowC = TaxTriageResultsExport.workflowName
+        }
         XCTAssertEqual(a.toolName, "Lungfish.app")
         XCTAssertEqual(a.tool.kind, "gui")
         XCTAssertEqual(a.argv, argvA)
         XCTAssertEqual(a.durableReplayArgv, argvA)
-        XCTAssertEqual(
-            a.workflowName,
-            isMatrix ? "lungfish app taxtriage organism matrix export" : "lungfish app taxtriage batch report export"
-        )
+        XCTAssertEqual(a.workflowName, workflowA)
         XCTAssertEqual(a.options.explicit.keys.sorted(), ["format", "outputPath"])
         XCTAssertEqual(a.options.explicit["format"]?.stringValue, format)
-        XCTAssertEqual(a.options.defaults["format"]?.stringValue, format)
+        XCTAssertEqual(a.options.defaults["format"]?.stringValue, defaultFormat)
 
         let rowArguments = try RouteParityHarness.arguments(ofLine: try XCTUnwrap(runs.c.outcome.recordedCommand))
         XCTAssertEqual(c.toolName, CLICommandIdentity.executableName)
         XCTAssertEqual(c.tool.kind, "cli")
         XCTAssertEqual(c.argv, [CLICommandIdentity.executableName] + rowArguments, "the record's argv is the row's command")
         XCTAssertEqual(c.durableReplayArgv, c.argv)
-        XCTAssertEqual(
-            c.workflowName,
-            isMatrix ? TaxTriageOrganismMatrixExport.workflowName : TaxTriageBatchReportExport.workflowName
-        )
+        XCTAssertEqual(c.workflowName, workflowC)
         let expectedSamples = scenario.segment == 0 ? Self.sampleIds : [Self.sampleIds[scenario.segment - 1]]
-        XCTAssertEqual(
-            c.options.explicit.keys.sorted(),
-            scenario.search == nil ? ["outputPath", "samples"] : ["outputPath", "samples", "searchText"]
-        )
+        var expectedKeys = ["outputPath", "samples"]
+        if scenario.search != nil { expectedKeys.append("searchText") }
+        if export == .resultsTSV || export == .resultsCSV {
+            expectedKeys.append("outputFormat")
+            if scenario.sortKey != nil { expectedKeys.append("sortKeys") }
+            if scenario.filter != nil { expectedKeys += ["filters", "filterMatch"] }
+            if scenario.showsGroup { expectedKeys.append("metadataColumns") }
+        }
+        XCTAssertEqual(c.options.explicit.keys.sorted(), expectedKeys.sorted())
         XCTAssertEqual(c.options.explicit["samples"]?.arrayValue?.compactMap(\.stringValue), expectedSamples)
         XCTAssertEqual(c.options.explicit["searchText"]?.stringValue, scenario.search)
         XCTAssertTrue(c.options.defaults.isEmpty)

@@ -49,6 +49,23 @@ final class TaxTriageExportRowTests: XCTestCase {
         )
     }
 
+    private var resultsInvocation: ViewerExportInvocation {
+        TaxTriageResultsExport.invocation(
+            resultURL: resultURL,
+            samples: ["sample-A", "sample B"],
+            searchText: "beta virus",
+            sortKeys: [ViewerExportSortKey(column: "tt_reads", ascending: false)],
+            filters: ColumnFilterSet(
+                filters: [ColumnFilter(columnId: "tt_reads", op: .greaterOrEqual, value: "10")],
+                composition: .all
+            ),
+            metadataColumns: ["Group"],
+            format: .tsv,
+            outputURL: URL(fileURLWithPath: "/tmp/lane 12.32/results table.tsv"),
+            force: false
+        )
+    }
+
     func testTheMatrixRowRecordsTheLeafCommandItRuns() async throws {
         let reporter = RecordingOperationReporter()
         let begun = try XCTUnwrap(TaxTriageResultViewController.beginTaxTriageOrganismMatrixExportOperation(
@@ -105,6 +122,34 @@ final class TaxTriageExportRowTests: XCTestCase {
         XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
 
+    func testTheResultsRowRecordsTheLeafCommandItRuns() async throws {
+        let reporter = RecordingOperationReporter()
+        let begun = try XCTUnwrap(TaxTriageResultViewController.beginTaxTriageResultsExportOperation(
+            invocation: resultsInvocation,
+            runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
+            reporter: reporter
+        ) { _ in })
+        _ = await begun.task.value
+
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(item.id, begun.operationID)
+        XCTAssertEqual(item.operationType, .export)
+        XCTAssertNil(item.targetBundleURL, "an export takes no bundle lock")
+        XCTAssertTrue(item.hasCancelCallback, "the row's cancel stops the leaf")
+        XCTAssertEqual(item.title, "Export TaxTriage Results")
+        XCTAssertEqual(item.initialDetail, "Writing results table.tsv")
+
+        let command = try RecordedCLICommand.parse(
+            item.cliCommand, as: TaxTriageCommand.ExportResultsSubcommand.self
+        )
+        XCTAssertEqual(try command.invocation(), resultsInvocation, "the row records the arguments the runner runs")
+        XCTAssertEqual(command.samples.samples, ["sample-A", "sample B"])
+        XCTAssertEqual(command.sort.keys, [ViewerExportSortKey(column: "tt_reads", ascending: false)])
+        XCTAssertEqual(command.metadataColumns.columns, ["Group"])
+        XCTAssertEqual(command.format.format, .tsv)
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
     /// Both wrappers begin their row through `beginTaxTriageExportOperation`, which takes the row's title from its
     /// caller, so a third TaxTriage export begins its row the same way.
     func testTheSharedBodyTakesTheRowTitleFromItsCaller() async throws {
@@ -144,7 +189,7 @@ final class TaxTriageExportRowTests: XCTestCase {
         XCTAssertFalse(view.validateMenuItem(reportItem), "no ticked sample disables the report item")
 
         let rowsBefore = OperationCenter.shared.items.count
-        for action in ["exportBatchMatrixAction:", "exportBatchReportAction:"] {
+        for action in ["exportBatchMatrixAction:", "exportBatchReportAction:", "exportCSVAction:", "exportTSVAction:"] {
             view.perform(NSSelectorFromString(action), with: nil)
             XCTAssertNil(window.attachedSheet, "\(action) returned before the save panel")
         }

@@ -23,7 +23,14 @@ extension TaxTriageExportCLIGUIParityReplayTests {
 
     /// The output each side writes, in its root.
     static func outputURL(_ export: Export, in root: URL) -> URL {
-        root.appendingPathComponent(export == .matrix ? "organism_matrix.csv" : "batch_report.txt")
+        let name: String
+        switch export {
+        case .matrix: name = "organism_matrix.csv"
+        case .report: name = "batch_report.txt"
+        case .resultsTSV: name = "results.tsv"
+        case .resultsCSV: name = "results.csv"
+        }
+        return root.appendingPathComponent(name)
     }
 
     static func envelope(_ export: Export, in root: URL) throws -> ProvenanceEnvelope {
@@ -44,7 +51,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             rows: [
                 row("sample-1", "Alpha virus", 1001, 0.91, 42, "High"),
                 row("sample-1", "Beta virus", 1002, 0.76, 24, "High"),
-                row("sample-1", "Delta, \"quoted\" virus", 3001, 0.60, 6, "Medium"),
+                row("sample-1", "Delta, \"quoted\" virus", 3001, 0.60, 6, "Medium", storesUniqueReads: false),
                 row("sample-2", "Gamma virus", 2001, 0.50, 12, "Medium"),
                 row("sample-2", "Alpha virus", 1001, 0.20, 3, "Low"),
             ],
@@ -76,11 +83,12 @@ extension TaxTriageExportCLIGUIParityReplayTests {
     }
 
     private static func row(
-        _ sample: String, _ organism: String, _ taxId: Int, _ tass: Double, _ reads: Int, _ confidence: String
+        _ sample: String, _ organism: String, _ taxId: Int, _ tass: Double, _ reads: Int, _ confidence: String,
+        storesUniqueReads: Bool = true
     ) -> TaxTriageTaxonomyRow {
         TaxTriageTaxonomyRow(
             sample: sample, organism: organism, taxId: taxId, status: nil, tassScore: tass,
-            readsAligned: reads, uniqueReads: reads / 2, pctReads: nil, pctAlignedReads: nil,
+            readsAligned: reads, uniqueReads: storesUniqueReads ? reads / 2 : nil, pctReads: nil, pctAlignedReads: nil,
             coverageBreadth: 50, meanCoverage: nil, meanDepth: nil, confidence: confidence,
             k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil, meanBaseQ: nil, meanMapQ: nil,
             mapqScore: nil, disparityScore: nil, minhashScore: nil, diamondIdentity: nil,
@@ -101,7 +109,11 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         _ root: URL,
         segment: Int = 0,
         search: String? = nil,
-        searchRows: Int = 0
+        searchRows: Int = 0,
+        sortKey: String? = nil,
+        sortAscending: Bool = true,
+        filter: ColumnFilter? = nil,
+        showsGroup: Bool = false
     ) async throws -> TaxTriageResultViewController {
         let resultURL = root.appendingPathComponent(resultFolderName, isDirectory: true)
         let database = try TaxTriageDatabase(at: resultURL.appendingPathComponent(TaxTriageExportLoader.databaseFileName))
@@ -122,7 +134,29 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             _ = field.sendAction(field.action, to: field.target)
             await waitForRows(view) { $0.count == searchRows }
         }
+        if showsGroup {
+            let store = try XCTUnwrap(SampleMetadataStore.load(from: resultURL, knownSampleIds: Set(sampleIds)))
+            let columns = view.testBatchFlatTableView.metadataColumns
+            columns.visibleColumns = ["Group"]
+            columns.update(store: store, sampleId: nil)
+        }
+        if let sortKey {
+            view.testBatchFlatTableView.columnHeaderFilterMenu(sortByKey: sortKey, ascending: sortAscending)
+        }
+        if let filter {
+            view.testBatchFlatTableView.setColumnFilter(filter, for: filter.columnId)
+        }
+        await waitForContaminationKeys(view)
         return view
+    }
+
+    /// The view flags the organisms the negative control holds on a task of the main actor, so a wait yields it.
+    static func waitForContaminationKeys(_ view: TaxTriageResultViewController) async {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while view.testBatchFlatTableView.contaminationRiskOrganismKeys.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(view.testBatchFlatTableView.contaminationRiskOrganismKeys.isEmpty, "negative-control flags did not load")
     }
 
     static func waitForRows(
@@ -152,13 +186,20 @@ extension TaxTriageExportCLIGUIParityReplayTests {
     /// Side A. The in-app writer the view's Export ran before the leaf, frozen below.
     func sideA(_ root: URL, scenario: Scenario) async throws -> RouteParitySideOutcome {
         let view = try await Self.configuredView(
-            root, segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows
+            root, segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows,
+            sortKey: scenario.sortKey, sortAscending: scenario.sortAscending, filter: scenario.filter,
+            showsGroup: scenario.showsGroup
         )
         let output = Self.outputURL(scenario.export, in: root)
         do {
             switch scenario.export {
             case .matrix: try Self.frozenWriteBatchMatrixCSV(view: view, to: output)
             case .report: try Self.frozenWriteBatchReport(view: view, to: output)
+            case .resultsTSV, .resultsCSV:
+                try Self.frozenWriteDelimitedResults(
+                    view: view, search: scenario.search ?? "", format: scenario.export == .resultsCSV ? "csv" : "tsv",
+                    to: output
+                )
             }
             return RouteParitySideOutcome(end: .completed, detail: "Exported \(output.lastPathComponent)")
         } catch {
@@ -254,6 +295,66 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         }
     }
 
+    /// `writeDelimitedResults` with `buildDatabaseDelimitedExport` as the view held them at 5ab86f874 (the results
+    /// writer at 23d403b2b with its builder passed the table's values), reading the view through its test accessors.
+    /// The selected samples are the ticked ones in the view's sample order, and `search` is the text typed in the
+    /// organism search field.
+    static func frozenWriteDelimitedResults(
+        view: TaxTriageResultViewController, search: String, format: String, to url: URL
+    ) throws {
+        let runClock = ProvenanceRunClock()
+        let table = view.testBatchFlatTableView
+        let metadataColumns = table.metadataColumns
+        let rows = table.displayedRows
+        var metadataValuesBySample: [String: [String]] = [:]
+        for sample in Set(rows.map { $0.sample ?? "" }) {
+            metadataValuesBySample[sample] = metadataColumns.exportValues(for: sample)
+        }
+        let content = TaxTriageResultsExport.buildDelimitedExport(
+            rows: rows,
+            totalReadsByKey: table.totalReadsByKey,
+            uniqueReadsByKey: table.uniqueReadsByKey,
+            contaminationRiskOrganismKeys: table.contaminationRiskOrganismKeys,
+            metadataHeaders: metadataColumns.exportHeaders,
+            metadataValuesBySample: metadataValuesBySample,
+            separator: format == "csv" ? "," : "\t"
+        )
+        let ticked = Set(view.selectedDatabaseSampleIds)
+        let sortDescriptors: [ParameterValue] = table.tableView.sortDescriptors.map { descriptor in
+            .dictionary([
+                "key": descriptor.key.map(ParameterValue.string) ?? .null,
+                "ascending": .boolean(descriptor.ascending),
+                "selector": descriptor.selector.map { .string(NSStringFromSelector($0)) } ?? .null,
+            ])
+        }
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app taxtriage results export",
+            sourceURLs: frozenSourceURLs(view: view, writesMetadata: !metadataColumns.exportHeaders.isEmpty),
+            outputURL: url,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-taxtriage-results", "--format", format, "--output", url.path],
+            explicitOptions: [
+                "outputPath": .file(url),
+                "format": .string(format),
+            ],
+            defaults: [
+                "format": .string("tsv"),
+            ],
+            resolved: [
+                "rowCount": .integer(rows.count),
+                "sampleIds": .array(view.sampleIds.map { .string($0) }),
+                "selectedSamples": .array(view.sampleIds.filter { ticked.contains($0) }.map { .string($0) }),
+                "organismSearchText": .string(search),
+                "tableMode": .string("batchGroup"),
+                "sortDescriptors": .array(sortDescriptors),
+                "metadataColumns": .array(metadataColumns.exportHeaders.map { .string($0) }),
+            ],
+            runClock: runClock
+        )) { outputURL in
+            try content.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
+    }
+
     private static func frozenNegativeControlSampleIds(view: TaxTriageResultViewController) -> Set<String> {
         guard let config = view.taxTriageConfig else { return [] }
         return Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
@@ -263,12 +364,13 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         Set(metrics.map { $0.organism.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }).count
     }
 
-    private static func frozenSourceURLs(view: TaxTriageResultViewController) -> [URL] {
+    private static func frozenSourceURLs(view: TaxTriageResultViewController, writesMetadata: Bool = false) -> [URL] {
         guard let resultURL = view.batchGroupURL else { return [] }
         var urls = [resultURL.appendingPathComponent(TaxTriageExportLoader.databaseFileName)]
         if view.testResult != nil {
             urls.append(resultURL.appendingPathComponent(TaxTriageExportLoader.sidecarFileName))
         }
+        urls += EsVirituDetectionExport.metadataInputURLs(in: resultURL, writesMetadata: writesMetadata)
         return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
@@ -294,13 +396,22 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             return TaxTriageResultViewController.beginTaxTriageBatchReportExportOperation(
                 invocation: invocation, runner: runner, environmentAdditions: environmentAdditions, onFailure: onFailure
             )
+        case .resultsTSV, .resultsCSV:
+            guard let invocation = view.resultsExportInvocation(
+                format: export == .resultsCSV ? .csv : .tsv, outputURL: output
+            ) else { return nil }
+            return TaxTriageResultViewController.beginTaxTriageResultsExportOperation(
+                invocation: invocation, runner: runner, environmentAdditions: environmentAdditions, onFailure: onFailure
+            )
         }
     }
 
     /// Side C. The view's invocation and begin helper, which run the built CLI behind the row.
     func sideC(_ root: URL, scenario: Scenario) async throws -> RouteParitySideOutcome {
         let view = try await Self.configuredView(
-            root, segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows
+            root, segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows,
+            sortKey: scenario.sortKey, sortAscending: scenario.sortAscending, filter: scenario.filter,
+            showsGroup: scenario.showsGroup
         )
         let failures = TaxTriageExportFailureCalls()
         guard let begun = Self.begin(
