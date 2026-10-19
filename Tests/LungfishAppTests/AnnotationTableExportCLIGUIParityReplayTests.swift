@@ -56,7 +56,14 @@ final class AnnotationTableExportCLIGUIParityReplayTests: XCTestCase {
     struct Case: Hashable, Sendable, CustomStringConvertible {
         let tab: AnnotationTableExport.Tab
         let format: ScientificTableFormat
-        var description: String { "\(tab.rawValue)-\(format.rawValue)" }
+        /// Runs the case on the second bundle (`makeDerivedFixture`), which holds a genome, coding features and an
+        /// iVar track.
+        var derived = false
+        /// With `derived`, the plain track is not hidden, so its rows are exported with the iVar track's.
+        var showsPlainTrack = false
+        var description: String {
+            "\(tab.rawValue)-\(format.rawValue)" + (derived ? "-derived" : "") + (showsPlainTrack ? "-both" : "")
+        }
     }
 
     /// The rows the drawer collected and the state it froze at the click.
@@ -117,6 +124,64 @@ final class AnnotationTableExportCLIGUIParityReplayTests: XCTestCase {
         for format in ScientificTableFormat.allCases where format != .tsv {
             try await assertParity(Case(tab: .samples, format: format))
         }
+    }
+
+    /// The review of 12.39 B2, Fix 4 (BIO 1 and BIO 7). The second bundle (`makeDerivedFixture`) holds a genome of 120
+    /// bases, a forward CDS of two blocks, a reverse CDS and two variant tracks, `ivar` with its FORMAT overlay VCF and
+    /// `plain`. Side A shows the coding feature, consequence and amino-acid change columns and the projected INFO
+    /// columns from coding bases that `explicitCodingContext` reads from the genome and from the overlay that
+    /// `VariantFormatOverlaySource.iVarSources` loads, so A shares neither with the leaf's `codingContext(for:)`. The
+    /// plain track is hidden in the first variants case, so the variants and genotypes records name only the tracks
+    /// their rows came from, and the samples record names both.
+    func testDerivedColumnsAndOverlayMatch() async throws {
+        let ivarOnly = try await assertParity(Case(tab: .variants, format: .csv, derived: true))
+        let both = try await assertParity(Case(tab: .variants, format: .csv, derived: true, showsPlainTrack: true))
+        try await assertParity(Case(tab: .genotypes, format: .csv, derived: true))
+        try await assertParity(Case(tab: .annotations, format: .tsv, derived: true))
+        try await assertParity(Case(tab: .samples, format: .tsv, derived: true))
+
+        typealias Table = (text: String, rows: [[String]])
+        func cells(_ runs: RouteParityRuns) throws -> Table {
+            let text = try String(contentsOf: Self.outputURL(in: runs.c.root, .csv), encoding: .utf8)
+            XCTAssertFalse(text.contains("Zoom in"), "no cell holds the drawer's placeholder\n\(text)")
+            return (text, text.split(separator: "\n").map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) })
+        }
+        // Columns: ID, Chrom, Position, Ref, Alt, Quality, Filter, Samples, AF, DP, ALT_FREQ, ALT_QUAL, Track,
+        // Caller Settings, then the three derived columns last.
+        func fields(_ ref: String, _ alt: String, _ table: Table) throws -> [String] {
+            try XCTUnwrap(
+                table.rows.first { $0.count > 16 && $0[3] == ref && $0[4] == alt },
+                "the row \(ref)>\(alt) is in the table\n\(table.text)"
+            )
+        }
+        func derived(_ row: [String]) -> [String] { Array(row.suffix(3)) }
+
+        let table = try cells(ivarOnly)
+        let missense = try fields("G", "C", table)
+        XCTAssertTrue(derived(missense)[0].contains("cdsF"), "\(missense)")
+        XCTAssertTrue(derived(missense)[1].hasSuffix(": missense_variant W12S"), "\(missense)")
+        XCTAssertEqual(derived(missense)[2], "W12S", "a missense change in the second block of the forward CDS")
+        let synonymous = try fields("T", "C", table)
+        XCTAssertTrue(derived(synonymous)[1].hasSuffix(": synonymous_variant G7G"), "\(synonymous)")
+        XCTAssertEqual(derived(synonymous)[2], "G7G", "a synonymous change in the first block")
+        let reverse = try fields("C", "T", table)
+        XCTAssertTrue(derived(reverse)[0].contains("cdsR"), "\(reverse)")
+        XCTAssertTrue(derived(reverse)[1].hasSuffix(": missense_variant G3D"), "\(reverse)")
+        XCTAssertEqual(derived(reverse)[2], "G3D", "a missense change in the reverse CDS")
+        let indel = try fields("AA", "A", table)
+        XCTAssertTrue(derived(indel)[1].hasSuffix(": frameshift_variant"), "\(indel)")
+        XCTAssertEqual(derived(indel)[2], "", "an indel has no amino-acid change")
+        XCTAssertEqual(derived(try fields("C", "G", table)), ["", "", ""], "a variant inside no CDS has empty derived cells")
+        XCTAssertEqual([missense[9], synonymous[9], reverse[9], indel[9]], ["120", "200", "80", "50"], "the projected DP")
+        for row in [missense, synonymous, reverse, indel] {
+            XCTAssertFalse(row[8].isEmpty || row[10].isEmpty || row[11].isEmpty, "the projected AF, ALT_FREQ and ALT_QUAL, \(row)")
+        }
+        XCTAssertNil(table.rows.first { $0.count > 4 && $0[3] == "T" && $0[4] == "A" }, "the hidden plain track's row is not exported")
+
+        let plain = try fields("T", "A", try cells(both))
+        XCTAssertEqual(derived(plain), ["", "", ""], "the plain track's row lies in no CDS")
+        XCTAssertEqual(plain[8], "", "the iVar overlay does not reach the plain track's row")
+        XCTAssertEqual(plain[9], "9", "the plain track's own INFO DP")
     }
 
     /// R3. `--output-format json --format json` writes the JSON bytes of the drawer's builder and the row reads the

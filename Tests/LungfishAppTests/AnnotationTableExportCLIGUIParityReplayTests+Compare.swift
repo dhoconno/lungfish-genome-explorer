@@ -52,7 +52,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
     /// Side A. The in-app writer the panel ran before the leaf, frozen in `AnnotationTableExportFrozenSideA`.
     private func sideA(_ root: URL, _ parityCase: Case) async throws -> RouteParitySideOutcome {
         do {
-            let collected = try Self.collect(parityCase.tab, in: root)
+            let collected = try await Self.collectCase(parityCase, in: root)
             try AnnotationTableExportFrozenSideA.export(
                 snapshot: collected.snapshot, format: parityCase.format, outputURL: Self.outputURL(in: root, parityCase.format)
             )
@@ -64,7 +64,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
 
     private func sideC(_ root: URL, _ parityCase: Case) async throws -> RouteParitySideOutcome {
         let run = try await runC(
-            root, try Self.collect(parityCase.tab, in: root), format: parityCase.format,
+            root, try await Self.collectCase(parityCase, in: root), format: parityCase.format,
             output: Self.outputURL(in: root, parityCase.format)
         )
         if let selection = run.invocation.selection {
@@ -92,7 +92,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
     func assertParity(_ parityCase: Case) async throws -> RouteParityRuns {
         let runs = try await harness.run(
             in: deepRoot(parityCase.description),
-            fixture: Self.makeFixture,
+            fixture: parityCase.derived ? Self.makeDerivedFixture : Self.makeFixture,
             sideA: { root in try await self.sideA(root, parityCase) },
             sideC: { root in try await self.sideC(root, parityCase) }
         )
@@ -195,9 +195,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         let allC = Self.inputs(of: c, under: runs.c.root)
         let inputsC = allC.filter { !$0.key.contains("/.lungfish-export-inputs/") }
         XCTAssertEqual(inputsA, inputsC, "\(parityCase) the manifest and the tab's databases with their digests")
-        XCTAssertEqual(inputsC.keys.sorted(), parityCase.tab == .annotations
-            ? ["/fixture.lungfishref/annotations/genes.db", "/fixture.lungfishref/manifest.json"]
-            : ["/fixture.lungfishref/manifest.json", "/fixture.lungfishref/variants.db"], "\(parityCase)")
+        XCTAssertEqual(inputsC.keys.sorted(), Self.expectedInputs(parityCase), "\(parityCase)")
         let selections = allC.keys.filter { $0.contains("/.lungfish-export-inputs/") }
         XCTAssertEqual(selections.map { ($0 as NSString).lastPathComponent }, ["selection.json"], "\(parityCase)")
         XCTAssertTrue(allC.values.allSatisfy { $0 != "no digest" }, "\(parityCase) every input has its digest")

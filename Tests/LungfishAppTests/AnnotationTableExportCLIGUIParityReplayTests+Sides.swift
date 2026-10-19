@@ -171,9 +171,277 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         ).run(shouldCancel: { false })
     }
 
+    // MARK: - The second bundle, with a genome, coding features and an iVar track (review of 12.39 B2, Fix 4)
+
+    static let ivarTrackID = "ivar"
+    static let plainTrackID = "plain"
+    static let cdsTrackID = "cds"
+    /// chr1 of the second bundle, 120 bases. The forward CDS `cdsF` is [10,40) and [60,90), 20 codons from ATG. The
+    /// reverse CDS `cdsR` is [96,117), the reverse complement of ATG CAT GGC TTA ACG CCA GAT.
+    static let derivedGenome = [
+        "TTGCACGTAA", "ATGAAAGCTGAATTTCCCGGTACCCTGAAG", "GTAAGTCCCTTTGGAACAAG",
+        "GATTGGCATTCAGGGCGTTACAACCCAGCC", "ATCAGT", "ATCTGGCGTTAAGCCATGCAT", "CGA",
+    ].joined()
+
+    static let derivedVariantColumns: [ScientificTableColumn] = [
+        .init(id: "VariantIdColumn", title: "ID"), .init(id: "VariantChromColumn", title: "Chrom"),
+        .init(id: "PositionColumn", title: "Position"), .init(id: "RefColumn", title: "Ref"),
+        .init(id: "AltColumn", title: "Alt"), .init(id: "QualityColumn", title: "Quality"),
+        .init(id: "FilterColumn", title: "Filter"), .init(id: "SamplesColumn", title: "Samples"),
+        .init(id: "info_AF", title: "AF"), .init(id: "info_DP", title: "DP"),
+        .init(id: "info_ALT_FREQ", title: "ALT_FREQ"), .init(id: "info_ALT_QUAL", title: "ALT_QUAL"),
+        .init(id: "TrackNameColumn", title: "Track"),
+        .init(id: AnnotationTableExport.callerSettingsColumnID, title: "Caller Settings"),
+        .init(id: AnnotationTableDrawerView.codingFeatureColumn.rawValue, title: "Gene / Protein"),
+        .init(id: AnnotationTableDrawerView.consequenceColumn.rawValue, title: "Consequence"),
+        .init(id: AnnotationTableDrawerView.aaChangeColumn.rawValue, title: "AA Change"),
+    ]
+    static let derivedNumericColumnIDs: Set<String> = ["info_AF", "info_ALT_FREQ", "info_ALT_QUAL"]
+
+    /// The second bundle: the genome with its index, an annotation database of the two CDS, an iVar track whose
+    /// manifest source is `iVar` and whose `path` is the overlay VCF, and a plain track. The iVar track holds a
+    /// variant outside every CDS, an indel in `cdsF`, a synonymous change in its first block, a missense change in its
+    /// second block and a missense change in `cdsR`. The plain track holds one variant in the intron.
+    static func makeDerivedFixture(_ root: URL) throws {
+        let fileManager = FileManager.default
+        let bundle = bundleURL(in: root)
+        for folder in ["genome", "annotations", "variants"] {
+            try fileManager.createDirectory(at: bundle.appendingPathComponent(folder, isDirectory: true), withIntermediateDirectories: true)
+        }
+        try (">chr1\n" + derivedGenome + "\n").write(
+            to: bundle.appendingPathComponent("genome/sequence.fa"), atomically: true, encoding: .utf8
+        )
+        try "chr1\t120\t6\t120\t121\n".write(
+            to: bundle.appendingPathComponent("genome/sequence.fa.fai"), atomically: true, encoding: .utf8
+        )
+        let bed = root.appendingPathComponent("cds.bed")
+        try ("chr1\t10\t90\tcdsF\t0\t+\t10\t90\t0,0,0\t2\t30,30\t0,50\tCDS\tgene=geneF\n"
+            + "chr1\t96\t117\tcdsR\t0\t-\t96\t117\t0,0,0\t1\t21\t0\tCDS\tgene=geneR\n")
+            .write(to: bed, atomically: true, encoding: .utf8)
+        _ = try AnnotationDatabase.createFromBED(bedURL: bed, outputURL: bundle.appendingPathComponent("annotations/cds.db"))
+        try fileManager.removeItem(at: bed)
+
+        let format = "GT:DP:REF_DP:REF_RV:REF_QUAL:ALT_DP:ALT_RV:ALT_QUAL:ALT_FREQ"
+        let calls: [(position: Int, ref: String, alt: String, type: String, depth: Int, frequency: String)] = [
+            (4, "C", "G", "SNP", 90, "1"), (14, "AA", "A", "INDEL", 50, "0.5"), (31, "T", "C", "SNP", 200, "0.75"),
+            (65, "G", "C", "SNP", 120, "0.5"), (110, "C", "T", "SNP", 80, "0.25"),
+        ]
+        let body = calls.map { call in
+            "chr1\t\(call.position)\t.\t\(call.ref)\t\(call.alt)\t.\tPASS\tTYPE=\(call.type)\t\(format)\t"
+                + "1:\(call.depth):0:0:0:\(call.depth):1:66:\(call.frequency)"
+        }.joined(separator: "\n")
+        let ivarVCF = bundle.appendingPathComponent("variants/ivar.vcf")
+        try "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample-a\n\(body)\n"
+            .write(to: ivarVCF, atomically: true, encoding: .utf8)
+        let plainVCF = bundle.appendingPathComponent("variants/plain.vcf")
+        try "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tPLAIN_S\nchr1\t50\t.\tT\tA\t40\tPASS\tDP=9\tGT\t0/1\n"
+            .write(to: plainVCF, atomically: true, encoding: .utf8)
+        for (vcf, name) in [(ivarVCF, "ivar"), (plainVCF, "plain")] {
+            try VariantDatabase.createFromVCF(
+                vcfURL: vcf, outputURL: bundle.appendingPathComponent("variants/\(name).db"),
+                parseGenotypes: true, sourceFile: "\(name).vcf", progressHandler: nil
+            )
+        }
+        try BundleManifest(
+            name: "fixture",
+            identifier: "org.lungfish.test.annotation-table-parity-derived",
+            source: SourceInfo(organism: "Test", assembly: "fixture"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 120,
+                chromosomes: [ChromosomeInfo(name: "chr1", length: 120, offset: 6, lineBases: 120, lineWidth: 121)]
+            ),
+            annotations: [AnnotationTrackInfo(id: cdsTrackID, name: "CDS", path: "annotations/cds.bb", databasePath: "annotations/cds.db")],
+            variants: [
+                VariantTrackInfo(
+                    id: ivarTrackID, name: "iVar calls", path: "variants/ivar.vcf", indexPath: "variants/ivar.db",
+                    databasePath: "variants/ivar.db", variantCount: 5, source: "iVar"
+                ),
+                VariantTrackInfo(
+                    id: plainTrackID, name: "Plain calls", path: "variants/plain.vcf", indexPath: "variants/plain.db",
+                    databasePath: "variants/plain.db", variantCount: 1
+                ),
+            ]
+        ).save(to: bundle)
+    }
+
+    /// The input paths below a side root that a case's record names, sorted. On the second bundle they follow the tab,
+    /// and the variants and genotypes tabs name only the tracks their rows came from, the samples tab every variant
+    /// database, and only the variants tab the CDS database and the genome.
+    static func expectedInputs(_ parityCase: Case) -> [String] {
+        let bundle = "/\(bundleName)/"
+        guard parityCase.derived else {
+            return parityCase.tab == .annotations
+                ? [bundle + "annotations/genes.db", bundle + "manifest.json"]
+                : [bundle + "manifest.json", bundle + "variants.db"]
+        }
+        var names = ["manifest.json"]
+        switch parityCase.tab {
+        case .annotations: names += ["annotations/cds.db"]
+        case .variants:
+            names += ["annotations/cds.db", "genome/sequence.fa", "variants/ivar.db", "variants/ivar.vcf"]
+            if parityCase.showsPlainTrack { names.append("variants/plain.db") }
+        case .genotypes: names += ["variants/ivar.db", "variants/ivar.vcf"]
+        case .samples: names += ["variants/ivar.db", "variants/plain.db"]
+        }
+        return names.map { bundle + $0 }.sorted()
+    }
+
+    static func collectCase(_ parityCase: Case, in root: URL) async throws -> Collected {
+        if parityCase.derived { return try await collectDerived(parityCase, in: root) }
+        return try collect(parityCase.tab, in: root)
+    }
+
+    /// The coding bases of `annotation` read from `derivedGenome` here: the exons in order on the forward strand, and
+    /// the reverse complement of the exons from the last on the reverse strand, with the frame at the first base.
+    /// This is the context the viewer caches for a CDS it shows whole, and the leaf does not read it.
+    static func explicitCodingContext(_ annotation: SequenceAnnotation) -> VariantTableCodingFeatures.Context? {
+        let genome = Array(derivedGenome)
+        var bases: [Character] = []
+        var positions: [Int] = []
+        for interval in annotation.intervals.sorted(by: { $0.start < $1.start }) {
+            for position in interval.start..<interval.end {
+                bases.append(genome[position])
+                positions.append(position)
+            }
+        }
+        if annotation.strand == .reverse {
+            let complement: [Character: Character] = ["A": "T", "T": "A", "C": "G", "G": "C"]
+            bases = bases.reversed().map { complement[$0] ?? $0 }
+            positions.reverse()
+        }
+        return (codingBases: bases, codingGenomePositions: positions, phaseOffset: 0, codonTable: .standard, codonsBeforeFirstRead: 0)
+    }
+
+    /// The samples of every variant database, the first database naming a sample and source winning.
+    static func derivedSampleRows(_ databases: [URL]) throws -> [AnnotationTableDrawerView.SampleDisplayRow] {
+        var seen = Set<String>()
+        return try databases.flatMap { try sampleRows($0) }.filter { seen.insert($0.rowKey).inserted }
+    }
+
+    /// What the drawer's `collect` closure gives for All Matching Rows of the tab on the second bundle. The variant
+    /// rows carry the iVar FORMAT values of the overlay `iVarSources` loads, the variants tab shows the three derived
+    /// columns resolved from coding features built with `explicitCodingContext`, and the selection names the region
+    /// and the annotation track of those features.
+    static func collectDerived(_ parityCase: Case, in root: URL) async throws -> Collected {
+        let folder = Self.bundleURL(in: root)
+        let manifest = try BundleManifest.load(from: folder)
+        let bundle = ReferenceBundle(url: folder, manifest: manifest)
+        let cds = folder.appendingPathComponent("annotations/cds.db")
+        let ivarDB = folder.appendingPathComponent("variants/ivar.db")
+        let plainDB = folder.appendingPathComponent("variants/plain.db")
+        let handles = [
+            (trackId: ivarTrackID, db: try VariantDatabase(url: ivarDB)),
+            (trackId: plainTrackID, db: try VariantDatabase(url: plainDB)),
+        ]
+        var aliasMaps = BundleChromosomeAliasMaps()
+        aliasMaps.reset(chromosomes: manifest.genome?.chromosomes ?? [])
+        let overlay = await VariantFormatOverlayLoader.load(
+            sources: VariantFormatOverlaySource.iVarSources(bundle: bundle, databases: handles, aliasMaps: &aliasMaps)
+        )
+        let features = VariantTableCodingFeatures.features(
+            annotations: try bundle.getAnnotationsSync(trackId: cdsTrackID, region: GenomicRegion(chromosome: "chr1", start: 0, end: 120)),
+            fallbackChromosome: "chr1",
+            chromosomeName: { bundle.chromosome(named: $0)?.name ?? $0 },
+            context: { explicitCodingContext($0) }
+        )
+        let resolver = try VariantTableExportResolverSnapshot(
+            features: features, variantChromosomeAliasMap: [:],
+            referenceChromosomeAliases: VariantTableCodingFeatures.referenceAliases(chromosomes: manifest.genome?.chromosomes ?? []),
+            referenceBundle: bundle
+        ).preparingForBackgroundExport()
+        let sources = AnnotationTableExportSources(
+            manifestURL: folder.appendingPathComponent(BundleManifest.filename),
+            genomeURL: folder.appendingPathComponent("genome/sequence.fa"),
+            annotationDatabases: [.init(trackID: cdsTrackID, url: cds)],
+            variantDatabases: [.init(trackID: ivarTrackID, url: ivarDB), .init(trackID: plainTrackID, url: plainDB)],
+            overlayURLsByTrack: Dictionary(grouping: overlay.sourceIdentities, by: \.trackID)
+                .mapValues { identities in identities.map(\.url).sorted { $0.path < $1.path } },
+            codingFeatureTrackIDs: parityCase.tab == .variants ? [cdsTrackID] : nil
+        )
+        switch parityCase.tab {
+        case .annotations:
+            let rows = try AnnotationTableAnnotationQueryRequest(
+                databases: [(trackID: cdsTrackID, url: cds, trackName: "CDS")], allowedChromosomes: nil,
+                nameFilter: "", types: [], query: .init(), databaseColumnFilters: [], allColumnFilters: [],
+                numericSortKeys: ["start", "end", "size"], sortKey: "end", sortAscending: false
+            ).run(shouldCancel: { false })
+            return Collected(
+                snapshot: .captureAnnotations(
+                    rows, columns: annotationColumns, scope: .allMatching,
+                    sourceURLs: try sources.urls(tab: "annotations", trackIDs: Set(rows.map(\.trackId))),
+                    queryDescription: ["text": "", "sort": "end:descending"]
+                ),
+                table: AnnotationTableExportSelection(scope: "allMatching", columns: annotationColumns)
+            )
+        case .variants, .genotypes:
+            let rows = try AnnotationTableVariantQueryRequest(
+                context: AnnotationVariantQueryContext(
+                    databases: handles, trackNames: [ivarTrackID: "iVar calls", plainTrackID: "Plain calls"],
+                    trackChromosomes: [ivarTrackID: ["chr1"], plainTrackID: ["chr1"]], annotationDatabases: [],
+                    infoKeys: ["AF", "ALT_FREQ", "ALT_QUAL", "DP", "TYPE"], variantAliasMap: [:], formatOverlay: overlay
+                ),
+                query: .init(), types: [], infoFilters: [],
+                selectedSamples: [], activeTokens: [], region: nil, geneList: nil,
+                filterBookmarkedOnly: false, filterModerateOrHigher: false,
+                withinSampleAFRange: nil, bookmarkedKeys: [], hiddenTrackIDs: parityCase.showsPlainTrack ? [] : [plainTrackID],
+                variantColumnFilters: [], callerSettingsByTrack: [:],
+                resolverSnapshot: resolver, numericColumnKeys: ["position"],
+                sortKey: "position", sortAscending: false
+            ).run(shouldCancel: { false }, preparedResolverSnapshot: resolver)
+            if parityCase.tab == .genotypes {
+                let genotypes = try genotypeRows(rows, databaseURL: ivarDB, trackID: ivarTrackID)
+                return Collected(
+                    snapshot: .captureGenotypes(
+                        genotypes, columns: genotypeColumns, scope: .allMatching, numericInfoColumnIDs: [],
+                        integerInfoColumnIDs: ["gtinfo_DP"],
+                        sourceURLs: try sources.urls(tab: "genotypes", trackIDs: Set(genotypes.map(\.trackId))),
+                        queryDescription: ["text": "", "sort": "database-default:ascending"]
+                    ),
+                    table: AnnotationTableExportSelection(scope: "allMatching", columns: genotypeColumns, integerColumnIDs: ["gtinfo_DP"])
+                )
+            }
+            let callerSettings = [
+                ivarTrackID: VariantCallerSettingsSummary.text(databaseURL: ivarDB),
+                plainTrackID: VariantCallerSettingsSummary.text(databaseURL: plainDB),
+            ]
+            return Collected(
+                snapshot: .captureVariants(
+                    rows, columns: derivedVariantColumns, scope: .allMatching,
+                    numericInfoColumnIDs: derivedNumericColumnIDs, integerInfoColumnIDs: ["info_DP"],
+                    sourceURLs: try sources.urls(tab: "variants", trackIDs: Set(rows.map(\.trackId))),
+                    queryDescription: [
+                        "text": "", "sort": "position:descending", "derivedVariantFeatureCount": String(resolver.features.count),
+                    ],
+                    resolvedText: AnnotationTableExport.variantResolvedText(
+                        rows: rows, columns: derivedVariantColumns, callerSettingsByTrack: callerSettings,
+                        resolverSnapshot: resolver
+                    )
+                ),
+                table: AnnotationTableExportSelection(
+                    scope: "allMatching", columns: derivedVariantColumns,
+                    numericColumnIDs: derivedNumericColumnIDs.sorted(), integerColumnIDs: ["info_DP"],
+                    variantChromosomeAliases: [:],
+                    codingFeatureRegion: AnnotationTableFeatureRegion(chromosome: "chr1", start: 0, end: 120, trackIDs: [cdsTrackID])
+                )
+            )
+        case .samples:
+            let rows = try derivedSampleRows([ivarDB, plainDB])
+            return Collected(
+                snapshot: .captureSamples(
+                    rows, columns: sampleColumns, scope: .allMatching,
+                    sourceURLs: try sources.urls(tab: "samples", trackIDs: []),
+                    queryDescription: ["sort": "database-default:ascending"]
+                ),
+                table: AnnotationTableExportSelection(scope: "allMatching", columns: sampleColumns),
+                editedValues: AnnotationTableDrawerView.sampleEditedValues(rows)
+            )
+        }
+    }
+
     /// The genotype rows of `variants`, built as the drawer's All Matching genotype path builds them.
     static func genotypeRows(
-        _ variants: [AnnotationSearchIndex.SearchResult], databaseURL: URL
+        _ variants: [AnnotationSearchIndex.SearchResult], databaseURL: URL,
+        trackID: String = AnnotationTableExportCLIGUIParityReplayTests.trackID
     ) throws -> [AnnotationTableDrawerView.GenotypeDisplayRow] {
         let database = try VariantDatabase(url: databaseURL)
         let ids = variants.compactMap(\.variantRowId)
