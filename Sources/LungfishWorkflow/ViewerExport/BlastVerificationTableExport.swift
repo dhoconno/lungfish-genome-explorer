@@ -4,7 +4,6 @@
 
 import Foundation
 import LungfishCore
-import LungfishWorkflow
 
 /// The BLAST verification table export (Phase 2.12 lane 12.33, ARCH ruling 1.1 row A9).
 ///
