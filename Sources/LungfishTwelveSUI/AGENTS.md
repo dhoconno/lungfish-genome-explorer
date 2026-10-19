@@ -17,7 +17,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | `TwelveSAmpliconResultViewController` and `configure(result:)` | Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift lines 178 and 482 |
 | Display state and filters | Sources/LungfishTwelveSUI/TwelveSResultDisplayState.swift line 45 |
 | Row aggregation across samples | Sources/LungfishTwelveSUI/TwelveSRowAggregator.swift |
-| Export | Sources/LungfishTwelveSUI/TwelveSAmpliconResultExportService.swift |
+| Export | Sources/LungfishTwelveSUI/TwelveSAmpliconResultExportService.swift (format and snapshot), Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController+ExportOperationBegin.swift (the Operations row that runs `lungfish-cli fastq 12s-export`) |
 | Status line and provenance popover, with the pairs a run left out | Sources/LungfishTwelveSUI/TwelveSReadFateSummary.swift |
 | Reads or fragments wording of every count label | Sources/LungfishTwelveSUI/TwelveSCountUnit.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift |
