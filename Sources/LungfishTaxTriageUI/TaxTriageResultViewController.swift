@@ -4287,8 +4287,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
+    /// Exports the organism matrix by running `taxtriage export organism-matrix` behind an Operations row
+    /// (`beginTaxTriageOrganismMatrixExportOperation`). The leaf reads no `--sample` as every sample, so an empty
+    /// Sample Filter returns before the save panel.
     @objc private func exportBatchMatrixAction(_ sender: Any) {
-        guard let window = view.window else { return }
+        guard let window = view.window, !exportSelectedSampleIds().isEmpty else { return }
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Organism Matrix",
@@ -4296,20 +4299,42 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             contentTypes: [.commaSeparatedText]
         )
 
-        panel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = panel.url else { return }
-            do {
-                try self.writeBatchMatrixCSV(to: url)
-            } catch {
-                logger.error("Failed to export TaxTriage organism matrix: \(error.localizedDescription, privacy: .public)")
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            guard let invocation = self.organismMatrixExportInvocation(outputURL: url) else {
+                logger.warning("Cannot export the organism matrix: the result has no folder")
+                return
+            }
+            Self.beginTaxTriageOrganismMatrixExportOperation(invocation: invocation) { [weak self] failure in
+                logger.error("Failed to export TaxTriage organism matrix: \(failure.message, privacy: .public)")
                 ResultExportCoordinator.reportFailure(
                     fileName: url.lastPathComponent,
-                    error: error,
+                    error: failure,
                     window: window,
-                    presenter: self.exportFailurePresenter
+                    presenter: self?.exportFailurePresenter ?? DefaultExportFailurePresenter()
                 )
             }
         }
+    }
+
+    /// The `taxtriage export organism-matrix` invocation for the view's state, the ticked samples as the result
+    /// records them and the organism search, or nil when the view holds no result folder, which the database route
+    /// always sets.
+    func organismMatrixExportInvocation(outputURL: URL) -> ViewerExportInvocation? {
+        guard let batchGroupURL else { return nil }
+        return TaxTriageOrganismMatrixExport.invocation(
+            resultURL: batchGroupURL,
+            samples: exportSelectedSampleIds(),
+            searchText: exportSearchText,
+            outputURL: outputURL,
+            force: FileManager.default.fileExists(atPath: outputURL.path)
+        )
+    }
+
+    /// The organism search the exports follow, nil when the field holds only white space.
+    private var exportSearchText: String? {
+        let trimmed = organismSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     func writeBatchMatrixCSV(to url: URL) throws {
@@ -4350,30 +4375,49 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
+    /// Exports the batch report by running `taxtriage export batch-report` behind an Operations row
+    /// (`beginTaxTriageBatchReportExportOperation`). The report needs the run's sidecar, as the menu item does, and
+    /// an empty Sample Filter returns before the save panel.
     @objc private func exportBatchReportAction(_ sender: Any) {
         guard let window = view.window,
-              let result = taxTriageResult,
-              let config = taxTriageConfig else { return }
+              taxTriageResult != nil,
+              taxTriageConfig != nil,
+              !exportSelectedSampleIds().isEmpty else { return }
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Batch Report",
             suggestedName: "batch_report.txt"
         )
 
-        panel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = panel.url else { return }
-            do {
-                try self.writeBatchReport(to: url, result: result, config: config)
-            } catch {
-                logger.error("Failed to export TaxTriage batch report: \(error.localizedDescription, privacy: .public)")
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            guard let invocation = self.batchReportExportInvocation(outputURL: url) else {
+                logger.warning("Cannot export the batch report: the result has no folder")
+                return
+            }
+            Self.beginTaxTriageBatchReportExportOperation(invocation: invocation) { [weak self] failure in
+                logger.error("Failed to export TaxTriage batch report: \(failure.message, privacy: .public)")
                 ResultExportCoordinator.reportFailure(
                     fileName: url.lastPathComponent,
-                    error: error,
+                    error: failure,
                     window: window,
-                    presenter: self.exportFailurePresenter
+                    presenter: self?.exportFailurePresenter ?? DefaultExportFailurePresenter()
                 )
             }
         }
+    }
+
+    /// The `taxtriage export batch-report` invocation for the view's state, or nil when the view holds no result
+    /// folder.
+    func batchReportExportInvocation(outputURL: URL) -> ViewerExportInvocation? {
+        guard let batchGroupURL else { return nil }
+        return TaxTriageBatchReportExport.invocation(
+            resultURL: batchGroupURL,
+            samples: exportSelectedSampleIds(),
+            searchText: exportSearchText,
+            outputURL: outputURL,
+            force: FileManager.default.fileExists(atPath: outputURL.path)
+        )
     }
 
     func writeBatchReport(to url: URL, result: TaxTriageResult, config: TaxTriageConfig) throws {
