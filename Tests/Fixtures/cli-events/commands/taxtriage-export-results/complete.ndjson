@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting the TaxTriage results table.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 4 rows to results.tsv","output":"\/work\/results.tsv","outputs":["\/work\/results.tsv"],"progress":1,"schemaVersion":2}

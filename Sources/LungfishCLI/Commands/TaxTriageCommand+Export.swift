@@ -17,6 +17,7 @@ extension TaxTriageCommand {
             subcommands: [
                 ExportOrganismMatrixSubcommand.self,
                 ExportBatchReportSubcommand.self,
+                ExportResultsSubcommand.self,
             ]
         )
     }
@@ -187,7 +188,8 @@ extension TaxTriageCommand {
     /// before a byte is written.
     static func loadExportSource(
         invocation: ViewerExportInvocation,
-        requiresSidecar: Bool
+        requiresSidecar: Bool,
+        extraInputs: [URL] = []
     ) throws -> TaxTriageExportSource {
         let resultURL = URL(fileURLWithPath: invocation.input, isDirectory: true)
         let outputURL = URL(fileURLWithPath: invocation.output)
@@ -203,7 +205,7 @@ extension TaxTriageCommand {
                 "The batch report needs the run's sidecar at \(sidecarURL.path), which is missing."
             )
         }
-        try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: [databaseURL, sidecarURL], force: invocation.force)
+        try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: [databaseURL, sidecarURL] + extraInputs, force: invocation.force)
         do {
             return try TaxTriageExportLoader.load(
                 resultURL: resultURL,
@@ -224,7 +226,9 @@ extension TaxTriageCommand {
         content: String,
         resolved: [String: ParameterValue],
         runClock: ProvenanceRunClock,
-        message: String
+        message: String,
+        extraExplicit: [String: ParameterValue] = [:],
+        extraInputs: [URL] = []
     ) throws -> ViewerExportLeafOutcome {
         let outputURL = URL(fileURLWithPath: invocation.output)
         var explicitOptions: [String: ParameterValue] = ["outputPath": .file(outputURL)]
@@ -237,10 +241,11 @@ extension TaxTriageCommand {
         if invocation.force {
             explicitOptions["force"] = .boolean(true)
         }
+        explicitOptions.merge(extraExplicit) { _, new in new }
         try Task.checkCancellation()
         try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
             workflowName: workflowName,
-            sourceURLs: source.inputURLs,
+            sourceURLs: source.inputURLs + extraInputs.filter { FileManager.default.fileExists(atPath: $0.path) },
             outputURL: outputURL,
             outputFormat: .text,
             argv: invocation.canonicalArgv(),

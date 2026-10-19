@@ -151,6 +151,7 @@ lungfish-cli taxtriage check-prerequisites	shown	0	lungfish-cli.taxtriage.check-
 lungfish-cli taxtriage export	shown	0	lungfish-cli.taxtriage.export.txt
 lungfish-cli taxtriage export organism-matrix	shown	0	lungfish-cli.taxtriage.export.organism-matrix.txt
 lungfish-cli taxtriage export batch-report	shown	0	lungfish-cli.taxtriage.export.batch-report.txt
+lungfish-cli taxtriage export results	shown	0	lungfish-cli.taxtriage.export.results.txt
 lungfish-cli align	shown	0	lungfish-cli.align.txt
 lungfish-cli align mafft	shown	0	lungfish-cli.align.mafft.txt
 lungfish-cli msa	shown	0	lungfish-cli.msa.txt

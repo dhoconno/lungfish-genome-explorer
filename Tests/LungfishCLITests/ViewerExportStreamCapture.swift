@@ -133,6 +133,17 @@ enum ViewerExportStreamCapture {
                 ])
                 return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
             },
+            // The app's TaxTriage Export Results, both samples sorted by reads (lane 12.32).
+            ImportStreamCapture.Case(leaf: "taxtriage export results", name: "complete") { scratch in
+                let result = try taxTriageResult(in: scratch.root)
+                let command = try TaxTriageCommand.ExportResultsSubcommand.parse([
+                    result.path, "--sample", "sample-1", "--sample", "sample-2",
+                    "--sort", "tt_reads:descending", "--output-format", "tsv",
+                    "--output", scratch.root.appendingPathComponent("results.tsv").path,
+                    "--format", "json",
+                ])
+                return try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+            },
         ]
     }
 

@@ -478,6 +478,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "taxtriage check-prerequisites": "cli.taxtriage",
         "taxtriage export batch-report": "cli.taxtriage",
         "taxtriage export organism-matrix": "cli.taxtriage",
+        "taxtriage export results": "cli.taxtriage",
         "taxtriage run": "cli.taxtriage",
         "tools update": "cli.tools",
         "translate": "cli.translate",

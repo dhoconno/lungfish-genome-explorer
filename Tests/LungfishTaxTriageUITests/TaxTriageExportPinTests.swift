@@ -215,6 +215,58 @@ final class TaxTriageExportPinTests: XCTestCase {
         XCTAssertEqual(try inputs(hidden).map(\.name), ["taxtriage-result.json", "taxtriage.sqlite"])
     }
 
+    // MARK: - Unique Reads of a database that stores NULL (A6, F3)
+
+    /// F3 (BIO ruling on 12.32). A production database can store NULL `unique_reads`. The results export writes the
+    /// stored value, normalized as the page snapshot normalizes it, and an empty cell for NULL, and opens no BAM. The
+    /// loader and the builder the `taxtriage export results` leaf uses give the cells of the viewer's flat table.
+    func testResultsExportLeavesANullUniqueReadsCellEmpty() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageExportPin-null-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try TaxTriageDatabase.create(
+            at: root.appendingPathComponent(TaxTriageExportLoader.databaseFileName),
+            rows: [
+                Self.rowStoringUniqueReads("S1", "OrgA", 1, reads: 50, uniqueReads: 40),
+                Self.rowStoringUniqueReads("S1", "OrgB", 2, reads: 30, uniqueReads: nil),
+            ],
+            metadata: ["tool": "taxtriage"]
+        )
+        let source = try TaxTriageExportLoader.load(resultURL: root, samples: [], searchText: nil)
+        let text = TaxTriageResultsExport.buildDelimitedExport(
+            rows: source.metrics,
+            totalReadsByKey: source.totalReadsByKey,
+            uniqueReadsByKey: source.uniqueReadsByKey,
+            contaminationRiskOrganismKeys: source.contaminationRiskOrganismKeys,
+            metadataHeaders: [],
+            metadataValuesBySample: [:],
+            separator: "\t"
+        )
+        let uniqueColumn = 4
+        let fields = text.split(separator: "\n").dropFirst()
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        XCTAssertEqual(fields.first { $0[1] == "OrgA" }?[uniqueColumn], "40")
+        XCTAssertEqual(fields.first { $0[1] == "OrgB" }?[uniqueColumn], "")
+        XCTAssertNil(source.uniqueReadsByKey["S1\tOrgB"], "a NULL fills no key, as the page snapshot leaves it")
+    }
+
+    private static func rowStoringUniqueReads(
+        _ sample: String, _ organism: String, _ taxId: Int, reads: Int, uniqueReads: Int?
+    ) -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: sample, organism: organism, taxId: taxId, status: nil, tassScore: 0.5,
+            readsAligned: reads, uniqueReads: uniqueReads, pctReads: nil, pctAlignedReads: nil,
+            coverageBreadth: 50, meanCoverage: nil, meanDepth: nil, confidence: "High",
+            k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil, meanBaseQ: nil, meanMapQ: nil,
+            mapqScore: nil, disparityScore: nil, minhashScore: nil, diamondIdentity: nil,
+            k2DisparityScore: nil, siblingsScore: nil, breadthWeightScore: nil, hhsPercentile: nil,
+            isAnnotated: nil, annClass: nil, microbialCategory: nil, highConsequence: nil,
+            isSpecies: nil, pathogenicSubstrains: nil, sampleType: nil, bamPath: nil,
+            bamIndexPath: nil, primaryAccession: "NC_\(taxId)", accessionLength: 1000
+        )
+    }
+
     // MARK: - Builders for a result of one sample (A4 and A5)
 
     /// The matrix and the report of a result of one sample are the builders' output for the rows the view loaded. The

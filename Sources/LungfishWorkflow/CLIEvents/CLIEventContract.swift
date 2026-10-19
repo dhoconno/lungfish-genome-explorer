@@ -155,6 +155,7 @@ package enum CLIEventContractTable {
         "sequence attach-track": .events(flag: formatJSON, channel: .standardOutput),
         "taxtriage export batch-report": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.32
         "taxtriage export organism-matrix": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.32
+        "taxtriage export results": .events(flag: formatJSON, channel: .standardOutput), // since 2.12 lane 12.32
         "taxtriage run": .events(flag: formatJSON, channel: .standardOutput),
         "tools update": .events(flag: formatJSON, channel: .standardOutput),
         "tree export subtree": .events(flag: formatJSON, channel: .standardOutput),

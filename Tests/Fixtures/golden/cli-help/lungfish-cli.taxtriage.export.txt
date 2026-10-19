@@ -11,5 +11,6 @@ SUBCOMMANDS:
                           result as CSV with provenance
   batch-report            Write the batch report of a TaxTriage result as text
                           with provenance
+  results                 Write the results table as CSV or TSV
 
   See 'lungfish-cli help taxtriage export <subcommand>' for detailed help.

@@ -129,6 +129,16 @@ public struct TaxTriageExportSource {
     /// `allBatchGroupRows`.
     public let metrics: [TaxTriageMetric]
 
+    /// The viewer's `totalReadsByKey` for the loaded rows, `reads_aligned` by `"<sample>\t<organism>"`.
+    public let totalReadsByKey: [String: Int]
+    /// The viewer's `uniqueReadsByKey` for the loaded rows, the stored `unique_reads` normalized as the viewer's
+    /// page snapshot normalizes it. A row whose database value is NULL has no key, so its cell is empty (BIO
+    /// ruling on 12.32, F3).
+    public let uniqueReadsByKey: [String: Int]
+    /// The normalized names of the organisms the negative controls hold, across all samples whatever the sample
+    /// selection (BIO ruling on 12.32, F5). Empty without a sidecar or without a control.
+    public let contaminationRiskOrganismKeys: Set<String>
+
     /// The samples the run marks as negative controls, empty without a sidecar.
     public var negativeControlSampleIds: Set<String> {
         guard let config = result?.config else { return [] }
@@ -240,6 +250,8 @@ public enum TaxTriageExportLoader {
 
         var rows: [TaxTriageTaxonomyRow] = []
         var offset = 0
+        var totalReadsByKey: [String: Int] = [:]
+        var uniqueReadsByKey: [String: Int] = [:]
         do {
             while true {
                 try Task.checkCancellation()
@@ -250,6 +262,16 @@ public enum TaxTriageExportLoader {
                     organismSearchText: searchText
                 )
                 rows.append(contentsOf: page.rows)
+                for row in page.rows {
+                    let key = "\(row.sample)\t\(row.organism)"
+                    if let uniqueReads = row.uniqueReads {
+                        uniqueReadsByKey[key] = ClassifierUniqueReads.normalizedOrFloor(
+                            stored: uniqueReads,
+                            readCount: row.readsAligned
+                        )
+                    }
+                    totalReadsByKey[key] = row.readsAligned
+                }
                 offset += page.rows.count
                 if page.rows.isEmpty || rows.count >= page.totalMatchingRows { break }
             }
@@ -270,13 +292,28 @@ public enum TaxTriageExportLoader {
                 throw LoadError.unreadableSidecar(path: sidecarURL.path, detail: "\(error)")
             }
         }
+        // Every organism a negative control holds, across all samples whatever the selection, read as the viewer
+        // reads them (`loadContaminationRiskOrganisms`).
+        let controlIds = Set(result?.config.samples.filter(\.isNegativeControl).map(\.sampleId) ?? [])
+            .filter { sampleIds.contains($0) }
+            .sorted()
+        var contaminationRiskOrganismKeys: Set<String> = []
+        if !controlIds.isEmpty {
+            let controlRows = (try? database.fetchRows(samples: controlIds)) ?? []
+            contaminationRiskOrganismKeys = Set(
+                controlRows.map { OrganismNameNormalizer.normalizedKey($0.organism) }
+            )
+        }
         return TaxTriageExportSource(
             databaseURL: databaseURL,
             sidecarURL: sidecar,
             result: result,
             sampleIds: sampleIds,
             selectedSamples: selected,
-            metrics: rows.map(metric(from:))
+            metrics: rows.map(metric(from:)),
+            totalReadsByKey: totalReadsByKey,
+            uniqueReadsByKey: uniqueReadsByKey,
+            contaminationRiskOrganismKeys: contaminationRiskOrganismKeys
         )
     }
 }
