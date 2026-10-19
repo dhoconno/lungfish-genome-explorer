@@ -162,7 +162,7 @@ final class SidebarItemActionAccessibilityTests: XCTestCase {
         XCTAssertEqual(two.count, 2, "both FASTA rows selected")
         let titles = commandTitles(contextMenu(sidebar, for: two))
         XCTAssertTrue(titles.contains("Move 2 Items to Trash"), "titles: \(titles)")
-        XCTAssertFalse(titles.contains("Copy Path"), "Copy Path is single-item only: \(titles)")
+        XCTAssertTrue(titles.contains("Copy Path"), "Copy Path takes several rows, one path per line: \(titles)")
         XCTAssertFalse(titles.contains("Rename\u{2026}"), "titles: \(titles)")
     }
 

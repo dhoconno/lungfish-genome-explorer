@@ -127,7 +127,7 @@ extension SidebarViewController {
         var locateSection: [SidebarItemAction] = []
         if !hasGroups { locateSection.append(.showInFinder) }
         if !hasGroups { locateSection.append(.copyName) }
-        if !hasGroups, soleItem != nil { locateSection.append(.copyPath) }
+        if !hasGroups { locateSection.append(.copyPath) }
         if let soleItem, soleItem.type.bundleCapabilities.canShowInInspector {
             locateSection.append(.showInInspector)
         }
@@ -223,6 +223,22 @@ extension SidebarViewController: SidebarItemMenuActions {
         pasteboard.setString(names.joined(separator: "\n"), forType: .string)
 
         sidebarLogger.info("copySelectedSidebarItemName: Copied \(names.count, privacy: .public) names")
+    }
+
+    /// Puts the file path of each selected row on the pasteboard as plain text,
+    /// one per line in outline order. One row copies its path alone, and
+    /// several rows copy a list, as Copy Name lists names. A row with no file
+    /// behind it adds no line.
+    @objc func copySelectedSidebarItemPath(_ sender: Any?) {
+        guard canPerformSidebarItemAction(.copyPath) else { return }
+        let paths = selectedItems().compactMap { $0.url?.path }
+        guard !paths.isEmpty else { return }
+
+        let pasteboard = copyPasteboard
+        pasteboard.clearContents()
+        pasteboard.setString(paths.joined(separator: "\n"), forType: .string)
+
+        sidebarLogger.info("copySelectedSidebarItemPath: Copied \(paths.count, privacy: .public) paths")
     }
 
     /// Edit > Copy (Cmd-C) while the sidebar outline has keyboard focus. Copy

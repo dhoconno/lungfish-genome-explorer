@@ -169,6 +169,35 @@ final class SidebarNewFolderEmptySpaceTests: XCTestCase {
         XCTAssertEqual(copiedPaths(), [fastaURL.resolvingSymlinksInPath().path])
     }
 
+    /// Right-clicking one of several selected rows offers Copy Path under the
+    /// same title, and it copies one path per line in row order.
+    func testRightClickOnSeveralRowsCopiesOnePathPerLineInRowOrder() throws {
+        let secondFastaURL = readsURL.appendingPathComponent("b.fasta")
+        try ">b\nACGT\n".write(to: secondFastaURL, atomically: true, encoding: .utf8)
+        let (sidebar, _) = makeSidebar()
+        defer { sidebar.closeProject() }
+        XCTAssertTrue(sidebar.selectItem(forURL: fastaURL), "could not select a.fasta")
+        let rowA = sidebar.outlineView.selectedRow
+        XCTAssertTrue(sidebar.selectItem(forURL: secondFastaURL), "could not select b.fasta")
+        let rowB = sidebar.outlineView.selectedRow
+        XCTAssertLessThan(rowA, rowB, "a.fasta is listed above b.fasta")
+        sidebar.outlineView.selectRowIndexes(IndexSet([rowB, rowA]), byExtendingSelection: false)
+        XCTAssertEqual(sidebar.selectedItems().count, 2)
+
+        let menu = try XCTUnwrap(sidebar.outlineView.menu, "the outline has no context menu")
+        menu.removeAllItems()
+        for item in sidebar.testContextMenuItems(for: sidebar.selectedItems()) { menu.addItem(item) }
+        let copyPath = try XCTUnwrap(
+            menu.items.first { $0.title == "Copy Path" }, "no Copy Path in \(menu.items.map(\.title))"
+        )
+        XCTAssertTrue(sidebar.validateMenuItem(copyPath), "the context menu follows the selection")
+
+        pasteboard.clearContents()
+        let action = try XCTUnwrap(copyPath.action)
+        XCTAssertTrue(NSApp.sendAction(action, to: copyPath.target, from: copyPath), "nothing handled Copy Path")
+        XCTAssertEqual(copiedPaths(), [fastaURL, secondFastaURL].map { $0.resolvingSymlinksInPath().path })
+    }
+
     /// The pasteboard's lines with their symlinks resolved, so a temporary
     /// folder reached through a symlink reads the same. A line break after the
     /// last path shows as an empty line.

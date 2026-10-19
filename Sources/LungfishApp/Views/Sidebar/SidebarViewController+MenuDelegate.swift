@@ -713,17 +713,6 @@ extension SidebarViewController: NSMenuDelegate {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
-    @objc func copySelectedSidebarItemPath(_ sender: Any?) {
-        let items = selectedItems()
-        guard let item = items.first, let url = item.url else { return }
-
-        let pasteboard = copyPasteboard
-        pasteboard.clearContents()
-        pasteboard.setString(url.path, forType: .string)
-
-        sidebarLogger.info("contextMenuCopyPath: Copied path '\(url.path, privacy: .public)'")
-    }
-
     /// Copies the classification command(s) to the system clipboard.
     ///
     /// Loads provenance or config from the classification result directory
