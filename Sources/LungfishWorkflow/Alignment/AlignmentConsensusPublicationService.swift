@@ -178,13 +178,18 @@ package struct AlignmentConsensusPublicationService {
                     // be observed without provenance, even across a crash.
                     stage = .sidecarPublication
                     try failureInjector(stage)
-                    try moveItem(prepared.physicalProvenanceURL, prepared.finalProvenanceURL)
+                    if let envelope = prepared.unwrittenEnvelope {
+                        _ = try ProvenanceWriter().writeNew(envelope, toSidecar: prepared.finalProvenanceURL)
+                    } else {
+                        try moveItem(prepared.physicalProvenanceURL, prepared.finalProvenanceURL)
+                    }
                     stage = .payloadPublication
                     try failureInjector(stage)
                     try moveItem(stagingURL, finalURL)
                 } catch {
                     try? FileManager.default.removeItem(at: finalURL)
-                    try? FileManager.default.removeItem(at: prepared.finalProvenanceURL)
+                    // The signature and public key of a record signed at its final name go with the record.
+                    try? ProvenancePublicationArtifacts.removeSidecarArtifacts(for: prepared.finalProvenanceURL)
                     throw error
                 }
             }
@@ -214,7 +219,9 @@ package struct AlignmentConsensusPublicationService {
         at stagingURL: URL,
         finalURL: URL,
         stage: inout AlignmentConsensusPublicationAttempt.Stage
-    ) throws -> (finalPayloadURL: URL, physicalProvenanceURL: URL, finalProvenanceURL: URL) {
+    ) throws -> (
+        finalPayloadURL: URL, physicalProvenanceURL: URL, finalProvenanceURL: URL, unwrittenEnvelope: ProvenanceEnvelope?
+    ) {
         let fasta = ">\(sanitizedHeader(request.recordName))\n\(request.result.sequence)\n"
         let physicalPayloadURL: URL
         let finalPayloadURL: URL
@@ -252,8 +259,14 @@ package struct AlignmentConsensusPublicationService {
         )
         stage = .provenanceWrite
         try failureInjector(stage)
-        try ProvenanceWriter().write(envelope, toSidecar: physicalProvenanceURL)
-        return (finalPayloadURL, physicalProvenanceURL, finalProvenanceURL)
+        let writer = ProvenanceWriter()
+        if case .fasta = request.destination, writer.signingProvider != nil {
+            // A signature made at the staged sibling name names that file inside the record, and renaming the record
+            // could not make it verify. With a key set, `publish` writes and signs the record at the name it keeps.
+            return (finalPayloadURL, physicalProvenanceURL, finalProvenanceURL, envelope)
+        }
+        try writer.write(envelope, toSidecar: physicalProvenanceURL)
+        return (finalPayloadURL, physicalProvenanceURL, finalProvenanceURL, nil)
     }
 
     private func publicationAttempt(
