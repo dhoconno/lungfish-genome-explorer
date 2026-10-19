@@ -105,7 +105,10 @@ final class AppUITestMappingBackendTests: XCTestCase {
 
         XCTAssertEqual(written.contigs.map(\.contigName), ["chr1"])
         XCTAssertEqual(manifest.genome?.chromosomes.map(\.name), ["chr1"])
-        XCTAssertEqual(manifest.browserSummary?.sequences.map(\.name), ["chr1"])
-        XCTAssertEqual(manifest.browserSummary?.aggregate.alignmentTrackCount, 0)
+        // The viewer manifest stores no derivable summary (lane 12.37), and a reader builds it in memory.
+        XCTAssertNil(manifest.browserSummary)
+        let summary = manifest.withSynthesizedBrowserSummaryIfNeeded().browserSummary
+        XCTAssertEqual(summary?.sequences.map(\.name), ["chr1"])
+        XCTAssertEqual(summary?.aggregate.alignmentTrackCount, 0)
     }
 }

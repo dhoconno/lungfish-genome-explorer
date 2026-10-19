@@ -415,7 +415,8 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(loaded.source.organism, manifest.source.organism)
     }
 
-    func testSaveSynthesizesBrowserSummaryFromGenomeChromosomes() throws {
+    /// Since lane 12.37 `save` stores no derivable summary, and a reader builds it in memory from the loaded manifest.
+    func testLoadedManifestSynthesizesBrowserSummaryFromGenomeChromosomes() throws {
         let bundleURL = tempDirectory.appendingPathComponent("browser-summary.lungfishref")
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -484,7 +485,8 @@ final class BundleManifestTests: XCTestCase {
         )
 
         try manifest.save(to: bundleURL)
-        let loaded = try BundleManifest.load(from: bundleURL)
+        XCTAssertNil(try BundleManifest.load(from: bundleURL).browserSummary)
+        let loaded = try BundleManifest.load(from: bundleURL).withSynthesizedBrowserSummaryIfNeeded()
 
         XCTAssertEqual(loaded.browserSummary?.schemaVersion, 1)
         XCTAssertEqual(loaded.browserSummary?.aggregate.annotationTrackCount, 1)
@@ -501,7 +503,7 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertNil(loaded.browserSummary?.sequences.last?.metrics)
     }
 
-    func testSaveRebuildsInvalidatedBrowserSummaryAfterManifestMutation() throws {
+    func testSynthesizedBrowserSummaryFollowsManifestMutation() throws {
         let bundleURL = tempDirectory.appendingPathComponent("browser-summary-refresh.lungfishref")
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -533,7 +535,7 @@ final class BundleManifestTests: XCTestCase {
         )
 
         try manifest.save(to: bundleURL)
-        let loaded = try BundleManifest.load(from: bundleURL)
+        let loaded = try BundleManifest.load(from: bundleURL).withSynthesizedBrowserSummaryIfNeeded()
         XCTAssertEqual(loaded.browserSummary?.aggregate.variantTrackCount, 0)
         XCTAssertEqual(loaded.browserSummary?.aggregate.alignmentTrackCount, 0)
 
@@ -560,7 +562,7 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertNil(mutated.browserSummary)
 
         try mutated.save(to: bundleURL)
-        let reloaded = try BundleManifest.load(from: bundleURL)
+        let reloaded = try BundleManifest.load(from: bundleURL).withSynthesizedBrowserSummaryIfNeeded()
 
         XCTAssertEqual(reloaded.browserSummary?.aggregate.variantTrackCount, 1)
         XCTAssertEqual(reloaded.browserSummary?.aggregate.alignmentTrackCount, 1)
@@ -694,6 +696,28 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(loaded.browserSummary, stored.browserSummary)
         XCTAssertEqual(loaded.withSynthesizedBrowserSummaryIfNeeded().browserSummary, stored.browserSummary)
         XCTAssertEqual(try Data(contentsOf: manifestURL), bytes)
+    }
+
+    /// F5a. `save` leaves out a summary that is nil or equals the synthesized one, so both write the same bytes.
+    func testSaveOmitsDerivableBrowserSummary() throws {
+        let manifest = makeStoredFormManifest()
+        let withStored = manifest.withSynthesizedBrowserSummaryIfNeeded()
+        XCTAssertNotNil(withStored.browserSummary)
+
+        let noneURL = try storedFormBundle("none")
+        let derivableURL = try storedFormBundle("derivable")
+        try manifest.save(to: noneURL)
+        try withStored.save(to: derivableURL)
+
+        XCTAssertNil(try savedManifestJSON(in: noneURL)["browser_summary"])
+        XCTAssertNil(try savedManifestJSON(in: derivableURL)["browser_summary"])
+        XCTAssertEqual(
+            try Data(contentsOf: noneURL.appendingPathComponent(BundleManifest.filename)),
+            try Data(contentsOf: derivableURL.appendingPathComponent(BundleManifest.filename))
+        )
+        XCTAssertNil(try BundleManifest.load(from: derivableURL).browserSummary)
+        XCTAssertNil(withStored.storedForm.browserSummary)
+        XCTAssertEqual(withStored.storedForm, withStored)
     }
 
     // MARK: - Validation Tests

@@ -593,7 +593,7 @@ extension BundleManifest {
     /// in one place; the immutable-update helpers below own their own semantics
     /// (whether to reset `browserSummary` and bump `modifiedDate`) by passing
     /// those fields explicitly.
-    private func copy(
+    func copy(
         formatVersion: String? = nil,
         name: String? = nil,
         identifier: String? = nil,
@@ -774,7 +774,7 @@ extension BundleManifest {
         browserSummary ?? synthesizedBrowserSummary()
     }
 
-    private func synthesizedBrowserSummary() -> BundleBrowserSummary? {
+    func synthesizedBrowserSummary() -> BundleBrowserSummary? {
         guard let genome else { return nil }
 
         let mappedReadCounts = alignments.compactMap(\.mappedReadCount)
@@ -801,22 +801,14 @@ extension BundleManifest {
         )
     }
 
-    public func withSynthesizedBrowserSummaryIfNeeded() -> BundleManifest {
-        guard browserSummary == nil, let synthesized = synthesizedBrowserSummary() else { return self }
-
-        // Unlike the mutators, this keeps `modifiedDate` and sets the synthesized
-        // summary rather than clearing it.
-        return copy(browserSummary: .some(synthesized))
-    }
-
-    /// Publishes `manifest.json` through ``DurableReplace``, so the name holds a complete old or new
+    /// Publishes ``storedForm`` as `manifest.json` through ``DurableReplace``, so the name holds a complete old or new
     /// manifest at every step and the bytes and the folder are synced (plan decisions S1, V1 and V2).
     public func save(to bundleURL: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
-        let data = try encoder.encode(withSynthesizedBrowserSummaryIfNeeded())
+        let data = try encoder.encode(storedForm)
         try DurableReplace.replace(data, named: Self.filename, in: bundleURL)
     }
 }

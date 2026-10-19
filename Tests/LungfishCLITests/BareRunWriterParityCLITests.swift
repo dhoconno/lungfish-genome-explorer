@@ -126,34 +126,6 @@ final class BareRunWriterParityCLITests: XCTestCase {
         )
     }
 
-    // MARK: project migrate (ProjectCommand.writeMigrationProvenance)
-
-    func testProjectMigrateBrowserSummary() async throws {
-        let project = try ProvenanceCompatScenarios.makeProject()
-        defer { project.cleanup() }
-        let bundleURL = try Self.makeLegacyReferenceBundle(named: "LegacySummary", in: project)
-        try ProvenanceCompatScenarios.write(
-            #"{"run":"creation-provenance","outputs":["payload"]}"#,
-            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        )
-        let command = try ProjectCommand.MigrateSubcommand.parse([project.root.path, "--quiet"])
-
-        try await command.run()
-
-        let migrations = bundleURL
-            .appendingPathComponent(".lungfish", isDirectory: true)
-            .appendingPathComponent("migrations", isDirectory: true)
-        let files = try FileManager.default.contentsOfDirectory(at: migrations, includingPropertiesForKeys: nil)
-        let sidecar = try XCTUnwrap(files.first { $0.lastPathComponent.hasSuffix(".project-migrate-provenance.json") })
-        try expectAfterConversion(
-            sidecar,
-            in: project,
-            scenario: Parity.Scenarios.projectMigrateBrowserSummary,
-            // The migration folder names its files after the run's start, to the millisecond.
-            extra: [.regularExpression(#"\d{4}-\d{2}-\d{2}T\d{9}Z"#, as: "<run-start>")]
-        )
-    }
-
     // MARK: fetch sra download (SRADownloadSubcommand.writeSRADownloadProvenance)
 
     func testSRADownloadToolkitFallback() async throws {
@@ -332,34 +304,4 @@ final class BareRunWriterParityCLITests: XCTestCase {
     chr1\t200\trs200\tC\tT\t50\tPASS\t.\tGT:DP:AD\t0/1:20:10,10\t0/1:22:11,11
     chr1\t300\trs300\tG\tA\t70\tPASS\t.\tGT:DP:AD\t1/1:31:0,31\t1/1:34:0,34
     """
-
-    /// A reference bundle whose manifest has no `browser_summary`, as the project migrate tests build it.
-    private static func makeLegacyReferenceBundle(
-        named name: String,
-        in project: ProvenanceCompatScenarios.Project
-    ) throws -> URL {
-        let bundleURL = project.root.appendingPathComponent("\(name).lungfishref", isDirectory: true)
-        try ProvenanceCompatScenarios.write(">chr1\nACGT\n", to: bundleURL.appendingPathComponent("genome/sequence.fa"))
-        try ProvenanceCompatScenarios.write("chr1\t4\t6\t4\t5\n", to: bundleURL.appendingPathComponent("genome/sequence.fa.fai"))
-        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
-        let manifest = BundleManifest(
-            formatVersion: "1.0",
-            name: name,
-            identifier: "org.lungfish.test.\(name.lowercased())",
-            createdDate: fixedDate,
-            modifiedDate: fixedDate,
-            source: SourceInfo(organism: "Test organism", assembly: "Test assembly"),
-            genome: GenomeInfo(
-                path: "genome/sequence.fa",
-                indexPath: "genome/sequence.fa.fai",
-                totalLength: 4,
-                chromosomes: [ChromosomeInfo(name: "chr1", length: 4, offset: 6, lineBases: 4, lineWidth: 5)]
-            )
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent(BundleManifest.filename), options: .atomic)
-        return bundleURL
-    }
 }

@@ -235,6 +235,50 @@ final class MappingViewerBundlePreparerTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: viewerIndex, encoding: .utf8), "chr1\t4\n")
     }
 
+    /// F5a and F5c's thin manifest (lane 12.37). The viewer bundle's manifest stores no browser summary, since
+    /// the preparer passes none and `save` leaves out a derivable one. A reader still gets the source's rows.
+    func testViewerManifestStoresNoBrowserSummary() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MappingViewerBundlePreparerTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let sourceBundle = tempDir.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        let genomeDir = sourceBundle.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
+        try ">chr1\nACGT\n>chr2\nAC\n".write(
+            to: genomeDir.appendingPathComponent("sequence.fa"), atomically: true, encoding: .utf8
+        )
+        try "chr1\t4\t6\t4\t5\nchr2\t2\t17\t2\t3\n".write(
+            to: genomeDir.appendingPathComponent("sequence.fa.fai"), atomically: true, encoding: .utf8
+        )
+        let source = BundleManifest(
+            name: "Reference",
+            identifier: "test.reference.thin",
+            source: SourceInfo(organism: "Test", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 6,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 4, offset: 6, lineBases: 4, lineWidth: 5, fastaDescription: "one"),
+                    ChromosomeInfo(name: "chr2", length: 2, offset: 17, lineBases: 2, lineWidth: 3),
+                ]
+            )
+        )
+        try source.save(to: sourceBundle)
+        let viewerBundle = tempDir.appendingPathComponent("Analysis/Reference.lungfishref", isDirectory: true)
+
+        try MappingViewerBundlePreparer.prepareBaseBundle(sourceBundleURL: sourceBundle, viewerBundleURL: viewerBundle)
+
+        let data = try Data(contentsOf: viewerBundle.appendingPathComponent(BundleManifest.filename))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(json["browser_summary"], "the viewer manifest stores a second per-sequence copy")
+        let viewer = try BundleManifest.load(from: viewerBundle)
+        XCTAssertEqual(
+            viewer.withSynthesizedBrowserSummaryIfNeeded().browserSummary?.sequences,
+            source.withSynthesizedBrowserSummaryIfNeeded().browserSummary?.sequences
+        )
+    }
+
     func testPrepareBaseBundleMaterializesManifestPayloadWithoutCopyingAlignments() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("MappingViewerBundlePreparerTests-\(UUID().uuidString)")

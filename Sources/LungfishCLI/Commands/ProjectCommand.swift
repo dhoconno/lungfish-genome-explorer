@@ -402,7 +402,7 @@ private struct ProjectBundleMigrator {
 
         if manifest.formatVersion == Self.currentReferenceFormatVersion,
            manifest.browserSummary == nil,
-           manifest.withSynthesizedBrowserSummaryIfNeeded().browserSummary != nil {
+           manifest.withSynthesizedBrowserSummaryIfNeeded().storedForm.browserSummary != nil {
             if dryRun {
                 return ProjectMigrationBundleReport(
                     path: relativePath,

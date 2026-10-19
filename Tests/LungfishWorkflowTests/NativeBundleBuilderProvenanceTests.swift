@@ -235,7 +235,54 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
             .appendingPathComponent("NativeBundleBuilderProvenanceTests-\(UUID().uuidString)", isDirectory: true)
         addTeardownBlock { try? fm.removeItem(at: root) }
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundleURL = try await buildCompressedFixtureBundle(in: root)
 
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        let compressedFASTA = bundleURL.appendingPathComponent("genome/sequence.fa.gz").path
+        let fastaIndex = bundleURL.appendingPathComponent("genome/sequence.fa.gz.fai").path
+        let gzipIndex = bundleURL.appendingPathComponent("genome/sequence.fa.gz.gzi").path
+
+        let bgzipStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bgzip" })
+        XCTAssertTrue(bgzipStep.argv.first?.hasSuffix("/envs/htslib/bin/bgzip") == true)
+        XCTAssertEqual(bgzipStep.outputs.map(\.path), [compressedFASTA])
+        XCTAssertNotNil(bgzipStep.outputs.first?.checksumSHA256)
+        XCTAssertNotNil(bgzipStep.outputs.first?.fileSize)
+
+        let faidxStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "samtools" && $0.argv.contains("faidx") })
+        XCTAssertTrue(faidxStep.argv.first?.hasSuffix("/envs/samtools/bin/samtools") == true)
+        XCTAssertTrue(faidxStep.inputs.contains { $0.path == compressedFASTA })
+        XCTAssertTrue(faidxStep.outputs.contains { $0.path == fastaIndex && $0.checksumSHA256 != nil })
+        XCTAssertTrue(faidxStep.outputs.contains { $0.path == gzipIndex && $0.checksumSHA256 != nil })
+    }
+
+    /// BIO 3 and 4 of F5a (lane 12.37). The published `manifest.json` holds no `browser_summary` that synthesis
+    /// can give back, and every output entry of the import record that names it holds the published bytes' digest.
+    func testRecordedManifestDigestMatchesPublishedManifest() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("NativeBundleBuilderProvenanceTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundleURL = try await buildCompressedFixtureBundle(in: root)
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename).standardizedFileURL
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+        XCTAssertNil(json["browser_summary"], "the import stored a summary that synthesis gives back")
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        let entries = envelope.steps.flatMap(\.outputs).filter {
+            URL(fileURLWithPath: $0.path).standardizedFileURL == manifestURL
+        }
+        XCTAssertFalse(entries.isEmpty, "the import record names no manifest output")
+        let published = try ProvenanceFileHasher.sha256(of: manifestURL)
+        for entry in entries {
+            XCTAssertEqual(entry.checksumSHA256, published)
+            XCTAssertEqual(entry.fileSize, try fm.attributesOfItem(atPath: manifestURL.path)[.size] as? UInt64)
+        }
+    }
+
+    /// Builds a one-sequence compressed reference bundle under `root` with fake managed bgzip and samtools.
+    private func buildCompressedFixtureBundle(in root: URL) async throws -> URL {
         let fastaURL = root.appendingPathComponent("source.fa")
         try """
         >chr1
@@ -267,7 +314,7 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         let builder = NativeBundleBuilder(
             toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
         )
-        let bundleURL = try await builder.build(
+        return try await builder.build(
             configuration: BuildConfiguration(
                 name: "Test Bundle",
                 identifier: "org.lungfish.test.native-provenance",
@@ -277,23 +324,6 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
                 compressFASTA: true
             )
         )
-
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
-        let compressedFASTA = bundleURL.appendingPathComponent("genome/sequence.fa.gz").path
-        let fastaIndex = bundleURL.appendingPathComponent("genome/sequence.fa.gz.fai").path
-        let gzipIndex = bundleURL.appendingPathComponent("genome/sequence.fa.gz.gzi").path
-
-        let bgzipStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bgzip" })
-        XCTAssertTrue(bgzipStep.argv.first?.hasSuffix("/envs/htslib/bin/bgzip") == true)
-        XCTAssertEqual(bgzipStep.outputs.map(\.path), [compressedFASTA])
-        XCTAssertNotNil(bgzipStep.outputs.first?.checksumSHA256)
-        XCTAssertNotNil(bgzipStep.outputs.first?.fileSize)
-
-        let faidxStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "samtools" && $0.argv.contains("faidx") })
-        XCTAssertTrue(faidxStep.argv.first?.hasSuffix("/envs/samtools/bin/samtools") == true)
-        XCTAssertTrue(faidxStep.inputs.contains { $0.path == compressedFASTA })
-        XCTAssertTrue(faidxStep.outputs.contains { $0.path == fastaIndex && $0.checksumSHA256 != nil })
-        XCTAssertTrue(faidxStep.outputs.contains { $0.path == gzipIndex && $0.checksumSHA256 != nil })
     }
 
     private func writeFakeManagedTool(

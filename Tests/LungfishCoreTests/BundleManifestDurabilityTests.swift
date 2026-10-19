@@ -51,7 +51,7 @@ final class BundleManifestDurabilityTests: XCTestCase {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let expected = try encoder.encode(manifest.withSynthesizedBrowserSummaryIfNeeded())
+        let expected = try encoder.encode(manifest.storedForm)
         XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent(BundleManifest.filename)), expected)
     }
 
