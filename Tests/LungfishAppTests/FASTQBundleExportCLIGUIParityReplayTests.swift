@@ -112,8 +112,7 @@ final class FASTQBundleExportCLIGUIParityReplayTests: XCTestCase {
     /// no message, and the row's command, cancelled on the launcher every CLI route uses, exits 125 inside the grace.
     /// Neither leaves the output, its record or a staged file.
     func testACancelledExportExits125AndLeavesNoFileAndNoRecord() async throws {
-        let root = scratch.appendingPathComponent("cancel", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try deepDirectory("cancel")
         try Self.makeFixture(root)
         let parityCase = Case.plainBundle
         let output = Self.outputURL(in: root, parityCase)
@@ -152,6 +151,15 @@ final class FASTQBundleExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertEqual(run.end, .cancelled)
         XCTAssertTrue(run.stdout.contains("The export was cancelled. No file was written."), run.stdout)
         try assertNothingLeft(output, sidecar)
+    }
+
+    /// A case folder five levels below the temporary folder. The record's walk up from each input lists the
+    /// temporary folder, so a case two levels down made every test wait for a long listing (8 to 21 s a case in the
+    /// lane's measurement against 0.35 s at five levels).
+    private func deepDirectory(_ name: String) throws -> URL {
+        let url = scratch.appendingPathComponent("l2/l3/l4", isDirectory: true).appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     private func assertNothingLeft(_ output: URL, _ sidecar: URL) throws {
@@ -238,7 +246,7 @@ extension FASTQBundleExportCLIGUIParityReplayTests {
     @discardableResult
     private func assertParity(_ parityCase: Case) async throws -> RouteParityRuns {
         let runs = try await harness.run(
-            in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
+            in: try deepDirectory(parityCase.rawValue),
             fixture: Self.makeFixture,
             sideA: { root in try await self.sideA(root, parityCase) },
             sideC: { root in try await self.sideC(root, parityCase) }
