@@ -13,7 +13,7 @@ public struct ProvenanceWriter: Sendable {
     public static let bundleRollupFilename = "bundle.lungfish-provenance.json"
     public static let maximumBundleOutputSidecars = 100
 
-    private let signingProvider: (any ProvenanceSigningProvider)?
+    let signingProvider: (any ProvenanceSigningProvider)?
     private let exclusivePublicationPreRenameHook:
         (@Sendable (URL, URL) throws -> Void)?
     private let exclusivePublicationPreMismatchCleanupHook:
@@ -596,7 +596,7 @@ public struct ProvenanceWriter: Sendable {
         try publishDurably(data, to: provenanceURL, kind: .provenanceDocumentWritten)
     }
 
-    private func removeSigningArtifacts(for provenanceURL: URL) throws {
+    func removeSigningArtifacts(for provenanceURL: URL) throws {
         for artifactURL in [
             ProvenanceSigningConfiguration.signatureURL(for: provenanceURL),
             ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL),
@@ -653,7 +653,7 @@ public struct ProvenanceWriter: Sendable {
         }
     }
 
-    private func sign(
+    func sign(
         with provider: any ProvenanceSigningProvider,
         provenanceURL: URL
     ) throws -> ProvenanceSignatureArtifact {

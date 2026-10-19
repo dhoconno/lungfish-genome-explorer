@@ -4,9 +4,10 @@
 //
 // Phase 2.12 lane 12.22 (S64), milestone M1. The Known limit of the 2026.10.20 notes says that with
 // `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` set the record of `sequence annotate-orfs`, the record of
-// `sequence delete-annotation-track` and the log that Add Annotation appends to stay unsigned. These pins hold the
-// state at the base with a throwaway key, so M2 changes each one in a commit of its own and a reviewer sees the
-// flip. A run with no key is pinned too, since the lane must leave it as it is.
+// `sequence delete-annotation-track` and the log that Add Annotation appends to stay unsigned. M1 pinned that state at
+// the base with a throwaway key, and M2 flipped each pin in a commit of its own (the three cases moved to
+// SequenceAnnotationTrackSigningReplayTests and ReferenceBundleManualAnnotationLogSigningReplayTests). What stays
+// here is the run with no key, which the lane must leave as it is, and the keyless write into a signed record.
 //
 // The last test reads what `ProvenanceWriter.writeSidecar` does today when a keyless write replaces a signed
 // record. The new record carries no signature, the writer removes `<record>.signature.json` and `<record>.pub`,
@@ -33,20 +34,9 @@ final class NamedUnsignedRecordsPinReplayTests: XCTestCase {
 
     // MARK: - With a key set
 
-    // The pins of the annotate-orfs record and the delete-annotation-track record flipped in M2 step 1. Their
-    // cases are in SequenceAnnotationTrackSigningReplayTests, and the no-key test below still covers both.
-
-    func testTheAddAnnotationLogIsUnsignedWhenAKeyIsSetAtTheBase() async throws {
-        let scratch = try TestTempDirectory.make(prefix: "named-unsigned-log")
-        defer { TestTempDirectory.cleanup(scratch) }
-        let bundle = try makeBundle(in: scratch)
-        let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
-        defer { saved.restore() }
-
-        try await addAnnotation(to: bundle)
-
-        assertUnsignedRecord(bundle.appendingPathComponent(manualLogName))
-    }
+    // The pins of the annotate-orfs record, the delete-annotation-track record and the Add Annotation log flipped in
+    // M2. Their cases are in SequenceAnnotationTrackSigningReplayTests and
+    // ReferenceBundleManualAnnotationLogSigningReplayTests, and the no-key test below still runs all three actions.
 
     // MARK: - With no key
 

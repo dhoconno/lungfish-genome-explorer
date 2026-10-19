@@ -474,7 +474,9 @@ public final class ReferenceBundleManualAnnotationService {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(log)
-        try data.write(to: provenanceURL, options: .atomic)
+        // The log keeps its schema and its name. The writer publishes it as a record is published and signs it when a
+        // key is set, and a write with no key removes the signature an earlier write left (decision S5).
+        try ProvenanceWriter().writeDocument(data, to: provenanceURL)
     }
 
     private func loadProvenanceLog(from url: URL) throws -> ManualAnnotationProvenanceLog {
