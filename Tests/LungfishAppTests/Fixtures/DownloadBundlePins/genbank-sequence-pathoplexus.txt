@@ -11,25 +11,6 @@ manifest   ],
 manifest   "annotations" : [
 manifest
 manifest   ],
-manifest   "browser_summary" : {
-manifest     "aggregate" : {
-manifest       "alignmentTrackCount" : 0,
-manifest       "annotationTrackCount" : 0,
-manifest       "variantTrackCount" : 0
-manifest     },
-manifest     "schemaVersion" : 1,
-manifest     "sequences" : [
-manifest       {
-manifest         "aliases" : [
-manifest
-manifest         ],
-manifest         "isMitochondrial" : false,
-manifest         "isPrimary" : true,
-manifest         "length" : 185,
-manifest         "name" : "PP_00LGE01.1"
-manifest       }
-manifest     ]
-manifest   },
 manifest   "description" : "Lungfish stand-in Pathoplexus record",
 manifest   "format_version" : "1.0",
 manifest   "genome" : {

@@ -271,26 +271,6 @@ manifest       "name" : "genes",
 manifest       "path" : "annotations/annotations.db"
 manifest     }
 manifest   ],
-manifest   "browser_summary" : {
-manifest     "aggregate" : {
-manifest       "alignmentTrackCount" : 0,
-manifest       "annotationTrackCount" : 1,
-manifest       "variantTrackCount" : 0
-manifest     },
-manifest     "schemaVersion" : 1,
-manifest     "sequences" : [
-manifest       {
-manifest         "aliases" : [
-manifest           "ZZ000001"
-manifest         ],
-manifest         "displayDescription" : "Lungfish stand-in virus isolate LGE-1 segment 1, complete sequence",
-manifest         "isMitochondrial" : false,
-manifest         "isPrimary" : true,
-manifest         "length" : 150,
-manifest         "name" : "ZZ000001.1"
-manifest       }
-manifest     ]
-manifest   },
 manifest   "format_version" : "1.0",
 manifest   "genome" : {
 manifest     "chromosomes" : [

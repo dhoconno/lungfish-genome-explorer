@@ -12,34 +12,6 @@ manifest   ],
 manifest   "annotations" : [
 manifest
 manifest   ],
-manifest   "browser_summary" : {
-manifest     "aggregate" : {
-manifest       "alignmentTrackCount" : 0,
-manifest       "annotationTrackCount" : 0,
-manifest       "variantTrackCount" : 0
-manifest     },
-manifest     "schemaVersion" : 1,
-manifest     "sequences" : [
-manifest       {
-manifest         "aliases" : [
-manifest
-manifest         ],
-manifest         "isMitochondrial" : false,
-manifest         "isPrimary" : true,
-manifest         "length" : 130,
-manifest         "name" : "SI_000001.1"
-manifest       },
-manifest       {
-manifest         "aliases" : [
-manifest
-manifest         ],
-manifest         "isMitochondrial" : false,
-manifest         "isPrimary" : true,
-manifest         "length" : 70,
-manifest         "name" : "SI_000002.1"
-manifest       }
-manifest     ]
-manifest   },
 manifest   "description" : "Lungfish stand-in organism (stand-ins) genome assembly StandInAsm1",
 manifest   "format_version" : "1.0",
 manifest   "genome" : {

@@ -56,41 +56,6 @@ manifest       "path" : "annotations/ncbi_genes.db",
 manifest       "source" : "NCBI"
 manifest     }
 manifest   ],
-manifest   "browser_summary" : {
-manifest     "aggregate" : {
-manifest       "alignmentTrackCount" : 0,
-manifest       "annotationTrackCount" : 1,
-manifest       "variantTrackCount" : 1
-manifest     },
-manifest     "schemaVersion" : 1,
-manifest     "sequences" : [
-manifest       {
-manifest         "aliases" : [
-manifest           "1",
-manifest           "CM000001.1",
-manifest           "chr1"
-manifest         ],
-manifest         "displayDescription" : "Chromosome 1",
-manifest         "isMitochondrial" : false,
-manifest         "isPrimary" : true,
-manifest         "length" : 130,
-manifest         "name" : "SI_000001.1"
-manifest       },
-manifest       {
-manifest         "aliases" : [
-manifest           "CM000002.1",
-manifest           "MT",
-manifest           "chrM",
-manifest           "chrMT"
-manifest         ],
-manifest         "displayDescription" : "Mitochondrion MT",
-manifest         "isMitochondrial" : true,
-manifest         "isPrimary" : true,
-manifest         "length" : 70,
-manifest         "name" : "SI_000002.1"
-manifest       }
-manifest     ]
-manifest   },
 manifest   "format_version" : "1.0",
 manifest   "genome" : {
 manifest     "chromosomes" : [
