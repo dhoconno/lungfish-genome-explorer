@@ -61,6 +61,27 @@ final class ProvenanceRecordPinTests: XCTestCase {
         }
     }
 
+    /// Row 10 moves onto `ProvenanceWriter.exportedRecordBytes`. For a record that names no signature it returns the
+    /// bytes `package` returns. For a signed source it keeps the references, where `package` throws, so the export of a
+    /// signed record writes the bytes it wrote at the base.
+    func testExportedRecordBytesEqualPackageWithoutSignaturesAndKeepThemWith() throws {
+        let unsigned = ProvenanceRecordFreezeFixtures.preparationEnvelope()
+        XCTAssertEqual(try ProvenanceWriter.exportedRecordBytes(unsigned), try ProvenanceWriter.package(unsigned))
+        var signed = unsigned
+        signed.signatures = [
+            ProvenanceSignatureReference(
+                provider: "lungfish-local-deterministic-v1",
+                provenanceSHA256: ProvenanceRecordFreezeFixtures.digest,
+                signaturePath: ".lungfish-provenance.json.signature.json",
+                publicKeyPath: ".lungfish-provenance.json.public-key.json"
+            ),
+        ]
+        let bytes = try ProvenanceWriter.exportedRecordBytes(signed)
+        XCTAssertEqual(try ProvenanceEnvelopeReader.decodeCanonical(bytes).signatures, signed.signatures)
+        XCTAssertEqual(bytes, try ProvenanceJSON.encoder.encode(signed))
+        XCTAssertThrowsError(try ProvenanceWriter.package(signed))
+    }
+
     /// Row 11, `ProvenanceExporter.swift:643`. The Nextflow export writes the container manifest of the plan's steps.
     func testContainerManifestKeepsItsBytes() throws {
         let identity = ProvenanceRuntimeIdentity(

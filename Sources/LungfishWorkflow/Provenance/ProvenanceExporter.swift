@@ -159,7 +159,7 @@ public struct ProvenanceExporter: Sendable {
             try exportMethods(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
         case .json:
             primaryArtifactURL = outputDirectory.appendingPathComponent("provenance.json")
-            let data = try ProvenanceJSON.encoder.encode(expandedEnvelope)
+            let data = try ProvenanceWriter.exportedRecordBytes(expandedEnvelope)
             try data.write(to: primaryArtifactURL, options: .atomic)
         }
         generatedArtifactURLs.insert(primaryArtifactURL, at: 0)
