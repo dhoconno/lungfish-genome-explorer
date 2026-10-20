@@ -42,7 +42,7 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
             state: .running,
             operationType: .assembly,
             onCancel: {},
-            cliCommand: "lungfish map reads.fastq"
+            cliCommand: "lungfish-cli map reads.fastq"
         )
         XCTAssertEqual(
             OperationRowAction.available(for: running),
@@ -56,7 +56,7 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
             state: .completed,
             operationType: .assembly,
             outputURLs: [URL(fileURLWithPath: "/tmp/out.bam")],
-            cliCommand: "lungfish map reads.fastq"
+            cliCommand: "lungfish-cli map reads.fastq"
         )
         completed.logEntries = [OperationLogEntry(timestamp: Date(), level: .info, message: "done")]
         XCTAssertEqual(
@@ -163,7 +163,7 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
             title: "Call variants",
             detail: "Running bcftools",
             operationType: .assembly,
-            cliCommand: "lungfish call-variants sample.bam",
+            cliCommand: "lungfish-cli call-variants sample.bam",
             onCancel: {}
         ).rowID
         defer {
@@ -192,7 +192,7 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
     }
 
     func testRowExposesCustomAccessibilityActionsThatShareTheMenuImplementation() throws {
-        let command = "lungfish call-variants --reference chr20.fa sample.bam"
+        let command = "lungfish-cli call-variants --reference chr20.fa sample.bam"
         let operationID = OperationCenter.shared.begin(
             title: "Call variants",
             detail: "Running bcftools",
@@ -267,7 +267,7 @@ extension OperationRowActionAccessibilityTests {
             title: "Call variants",
             detail: "Running bcftools",
             operationType: .assembly,
-            cliCommand: "lungfish call-variants sample.bam",
+            cliCommand: "lungfish-cli call-variants sample.bam",
             onCancel: {}
         ).rowID
         defer { OperationCenter.shared.clearCompleted() }

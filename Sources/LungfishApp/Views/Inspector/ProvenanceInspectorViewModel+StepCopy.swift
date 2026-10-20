@@ -43,7 +43,8 @@ extension ProvenanceInspectorViewModel {
     /// The commands a Lineage step's label and Command row offer, in the context menu and, under the same titles and
     /// in the same order, as VoiceOver actions. Copy Command copies the recorded command whole, not the shortened
     /// form the row shows, with each path a rename moved in its new folder when `renamed` says so (R-B2). Copy Step
-    /// keeps the command as it ran.
+    /// keeps the command as it ran. A step that ran inside the app has no command a Terminal can run, so its Copy
+    /// Command is off in both places while Copy Step and Copy All Steps stay on (V1-7, R3).
     func stepCopyActions(
         _ step: ProvenanceLineageStep,
         in run: ProvenanceLineageRun,
@@ -51,7 +52,7 @@ extension ProvenanceInspectorViewModel {
     ) -> [ContextAction] {
         [
             .command("Copy Step") { self.writeStepCopy(self.stepClipboardText(of: step)) },
-            .command("Copy Command", isEnabled: !step.command.isEmpty) {
+            .command("Copy Command", isEnabled: !step.command.isEmpty && !step.ranInsideTheApp) {
                 self.writeStepCopy(renamed?.copyCommand ?? step.command)
             },
             .divider(),

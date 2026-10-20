@@ -406,7 +406,7 @@ struct ProvenanceSection: View {
         ) {
             VStack(alignment: .leading, spacing: 6) {
                 if !step.command.isEmpty {
-                    let renamed = renamedCommands[step.id]
+                    let renamed = step.ranInsideTheApp ? nil : renamedCommands[step.id]
                     summaryRow(
                         "Command",
                         value: renamed?.label ?? step.displayCommand,
@@ -424,6 +424,7 @@ struct ProvenanceSection: View {
                             .help(renamed.note)
                             .accessibilityIdentifier("provenance-step-command-rename-note")
                     }
+                    appStepNoteRow(of: step)
                 }
                 stepObservationRow(.environment, of: step)
                 if !step.inputPaths.isEmpty {

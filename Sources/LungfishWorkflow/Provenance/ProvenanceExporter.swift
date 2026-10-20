@@ -1501,16 +1501,7 @@ public struct ProvenanceExporter: Sendable {
     private func replayArguments(_ step: StepExecution) -> [String]? {
         let args = step.durableReplayArgv ?? step.command
         guard let executable = args.first, !executable.isEmpty else { return nil }
-        let name = URL(fileURLWithPath: executable).lastPathComponent.lowercased()
-        let guiNames = ["lungfish.app", "lungfish-app", "lungfish-gui", "lungfish genome explorer"]
-        guard !guiNames.contains(name) else { return nil }
-        if ["sh", "bash", "zsh"].contains(name), args.count >= 3,
-           ["-c", "-lc"].contains(args[1]),
-           let first = try? AdvancedCommandLineOptions.parse(args[2]).first,
-           guiNames.contains(URL(fileURLWithPath: first).lastPathComponent.lowercased()) {
-            return nil
-        }
-        return args
+        return ProvenanceAppStep.isAppStep(args) ? nil : args
     }
 
     /// Comment lines naming the recorded paths that could not be resolved

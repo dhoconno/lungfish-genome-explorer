@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishKit
 
 /// One command that acts on a single ``OperationCenter/Item``.
@@ -127,7 +128,7 @@ enum OperationRowAction: String, CaseIterable, RowCommand, Sendable {
         case .runAgain:
             return WorkflowOperationsWindowController.replaySourceBundleURL(for: item) != nil
         case .copyCLICommand:
-            return item.cliCommand != nil
+            return item.cliCommand?.hasPrefix(CLICommandIdentity.executableName + " ") ?? false // V1-7: no Terminal runs other words
         case .copyLog, .viewLog, .revealLog:
             return !item.logEntries.isEmpty
         case .copyFailureReport, .openGitHubIssue:

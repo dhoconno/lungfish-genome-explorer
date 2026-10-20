@@ -494,8 +494,6 @@ struct ProvenanceExportPlan {
 
     // MARK: - Step shapes
 
-    private static let guiNames = ["lungfish.app", "lungfish-app", "lungfish-gui", "lungfish genome explorer"]
-
     static func isInternal(_ step: StepExecution) -> Bool {
         (step.durableReplayArgv ?? step.command).first == "lungfish-internal"
     }
