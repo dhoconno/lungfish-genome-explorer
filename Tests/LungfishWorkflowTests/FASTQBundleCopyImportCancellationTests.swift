@@ -52,6 +52,34 @@ final class FASTQBundleCopyImportCancellationTests: XCTestCase {
         XCTAssertGreaterThan(total, 1 + 2 * hashCalls, "the rehydrator checks the cancel between the chunks of its hash")
     }
 
+    func testTheHashOfTheCopiedFilesTakesTheCheckBetweenItsChunks() throws {
+        // The bundle holds a sparse file that its record does not name, so the rehydrator never hashes it. The import
+        // hashes it twice, as a source file and as a copied file, with a check before each read. Four more chunks
+        // therefore add four checks to each of the two hashes, and a hash of the copy that takes no check adds only four.
+        let small = try countChecks(ofAnImportWithASparseFileOf: 2, in: "Small")
+        let large = try countChecks(ofAnImportWithASparseFileOf: 6, in: "Large")
+        XCTAssertEqual(large - small, 2 * (6 - 2), "each of the two hashes of the sparse file checks between its chunks")
+    }
+
+    /// The checks that a clean import makes when the bundle also holds a sparse file of `chunks` hash chunks.
+    private func countChecks(ofAnImportWithASparseFileOf chunks: Int, in folder: String) throws -> Int {
+        let source = try makeBundle(in: folder)
+        let sparse = source.appendingPathComponent("extra.bin")
+        XCTAssertTrue(FileManager.default.createFile(atPath: sparse.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: sparse)
+        try handle.truncate(atOffset: UInt64(chunks * FileDigest.defaultChunkSize))
+        try handle.close()
+        var total = 0
+
+        _ = try FASTQBundleCopyImportWorkflow().importBundle(
+            sourceBundleURL: source,
+            outputURL: root.appendingPathComponent("\(folder)Target", isDirectory: true),
+            context: .init(workflowName: "copy", toolName: "lungfish-cli", argv: ["lungfish-cli", "copy"]),
+            checkCancellation: { total += 1 }
+        )
+        return total
+    }
+
     private func assertCancelled(atCall stop: Int, file: StaticString = #filePath, line: UInt = #line) throws {
         let source = try makeBundle()
         let output = root.appendingPathComponent("Target", isDirectory: true)
@@ -82,8 +110,8 @@ final class FASTQBundleCopyImportCancellationTests: XCTestCase {
     }
 
     /// A read bundle with one FASTQ file and the provenance a copy requires.
-    private func makeBundle() throws -> URL {
-        let bundle = root.appendingPathComponent("Source/Reads.lungfishfastq", isDirectory: true)
+    private func makeBundle(in folder: String = "Source") throws -> URL {
+        let bundle = root.appendingPathComponent("\(folder)/Reads.lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let fastq = bundle.appendingPathComponent("reads.fastq")
         try "@r1\nACGT\n+\nIIII\n".write(to: fastq, atomically: true, encoding: .utf8)

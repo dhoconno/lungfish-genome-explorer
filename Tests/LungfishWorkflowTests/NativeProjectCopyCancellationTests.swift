@@ -62,6 +62,30 @@ final class NativeProjectCopyCancellationTests: XCTestCase {
         XCTAssertEqual(residue(beside: destination), [], "no .native-copy- folder is left")
     }
 
+    func testACheckThatThrowsJustBeforeTheCopyStopsItBeforeAnyCopyExists() throws {
+        let item = try makeItem()
+        let destination = destinationURL()
+        // Count the source hash's own calls on the same file, so the next call is the check before `copyItem`.
+        var hashCalls = 0
+        _ = try ProvenanceFileHasher.sha256(of: item.appendingPathComponent("padding.bin"), cancellationCheck: { hashCalls += 1 })
+        var calls = 0
+        var residueWhenStopped: [String]?
+
+        XCTAssertThrowsError(try NativeProjectCopyImportService.copy(from: item, to: destination, checkCancellation: {
+            calls += 1
+            guard calls == hashCalls + 1 else { return }
+            residueWhenStopped = self.residue(beside: destination)
+            throw CancellationError()
+        })) { error in
+            XCTAssertTrue(error is CancellationError, "the cancel comes back as itself, not \(error)")
+        }
+
+        XCTAssertEqual(calls, hashCalls + 1, "the call after the source's hash stops the copy")
+        XCTAssertEqual(residueWhenStopped, [], "the check before the copy ran before any copy existed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "nothing is published")
+        XCTAssertEqual(residue(beside: destination), [], "no .native-copy- folder is left")
+    }
+
     func testTheCheckRunsBetweenTheChunksOfBothHashes() throws {
         let item = try makeItem()
         let destination = destinationURL()
@@ -78,7 +102,8 @@ final class NativeProjectCopyCancellationTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: published.appendingPathComponent("padding.bin").path))
         XCTAssertGreaterThanOrEqual(
-            callsBeforeTheCopy, Self.chunks + 1, "one check before each chunk of the source's hash, and one before the copy"
+            callsBeforeTheCopy, Self.chunks + 2,
+            "one check before each of the eight reads, one before the empty read at the end of the file, and one before the copy"
         )
         XCTAssertGreaterThanOrEqual(callsAfterTheCopy, Self.chunks, "one check before each chunk of the copy's hash")
         XCTAssertEqual(residue(beside: destination), [], "the copy leaves no .native-copy- folder")
