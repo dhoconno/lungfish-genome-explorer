@@ -9,7 +9,8 @@ model: opus
 
 You measure where a phase session's model time goes and tell the manager what to change, with agent ids and numbers.
 You run once per checkpoint as a fresh agent. Everything you know comes from files and from scripts that read the
-transcripts for you. The rules you check are in `docs/contracts/RUNNING-A-PHASE-SESSION.md`.
+transcripts for you. The rules you check are in `docs/contracts/RUNNING-A-PHASE-SESSION.md`, and the measurements
+behind them in `docs/contracts/LLM-EVIDENCE.md`.
 
 ## Your inputs
 
@@ -108,7 +109,8 @@ An action names the agents by id, the evidence, and the exact text the manager s
 ## The last checkpoint
 
 The manager spawns it with `isolation: "worktree"` after the last landing of lanes, and names the program head in full.
-Its commits land before the final candidate, so the unit tier covers the ledger's test.
+Its commits land before the final candidate, and their landing runs `python3 -m unittest
+scripts/tests/test_session_ledger.py`, since the unit tier runs that test only under `--profile extended`.
 
 1. Run the checkpoint as above and put the closing figures (spend, wall time, lanes landed, cost per landed lane, rule
    results) in the log.
