@@ -132,7 +132,7 @@ final class ViewerFigureVariantTrackTests: XCTestCase {
         try track.draw(into: &canvas, area: ViewerFigureRect(x: 0, y: 0, width: 600, height: track.height))
         XCTAssertEqual(canvas.items.count, 2)
         XCTAssertEqual(canvas.omissions, [ViewerFigureOmission(
-            trackID: "calls", kind: .readRowCap, reason: "sample rows past the track height of 46 points", count: 1
+            trackID: "calls", kind: .annotationLimit, reason: "sample rows past the track height of 46 points", count: 1
         )])
     }
 

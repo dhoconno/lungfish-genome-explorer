@@ -14,7 +14,7 @@ import LungfishIO
 /// `load` reads one variant database over the window off the main actor, as the live variant and genotype fetches
 /// read it, and the track then only adds its layers. Over 5,000 variants the live view draws no genotype rows and a
 /// line that asks to zoom in, and the figure draws the same line and records an `annotationLimit` omission. Sample
-/// rows past the track's height are recorded as `readRowCap` omissions (BIO 4).
+/// rows past the track's height are recorded as `annotationLimit` omissions too, since this track holds no reads (BIO 4).
 public struct ViewerFigureVariantTrack: ViewerFigureTrackBuilding {
     /// The live view draws no genotype rows when the window holds more variants than this.
     public static let genotypeDisplayCap = 5_000
@@ -124,7 +124,7 @@ public struct ViewerFigureVariantTrack: ViewerFigureTrackBuilding {
         let fitting = Int((available / Double(state.rowHeight)).rounded(.down))
         let hidden = content.sampleNames.count - fitting
         if hidden > 0 {
-            omit(.readRowCap, "sample rows past the track height of \(ViewerFigureReadTrack.points(area.height)) points", hidden, into: &canvas)
+            omit(.annotationLimit, "sample rows past the track height of \(ViewerFigureReadTrack.points(area.height)) points", hidden, into: &canvas)
         }
     }
 
