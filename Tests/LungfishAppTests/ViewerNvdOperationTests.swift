@@ -19,6 +19,8 @@ import LungfishTestSupport
 final class ViewerNvdOperationTests: XCTestCase {
     private let contigName = "NODE_12 (1,205 bp)"
     private let classificationName = "Severe acute respiratory syndrome coronavirus 2"
+    /// What the row records in the tests that plan no search. The helper has no default since Phase 2.13.
+    private let submitCommand = "lungfish-cli blast submit --label nvd-contig"
 
     func testContigBlastRowRecordsItsTitleTypeAndNoLock() throws {
         let reporter = RecordingOperationReporter()
@@ -28,6 +30,7 @@ final class ViewerNvdOperationTests: XCTestCase {
             contigName: contigName,
             classificationName: classificationName,
             taxId: 2_697_049,
+            cliCommand: submitCommand,
             reporter: reporter
         ) { launchedID = $0 }
 
@@ -100,6 +103,7 @@ final class ViewerNvdOperationTests: XCTestCase {
             contigName: contigName,
             classificationName: classificationName,
             taxId: 2_697_049,
+            cliCommand: submitCommand,
             reporter: reporter
         ) { _ in launched = true }
 

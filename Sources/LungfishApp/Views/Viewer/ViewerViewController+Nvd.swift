@@ -72,106 +72,20 @@ extension ViewerViewController {
             nvdDisplayLogger.info(
                 "BLAST verification requested for \(contigName, privacy: .public) (\(classificationName, privacy: .public)), taxId=\(taxIdInt, privacy: .public)"
             )
-            if ClassifierBlastRouteSettings.currentRoute == .cli {
-                guard let plan = Self.blastSubmitPlan(window: self?.view.window, failure: { controller?.showBlastFailure($0) }, {
-                    try Self.nvdBlastSubmitPlan(
-                        hit: hit, sequence: sequence, classificationName: classificationName,
-                        projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
-                    )
-                }) else { return }
-                Self.beginNvdBlastVerificationOperation(
-                    contigName: contigName, classificationName: classificationName, taxId: taxIdInt, cliCommand: plan.cliCommand
-                ) { opID in
-                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
-                        loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                        results: { controller?.showBlastResults($0, recordURL: $1) },
-                        failure: { controller?.showBlastFailure($0) }
-                    )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
-                }
-                return
-            }
-
-            // The in-process search, the route before Phase 2.12, kept behind `ClassifierBlastRoute` for one
-            // release (C4, U-R1). Its row records no command. Phase 2.13 deletes it with the key.
-
-            ViewerViewController.beginNvdBlastVerificationOperation(
-                contigName: contigName,
-                classificationName: classificationName,
-                taxId: taxIdInt
+            guard let plan = Self.blastSubmitPlan(window: self?.view.window, failure: { controller?.showBlastFailure($0) }, {
+                try Self.nvdBlastSubmitPlan(
+                    hit: hit, sequence: sequence, classificationName: classificationName,
+                    projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
+                )
+            }) else { return }
+            Self.beginNvdBlastVerificationOperation(
+                contigName: contigName, classificationName: classificationName, taxId: taxIdInt, cliCommand: plan.cliCommand
             ) { opID in
-                let blastController = controller
-                let task = Task.detached {
-                    do {
-                        let blastService = BlastService.shared
-
-                        let trimmedSequence = sequence.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmedSequence.isEmpty else {
-                            throw BlastServiceError.noSequences
-                        }
-
-                        // Judge hits against the NVD adjusted tax ID, not just its
-                        // short name, so "SARS-CoV-2" accepts NCBI's scientific name.
-                        let request = hit.blastVerificationRequest(
-                            taxonName: classificationName,
-                            sequence: trimmedSequence
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: 0.1,
-                                    detail: "Submitting contig to NCBI BLAST\u{2026}"
-                                ) else { return }
-                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
-                            }
-                        }
-
-                        let blastResult = try await blastService.verify(
-                            request: request,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        guard OperationCenter.shared.update(
-                                            id: opID,
-                                            progress: fraction,
-                                            detail: message
-                                        ) else { return }
-
-                                        let lower = message.lowercased()
-                                        if lower.contains("waiting") {
-                                            blastController?.showBlastLoading(phase: .waiting, requestId: nil)
-                                        } else if lower.contains("parsing") {
-                                            blastController?.showBlastLoading(phase: .parsing, requestId: nil)
-                                        } else {
-                                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
-                                        }
-                                    }
-                                }
-                            }
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
-                                ) else { return }
-                                blastController?.showBlastResults(blastResult, recordURL: nil) // The in-process route saves no file (ARCH T5), and 13.03 deletes it.
-                            }
-                        }
-                    } catch {
-                        let errorDesc = error.localizedDescription
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                                blastController?.showBlastFailure(errorDesc)
-                            }
-                        }
-                    }
-                }
-
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+                Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                    loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+                    results: { controller?.showBlastResults($0, recordURL: $1) },
+                    failure: { controller?.showBlastFailure($0) }
+                )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
             }
         }
         controller.onRunOperationRequested = { [weak self] fastaRecords in
@@ -248,14 +162,13 @@ extension ViewerViewController {
     /// contig sequence and locks no bundle.
     ///
     /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
-    /// (``BlastSubmitPlan/cliCommand``), nil on the in-process route that
-    /// ``ClassifierBlastRouteSettings`` keeps for one release.
+    /// (``BlastSubmitPlan/cliCommand``). The row records it when it begins.
     @discardableResult
     static func beginNvdBlastVerificationOperation(
         contigName: String,
         classificationName: String,
         taxId: Int,
-        cliCommand: String? = nil,
+        cliCommand: String,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {

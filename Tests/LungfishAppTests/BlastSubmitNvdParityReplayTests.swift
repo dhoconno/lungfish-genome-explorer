@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.08 (A65-M3a), the sides of BlastSubmitParity.swift. The NVD viewer sends one contig and judges
-// hits on the request `NvdBlastHit.blastVerificationRequest` builds. Side A is that request searched in this process,
-// the route `ClassifierBlastRoute` keeps for one release, so A against C declares the query stage and the search's
-// folder. The class launches the built lungfish-cli against a loopback stand-in, so its name ends in ReplayTests,
-// which sends it to the integration tier.
+// Phase 2.12 lane 12.08 (A65-M3a) and 2.13 lane 13.02, the sides of BlastSubmitParity.swift. The NVD viewer sends one
+// contig and judges hits on the request `NvdBlastHit.blastVerificationRequest` builds. The oracle is that request
+// searched in this process, as the viewer searched it before the route moved (the hidden key that kept that route left
+// in 2.13), and C against C' declares nothing. The class launches the built lungfish-cli against a loopback stand-in,
+// so its name ends in ReplayTests, which sends it to the integration tier.
 
 import Foundation
 import XCTest
@@ -41,11 +41,10 @@ final class BlastSubmitNvdParityReplayTests: XCTestCase {
     func testTheContigSearchSendsWhatTheInProcessSearchSentAndKeepsItsResult() async throws {
         try await BlastSubmitParity.assertParity(
             harness: harness, server: server,
-            declared: BlastSubmitParity.declared(stageFiles: 2, resultFiles: 3, resultsParent: "Project.lungfish"),
             in: scratch.appendingPathComponent("parity", isDirectory: true),
             resultsParent: { BlastSubmitParity.project(in: $0) },
             fixture: Self.makeProject,
-            sideA: { _ in await BlastSubmitParity.inProcessSearch(Self.inProcessRequest(), server: self.server) },
+            oracle: { await BlastSubmitParity.inProcessSearch(Self.inProcessRequest(), server: self.server) },
             sideC: { root in await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: Self.plan, begin: Self.begin) }
         )
     }
@@ -55,7 +54,6 @@ final class BlastSubmitNvdParityReplayTests: XCTestCase {
             harness: harness, in: scratch.appendingPathComponent("signed", isDirectory: true),
             resultsParent: { BlastSubmitParity.project(in: $0) },
             fixture: Self.makeProject,
-            sideA: { _ in await BlastSubmitParity.inProcessSearch(Self.inProcessRequest(), server: self.server) },
             sideC: { root in await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: Self.plan, begin: Self.begin) }
         )
     }
