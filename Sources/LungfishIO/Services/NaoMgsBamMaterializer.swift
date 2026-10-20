@@ -5,6 +5,7 @@
 import Foundation
 import SQLite3
 import LungfishCore
+import Synchronization
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "NaoMgsBamMaterializer")
@@ -246,16 +247,6 @@ public enum NaoMgsBamMaterializer {
         return !str.isEmpty && str != "NA"
     }
 
-    /// Runs `body` with the descriptor of a pipe's write end, then closes the end through its `FileHandle`.
-    ///
-    /// The handle owns the descriptor, so it is also the one that closes it. A `close(2)` on the number would leave the
-    /// handle believing it still owns it, and releasing the `Pipe` would close the number a second time, after another
-    /// thread was handed it. `FileHandle.close()` closes the descriptor once and marks the handle closed.
-    static func streamThenClose(_ handle: FileHandle, _ body: (Int32) -> Void) {
-        defer { try? handle.close() }
-        body(handle.fileDescriptor)
-    }
-
     /// Streams SAM records from the database directly into a samtools pipeline
     /// to produce a sorted, indexed BAM file. Never accumulates the full SAM
     /// text in memory -- O(1) memory for the alignment data.
@@ -320,35 +311,40 @@ public enum NaoMgsBamMaterializer {
         header += "@PG\tID:lungfish-naomgs-materializer\tPN:lungfish\tVN:1.0\n"
         let headerText = header
 
-        // 3. Start samtools pipeline BEFORE reading rows -- stream directly into it
-        let escapedSamtoolsPath = naoMgsShellEscape(samtoolsPath)
-        let cmd = "\(escapedSamtoolsPath) view -bS - | \(escapedSamtoolsPath) sort -m 256M -o \(naoMgsShellEscape(bamURL.path))"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", cmd]
-        let inPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardInput = inPipe
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errPipe
-
-        // A write to a samtools that has died fails with EPIPE, which the writer below stops on. Setting this on the
-        // write end, before samtools exists, keeps a dead reader from raising SIGPIPE here, and it leaves the signal
-        // disposition of the rest of the process alone.
-        guard fcntl(inPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        // 3. Start the samtools pipeline BEFORE reading rows -- stream directly into it. Each stage's argv is the one
+        //    the shell string `samtools view -bS - | samtools sort -m 256M -o <bam>` once gave it, so the @PG CL:
+        //    lines, and so the BAM, stay as they were.
+        let samtoolsURL = URL(fileURLWithPath: samtoolsPath)
+        let environment = ToolProcessSpec.inheritedEnvironment()
+        let stages = [
+            ToolProcessSpec(
+                executableURL: samtoolsURL, arguments: ["view", "-bS", "-"], environment: environment,
+                stdin: .stream, label: "samtools view"
+            ),
+            ToolProcessSpec(
+                executableURL: samtoolsURL, arguments: ["sort", "-m", "256M", "-o", bamURL.path],
+                environment: environment, stdout: .discard, label: "samtools sort"
+            ),
+        ]
+        let pipelineClock = ProvenanceRunClock()
+        let run: ToolPipelineRun
+        do {
+            run = try ToolProcess.startPipeline(stages)
+        } catch {
+            throw pipelineFailure(error.localizedDescription)
         }
 
-        let pipelineClock = ProvenanceRunClock()
-        try process.run()
-
-        // 4. Stream: write header, then iterate rows and write each SAM line.
-        //    Uses POSIX write() on the raw file descriptor to avoid
-        //    NSFileHandle's uncatchable ObjC exception on broken pipe.
-        //    Runs on a background queue to avoid blocking the caller.
-        let writeHandle = inPipe.fileHandleForWriting
-        final class ErrorBox: @unchecked Sendable {
-            var value: Error?
+        // 4. Stream: write header, then iterate rows and write each SAM line into the pipeline's stdin.
+        //    Each write waits on this writer queue until the pipe took it, so samtools holds the rows back and
+        //    the SAM text never sits in memory. A stage that stops reading ends the write with readerGone,
+        //    never SIGPIPE, and the writer stops.
+        let stdin = run.stdin
+        final class ErrorBox: Sendable {
+            private let state = Mutex<(any Error)?>(nil)
+            var value: (any Error)? {
+                get { state.withLock { $0 } }
+                set { state.withLock { $0 = newValue } }
+            }
         }
         final class DatabaseBox: @unchecked Sendable {
             let value: OpaquePointer?
@@ -364,23 +360,17 @@ public enum NaoMgsBamMaterializer {
         DispatchQueue.global(qos: .userInitiated).async {
             defer { writeGroup.leave() }
 
-            // The write handle closes the pipe's write end when the stream is done, which gives samtools end of file.
-            streamThenClose(writeHandle) { pipeFD in
-                /// Writes all bytes to the file descriptor, handling partial writes.
-                /// Returns false on EPIPE (broken pipe) so the caller can stop.
+            // Closing the writer when the stream is done, however it ends, gives samtools end of file.
+            defer { stdin.close() }
+            do {
+                /// Writes all bytes, waiting while the pipe is full.
+                /// Returns false when a stage stopped reading or the write failed, so the caller can stop.
                 func writeAll(_ data: Data) -> Bool {
-                    data.withUnsafeBytes { rawBuffer in
-                        guard let baseAddress = rawBuffer.baseAddress else { return true }
-                        var offset = 0
-                        while offset < data.count {
-                            let written = Darwin.write(pipeFD, baseAddress + offset, data.count - offset)
-                            if written < 0 {
-                                if errno == EINTR { continue }  // interrupted -- retry
-                                return false  // EPIPE or other error -- stop
-                            }
-                            offset += written
-                        }
+                    do {
+                        try stdin.writeBlocking(data)
                         return true
+                    } catch {
+                        return false
                     }
                 }
 
@@ -540,11 +530,26 @@ public enum NaoMgsBamMaterializer {
             }
         }
 
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         writeGroup.wait()
-        process.waitUntilExit()
+        if let err = writeError.value {
+            // The stream stopped early, so stop every stage rather than wait on a partial BAM.
+            run.cancel()
+            _ = try? run.waitBlocking()
+            throw err
+        }
+        let result: ToolPipelineResult
+        do {
+            result = try run.waitBlocking()
+        } catch {
+            throw pipelineFailure(error.localizedDescription)
+        }
         let completedAt = pipelineClock.now
-        let stderr = String(data: errData, encoding: .utf8) ?? ""
+        // Each stage's stderr in stage order, where the shell gave them one shared pipe.
+        let stderr = result.stages.map { String(data: $0.stderr, encoding: .utf8) ?? "" }.joined()
+        // Every stage counts, where `sh -c` reported the last stage's status alone (lane 13.09 prediction (b)).
+        guard result.isSuccess else {
+            throw pipelineFailure(stderr)
+        }
 
         let step = NaoMgsBamMaterializationStep(
             sample: sample,
@@ -561,19 +566,12 @@ public enum NaoMgsBamMaterializer {
             reproducibleCommand: "lungfish-cli import nao-mgs <source-virus-hits.tsv> --output-dir <output-dir>",
             inputURLs: [databaseURL],
             outputURLs: [bamURL],
-            exitStatus: Int(process.terminationStatus),
+            exitStatus: Int(result.stages.last?.status ?? 0),
             wallTimeSeconds: completedAt.timeIntervalSince(pipelineClock.startedAt),
             stderr: stderr.isEmpty ? nil : stderr,
             startedAt: pipelineClock.startedAt,
             completedAt: completedAt
         )
-
-        if let err = writeError.value { throw err }
-
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "NaoMgsBamMaterializer", code: 5,
-                          userInfo: [NSLocalizedDescriptionKey: "samtools pipeline failed: \(stderr)"])
-        }
 
         // 5. Index the output BAM when this materializer owns the downstream markdup/index pass.
         if createIndex {
@@ -585,6 +583,12 @@ public enum NaoMgsBamMaterializer {
             )
         }
         return step
+    }
+
+    /// The error of a samtools pipeline that failed (code 5), with the reason or every stage's stderr.
+    private static func pipelineFailure(_ detail: String) -> NSError {
+        NSError(domain: "NaoMgsBamMaterializer", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "samtools pipeline failed: \(detail)"])
     }
 
     /// Ensures a BAM index (.bai) exists, creating one if needed.

@@ -583,9 +583,9 @@ extension NaoMgsBamMaterializerTests {
         ])
     }
 
-    /// Only the first stage fails. `sh -c` reports the last stage's status, so the base records a success with the
-    /// first stage's stderr (prediction (b) of lane 13.09).
-    func testAFailingFirstStageAloneGivesWhatTheBaseReports() throws {
+    /// Only the first stage fails. `sh -c` reported the last stage's status, so the base recorded a success with the
+    /// first stage's stderr. The pipeline reports every stage, so the sample now fails (lane 13.09 prediction (b)).
+    func testAFailingFirstStageAloneFailsTheSample() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmp) }
         let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
@@ -597,12 +597,11 @@ extension NaoMgsBamMaterializerTests {
             """)
         let start = Date()
         let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: fake, markDuplicates: false)
-        XCTAssertEqual(result.bamURLs.map(\.lastPathComponent), ["PinFirst.bam"])
-        XCTAssertEqual(pinnedSteps(result.steps, tmp: tmp, samtools: fake), [
-            PinnedStep(tool: "lungfish nao-mgs materialize-bam", argv: materializeArgv(sample: "PinFirst"),
-                       exitStatus: 0, stderr: "fake samtools view failed\n", outputs: ["<TMP>/bams/PinFirst.bam"]),
+        XCTAssertEqual(result.bamURLs, [])
+        XCTAssertTrue(result.steps.isEmpty)
+        XCTAssertEqual(try materializerWarnings(forSample: "PinFirst", since: start), [
+            "Failed to materialize BAM for sample PinFirst: samtools pipeline failed: fake samtools view failed",
         ])
-        XCTAssertEqual(try materializerWarnings(forSample: "PinFirst", since: start), [])
     }
 
     // MARK: Pin helpers
