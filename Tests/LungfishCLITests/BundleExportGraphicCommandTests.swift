@@ -321,6 +321,9 @@ final class BundleExportGraphicCommandTests: XCTestCase {
         }
         let inputs = record.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
         XCTAssertEqual(inputs, ["manifest.json", "genes.db", "regions.bed"])
+        // ARCH review Fix 4. The lookup `provenance verify` uses finds the record from the folder and a figure.
+        XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: output))
+        XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: output.appendingPathComponent("first.png")))
         XCTAssertNil(record.options.explicit["region"])
         XCTAssertNotNil(record.options.explicit["regionsFile"])
         XCTAssertTrue(record.argv.contains("--regions-file"))

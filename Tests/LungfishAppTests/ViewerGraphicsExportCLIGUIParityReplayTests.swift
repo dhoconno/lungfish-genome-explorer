@@ -31,6 +31,12 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 
+/// The failure messages the row's `onFailure` received.
+@MainActor
+final class ViewerGraphicsExportFailureCalls {
+    var messages: [String] = []
+}
+
 @MainActor
 final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
     /// The tracks a fixture bundle holds besides its sequence.
@@ -71,9 +77,121 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
         }
     }
 
+    /// BIO ruling Q-G3 item 8 and QA ruling items 4 and 5. One byte of the replayed PDF, then of the replayed PNG,
+    /// changed is seen by the compare, and the record's digest no longer names the file.
+    func testAChangedFigureByteIsSeenByTheCompare() async throws {
+        for format in [ViewerGraphicFormat.pdf, .png] {
+            let runs = try await assertCase(.sequence, format)
+            let figure = runs.cPrime.root.appendingPathComponent("figure.\(format.fileExtension)")
+            var bytes = try Data(contentsOf: figure)
+            bytes[bytes.count / 2] ^= 0xFF
+            try bytes.write(to: figure)
+            XCTAssertNotEqual(try harness.differences(runs.c, runs.cPrime).map(\.description), [], "\(format)")
+            let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: figure)))
+            XCTAssertNotEqual(
+                record.files.first { $0.role == .output }?.checksumSHA256, try ProvenanceFileHasher.sha256(of: figure),
+                "\(format)"
+            )
+        }
+    }
+
+    // MARK: - Cancel (X14, UX ruling 5)
+
+    static let holdFileVariable = "LUNGFISH_VIEWER_EXPORT_HOLD_FILE"
+
+    /// The row's Cancel stops the leaf at its transaction, the row reads Cancelled with no alert, and neither the
+    /// figure, its record nor a staged file is left. The row's command run again and cancelled through the transport
+    /// the app uses exits 125 inside the grace with no process left. The root sits four folders below the scratch.
+    func testACancelledExportExits125AndLeavesNothing() async throws {
+        let root = scratch.appendingPathComponent("cancel/case/run/root", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Self.makeBundle(.annotation, in: root)
+        let output = root.appendingPathComponent("figure.png")
+        let hold = root.appendingPathComponent("held")
+        let invocation = ViewerGraphicExport.invocation(
+            bundleURL: Self.bundleURL(in: root), settings: .init(region: "chr1:1101-1300", width: 600, format: .png),
+            outputURL: output, force: false
+        )
+        let failures = ViewerGraphicsExportFailureCalls()
+        let begun = try XCTUnwrap(AppDelegate.beginViewerGraphicsExportOperation(
+            invocation: invocation, bundleName: "fixture",
+            runner: CLIViewerExportRunner(cliURLOverride: harness.cliBinary),
+            environmentAdditions: [Self.holdFileVariable: hold.path]
+        ) { failure in failures.messages.append(failure.message) })
+        let held = try await Self.waitForFile(hold)
+        XCTAssertTrue(held, "the leaf reached its transaction")
+        OperationCenter.shared.cancel(id: begun.operationID)
+        let outcome = await begun.task.value
+        let item = OperationCenter.shared.items.first { $0.id == begun.operationID }
+        XCTAssertEqual(outcome, .cancelled)
+        XCTAssertEqual(item?.state, .cancelled)
+        XCTAssertEqual(failures.messages, [], "a cancel shows no alert")
+        try Self.assertNothingLeft(in: root, output: output)
+
+        try FileManager.default.removeItem(at: hold)
+        let arguments = try RouteParityHarness.arguments(ofLine: try XCTUnwrap(item?.cliCommand))
+        let run = await RouteParityHarness.runCLI(
+            harness.cliBinary, arguments: arguments, timeout: .seconds(60),
+            environment: [Self.holdFileVariable: hold.path],
+            cancelWhen: { FileManager.default.fileExists(atPath: hold.path) }
+        )
+        let observed = try XCTUnwrap(run.cancel, "the run was cancelled through the transport, it ended \(run.detail)")
+        CLISIGTERMHarness.assertCancelledExit(status: observed.status, elapsed: observed.elapsed, detail: " \(run.detail)")
+        await CLISIGTERMHarness.assertNoProcessLeft(observed.tree)
+        XCTAssertEqual(run.end, .cancelled)
+        try Self.assertNothingLeft(in: root, output: output)
+    }
+
+    /// The bulk form cancelled at its staged folder exits 125 with no process left, and leaves neither the folder nor
+    /// the staged folder.
+    func testACancelledBulkExportLeavesNoFolderAndNoStagedFolder() async throws {
+        let root = scratch.appendingPathComponent("bulk/case/run/root", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Self.makeBundle(.annotation, in: root)
+        let bed = root.appendingPathComponent("regions.bed")
+        try "chr1\t100\t200\tfirst\nchr1\t999\t2000\n".write(to: bed, atomically: true, encoding: .utf8)
+        let output = root.appendingPathComponent("figures", isDirectory: true)
+        let hold = root.appendingPathComponent("held")
+        let run = await RouteParityHarness.runCLI(
+            harness.cliBinary,
+            arguments: [
+                "bundle", "export-graphic", Self.bundleURL(in: root).path, "--regions-file", bed.path,
+                "--output-format", "png", "-o", output.path,
+            ],
+            timeout: .seconds(60), environment: [Self.holdFileVariable: hold.path],
+            cancelWhen: { FileManager.default.fileExists(atPath: hold.path) }
+        )
+        let observed = try XCTUnwrap(run.cancel, "the run was cancelled through the transport, it ended \(run.detail)")
+        CLISIGTERMHarness.assertCancelledExit(status: observed.status, elapsed: observed.elapsed, detail: " \(run.detail)")
+        await CLISIGTERMHarness.assertNoProcessLeft(observed.tree)
+        XCTAssertEqual(run.end, .cancelled)
+        try Self.assertNothingLeft(in: root, output: output)
+    }
+
+    static func waitForFile(_ url: URL) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) { return true }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// No output, no record and no `.export.tmp` file or folder in `root`.
+    static func assertNothingLeft(in root: URL, output: URL, line: UInt = #line) throws {
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a cancel leaves no output", line: line)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path),
+            "a cancel leaves no record", line: line
+        )
+        let staged = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.contains(".export.tmp") }
+        XCTAssertEqual(staged, [], "a cancel leaves no staged file", line: line)
+    }
+
     // MARK: - One case
 
-    func assertCase(_ kind: Kind, _ format: ViewerGraphicFormat) async throws {
+    @discardableResult
+    func assertCase(_ kind: Kind, _ format: ViewerGraphicFormat) async throws -> RouteParityRuns {
         let name = "\(kind.rawValue)-\(format.rawValue)"
         let caseRoot = scratch.appendingPathComponent("levels/deep/run/\(name)", isDirectory: true)
         let capture = caseRoot.appendingPathComponent("capture-A.\(format.fileExtension)")
@@ -144,6 +262,7 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertEqual(digestC, digestCPrime, "\(name): the replay writes the recorded bytes")
 
         try Self.measure(name, capture: capture, figure: runs.c.root.appendingPathComponent(figureName), format: format)
+        return runs
     }
 
     // MARK: - Side A against side C, a measurement

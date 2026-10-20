@@ -61,6 +61,10 @@ final class ScientificFileExportFolderTests: XCTestCase {
         XCTAssertEqual(envelope.tool.kind, "cli")
         XCTAssertEqual(envelope.options.resolvedDefaults["figureCount"], .integer(2))
         XCTAssertEqual(try leftovers(), [])
+        // ARCH review Fix 4. The lookup `provenance verify` uses finds the folder's record from the folder and from
+        // a figure in it.
+        XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: folder))
+        XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: folder.appendingPathComponent("a.png")))
     }
 
     func testAThrowLeavesNoFolderNoRecordAndNoStagedFolder() throws {
