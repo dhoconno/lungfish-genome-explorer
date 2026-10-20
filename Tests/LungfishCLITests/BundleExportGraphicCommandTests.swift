@@ -378,6 +378,16 @@ final class BundleExportGraphicCommandTests: XCTestCase {
             "the PDF has 2 /ID entries, 1 of them as expected": "The file has more than one file ID.",
             "the PDF has 2 /CreationDate entries, 1 of them as expected": "A date appears more than once.",
             "/ModDate is outside the Info object 7": "A date appears outside the document information.",
+            // The lane's sentences for the other layouts the normalizer keeps as written (UX review Optional 5, fidelity
+            // review D3 and D4). An Info object that is absent is not one that appears twice.
+            "the last trailer has 2 /Info references": "The trailer names more than one document information.",
+            "the PDF has 1 /ID entries, 0 of them as expected": "The file ID is not in the expected form.",
+            "the /ID is outside the last trailer": "The file ID is outside the trailer.",
+            "the PDF has 2 objects numbered 5, the Info object": "The document information appears more than once.",
+            "the PDF has 0 objects numbered 5, the Info object": "The document information is missing.",
+            "the Info object 5 has no endobj": "The document information has no end.",
+            "the PDF has 1 /ModDate entries, 0 of them as expected": "A date is not in the expected form.",
+            "some other reason": "The file's layout is not one the rasterizer reads.",
         ]
         for (reason, sentence) in sentences {
             XCTAssertEqual(BundleExportGraphicRecord.pdfReasonSentence(reason), sentence, reason)
@@ -385,5 +395,16 @@ final class BundleExportGraphicCommandTests: XCTestCase {
         XCTAssertTrue(BundleExportGraphicRecord.pdfKeptAsWrittenFact("the PDF has no trailer keyword").hasPrefix(
             "This PDF keeps the creation date, modification date and file ID that macOS wrote, so running its command again"
         ))
+    }
+
+    /// Fidelity review H12 of lane 13.30. The leaf leaves out 2308 by default, which is not the viewer's own default of
+    /// 3332 (duplicate-marked reads too), so the help says both and no longer says "as in the viewer".
+    func testExcludeFlagsHelpNamesTheLeafDefaultAndTheViewersOwn() {
+        let help = LungfishCLI.helpMessage(for: BundleExportGraphicSubcommand.self, columns: 600)
+        XCTAssertTrue(help.contains(
+            "The default is 2308, which leaves out unmapped, secondary and supplementary reads. The viewer's own default is 3332, "
+                + "which also leaves out duplicate-marked reads, and the app passes the viewer's current value."
+        ), help)
+        XCTAssertFalse(help.contains("as in the viewer"), help)
     }
 }

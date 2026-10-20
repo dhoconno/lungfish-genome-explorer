@@ -216,7 +216,7 @@ enum ViewerExportOptions {
 
         @Option(
             name: .customLong(ViewerGraphicExport.Option.excludeFlags.rawValue),
-            help: "The SAM flags of reads to leave out, as a number. The default is 2308, as in the viewer."
+            help: "The SAM flags of reads to leave out, as a number. The default is 2308, which leaves out unmapped, secondary and supplementary reads. The viewer's own default is 3332, which also leaves out duplicate-marked reads, and the app passes the viewer's current value."
         )
         var excludeFlags: UInt16?
 

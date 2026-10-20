@@ -157,7 +157,11 @@ struct BundleExportGraphicRecord {
                 : "The file ID is not in the expected form."
         }
         if reason.hasPrefix("the /ID is outside") { return "The file ID is outside the trailer." }
-        if reason.hasSuffix("the Info object") { return "The document information appears more than once." }
+        if reason.hasSuffix("the Info object") {
+            // The normalizer words this reason for any count of Info objects but one, and none is not twice (fidelity review D4).
+            return (count(after: "the PDF has ") ?? 2) == 0 ? "The document information is missing."
+                : "The document information appears more than once."
+        }
         if reason.hasSuffix("has no endobj") { return "The document information has no end." }
         if reason.contains("Date entries") {
             return (count(after: "the PDF has ") ?? 0) > 1 ? "A date appears more than once."

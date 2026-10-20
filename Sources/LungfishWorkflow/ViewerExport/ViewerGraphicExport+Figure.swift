@@ -146,7 +146,8 @@ extension ViewerGraphicExport {
     /// The heights a command line draws a track at when no view-state names one.
     public static let defaultAnnotationHeight = 60.0
     public static let defaultReadHeight = 200.0
-    /// The live view's default reads to leave out.
+    /// The reads a command line leaves out by default, unmapped (0x4), secondary (0x100) and supplementary (0x800). The live
+    /// view's own default is 0xD04, which also leaves out duplicates (0x400), and the app passes the view's value.
     public static let defaultExcludeFlags: UInt16 = 0x904
     /// The live view's default read row cap.
     public static let defaultReadRowCap = 75
