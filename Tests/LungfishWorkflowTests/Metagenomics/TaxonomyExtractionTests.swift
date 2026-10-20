@@ -23,6 +23,20 @@ private actor ProgressAccumulator {
     }
 }
 
+extension TaxonomyExtractionPipeline {
+    /// The outputs that exist after ``extractEachSource(config:tree:matePairStarts:progress:)``, in source order.
+    /// `extract(config:tree:progress:)` returned them and recorded provenance as well, until lane 13.02 of Phase
+    /// 2.13 deleted it because no command or view called it. The tests of the extraction itself call this, and the
+    /// record is pinned through `recordProvenance`, which `ClassifierReadResolver` calls.
+    func extractOutputs(
+        config: TaxonomyExtractionConfig,
+        tree: TaxonTree,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> [URL] {
+        try await extractEachSource(config: config, tree: tree, progress: progress).outputs.compactMap { $0 }
+    }
+}
+
 // MARK: - FASTQ Content Reader
 
 /// Reads FASTQ content from a file, decompressing if the file is gzipped.
@@ -406,7 +420,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             classificationOutput: classOutput
         )
 
-        let result = try await pipeline.extract(config: config, tree: tree).first!
+        let result = try await pipeline.extractOutputs(config: config, tree: tree).first!
 
         // Output is now .fastq.gz (ReadExtractionService uses seqkit grep which produces gzipped output)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.path))
@@ -436,7 +450,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             classificationOutput: classOutput
         )
 
-        let results = try await TaxonomyExtractionPipeline().extract(config: config, tree: makeTestTree())
+        let results = try await TaxonomyExtractionPipeline().extractOutputs(config: config, tree: makeTestTree())
         let result = try XCTUnwrap(results.first)
         let content = try readFASTQContent(result)
         let lines = content.split(separator: "\n")
@@ -475,7 +489,17 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             taxonomyReport: taxonomyReportURL
         )
 
-        let outputURLs = try await pipeline.extract(config: config, tree: tree)
+        let extraction = try await pipeline.extractEachSource(config: config, tree: tree, progress: nil)
+        let outputURLs = extraction.outputs.compactMap { $0 }
+        let command = [CLICommandIdentity.executableName, "extract", "reads", "--by-classifier", "--tool", "kraken2"]
+        try await pipeline.recordProvenance(
+            config: config,
+            resolvedTaxIds: extraction.taxIds,
+            outputURLs: outputURLs,
+            extractedCount: extraction.readCount,
+            runtime: 0,
+            command: command
+        )
         let run = try XCTUnwrap(ProvenanceRecorder.load(from: tempDir))
         let step = try XCTUnwrap(run.steps.first { $0.toolName == "TaxonomyExtractionPipeline" })
 
@@ -501,18 +525,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertEqual(run.parameters["taxonomyReport"]?.stringValue, taxonomyReportURL.path)
         XCTAssertEqual(run.parameters["requestedOutputFiles"]?.arrayValue?.first?.stringValue, requestedOutputURL.path)
         XCTAssertEqual(run.parameters["actualOutputFiles"]?.arrayValue?.first?.stringValue, outputURLs.first?.path)
-        XCTAssertTrue(step.command.contains(CLICommandIdentity.executableName))
-        XCTAssertTrue(step.command.contains("conda"))
-        XCTAssertTrue(step.command.contains("extract"))
-        XCTAssertTrue(step.command.contains("--kraken-output"))
-        XCTAssertTrue(step.command.contains(classOutput.path))
-        XCTAssertTrue(step.command.contains("--include-children"))
-        XCTAssertTrue(step.command.contains("--kreport"))
-        XCTAssertTrue(step.command.contains(taxonomyReportURL.path))
-        XCTAssertTrue(step.command.contains("--source"))
-        XCTAssertTrue(step.command.contains(fastqURL.path))
-        XCTAssertTrue(step.command.contains("--output"))
-        XCTAssertTrue(step.command.contains(requestedOutputURL.path))
+        XCTAssertEqual(step.command, command, "the record names the command its caller gave")
 
         for outputURL in outputURLs {
             let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
@@ -553,7 +566,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             classificationOutput: compressedClassificationOutput
         )
 
-        let result = try await pipeline.extract(config: config, tree: tree).first!
+        let result = try await pipeline.extractOutputs(config: config, tree: tree).first!
 
         let content = try readFASTQContent(result)
         XCTAssertFalse(content.contains("@read1"))
@@ -586,7 +599,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             classificationOutput: classOutput
         )
 
-        let result = try await pipeline.extract(config: config, tree: tree).first!
+        let result = try await pipeline.extractOutputs(config: config, tree: tree).first!
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.path))
         let content = try readFASTQContent(result)
@@ -619,7 +632,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             classificationOutput: classOutput
         )
 
-        let result = try await pipeline.extract(config: config, tree: tree).first!
+        let result = try await pipeline.extractOutputs(config: config, tree: tree).first!
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.path))
         let content = try readFASTQContent(result)
@@ -651,7 +664,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         )
 
         do {
-            _ = try await pipeline.extract(config: config, tree: tree)
+            _ = try await pipeline.extractOutputs(config: config, tree: tree)
             XCTFail("Expected TaxonomyExtractionError.noMatchingReads")
         } catch let error as TaxonomyExtractionError {
             if case .noMatchingReads = error {
@@ -681,7 +694,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         )
 
         do {
-            _ = try await pipeline.extract(config: config, tree: tree)
+            _ = try await pipeline.extractOutputs(config: config, tree: tree)
             XCTFail("Expected TaxonomyExtractionError.classificationOutputNotFound")
         } catch let error as TaxonomyExtractionError {
             if case .classificationOutputNotFound = error {
@@ -713,7 +726,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         )
 
         do {
-            _ = try await pipeline.extract(config: config, tree: tree)
+            _ = try await pipeline.extractOutputs(config: config, tree: tree)
             XCTFail("Expected TaxonomyExtractionError.sourceFileNotFound")
         } catch let error as TaxonomyExtractionError {
             if case .sourceFileNotFound = error {
@@ -746,7 +759,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         )
 
         let accumulator = ProgressAccumulator()
-        _ = try await pipeline.extract(config: config, tree: tree, progress: { pct, msg in
+        _ = try await pipeline.extractOutputs(config: config, tree: tree, progress: { pct, msg in
             Task { await accumulator.append(pct, msg) }
         })
 
@@ -756,12 +769,14 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         let progressCalls = await accumulator.getCalls()
         XCTAssertFalse(progressCalls.isEmpty, "Progress callback should have been called")
 
-        // Check that progress starts near 0 and ends at 1
+        // Check that progress starts near 0 and ends inside the filtering phase. The provenance phase (0.95 to 1.0)
+        // belonged to `extract`, which Phase 2.13 deleted, and the caller reports whatever follows the extraction.
         if let first = progressCalls.first {
             XCTAssertLessThanOrEqual(first.0, 0.1)
         }
         if let last = progressCalls.last {
-            XCTAssertEqual(last.0, 1.0, accuracy: 0.01)
+            XCTAssertGreaterThan(last.0, 0.30)
+            XCTAssertLessThanOrEqual(last.0, 0.96)
         }
     }
 
@@ -798,7 +813,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             keepReadPairs: false
         )
 
-        let results = try await pipeline.extract(config: config, tree: tree)
+        let results = try await pipeline.extractOutputs(config: config, tree: tree)
         let resultURL = results.first!
 
         let output = try readFASTQContent(resultURL)
@@ -872,7 +887,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         )
 
         let accumulator = ProgressAccumulator()
-        let resultURLs = try await pipeline.extract(config: config, tree: tree, progress: { pct, msg in
+        let resultURLs = try await pipeline.extractOutputs(config: config, tree: tree, progress: { pct, msg in
             Task { await accumulator.append(pct, msg) }
         })
 
@@ -924,10 +939,10 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         let progressCalls = await accumulator.getCalls()
         XCTAssertFalse(progressCalls.isEmpty, "Progress should have been reported")
 
-        // Final progress should be at 1.0
+        // Final progress should be at the end of the filtering phase. The provenance phase belongs to the caller.
         if let lastProgress = progressCalls.last {
-            XCTAssertEqual(lastProgress.0, 1.0, accuracy: 0.01,
-                           "Final progress should be 1.0")
+            XCTAssertGreaterThan(lastProgress.0, 0.30, "Final progress should be inside the filtering phase")
+            XCTAssertLessThanOrEqual(lastProgress.0, 0.96)
         }
     }
 
@@ -966,7 +981,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         )
 
         // Run extraction
-        let extractedURL = try await pipeline.extract(config: config, tree: tree).first!
+        let extractedURL = try await pipeline.extractOutputs(config: config, tree: tree).first!
         XCTAssertTrue(fm.fileExists(atPath: extractedURL.path))
 
         // Simulate bundle creation (mirrors ViewerViewController.createExtractedFASTQBundle)
@@ -1083,7 +1098,7 @@ extension TaxonomyExtractionPipelineTests {
             classificationOutput: classOutput
         )
 
-        let results = try await pipeline.extract(config: config, tree: tree)
+        let results = try await pipeline.extractOutputs(config: config, tree: tree)
 
         // Should produce two output files (now .fastq.gz via ReadExtractionService)
         XCTAssertEqual(results.count, 2, "Should produce two output files for paired-end")
@@ -1131,7 +1146,7 @@ extension TaxonomyExtractionPipelineTests {
         XCTAssertEqual(config.outputFiles.count, 1)
         XCTAssertFalse(config.isPairedEnd)
 
-        let results = try await pipeline.extract(config: config, tree: tree)
+        let results = try await pipeline.extractOutputs(config: config, tree: tree)
         XCTAssertEqual(results.count, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: results[0].path))
 
@@ -1163,7 +1178,7 @@ extension TaxonomyExtractionPipelineTests {
         )
 
         do {
-            _ = try await pipeline.extract(config: config, tree: tree)
+            _ = try await pipeline.extractOutputs(config: config, tree: tree)
             XCTFail("Expected sourceOutputCountMismatch error")
         } catch let error as TaxonomyExtractionError {
             if case .sourceOutputCountMismatch(let sources, let outputs) = error {

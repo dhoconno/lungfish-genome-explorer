@@ -21,7 +21,10 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Taxonom
 /// 3. For each source FASTQ file, read using buffered I/O (handling both plain
 ///    and gzip-compressed input), writing matching reads to the corresponding
 ///    output file.
-/// 4. Record provenance via ``ProvenanceRecorder``.
+///
+/// The caller records provenance with
+/// ``recordProvenance(config:resolvedTaxIds:outputURLs:extractedCount:runtime:command:)``
+/// and names the command the record carries.
 ///
 /// ## Paired-End Support
 ///
@@ -40,75 +43,16 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Taxonom
 /// | 0.0 -- 0.20 | Parsing classification output |
 /// | 0.20 -- 0.30 | Building read ID set |
 /// | 0.30 -- 0.95 | Filtering FASTQ(s) |
-/// | 0.95 -- 1.00 | Provenance recording |
 ///
 /// ## Thread Safety
 ///
 /// All mutable state is isolated to this actor.
-///
-/// ## Usage
-///
-/// ```swift
-/// let pipeline = TaxonomyExtractionPipeline()
-/// let config = TaxonomyExtractionConfig(
-///     taxIds: [562],
-///     includeChildren: true,
-///     sourceFile: inputFASTQ,
-///     outputFile: outputFASTQ,
-///     classificationOutput: krakenOutput
-/// )
-/// let tree = classificationResult.tree
-/// let outputURLs = try await pipeline.extract(config: config, tree: tree) { pct, msg in
-///     print("\(Int(pct * 100))% \(msg)")
-/// }
-/// ```
 public actor TaxonomyExtractionPipeline {
-
-    /// Shared instance for convenience.
-    public static let shared = TaxonomyExtractionPipeline()
 
     /// Creates an extraction pipeline.
     public init() {}
 
-    // MARK: - Public API
-
-    /// Extracts reads classified to specific taxa from FASTQ file(s).
-    ///
-    /// For single-file configs, returns a single-element array containing the
-    /// output URL. For paired-end configs, returns one URL per source file.
-    ///
-    /// - Parameters:
-    ///   - config: The extraction configuration.
-    ///   - tree: The taxonomy tree for descendant lookup.
-    ///   - progress: Optional progress callback.
-    /// - Returns: The URLs of the output FASTQ file(s).
-    /// - Throws: ``TaxonomyExtractionError`` for extraction failures.
-    public func extract(
-        config: TaxonomyExtractionConfig,
-        tree: TaxonTree,
-        progress: (@Sendable (Double, String) -> Void)? = nil
-    ) async throws -> [URL] {
-        let runClock = ProvenanceRunClock()
-        let extraction = try await extractEachSource(config: config, tree: tree, progress: progress)
-        let outputURLs = extraction.outputs.compactMap { $0 }
-
-        // Phase 4: Provenance recording (0.95 -- 1.00)
-        progress?(0.95, "Recording provenance...")
-
-        let runtime = runClock.elapsed
-        try await recordProvenance(
-            config: config,
-            resolvedTaxIds: extraction.taxIds,
-            outputURLs: outputURLs,
-            extractedCount: extraction.readCount,
-            runtime: runtime
-        )
-
-        progress?(1.0, "Extraction complete: \(extraction.readCount) reads")
-        return outputURLs
-    }
-
-    /// The extraction ``extract(config:tree:progress:)`` records: one output
+    /// The extraction `config` asks for: one output
     /// per source file of `config`, in order, nil for a source that holds
     /// none of the reads, with the tax IDs matched and the records written.
     /// Each index of `matePairStarts` is an R1 file whose R2 file follows
@@ -453,15 +397,14 @@ public actor TaxonomyExtractionPipeline {
     // MARK: - Provenance
 
     /// Records provenance for the extraction operation. `command` is the command the record names, the
-    /// one `extract taxa-collection` gives for a collection file, and nil names the replay of
-    /// ``extract(config:tree:progress:)``.
+    /// one `extract taxa-collection` gives for a collection file.
     func recordProvenance(
         config: TaxonomyExtractionConfig,
         resolvedTaxIds: Set<Int>,
         outputURLs: [URL],
         extractedCount: Int,
         runtime: TimeInterval,
-        command: [String]? = nil
+        command: [String]
     ) async throws {
         let recorder = ProvenanceRecorder.shared
         let runID = await recorder.beginRun(
@@ -490,7 +433,7 @@ public actor TaxonomyExtractionPipeline {
             runID: runID,
             toolName: "TaxonomyExtractionPipeline",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: command ?? extractionReplayCommand(config: config, resolvedTaxIds: resolvedTaxIds),
+            command: command,
             inputs: inputs,
             outputs: outputs,
             exitCode: 0,
@@ -551,42 +494,5 @@ public actor TaxonomyExtractionPipeline {
             parameters["taxonomyReport"] = .string(taxonomyReport.path)
         }
         return parameters
-    }
-
-    private func extractionReplayCommand(
-        config: TaxonomyExtractionConfig,
-        resolvedTaxIds: Set<Int>
-    ) -> [String] {
-        // The legacy replay of `extract(config:tree:progress:)`, which no
-        // command or view calls since Phase 2.12 lane 12.11 moved the taxa
-        // collection onto ClassifierReadResolver and retired the conda leaf
-        // it names. Lane 13.02 (DEL-READS) deletes it with its tests.
-        let replayTaxIds = config.includeChildren && config.taxonomyReport == nil
-            ? resolvedTaxIds
-            : config.taxIds
-        var command = [CLICommandIdentity.executableName, "conda", "extract"] + [
-            "--kraken-output",
-            config.classificationOutput.path,
-        ]
-        for sourceFile in config.sourceFiles {
-            command.append(contentsOf: ["--source", sourceFile.path])
-        }
-        command.append(contentsOf: [
-            "--taxid",
-            replayTaxIds.sorted().map(String.init).joined(separator: ","),
-        ])
-        for outputFile in config.outputFiles {
-            command.append(contentsOf: ["--output", outputFile.path])
-        }
-        if config.includeChildren {
-            command.append("--include-children")
-            if let taxonomyReport = config.taxonomyReport {
-                command.append(contentsOf: ["--kreport", taxonomyReport.path])
-            }
-        }
-        if !config.keepReadPairs {
-            command.append("--no-read-pairs")
-        }
-        return command
     }
 }

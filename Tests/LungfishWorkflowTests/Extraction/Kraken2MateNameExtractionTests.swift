@@ -94,9 +94,10 @@ final class Kraken2MateNameExtractionTests: XCTestCase {
 
     // MARK: - x/1 merged reads in a staged run
 
-    /// A merged read named m1/1, staged beside an empty mate, runs as m1. An
-    /// extraction of exact read IDs finds it by that name, as it finds m1/1
-    /// in a single-end run.
+    /// A merged read named m1/1, staged beside an empty mate, runs as m1. The
+    /// app's extraction finds it by that name and writes it as m1/1 (it ran
+    /// through `TaxonomyExtractionPipeline.extract` until Phase 2.13, and now
+    /// runs through `ClassifierReadResolver`).
     func testAStagedRunsMergedReadNamedWithSlashOneIsFoundByItsExactID() async throws {
         let (t, o) = (Kraken2ResultShapes.target, Kraken2ResultShapes.other)
         let pair = try loosePair(r1: ["q1/1"], r2: ["q1/2"], label: "staged")
@@ -107,21 +108,9 @@ final class Kraken2MateNameExtractionTests: XCTestCase {
             lines: [Kraken2ResultShapes.pair("q1", o), Kraken2ResultShapes.staged("m1", t), Kraken2ResultShapes.staged("m2", o)]
         )
 
-        let exactOut = root.appendingPathComponent("exact-out", isDirectory: true)
-        try FileManager.default.createDirectory(at: exactOut, withIntermediateDirectories: true)
-        let outputs = try await TaxonomyExtractionPipeline().extract(
-            config: TaxonomyExtractionConfig(
-                taxIds: [t],
-                includeChildren: false,
-                sourceFiles: [merged],
-                outputFiles: [exactOut.appendingPathComponent("m.fastq")],
-                classificationOutput: result.appendingPathComponent("classification.kraken"),
-                keepReadPairs: false
-            ),
-            tree: try ClassificationResult.load(from: result).tree
-        )
+        let extracted = await extractedNames(result)
 
-        XCTAssertEqual(try outputs.flatMap { try Kraken2ResultSourcesExtractionTests.recordNames(in: $0) }, ["m1/1"])
+        XCTAssertEqual(extracted, ["m1/1"], "\(extracted)")
     }
 
     /// kraken2 drops one final /1 or /2, so a merged read named h/1/1 runs as
