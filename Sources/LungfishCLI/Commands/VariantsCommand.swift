@@ -248,8 +248,13 @@ extension VariantsCommand {
     ) throws {
         let stagedOutputURL = stagedOutputURL(for: outputURL)
         let provenanceURL = provenanceURL(forOutputURL: outputURL)
-        let provenanceSnapshot = provenanceSnapshot(at: provenanceURL)
-        var provenanceWasPublished = false
+        // The record and, with a signing key set, `<record>.signature.json` and `<record>.pub` are one unit.
+        let provenanceSnapshot = try ProvenancePublicationSnapshot(
+            urls: ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL),
+            backupNamePrefix: "lungfish-variants-record"
+        )
+        defer { provenanceSnapshot.discard() }
+        var provenanceWriteStarted = false
         do {
             try writeOutputToStaging(stagedOutputURL)
             let outputRecord = try fileRecord(
@@ -258,13 +263,13 @@ extension VariantsCommand {
                 format: format,
                 role: .output
             )
+            provenanceWriteStarted = true
             try writeProvenanceForOutput(outputRecord)
-            provenanceWasPublished = true
             try publish(stagedURL: stagedOutputURL, to: outputURL)
         } catch {
             try? FileManager.default.removeItem(at: stagedOutputURL)
-            if provenanceWasPublished {
-                restoreProvenance(provenanceSnapshot, at: provenanceURL)
+            if provenanceWriteStarted {
+                try? provenanceSnapshot.restore()
             }
             throw error
         }
@@ -281,28 +286,6 @@ extension VariantsCommand {
         } else {
             try FileManager.default.moveItem(at: stagedURL, to: finalURL)
         }
-    }
-
-    fileprivate static func restoreProvenance(_ snapshot: ProvenanceSidecarSnapshot, at url: URL) {
-        switch snapshot {
-        case .absent:
-            try? FileManager.default.removeItem(at: url)
-        case .data(let data):
-            try? data.write(to: url, options: .atomic)
-        case .nonFile:
-            break
-        }
-    }
-
-    fileprivate static func provenanceSnapshot(at url: URL) -> ProvenanceSidecarSnapshot {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            return .absent
-        }
-        guard !isDirectory.boolValue, let data = try? Data(contentsOf: url) else {
-            return .nonFile
-        }
-        return .data(data)
     }
 
     static func writeCommandPlanProvenance(
@@ -1415,10 +1398,4 @@ private final class VariantCallingEventEmitter: @unchecked Sendable {
     init(_ emit: @escaping (VariantsCommand.VariantCallingEvent) -> Void) {
         self.emit = emit
     }
-}
-
-private enum ProvenanceSidecarSnapshot {
-    case absent
-    case data(Data)
-    case nonFile
 }
