@@ -28,14 +28,6 @@ private struct TaxTriageDatabasePageSnapshot: Sendable {
 /// What `BAMReferenceSnapshotService` reads from a BAM, under the view's name.
 private typealias TaxTriageBAMReferenceSnapshot = BAMReferenceSnapshot
 
-/// Per-sample discovery result for the batch unique-read computation,
-/// produced off the main actor in `Task.detached` and applied back to
-/// `self` as a single `Sendable` value.
-private struct TaxTriageBatchSampleDiscovery: Sendable {
-    let indexURL: URL?
-    let organismToAccessions: [String: [String]]
-}
-
 private enum TaxTriageDatabasePageLoadResult: Sendable {
     case success(TaxTriageDatabasePageSnapshot)
     case failure(String)
@@ -262,34 +254,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Per-sample deduplicated read counts: normalized organism name → [sampleId → unique reads].
     private var perSampleDeduplicatedReadCounts: [String: [String: Int]] = [:]
 
-    /// Background task computing deduplicated read counts per organism row.
-    private var deduplicatedReadCountTask: Task<Void, Never>?
-
-    /// Coalesces `batchFlatTableView.reloadUniqueReadsColumn()` calls made from
-    /// the batch dedup loop to at most one per 250 ms, so scrolling the table
-    /// during a large batch computation is not interrupted once per organism.
-    private var pendingUniqueReadsColumnReloadTask: Task<Void, Never>?
-
-    private func scheduleCoalescedUniqueReadsColumnReload() {
-        guard pendingUniqueReadsColumnReloadTask == nil else { return }
-        pendingUniqueReadsColumnReloadTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard let self, !Task.isCancelled else { return }
-            self.pendingUniqueReadsColumnReloadTask = nil
-            self.batchFlatTableView.reloadUniqueReadsColumn()
-        }
-    }
-
-    /// Filename for the batch-level unique-reads cache under `<batchDir>`.
-    ///
-    /// Versioned `v2` because `v1` values were computed from
-    /// `AlignmentDataProvider.fetchReads(maxReads: 100_000)`, which capped
-    /// any contig with more than 100,000 mapped reads at that ceiling. The
-    /// `v2` counter streams the whole contig with no cap via
-    /// `countUniqueReads`, so a `v1` cache's values must be recomputed
-    /// rather than trusted.
-    private static let batchUniqueReadsCacheFilename = "batch-unique-reads.v2.json"
-
     /// Background task paging SQLite-backed TaxTriage rows into the viewport.
     private var databaseRowLoadTask: Task<Void, Never>?
 
@@ -311,12 +275,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Currently selected row state for action-bar/detail updates.
     private var selectedOrganismName: String?
-    private var selectedReadCount: Int?
 
-    /// Currently selected flat-table row context (batch group / multi-sample flat mode).
-    /// Used to route miniBAM-derived read stats back into the selected list row.
+    /// The sample of the selected flat-table row (batch group mode).
     private var selectedBatchSampleId: String?
-    private var selectedBatchOrganismName: String?
 
     /// All table rows before sample filtering (the full merged set).
     private var allTableRows: [TaxTriageTableRow] = []
@@ -459,9 +420,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Flat table showing one row per organism × sample combination.
     /// Hidden in normal mode; shown exclusively when `isBatchGroupMode` is true.
     private(set) var batchFlatTableView = BatchTaxTriageTableView()
-
-    /// The last write of the batch manifest's unique reads, which the next write waits for.
-    var batchManifestWriteTask: Task<Void, Never>?
 
     /// Container for the right pane content (organism table, batch overview, or batch flat table).
     /// Stored as an instance property so `setupBatchFlatTableView()` can add to it.
@@ -637,7 +595,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     isolated deinit {
         clearClassifierAlignmentEvidence()
         databaseRowLoadTask?.cancel()
-        deduplicatedReadCountTask?.cancel()
         contaminationRiskLoadTask?.cancel()
         if let contentTypographyObserver {
             NotificationCenter.default.removeObserver(contentTypographyObserver)
@@ -1809,28 +1766,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return sampleIds.first(where: { $0.caseInsensitiveCompare(candidatePrefix) == .orderedSame })
     }
 
-    /// Collects regular files recursively under a directory that match a predicate.
-    private nonisolated func collectFilesRecursively(in directory: URL, matching predicate: (URL) -> Bool) -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        var matches: [URL] = []
-        for case let fileURL as URL in enumerator {
-            guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                continue
-            }
-            if predicate(fileURL) {
-                matches.append(fileURL)
-            }
-        }
-        return matches
-    }
-
     /// Parses a gcfmapping file into a normalized organism→accessions map.
     ///
     /// Format: accession\tGCF_ID\torganism_name\tdescription
@@ -2001,136 +1936,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let denominator = max(lhsTokens.count, rhsTokens.count)
         guard denominator > 0 else { return 0 }
         return Double(intersection) / Double(denominator)
-    }
-
-    /// Computes per-sample unique reads for an organism by applying the dedup ratio
-    /// to each sample's total read count from the metrics.
-    private func computePerSampleUniqueReads(normalized: String, totalReads: Int, uniqueReads: Int) {
-        guard totalReads > 0, sampleIds.count > 1 else { return }
-        let dedupRatio = Double(uniqueReads) / Double(totalReads)
-
-        var perSample: [String: Int] = [:]
-        for metric in metrics {
-            guard let sample = metric.sample else { continue }
-            let metricNormalized = normalizedOrganismName(metric.organism)
-            guard metricNormalized == normalized else { continue }
-            let estimated = Int(round(Double(metric.reads) * dedupRatio))
-            perSample[sample] = ClassifierUniqueReads.normalizedOrFloor(
-                stored: estimated,
-                readCount: metric.reads
-            )
-        }
-
-        if !perSample.isEmpty {
-            perSampleDeduplicatedReadCounts[normalized] = perSample
-            syncUniqueReadsToFlatTable()
-        }
-    }
-
-    /// Saves current deduplicated read counts into the TaxTriage result sidecar.
-    private func persistDeduplicatedReadCounts() {
-        // Database mode reads the sidecar with relocated paths; it keeps its
-        // unique-read counts in the batch cache and never rewrites the sidecar.
-        guard !isBatchGroupMode, var result = taxTriageResult else { return }
-        result.deduplicatedReadCounts = deduplicatedReadCounts
-        result.perSampleDeduplicatedReadCounts = perSampleDeduplicatedReadCounts.isEmpty ? nil : perSampleDeduplicatedReadCounts
-        do {
-            try result.save()
-            logger.info("Persisted \(self.deduplicatedReadCounts.count) deduplicated read counts to sidecar")
-        } catch {
-            logger.warning("Failed to persist deduplicated read counts: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    // MARK: - Batch Unique Reads Cache (batch-unique-reads.json)
-
-    /// Loads the batch-level unique reads cache from `<batchDir>/batch-unique-reads.json`.
-    ///
-    /// The cache maps `"sampleId\torganism"` keys to unique read counts so the flat table
-    /// can be populated immediately on second open without re-scanning BAM files.
-    ///
-    /// - Returns: The decoded cache dictionary, or `nil` if the file is absent or malformed.
-    private func loadBatchUniqueReadsCache(from url: URL) -> [String: Int]? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        let decoder = JSONDecoder()
-        guard let wrapper = try? decoder.decode(BatchUniqueReadsCache.self, from: data) else { return nil }
-        return wrapper.sampleOrganism
-    }
-
-    /// Persists `batchFlatTableView.uniqueReadsByKey` to `<batchDir>/batch-unique-reads.json`
-    /// so the flat table can be restored instantly on the next open.
-    private func persistBatchUniqueReadsCache(to url: URL) {
-        var normalizedCounts = batchFlatTableView.uniqueReadsByKey
-        for row in allBatchGroupRows {
-            let key = "\(row.sample ?? "")\t\(row.organism)"
-            guard normalizedCounts[key] != nil else { continue }
-            let readCount = batchFlatTableView.totalReadsByKey[key] ?? row.reads
-            normalizedCounts[key] = ClassifierUniqueReads.normalized(
-                stored: normalizedCounts[key],
-                readCount: readCount
-            )
-        }
-        let cache = BatchUniqueReadsCache(sampleOrganism: normalizedCounts)
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(cache)
-            try data.write(to: url)
-            logger.info("Persisted batch-unique-reads.json with \(cache.sampleOrganism.count) entries")
-        } catch {
-            logger.warning("Failed to persist batch-unique-reads.json: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func applyReadStats(totalReads: Int? = nil, uniqueReads: Int, for organismName: String) {
-        let key = normalizedOrganismName(organismName)
-        let cacheReadCount = totalReads
-            ?? organismTableView.rows.first { normalizedOrganismName($0.organism) == key }?.reads
-            ?? 0
-        let cacheUnique = ClassifierUniqueReads.normalizedOrFloor(
-            stored: uniqueReads,
-            readCount: cacheReadCount
-        )
-        deduplicatedReadCounts[key] = cacheUnique
-
-        var changed = false
-        let updated = organismTableView.rows.map { row -> TaxTriageTableRow in
-            guard normalizedOrganismName(row.organism) == key else { return row }
-            let resolvedReads = totalReads ?? row.reads
-            let safeUnique = ClassifierUniqueReads.normalizedOrFloor(
-                stored: uniqueReads,
-                readCount: resolvedReads
-            )
-            if row.uniqueReads == safeUnique, row.reads == resolvedReads { return row }
-            changed = true
-            return row.with(reads: resolvedReads, uniqueReads: safeUnique)
-        }
-
-        if changed {
-            organismTableView.rows = updated
-        }
-
-        // Refresh batch overview if it's visible so unique reads facet updates live
-        if !batchOverviewView.isHidden, batchOverviewView.currentFacet == .uniqueReads {
-            let negControlIds = negativeControlSampleIds()
-            let labels = buildSampleLabelsFromCSVMetadata()
-            batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds, negativeControlSampleIds: negControlIds, sampleLabels: labels, perSampleDeduplicatedReadCounts: perSampleDeduplicatedReadCounts)
-        }
-
-        if normalizedOrganismName(selectedOrganismName ?? "") == key {
-            if let totalReads {
-                selectedReadCount = totalReads
-            }
-            updateActionBarForOrganism(
-                name: selectedOrganismName,
-                readCount: selectedReadCount,
-                uniqueReadCount: cacheUnique
-            )
-        }
-    }
-
-    private func applyUniqueReadCount(_ uniqueReads: Int, for organismName: String) {
-        applyReadStats(uniqueReads: uniqueReads, for: organismName)
     }
 
     /// Merges `perSampleDeduplicatedReadCounts` into `batchFlatTableView.uniqueReadsByKey`
@@ -2444,43 +2249,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         ])
     }
 
-    /// Updates the persisted `TaxTriageBatchManifest` with newly computed unique reads values, so future opens get
-    /// the exact BAM-derived counts. The main actor takes the table's values, and the load, merge and save run in a
-    /// detached task after the previous write (S31 note 1, as EsViritu's), which is returned for tests.
-    @discardableResult
-    func updateBatchManifestUniqueReads() -> Task<Void, Never>? {
-        guard let batchURL = batchGroupURL else { return nil }
-        let uniqueReadsByKey = batchFlatTableView.uniqueReadsByKey
-        let previous = batchManifestWriteTask
-        let write = Task.detached(priority: .utility) {
-            await previous?.value
-            Self.writeUpdatedBatchManifestUniqueReads(batchURL: batchURL, uniqueReadsByKey: uniqueReadsByKey)
-        }
-        batchManifestWriteTask = write
-        return write
-    }
-
-    /// The load, merge and save of the batch manifest, off the main actor, on files and `Sendable` values only.
-    nonisolated private static func writeUpdatedBatchManifestUniqueReads(batchURL: URL, uniqueReadsByKey: [String: Int]) {
-        guard var manifest = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: batchURL) else { return }
-        for i in manifest.cachedRows.indices {
-            let row = manifest.cachedRows[i]
-            guard let uniqueReads = uniqueReadsByKey["\(row.sample)\t\(row.organism)"] else { continue }
-            manifest.cachedRows[i] = TaxTriageBatchManifest.CachedRow(
-                sample: row.sample, organism: row.organism, tassScore: row.tassScore, reads: row.reads,
-                uniqueReads: ClassifierUniqueReads.normalizedOrFloor(stored: uniqueReads, readCount: row.reads),
-                confidence: row.confidence, coverageBreadth: row.coverageBreadth, coverageDepth: row.coverageDepth,
-                abundance: row.abundance
-            )
-        }
-        do {
-            try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: batchURL)
-            logger.info("Updated TaxTriage batch manifest with unique reads")
-        } catch {
-            logger.warning("Failed to update TaxTriage batch manifest: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     // MARK: - SQLite Database Mode
 
     /// Configures this VC from a pre-built SQLite database instead of parsing
@@ -2546,7 +2314,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
-            self.selectedBatchOrganismName = row.organism
 
             // Reveal the miniBAM detail pane ONLY when the selected organism has
             // BAM alignment data to display. Showing it unconditionally left a
@@ -2584,7 +2351,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
-            self.selectedBatchOrganismName = nil
             self.alignmentEvidenceViewer?.clear()
             // Nothing selected -> collapse the empty detail pane so the organism
             // table keeps the full viewport.
@@ -3129,7 +2895,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
-            self.selectedBatchOrganismName = row.organism
 
             // Reveal the miniBAM detail pane ONLY when the selected organism has
             // BAM alignment data. Showing it for organisms without alignments
@@ -3163,7 +2928,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
-            self.selectedBatchOrganismName = nil
             self.alignmentEvidenceViewer?.clear()
             // Nothing selected -> collapse the empty detail pane.
             self.collapseMiniBAMDetailPane()
@@ -3294,7 +3058,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.hideMultiSelectionPlaceholder()
             self.selectedOrganismName = row?.organism
-            self.selectedReadCount = row?.reads
             self.updateActionBarForOrganism(
                 name: row?.organism,
                 readCount: row?.reads,
@@ -3623,9 +3386,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private func showMultiSelectionPlaceholder(count: Int) {
         selectedOrganismName = nil
-        selectedReadCount = nil
         selectedBatchSampleId = nil
-        selectedBatchOrganismName = nil
         alignmentEvidenceViewer?.clear()
         multiSelectionPrimaryLabel.stringValue = "\(count) items selected"
         multiSelectionPrimaryLabel.toolTip = multiSelectionPrimaryLabel.stringValue
@@ -4249,18 +4010,6 @@ extension TaxTriageResultViewController: NSMenuItemValidation {
             return true
         }
     }
-}
-
-// MARK: - BatchUniqueReadsCache
-
-/// Codable wrapper for the batch-level unique reads cache (`batch-unique-reads.json`).
-///
-/// Persisted under `<batchDir>/batch-unique-reads.json`. Keys are `"sampleId\torganism"`,
-/// values are unique read counts. Allows instant restoration of the Unique Reads column
-/// in batch group mode without re-scanning any BAM files.
-private struct BatchUniqueReadsCache: Codable {
-    /// Map of `"sampleId\torganism"` → unique read count.
-    var sampleOrganism: [String: Int]
 }
 
 // MARK: - TaxTriageTableRow
