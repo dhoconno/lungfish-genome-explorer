@@ -43,13 +43,16 @@ extension BundleExportGraphicSubcommand {
                     throw ViewerGraphicRefusal("Line \(line.number) of \(fileName) cannot be drawn. \(refusal.message)")
                 }
                 let name = line.fileName(format: settings.format)
-                if let earlier = named[name] {
+                // A Mac volume stores names that differ only in capitals or in Unicode form as one file.
+                let key = name.precomposedStringWithCanonicalMapping.lowercased()
+                if let earlier = named[key] {
                     throw ViewerGraphicRefusal(
-                        "Lines \(earlier) and \(line.number) of \(fileName) both name the image \(name). "
+                        "Lines \(earlier) and \(line.number) of \(fileName) both name the image \(name), counting "
+                            + "capital and small letters as the same, since a Mac stores them as one file. "
                             + "Give each line its own name in column 4."
                     )
                 }
-                named[name] = line.number
+                named[key] = line.number
                 planned.append((line, region, name))
             }
         } catch let refusal as ViewerGraphicRefusal {

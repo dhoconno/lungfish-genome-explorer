@@ -347,6 +347,8 @@ final class BundleExportGraphicCommandTests: XCTestCase {
             "chrX\t100\t200\n",
             "chr1\t100\t3001\n",
             "chr1\t100\t200\tsame\nchr1\t300\t400\tsame\n",
+            "chr1\t100\t200\tRegion\nchr1\t300\t400\tregion\n",
+            "chr1\t100\t200\tcaf\u{E9}\nchr1\t300\t400\tCAFE\u{301}\n",
         ]
         let output = folder.appendingPathComponent("figures", isDirectory: true)
         for (index, text) in bad.enumerated() {

@@ -75,6 +75,24 @@ final class ScientificFileExportFolderTests: XCTestCase {
         XCTAssertEqual(try leftovers(), [])
     }
 
+    /// ARCH review Fix 1. On the default APFS volume `A.png` and `a.png` are one file, and so are a precomposed and a
+    /// decomposed letter, so two names that differ only so are refused and nothing is published.
+    func testNamesThatDifferOnlyInCaseAreRefusedAndLeaveNothing() throws {
+        let cases: [(written: String, names: [String])] = [
+            ("A.png", ["A.png", "a.png"]),
+            ("caf\u{E9}.png", ["caf\u{E9}.png", "CAFE\u{301}.png"]),
+        ]
+        for (index, item) in cases.enumerated() {
+            let folder = root.appendingPathComponent("figures-\(index)", isDirectory: true)
+            XCTAssertThrowsError(try ScientificFileExportProvenance.writeFolderAtomically(request(sources: [], folder: folder)) { staged in
+                try Data("first".utf8).write(to: staged.appendingPathComponent(item.written))
+                return item.names
+            }, "case \(index)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "case \(index)")
+            XCTAssertEqual(try leftovers(), [], "case \(index)")
+        }
+    }
+
     func testAnExistingFolderIsRefusedAndKept() throws {
         let folder = root.appendingPathComponent("figures", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)

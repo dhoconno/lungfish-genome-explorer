@@ -298,7 +298,7 @@ public enum ScientificFileExportProvenance {
         try fileManager.createDirectory(at: stagedURL, withIntermediateDirectories: false)
         defer { try? fileManager.removeItem(at: stagedURL) }
         let names = try writeOutputs(stagedURL)
-        guard !names.isEmpty, Set(names).count == names.count,
+        guard !names.isEmpty, Set(names.map { $0.precomposedStringWithCanonicalMapping.lowercased() }).count == names.count,
               names.allSatisfy({ !$0.contains("/") && !$0.hasPrefix(".") }) else {
             throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: stagedURL.path])
         }
