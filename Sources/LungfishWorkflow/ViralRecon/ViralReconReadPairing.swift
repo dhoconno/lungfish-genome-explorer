@@ -19,6 +19,7 @@
 // recorded next to the run bundle and in its provenance.
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 // MARK: - Decision
@@ -486,26 +487,27 @@ public enum ViralReconReadPairing {
 final class GzipFileSink {
     let writeHandle: FileHandle
     private let destination: URL
-    private let process: Process
-    private let stderrPipe: Pipe
-    private let outputHandle: FileHandle
+    private let run: ToolProcessRun
     private var finished = false
 
     init(destination: URL) throws {
         self.destination = destination
         let fm = FileManager.default
         try? fm.removeItem(at: destination)
-        fm.createFile(atPath: destination.path, contents: nil)
-        outputHandle = try FileHandle(forWritingTo: destination)
+        // The writers take a FileHandle, so gzip reads the read end of this pipe through its descriptor path,
+        // which opens the same pipe. Once ToolProcess has spawned gzip we close our read end, so gzip holds the
+        // only one, and a write after gzip ended fails with EPIPE instead of ending the app with SIGPIPE.
         let input = Pipe()
-        stderrPipe = Pipe()
-        process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-c"]
-        process.standardInput = input
-        process.standardOutput = outputHandle
-        process.standardError = stderrPipe
-        try process.run()
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        run = try ToolProcess.start(ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+            arguments: ["-c"],
+            environment: ["PATH": "/usr/bin:/bin"],
+            stdin: .file(URL(fileURLWithPath: "/dev/fd/\(input.fileHandleForReading.fileDescriptor)")),
+            stdout: .file(destination),
+            label: "gzip -c"
+        ))
+        try? input.fileHandleForReading.close()
         writeHandle = input.fileHandleForWriting
     }
 
@@ -513,17 +515,21 @@ final class GzipFileSink {
         guard !finished else { return }
         finished = true
         try? writeHandle.close()
-        process.waitUntilExit()
-        try? outputHandle.close()
-        guard process.terminationStatus == 0 else {
-            let stderr = String(
-                data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
+        let result: ToolProcessResult
+        do {
+            result = try run.waitBlocking()
+        } catch {
             try? FileManager.default.removeItem(at: destination)
             throw FASTQPairInterleaver.InterleaveError.unreadableInput(
                 file: destination.lastPathComponent,
-                reason: "gzip exited with status \(process.terminationStatus): \(stderr)"
+                reason: "gzip did not run to its end: \(error.localizedDescription)"
+            )
+        }
+        guard result.isSuccess else {
+            try? FileManager.default.removeItem(at: destination)
+            throw FASTQPairInterleaver.InterleaveError.unreadableInput(
+                file: destination.lastPathComponent,
+                reason: "gzip exited with status \(result.status): \(result.stderrText)"
             )
         }
     }
@@ -532,9 +538,8 @@ final class GzipFileSink {
         guard !finished else { return }
         finished = true
         try? writeHandle.close()
-        if process.isRunning { process.terminate() }
-        process.waitUntilExit()
-        try? outputHandle.close()
+        run.cancel()
+        _ = try? run.waitBlocking()
         try? FileManager.default.removeItem(at: destination)
     }
 }
